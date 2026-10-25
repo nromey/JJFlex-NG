@@ -9,6 +9,29 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-10-24 — THE RECORDER LANDS ON MAIN AFTER SIX BENCHED ROUNDS, TRACK 4 IS BUILT AND CHECKED, AND THE NIGHTLY GOES OUT
+
+**Usage regime (until Sunday 04:00):** Codex Sol built every recorder round; Claude orchestrated, committed, fixed and checked. Claude total 84% at 15:18 (Noel's /usage); the Track 4 build then ran on Opus (~636k tokens). Codex weekly 10% to 16% across the day, resets Fri 10-30 13:42; Noel holds two banked Codex resets.
+
+**Main (`13d92ed5`):**
+- Merged the recorder (`172e3706`, `tape-deck/t3-computer-capture`, which contains track 2): Codex rounds 7 to 12 on top of rounds 3 to 6. Benched today in five sheets (for-noel/2026-10-24-bench-round7, -round8, -round10, -round11): the reference/VOX safety fix (the reference takes a VOX lease; Claude fixed an arm-pending race found on the bench, `abac5a8a`), the reference staying armed like the tone, VOX restored only after the transmit path drains, Record and play back's 120 s limit as its own quiet stop (Claude narrowed Codex's version, which had switched off the operator's timeout for every check), a narrow FlexLib patch exposing `Slice.RecordTimeRaw` (MIGRATION item 20, authorized by Noel), saved radio-take times, the Play last take label ("Play 8:35 PM take" / "Play October 23 take"), no Play last take with Monitor, the click before every playback, the Workshop's "active slice" wording. Containment proven for t2 and t3. Radios.Tests 5,415/5,415, WPF filter 288/288.
+- CLAUDE.md: `RecorderRoundEightTests` joins the desk-safe filter (eighteen classes).
+- `debug-notes.txt` rewritten (it was 2026-10-21 and listed three fixed bugs as known issues).
+- **Nightly published:** 4.1.16.2519 to the Dropbox top level at Noel's 22:47 word ("Put it in as nightly, I'll let him know"); NAS archive verified. The tester `debug\` folder was NOT published.
+
+**Track 4, `tape-deck/t4-recordings-dialog` (`C:\dev\jjflex-tdr4`, `6aafa15e`, NOT merged, NOT pushed):** Codex Sol designed the recordings dialog; Noel ruled every question (rulings at the end of agile/tape-deck-briefs/t4-recordings-dialog.md); Claude Opus built it in eight commits; a Codex Sol check found two deletion BLOCKERS (permanent delete possible through the shell fallback; a junction could expose files outside Recorded QSOs); a Codex repair fixed both, red-first against a real junction; Claude fixed a duplicated sentence the dedup test caught; a fresh Codex recheck says READY FOR BENCH. Bench tomorrow (for-noel/2026-10-24-bench-t4-pointer.md). Open: ASK-tape-deck-t4-mp3 (Noel's "I'd do that" answered two options).
+
+**Filed:** #819 the radio keys itself ~0.3 s just after VOX is enabled (radio-side on a detailed capture; SC_MIC silent); #820 take testers' names out of the current files (~212 lines on main; history not rewritten; Noel 17:09). Decided: the recorder branch's one transient tester mention is not rewritten.
+
+**Not done tonight:** the Loopback Check bench (sheet ready, for-noel/2026-10-24-bench-loopback-check.md); Track 4's bench; #820; MEMORY.md is 15.7 KB (the banner sweep found nothing new to archive; it needs a restructure, carried); the changelog fragment for rounds 4 to 12 is a draft for Noel; the JJ key layers and logger research readings.
+
+**Tomorrow:** bench the Loopback Check and Track 4, then cleanup (Noel), maybe start sound processing. After 04:00 delete MEMORY.md's usage-floor line.
+
+**Cross-surface:** Freight Fate 16 unpushed (dirty 1), rigmeter 13 unpushed, Civ VI dirty 2: all unchanged today, pushing is Noel's call. Codex runs today: recorder rounds 7, 7b, 8, 9, 10, 11, 12; Track 4 design, check, repair, recheck (all Sol, high; one session self-identified as gpt-6.1-sol). Claude agents: a plain-reading of the Track 4 design; the Track 4 build (Opus).
+
+### Rigmeter snapshot — end of 2026-10-24
+Main since midnight: 13 commits, 49 files; work done +13,071 / -2,329 (net +10,742); C# +12,501 / -2,233. Track 4's branch is not on main and not counted. Snapshot `historical\stats\2026-10-24-13d92ed5.json`.
+
 ## END-OF-DAY SEAL — 2026-10-23 — CODEX BUILDS THE RECORDER TO ROUND 6, LOCK SAFETY AND FOUR JUNKBOX FIXES LAND ON MAIN, AND THE MODEL RULES CHANGE
 
 **Usage regime (Fable spent until Sunday 04:00):** Codex built and first-checked; Claude briefed, committed, merged and relayed. Claude total went 77% to 82% across the day. Codex's weekly window restarted twice on its own (OpenAI global resets, 22:20 Wed and 13:42 today); Noel's 05:04 Tuesday reset was his banked one.
