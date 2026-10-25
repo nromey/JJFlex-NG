@@ -89,6 +89,11 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     private readonly TextBox _selection = new();
     private readonly TextBlock _status = new();
     private readonly HashSet<string> _exporting = new(StringComparer.OrdinalIgnoreCase);
+
+    // NVDA already announces this window's name on arrival; the base
+    // dialog's own copy made it twice. Checked at the keyboard at the
+    // 2026-10-25 bench, so this window opts out.
+    protected internal override bool SpeaksOwnTitle => false;
     private IReadOnlyList<RecordedQso> _rows = Array.Empty<RecordedQso>();
     private string? _previewPath;
     private bool _quietSelection;
@@ -124,6 +129,13 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     {
         _rig = rig;
         Title = Lexicon.Get("audio.qsos.title");
+
+        // The window's own description. Without one, NVDA builds a
+        // description out of the window's plain text lines, which here are
+        // the trim line and the status line, and reads them on arrival
+        // (bench 2026-10-25). A description of our own replaces that
+        // scraping; Noel chose the wording.
+        AutomationProperties.SetHelpText(this, Lexicon.Get("audio.qsos.description"));
         Width = 640;
         Height = 560;
         ResizeMode = ResizeMode.CanResize;

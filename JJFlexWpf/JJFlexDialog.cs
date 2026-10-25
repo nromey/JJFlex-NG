@@ -255,15 +255,22 @@ namespace JJFlexWpf
                 // withdrawn before it reached NVDA and the duplicate he heard
                 // was the reader's own, so removing this line would not have
                 // changed that launch.
-                Radios.ScreenReaderOutput.Speak(
-                    Title, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Terse,
-                    subject: Radios.Speech.SpeechSubject.DialogArrival);
+                //
+                // **A dialog that has been checked at the keyboard can opt
+                // out, one at a time (SpeaksOwnTitle).** That is the
+                // per-window check the paragraph above asks for, done.
+                if (SpeaksOwnTitle)
+                {
+                    Radios.ScreenReaderOutput.Speak(
+                        Title, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Terse,
+                        subject: Radios.Speech.SpeechSubject.DialogArrival);
 
-                // We are now the window whose title is pending. Claiming it
-                // here — after the announcement, on the UI thread — is what
-                // stops an outgoing dialog's Closed hook withdrawing it during
-                // a deliberate handoff; see the constructor.
-                ArrivalTitle.Claim(this);
+                    // We are now the window whose title is pending. Claiming it
+                    // here — after the announcement, on the UI thread — is what
+                    // stops an outgoing dialog's Closed hook withdrawing it during
+                    // a deliberate handoff; see the constructor.
+                    ArrivalTitle.Claim(this);
+                }
             }
 
             // Focus first interactive control
@@ -327,6 +334,15 @@ namespace JJFlexWpf
                 Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, FocusReturnCallback);
             }
         }
+
+        /// <summary>
+        /// Whether this dialog speaks its own title on arrival, beside the
+        /// screen reader's narration of the window. True for every dialog
+        /// until one is checked at the keyboard and found to be announced
+        /// by the reader alone; that dialog overrides it to false, and the
+        /// operator then hears the name once instead of twice.
+        /// </summary>
+        protected internal virtual bool SpeaksOwnTitle => true;
 
         /// <summary>
         /// Finds and focuses the first focusable interactive control in the dialog.

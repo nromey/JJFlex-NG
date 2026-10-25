@@ -1113,6 +1113,7 @@
   "audio.recorder.stereo": {"text": "Record in stereo", "delivery": null},
   "audio.recorder.options_help": {"text": "Choose these options before recording. Record what you heard includes computer volume and noise reduction at 48 kHz; otherwise the radio audio is recorded at 24 kHz. Stereo keeps slice panning; leave it off for mono.", "delivery": null},
   "audio.qsos.title": {"text": "Recorded QSOs — JJ Flexible", "delivery": null},
+  "audio.qsos.description": {"text": "Radio audio captured by the computer", "delivery": null},
   "audio.qsos.list": {"text": "Recorded QSOs, newest first", "delivery": null},
   "audio.qsos.list_help": {"text": "Press Up and Down to select a recording; Play from computer plays the selected recording. Enter starts or pauses playback. S stops and returns the play head to the beginning of the file. Left and Right move the play head backward and forward by the selected step size, including during playback. Left bracket sets the trim start mark and right bracket sets the trim end mark at the play head. Shift+Left bracket and Shift+Right bracket clear those marks, and Backspace clears the selection. Delete moves the selected recording to the Recycle Bin.", "delivery": null},
   "audio.qsos.empty": {"text": "No computer recordings have been saved yet.", "delivery": null},

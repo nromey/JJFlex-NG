@@ -1600,6 +1600,7 @@ namespace Radios.Tests
                 // through ScreenReaderOutput under SpeechSubject.RecordedQsos,
                 // as track 2's recorder entries are.
                 "audio.qsos.title",
+                "audio.qsos.description",
                 "audio.qsos.list",
                 "audio.qsos.list_help",
                 "audio.qsos.empty",

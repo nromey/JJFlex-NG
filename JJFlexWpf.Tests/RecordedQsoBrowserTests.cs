@@ -345,4 +345,26 @@ public sealed class RecordedQsoBrowserTests
         Assert.Equal("QSO-2026-10-24-153012.mp3",
             RecordedQsoSaveAs.SuggestName(source, true, RecordedQsoSaveAs.For(RecordedQsoExport.Format.Mp3), taken.Contains));
     }
+
+    // Bench 2026-10-25: the window's name was said twice, once by NVDA and
+    // once by the base dialog. This window opts out of the base copy; every
+    // other dialog keeps it until it is checked the same way. No window is
+    // built: the property reads no state, so an uninitialized object answers.
+    [Fact]
+    public void Recorded_QSOs_leaves_its_title_to_the_screen_reader_and_other_dialogs_still_speak_theirs()
+    {
+        var qsos = (JJFlexDialog)System.Runtime.CompilerServices.RuntimeHelpers
+            .GetUninitializedObject(typeof(RecordedQsosDialog));
+        var workshop = (JJFlexDialog)System.Runtime.CompilerServices.RuntimeHelpers
+            .GetUninitializedObject(typeof(AudioWorkshopDialog));
+
+        Assert.False(qsos.SpeaksOwnTitle);
+        Assert.True(workshop.SpeaksOwnTitle);
+    }
+
+    [Fact]
+    public void Recorded_QSOs_has_a_description_of_its_own_so_NVDA_does_not_read_the_text_lines()
+    {
+        Assert.Equal("Radio audio captured by the computer", Lexicon.Get("audio.qsos.description"));
+    }
 }
