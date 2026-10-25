@@ -62,6 +62,9 @@ public static class RecycleBin
     /// <summary>The move itself. Replaced by tests, which must never put a window on the desktop.</summary>
     internal static Func<string, IntPtr, RecycleResult> Implementation { get; set; } = MoveWithShell;
 
+    /// <summary>The one wording for a move Windows reported without a Recycle Bin item.</summary>
+    internal const string NotConfirmedRecycled = "Windows did not confirm a recycled item.";
+
     /// <summary>Move one file, or refuse with the reason. Never deletes permanently.</summary>
     /// <param name="path">The file.</param>
     /// <param name="owner">The window Windows should parent any question to, or zero.</param>
@@ -74,7 +77,7 @@ public static class RecycleBin
             if (!ResolvesInsideArchive(path)) return new(false, RecycleRefusal.OutsideArchive);
             var result = Implementation(path, owner);
             return result.Moved && !result.ConfirmedRecycled
-                ? new(false, RecycleRefusal.Failed, "Windows did not confirm a recycled item.")
+                ? new(false, RecycleRefusal.Failed, NotConfirmedRecycled)
                 : result;
         }
         catch (Exception ex)

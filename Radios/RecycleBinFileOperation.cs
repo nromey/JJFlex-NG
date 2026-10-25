@@ -42,7 +42,7 @@ public static class RecycleBinFileOperation
             if (hr < 0) return Failure(hr);
             hr = operation.GetAnyOperationsAborted(out bool aborted);
             if (hr < 0 || aborted || !sink.Recycled)
-                return new(false, RecycleRefusal.Failed, "Windows did not confirm a recycled item.");
+                return new(false, RecycleRefusal.Failed, RecycleBin.NotConfirmedRecycled);
             return new(true, RecycleRefusal.None, ConfirmedRecycled: true);
         }
         finally
