@@ -38,7 +38,83 @@ public partial class FlexBase
     private bool ListenbackPriorMute(Slice slice) =>
         ListenbackPrior("slice-mute-" + slice.Index.ToString(CultureInfo.InvariantCulture),
             slice.Mute ? "1" : "0", slice) == "1";
-    private RadioRecoveryStore IqRecovery => new(Path.Combine(RadioConfig.AppDataRoot, "listenback-recovery"));
+
+    /// <summary>
+    /// The radio's own report of a slice's mute, from a fresh "sub slice all",
+    /// or null when it does not answer. FlexLib parses the same report, so this
+    /// also brings Slice.Mute up to date.
+    /// </summary>
+    private async Task<bool?> ReadSliceMuteAsync(Radio radio, CommandConnection connection, Slice slice)
+    {
+        string prefix = "slice " + slice.Index.ToString(CultureInfo.InvariantCulture) + " ";
+        static string Body(string line) { int bar = line.IndexOf('|'); return bar < 0 ? line : line[(bar + 1)..]; }
+        try
+        {
+            string raw = await ReadStatusAsync(radio, connection, "sub slice all", line =>
+                Body(line).StartsWith(prefix, StringComparison.Ordinal) &&
+                RadioStatusTap.Values(Body(line)).ContainsKey("audio_mute")).ConfigureAwait(false);
+            return RadioStatusTap.Values(Body(raw))["audio_mute"] == "1";
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or OperationCanceledException)
+        {
+            JJTrace.Tracing.TraceLine($"Slice {slice.Index} mute readback: {ex.Message}", System.Diagnostics.TraceLevel.Warning);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// A slice's mute before an arrangement changes it. Bench 2026-10-25: after
+    /// one Loopback Check, FlexLib still said slice A was muted although the
+    /// radio had acknowledged unmuting it, so the next check left A audible and
+    /// muted it on stop. The radio's report wins; the cache is the fallback.
+    /// </summary>
+    private async Task<bool> PriorSliceMuteAsync(Radio radio, CommandConnection connection, Slice slice)
+    {
+        bool cached = ListenbackPriorMute(slice);
+        bool? read = await ReadSliceMuteAsync(radio, connection, slice).ConfigureAwait(false);
+        if (read == null)
+            JJTrace.Tracing.TraceLine($"Loopback prior mute: slice {slice.Index} unread; using the cached {cached}", System.Diagnostics.TraceLevel.Warning);
+        else if (read.Value != cached)
+            JJTrace.Tracing.TraceLine($"Loopback prior mute: slice {slice.Index} cache said {cached}, radio says {read.Value}", System.Diagnostics.TraceLevel.Info);
+        return read ?? cached;
+    }
+
+    /// <summary>
+    /// Make <paramref name="back"/> (or, if it has gone, the transmit slice) the
+    /// active slice again so the listening slice can be removed. Silent: the
+    /// operator did not ask to change slices, so the CW slice identity must not
+    /// play (Noel, 2026-10-25).
+    /// </summary>
+    private async Task<bool> ReturnFromListeningSliceAsync(Radio radio, CommandConnection connection,
+        Slice listening, Slice back)
+    {
+        Slice target;
+        lock (mySlices)
+            target = back != null && mySlices.Contains(back) && !ReferenceEquals(back, listening)
+                ? back : mySlices.FirstOrDefault(s => !ReferenceEquals(s, listening) && ReferenceEquals(s, SliceForTransmitSetting()));
+        if (target == null) return false;
+        SilenceNextActivation(target);
+        try
+        {
+            if (!await LoopbackSliceCommandAsync(radio, connection, target,
+                $"slice set {target.Index} active=1", "return from the listening slice").ConfigureAwait(false))
+                return false;
+        }
+        catch (InvalidOperationException ex)
+        {
+            JJTrace.Tracing.TraceLine("Loopback return from the listening slice: " + ex.Message, System.Diagnostics.TraceLevel.Error);
+            return false;
+        }
+        var deadline = DateTime.UtcNow + ListenbackConfirmationWait;
+        while (ReferenceEquals(VFOToSlice(RXVFO), listening) && DateTime.UtcNow < deadline)
+            await Task.Delay(25).ConfigureAwait(false);
+        bool moved = !ReferenceEquals(VFOToSlice(RXVFO), listening);
+        JJTrace.Tracing.TraceLine($"Loopback return from the listening slice: slice {target.Index} {(moved ? "active" : "not confirmed active")}",
+            moved ? System.Diagnostics.TraceLevel.Info : System.Diagnostics.TraceLevel.Error);
+        return moved;
+    }
+
+    private RadioRecoveryStore IqRecovery =>new(Path.Combine(RadioConfig.AppDataRoot, "listenback-recovery"));
     public RadioRecoverySnapshot PendingListenbackRecovery => theRadio == null ? null : IqRecovery.Find(theRadio.Serial);
     public Func<RadioRecoverySnapshot> CaptureListenbackRecoveryReader()
     {
@@ -216,7 +292,7 @@ public partial class FlexBase
             var diagnosticResources = new LoopbackSliceResources(before, beforePans);
             if (options.OffAir)
             {
-                if (!await StartLoopbackArrangementAsync(priorFullDuplex).ConfigureAwait(false))
+                if (!await ArrangeLoopbackAsync(priorFullDuplex, earsAudible: false).ConfigureAwait(false))
                 {
                     snapshot.ResourceCreationPending = false; store.Save(snapshot);
                     throw new InvalidOperationException(_lbSetupFailure ?? "arrangement-refused");
@@ -732,6 +808,7 @@ public partial class FlexBase
                         (snapshot.PriorActiveSlice == null || s.Index == snapshot.PriorActiveSlice));
                     if (prior == null) return Verdict(false, "prior-active-slice-unavailable; no command");
                     var active = new SavedRadioSetting("active", "1", $"slice set {prior.Index} active=1", $"slice {prior.Index}", "active");
+                    SilenceNextActivation(prior);
                     if (!await SendAndConfirm(active, () => radio.SliceList.Contains(prior)).ConfigureAwait(false)) return Verdict(false, "prior-active-not-confirmed");
                     if (slice.Active)
                     {

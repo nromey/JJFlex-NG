@@ -27,6 +27,10 @@ public sealed class ListenbackRoundTwoTests : IDisposable
         internal readonly RigOnVendorRadio F;
         internal readonly RadioRecoveryStore Store = new(Path.Combine(RadioConfig.AppDataRoot, "listenback-recovery"));
         internal Slice Tx, Ears;
+        /// <summary>The mute the radio holds for a slice index, as last commanded.
+        /// A real radio reports this to "sub slice all" even when it never echoed
+        /// the change, which is when FlexLib's Slice.Mute goes stale.</summary>
+        internal readonly Dictionary<int, bool> HeldMute = new();
         internal RadioCase(string? serial = null)
         {
             F = new(serial ?? "round-two-" + Guid.NewGuid().ToString("N"));
@@ -62,12 +66,13 @@ public sealed class ListenbackRoundTwoTests : IDisposable
             if (command == "sub tx all") F.Vendor.Status($"transmit rfpower={F.Vendor.Radio.RFPower} sb_monitor={(F.Vendor.Radio.TXMonitor ? 1 : 0)}");
             if (command == "sub slice all")
                 foreach (var slice in F.Vendor.Radio.SliceList)
-                    F.Vendor.Status($"slice {slice.Index} client_handle=0x{slice.ClientHandle:X} pan=0x{slice.Panadapter?.StreamID:X} txant={slice.TXAnt} RF_frequency={slice.Freq.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)} mode={slice.DemodMode} rxant={slice.RXAnt}");
+                    F.Vendor.Status($"slice {slice.Index} client_handle=0x{slice.ClientHandle:X} pan=0x{slice.Panadapter?.StreamID:X} txant={slice.TXAnt} RF_frequency={slice.Freq.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)} mode={slice.DemodMode} rxant={slice.RXAnt} audio_mute={((HeldMute.TryGetValue(slice.Index, out bool held) ? held : slice.Mute) ? 1 : 0)}");
             if (command == "sub pan all")
                 foreach (var pan in F.Vendor.Radio.PanadapterList)
                     F.Vendor.Status($"display pan 0x{pan.StreamID:X} client_handle=0x{pan.ClientHandle:X} center={pan.CenterFreq.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)} rxant={pan.RXAnt}");
             if (command.StartsWith("radio set ")) F.Vendor.Status("radio " + command[10..]);
             if (command.StartsWith("transmit set ")) F.Vendor.Status("transmit " + command[13..].Replace("mon=", "sb_monitor="));
+            NoteHeldMute(command);
             if (command.StartsWith("slice set ")) F.Vendor.Status("slice " + command[10..]);
             if (command.StartsWith("display pan set ")) F.Vendor.Status("display pan " + command[16..]);
             if (command.StartsWith("slice remove "))
@@ -79,6 +84,11 @@ public sealed class ListenbackRoundTwoTests : IDisposable
             if (command.StartsWith("display pan remove ")) F.Vendor.Status("display pan " + command[19..] + " removed");
             if (command.StartsWith("stream remove ")) F.Vendor.Status("stream " + command[14..] + " removed");
             F.Vendor.ReplyOk(F.Vendor.LastSequence);
+        }
+        internal void NoteHeldMute(string command)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(command, @"^slice set (\d+) audio_mute=([01])$");
+            if (m.Success) HeldMute[int.Parse(m.Groups[1].Value)] = m.Groups[2].Value == "1";
         }
         internal RadioRecoverySnapshot Snapshot(bool reconnect = false)
         {

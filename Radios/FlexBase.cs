@@ -11113,6 +11113,7 @@ namespace Radios
         private Xvtr _lbDriveBand;
         private double _lbSavedDriveDbm;
         private List<(Slice Slice, bool Muted)> _lbSavedMutes;
+        private Slice _lbSavedActive;
 
         private string LoopbackOtherReceivePort(string transmitAntenna)
         {
@@ -11169,7 +11170,17 @@ namespace Radios
         /// the command queue and setup waits for replies before keying. Returns false
         /// when unsupported or when the radio cannot confirm its state.
         /// </summary>
-        public async Task<bool> StartLoopbackArrangementAsync(bool? confirmedPriorFullDuplex = null)
+        public Task<bool> StartLoopbackArrangementAsync() =>
+            ArrangeLoopbackAsync(null, earsAudible: true);
+
+        /// <param name="earsAudible">True for the Loopback Check, whose whole
+        /// point is hearing the listening slice. The radio creates that slice
+        /// carrying the mute of the slice it copies, and the arrangement has
+        /// just muted every owned slice, so on the 2026-10-25 bench the ears
+        /// arrived muted and the check was silent until Noel unmuted slice B by
+        /// hand. The off-air take passes false: it decides the ears' mute
+        /// itself ("Hear yourself during the take", off by default).</param>
+        private async Task<bool> ArrangeLoopbackAsync(bool? confirmedPriorFullDuplex, bool earsAudible)
         {
             if (_loopbackArranged) return true;
             if (System.Threading.Volatile.Read(ref _lbArrangementEnding) != 0) return false;
@@ -11205,8 +11216,13 @@ namespace Radios
             _lbSavedMonitor = ListenbackPrior("monitor", theRadio.TXMonitor ? "1" : "0") == "1";
             _lbSavedPower = int.Parse(ListenbackPrior("rf-power", XmitPower.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                 System.Globalization.CultureInfo.InvariantCulture);
-            lock (mySlices)
-                _lbSavedMutes = mySlices.Select(s => (Slice: s, Muted: ListenbackPriorMute(s))).ToList();
+            List<Slice> ownedAtStart;
+            lock (mySlices) ownedAtStart = mySlices.ToList();
+            _lbSavedActive = VFOToSlice(RXVFO);
+            var savedMutes = new List<(Slice Slice, bool Muted)>();
+            foreach (var owned in ownedAtStart)
+                savedMutes.Add((owned, await PriorSliceMuteAsync(arrangementRadio, arrangementConnection, owned).ConfigureAwait(false)));
+            _lbSavedMutes = savedMutes;
             LoopbackSliceResources resources;
             lock (mySlices)
                 resources = new LoopbackSliceResources(mySlices, arrangementRadio.PanadapterList);
@@ -11319,6 +11335,12 @@ namespace Radios
                 ears, resources.Pan).ConfigureAwait(false);
             if (!await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection, ears,
                 $"slice set {ears.Index} rfgain={resources.EarsRFGain}", "ears RF gain setup").ConfigureAwait(false))
+                throw new InvalidOperationException("loopback-ears-setting-refused");
+            // Sent unconditionally: the cache may not yet hold the mute the
+            // radio gave the new slice, and the slice is removed at the end,
+            // so there is nothing of the operator's to restore.
+            if (earsAudible && !await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection, ears,
+                $"slice set {ears.Index} audio_mute=0", "ears unmute").ConfigureAwait(false))
                 throw new InvalidOperationException("loopback-ears-setting-refused");
 
             _loopbackArranged = true;
@@ -11459,6 +11481,14 @@ namespace Radios
                 // before its queued creation/configuration has completed.
                 var resources = _lbResources;
                 var arrangementRadio = theRadio;
+                // An operator who moved to the listening slice during the check
+                // (Noel did, to find its mute) would otherwise keep it: the
+                // removal refuses the active slice. Go back to where the check
+                // started, silently, so the removal can proceed.
+                if (resources?.Slice != null && ReferenceEquals(resources.Slice, VFOToSlice(RXVFO)) &&
+                    !ReferenceEquals(resources.Slice, SliceForTransmitSetting()))
+                    await ReturnFromListeningSliceAsync(arrangementRadio, _lbArrangementConnection,
+                        resources.Slice, _lbSavedActive).ConfigureAwait(false);
                 if (resources?.Slice != null &&
                     (ReferenceEquals(resources.Slice, VFOToSlice(RXVFO)) ||
                      ReferenceEquals(resources.Slice, SliceForTransmitSetting())))
@@ -11490,6 +11520,13 @@ namespace Radios
                         {
                             if (!await LoopbackSliceCommandAsync(arrangementRadio, _lbArrangementConnection,
                                 saved.Slice, $"slice set {saved.Slice.Index} audio_mute={(saved.Muted ? 1 : 0)}", "mute restore").ConfigureAwait(false))
+                                trouble += $"Slice {saved.Slice.Index} mute restoration was not confirmed. ";
+                            // The reply alone left FlexLib's Slice.Mute stale on the
+                            // bench, and the station layout and the next check both
+                            // read it. A fresh report corrects the cache and proves
+                            // the restore.
+                            else if (await ReadSliceMuteAsync(arrangementRadio, _lbArrangementConnection,
+                                saved.Slice).ConfigureAwait(false) is bool read && read != saved.Muted)
                                 trouble += $"Slice {saved.Slice.Index} mute restoration was not confirmed. ";
                         }
                         catch (Exception ex)
@@ -11523,6 +11560,7 @@ namespace Radios
             else trouble += "The radio connection changed before restoration could be confirmed. ";
             _lbResources = null;
             _lbSavedMutes = null;
+            _lbSavedActive = null;
             _lbDriveBand = null;
             _lbArrangementRadio = null;
             _lbArrangementConnection = null;
