@@ -1,27 +1,34 @@
 WHAT IS NEW SINCE THE LAST BUILD
 
-This is the first build since 3 October, so there is a lot in it. The
-changelog has the full list, under Unreleased. The ones you will notice:
+The big one is the recorder. The changelog has the full list, under
+Unreleased. The ones you will notice:
 
-- Push to talk works from inside the app's own windows now. Ctrl+Space
-  keys the radio from Settings and other dialogs instead of pressing a
-  button.
-- In a dialog, Escape unkeys first. Press it again to close the dialog.
-- Inside the audio, filter and noise layers, a key the layer doesn't use
-  is refused and the layer stays open. Typing a number there no longer
-  retunes the radio.
-- Saving or deleting a profile on a radio that isn't yours is refused.
-  Tell the app whose radio it is in Settings, Per-radio settings.
-- Switch Mic Input Back to PC is new on the Radio menu.
-- The Memories dialog can change a memory now, not just read one.
+- F11 records the slice you're on and Ctrl+F11 plays it back. Alt+F11
+  records to a file on this computer and Ctrl+Alt+F11 plays that file.
+  Playback starts and stops with a tape-deck click; recording keeps its
+  beeps.
+- Your radio's recordings show their length on Home, even after you
+  reconnect.
+- For checking your own audio, use the Audio Workshop's Audio Check
+  with Listen method set to "Record and play back". It records your
+  transmission on the radio and plays it back to you. It stops on its
+  own at the recorder's two-minute limit.
+- The reference recording stays armed between transmissions and keeps
+  VOX off until you untick it.
+- After the high reflected power alarm cuts a transmission, the radio
+  won't key again for five seconds, unless you change your antenna,
+  power, frequency or tuner.
+- Holding Shift+Space locks or unlocks once, instead of keying the
+  radio on and off.
+- Ctrl+Shift+L takes you in and out of Logging mode, and leaving it
+  tells you which tuning mode you're back in.
+- Under NVDA, words like "can't" are spoken properly again.
+- The meters come back after a reconnect.
 
 KNOWN ISSUES
 
-- Shift+Space just after the high reflected power alarm cuts your
-  transmit can lock you straight back on. Press it again to unlock.
-- Holding Shift+Space too long can switch the lock on and off several
-  times. Tap it.
-- In Logging mode, Ctrl+Shift+L doesn't take you back out. Use the Mode
-  menu instead.
-- Under NVDA, words like "can't" are spoken as "can t".
-- These keys have only been checked under NVDA so far. JAWS is next.
+- Just after you turn VOX on, the radio can key itself for about a
+  third of a second. It looks like the radio doing it, not the app; I'm
+  still looking into it.
+- Shift+Space doesn't lock the transmitter inside dialogs yet. Use
+  Alt+Shift+Space there.
