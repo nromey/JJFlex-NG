@@ -115,6 +115,7 @@ public static class RecordingPlayer
         lock (Gate) transport = _transport;
         if (transport == null) return false;
         transport.Paused = true;
+        RxPlaybackLevel.SetPaused(true);
         StateChanged?.Invoke();
         return true;
     }
@@ -126,6 +127,7 @@ public static class RecordingPlayer
         lock (Gate) transport = _transport;
         if (transport == null || !transport.Paused) return false;
         transport.Paused = false;
+        RxPlaybackLevel.SetPaused(false);
         StateChanged?.Invoke();
         return true;
     }

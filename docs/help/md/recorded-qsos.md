@@ -8,7 +8,9 @@ Open it from the Audio menu, with **Ctrl+Alt+Shift+F11**, or with the JJ key and
 
 The list comes first, newest at the top. Each recording says when you made it and how long it is, for example "Today at 3:30 PM, 12 minutes 8 seconds". If you renamed a file, its new name comes first. A recording that is still being made says so, and you can't play, trim, save or delete it until you stop recording to file. The list keeps up while it is open: start or stop a recording and it appears, or gets its length, without closing the window.
 
-Files you make with Save As are in the list too, so Delete and Prune can reach them. Those say their type, for example "QSO-2026-10-25-102646-trim, Opus, recorded today at 10:26 AM, under a second". You can play them here; trimming and Save As work on the recorder's own FLAC files.
+Files you make with Save As are in the list too, so Delete and Prune can reach them. Those say when you saved them and as what, for example "Today at 11:02 AM, saved as Opus, under a second"; one you gave a name of your own leads with that name. You can play them here, Opus included; trimming and Save As work on the recorder's own FLAC files.
+
+The selected file's full name, with its extension, is in the read-only File name box just before the list: press Shift+Tab from the list to read it, a character at a time if you like, or to copy it.
 
 - **Press Up and Down** to select a recording.
 - **Home and End** go to the newest and the oldest.
@@ -42,7 +44,7 @@ Playing a recording here never keys the radio. While it plays, VOX (or CW break-
 
 ## Trimming
 
-A trim is just two marks: where to start and where to end. Until you set one, the whole recording is selected. Play the recording, press **[** when you hear where you want it to start, and **]** where you want it to end. You can also pause with Enter, move the play head with Left and Right (a step of 0.1 seconds is good for finding the exact spot), and use the Set trim start and Set trim end buttons. The line after them tells you what is selected. Shift+[ or Shift+] clears one mark, and Backspace or the Clear selection button clears both. Marks never change the recording itself; Save As writes the part you chose to a new file.
+A trim is just two marks: where to start and where to end. Until you set one, the whole recording is selected. Play the recording, press **[** when you hear where you want it to start, and **]** where you want it to end. You can also pause with Enter, move the play head with Left and Right (a step of 0.1 seconds is good for finding the exact spot), and use the Set trim start and Set trim end buttons. The line after them tells you what is selected. Shift+[ or Shift+] clears one mark, and Backspace or the Clear selection button clears both and says "Trim marks cleared." Marks never change the recording itself; Save As writes the part you chose to a new file.
 
 ## Save As
 
@@ -60,4 +62,4 @@ The folder starts as the recording's own month folder every time. The file type 
 
 Delete and Prune move recordings to the Recycle Bin, so you can get them back. If the Recycle Bin can't take a file, for example on a network drive, I refuse and leave the file where it is. I never delete a recording outright.
 
-Prune older recordings clears out old ones, and only when you ask. Choose either the oldest so many recordings, or the ones older than so many days, and type the number or step it with Up and Down. The window tells you how many would go and how much space they use, and lists them, before anything moves. Nothing is removed until you press the button that names the count and then say yes.
+Prune older recordings clears out old ones, and only when you ask. Choose either the oldest so many recordings, or the ones older than so many days (the two choices are next to each other, so Up and Down move between them), then Tab to the number and type it or step it with Up and Down. The window tells you how many would go and how much space they use, and lists them, before anything moves. Nothing is removed until you press the button that names the count and then say yes.

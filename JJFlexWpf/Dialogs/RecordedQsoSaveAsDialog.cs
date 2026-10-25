@@ -79,6 +79,23 @@ internal static class RecordedQsoSaveAs
         return name;
     }
 
+    /// <summary>
+    /// The name to show after the file type changes. While the name is still
+    /// the one suggested, suggest again for the new type; once the operator
+    /// has edited it, keep their name and change only its extension.
+    /// </summary>
+    /// <remarks>
+    /// Retest 2026-10-25: Save As to MP3 offered "QSO-...-172707-2.mp3". The
+    /// first suggestion is made for FLAC, the first type, and a FLAC of the
+    /// same name IS the source, so it took "-2"; changing the type then only
+    /// swapped the extension and kept a "-2" that no longer meant anything.
+    /// </remarks>
+    internal static string NameForType(string current, string? suggested, string sourcePath, bool whole,
+        Kind kind, Func<string, bool>? exists = null) =>
+        suggested != null && string.Equals(current, suggested, StringComparison.Ordinal)
+            ? SuggestName(sourcePath, whole, kind, exists)
+            : WithExtension(current, kind);
+
     internal static bool SameFile(string a, string b) =>
         string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
 }
@@ -114,6 +131,8 @@ internal sealed class RecordedQsoSaveAsDialog : JJFlexDialog
     private readonly Dictionary<RecordedQsoExport.Format, string> _unavailable = new();
     private bool _syncing;
     private RecordedQsoSaveAs.Kind _kind = RecordedQsoSaveAs.Kinds[0];
+    private readonly bool _whole;
+    private string? _suggested;     // the name as last suggested, until the operator edits it
 
     /// <summary>The answer, when Save was pressed and everything checked out.</summary>
     internal RecordedQsoSaveRequest? Request { get; private set; }
@@ -136,7 +155,8 @@ internal sealed class RecordedQsoSaveAsDialog : JJFlexDialog
 
         var root = new StackPanel { Margin = new Thickness(12) };
         Field(root, "audio.qsos.saveas_name", _name);
-        _name.Text = RecordedQsoSaveAs.SuggestName(source.Path, whole, _kind);
+        _whole = whole;
+        _name.Text = _suggested = RecordedQsoSaveAs.SuggestName(source.Path, whole, _kind);
         _name.TextChanged += (_, _) => OnNameChanged();
 
         var folderRow = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
@@ -229,7 +249,9 @@ internal sealed class RecordedQsoSaveAsDialog : JJFlexDialog
         try
         {
             int caret = _name.CaretIndex;
-            _name.Text = RecordedQsoSaveAs.WithExtension(_name.Text, kind);
+            string next = RecordedQsoSaveAs.NameForType(_name.Text, _suggested, _source.Path, _whole, kind);
+            if (string.Equals(_name.Text, _suggested, StringComparison.Ordinal)) _suggested = next;
+            _name.Text = next;
             _name.CaretIndex = Math.Min(caret, _name.Text.Length);
         }
         finally { _syncing = false; }

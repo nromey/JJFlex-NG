@@ -83,6 +83,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     private readonly RecordedQsoBrowser _browser = new();
     private readonly ListBox _list = new();
     private readonly TextBox _empty = new();
+    private readonly TextBox _fileName = new();
     private readonly ComboBox _step = new();
     private readonly Button _play, _stop, _setStart, _setEnd, _clear, _saveAs, _delete, _prune, _close;
     private readonly PositionSlider _position = new();
@@ -145,16 +146,32 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         // WPF walks them; no TabIndex is set, because TabIndex is compared only
         // among siblings and would not reorder across these panels.
         var root = new Grid { Margin = new Thickness(12) };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
+        // The selected recording's file name, read-only, one Shift+Tab before
+        // the list (Noel, retest 2026-10-25), so the rows can leave names off and
+        // the name is still there to read character by character or copy. The
+        // window still opens on the list (FocusFirstControl).
+        var fileRow = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
+        var fileLabel = new Label { Content = Lexicon.Get("audio.qsos.file_name"), Target = _fileName, Padding = new Thickness(0, 4, 8, 0) };
+        DockPanel.SetDock(fileLabel, Dock.Left);
+        fileRow.Children.Add(fileLabel);
+        AutomationProperties.SetName(_fileName, Lexicon.Get("audio.qsos.file_name"));
+        JJFlexHelp.SetText(_fileName, Lexicon.Get("audio.qsos.file_name_help"));
+        _fileName.IsReadOnly = true;
+        _fileName.IsReadOnlyCaretVisible = true;
+        fileRow.Children.Add(_fileName);
+        Grid.SetRow(fileRow, 0);
+
         _status.TextWrapping = TextWrapping.Wrap;
         _status.Margin = new Thickness(0, 8, 0, 0);
-        Grid.SetRow(_status, 2);
+        Grid.SetRow(_status, 3);
 
         var controls = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
-        Grid.SetRow(controls, 1);
+        Grid.SetRow(controls, 2);
 
         // The step size, the next stop after the list (Noel 16:03).
         var stepRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
@@ -219,7 +236,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         controls.Children.Add(closeRow);
 
         var listArea = new Grid();
-        Grid.SetRow(listArea, 0);
+        Grid.SetRow(listArea, 1);
         AutomationProperties.SetName(_list, Lexicon.Get("audio.qsos.list"));
         JJFlexHelp.SetText(_list, Lexicon.Get("audio.qsos.list_help"));
         _list.SelectionMode = SelectionMode.Single;
@@ -237,6 +254,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         _empty.Visibility = Visibility.Collapsed;
         listArea.Children.Add(_empty);
 
+        root.Children.Add(fileRow);
         root.Children.Add(listArea);
         root.Children.Add(controls);
         root.Children.Add(_status);
@@ -948,6 +966,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         _position.IsEnabled = canMove;
         _position.Maximum = Math.Max(1, _browser.Duration ?? 1);
         ShowPlayHead();
+        _fileName.Text = has ? System.IO.Path.GetFileName(_browser.Current!.Path) : "";
         bool flac = has && _browser.Current!.IsFlac;
         _setStart.IsEnabled = canMove && flac;
         _setEnd.IsEnabled = canMove && flac;

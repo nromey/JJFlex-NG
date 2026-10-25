@@ -225,6 +225,13 @@ public sealed class RecordedQsoTransportTests : IDisposable
             Assert.True(RxPlaybackLevel.Active);
             Assert.Equal(0.251f, RxPlaybackLevel.TargetGain, 3);
 
+            // Paused, the band comes back; resumed, it drops again (retest
+            // 2026-10-25: "pausing still should probably bring audio back up").
+            Assert.True(RecordingPlayer.Pause());
+            Assert.Equal(1f, RxPlaybackLevel.TargetGain);
+            Assert.True(RecordingPlayer.Resume());
+            Assert.Equal(0.251f, RxPlaybackLevel.TargetGain, 3);
+
             RecordingPlayer.StopWithoutSpeaking();
             Assert.False(RxPlaybackLevel.Active);
             Assert.Equal(1f, RxPlaybackLevel.TargetGain);
@@ -271,5 +278,66 @@ public sealed class RecordedQsoTransportTests : IDisposable
         var untouched = Enumerable.Repeat(0.5f, 480).ToArray();
         Assert.Equal(1f, RxAudioPipeline.GlideGain(untouched, untouched.Length, 1, 48000, 1f, 1f));
         Assert.All(untouched, v => Assert.Equal(0.5f, v));
+    }
+
+    private static readonly object OpusGate = new();
+    private static bool _opusSet;
+
+    private static void OpusLibraryReady()
+    {
+        lock (OpusGate)
+        {
+            if (_opusSet) return;
+            NativeLibrary.SetDllImportResolver(typeof(POpusCodec.OpusDecoder).Assembly, (name, _, _) =>
+            {
+                if (!name.Contains("opus", StringComparison.OrdinalIgnoreCase)) return IntPtr.Zero;
+                string arch = Environment.Is64BitProcess ? "win-x64" : "win-x86";
+                string path = Path.Combine(AppContext.BaseDirectory, "runtimes", arch, "native", "libopus.dll");
+                if (!File.Exists(path))
+                    path = Path.GetFullPath(Path.Combine(RepoPaths.RequireRoot(), "runtimes", arch, "native", "libopus.dll"));
+                return NativeLibrary.Load(path);
+            });
+            _opusSet = true;
+        }
+    }
+
+    // Bench 2026-10-25: the trimmed Opus file Save As wrote would not play
+    // ("The byte stream type is not supported") and its row said "length
+    // unknown", because Windows has no Ogg Opus decoder. Through Save As's
+    // own encoder and back through the player's opener: the right length,
+    // real audio, and a seek that lands where it was asked.
+    [Fact]
+    public void An_Opus_file_Save_As_wrote_opens_with_its_length_plays_audio_and_seeks()
+    {
+        FlacLibraryReady();
+        OpusLibraryReady();
+        string source = Flac(24000, 24000 * 2);
+        string opus = Path.Combine(_dir, "saved.opus");
+        RecordedQsoExport.Convert(source, opus, RecordedQsoExport.Format.Opus, 1);
+
+        var info = RecordedQsoMedia.ReadInfo(opus);
+        Assert.Equal(48000, info.Rate);
+        Assert.Equal(1, info.Channels);
+        Assert.InRange(info.Frames, 95900, 96100); // two seconds at 48 kHz
+
+        using (var reader = RecordedQsoMedia.Open(opus))
+        {
+            Assert.InRange(reader.TotalTime.TotalSeconds, 1.99, 2.01);
+            var samples = reader.ToSampleProvider();
+            var buffer = new float[48000];
+            int read = samples.Read(buffer.AsSpan());
+            Assert.Equal(buffer.Length, read);
+            Assert.Contains(buffer, v => Math.Abs(v) > 0.05f);
+
+            reader.Position = reader.WaveFormat.AverageBytesPerSecond; // one second in
+            Assert.Equal(1.0, reader.CurrentTime.TotalSeconds, 3);
+            int total = 0;
+            while ((read = samples.Read(buffer.AsSpan())) > 0) total += read;
+            Assert.InRange(total, 47900, 48100); // the second second, and no more
+        }
+
+        // Through the player too: it is what Enter calls.
+        Assert.True(RecordingPlayer.PlayWithMixer(opus, "A test recording.", null, false, _ => true));
+        RecordingPlayer.StopWithoutSpeaking();
     }
 }

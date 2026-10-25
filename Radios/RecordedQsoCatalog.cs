@@ -149,7 +149,12 @@ public static class RecordedQsoCatalog
                 : ReadOther(path);
             string name = System.IO.Path.GetFileNameWithoutExtension(path);
             bool generated = TryParseRecorderName(name, out DateTime started);
-            if (!generated)
+            // A file Save As wrote is listed by when it was SAVED, even when its
+            // name still carries the recording's stamp (retest 2026-10-25: "11:25
+            // AM saved as opus"). A FLAC trim's "-trim" name already fails the
+            // recorder-name test above.
+            bool savedCopy = !System.IO.Path.GetExtension(path).Equals(".flac", StringComparison.OrdinalIgnoreCase);
+            if (!generated || savedCopy)
             {
                 DateTime created = info.CreationTime, written = info.LastWriteTime;
                 started = created < written ? created : written;
@@ -204,6 +209,22 @@ public static class RecordedQsoCatalog
             return false;
         return DateTime.TryParseExact(name.Substring(4, stamp), "yyyy-MM-dd-HHmmss",
             CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out recordedAt);
+    }
+
+    /// <summary>
+    /// A name Save As made up itself: the recorder's stamp, then "-trim", then
+    /// optionally "-2", "-3". A row for such a file leaves the name off, as a
+    /// recording's row does, because it only repeats what the row already says.
+    /// </summary>
+    public static bool IsSaveAsName(string name)
+    {
+        if (name == null) return false;
+        int at = name.IndexOf("-trim", StringComparison.Ordinal);
+        if (at < 0) return false;
+        string tail = name.Substring(at + "-trim".Length);
+        if (tail.Length > 0 && (tail[0] != '-' || tail.Length == 1 || !tail.Skip(1).All(char.IsAsciiDigit)))
+            return false;
+        return TryParseRecorderName(name.Substring(0, at), out _);
     }
 
     /// <summary>True when the path is a file inside the folder, at any depth.</summary>

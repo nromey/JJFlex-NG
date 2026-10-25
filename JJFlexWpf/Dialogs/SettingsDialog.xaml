@@ -362,28 +362,10 @@
                                   Click="RadioOutputMute_Click"/>
                     </StackPanel>
 
-                    <!-- "Why is my radio silent" moved to the Audio Workshop's
-                         Diagnostics page, Sprint 32 Track C, on Noel's ruling.
-                         It and the transmit chain check are the same tool
-                         pointed in opposite directions and should not live in
-                         different rooms. This pointer stays for anyone who
-                         learned the old location — a feature that has moved
-                         should say where it went, not just vanish, the same
-                         courtesy the CW notifications move set below.
-
-                         The button's Alt+S mnemonic goes with it and is not
-                         replaced: it is a dialog-local access key, not a listed
-                         binding, and WPF matches access keys with Shift held,
-                         so a new letter here would need auditing against the
-                         global Alt+Shift chords for no gain. -->
-                    <TextBlock Style="{StaticResource DialogLabel}"
-                               TextWrapping="Wrap"
-                               Margin="0,0,0,8"
-                               Focusable="True"
-                               Text="The radio silence check is on the Audio Workshop's Diagnostics page now, beside the transmit chain check."
-                               AutomationProperties.Name="The radio silence check is on the Audio Workshop's Diagnostics page now"
-                               local:JJFlexHelp.Text="Both checks answer the same kind of question — why can I not hear the radio, and why can nobody hear me — so they now live together."/>
-
+                    <!-- The pointer to the radio silence check's new home (Sprint 32
+                         Track C) was removed 2026-10-25 on Noel's word at the
+                         Recorded QSOs retest: "I'd remove the radio silence check
+                         line / actually delete it." -->
                     <Separator Margin="0,4,0,8"/>
 
                     <!-- ============================================================
@@ -573,6 +555,12 @@
                                   AutomationProperties.Name="Frequency entry typing sound mode"/>
                     </StackPanel>
 
+                    <Separator Margin="0,4,0,8"/>
+
+                    <!-- Recorder: its own heading since 2026-10-25 (Noel, retest),
+                         after these sat under Frequency Entry. -->
+                    <TextBlock Text="Recorder" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
                     <!-- DRAFT PROSE (#787): settings help awaits Noel. -->
                     <CheckBox x:Name="RecorderBeepsCheck" Content="Recorder beeps" Margin="0,0,0,4"
                               AutomationProperties.Name="Recorder beeps"

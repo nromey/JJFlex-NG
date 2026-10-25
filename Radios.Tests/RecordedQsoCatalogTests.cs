@@ -412,4 +412,18 @@ public sealed class RecordedQsoCatalogTests : IDisposable
         File.Delete(older);
         Assert.Null(ComputerRecorder.ChosenForPlayback());
     }
+
+    // Retest 2026-10-25: a delete froze the window for about four seconds.
+    // SHQueryRecycleBin counts the whole bin to answer "is there one", so the
+    // bin's own folder is asked first, and Windows only when it is missing.
+    [Fact]
+    public void The_bin_folder_answers_whether_a_drive_has_a_Recycle_Bin_before_Windows_is_asked()
+    {
+        int asked = 0;
+        Assert.True(RecycleBin.BinExists(@"C:\", p => p == @"C:\$Recycle.Bin", _ => { asked++; return false; }));
+        Assert.Equal(0, asked);
+        Assert.False(RecycleBin.BinExists(@"E:\", _ => false, _ => { asked++; return false; }));
+        Assert.True(RecycleBin.BinExists(@"E:\", _ => false, _ => { asked++; return true; }));
+        Assert.Equal(2, asked);
+    }
 }

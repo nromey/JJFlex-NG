@@ -144,19 +144,43 @@ public static class RecycleBin
 
     private static RecycleResult MoveWithShell(string path, IntPtr owner)
     {
+        // Timed, because a delete on the 2026-10-25 retest froze the window for
+        // about four seconds and the trace could not say where they went.
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         string full = Path.GetFullPath(path);
         string root = Path.GetPathRoot(full) ?? "";
         long bytes = new FileInfo(full).Length;
         var drive = new DriveInfo(root);
-        bool binExists = BinExists(root);
+        bool binExists = BinExists(root, Directory.Exists, QueryBin);
         var (nuke, max) = VolumeSettings(root);
         var refusal = Check(drive.DriveType, binExists, nuke, max, PolicyForbids(), bytes);
-        if (refusal != RecycleRefusal.None) return new(false, refusal);
+        long checkedMs = clock.ElapsedMilliseconds;
+        if (refusal != RecycleRefusal.None)
+        {
+            JJTrace.Tracing.TraceLine($"RecycleBin: refused {refusal} after {checkedMs} ms of checks", System.Diagnostics.TraceLevel.Info);
+            return new(false, refusal);
+        }
 
-        return RecycleBinFileOperation.Move(full, owner);
+        var result = RecycleBinFileOperation.Move(full, owner);
+        JJTrace.Tracing.TraceLine($"RecycleBin: checks {checkedMs} ms, move {clock.ElapsedMilliseconds - checkedMs} ms, moved={result.Moved}",
+            System.Diagnostics.TraceLevel.Info);
+        return result;
     }
 
-    private static bool BinExists(string root)
+    /// <summary>
+    /// Whether the drive has a Recycle Bin. The bin's own folder answers at
+    /// once; only when it is absent is Windows asked, because
+    /// SHQueryRecycleBin works the answer out by counting everything already
+    /// in the bin, which takes seconds when the bin is full. That was the
+    /// leading suspect for the four-second delete on the 2026-10-25 retest.
+    /// </summary>
+    internal static bool BinExists(string root, Func<string, bool> directoryExists, Func<string, bool> askWindows)
+    {
+        if (directoryExists(Path.Combine(root, "$Recycle.Bin"))) return true;
+        return askWindows(root);
+    }
+
+    private static bool QueryBin(string root)
     {
         // 24 bytes with natural packing on 64-bit; 20 on 32-bit, where
         // shellapi.h packs to one byte. The buffer is always 24, and only

@@ -128,7 +128,7 @@ public sealed class RecordedQsoBrowserTests
         var endCleared = b.ClearEnd();
         Assert.Equal("Trim end mark cleared. The whole recording is selected. It is 10 minutes long.", endCleared.Sentence);
         b.SetStart(65);
-        Assert.Equal("The whole recording is selected. It is 10 minutes long.", b.ClearSelection());
+        Assert.Equal("Trim marks cleared.", b.ClearSelection());
         Assert.True(b.IsWhole);
     }
 
@@ -146,9 +146,21 @@ public sealed class RecordedQsoBrowserTests
     {
         var opus = Qso(new DateTime(2026, 10, 24, 15, 30, 12), 0.6, name: "QSO-2026-10-24-153012-trim") with
             { Path = @"C:\rec\QSO-2026-10-24-153012-trim.opus" };
-        Assert.Equal("QSO-2026-10-24-153012-trim, Opus, recorded today at 3:30 PM, under a second", RecordedQsoWords.Row(opus, Now));
+        // Retest 2026-10-25: when it was saved, what as, and how long; the
+        // name Save As made up is left off, as a recording's own is.
+        Assert.Equal("Today at 3:30 PM, saved as Opus, under a second", RecordedQsoWords.Row(opus, Now));
         var mp3Whole = Qso(new DateTime(2026, 10, 24, 15, 30, 12), 728) with { Path = @"C:\rec\QSO-2026-10-24-153012.mp3" };
-        Assert.Equal("Today at 3:30 PM, MP3, 12 minutes 8 seconds", RecordedQsoWords.Row(mp3Whole, Now));
+        Assert.Equal("Today at 3:30 PM, saved as MP3, 12 minutes 8 seconds", RecordedQsoWords.Row(mp3Whole, Now));
+        var flacTrim = Qso(new DateTime(2026, 10, 24, 15, 30, 12), 0.6, name: "QSO-2026-10-24-153012-trim-2");
+        Assert.Equal("Today at 3:30 PM, saved as FLAC, under a second", RecordedQsoWords.Row(flacTrim, Now));
+        var named = Qso(new DateTime(2026, 10, 24, 15, 30, 12), 0.6, name: "Contest pileup") with
+            { Path = @"C:\rec\Contest pileup.opus" };
+        Assert.Equal("Contest pileup, saved as Opus today at 3:30 PM, under a second", RecordedQsoWords.Row(named, Now));
+        Assert.True(RecordedQsoCatalog.IsSaveAsName("QSO-2026-10-24-153012-trim"));
+        Assert.True(RecordedQsoCatalog.IsSaveAsName("QSO-2026-10-24-153012-trim-12"));
+        Assert.False(RecordedQsoCatalog.IsSaveAsName("QSO-2026-10-24-153012"));
+        Assert.False(RecordedQsoCatalog.IsSaveAsName("Contest pileup-trim"));
+        Assert.False(RecordedQsoCatalog.IsSaveAsName("QSO-2026-10-24-153012-trimmed"));
         Assert.False(opus.IsFlac);
         Assert.True(Qso(Now).IsFlac);
     }
@@ -204,7 +216,7 @@ public sealed class RecordedQsoBrowserTests
         Assert.Equal(180, b.TrimEnd);
 
         Assert.Equal((65L * 24000, (long?)(180L * 24000)), b.Frames());
-        Assert.Equal("The whole recording is selected. It is 10 minutes long.", b.ClearSelection());
+        Assert.Equal("Trim marks cleared.", b.ClearSelection());
         Assert.Equal((0L, (long?)null), b.Frames());
     }
 
@@ -366,5 +378,27 @@ public sealed class RecordedQsoBrowserTests
     public void Recorded_QSOs_has_a_description_of_its_own_so_NVDA_does_not_read_the_text_lines()
     {
         Assert.Equal("Radio audio captured by the computer", Lexicon.Get("audio.qsos.description"));
+    }
+
+    // Retest 2026-10-25: Save As to MP3 offered "-2.mp3", because the first
+    // suggestion was made for FLAC, which clashes with the source, and a type
+    // change only swapped the extension. While the name is still the one
+    // suggested, a type change suggests again; an edited name keeps its words.
+    [Fact]
+    public void Changing_the_Save_As_type_suggests_again_until_the_name_is_edited()
+    {
+        string source = @"C:\rec\2026\10\QSO-2026-10-25-172707.flac";
+        var flac = RecordedQsoSaveAs.For(RecordedQsoExport.Format.Flac);
+        var mp3 = RecordedQsoSaveAs.For(RecordedQsoExport.Format.Mp3);
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { source };
+        string first = RecordedQsoSaveAs.SuggestName(source, true, flac, taken.Contains);
+        Assert.Equal("QSO-2026-10-25-172707-2.flac", first);
+
+        Assert.Equal("QSO-2026-10-25-172707.mp3",
+            RecordedQsoSaveAs.NameForType(first, first, source, true, mp3, taken.Contains));
+        Assert.Equal("pileup.mp3",
+            RecordedQsoSaveAs.NameForType("pileup.flac", first, source, true, mp3, taken.Contains));
+        Assert.Equal("QSO-2026-10-25-172707-2.mp3",
+            RecordedQsoSaveAs.NameForType(first, null, source, true, mp3, taken.Contains));
     }
 }

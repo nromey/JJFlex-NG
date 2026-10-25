@@ -61,6 +61,7 @@ namespace JJFlexWpf
 
         private static volatile int _level = (int)DefaultLevel;
         private static volatile bool _active;
+        private static volatile bool _paused;
 
         /// <summary>The operator's choice, from Settings.</summary>
         public static PlaybackRadioLevel Level
@@ -72,12 +73,18 @@ namespace JJFlexWpf
         /// <summary>True from a playback's start to its end.</summary>
         public static bool Active => _active;
 
-        internal static void Begin() => _active = true;
+        internal static void Begin() { _paused = false; _active = true; }
 
-        internal static void End() => _active = false;
+        internal static void End() { _active = false; _paused = false; }
 
-        /// <summary>The gain the receive pipeline glides toward: 1 unless a recording is playing.</summary>
-        public static float TargetGain => _active ? GainFor(Level) : 1f;
+        /// <summary>
+        /// A paused playback gives the band back until it resumes (Noel, retest
+        /// 2026-10-25: "pausing still should probably bring audio back up").
+        /// </summary>
+        internal static void SetPaused(bool paused) => _paused = paused;
+
+        /// <summary>The gain the receive pipeline glides toward: 1 unless a recording is sounding.</summary>
+        public static float TargetGain => _active && !_paused ? GainFor(Level) : 1f;
 
         internal static float GainFor(PlaybackRadioLevel level) => level switch
         {

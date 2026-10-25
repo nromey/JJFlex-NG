@@ -79,9 +79,13 @@ internal sealed class RecordedQsoPruneDialog : JJFlexDialog
         _byCount.Checked += (_, _) => Update();
         _byAge.Checked += (_, _) => Update();
 
+        // The two choices sit together, then their numbers. With a number box
+        // between them, arrowing from the first choice went into the box and
+        // never reached the second (retest 2026-10-25: "I can't arrow up and
+        // down on these radio buttons").
         top.Children.Add(_byCount);
-        top.Children.Add(Number(_count, "audio.qsos.prune_count", OpeningCount(all.Count)));
         top.Children.Add(_byAge);
+        top.Children.Add(Number(_count, "audio.qsos.prune_count", OpeningCount(all.Count)));
         top.Children.Add(Number(_days, "audio.qsos.prune_days", DefaultDays));
 
         top.Children.Add(new Label { Content = Lexicon.Get("audio.qsos.prune_preview_label"), Target = _preview, Padding = new Thickness(0, 4, 0, 2) });

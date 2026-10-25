@@ -49,20 +49,30 @@ internal static class RecordedQsoWords
     /// recorder's file name is left off because it only repeats the date. A
     /// file the operator renamed leads with its new name. A file Save As wrote
     /// in another type says its type, so "-trim.opus" and "-trim.mp3" can be
-    /// told apart (Noel, 2026-10-25).
+    /// told apart (Noel, 2026-10-25). Any file Save As wrote reads as when it
+    /// was saved and what as: "Today at 11:02 AM, saved as Opus, 1.3 seconds"
+    /// (retest 2026-10-25).
     /// </summary>
     internal static string Row(RecordedQso q, DateTime now, bool stillRecording = false)
     {
         string length = stillRecording ? Lexicon.Get("audio.qsos.recording_now") : Length(q.Seconds);
         string? type = Kind(q.Path);
-        if (q.NamedByRecorder)
-            return type == null
-                ? Lexicon.Get("audio.qsos.row", ("when", When(q.RecordedAt, now)), ("length", length))
-                : Lexicon.Get("audio.qsos.row_type", ("when", When(q.RecordedAt, now)), ("type", type), ("length", length));
-        return type == null
-            ? Lexicon.Get("audio.qsos.row_named", ("name", q.Name),
-                ("when_lower", WhenInSentence(q.RecordedAt, now)), ("length", length))
-            : Lexicon.Get("audio.qsos.row_named_type", ("name", q.Name), ("type", type),
+        // A file Save As wrote: when it was saved, its type, its length, and
+        // its name only when the operator chose one (retest 2026-10-25: "can it
+        // just read time and duration with file type like '11:25 AM saved as
+        // opus'"). The name is one Shift+Tab away, in the file name box.
+        bool saveAsName = RecordedQsoCatalog.IsSaveAsName(q.Name);
+        if (type != null || saveAsName)
+        {
+            string saved = type ?? Lexicon.Get("audio.qsos.type_flac");
+            return q.NamedByRecorder || saveAsName
+                ? Lexicon.Get("audio.qsos.row_saved", ("when", When(q.RecordedAt, now)), ("type", saved), ("length", length))
+                : Lexicon.Get("audio.qsos.row_named_saved", ("name", q.Name), ("type", saved),
+                    ("when_lower", WhenInSentence(q.RecordedAt, now)), ("length", length));
+        }
+        return q.NamedByRecorder
+            ? Lexicon.Get("audio.qsos.row", ("when", When(q.RecordedAt, now)), ("length", length))
+            : Lexicon.Get("audio.qsos.row_named", ("name", q.Name),
                 ("when_lower", WhenInSentence(q.RecordedAt, now)), ("length", length));
     }
 
@@ -270,12 +280,17 @@ internal sealed class RecordedQsoBrowser
         return (true, Lexicon.Get("audio.qsos.trim_end_set", Range(("end", RecordedQsoWords.Position(at, Duration)))));
     }
 
-    /// <summary>Clear both marks: the selection is the whole recording again (Backspace, and Clear selection).</summary>
+    /// <summary>
+    /// Clear both marks: the selection is the whole recording again (Backspace,
+    /// and Clear selection). Says only that the marks went (Noel, retest
+    /// 2026-10-25: "I'd say trim marks cleared. The whole recording is kind of
+    /// understood at that point"); the selection line still reads in full.
+    /// </summary>
     internal string ClearSelection()
     {
         TrimStart = 0;
         TrimEnd = null;
-        return Selection();
+        return Lexicon.Get("audio.qsos.marks_cleared");
     }
 
     /// <summary>Clear the trim start mark (Shift+Left bracket). Returns the sentence to speak.</summary>
