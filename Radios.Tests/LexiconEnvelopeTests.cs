@@ -978,6 +978,12 @@ namespace Radios.Tests
                 // never says either on its own account. DRAFTS awaiting Noel.
                 "settings.cw_message.list_empty",
                 "settings.cw_message.list_help",
+                // Junkbox #705, 2026-10-25: the Hotkey Editor's reason for a
+                // key that can never be assigned (Enter, and Tab or Escape
+                // with a modifier). A FRAGMENT that settings.keys.editor.key_reserved
+                // wraps, never spoken alone, so TextOnly (the #777
+                // reasoning). DRAFT awaiting Noel.
+                "settings.keys.editor.navigation_key_reserved",
                 // #778b, same reasoning: the fine-step sentence the engine
                 // appends to the digit line where Shift with the arrows really
                 // is the fine step. Noel asked for one at 14:33; this wording

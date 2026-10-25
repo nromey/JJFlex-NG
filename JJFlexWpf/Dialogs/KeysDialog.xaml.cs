@@ -298,23 +298,77 @@ namespace JJFlexWpf.Dialogs
             Announce(Radios.Lexicon.Get("settings.keys.editor.press_new_key", ("command", row.Description)));
         }
 
+        /// <summary>
+        /// What a key does while the editor is waiting for a new binding
+        /// (#705, ruled by Noel 2026-10-10: three keys, three answers).
+        /// </summary>
+        internal enum CaptureKey
+        {
+            /// <summary>A modifier on its own: keep waiting for the real key.</summary>
+            Modifier,
+            /// <summary>Escape: cancel the capture. It MUST be intercepted,
+            /// because CloseButton is IsCancel and an Escape let through would
+            /// close the dialog instead.</summary>
+            Cancel,
+            /// <summary>Tab or Shift+Tab: let it move focus, as it always
+            /// does, and stop waiting. Tab can never be part of a binding, so
+            /// the capture never needed it.</summary>
+            Navigate,
+            /// <summary>Anything else, Enter included: swallowed, and then
+            /// refused or bound. Enter stays swallowed on purpose: the dialog
+            /// has no default button today, so Enter is harmless only by
+            /// accident, and the day one is added it would start firing.</summary>
+            Consider,
+        }
+
+        /// <summary>
+        /// The capture's answer for <paramref name="raw"/> under
+        /// <paramref name="modifiers"/>. Pure, so it can be held by a test
+        /// without a window.
+        /// </summary>
+        internal static CaptureKey ClassifyCaptureKey(Key raw, ModifierKeys modifiers)
+        {
+            if (raw is Key.LeftShift or Key.RightShift
+                or Key.LeftCtrl or Key.RightCtrl
+                or Key.LeftAlt or Key.RightAlt
+                or Key.LWin or Key.RWin or Key.Apps)
+                return CaptureKey.Modifier;
+            if (raw == Key.Escape) return CaptureKey.Cancel;
+            if (raw == Key.Tab && (modifiers == ModifierKeys.None || modifiers == ModifierKeys.Shift))
+                return CaptureKey.Navigate;
+            return CaptureKey.Consider;
+        }
+
         protected override void OnPreviewKeyDown(KeyEventArgs e)
         {
             if (_capturing)
             {
-                // Consume everything while capturing — nothing may leak to the
-                // list, the buttons, or the base dialog's Escape-close.
-                e.Handled = true;
                 var raw = e.Key == Key.System ? e.SystemKey : e.Key;
-                if (raw is Key.LeftShift or Key.RightShift
-                    or Key.LeftCtrl or Key.RightCtrl
-                    or Key.LeftAlt or Key.RightAlt
-                    or Key.LWin or Key.RWin or Key.Apps)
+                var kind = ClassifyCaptureKey(raw, e.KeyboardDevice.Modifiers);
+
+                // #705: Tab and Shift+Tab are NOT consumed. They used to be,
+                // only to be refused with a sentence saying Tab is for
+                // navigation while the code stopped it navigating. The capture
+                // ends, because a capture still running behind a focus move
+                // would take the next key pressed on whatever Tab landed on.
+                // Nothing is announced: the focus move speaks for itself.
+                if (kind == CaptureKey.Navigate)
+                {
+                    EndCapture();
+                    base.OnPreviewKeyDown(e);
+                    return;
+                }
+
+                // Everything else is consumed while capturing - nothing may
+                // leak to the list, the buttons, or the base dialog's
+                // Escape-close.
+                e.Handled = true;
+                if (kind == CaptureKey.Modifier)
                 {
                     return; // modifier down — keep waiting for the real key
                 }
 
-                if (raw == Key.Escape)
+                if (kind == CaptureKey.Cancel)
                 {
                     EndCapture();
                     Announce(Radios.Lexicon.Get("settings.keys.editor.cancelled"));

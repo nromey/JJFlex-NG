@@ -1622,10 +1622,17 @@ public static class KeyInventory
             reason = "That key is reserved for push to talk";
             return true;
         }
+        // Refused modifier-independently, deliberately (#705): "Enter, Tab
+        // and Escape are never hotkeys" is a rule an operator understands,
+        // and "Enter is not but Ctrl+Enter is" is a special case to memorise.
+        // The reason names the key that was pressed (#705 split the one
+        // sentence that listed all three). In the editor's capture only Enter
+        // and a modified Tab reach here: Escape cancels and Tab moves focus.
         if (code == WinFormsKeys.Escape || code == WinFormsKeys.Tab ||
             code == WinFormsKeys.Return)
         {
-            reason = "Escape, Tab, and Enter are reserved for navigation";
+            reason = Radios.Lexicon.Get("settings.keys.editor.navigation_key_reserved",
+                ("key", KeyManifest.FormatKey(k)));
             return true;
         }
         if (k == (WinFormsKeys.F4 | WinFormsKeys.Alt))
