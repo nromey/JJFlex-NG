@@ -598,6 +598,27 @@ public class KeyCommands
                 "Release every slice except the one you are on, back to one slice", "Release All Extra Slices", false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "release", "all", "slices", "extra", "clean", "reset", "single" }, ShortActionLabel = "release extra slices" },
 
+            // ── The recorder (#787, Tape Deck track 2) ──
+            // Two controls, not one with a source choice (Noel, 2026-10-21
+            // 11:00): the radio's per-slice recorder, acting on the ACTIVE
+            // slice from a key, and the computer's record to file. Every
+            // handler goes through RecorderControls, the door Home, the menus
+            // and the Workshop also use. On the JJ key at Ctrl+R, Ctrl+P,
+            // Ctrl+Shift+R and Ctrl+Shift+P; unbound flat, by design, until
+            // Noel picks flat keys from the track's proposal.
+            new(CommandValues.RecordActiveSlice, KeyTypes.Command, RecordActiveSliceHandler,
+                "Start or stop the radio's recorder on the active slice", "Record Active Slice", false, FunctionGroups.Audio, KeyScope.Radio)
+                { Keywords = new[] { "record", "recording", "recorder", "slice", "active", "capture", "tape", "save", "listen", "back", "buddy", "radio", "f11" }, ShortActionLabel = "record active slice" },
+            new(CommandValues.PlayActiveSlice, KeyTypes.Command, PlayActiveSliceHandler,
+                "Start or stop playing the active slice's recording through your speakers", "Play Active Slice", false, FunctionGroups.Audio, KeyScope.Radio)
+                { Keywords = new[] { "play", "playback", "replay", "recording", "recorder", "slice", "active", "listen", "back", "hear", "radio", "f11" }, ShortActionLabel = "play active slice" },
+            new(CommandValues.RecordToFile, KeyTypes.Command, RecordToFileHandler,
+                "Start or stop recording the radio's audio to a file on this computer", "Record to File", false, FunctionGroups.Audio, KeyScope.Global)
+                { Keywords = new[] { "record", "recording", "file", "computer", "save", "conversation", "qso", "capture", "tape", "audio", "f11", "alt" }, ShortActionLabel = "record to file" },
+            new(CommandValues.PlayFromComputer, KeyTypes.Command, PlayFromComputerHandler,
+                "Start or stop playing your last computer recording through your speakers", "Play from Computer", false, FunctionGroups.Audio, KeyScope.Global)
+                { Keywords = new[] { "play", "playback", "replay", "recording", "file", "computer", "last", "listen", "back", "audio", "f11", "ctrl", "alt" }, ShortActionLabel = "play from computer" },
+
             // ── Former hard-wired meta-commands (QB Track H, 2026-08-07) ──
             // These lived as hard-wired chords in MainWindow_PreviewKeyDown,
             // invisible to the registry, the Command Finder, and the Keys
@@ -1320,6 +1341,19 @@ public class KeyCommands
         Radios.ScreenReaderOutput.Speak(msg, Radios.VerbosityLevel.Terse, true);
     }
 
+    // ── The recorder (#787) ─────────────────────────────────────────
+    // Each is a door through RecorderControls, which words and speaks the
+    // outcome; a refusal (no radio, transmitting, nothing recorded) is a
+    // sentence from there, so these need no radio gate of their own.
+    private void RecordActiveSliceHandler() =>
+        _ = RecorderControls.ToggleSliceRecordAsync(_context.GetRigControl(), Radios.SliceRecorderTarget.ActiveSlice);
+    private void PlayActiveSliceHandler() =>
+        _ = RecorderControls.ToggleSlicePlayAsync(_context.GetRigControl(), Radios.SliceRecorderTarget.ActiveSlice);
+    private void RecordToFileHandler() =>
+        _ = RecorderControls.ToggleComputerRecordAsync(_context.GetRigControl());
+    private void PlayFromComputerHandler() =>
+        _ = RecorderControls.ToggleComputerPlayAsync(_context.GetRigControl());
+
     private void MuteSliceHandler()
     {
         var rig = _context.GetRigControl();
@@ -1330,13 +1364,12 @@ public class KeyCommands
         }
         bool newMute = !rig.SliceMute;
         rig.SliceMute = newMute;
-        if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
         string letter = rig.VFOToLetter(rig.RXVFO);
-        Radios.ScreenReaderOutput.Speak(
-            newMute
+        ToggleFeedback.Announce("Slice " + letter + " mute", newMute,
+            sentence: newMute
                 ? Radios.Lexicon.Get("audio.mute.slice_muted", ("letter", letter))
                 : Radios.Lexicon.Get("audio.mute.slice_unmuted", ("letter", letter)),
-            Radios.VerbosityLevel.Terse, true);
+            speak: said => Radios.ScreenReaderOutput.Speak(said, Radios.VerbosityLevel.Terse, true));
     }
 
     private void MuteAllSlicesHandler()
@@ -1349,13 +1382,12 @@ public class KeyCommands
         }
         bool target = !rig.AllMySlicesMuted;
         rig.SetAllMySlicesMute(target);
-        if (target) EarconPlayer.MuteAllOnTone();
-        else EarconPlayer.MuteAllOffTone();
-        Radios.ScreenReaderOutput.Speak(
-            target
+        ToggleFeedback.Announce("All slices mute", target,
+            sentence: target
                 ? Radios.Lexicon.Get("audio.mute.all_slices_muted")
                 : Radios.Lexicon.Get("audio.mute.all_slices_unmuted"),
-            Radios.VerbosityLevel.Terse, true);
+            speak: said => Radios.ScreenReaderOutput.Speak(said, Radios.VerbosityLevel.Terse, true),
+            tone: EarconPlayer.ToggleAllTone);
     }
 
     private void ReleaseAllExtraSlicesHandler()
@@ -1612,12 +1644,12 @@ public class KeyCommands
         // offer. Turning them off gets silence, because playing an alert sound
         // to confirm that alert sounds are off would be the joke it sounds
         // like. The speech below covers the off direction.
-        if (EarconPlayer.EarconsEnabled) EarconPlayer.ToggleTone(true);
-        Radios.ScreenReaderOutput.Speak(
-            EarconPlayer.EarconsEnabled
+        ToggleFeedback.Announce("Alert sounds", EarconPlayer.EarconsEnabled,
+            sentence: EarconPlayer.EarconsEnabled
                 ? Radios.Lexicon.Get("earcon.alerts_on")
                 : Radios.Lexicon.Get("earcon.alerts_off"),
-            Radios.VerbosityLevel.Terse, true);
+            speak: said => Radios.ScreenReaderOutput.Speak(said, Radios.VerbosityLevel.Terse, true),
+            tone: on => { if (on) EarconPlayer.ToggleTone(true); });
         // Save to config
         var configDir = _context.GetConfigDirectory?.Invoke();
         if (configDir != null)
@@ -2118,6 +2150,12 @@ public class KeyCommands
         // and "Mute Slice" stays available in Command Finder.
         new(Keys.M | Keys.Shift, CommandValues.MuteAllSlices, KeyScope.Radio),
         new(Keys.Oemcomma | Keys.Shift, CommandValues.ReleaseAllExtraSlices, KeyScope.Radio),
+
+        // The JJ key chords remain alongside the recorder's flat F11 family.
+        new(Keys.F11, CommandValues.RecordActiveSlice, KeyScope.Radio),
+        new(Keys.F11 | Keys.Control, CommandValues.PlayActiveSlice, KeyScope.Radio),
+        new(Keys.F11 | Keys.Alt, CommandValues.RecordToFile, KeyScope.Global),
+        new(Keys.F11 | Keys.Control | Keys.Alt, CommandValues.PlayFromComputer, KeyScope.Global),
     };
 
     // ────────────────────────────────────────────────────────────────
@@ -3985,6 +4023,11 @@ public class KeyCommands
             // Arm-or-disarm is a toggle, G is its initial, so the Ctrl tier
             // (Sprint 48 Track C; it was plain G). Noel's own press of
             // 2026-08-23 — Ctrl+G, meaning the tone — is now simply the chord.
+            // F and D are occupied; X for dupleX is free on the toggle tier.
+            case Keys.X | Keys.Control:
+                _ = FullDuplexControl.ToggleAsync(rig as FlexBase);
+                break;
+
             case Keys.G | Keys.Control:
                 ToggleTxTone();
                 break;
@@ -4111,6 +4154,37 @@ public class KeyCommands
             case Keys.M | Keys.Alt:
                 if (rig == null) LeaderNoRadio();
                 else _context.DisplayMemory();
+                break;
+
+            // The recorder (#787, Tape Deck track 2). Record and play are
+            // switches, so the Ctrl tier on their own initials, R and P — both
+            // free at this level since Sprint 48 Track F moved Neural NR into
+            // the noise layer and PC audio into the audio layer. At the TOP
+            // level, not in a layer, because record and play are everyday
+            // actions and #515 rules that frequency is what earns a place here
+            // ("Mute is a top-level kind of thing").
+            //
+            // The computer's JJ-key recorder is the Ctrl+Shift form of each: #515's
+            // 2026-10-05 ruling admits Ctrl+Shift as the VARIANT of the Ctrl
+            // feature, for true siblings that share an initial — and record
+            // to file IS record, from the other recorder (two controls, Noel
+            // 2026-10-21 11:00). JjKeyGrammarTests.CtrlShiftVariants declares
+            // each and holds that its Ctrl twin exists.
+            //
+            // Acting on the ACTIVE slice (Noel, 2026-10-21 08:59). No rig gate
+            // at the case: RecorderControls speaks every refusal itself, and
+            // stopping a computer recording must work with no radio.
+            case Keys.R | Keys.Control:
+                RecordActiveSliceHandler();
+                break;
+            case Keys.P | Keys.Control:
+                PlayActiveSliceHandler();
+                break;
+            case Keys.R | Keys.Control | Keys.Shift:
+                RecordToFileHandler();
+                break;
+            case Keys.P | Keys.Control | Keys.Shift:
+                PlayFromComputerHandler();
                 break;
 
             // Ctrl+T = meter tones on or off (Sprint 24 Phase 6). A toggle on
@@ -4709,7 +4783,7 @@ public class KeyCommands
             on =>
             {
                 rig.SliceMute = on;
-                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                ToggleFeedback.LayerTone(on);
             },
             on => Radios.Lexicon.Get(on ? "audio.mute.slice_muted" : "audio.mute.slice_unmuted", ("letter", LetterNow())),
             perSlice: true);
@@ -4747,7 +4821,7 @@ public class KeyCommands
             on =>
             {
                 rig.Compander = on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
-                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                ToggleFeedback.LayerTone(on);
             },
             on => Radios.Lexicon.Get(on ? "audio.dsp.toggled_on" : "audio.dsp.toggled_off",
                 ("label", Radios.Lexicon.Get("audio.audio_layer.name_compander"))));
@@ -4756,7 +4830,7 @@ public class KeyCommands
             on =>
             {
                 rig.ProcessorOn = on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
-                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                ToggleFeedback.LayerTone(on);
             },
             on => Radios.Lexicon.Get(on ? "audio.dsp.toggled_on" : "audio.dsp.toggled_off",
                 ("label", Radios.Lexicon.Get("audio.audio_layer.name_processor"))));
@@ -4767,7 +4841,7 @@ public class KeyCommands
             on =>
             {
                 rig.Binaural = on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
-                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                ToggleFeedback.LayerTone(on);
             },
             on => Radios.Lexicon.Get(on ? "audio.binaural.on" : "audio.binaural.off"));
 
@@ -5326,7 +5400,7 @@ public class KeyCommands
                 {
                     if (gate?.Invoke() != null) return;
                     write(on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off);
-                    if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                    ToggleFeedback.LayerTone(on);
                 },
                 Say,
                 perSlice: true,
@@ -5366,7 +5440,7 @@ public class KeyCommands
             {
                 if (pipeline == null) return;
                 pipeline.RnnEnabled = on;
-                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                ToggleFeedback.LayerTone(on);
                 win?.PersistDspSettings();
             },
             PcNeural,
@@ -5377,7 +5451,7 @@ public class KeyCommands
             {
                 if (pipeline == null) return;
                 pipeline.SpectralEnabled = on;
-                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                ToggleFeedback.LayerTone(on);
                 win?.PersistDspSettings();
             },
             PcSpectral,
@@ -5969,21 +6043,21 @@ public class KeyCommands
     /// the TX filter passband arms-and-warns loudly, and every key-down
     /// while armed announces that the tone is riding it.
     /// </summary>
-    private void ToggleTxTone()
+    private async void ToggleTxTone()
     {
         var rig = _context.GetRigControl();
         if (rig == null) { LeaderNoRadio(); return; }
 
         if (rig.TxToneEngaged)
         {
-            rig.TxToneStop();
+            bool voxRestored = rig.TxToneStop();
             // Clear the key-down rider. If the Workshop installed its own
             // hook it is self-guarded (returns null once disengaged), so a
             // plain clear is safe either way; the Workshop re-installs on
             // its next arm.
             PttSafetyController.KeyDownAnnouncementExtra = null;
             EarconPlayer.FeatureOffTone();
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tx_tone.disarmed"),
+            Radios.ScreenReaderOutput.Speak(RecorderControls.ToneDisarmed(voxRestored),
                 Radios.VerbosityLevel.Critical, true);
             return;
         }
@@ -6005,7 +6079,18 @@ public class KeyCommands
         int level = cfg?.TxToneLevelDb ?? -10;
         rig.TxToneFrequency = freq;
         rig.TxToneLevelDb = level;
-        rig.TxToneStart();
+        bool voxWasOn = rig.CurrentVoxSettingIfOn() == Radios.FlexBase.VoxSetting.SimpleVox;
+        if (!await rig.TxToneStartAsync())
+        {
+            Radios.ScreenReaderOutput.Speak(RecorderControls.ToneVoxPauseRefusal,
+                Radios.VerbosityLevel.Critical, true);
+            return;
+        }
+        if (!ReferenceEquals(rig, _context.GetRigControl()))
+        {
+            rig.TxToneStop();
+            return;
+        }
 
         // Same key-down honesty the Workshop provides: every transmit path
         // announces the tone is riding it. The closure reads the rig live
@@ -6013,7 +6098,7 @@ public class KeyCommands
         PttSafetyController.KeyDownAnnouncementExtra =
             () => BuildLeaderToneAnnouncement(_context.GetRigControl());
 
-        string line = Radios.Lexicon.Get("audio.tx_tone.armed", ("freq", freq), ("level", level));
+        string line = RecorderControls.ToneArmed(freq, voxWasOn);
         if (freq < rig.TXFilterLow || freq > rig.TXFilterHigh)
         {
             line += Radios.Lexicon.Get("audio.tx_tone.outside_filter_warning",
@@ -6053,18 +6138,7 @@ public class KeyCommands
         var current = getter();
         var newVal = rig.ToggleOffOn(current);
         setter(newVal);
-        if (newVal == FlexBase.OffOnValues.on)
-        {
-            EarconPlayer.FeatureOnTone();
-            Radios.ScreenReaderOutput.Speak(
-                Radios.Lexicon.Get("audio.dsp.toggled_on", ("label", label)), Radios.VerbosityLevel.Terse);
-        }
-        else
-        {
-            EarconPlayer.FeatureOffTone();
-            Radios.ScreenReaderOutput.Speak(
-                Radios.Lexicon.Get("audio.dsp.toggled_off", ("label", label)), Radios.VerbosityLevel.Terse);
-        }
+        ToggleFeedback.Announce(label, newVal == FlexBase.OffOnValues.on);
     }
 
     private void ToggleTuneDebounce()
@@ -6079,16 +6153,7 @@ public class KeyCommands
         }
 
         config.TuneDebounceEnabled = !config.TuneDebounceEnabled;
-        if (config.TuneDebounceEnabled)
-        {
-            EarconPlayer.FeatureOnTone();
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.tune_debounce.on"), Radios.VerbosityLevel.Terse);
-        }
-        else
-        {
-            EarconPlayer.FeatureOffTone();
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.tune_debounce.off"), Radios.VerbosityLevel.Terse);
-        }
+        ToggleFeedback.Announce("Tune debounce", config.TuneDebounceEnabled);
 
         // Persist immediately.
         var configDir = _context.GetConfigDirectory();

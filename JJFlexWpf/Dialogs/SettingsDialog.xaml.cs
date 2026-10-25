@@ -383,6 +383,8 @@ namespace JJFlexWpf.Dialogs
             EarconTuningCheck.IsChecked = _audioConfig.EarconTuningEnabled;
             EarconCommandsCheck.IsChecked = _audioConfig.EarconCommandsEnabled;
             EarconWarningsCheck.IsChecked = _audioConfig.EarconWarningsEnabled;
+            RecorderBeepsCheck.IsChecked = _audioConfig.RecorderBeepsEnabled;
+            RecorderSpeechCheck.IsChecked = _audioConfig.RecorderSpeechEnabled;
 
             // Sprint 33 Track F — the three "how the app sounds" pickers. All
             // three preview on selection change, so an operator arrowing
@@ -1463,6 +1465,8 @@ namespace JJFlexWpf.Dialogs
             _audioConfig.EarconTuningEnabled = EarconTuningCheck.IsChecked == true;
             _audioConfig.EarconCommandsEnabled = EarconCommandsCheck.IsChecked == true;
             _audioConfig.EarconWarningsEnabled = EarconWarningsCheck.IsChecked == true;
+            _audioConfig.RecorderBeepsEnabled = RecorderBeepsCheck.IsChecked == true;
+            _audioConfig.RecorderSpeechEnabled = RecorderSpeechCheck.IsChecked == true;
             _audioConfig.CwNotificationsEnabled = CwNotificationsCheck.IsChecked == true;
             // Sprint 33 Track F. Read back by index rather than by the label
             // text: the labels are user-facing prose and will be reworded, and

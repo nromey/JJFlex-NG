@@ -869,6 +869,7 @@ namespace Radios.Tests
 
             var classifiedOutsideFacts = new[]
             {
+                "audio.reference.armed", // Round 8: direct answer to the operator's arm request.
                 "settings.cw.vox_did_not_key",                        // Sprint 48 Track E, #151
                 "settings.systemwide_keys.leader_enabled",            // Sprint 48 Track E, #307 Item 4
                 "settings.systemwide_keys.leader_enabled_help",
@@ -994,12 +995,6 @@ namespace Radios.Tests
                 // classification as its two siblings.
                 "audio.ptt.cut_hold_reason_unknown",
                 "audio.ptt.cut_hold_the_antenna",
-                // DRAFT PROSE (#571): the historical VOX consequence waits
-                // behind the cut and uses protected recovery. It follows the
-                // Terse gate; tone-only at Off. Persistent historical wording
-                // remains true after expiry; the occurrence owns its validity.
-                "audio.ptt.cut_hold_vox_pause_notice",
-                "audio.ptt.cut_hold_vox_pause_history",
 
                 // Junkbox #777, 2026-10-19: a global-profile write (Save, or
                 // Delete since round two) refused because the radio is
@@ -1100,6 +1095,8 @@ namespace Radios.Tests
                 "audio.iq.reason.take-already-running",
                 "audio.iq.reason.recovery-pending",
                 "audio.iq.reason.one-scu-not-confirmed",
+                "audio.iq.reason.no-transverter-port",
+                "audio.iq.reason.smartlink-iq-unavailable",
                 "audio.iq.reason.ssb-only",
                 "audio.iq.reason.unsupported-rate",
                 "audio.iq.reason.no-free-slice",
@@ -1124,6 +1121,12 @@ namespace Radios.Tests
                 "audio.iq.reason.preflight-required",
                 "audio.iq.reason.dummy-load-active",
                 "audio.iq.setting.full-duplex",
+                "audio.iq.setting.slice-mute",
+                "audio.iq.setting.ears-antenna",
+                "audio.iq.setting.ears-rf-gain",
+                "audio.iq.setting.ears-frequency",
+                "audio.iq.setting.ears-mode",
+                "audio.iq.setting.ears-pan-center",
                 "audio.iq.setting.tx-antenna",
                 "audio.iq.setting.rf-power",
                 "audio.iq.setting.monitor",
@@ -1139,6 +1142,14 @@ namespace Radios.Tests
                 "audio.iq.keyed_line",
                 "audio.iq.recording_offair",
                 "audio.iq.take_result",
+                // #456 Round 12: short spoken take result and post-playback comparison.
+                "audio.iq.take_summary_short",
+                "audio.iq.take_summary_gaps",
+                "audio.iq.startup_signature",
+                "audio.iq.adding_listener",
+                "audio.iq.removing_listener",
+                "audio.check.loopback_adding_ears",
+                "audio.check.loopback_removing_ears",
                 "audio.iq.never_keyed",
                 "audio.iq.playing",
                 "audio.iq.playing_incomplete",
@@ -1151,15 +1162,42 @@ namespace Radios.Tests
                 "audio.iq.rate96",
                 "audio.iq.play_sent",
                 "audio.iq.compare_previous",
+                // Round 11 hear-yourself comparison and copyable measurements.
+                "audio.iq.auto_compare",
+                "audio.iq.auto_unavailable",
+                "audio.iq.auto_result_intro",
+                // #456 Round 13: the 0.5 dB audible-change comparison sentences.
+                "audio.iq.same_level_tone",
+                "audio.iq.level_changed_tone_same",
+                "audio.iq.level_same_tone_changed",
+                "audio.iq.level_and_tone_changed",
+                "audio.iq.all_measures_same",
+                "audio.iq.reference_same_level_tone",
+                "audio.iq.reference_level_changed_tone_same",
+                "audio.iq.reference_level_same_tone_changed",
+                "audio.iq.reference_level_and_tone_changed",
+                "audio.iq.reference_all_measures_same",
+                "audio.iq.punch_same",
+                "audio.iq.punch_changed",
+                "audio.iq.stopband_same",
+                "audio.iq.stopband_changed",
+                "audio.iq.rose",
+                "audio.iq.fell",
+                "audio.iq.statistics_label",
+                "audio.iq.statistics_help",
+                "audio.iq.statistics_empty",
                 "audio.iq.aligned",
                 "audio.iq.not_aligned",
                 "audio.iq.sent_unavailable",
                 "audio.iq.tone_identified",
                 "audio.iq.tone_not_identified",
                 "audio.iq.playing_sent",
-                "audio.iq.difference",
                 "audio.iq.louder",
                 "audio.iq.quieter",
+                "audio.iq.brighter",
+                "audio.iq.darker",
+                "audio.iq.stronger",
+                "audio.iq.weaker",
                 "audio.iq.more_compressed",
                 "audio.iq.more_peaky",
                 "audio.iq.need_two",
@@ -1167,6 +1205,13 @@ namespace Radios.Tests
                 "audio.iq.unlike_or_unaligned",
                 "audio.iq.reason.sent-checksum",
                 "audio.iq.reason.arrangement-not-confirmed",
+                "audio.iq.reason.tx-antenna-setup-unconfirmed",
+                "audio.iq.reason.rf-power-setup-unconfirmed",
+                "audio.iq.reason.monitor-setup-unconfirmed",
+                "audio.iq.reason.slice-mute-setup-unconfirmed",
+                "audio.iq.reason.full-duplex-setup-unconfirmed",
+                "audio.iq.reason.xvtr-drive-setup-unconfirmed",
+                "audio.iq.reason.arrangement-connection-ended",
                 "settings.guard.action.iq_take",
                 "audio.iq.reason.command-queue-stalled",
                 "audio.iq.unreadable_offer",
@@ -1189,6 +1234,141 @@ namespace Radios.Tests
                 "audio.iq.ack.not_recorded",
                 "audio.iq.ack.listener_request",
                 "audio.iq.ack.antenna_unchanged",
+                "audio.iq.heading",
+                "audio.iq.no_transmission",
+                "audio.iq.ack.present",
+                "audio.iq.ack.absent",
+                "audio.iq.review_absent",
+                "audio.iq.review_present",
+                "audio.iq.review_unknown",
+                "settings.guard.action.full_duplex",
+                "audio.full_duplex.label",
+                "audio.full_duplex.command",
+                "audio.full_duplex.on",
+                "audio.full_duplex.off",
+                "audio.full_duplex.not_reported",
+                "audio.full_duplex.help",
+                "audio.full_duplex.blocked",
+                "audio.full_duplex.pending",
+                "audio.full_duplex.setting",
+                "audio.check.loopback_setup_unconfirmed",
+                "audio.check.loopback_no_other_port",
+                "audio.check.loopback_restore_unconfirmed",
+                "audio.iq.reason.listener-command-refused",
+                "audio.iq.reason.listener-command-timeout",
+                "audio.iq.reason.full-duplex-refused",
+                "audio.full_duplex.disagreed_on",
+                "audio.full_duplex.disagreed_off",
+                "audio.full_duplex.refused",
+                "audio.full_duplex.unconfirmed",
+
+                // #456 Round 8/9: playback fact/limiter, optional local capacity,
+                // reply failure, purpose wording, and #787 slice control labels.
+                "audio.take.fixed_gain",
+                "audio.take.limiter_engaged",
+                "audio.iq.stop_slice_record",
+                "audio.iq.stop_slice_play",
+                "audio.iq.capacity_optional",
+                "audio.iq.reason.no-stream-create-reply",
+                "audio.iq.reason.stream-create-refused",
+                "audio.iq.reason.smartlink-no-iq",
+                "audio.iq.listener_added",
+                "audio.iq.offair_removing_listener",
+                "audio.check.loopback_ears_added",
+
+                // #456 Round 10: off-air live monitoring and the two comparison methods.
+                "audio.iq.hear_during_take",
+                "audio.iq.setting.ears-mute",
+                "audio.iq.compared_aligned",
+                "audio.iq.compared_average",
+
+                // #456 Round 14 (#794's header-and-gate half): the three source
+                // words, the one-sentence refusal that asks for another take of
+                // the same kind, and the setup changes named in front of the
+                // numbers (transmit filter, RF power, mic profile, mic input,
+                // computer microphone). All DRAFT PROSE awaiting Noel. TextOnly
+                // because the dialog speaks them through its existing status
+                // path, which already carries the comparison's own subject.
+                "audio.iq.source_tone",
+                "audio.iq.source_voice",
+                "audio.iq.source_reference",
+                "audio.iq.unlike_source",
+                "audio.iq.setup_filter",
+                "audio.iq.setup_power",
+                "audio.iq.setup_profile",
+                "audio.iq.setup_mic_input",
+                "audio.iq.setup_pc_microphone",
+                "audio.iq.no_mic_profile",
+                // Round 14 bench (Noel, 2026-10-22 07:10): the automatic comparison
+                // stays inside this session, and a manual one reaching an older take
+                // says which session it came from. DRAFT PROSE, TextOnly as above.
+                "audio.iq.first_of_session",
+                "audio.iq.earlier_session",
+                "audio.iq.when_today",
+                "audio.iq.when_yesterday",
+                "audio.iq.when_date",
+
+                // #787 Tape Deck track 2: the ONE slice recorder surface's
+                // sentences, spoken by every door (Home, the Slice menu, the
+                // JJ key, the Workshop's buttons, the Audio Check). All DRAFT
+                // PROSE awaiting Noel. TextOnly because each is spoken through
+                // RecorderControls.Speak under SpeechSubject.SliceRecorder.
+                "audio.recorder.recording",
+                "audio.recorder.recording_loopback",
+                "audio.recorder.recording_stopped",
+                "audio.recorder.already_recording",
+                "audio.recorder.playing",
+                "audio.recorder.playing_stopped",
+                "audio.recorder.play_stopped_by_transmit",
+                "audio.recorder.nothing_to_play",
+                "audio.recorder.no_slice",
+                "audio.recorder.not_your_slice",
+                "audio.recorder.record_unconfirmed",
+                "audio.recorder.record_stop_unconfirmed",
+                "audio.recorder.play_unconfirmed",
+                "audio.recorder.play_stop_unconfirmed",
+                "audio.recorder.nearly_full",
+                // Home's recorder controls and the Slice menu's Recorder rows.
+                "audio.recorder.record_button",
+                "audio.recorder.stop_record_button",
+                "audio.recorder.play_button",
+                "audio.recorder.stop_play_button",
+                "audio.fields.recorder_slice",
+                "audio.fields.recorder_slice_option",
+                "audio.fields.recorder_help",
+                // The computer recorder's controls (record to file, play
+                // from computer) and the stub's refusals until Tape Deck
+                // track 3's engine is installed.
+                "audio.recorder.failed",
+                "audio.recorder.computer_record_unavailable",
+                "audio.recorder.computer_play_unavailable",
+                "audio.recorder.computer_play_refused_transmitting",
+                "audio.recorder.record_to_file_button",
+                "audio.recorder.stop_record_to_file_button",
+                "audio.recorder.play_from_computer_button",
+                "audio.recorder.stop_play_from_computer_button",
+                "audio.fields.computer_recorder_help",
+
+                // DRAFT PROSE (#787): pending-start cancellation confirmation.
+                "audio.check.start_cancelled",
+                "audio.check.start_cancelled_escape",
+
+                // DRAFT PROSE (#787): recorder intent, lengths, and capture options.
+                "audio.recorder.play_vox_unconfirmed",
+                "audio.recorder.play_intent_changed",
+                "audio.recorder.seconds",
+                "audio.recorder.length_recorded",
+                "audio.recorder.no_recording",
+                "audio.recorder.has_recording",
+                "audio.recorder.recording_length",
+                "audio.recorder.play_length",
+                "audio.recorder.play_strip",
+                "audio.recorder.stop_strip",
+                "audio.recorder.record_heard",
+                "audio.recorder.stereo",
+                "audio.recorder.options_help",
+
+
 
                 // Junkbox #686, 2026-10-20: the microphone healer's report on
                 // a radio not declared Mine (Unset or SomeoneElses). There it
@@ -1402,9 +1582,19 @@ namespace Radios.Tests
                 // radio did what was asked. APPROVED as written by Noel at
                 // the 2026-10-21 fold (Fold 4).
                 "audio.mic.switch_back_refused",
+
+                // #787 recorder round 12: Audio Workshop button labels name
+                // the active or Loopback Check listening slice. TextOnly because
+                // the button's visible text and accessible name carry the words.
+                "audio.iq.record_active_slice",
+                "audio.iq.record_listening_slice",
+                "audio.iq.play_active_slice",
+                "audio.iq.play_active_slice_length",
+                "audio.iq.play_listening_slice",
+                "audio.iq.play_listening_slice_length",
             };
 
-            Assert.Equal(3143, unclassified);
+            Assert.Equal(3141, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Automation;
@@ -22,6 +23,15 @@ namespace JJFlexWpf.Dialogs;
 public partial class AudioWorkshopDialog
 {
     #region Audio Check Section
+    private bool _loopbackStarting;
+    private string? _lastAudioCheckSource;
+    private readonly AudioCheckStartGate _checkStarts = new();
+
+    private void CancelCheckStart()
+    {
+        _checkStarts.Cancel();
+        _iqCancellation?.Cancel();
+    }
 
     private void BuildAudioCheckSection()
     {
@@ -141,12 +151,17 @@ public partial class AudioWorkshopDialog
         };
         AddToSection(HearYourselfContent, _pcLevelNote);
 
+        // "Tell me how my sound changed compared to my last take" comes just
+        // before the listen method (Noel, 2026-10-22 07:01).
+        BuildComparisonChoice();
+
         _listenMethodControl = MakeCycle("Listen method",
             new[] { "Monitor", "Record and play back", Lexicon.Get("audio.iq.listen_method") });
         _listenMethodControl.SelectionChanged += (s, idx) =>
         {
             if (_polling) return;
             SavePerRadioPrefs();
+            SyncPlayTakeLabel();
             // The control announces its own value through the accessibility
                 // tree; this adds only what the tree cannot carry.; add the remote
             // advisory only where it matters.
@@ -194,19 +209,18 @@ public partial class AudioWorkshopDialog
             Padding = new Thickness(8, 4, 8, 4),
             MinWidth = 200,
             HorizontalAlignment = HorizontalAlignment.Left,
-            Margin = new Thickness(2)
+            Margin = new Thickness(2),
+            Visibility = Visibility.Collapsed,
+            IsTabStop = false
         };
         AutomationProperties.SetName(_playTakeButton, "Play last take");
         JJFlexHelp.SetText(_playTakeButton,
-            "Plays your most recent take back to you. That is whichever came "
-            + "last: the recording the radio made of your transmission during "
-            + "a Record and play back check, which carries your full "
-            + "processing chain, or a take you recorded yourself in Reference "
-            + "Audio above, which is your voice as this computer captured it. "
-            + "Press it again to stop. It says which of the two it is playing, "
-            + "and a take you recorded yourself plays with no radio connected.");
+            "Plays the slice recording with Record and play back, or the off-air take "
+            + "with Off the air. Press again to stop.");
         _playTakeButton.Click += (s, e) => PlayLastTake();
+        _playTakeButton.GotFocus += (s, e) => SyncPlayTakeLabel();
         AddToSection(HearYourselfContent, _playTakeButton);
+        SyncPlayTakeLabel();
 
         // Follow local playback so the button says what pressing it will do.
         // The radio-buffer half is followed from the meter tick, which is where
@@ -228,7 +242,21 @@ public partial class AudioWorkshopDialog
             Visibility = Visibility.Collapsed
         };
         AutomationProperties.SetName(_loopbackButton, "Loopback Check, transverter port");
-        _loopbackButton.Click += (s, e) => StartLoopbackCheck();
+        _loopbackButton.Click += async (s, e) =>
+        {
+            if (_loopbackStarting)
+            {
+                if (!_checkStarts.IsCancelled)
+                {
+                    CancelCheckStart();
+                    // DRAFT PROSE (#787): awaiting Noel.
+                    ScreenReaderOutput.Speak(Lexicon.Get("audio.check.start_cancelled"), VerbosityLevel.Terse);
+                }
+                return;
+            }
+            if (_session?.Active == true && _session.IsLoopback) _session.StopCheck();
+            else await StartLoopbackCheckAsync();
+        };
         AddToSection(HearYourselfContent, _loopbackButton);
 
         _loopbackInfo = new TextBlock
@@ -273,12 +301,18 @@ public partial class AudioWorkshopDialog
 
     /// <summary>
     /// The Loopback Check: apply the verified recipe (full duplex on, TX to
-    /// the XVT port, ears slice on the same port, 1 watt, monitor off), then
+    /// one XVT port, ears slice on the other receive port, 1 watt, monitor off), then
     /// key through the same PttSafetyController path as every other check.
     /// Teardown restores every saved value and removes the ears slice.
     /// </summary>
-    private void StartLoopbackCheck()
+    private async Task StartLoopbackCheckAsync()
     {
+        if (_checkStarts.IsBusy)
+        {
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.stop_current_first"),
+                VerbosityLevel.Critical, interrupt: true);
+            return;
+        }
         if (_iqBusy || _iqRun != null) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
         if (_session != null && _session.Active)
         {
@@ -304,34 +338,67 @@ public partial class AudioWorkshopDialog
             return;
         }
 
-        if (!_rig.StartLoopbackArrangement())
+        using var start = _checkStarts.TryBegin();
+        if (start == null) return;
+        var rig = _rig;
+        _loopbackStarting = true;
+        SetLoopbackButtonLabel(stopping: true);
+        try
         {
-            string reason = _rig.LoopbackUnavailableReason;
-            if (string.IsNullOrEmpty(reason)) reason = Lexicon.Get("audio.check.loopback_no_free_slice");
+        if (!await rig.StartLoopbackArrangementAsync())
+        {
+            string reason = rig.LoopbackUnavailableReason;
+            if (string.IsNullOrEmpty(reason))
+            {
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.loopback_setup_unconfirmed"),
+                    VerbosityLevel.Critical, interrupt: true);
+                return;
+            }
             ScreenReaderOutput.Speak(
                 Lexicon.Get("audio.check.loopback_setup_failed", ("reason", reason)),
                 VerbosityLevel.Critical, interrupt: true);
+            return;
+        }
+        if (!start.IsCurrent || _iqClosing || !ReferenceEquals(rig, _rig))
+        {
+            string trouble = await rig.EndLoopbackArrangementAsync();
+            if (!string.IsNullOrEmpty(trouble))
+                ScreenReaderOutput.Speak(trouble, VerbosityLevel.Critical);
             return;
         }
 
         // Power mode is irrelevant here — the loopback arrangement owns
         // power (1 W into the transverter port) and the session's power
         // handling is bypassed entirely in loopback mode.
-        var session = new AudioCheckSession(this, _rig, ptt,
+        var session = new AudioCheckSession(this, rig, ptt,
             AudioCheckListenMethods.Monitor, AudioCheckPowerModes.LowPower, 1,
             loopback: true);
-        if (session.Start())
+        if (await session.StartAsync(start))
         {
             _session = session;
-            SetStartButtonLabel("Stop Audio Check");
-            _micGainControl?.Focus();
+            SetLoopbackButtonLabel(stopping: true);
         }
         else
         {
             // Keying refused — take the arrangement back down.
-            string trouble = _rig.EndLoopbackArrangement();
+            string trouble = await rig.EndLoopbackArrangementAsync();
             if (!string.IsNullOrEmpty(trouble))
                 ScreenReaderOutput.Speak(trouble, VerbosityLevel.Terse);
+        }
+        }
+        catch (Exception ex)
+        {
+            JJTrace.Tracing.TraceLine("Loopback Check setup: " + ex, System.Diagnostics.TraceLevel.Error);
+            if (rig.LoopbackArranged)
+                try { await rig.EndLoopbackArrangementAsync(); }
+                catch (Exception restore) { JJTrace.Tracing.TraceLine("Loopback Check rollback: " + restore, System.Diagnostics.TraceLevel.Error); }
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.loopback_setup_unconfirmed"),
+                VerbosityLevel.Critical, interrupt: true);
+        }
+        finally
+        {
+            _loopbackStarting = false;
+            if (_session?.Active != true) SetLoopbackButtonLabel(stopping: false);
         }
     }
 
@@ -341,6 +408,16 @@ public partial class AudioWorkshopDialog
     /// </summary>
     public void ToggleAudioCheck()
     {
+        if (_checkStarts.IsBusy)
+        {
+            if (!_checkStarts.IsCancelled)
+            {
+                CancelCheckStart();
+                // DRAFT PROSE (#787): awaiting Noel.
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.start_cancelled"), VerbosityLevel.Terse);
+            }
+            return;
+        }
         if (_iqBusy) { _iqCancellation?.Cancel(); return; }
         if (_session != null && _session.Active)
         {
@@ -368,21 +445,47 @@ public partial class AudioWorkshopDialog
         }
 
         if (_iqRun != null) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
+        _lastAudioCheckSource = null;
         var method = (AudioCheckListenMethods)(_listenMethodControl?.SelectedIndex ?? 0);
         if (method == AudioCheckListenMethods.OffAir) { _ = StartOffAirAsync(ptt); return; }
         var powerMode = (AudioCheckPowerModes)(_checkPowerControl?.SelectedIndex
             ?? (int)AudioCheckPowerModes.DummyLoad);
         int lowPowerWatts = Math.Clamp(_checkWattsControl?.Value ?? 10, 1, 100);
 
-        var session = new AudioCheckSession(this, _rig, ptt, method, powerMode, lowPowerWatts);
-        if (session.Start())
+        _ = StartAudioCheckSessionAsync(new AudioCheckSession(this, _rig, ptt, method, powerMode, lowPowerWatts));
+    }
+
+    /// <summary>
+    /// Start a session and adopt it. Async since #787: Record and play back
+    /// waits for the radio to confirm its recorder before keying. A second
+    /// Stop while that answer is pending cancels its right to key. All start
+    /// doors share admission until the pending start has finished rollback.
+    /// </summary>
+    private async Task StartAudioCheckSessionAsync(AudioCheckSession session)
+    {
+        using var start = _checkStarts.TryBegin();
+        if (start == null || _session?.Active == true) return;
+        SetStartButtonLabel("Stop Audio Check");
+        try
         {
-            _session = session;
-            SetStartButtonLabel("Stop Audio Check");
-            // Land on Mic Gain — arrows adjust immediately, one Shift+Tab
-            // reads the live mic reading, one more reaches Stop (the
-            // three-stop check cluster, see ApplyTxAudioTabOrder).
-            _micGainControl?.Focus();
+            if (await session.StartAsync(start))
+            {
+                _session = session;
+                SetStartButtonLabel("Stop Audio Check");
+                // Land on Mic Gain — arrows adjust immediately, one Shift+Tab
+                // reads the live mic reading, one more reaches Stop (the
+                // three-stop check cluster, see ApplyTxAudioTabOrder).
+                _micGainControl?.Focus();
+            }
+        }
+        catch (Exception ex)
+        {
+            JJTrace.Tracing.TraceLine("Audio Check start: " + ex, System.Diagnostics.TraceLevel.Error);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.could_not_start"), VerbosityLevel.Critical);
+        }
+        finally
+        {
+            if (_session?.Active != true) SetStartButtonLabel("Start Audio Check");
         }
     }
 
@@ -393,83 +496,79 @@ public partial class AudioWorkshopDialog
         AutomationProperties.SetName(_startCheckButton, label);
     }
 
+    private void SetLoopbackButtonLabel(bool stopping)
+    {
+        if (_loopbackButton == null) return;
+        _loopbackButton.Content = stopping ? "Stop Loopback Check" : "Loopback Check (transverter port)";
+        AutomationProperties.SetName(_loopbackButton, stopping ? "Stop Loopback Check" : "Loopback Check, transverter port");
+    }
+
     /// <summary>
     /// Session ended (any path) — restore the button label, and if a
     /// loopback arrangement is up, tear it down and say so. Runs on every
     /// exit path because every exit path funnels through the session's End.
     /// </summary>
-    private void OnSessionEnded()
+    private async void OnSessionEnded()
     {
+        CancelCheckStart();
+        UpdateMicReading();
+        if (_micReadingBox?.IsVisible == true) _micReadingBox.Focus();
         SetStartButtonLabel("Start Audio Check");
+        SetLoopbackButtonLabel(stopping: false);
+        // This stopped every recording the Workshop's buttons had started
+        // until #787. It no longer stops anything: with one recorder behind
+        // every door it would also have stopped the take this check had just
+        // begun playing. The Loopback Check's listening slice is stopped by
+        // EndLoopbackArrangementAsync below, which already says when that stop
+        // was not confirmed, and closing the Workshop stops what the Workshop
+        // started (CloseListenbackAsync).
+        SyncSliceRecorderUi();
         if (_iqWasOffAir && _iqRun != null) { _ = FinishIqAsync("operator-stop"); return; }
         if (_rig != null && _rig.LoopbackArranged)
         {
-            string trouble = _rig.EndLoopbackArrangement();
-            ScreenReaderOutput.Speak(
-                Lexicon.Get("audio.check.loopback_ended") + " " + trouble,
-                VerbosityLevel.Terse);
+            try
+            {
+                string trouble = await _rig.EndLoopbackArrangementAsync();
+                ScreenReaderOutput.Speak(
+                    Lexicon.Get("audio.check.loopback_ended") + " " + trouble,
+                    VerbosityLevel.Terse);
+            }
+            catch (Exception ex)
+            {
+                JJTrace.Tracing.TraceLine("Loopback Check restore: " + ex, System.Diagnostics.TraceLevel.Error);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.loopback_restore_unconfirmed"),
+                    VerbosityLevel.Critical, interrupt: true);
+            }
         }
     }
 
     /// <summary>
-    /// True when the newest take is a FILE in the recordings folder rather than
-    /// the radio's own record buffer. Set when a recording is saved, cleared
-    /// when a Record and play back check fills the buffer.
+    /// The slice the last check recorded on. Also tracks the slice chosen for
+    /// playback so a second press stops the same buffer.
     /// </summary>
-    /// <remarks>
-    /// The radio's buffer carries no timestamp, so "which is newer" cannot be
-    /// asked of the two stores directly; this remembers which one last received
-    /// something. It starts false, which makes a freshly opened Workshop prefer
-    /// the radio buffer if it holds anything — the take that carries the
-    /// processing chain is the more valuable of the two, so it wins the tie.
-    /// </remarks>
-    private bool _newestTakeIsAFile;
+    private SliceRecorderTarget? _radioTakeTarget;
+    private SliceRecorderTarget RadioTakeTarget => _radioTakeTarget ?? SliceRecorderTarget.TransmitSlice;
 
     /// <summary>
-    /// Play the operator's most recent take, or stop the one playing.
+    /// Play the take for the selected listen method, or stop the one playing.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// <b>Task #455, and the whole point of it is that this asks BOTH stores.</b>
-    /// Don, 2026-09-01: he recorded a take, pressed Stop recording, pressed this
-    /// button, and heard "no recordings yet" — while Open recordings folder, one
-    /// section up in this same dialog, showed the files and another program
-    /// played them. Nothing was broken. This method asked the RADIO's quick
-    /// record buffer, which only an audio check ever fills; the folder button
-    /// asked <see cref="RecordingStore"/>, which is where the recorder writes.
-    /// Two buttons, two stores, one word — "take" — and the operator had no way
-    /// to know the word meant different things a few tab stops apart.
-    /// </para>
-    /// <para>
-    /// So there is one question now: what is the last take, wherever it is. The
-    /// radio's buffer is preferred when it is the newer of the two, because it
-    /// carries the full processing chain and that is the more useful answer;
-    /// otherwise the newest file plays here on this computer through
-    /// <see cref="RecordingPlayer"/>. The spoken line always says WHICH, because
-    /// they are recordings of genuinely different things and an operator
-    /// comparing them must never be left guessing which one they just heard.
-    /// </para>
-    /// <para>
-    /// <b>No radio is required.</b> It used to refuse outright without one,
-    /// which was another version of the same disagreement: the recordings folder
-    /// opens with no radio, the files play in other programs with no radio, and
-    /// this is the same folder.
-    /// </para>
+    /// The selected method owns the answer: Record and play back chooses a
+    /// slice buffer; Off the air chooses an IQ take. Monitor has no play button.
     /// </remarks>
     private void PlayLastTake()
     {
+        if ((AudioCheckListenMethods)(_listenMethodControl?.SelectedIndex ?? 0) ==
+            AudioCheckListenMethods.Monitor) return;
         // Press again to stop, whichever thing is playing.
         if (RecordingPlayer.IsPlaying)
         {
             RecordingPlayer.Stop();
             return;
         }
-        if (_rig != null && _rig.SlicePlayOn)
+        if (_rig != null && _rig.IsSlicePlaying(RadioTakeTarget))
         {
-            _rig.SlicePlayOn = false;
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.playback_stopped"),
-                VerbosityLevel.Terse, interrupt: true);
-            SyncPlayTakeLabel();
+            _ = StopRadioTakeAsync();
             return;
         }
 
@@ -480,31 +579,140 @@ public partial class AudioWorkshopDialog
             return;
         }
 
-        bool radioHasTake = _rig?.SlicePlayEnabled == true;
-        RecordingStore.RecordingFile? file = RecordingStore.Newest();
-        if (TryPlayNewestIq(file, radioHasTake)) return;
-
-        if (!radioHasTake && file == null)
+        var selected = SelectTakeForPlayback();
+        switch (selected.Choice)
         {
-            // The one message that used to be a lie. It now names both places
-            // it looked, so an operator who can see files in the folder is
-            // never told they have none.
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.no_recording_yet"),
-                VerbosityLevel.Terse, interrupt: true);
-            return;
+            case TakePlaybackChoice.Slice:
+                _radioTakeTarget = selected.RadioTarget;
+                _ = PlayRadioTakeAsync();
+                return;
+            case TakePlaybackChoice.OffAir:
+                _ = PlayIqAsync(selected.IqDirectory, 0);
+                return;
+            default:
+                if (selected.Method == AudioCheckListenMethods.RecordPlayback) SayNoTake("slice");
+                else if (selected.Method == AudioCheckListenMethods.OffAir) SayNoTake("off-air");
+                return;
         }
+    }
 
-        bool preferFile = file != null && (!radioHasTake || _newestTakeIsAFile);
-        if (preferFile)
+    private (AudioCheckListenMethods Method, TakePlaybackChoice Choice,
+        SliceRecorderTarget? RadioTarget, string? IqDirectory, DateTime? MadeUtc) SelectTakeForPlayback()
+    {
+        var method = (AudioCheckListenMethods)(_listenMethodControl?.SelectedIndex
+            ?? (int)(_radioCfg?.AudioCheckListenMethod ?? AudioCheckListenMethods.Monitor));
+        if (method == AudioCheckListenMethods.Monitor)
+            return (method, TakePlaybackChoice.None, null, null, null);
+        var (radioTarget, radioTime) = method == AudioCheckListenMethods.RecordPlayback
+            ? NewestRadioTake() : (null, null);
+        string? iqDirectory = method == AudioCheckListenMethods.OffAir ? NewestIqDirectory() : null;
+        DateTime? iqAt = iqDirectory != null && File.Exists(Path.Combine(iqDirectory, "take.txt"))
+            ? File.GetLastWriteTimeUtc(Path.Combine(iqDirectory, "take.txt")) : null;
+        var choice = TakePlaybackSelector.Choose(method, radioTarget != null, iqDirectory != null);
+        DateTime? madeUtc = choice switch
         {
-            RecordingPlayer.Play(file!.Path);   // speaks for itself, success or not
-            return;
-        }
+            TakePlaybackChoice.Slice => radioTime,
+            TakePlaybackChoice.OffAir => iqAt,
+            _ => null
+        };
+        return (method, choice, radioTarget, iqDirectory, madeUtc);
+    }
 
-        _rig!.SlicePlayOn = true;
-        ScreenReaderOutput.Speak(Lexicon.Get("audio.check.playing_take"),
-            VerbosityLevel.Terse, interrupt: true);
+    private (SliceRecorderTarget? Target, DateTime? MadeUtc) NewestRadioTake()
+    {
+        if (_rig == null) return (null, null);
+        SliceRecorderTarget? fallback = null;
+        SliceRecorderTarget? newest = null;
+        DateTime? newestAt = null;
+        for (char letter = 'A'; letter <= 'Z'; letter++)
+        {
+            var target = SliceRecorderTarget.Letter(letter);
+            if (!_rig.SliceHasRecording(target)) continue;
+            fallback ??= target;
+            if (target == RadioTakeTarget) fallback = target;
+            DateTime? made = _rig.SliceTakeTime(target);
+            if (made != null && (newestAt == null || made > newestAt))
+            { newest = target; newestAt = made; }
+        }
+        return (newest ?? fallback, newestAt);
+    }
+
+    private static void SayNoTake(string kind) => ScreenReaderOutput.Speak(
+        "There is no " + kind + " take to play.", Radios.Speech.SpeechIntent.Interrupt,
+        VerbosityLevel.Terse);
+
+    /// <summary>
+    /// Play the radio's take through the one recorder surface (#787), which
+    /// checks the radio's reply and pauses VOX for local playback. Success keeps
+    /// the take's own sentence, which says it is the radio's take and not a
+    /// file (#455); a refusal speaks the recorder's sentence.
+    /// </summary>
+    private async Task PlayRadioTakeAsync()
+    {
+        if (_rig == null) return;
+        var rig = _rig;
+        var target = FixedRecorderTarget(rig, RadioTakeTarget);
+        if (_workshopClosing || !ReferenceEquals(rig, _rig)) return;
+        RecorderControls.Observe(rig);
+        RecorderControls.PlayStartClick();
+        var outcome = await rig.StartSlicePlayAsync(target);
+        if (outcome.Success)
+        {
+            if (_workshopClosing || !ReferenceEquals(rig, _rig))
+            {
+                await RecorderControls.ReportStopFailureAsync(rig.StopSlicePlayAsync(target));
+                return;
+            }
+            _workshopPlayTargets.Add(target);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.playing_take"), Radios.Speech.SpeechIntent.Interrupt,
+                VerbosityLevel.Terse, subject: outcome.Subject);
+        }
+        else RecorderControls.Speak(outcome);
         SyncPlayTakeLabel();
+    }
+
+    private async Task StopRadioTakeAsync()
+    {
+        if (_rig == null) return;
+        var target = FixedRecorderTarget(_rig, RadioTakeTarget);
+        RecorderControls.Speak(await _rig.StopSlicePlayAsync(target));
+        _workshopPlayTargets.Remove(target);
+        SyncPlayTakeLabel();
+    }
+
+    private readonly HashSet<SliceRecorderTarget> _workshopPlayTargets = new();
+    private bool _workshopClosing;
+
+    private static SliceRecorderTarget FixedRecorderTarget(FlexBase rig, SliceRecorderTarget target)
+    {
+        string letter = rig.SliceRecorderLetter(target);
+        return letter.Length > 0 ? SliceRecorderTarget.Letter(letter[0]) : target;
+    }
+
+    /// <summary>Stop the audio this Workshop started before another Ctrl+Enter can start a check.</summary>
+    private bool StopWorkshopPlayback()
+    {
+        bool stopped = false;
+        if (RecordingPlayer.IsPlaying)
+        {
+            RecordingPlayer.Stop();
+            stopped = true;
+        }
+        if (_workshopPlayTargets.Count > 0 && _rig != null)
+        {
+            var targets = new List<SliceRecorderTarget>(_workshopPlayTargets);
+            _workshopPlayTargets.Clear();
+            foreach (var target in targets)
+                _ = RecorderControls.ReportStopFailureAsync(_rig.StopSlicePlayAsync(target));
+            stopped = true;
+        }
+        if (_toneMonitorSounding)
+        {
+            EarconPlayer.StopTxToneMonitor();
+            _toneMonitorSounding = false;
+            stopped = true;
+        }
+        return stopped;
     }
 
     /// <summary>
@@ -526,9 +734,17 @@ public partial class AudioWorkshopDialog
     private void SyncPlayTakeLabel()
     {
         if (_playTakeButton == null) return;
-        bool playing = RecordingPlayer.IsPlaying || _rig?.SlicePlayOn == true;
-        string label = playing ? "Stop playing" : "Play last take";
-        if ((_playTakeButton.Content as string) == label) return;
+        bool available = (AudioCheckListenMethods)(_listenMethodControl?.SelectedIndex ?? 0)
+            != AudioCheckListenMethods.Monitor;
+        _playTakeButton.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
+        _playTakeButton.IsTabStop = available;
+        if (!available) return;
+        bool playing = RecordingPlayer.IsPlaying ||
+            _rig?.IsSlicePlaying(RadioTakeTarget) == true;
+        string label = playing ? "Stop playing" : TakePlaybackSelector.PlayLabel(
+            SelectTakeForPlayback().MadeUtc, DateTime.Now);
+        if ((_playTakeButton.Content as string) == label &&
+            AutomationProperties.GetName(_playTakeButton) == label) return;
         _playTakeButton.Content = label;
         AutomationProperties.SetName(_playTakeButton, label);
     }
@@ -543,7 +759,7 @@ public partial class AudioWorkshopDialog
     {
         CloseListenback();
         RecordingPlayer.StateChanged -= OnTakePlaybackStateChanged;
-        if (RecordingPlayer.IsPlaying) RecordingPlayer.Stop();
+        StopWorkshopPlayback();
     }
 
     #endregion
@@ -561,9 +777,9 @@ public partial class AudioWorkshopDialog
     /// (warning ladder, license lockout, 15-minute hard kill). This class
     /// adds only session bookkeeping on a 1-second watcher: spoken elapsed
     /// reminders, the record/auto-play flow, state restoration, and the
-    /// hardware-keying honesty check. It never keys the radio itself and
-    /// never builds a second safety timer stack — the 3-minute check timeout
-    /// rides the controller's SessionTimeoutOverrideSeconds hook.
+    /// still-transmitting honesty check. The controller owns all keying and
+    /// the independent 15-minute hard kill. This session alone stops a
+    /// Record and play back check at the radio's two-minute buffer limit.
     /// </summary>
     private sealed class AudioCheckSession
     {
@@ -580,11 +796,17 @@ public partial class AudioWorkshopDialog
         private Phase _phase = Phase.Idle;
         private DateTime _keyedAt;
         private int _lastMinuteSpoken;
-        private bool _bufferWarned;
         private bool _noKeyWarned;
         private bool _hardwareWarned;
         private int _postUnkeyTicks;
         private int _awaitPlaybackTicks;
+
+        // Record and play back rides the one recorder surface (#787). The
+        // slice is fixed at the start by its LETTER, so a slice change during
+        // the check still stops and plays the slice that recorded.
+        private SliceRecorderTarget _recorderTarget = SliceRecorderTarget.TransmitSlice;
+        private Task<RecorderOutcome>? _recordStop;
+        private Task<RecorderOutcome>? _playStart;
 
         // State the session changed and must restore.
         private int _savedPower;
@@ -593,22 +815,13 @@ public partial class AudioWorkshopDialog
         private bool _dummyEngaged;   // WE turned dummy load on; disable restores power
         private int _dummySavedPower; // pre-engage watts, for the spoken restore line
 
-        // Retired 2026-09-07. This was 180, imposed as a session override on
-        // top of the operator's own PTT timeout, and EffectiveTimeoutSeconds
-        // takes the MINIMUM of the two — so a check could never run longer than
-        // three minutes however the operator had set their timeout.
-        //
-        // That blocked work the bench needs: a fifteen-minute reference-audio
-        // run for a PA temperature curve, and the mic-profile comparison in
-        // #572, which needs enough material to hear a difference.
-        //
-        // PttConfig.TimeoutSeconds ALSO defaults to 180 and is clamped to
-        // [10, HardKillSeconds=900], so deferring to it changes nothing for
-        // anyone who has not moved it, and lets an operator who wants a long
-        // deliberate run have one. That clamp is what the 900 was written for.
-        private const int RecordBufferSeconds = 120;   // verified live cap
+        // The recorder surface warns at ten seconds remaining. The check's
+        // own watcher stops at 120 seconds; ordinary transmit timeout warnings
+        // are suppressed during a check, while the independent hard kill and
+        // live safety monitoring remain active.
 
         public bool Active { get; private set; }
+        public bool IsLoopback => _loopback;
 
         /// <summary>
         /// True while Escape must unkey rather than close the dialog. Covers
@@ -639,16 +852,48 @@ public partial class AudioWorkshopDialog
         /// Start the check. Returns false (with everything restored and a
         /// spoken explanation) when keying did not happen.
         /// </summary>
-        public bool Start()
+        public async Task<bool> StartAsync(AudioCheckStartGate.Lease start)
         {
             var rig = Rig;
-            if (rig == null) return false;
+            if (rig == null || !start.IsCurrent || _owner._iqClosing || _ptt.IsTransmitting || rig.Transmit) return false;
 
             // Loopback mode: the arrangement (FlexBase) already owns power
             // (1 W), monitor (off), antennas and full duplex — the session
             // must not double-manage them.
             bool monitorTurnedOn = false;
             bool recorderAlreadyRunning = false;
+
+            // Record and play back arms the radio's recorder FIRST, through
+            // the one reply-checked surface (#787), and waits for the radio to
+            // say yes. A recorder that did not start would make a take with
+            // nothing to play, so the check refuses before anything is changed
+            // or keyed, rather than transmitting for nothing. Until #787 this
+            // was a setter whose reply nobody read.
+            if (!_loopback && _method == AudioCheckListenMethods.RecordPlayback)
+            {
+                string letter = rig.SliceRecorderLetter(SliceRecorderTarget.TransmitSlice);
+                if (letter.Length > 0) _recorderTarget = SliceRecorderTarget.Letter(letter[0]);
+                var armed = await rig.StartSliceRecordAsync(_recorderTarget);
+                if (!armed.Success)
+                {
+                    if (start.IsCurrent && !_owner._iqClosing && ReferenceEquals(rig, Rig))
+                        RecorderControls.Speak(armed);
+                    return false;
+                }
+                // Never blind-toggle a recorder that is already running: a
+                // live re-arm race once nearly wiped an operator's takes.
+                recorderAlreadyRunning = armed.AlreadyInState;
+                if (!start.IsCurrent || _owner._iqClosing || !ReferenceEquals(rig, Rig) || _ptt.IsTransmitting || rig.Transmit)
+                {
+                    // The dialog closed, the radio changed, or something else
+                    // keyed while the radio was answering. Put the recorder back.
+                    if (!recorderAlreadyRunning) await RecorderControls.ReportStopFailureAsync(rig.StopSliceRecordAsync(_recorderTarget));
+                    if (_ptt.IsTransmitting)
+                        ScreenReaderOutput.Speak(Lexicon.Get("audio.already_transmitting"),
+                            VerbosityLevel.Critical, interrupt: true);
+                    return false;
+                }
+            }
             int effectivePower = _loopback ? 1 : rig.XmitPower;
 
             if (!_loopback)
@@ -696,30 +941,12 @@ public partial class AudioWorkshopDialog
                     rig.Monitor = FlexBase.OffOnValues.on;
                 }
 
-                if (_method == AudioCheckListenMethods.RecordPlayback)
-                {
-                    // Re-arm race guard (a live re-arm nearly wiped an
-                    // operator's takes): stop playback before arming, and
-                    // never blind-toggle a recorder that is already running.
-                    if (rig.SlicePlayOn) rig.SlicePlayOn = false;
-                    if (rig.SliceRecordOn)
-                        recorderAlreadyRunning = true;
-                    else
-                        rig.SliceRecordOn = true;
-                }
             }
 
-            // No override: the operator's own PTT timeout governs, and the
-            // controller's ladder and hard kill apply unchanged. The controller
-            // documents SessionTimeoutOverrideSeconds as "deliberately the
-            // minimal hook — the session must NOT grow its own safety timer
-            // stack", and a second, stricter number that the operator cannot
-            // reach was exactly that stack in miniature.
-            //
-            // Explicitly null rather than left alone: the controller outlives a
-            // session, so a stale override from a previous one would silently
-            // cap this run.
-            _ptt.SessionTimeoutOverrideSeconds = null;
+            // Record and play back stops itself at the recorder's 120-second
+            // limit (TickKeyed below); while that comes first, the operator's
+            // timeout ladder stands down. Monitor and off-air checks keep the
+            // operator's timeout exactly as any other transmission does.
 
             // Key through the controller. Its own key-down announcement fires
             // first; the full safety line follows with interrupt so the
@@ -727,27 +954,56 @@ public partial class AudioWorkshopDialog
             // source, and how to stop. Key-down is never silent even if this
             // class faults between the two.
             if (_method == AudioCheckListenMethods.OffAir) _owner._iqRun?.OwnKeying(true);
-            _ptt.ToggleLock();
+            if (_method == AudioCheckListenMethods.OffAir)
+                ScreenReaderOutput.Supersede("audio.iq.preparing", "off-air take ready to start");
+            _ptt.AudioCheckNarration = true;
+            _ptt.PlannedStopSeconds = _method == AudioCheckListenMethods.RecordPlayback
+                ? FlexBase.SliceRecordBufferSeconds : null;
+            bool admitted = start.TryRun(() =>
+            {
+                if (_owner._iqClosing || !ReferenceEquals(rig, Rig) || _ptt.IsTransmitting || rig.Transmit)
+                    return false;
+                _ptt.ToggleLock();
+                return true;
+            });
+            if (!admitted)
+            {
+                _ptt.AudioCheckNarration = false;
+                _ptt.PlannedStopSeconds = null;
+                if (_method == AudioCheckListenMethods.OffAir) _owner._iqRun?.OwnKeying(false);
+                RestoreChangedState(rig, speak: false);
+                if (!_loopback && _method == AudioCheckListenMethods.RecordPlayback && !recorderAlreadyRunning)
+                    await RecorderControls.ReportStopFailureAsync(rig.StopSliceRecordAsync(_recorderTarget));
+                return false;
+            }
             if (!_ptt.IsTransmitting)
             {
+                _ptt.AudioCheckNarration = false;
+                _ptt.PlannedStopSeconds = null;
                 // Refused (license lockout spoke its own warning, or no
                 // power). Roll back everything we touched.
                 _ptt.SessionTimeoutOverrideSeconds = null;
                 RestoreChangedState(rig, speak: false);
                 if (!_loopback && _method == AudioCheckListenMethods.RecordPlayback && !recorderAlreadyRunning)
-                    rig.SliceRecordOn = false;
+                    await RecorderControls.ReportStopFailureAsync(rig.StopSliceRecordAsync(_recorderTarget));
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.check.could_not_start"),
                     VerbosityLevel.Critical);
                 return false;
             }
 
+            _owner._lastAudioCheckSource = rig.TxToneEngaged
+                ? $"{(int)rig.TxToneFrequency} hertz test tone"
+                : rig.TxFilePlaying ? "reference recording" : "microphone";
+
             var line = new StringBuilder();
             if (_method == AudioCheckListenMethods.OffAir)
             {
+                line.Append(Lexicon.Get("audio.iq.listener_added")).Append(' ');
                 line.Append(Lexicon.Get("audio.iq.keyed_line", ("freq", FormatMHz(rig.TXFrequency)), ("source", SourceFriendlyName(rig.MicSource))));
             }
             else if (_loopback)
             {
+                line.Append(Lexicon.Get("audio.check.loopback_ears_added")).Append(' ');
                 // HONESTY (ratified product framing): this is real RF through
                 // a massively overloaded receiver. It proves presence,
                 // processing, and rough shape — never claim a faithful
@@ -801,11 +1057,9 @@ public partial class AudioWorkshopDialog
             // the safety line says so — including the passband warning if the
             // tone sits outside the TX filter (a check that transmits nothing
             // must never sound like a check).
-            string? toneLine = _owner.BuildToneAnnouncement();
-            if (!string.IsNullOrEmpty(toneLine))
-                line.Append(' ').Append(toneLine);
             line.Append(' ').Append(Lexicon.Get("audio.check.escape_stops"));
-            ScreenReaderOutput.Speak(line.ToString(), VerbosityLevel.Critical, interrupt: true);
+            ScreenReaderOutput.Speak("Transmitting", Radios.Speech.SpeechIntent.Queue,
+                VerbosityLevel.Critical);
 
             _keyedAt = DateTime.UtcNow;
             _phase = Phase.Keyed;
@@ -821,9 +1075,17 @@ public partial class AudioWorkshopDialog
         /// </summary>
         public void StopCheck()
         {
+            _owner.CancelCheckStart();
             if (!Active) return;
             if (_phase == Phase.Keyed)
                 HandleUnkey(external: false);
+            else if (_ptt.IsTransmitting || Rig?.Transmit == true)
+            {
+                _ptt.EscapeUnlock();
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.still_transmitting"),
+                    VerbosityLevel.Critical, interrupt: true);
+            }
+            else ForceEnd(null);
         }
 
         /// <summary>
@@ -833,6 +1095,7 @@ public partial class AudioWorkshopDialog
         /// </summary>
         public void ForceEnd(string reason)
         {
+            _owner.CancelCheckStart();
             if (!Active)
             {
                 _watcher.Stop();
@@ -849,12 +1112,15 @@ public partial class AudioWorkshopDialog
                 }
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.check.transmit_off"), VerbosityLevel.Critical);
                 if (rig != null && _method == AudioCheckListenMethods.RecordPlayback)
-                    rig.SliceRecordOn = false;
+                    _ = RecorderControls.ReportStopFailureAsync(rig.StopSliceRecordAsync(_recorderTarget));
             }
             if (rig != null)
             {
                 RestoreChangedState(rig, speak: false);
-                if (rig.SlicePlayOn) rig.SlicePlayOn = false;
+                // Only the take THIS check started is stopped; a playback
+                // started from Home or a menu on another slice is left alone.
+                if (_method == AudioCheckListenMethods.RecordPlayback)
+                    _ = RecorderControls.ReportStopFailureAsync(rig.StopSlicePlayAsync(_recorderTarget));
             }
             End(reason);
         }
@@ -865,6 +1131,8 @@ public partial class AudioWorkshopDialog
             Active = false;
             _watcher.Stop();
             _ptt.SessionTimeoutOverrideSeconds = null;
+            _ptt.AudioCheckNarration = false;
+            _ptt.PlannedStopSeconds = null;
             if (!string.IsNullOrEmpty(reason))
                 ScreenReaderOutput.Speak(reason, VerbosityLevel.Terse);
             _owner.OnSessionEnded();
@@ -915,12 +1183,9 @@ public partial class AudioWorkshopDialog
                 }
                 if (_method == AudioCheckListenMethods.RecordPlayback)
                 {
-                    rig.SliceRecordOn = false;
+                    _recordStop = rig.StopSliceRecordAsync(_recorderTarget);
                     msg.Append(' ').Append(Lexicon.Get("audio.check.playing_take_shortly"));
-                    // The radio just took a take, so it is now the newer of the
-                    // two stores Play last take chooses between (#455).
-                    _owner._newestTakeIsAFile = false;
-                    _owner._radioTakeAt = DateTime.UtcNow;
+                    _owner._radioTakeTarget = _recorderTarget;
                 }
 
                 // The verdict — the whole point of the check. Peak SC_MIC over
@@ -940,7 +1205,7 @@ public partial class AudioWorkshopDialog
 
             // Unconditional key-up announcement (interrupt false so the
             // controller's own "Receiving" isn't stomped when enabled).
-            ScreenReaderOutput.Speak(msg.ToString(), VerbosityLevel.Critical);
+            // The results remain in the read-only box; ordinary key-up is quiet.
 
             _postUnkeyTicks = 0;
             if (_method == AudioCheckListenMethods.RecordPlayback && rig != null)
@@ -992,6 +1257,14 @@ public partial class AudioWorkshopDialog
 
             var elapsed = (DateTime.UtcNow - _keyedAt).TotalSeconds;
 
+            if (_method == AudioCheckListenMethods.RecordPlayback &&
+                elapsed >= FlexBase.SliceRecordBufferSeconds)
+            {
+                _ptt.RecorderLimitUnlock();
+                HandleUnkey(external: true);
+                return;
+            }
+
             // Radio never actually keyed (interlock, wiring): say so once.
             if (!_noKeyWarned && elapsed >= 3 && !rig.Transmit)
             {
@@ -1013,35 +1286,30 @@ public partial class AudioWorkshopDialog
                     VerbosityLevel.Terse);
             }
 
-            // Record buffer is a 120-second ring — warn before the oldest
-            // material starts falling off.
-            if (_method == AudioCheckListenMethods.RecordPlayback &&
-                !_bufferWarned && elapsed >= RecordBufferSeconds - 10)
-            {
-                _bufferWarned = true;
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("audio.check.buffer_nearly_full"),
-                    VerbosityLevel.Terse);
-            }
+            // The record buffer's ten-second warning used to be spoken here.
+            // The recorder surface speaks it now, for every recording
+            // (FlexBase.SliceRecorder.cs, ArmCapWarning), so it is said once
+            // and the same way whichever door started the recording.
         }
 
         private void TickPostUnkey(FlexBase rig)
         {
             _postUnkeyTicks++;
 
-            // Hardware-keying honesty: software unkey cannot override a
-            // hardware PTT line (front-panel mic, ACC, rear RCA). If the rig
-            // is still transmitting after our unkey, say exactly that.
+            // The radio may still be keyed after our unkey. PTTSource SW also
+            // names VOX, so it cannot establish a hardware line by itself.
             if (!_hardwareWarned && _postUnkeyTicks >= 2 && rig.Transmit && !_ptt.IsTransmitting)
             {
                 _hardwareWarned = true;
                 ScreenReaderOutput.Speak(
-                    Lexicon.Get("audio.check.hardware_keying_active", ("source", rig.PttSourceName)),
+                    rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox
+                        ? "Warning: the radio is still transmitting. VOX is on and may be keying it. Check the radio before continuing."
+                        : "Warning: the radio is still transmitting after the app unkeyed. Check P T T and the radio before continuing.",
                     VerbosityLevel.Critical, interrupt: true);
-                return; // keep watching until the hardware line releases
+                return; // keep watching until the radio releases
             }
             if (_hardwareWarned && rig.Transmit)
-                return; // still keyed by hardware — stay alive, Escape keeps warning
+                return; // still keyed — stay alive, Escape keeps warning
             if (_hardwareWarned && !rig.Transmit)
             {
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.check.transmitter_released"), VerbosityLevel.Critical);
@@ -1050,27 +1318,79 @@ public partial class AudioWorkshopDialog
 
             if (_awaitPlaybackTicks == int.MinValue)
             {
-                // No playback wanted — just the post-unkey grace, then done.
+                // The off-air file has its own playback path. Once both the
+                // controller and radio confirm key-up, waiting for two more
+                // timer ticks cannot make teardown safer. Keep the hardware
+                // PTT warning above active until the radio actually releases.
+                if (_method == AudioCheckListenMethods.OffAir)
+                {
+                    if (!_ptt.IsTransmitting && !rig.Transmit) End(null);
+                    return;
+                }
+                // Other no-playback methods retain their post-unkey grace.
                 if (_postUnkeyTicks >= 3)
-                    End(Lexicon.Get("audio.check.ended"));
+                    End(null);
                 return;
             }
 
             // Auto-play-on-unkey (the default flow, performed live: unkey to
             // playback within a second — never demands talking and listening
             // at once).
+            //
+            // Both halves ride the recorder surface (#787): the stop sent at
+            // unkey must be confirmed before playback is asked for, and the
+            // playback itself is reply-checked and refused while transmitting.
             _awaitPlaybackTicks++;
-            if (rig.SlicePlayEnabled)
+            if (_playStart != null)
             {
-                rig.SlicePlayOn = true;
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("audio.check.playing_take_full_chain"),
-                    VerbosityLevel.Terse);
-                End(null);
+                if (!_playStart.IsCompleted && _awaitPlaybackTicks < 8) return;
+                var played = _playStart.IsCompletedSuccessfully ? _playStart.Result : null;
+                if (played?.Success == true)
+                {
+                    _owner._workshopPlayTargets.Add(_recorderTarget);
+                    ScreenReaderOutput.Speak(
+                        "Playing your take.",
+                        Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse, subject: played.Subject);
+                    End(null);
+                }
+                else End(played?.Message ?? Lexicon.Get("audio.check.no_recording_available"));
+                return;
+            }
+            if (_recordStop != null && !_recordStop.IsCompleted)
+            {
+                if (_awaitPlaybackTicks >= 6) End(Lexicon.Get("audio.check.no_recording_available"));
+                return;
+            }
+            if (_recordStop != null && _recordStop.IsCompletedSuccessfully && !_recordStop.Result.Success)
+            {
+                End(_recordStop.Result.Message);
+                return;
+            }
+            if (rig.SliceHasRecording(_recorderTarget))
+            {
+                RecorderControls.Observe(rig);
+                RecorderControls.PlayStartClick();
+                _playStart = rig.StartSlicePlayAsync(_recorderTarget);
+                _ = StopLatePlaybackAfterCloseAsync(_playStart, rig);
             }
             else if (_awaitPlaybackTicks >= 6)
             {
                 End(Lexicon.Get("audio.check.no_recording_available"));
+            }
+        }
+
+        private async Task StopLatePlaybackAfterCloseAsync(Task<RecorderOutcome> start, FlexBase rig)
+        {
+            try
+            {
+                var outcome = await start;
+                if (outcome.Success && _owner._workshopClosing)
+                    await RecorderControls.ReportStopFailureAsync(rig.StopSlicePlayAsync(_recorderTarget));
+            }
+            catch (Exception ex)
+            {
+                JJTrace.Tracing.TraceLine("Workshop late playback stop: " + ex.Message,
+                    System.Diagnostics.TraceLevel.Warning);
             }
         }
 

@@ -98,11 +98,8 @@ namespace JJFlexWpf
             // Two whole utterances rather than a template plus a bare "on" /
             // "off": the state word alone is not a string anybody can review,
             // and a shared on/off key would be edited from six directions.
-            ScreenReaderOutput.Speak(
-                Lexicon.Get(Enabled ? "audio.meters.tones_on" : "audio.meters.tones_off"),
-                VerbosityLevel.Terse, true);
-            if (Enabled) EarconPlayer.FeatureOnTone();
-            else EarconPlayer.FeatureOffTone();
+            ToggleFeedback.Announce("Meter tones", Enabled,
+                sentence: Lexicon.Get(Enabled ? "audio.meters.tones_on" : "audio.meters.tones_off"));
         }
 
         /// <summary>Whether speech readout of meter values is enabled.</summary>

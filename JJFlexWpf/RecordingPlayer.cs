@@ -1,7 +1,8 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.Windows.Threading;
+using System.Threading;
+using System.Threading.Tasks;
 using JJTrace;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
@@ -54,20 +55,17 @@ public static class RecordingPlayer
     /// subscriber must marshal.
     /// </summary>
     public static event Action? StateChanged;
+    /// <summary>Raised after a recording ends naturally and its completion notice is queued.</summary>
+    public static event Action<string>? PlaybackCompleted;
 
     private static readonly object Gate = new();
-    private static WaveFileReader? _reader;
+    private static WaveStream? _reader;
     private static EndOfFileSampleProvider? _provider;
-    private static DispatcherTimer? _watcher;
+    private static FixedGainLimiterSampleProvider? _gain;
+    private static FlexBase? _liveRig;
+    private static bool _priorLiveMute;
     private static string _path = "";
     private static string _name = "";
-
-    /// <summary>
-    /// How often the UI thread asks whether the file has played out. Short
-    /// enough that "finished" lands while the operator is still listening for
-    /// it, long enough to cost nothing.
-    /// </summary>
-    private static readonly TimeSpan WatchInterval = TimeSpan.FromMilliseconds(100);
 
     /// <summary>True while a recording is playing.</summary>
     public static bool IsPlaying
@@ -97,7 +95,13 @@ public static class RecordingPlayer
     /// nothing cannot tell "playing silence" from "did not start", and that
     /// ambiguity is exactly what this whole finding was made of.
     /// </summary>
-    public static bool Play(string path)
+    public static bool Play(string path, string? announcement = null, FlexBase? liveRig = null,
+        bool offAirListeningGain = false, bool? priorLiveMute = null) =>
+        PlayWithMixer(path, announcement, liveRig, offAirListeningGain, EarconPlayer.AddRecordingPlayback,
+            priorLiveMute);
+
+    internal static bool PlayWithMixer(string path, string? announcement, FlexBase? liveRig,
+        bool offAirListeningGain, Func<ISampleProvider, bool> addPlayback, bool? priorLiveMute = null)
     {
         if (string.IsNullOrEmpty(path))
         {
@@ -107,7 +111,7 @@ public static class RecordingPlayer
 
         Stop();
 
-        WaveFileReader reader;
+        WaveStream reader;
         try
         {
             if (!File.Exists(path))
@@ -116,7 +120,9 @@ public static class RecordingPlayer
                     ("file", Path.GetFileNameWithoutExtension(path))));
                 return false;
             }
-            reader = new WaveFileReader(path);
+            reader = string.Equals(Path.GetExtension(path), ".flac", StringComparison.OrdinalIgnoreCase)
+                ? new RecordedQsoFlacWaveStream(path)
+                : new WaveFileReader(path);
         }
         catch (Exception ex)
         {
@@ -127,9 +133,14 @@ public static class RecordingPlayer
         }
 
         EndOfFileSampleProvider provider;
+        FixedGainLimiterSampleProvider gain;
         try
         {
-            provider = new EndOfFileSampleProvider(ToMixerFormat(reader));
+            // The +30 dB listening gain is for the off-air IQ render only (Noel, 2026-10-20 09:01),
+            // which is fixed-scale and quiet. A take this computer recorded is already at
+            // microphone level; lifting it 30 dB would drive it into the limiter.
+            gain = new FixedGainLimiterSampleProvider(ToMixerFormat(reader), offAirListeningGain);
+            provider = new EndOfFileSampleProvider(gain);
         }
         catch (Exception ex)
         {
@@ -154,37 +165,71 @@ public static class RecordingPlayer
             Trace.WriteLine($"RecordingPlayer: no length for {path}: {ex.Message}");
         }
 
+        var announced = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        provider.Ended += () => _ = Task.Run(async () =>
+        {
+            await announced.Task.ConfigureAwait(false);
+            End(Lexicon.Get("audio.take.playback_finished"), confirmTone: true, expected: provider);
+        });
         lock (Gate)
         {
             _reader = reader;
             _provider = provider;
+            _gain = gain;
             _path = path;
             _name = Path.GetFileNameWithoutExtension(path);
+            _liveRig = liveRig;
+            _priorLiveMute = priorLiveMute ?? liveRig?.LocalReceiveMutedForTakePlayback ?? false;
+            if (liveRig != null) liveRig.LocalReceiveMutedForTakePlayback = true;
         }
 
-        if (!EarconPlayer.AddRecordingPlayback(provider))
+        if (!addPlayback(provider))
         {
+            announced.TrySetResult(true);
             // No mixer means no audio device is open for us to play through.
             // Say so instead of sitting silently in a "playing" state.
             lock (Gate)
             {
                 _reader = null;
                 _provider = null;
+                _gain = null;
                 _path = "";
+                RestoreLiveAudio();
             }
             reader.Dispose();
             Refuse(Lexicon.Get("audio.take.play_no_output"));
             return false;
         }
 
-        StartWatching();
-        StateChanged?.Invoke();
-        ScreenReaderOutput.Speak(
-            Lexicon.Get("audio.take.playing",
-                ("name", _name),
-                ("length", RecordingStore.DescribeLength(seconds))),
-            VerbosityLevel.Terse, interrupt: true);
-        return true;
+        try
+        {
+            StateChanged?.Invoke();
+            AnnounceStarted(announcement ?? Lexicon.Get("audio.take.playing",
+                ("name", _name), ("length", RecordingStore.DescribeLength(seconds))), offAirListeningGain);
+            announced.TrySetResult(true);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            announced.TrySetResult(true);
+            // This path begins after the local receive gate was applied.
+            // End clears it before any refusal can itself fault or be delayed.
+            try { End(""); } catch (Exception cleanup) { Trace.WriteLine($"RecordingPlayer cleanup failed: {cleanup}"); }
+            Refuse(Lexicon.Get("audio.take.play_failed", ("reason", ex.Message)));
+            return false;
+        }
+    }
+
+    /// <summary>The sole successful-start announcement, chosen by the playback caller.</summary>
+    internal static void AnnounceStarted(string announcement, bool gained = true) => ScreenReaderOutput.Speak(
+        gained ? announcement.TrimEnd() + " " + Lexicon.Get("audio.take.fixed_gain") : announcement.TrimEnd(),
+        VerbosityLevel.Terse, interrupt: true);
+
+    private static void RestoreLiveAudio()
+    {
+        if (_liveRig != null) _liveRig.LocalReceiveMutedForTakePlayback = _priorLiveMute;
+        _liveRig = null;
+        _priorLiveMute = false;
     }
 
     /// <summary>
@@ -193,50 +238,25 @@ public static class RecordingPlayer
     /// </summary>
     public static void Stop() => End(spokenReason: Lexicon.Get("audio.check.playback_stopped"));
 
-    /// <summary>
-    /// Watch for the file playing out, on the thread that started it. See
-    /// <see cref="EndOfFileSampleProvider"/> for why end of file is a flag
-    /// rather than a callback.
-    /// </summary>
-    private static void StartWatching()
+    private static void End(string spokenReason, bool confirmTone = false, EndOfFileSampleProvider? expected = null)
     {
-        StopWatching();
-        var watcher = new DispatcherTimer { Interval = WatchInterval };
-        watcher.Tick += (s, e) =>
-        {
-            EndOfFileSampleProvider? provider;
-            lock (Gate) provider = _provider;
-            if (provider == null) { StopWatching(); return; }
-            if (!provider.HasEnded) return;
-            // Says so rather than only going quiet: a recording of digital
-            // silence and a playback that never started sound identical, and
-            // only one of them ends with this sentence.
-            End(Lexicon.Get("audio.take.playback_finished"), confirmTone: true);
-        };
-        _watcher = watcher;
-        watcher.Start();
-    }
-
-    private static void StopWatching()
-    {
-        var watcher = _watcher;
-        _watcher = null;
-        watcher?.Stop();
-    }
-
-    private static void End(string spokenReason, bool confirmTone = false)
-    {
-        WaveFileReader? reader;
+        WaveStream? reader;
         EndOfFileSampleProvider? provider;
+        bool limited;
+        string completedPath;
         lock (Gate)
         {
+            if (expected != null && !ReferenceEquals(_provider, expected)) return;
             reader = _reader;
             provider = _provider;
+            limited = _gain?.Limited ?? false;
+            completedPath = _path;
             _reader = null;
             _provider = null;
+            _gain = null;
             _path = "";
+            RestoreLiveAudio();
         }
-        StopWatching();
         if (provider == null) return;
 
         EarconPlayer.RemoveRecordingPlayback(provider);
@@ -255,7 +275,10 @@ public static class RecordingPlayer
 
         StateChanged?.Invoke();
         if (confirmTone) EarconPlayer.ConfirmTone();
-        ScreenReaderOutput.Speak(spokenReason, VerbosityLevel.Terse, interrupt: false);
+        if (!string.IsNullOrEmpty(spokenReason))
+            ScreenReaderOutput.Speak(spokenReason, VerbosityLevel.Terse, interrupt: false);
+        if (limited) ScreenReaderOutput.Speak(Lexicon.Get("audio.take.limiter_engaged"), VerbosityLevel.Terse);
+        if (expected != null) PlaybackCompleted?.Invoke(completedPath);
     }
 
     /// <summary>Say why it will not play, with the tone that means refusal.</summary>
@@ -271,7 +294,7 @@ public static class RecordingPlayer
     /// rate a microphone offered and is usually mono; the mixer is 44100 Hz
     /// stereo and will refuse anything else.
     /// </summary>
-    private static ISampleProvider ToMixerFormat(WaveFileReader reader)
+    private static ISampleProvider ToMixerFormat(WaveStream reader)
     {
         WaveFormat want = EarconPlayer.RecordingPlaybackFormat;
         ISampleProvider source = reader.ToSampleProvider();
@@ -284,18 +307,47 @@ public static class RecordingPlayer
         return source;
     }
 
+    /// <summary>Fixed 30 dB playback gain with a soft ceiling for the off-air render, or unity for
+    /// anything else; file samples remain unmodified either way.</summary>
+    internal sealed class FixedGainLimiterSampleProvider : ISampleProvider
+    {
+        private readonly ISampleProvider _source;
+        private int _limited;
+        private readonly bool _gained;
+        public FixedGainLimiterSampleProvider(ISampleProvider source, bool gained = true)
+        {
+            _source = source;
+            _gained = gained;
+        }
+        public WaveFormat WaveFormat => _source.WaveFormat;
+        public bool Limited => Volatile.Read(ref _limited) != 0;
+        public int Read(Span<float> buffer)
+        {
+            int count = _source.Read(buffer);
+            if (!_gained) return count; // unity: the file plays exactly as recorded
+            for (int i = 0; i < count; i++)
+            {
+                double scaled = buffer[i] * 31.622776601683793; // +30 dB, never per-take normalization.
+                double level = Math.Abs(scaled);
+                if (level > 0.8)
+                {
+                    Volatile.Write(ref _limited, 1);
+                    level = 0.8 + 0.19 * (1.0 - Math.Exp(-(level - 0.8) / 0.19));
+                    scaled = Math.CopySign(level, scaled);
+                }
+                buffer[i] = (float)scaled;
+            }
+            return count;
+        }
+    }
+
     /// <summary>
-    /// Passes audio through and RAISES A FLAG when the source runs out.
+    /// Passes audio through and signals end of file without doing cleanup on the mixer thread.
     /// </summary>
     /// <remarks>
-    /// <b>A flag, not a callback, and that is the whole reason this class
-    /// exists in this shape.</b> Read runs on the audio render thread, inside
-    /// the mixer's own walk of its input list. Calling back from there would
-    /// mean removing a mixer input from inside that walk, disposing a file
-    /// handle on the render thread, and speaking from a thread that has no
-    /// business speaking. So it sets a bool and returns, and the player's own
-    /// timer notices on the UI thread, where every other state change in this
-    /// class already happens.
+    /// Read runs on the audio render thread, inside the mixer's input walk.
+    /// The signal only schedules cleanup on a worker; it never removes an
+    /// input, disposes a file, or speaks inside that walk.
     /// <para>
     /// It keeps returning zero afterwards, so a mixer that has not dropped it
     /// yet hears silence rather than the file starting again.
@@ -304,18 +356,19 @@ public static class RecordingPlayer
     private sealed class EndOfFileSampleProvider : ISampleProvider
     {
         private readonly ISampleProvider _source;
-        private volatile bool _ended;
+        private int _ended;
+        public event Action? Ended;
 
         public EndOfFileSampleProvider(ISampleProvider source) { _source = source; }
 
         /// <summary>True once the file has played out.</summary>
-        public bool HasEnded => _ended;
+        public bool HasEnded => Volatile.Read(ref _ended) != 0;
 
         public WaveFormat WaveFormat => _source.WaveFormat;
 
         public int Read(Span<float> buffer)
         {
-            if (_ended) return 0;
+            if (HasEnded) return 0;
             int read;
             try
             {
@@ -328,10 +381,15 @@ public static class RecordingPlayer
                 Trace.WriteLine($"RecordingPlayer read failed: {ex.Message}");
                 read = 0;
             }
-            if (read > 0) return read;
+            if (read == buffer.Length) return read;
 
-            _ended = true;
-            return 0;
+            // A short read is the end too, not just a zero one. NAudio's
+            // MixingSampleProvider drops an input the moment it returns fewer
+            // samples than asked and never reads it again, so a provider that
+            // waited for a zero read never heard its own end: the 8.4 s take on
+            // 2026-10-20 still said "playing" 13 s later, with live audio muted.
+            if (Interlocked.Exchange(ref _ended, 1) == 0) Ended?.Invoke();
+            return read;
         }
     }
 }

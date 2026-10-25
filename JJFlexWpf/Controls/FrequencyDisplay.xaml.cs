@@ -112,7 +112,7 @@ public partial class FrequencyDisplay : UserControl
                            FieldHandlerDelegate? handler = null)
         {
             Key = key;
-            Length = System.Math.Min(length, 20); // Match WinForms cap
+            Length = key == "Recorded" ? length : System.Math.Min(length, 20);
             LeftDelim = leftDelim;
             RightDelim = rightDelim;
             Handler = handler;
@@ -796,6 +796,7 @@ public partial class FrequencyDisplay : UserControl
             return field.Label ?? Radios.Lexicon.Get("settings.home.slice_operations");
         }
 
+        if (field.Key is "Record" or "Recorded") return value;
         string label = field.Label ?? field.Key;
         return string.IsNullOrEmpty(value)
             ? label
@@ -831,6 +832,8 @@ public partial class FrequencyDisplay : UserControl
         // Toggle fields: translate display characters to speech
         if (key == "Split")
             return raw == "S" ? on : off;
+
+        if (key == "Record") return raw == "R" ? Radios.Lexicon.Get("audio.recorder.stop_strip") : "Record";
 
         if (key == "VOX")
             return raw == "V" ? on : off;

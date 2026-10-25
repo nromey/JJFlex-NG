@@ -154,7 +154,7 @@ namespace Radios.Tests
         [Fact]
         public void Vox_followup_survives_the_readers_cancellation_at_the_real_pump_boundary()
         {
-            const string note = "VOX was paused for the hold on keying.";
+            const string note = "A safety consequence is pending.";
             SpeakSafety(Cut, SpeechSubject.ReflectedPowerCut);
             var cut = _ch.WaitForCall();
             _arbiter.SafetyFollowup(note, VerbosityLevel.Terse, "test", SpeechSubject.VoxPausedAfterCut);

@@ -98,7 +98,20 @@ namespace Radios.Tests
                 // lines, so \s (which matches newlines in .NET) does the work.
                 var display = Regex.Match(chunk,
                     @"new\s*\(\s*""Leader""\s*,\s*""JJ key""\s*,\s*""([^""]+)""\s*,\s*""([^""]+)""");
-                if (!display.Success) continue;
+                string description;
+                if (display.Success) description = display.Groups[2].Value;
+                else
+                {
+                    display = Regex.Match(chunk,
+                        @"new\s*\(\s*""Leader""\s*,\s*""JJ key""\s*,\s*""([^""]+)""\s*,\s*(?:Radios\.)?Lexicon\.Get\(""([^""]+)""\)");
+                    Assert.True(display.Success, "Unparsed leader inventory row: " + chunk);
+                    string key = display.Groups[2].Value;
+                    // Read the shipped source, not the process-wide mutable
+                    // lexicon store: this scanner runs in several test classes.
+                    using var store = System.Text.Json.JsonDocument.Parse(ReadSource(Path.Combine("Radios", "Lexicon", key.Split('.')[0] + ".json")));
+                    Assert.True(store.RootElement.TryGetProperty(key, out var entry), "Missing inventory description: " + key);
+                    description = entry.ValueKind == System.Text.Json.JsonValueKind.String ? entry.GetString()! : entry.GetProperty("text").GetString()!;
+                }
 
                 var excluded = new List<string>();
                 var ex = Regex.Match(chunk, @"ExcludedKeys\s*=\s*new\[\]\s*\{([^}]*)\}");
@@ -109,7 +122,7 @@ namespace Radios.Tests
                 }
 
                 result.Add(new InventoryEntry(
-                    display.Groups[1].Value, display.Groups[2].Value, excluded));
+                    display.Groups[1].Value, description, excluded));
             }
             return result;
         }

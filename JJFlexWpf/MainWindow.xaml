@@ -22,6 +22,11 @@
                 Row 2: LoggingPanel   — Phase 8.8: LogEntryControl + RadioPane (Collapsed by default)
     -->
     <DockPanel>
+        <!-- A file capture outlives a radio disconnect and the rescue page. -->
+        <Button DockPanel.Dock="Top" x:Name="DisconnectedRecorderStop"
+                Visibility="Collapsed" HorizontalAlignment="Left" Margin="4"
+                AutomationProperties.AutomationId="DisconnectedRecorderStop"
+                Click="DisconnectedRecorderStop_Click" />
         <!-- Menu bar is now a WinForms MenuStrip on ShellForm (Sprint 12).
              Native Win32 HMENU menus work correctly with JAWS/NVDA. -->
 

@@ -1,7 +1,13 @@
 #nullable enable
 using System;
 using System.Diagnostics;
+using System.ComponentModel;
+using System.Globalization;
+using System.Linq;
+using System.Threading.Tasks;
+using Flex.Smoothlake.FlexLib;
 using JJTrace;
+using Radios.Listenback;
 
 namespace Radios
 {
@@ -50,7 +56,20 @@ namespace Radios
 
         private readonly object _voxPauseGate = new object();
         private VoxPauseOwner? _voxPauses;
+        private VoxPauseOwner.Lease? _toneVoxLease;
+        private VoxPauseOwner.Lease? _referenceVoxLease;
+        private string? _voxPausedAtDisconnectSerial;
         private object? _voxPauseRadio;
+        private readonly object _voxReplyGate = new object();
+        private readonly System.Collections.Generic.Dictionary<VoxSetting, (Radio Radio, bool On, Task<bool> Reply)> _voxReplies = new();
+
+        internal Task<bool> LastVoxWriteReply(VoxSetting which, Radio radio, bool on)
+        {
+            lock (_voxReplyGate)
+                return _voxReplies.TryGetValue(which, out var pending) &&
+                    ReferenceEquals(pending.Radio, radio) && pending.On == on
+                    ? pending.Reply : Task.FromResult(false);
+        }
 
         /// <summary>
         /// Shared by every temporary VOX holder on this rig. Acquire the exact
@@ -97,7 +116,41 @@ namespace Radios
 
         private void DisconnectVoxPauses()
         {
-            lock (_voxPauseGate) _voxPauses?.Disconnect();
+            // Read slice leases before the VOX gate. Slice status can dispose
+            // a lease while holding its own gate; reversing that order here
+            // would put disconnect into the same inversion as that status path.
+            VoxPauseOwner.Lease?[] sliceLeases;
+            lock (_sliceRecorders)
+                sliceLeases = _sliceRecorders.Values.Select(s => s.PlaybackVoxLease).ToArray();
+            bool slicePaused = sliceLeases.Any(lease => lease?.Paused == true);
+            lock (_voxPauseGate)
+            {
+                if ((_toneVoxLease?.Paused == true || _referenceVoxLease?.Paused == true || slicePaused)
+                    && theRadio?.Serial is string serial)
+                    _voxPausedAtDisconnectSerial = serial;
+                txToneGen.Stop();
+                TxFileStop();
+                _voxPauses?.Disconnect();
+                _referenceVoxLease?.Dispose();
+                _referenceVoxLease = null;
+                _toneVoxLease?.Dispose();
+                _toneVoxLease = null;
+                _voxPauses = null;
+                _voxPauseRadio = null;
+            }
+        }
+
+        private void AnnounceVoxPauseAfterReconnect(Radio radio)
+        {
+            lock (_voxPauseGate)
+            {
+                if (radio?.Serial == null || !string.Equals(radio.Serial, _voxPausedAtDisconnectSerial,
+                    StringComparison.OrdinalIgnoreCase)) return;
+                _voxPausedAtDisconnectSerial = null;
+            }
+            ScreenReaderOutput.Speak(
+                "VOX was paused when this radio disconnected. Check whether VOX is on before transmitting.",
+                VerbosityLevel.Critical, interrupt: true);
         }
 
         /// <summary>
@@ -150,9 +203,25 @@ namespace Radios
             }
             using (AppInitiatedSettingChanges())
             {
-                FunctionDel write = which == VoxSetting.CwBreakIn
-                    ? (FunctionDel)(() => { radio.CWBreakIn = on; })
-                    : (FunctionDel)(() => { radio.SimpleVOXEnable = on; });
+                FunctionDel write = () =>
+                {
+                    using var appWrite = AppInitiatedSettingChanges();
+                    string command = which == VoxSetting.CwBreakIn
+                        ? $"cw break_in {(on ? 1 : 0)}"
+                        : $"transmit set vox_enable={(on ? 1 : 0)}";
+                    // The FlexLib setter sends the command but does not attach a
+                    // reply handler. Its transmit trace records that command's
+                    // sequence and the matching reply without a second write.
+                    var reply = new VoxWriteReply(radio, command);
+                    try
+                    {
+                        if (which == VoxSetting.CwBreakIn) radio.CWBreakIn = on;
+                        else radio.SimpleVOXEnable = on;
+                        lock (_voxReplyGate) _voxReplies[which] = (radio, on, reply.Result);
+                        reply.FinishWrite();
+                    }
+                    catch { reply.Dispose(); throw; }
+                };
                 if (immediate)
                 {
                     try { write(); }
@@ -173,6 +242,76 @@ namespace Radios
             }
             Tracing.TraceLine("WriteVoxSetting: " + which + "=" + on + " queued (app-initiated)", TraceLevel.Info);
             return true;
+        }
+
+        private sealed class VoxWriteReply : IDisposable
+        {
+            private readonly Radio _radio;
+            private readonly string _command;
+            private readonly RadioStatusTap _traceLease;
+            private readonly TaskCompletionSource<bool> _result = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            private int _sequence;
+            private bool _disposed;
+            internal Task<bool> Result => _result.Task;
+
+            internal VoxWriteReply(Radio radio, string command)
+            {
+                _radio = radio;
+                _command = command;
+                _traceLease = new RadioStatusTap(radio);
+                radio.PropertyChanged += Changed;
+            }
+
+            private void Changed(object? sender, PropertyChangedEventArgs e)
+            {
+                if (e.PropertyName != nameof(Radio.TelnetTraceOutput) || _disposed) return;
+                string? line;
+                var output = _radio.TelnetTraceOutput;
+                lock (output) line = output.Count == 0 ? null : output[^1];
+                if (line == _command)
+                {
+                    var sequences = _radio.TelnetTraceResponseSeqNums;
+                    lock (sequences)
+                        if (sequences.Count > 0)
+                            _sequence = Convert.ToInt32(sequences[^1], CultureInfo.InvariantCulture);
+                    Tracing.TraceLine($"VOX write traced: sequence={_sequence} command={_command}", TraceLevel.Info);
+                }
+                else if (_sequence != 0 && line?.StartsWith($"R{_sequence}|", StringComparison.Ordinal) == true)
+                {
+                    string[] parts = line.Split('|', 3);
+                    uint code = 0;
+                    bool parsed = parts.Length >= 2 && uint.TryParse(parts[1], NumberStyles.HexNumber,
+                        CultureInfo.InvariantCulture, out code);
+                    Tracing.TraceLine($"VOX write reply: sequence={_sequence} code={(parsed ? code.ToString("X8") : "invalid")} text={(parts.Length > 2 ? parts[2] : "")} command={_command}", TraceLevel.Info);
+                    _result.TrySetResult(parsed && code == 0);
+                    Dispose();
+                }
+            }
+
+            internal void FinishWrite()
+            {
+                if (_sequence == 0)
+                {
+                    Tracing.TraceLine($"VOX write had no traced command: {_command}", TraceLevel.Warning);
+                    _result.TrySetResult(false);
+                    Dispose();
+                    return;
+                }
+                _ = Task.Delay(TimeSpan.FromSeconds(3)).ContinueWith(_ =>
+                {
+                    if (_result.TrySetResult(false))
+                        Tracing.TraceLine($"VOX write reply timed out: sequence={_sequence} command={_command}", TraceLevel.Warning);
+                    Dispose();
+                });
+            }
+
+            public void Dispose()
+            {
+                if (_disposed) return;
+                _disposed = true;
+                _radio.PropertyChanged -= Changed;
+                _traceLease.Dispose();
+            }
         }
 
         /// <summary>

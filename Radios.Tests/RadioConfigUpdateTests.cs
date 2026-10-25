@@ -99,6 +99,26 @@ public sealed class RadioConfigUpdateTests : IDisposable
     }
 
     [Fact]
+    public void SliceTakeTimeSurvivesReloadOnlyForTheSameRadioDurationAndLetter()
+    {
+        var made = new DateTime(2026, 10, 24, 15, 30, 0, DateTimeKind.Utc);
+        Assert.True(RadioConfig.RecordSliceTake(Serial, "A", 12.5, made));
+        var saved = RadioConfig.LoadForRadio(Serial);
+        Assert.Equal(made, saved.TrustedSliceTakeTime("A", 12.55));
+        Assert.Null(saved.TrustedSliceTakeTime("A", 12.61));
+        Assert.Null(saved.TrustedSliceTakeTime("B", 12.5));
+        Assert.Null(saved.TrustedSliceTakeTime("A", null));
+    }
+
+    [Fact]
+    public void SliceTakeUpdateKeepsAnUnrelatedSettingsWrite()
+    {
+        Assert.True(RadioConfig.Update(Serial, c => c.Nickname = "chosen"));
+        Assert.True(RadioConfig.RecordSliceTake(Serial, "B", 120, DateTime.UtcNow));
+        Assert.Equal("chosen", RadioConfig.LoadForRadio(Serial).Nickname);
+    }
+
+    [Fact]
     public void HeldSettingsCopyCannotEraseASeparateChange()
     {
         var held = RadioConfig.LoadForRadio(Serial);

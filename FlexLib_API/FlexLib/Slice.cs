@@ -1645,6 +1645,11 @@ namespace Flex.Smoothlake.FlexLib
             get { return _playEnabled; }            
         }
 
+        // JJFlex patch: preserve the radio's per-slice recorder duration from status.
+        // Keep the raw value so callers can validate the format and units on a bench radio.
+        private string _recordTimeRaw;
+        public string RecordTimeRaw => _recordTimeRaw;
+
         private int _maxInternalPaPowerWatts = 100; // Default to 100W, unless otherwise specified by platform.
         public int MaxInternalPaPowerWatts
         {
@@ -3285,6 +3290,13 @@ namespace Flex.Smoothlake.FlexLib
 
                         case "dax_clients":
                         case "record_time":
+                            // JJFlex patch: FlexLib previously discarded this radio-reported field.
+                            if (!string.Equals(_recordTimeRaw, value, StringComparison.Ordinal))
+                            {
+                                _recordTimeRaw = value;
+                                RaisePropertyChanged(nameof(RecordTimeRaw));
+                            }
+                            break;
                         case "diversity_parent":
                             // keep these from showing up in the debug output
                             break;

@@ -128,7 +128,15 @@ public partial class MainWindow : UserControl
         // the scope's door on the menu route (the door closes with the
         // Connecting window; power-on and the settle come seconds later) and
         // covers the discovery a menu command starts.
-        FreqOut.SuppressFocusPrefix = () => _connectQuiet.IsQuiet || Radios.ConnectBriefing.Current.InFlight;
+        FreqOut.SuppressFocusPrefix = () =>
+        {
+            if (_suppressLoggingHomePrefix)
+            {
+                _suppressLoggingHomePrefix = false;
+                return true;
+            }
+            return _connectQuiet.IsQuiet || Radios.ConnectBriefing.Current.InFlight;
+        };
 
         // Audio Workshop hooks that must NOT wait for a radio (2026-08-12).
         // The workshop's "This Computer" section and its preset toolbar both
@@ -1622,8 +1630,8 @@ public partial class MainWindow : UserControl
     /// un-collapsing each panel means the connected layout is never rebuilt
     /// from a memory of what it used to look like; the mode builders stay the
     /// single source of truth.</para>
-    /// <para><c>ApplyUIMode</c> also restores the meters visibility captured
-    /// at disconnect, or the newer choice made through Ctrl+M while offline.
+        /// <para><c>ApplyUIMode</c> also restores the meters visibility captured
+        /// at disconnect. Ctrl+M cannot change that choice while offline.
     /// It does not toggle the panel, speak, or move focus. The panadapter
     /// still comes back on the first pan line through <c>PanDisplayCallback</c>
     /// if the operator's Show-panadapter setting is on.</para>
@@ -2567,6 +2575,7 @@ public partial class MainWindow : UserControl
         if (ActiveUIMode == UIMode.Logging)
             return;
 
+        _focusBeforeLogging = Keyboard.FocusedElement;
         LastNonLogMode = ActiveUIMode;
         ApplyUIMode(UIMode.Logging);
 
@@ -2577,8 +2586,14 @@ public partial class MainWindow : UserControl
         // In pure WPF, this just works — no BeginInvoke, no ElementHost dance.
         LoggingLogEntry.FocusCallSign();
 
-        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.entering_logging"), VerbosityLevel.Terse);
+        Radios.ScreenReaderOutput.Speak(
+            Radios.ScreenReaderOutput.CurrentVerbosity == VerbosityLevel.Chatty
+                ? Radios.Lexicon.Get("connect.home.entering_logging") : "Logging mode",
+            VerbosityLevel.Terse);
     }
+
+    private IInputElement? _focusBeforeLogging;
+    private bool _suppressLoggingHomePrefix;
 
     /// <summary>
     /// Exit Logging Mode, returning to last non-logging mode.
@@ -2596,15 +2611,27 @@ public partial class MainWindow : UserControl
 
         // Phase 8.8+: Check for unsaved QSO, save LogPanel state
 
+        // Speak before Home becomes visible and focus moves: NVDA then reads
+        // its own Home/field announcement after our mode transition sentence.
+        _suppressLoggingHomePrefix = true;
+        Radios.ScreenReaderOutput.Speak($"Leaving logging mode, {LastNonLogMode} tuning mode.",
+            Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Terse);
         ApplyUIMode(LastNonLogMode);
 
-        // Focus FreqOut display (the primary control in Classic/Modern modes),
-        // or the rescue page when that is what Home currently is.
-        FocusHome();
+        // The mode switch hides Home temporarily. Restore the actual field or
+        // expander control the operator was using when it becomes visible again.
+        var priorFocus = _focusBeforeLogging;
+        _focusBeforeLogging = null;
+        if (priorFocus is UIElement element && element.IsVisible && element.IsEnabled)
+            Keyboard.Focus(priorFocus);
+        else
+            FocusHome();
 
-        Radios.ScreenReaderOutput.Speak(
-            Radios.Lexicon.Get("connect.home.returning_to_mode", ("mode", LastNonLogMode)),
-            VerbosityLevel.Terse);
+        // The focus prefix is posted at Normal priority. Clear the one-shot
+        // after that post, including when focus landed on an expander instead.
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background,
+            new Action(() => _suppressLoggingHomePrefix = false));
+
     }
 
     #endregion
@@ -2666,6 +2693,16 @@ public partial class MainWindow : UserControl
         // ExecuteActionToolbarItem code retained in this file for the future
         // redesign to build on.
         var rawKey = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (rawKey == Key.Tab && (Keyboard.Modifiers == ModifierKeys.Control ||
+            Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift)) &&
+            (FreqOut.IsKeyboardFocusWithin || FieldsPanel.IsKeyboardFocusWithin))
+        {
+            if (FieldsPanel.Visibility == Visibility.Visible)
+                FieldsPanel.FocusNextHomePane((Keyboard.Modifiers & ModifierKeys.Shift) == 0);
+            else FocusHome();
+            e.Handled = true;
+            return;
+        }
         // #583 evidence, diagnostic only. Same KEYROUTE tag as the shell's
         // ProcessCmdKey, so a capture shows which of the two saw the key first.
         // Key.System is reported separately because it is how WPF marks a key
@@ -2825,6 +2862,14 @@ public partial class MainWindow : UserControl
                 e.Handled = true;
                 return;
             }
+        }
+
+        if (rawKey == Key.Escape && Keyboard.Modifiers == ModifierKeys.None &&
+            (FreqOut.IsKeyboardFocusWithin || FieldsPanel.IsKeyboardFocusWithin) &&
+            FieldsPanel.TryCloseExpandedGroups())
+        {
+            e.Handled = true;
+            return;
         }
 
         // 5. Fall through to focused control (default WPF behavior)
@@ -3302,6 +3347,7 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void WireRadioEvents()
     {
+        HideDisconnectedRecorderStop();
         if (RigControl == null) return;
 
         // Sprint 42 Track D (#395): a connect is genuinely starting — this is
@@ -3332,6 +3378,7 @@ public partial class MainWindow : UserControl
         ExitRescueMode();
 
         SetupBoxes();
+        if (RigControl != null) Dialogs.AudioWorkshopDialog.NotifyRigReady(RigControl);
 
         // Wire memory dialog delegate
         if (RigControl != null)
@@ -3859,6 +3906,7 @@ public partial class MainWindow : UserControl
     /// </summary>
     private void RestoreNoRadioShell()
     {
+        ShowDisconnectedRecorderStop();
         try
         {
             // #500, and this is the SECOND collapse route — the one the
@@ -4112,6 +4160,10 @@ public partial class MainWindow : UserControl
         // the KeyInventory table like every other field (QB Track L).
         fields.Add(new FrequencyDisplay.DisplayField("TXSlice", 1, "", "") { Label = "Transmit slice",
             HelpItems = KeyInventory.HelpItemsFor("TXSlice", modern: false) });
+        fields.Add(new FrequencyDisplay.DisplayField("Record", 1, "", "") { Label = "Record",
+            HelpItems = KeyInventory.HelpItemsFor("Record", modern: false) });
+        fields.Add(new FrequencyDisplay.DisplayField("Recorded", 52, "", "") { Label = "Play recording",
+            HelpItems = KeyInventory.HelpItemsFor("Recorded", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset",
             HelpItems = KeyInventory.HelpItemsFor("Offset", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2,
@@ -4188,6 +4240,10 @@ public partial class MainWindow : UserControl
         // HelpItems from the KeyInventory table (QB Track L).
         fields.Add(new FrequencyDisplay.DisplayField("TXSlice", 1, "", "") { Label = "Transmit slice",
             HelpItems = KeyInventory.HelpItemsFor("TXSlice", modern: true) });
+        fields.Add(new FrequencyDisplay.DisplayField("Record", 1, "", "") { Label = "Record",
+            HelpItems = KeyInventory.HelpItemsFor("Record", modern: true) });
+        fields.Add(new FrequencyDisplay.DisplayField("Recorded", 52, "", "") { Label = "Play recording",
+            HelpItems = KeyInventory.HelpItemsFor("Recorded", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset",
             HelpItems = KeyInventory.HelpItemsFor("Offset", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2,
@@ -4298,6 +4354,12 @@ public partial class MainWindow : UserControl
                 case "TXSlice":
                     _freqOutHandlers.AdjustTxSlice(field, e);
                     break;
+                case "Record":
+                    _freqOutHandlers.AdjustRecord(field, e);
+                    break;
+                case "Recorded":
+                    _freqOutHandlers.AdjustRecorded(field, e);
+                    break;
                 case "Offset":
                     _freqOutHandlers.AdjustOffset(field, e);
                     break;
@@ -4337,6 +4399,12 @@ public partial class MainWindow : UserControl
                 break;
             case "TXSlice":
                 _freqOutHandlers.AdjustTxSlice(field, e);
+                break;
+            case "Record":
+                _freqOutHandlers.AdjustRecord(field, e);
+                break;
+            case "Recorded":
+                _freqOutHandlers.AdjustRecorded(field, e);
                 break;
             case "SMeter":
                 _freqOutHandlers.AdjustSMeter(field, e);
@@ -4444,6 +4512,8 @@ public partial class MainWindow : UserControl
 
             // VOX
             FreqOut.Write("VOX", RigControl.Vox == FlexBase.OffOnValues.on ? "V" : " ");
+            FreqOut.Write("Record", RigControl.IsSliceRecording(SliceRecorderTarget.ActiveSlice) ? "R" : " ");
+            FreqOut.Write("Recorded", RecorderControls.SliceStripPlayLabel(RigControl, SliceRecorderTarget.ActiveSlice));
 
             // QB Track I — Transmit slice letter; "-" when no slice keys the
             // radio (speech maps it to "none" in FrequencyDisplay).
@@ -5132,6 +5202,9 @@ public partial class MainWindow : UserControl
             // Wire license-aware TX lockout (Sprint 17 Track C)
             _pttController.CanTransmitHereCheck = () =>
                 _freqOutHandlers?.CanTransmitHere() ?? true;
+            FlexBase recorderRig = RigControl;
+            recorderRig.SlicePlaybackTransmitAllowed = () =>
+                _pttController?.AllowsRecorderPlayback(recorderRig) == true;
 
             // Give the Audio Workshop's Audio Check session a live path to
             // the controller (QB Track G). Resolved per call — the controller
@@ -6309,12 +6382,13 @@ public partial class MainWindow : UserControl
     /// </remarks>
     public void ToggleMetersPanel()
     {
+        if (_disconnectShellUp || _rescueMode || RigControl == null)
+        {
+            Radios.ScreenReaderOutput.Speak("Meters aren't available when you aren't connected to a radio.",
+                VerbosityLevel.Terse, true);
+            return;
+        }
         MetersPanel.TogglePanelVisibility();
-        // Record what the REAL toggle just did, not the inverse of a saved
-        // choice: the first press while hidden opens the panel, as it always did.
-        // Rescue may hide it again; reconnect must still honour this newer word.
-        if (_disconnectShellUp || _rescueMode)
-            _metersVisibilityBeforeDisconnect = MetersPanel.Visibility;
     }
 
     /// <summary>

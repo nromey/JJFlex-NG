@@ -465,12 +465,14 @@ namespace Radios.ChainChecks
                     // Arm the tone BEFORE keying, so the injection source owns
                     // the transmit stream from the first frame and the
                     // operator's microphone is never on the air in this stage.
-                    SafeDo(() =>
+                    rig.TxToneLevelDb = TxAudioProbe.InjectLevelDb;
+                    rig.TxToneFrequency = TxAudioProbe.SingleToneHz;
+                    if (!rig.TxToneStart())
                     {
-                        rig.TxToneLevelDb = TxAudioProbe.InjectLevelDb;
-                        rig.TxToneFrequency = TxAudioProbe.SingleToneHz;
-                        rig.TxToneStart();
-                    }, "arm tone");
+                        // DRAFT PROSE: the diagnostic must explain its safe refusal.
+                        facts.Detail = "The test tone could not be armed with VOX active. No transmission was made.";
+                        return facts;
+                    }
 
                     // The countdown, UNKEYED (#261). The operator does nothing
                     // in this stage — the count is the warning that RF is

@@ -573,6 +573,14 @@
                                   AutomationProperties.Name="Frequency entry typing sound mode"/>
                     </StackPanel>
 
+                    <!-- DRAFT PROSE (#787): settings help awaits Noel. -->
+                    <CheckBox x:Name="RecorderBeepsCheck" Content="Recorder beeps" Margin="0,0,0,4"
+                              AutomationProperties.Name="Recorder beeps"
+                              local:JJFlexHelp.Text="Recorder beeps play as two low tones when recording or playback starts and two high tones when it stops."/>
+                    <CheckBox x:Name="RecorderSpeechCheck" Content="Recorder speech" Margin="0,0,0,8"
+                              AutomationProperties.Name="Recorder speech"
+                              local:JJFlexHelp.Text="Speak recorder start and stop status. Refusals and failures always speak."/>
+
                     <Separator Margin="0,4,0,8"/>
 
                     <!-- Braille Display section -->

@@ -14,7 +14,7 @@ internal static class ListenbackRecoveryPrompt
         string key = "audio.iq.setting." + name;
         return Lexicon.Get(key);
     }
-    internal static bool Confirm(RadioRecoverySnapshot snapshot)
+    internal static bool Confirm(RadioRecoverySnapshot snapshot, FlexBase rig)
     {
         bool approved = false;
         if (snapshot.UnreadableHash != null)
@@ -24,7 +24,11 @@ internal static class ListenbackRecoveryPrompt
             return approved;
         }
         string changes = string.Join(Environment.NewLine, snapshot.Settings.Select(s =>
-            Lexicon.Get("audio.iq.saved_setting", ("setting", SettingText(s.Name)), ("value", s.Value))));
+            s.Name.StartsWith("created-", StringComparison.Ordinal) ?
+                Lexicon.Get(rig.ListenbackResourcePresent(snapshot, s) == false ? "audio.iq.review_absent" :
+                    rig.ListenbackResourcePresent(snapshot, s) == true ? "audio.iq.review_present" : "audio.iq.review_unknown",
+                    ("setting", SettingText(s.Name)), ("id", s.ResourceKind == "slice" ? s.ResourceId.ToString() : "0x" + s.ResourceId.ToString("X"))) :
+                Lexicon.Get("audio.iq.saved_setting", ("setting", SettingText(s.Name)), ("value", s.Value))));
         string body = Lexicon.Get("audio.iq.recovery_offer", ("serial", snapshot.Serial), ("changes", changes));
         if (snapshot.ResourceCreationPending) body += Environment.NewLine + Lexicon.Get("audio.iq.creation_uncertain");
         AdvisoryDialog.Show(Lexicon.Get("audio.iq.recovery_title"), body, null,
@@ -35,7 +39,7 @@ internal static class ListenbackRecoveryPrompt
     {
         var saved = rig.PendingListenbackRecovery;
         if (saved == null) return ("audio.iq.no_recovery", false);
-        if (!Confirm(saved)) return null;
+        if (!Confirm(saved, rig)) return null;
         if (saved.UnreadableHash != null)
         {
             bool archived = rig.AcknowledgeUnreadableListenbackRecovery(saved, true);

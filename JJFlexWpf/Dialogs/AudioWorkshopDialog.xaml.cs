@@ -211,8 +211,10 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
         Closed += (s, e) =>
         {
+            _workshopClosing = true;
             // A session must never outlive its dialog: unkey (through the
             // controller), restore every changed state, stop playback.
+            CancelCheckStart();
             _session?.ForceEnd("Audio check ended");
             _session = null;
             // The test tone must never outlive its dialog either — closing
@@ -264,9 +266,29 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// </summary>
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
-        if (e.Key == Key.Escape && _session != null && _session.EscapeStopsTransmit)
+        if (e.Key == Key.Escape && !_checkStarts.IsBusy && _session?.Active != true)
+            StopWorkshopPlayback();
+        if (e.Key == Key.Escape && _checkStarts.IsBusy)
+        {
+            if (_checkStarts.IsCancelled)
+            {
+                // A cancelled start keeps admission closed during rollback,
+                // but its rollback no longer holds this window open.
+                Close();
+            }
+            else
+            {
+                CancelCheckStart();
+                // DRAFT PROSE (#787): awaiting Noel.
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.start_cancelled_escape"), VerbosityLevel.Terse);
+            }
+            e.Handled = true;
+            return;
+        }
+        if (e.Key == Key.Escape && _session?.Active == true)
         {
             _session.StopCheck();
+            StopWorkshopPlayback();
             e.Handled = true;
             return;
         }
@@ -306,7 +328,12 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                     e.Handled = true;
                     return;
                 case Key.Enter:
-                    ToggleAudioCheck();
+                    if (_session?.Active == true)
+                    {
+                        ToggleAudioCheck();
+                        StopWorkshopPlayback();
+                    }
+                    else if (!StopWorkshopPlayback()) ToggleAudioCheck();
                     e.Handled = true;
                     return;
             }
@@ -580,6 +607,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // without this — the WinForms message loop doesn't route keys to WPF.
             System.Windows.Forms.Integration.ElementHost.EnableModelessKeyboardInterop(_instance);
         }
+        else if (!ReferenceEquals(_instance._rig, rig)) _instance.SetRig(rig);
         _instance.FocusTab(tabIndex);
         _instance.Activate();
     }
@@ -654,6 +682,21 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     public void SetRig(FlexBase? rig)
     {
         var oldRig = _rig;
+        if (!ReferenceEquals(oldRig, rig))
+        {
+            CancelCheckStart();
+            if (_iqRun != null) _ = FinishIqAsync("connection-changed");
+            if (oldRig != null && rig != null)
+            {
+                _session?.ForceEnd("Radio changed, audio check ended");
+                _session = null;
+            }
+            _iqRecoveryReader = null;
+            _lastIqDirectory = null;
+            if (_takeStatus != null) _takeStatus.Text = Lexicon.Get(rig == null ? "audio.no_radio_connected" : "audio.iq.idle");
+        }
+        if (oldRig != null && !ReferenceEquals(oldRig, rig))
+            _ = oldRig.StopSliceRecorderOwnedByAsync(this);
         _rig = rig;
         UpdateRadioControlAvailability();
         if (rig != null)
@@ -685,6 +728,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         {
             // Radio gone: end any live session (nothing to restore on a dead
             // radio — the session skips rig writes when the rig is null).
+            CancelCheckStart();
             _session?.ForceEnd("Radio disconnected, audio check ended");
             _session = null;
             // And release the test tone (the generator died with the rig, but
@@ -699,7 +743,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // a reconnect on the same FlexBase can arrange again. Writes are
             // internally guarded when the underlying radio is gone.
             if (oldRig != null && oldRig.LoopbackArranged)
-                oldRig.EndLoopbackArrangement();
+                _ = oldRig.EndLoopbackArrangementAsync();
             _meterTimer.Stop();
             // The poll is dead now — leave the readings honest, not stale.
             UpdateMicReading();
@@ -712,6 +756,15 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         // Both branches, because a departing radio's meter list is exactly as
         // wrong to leave on screen as a departing radio's readings.
         BindMeterInventory(rig);
+        UpdateIqAvailability();
+    }
+
+    public static void NotifyRigReady(FlexBase rig)
+    {
+        var inst = _instance;
+        if (inst == null || !inst.IsLoaded) return;
+        if (inst.Dispatcher.CheckAccess()) inst.SetRig(rig);
+        else inst.Dispatcher.BeginInvoke(() => inst.SetRig(rig));
     }
 
     /// <summary>
@@ -731,7 +784,8 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     }
 
     /// <summary>
-    /// Load per-radio Audio Check preferences (listen method, low power) from
+    /// Load per-radio Audio Check preferences (listen method, power mode and
+    /// watts, and since round 14 the "compare with my last take" tick) from
     /// the serial-keyed RadioConfig store and reflect them in the controls.
     /// </summary>
     private void LoadPerRadioPrefs()
@@ -749,6 +803,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             _listenMethodControl.SuppressEvents = true;
             _listenMethodControl.SelectedIndex = (int)_radioCfg.AudioCheckListenMethod;
             _listenMethodControl.SuppressEvents = false;
+            SyncPlayTakeLabel();
         }
         if (_checkPowerControl != null)
         {
@@ -762,6 +817,15 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             _checkWattsControl.Value = Math.Clamp(_radioCfg.AudioCheckLowPowerWatts, 1, 100);
             _checkWattsControl.SuppressEvents = false;
         }
+        if (_iqAutoCompare != null)
+        {
+            // A CheckBox has no SuppressEvents; _polling is how every other
+            // checkbox in this dialog is set without its handler saving the
+            // value straight back (SetToneCheckSilently does the same).
+            _polling = true;
+            try { _iqAutoCompare.IsChecked = _radioCfg.AudioCheckCompareWithLastTake; }
+            finally { _polling = false; }
+        }
         UpdateCheckWattsVisibility();
     }
 
@@ -773,7 +837,8 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         var power = _checkPowerControl == null ? (AudioCheckPowerModes?)null
             : (AudioCheckPowerModes)_checkPowerControl.SelectedIndex;
         var watts = _checkWattsControl?.Value;
-        RadioConfig.RecordAudioCheckPrefs(_radioCfgSerial, method, power, watts);
+        bool? compare = _iqAutoCompare?.IsChecked == null ? null : _iqAutoCompare.IsChecked == true;
+        RadioConfig.RecordAudioCheckPrefs(_radioCfgSerial, method, power, watts, compare);
     }
 
     /// <summary>

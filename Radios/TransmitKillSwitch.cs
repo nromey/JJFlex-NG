@@ -439,6 +439,11 @@ namespace Radios
         public static void DisarmSources(FlexBase rig)
         {
             if (rig == null) return;
+            try { rig.CancelSlicePlayback(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TransmitKillSwitch: COULD NOT STOP slice playback — " + ex.Message, TraceLevel.Error);
+            }
             try { rig.TxFileStop(); }
             catch (Exception ex)
             {
@@ -863,7 +868,8 @@ namespace Radios
                     + " W forward", TraceLevel.Warning);
                 // In the rung's own unit, never the other's (#237).
                 Request(Source.ReflectedPower,
-                        TransmitSafety.ReflectedCutTextFor(cut, reading, antenna));
+                        TransmitSafety.ReflectedCutTextFor(cut, reading, antenna,
+                            rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox));
                 return;
             }
 

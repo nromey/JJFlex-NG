@@ -48,7 +48,7 @@ internal sealed class RadioStatusTap : IDisposable
                 if (_leases++ != 0) return;
                 radio.PropertyChanged += Changed;
                 lock (radio.SelectedTelnetTraceTopics)
-                    foreach (string topic in new[] { "stream", "display", "slice", "radio", "transmit", "xvtr" })
+                    foreach (string topic in new[] { "stream", "display", "slice", "radio", "transmit", "cw", "xvtr" })
                         if (!radio.SelectedTelnetTraceTopics.Contains(topic))
                         { radio.AddTelnetTraceTopic(topic); _added.Add(topic); }
             }

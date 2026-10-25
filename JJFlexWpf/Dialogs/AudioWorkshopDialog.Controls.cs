@@ -176,11 +176,7 @@ public partial class AudioWorkshopDialog
     {
         if (_polling || _rig == null) return;
         setter(isOn ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off);
-        if (isOn) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-
-        // DELETED: CheckBox ToggleState, announced by the screen reader. Note
-        // this fired BEFORE the radio confirmed anything, so it never carried
-        // radio truth the checkbox lacked.
+        ToggleFeedback.Announce(label, isOn);
     }
 
     #endregion

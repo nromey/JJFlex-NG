@@ -227,10 +227,12 @@ namespace JJFlexWpf.Dialogs
             ListenButton.IsEnabled = path != null;
         }
 
-        private void ListenButton_Click(object sender, RoutedEventArgs e)
+        private async void ListenButton_Click(object sender, RoutedEventArgs e)
         {
             string? path = SelectedPath();
             if (path == null) return;
+            if (!RecordingPlayer.IsPlaying)
+                await RecorderControls.PlayStartClickBeforeLocalAudioAsync();
             RecordingPlayer.Toggle(path);
             UpdateListenButton();
         }

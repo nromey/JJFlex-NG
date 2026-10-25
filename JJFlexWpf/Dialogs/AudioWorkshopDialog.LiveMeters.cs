@@ -104,6 +104,7 @@ public partial class AudioWorkshopDialog
         // record buffer (#455). The local half follows the player's own event,
         // which also covers the no-radio case this tick returns before reaching.
         SyncPlayTakeLabel();
+        SyncSliceRecorderUi();
 
         // The mic reading refreshes on every tick regardless of tab so a
         // review command always reads fresh the moment the operator lands
@@ -238,6 +239,8 @@ public partial class AudioWorkshopDialog
                 text = MicAudioReport.Compose(rig, "Mic audio last transmit:", max, live: false);
             else
                 text = "Mic audio: transmit to measure";
+            if (!rig.Transmit && _lastAudioCheckSource != null)
+                text += Environment.NewLine + "Source: " + _lastAudioCheckSource;
         }
         // Assign only on change so an unchanged reading doesn't reset the
         // review cursor twice a second.

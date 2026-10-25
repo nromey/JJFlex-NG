@@ -58,6 +58,10 @@ Namespace My
 
             ' Initialize native library resolver FIRST (enables x86/x64 DLL loading)
             NativeLoader.Initialize()
+            Radios.ComputerRecorder.Install(New Radios.ComputerFlacRecorder(
+                Function(path) JJFlexWpf.RecordingPlayer.Play(path),
+                Sub() JJFlexWpf.RecordingPlayer.Stop(),
+                Function() JJFlexWpf.RecordingPlayer.IsPlaying))
 
             ' Enforce a modern TLS floor for all outbound HTTPS/TLS traffic in the app domain.
             ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 Or SecurityProtocolType.Tls13

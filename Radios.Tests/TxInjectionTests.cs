@@ -102,6 +102,24 @@ public class TxInjectionTests
     }
 
     [Fact]
+    public void ArmedReferenceRewindsForTheNextKeyedPassWithoutDisarming()
+    {
+        var player = new TxFilePlayer();
+        player.Load(Content(0.4f, Rate * 3), Rate, "reference");
+        player.Start();
+        for (int i = 0; i < 4; i++) player.Process(MicBuffer(0f), Floats, Rate);
+        int firstPassFrames = player.PlayedFrames;
+        Assert.True(firstPassFrames > Floats / 2);
+
+        player.RestartOnNextBuffer();
+        Assert.True(player.Engaged);
+        player.Process(MicBuffer(0f), Floats, Rate);
+        Assert.True(player.Engaged);
+        Assert.InRange(player.PlayedFrames, 1, Floats / 2);
+        Assert.False(player.ReachedEnd);
+    }
+
+    [Fact]
     public void PlaybackEndsAndHandsTheMicrophoneBack()
     {
         var player = new TxFilePlayer();
@@ -227,6 +245,24 @@ public class TxInjectionTests
         for (int i = 0; i < Floats; i++)
             if (Math.Abs(final[i]) > 0.001f) { sawTone = true; break; }
         Assert.True(sawTone, "the lower-priority source overwrote the winner");
+    }
+
+    [Fact]
+    public void TuneCarrierMutesAnArmedToneButOrdinaryTransmissionStillGetsIt()
+    {
+        bool tuneCarrier = true;
+        var tone = new TxToneGenerator { LevelDb = -6 };
+        var mux = new TxInputSourceMux(tone) { MuteOutput = () => tuneCarrier };
+        tone.Start();
+
+        var duringTune = MicBuffer(0.3f);
+        mux.Process(duringTune, Floats, Rate);
+        Assert.All(duringTune, sample => Assert.Equal(0f, sample));
+
+        tuneCarrier = false;
+        var ordinaryTransmit = MicBuffer(0.3f);
+        mux.Process(ordinaryTransmit, Floats, Rate);
+        Assert.Contains(ordinaryTransmit, sample => Math.Abs(sample) > 0.001f);
     }
 
     [Fact]

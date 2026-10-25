@@ -710,6 +710,23 @@ namespace JJFlexWpf
             PlayTone(frequencyHz, durationMs, VolumeStrong);
         }
 
+        /// <summary>Independent recorder cue switch; routed only to the computer alert mixer.</summary>
+        public static bool RecorderBeepsEnabled { get; set; } = true;
+
+        public static void RecorderStartBeep()
+        {
+            if (!RecorderBeepsEnabled) return;
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (400, 55), (0, 35), (400, 55) }, VolumeNormal);
+        }
+
+        public static void RecorderStopBeep()
+        {
+            if (!RecorderBeepsEnabled) return;
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (800, 55), (0, 35), (800, 55) }, VolumeNormal);
+        }
+
         // ------------------------------------------------------------------
         // The PTT warning family (#118). Fired by PttSafetyController as
         // transmission runs long: Warning1, then Warning2, then OhCrap.

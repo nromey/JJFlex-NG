@@ -80,30 +80,62 @@ namespace Radios.Tests
         // ── #455 ────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Play last take must consult the recordings folder as well as the
-        /// radio, and must not say there is nothing until it has asked both.
+        /// Monitor offers no play button; each take-making method answers
+        /// only for its own kind and never silently substitutes one.
         /// </summary>
         [Fact]
-        public void PlayLastTakeAsksBothStoresBeforeSayingThereIsNoTake()
+        public void PlayLastTakeFollowsTheMethodAndMonitorHidesTheButton()
         {
             string body = MethodBody(ReadWorkshop("AudioCheck"), "private void PlayLastTake()");
+            string selection = MethodBody(ReadWorkshop("AudioCheck"),
+                "private (AudioCheckListenMethods Method, TakePlaybackChoice Choice,");
+            string radioChoice = MethodBody(ReadWorkshop("AudioCheck"),
+                "private (SliceRecorderTarget? Target, DateTime? MadeUtc) NewestRadioTake()");
+            Assert.Contains("SliceHasRecording", radioChoice, StringComparison.Ordinal);
+            Assert.Contains("SelectTakeForPlayback()", body, StringComparison.Ordinal);
+            Assert.Contains("if (method == AudioCheckListenMethods.Monitor)", selection, StringComparison.Ordinal);
+            Assert.Contains("NewestRadioTake()", selection, StringComparison.Ordinal);
+            Assert.Contains("NewestIqDirectory()", selection, StringComparison.Ordinal);
+            Assert.DoesNotContain("RecordingStore.Newest", selection, StringComparison.Ordinal);
+            Assert.Contains("TakePlaybackSelector.Choose(method", selection, StringComparison.Ordinal);
+            string label = MethodBody(ReadWorkshop("AudioCheck"), "private void SyncPlayTakeLabel()");
+            Assert.Contains("Visibility.Collapsed", label, StringComparison.Ordinal);
+            Assert.Contains("IsTabStop = available", label, StringComparison.Ordinal);
+            Assert.Contains("selected.Method == AudioCheckListenMethods.OffAir", body, StringComparison.Ordinal);
+            Assert.Contains("selected.Method == AudioCheckListenMethods.RecordPlayback", body, StringComparison.Ordinal);
+            Assert.Contains("SayNoTake(\"off-air\")", body, StringComparison.Ordinal);
+            Assert.Contains("SayNoTake(\"slice\")", body, StringComparison.Ordinal);
+        }
 
-            int radio = body.IndexOf("SlicePlayEnabled", StringComparison.Ordinal);
-            int folder = body.IndexOf("RecordingStore.Newest", StringComparison.Ordinal);
-            int denial = body.IndexOf("audio.check.no_recording_yet", StringComparison.Ordinal);
+        [Fact]
+        public void PlaybackStartsOnlyAfterItsClickAndStopKeepsItsOwnCue()
+        {
+            string check = ReadWorkshop("AudioCheck");
+            string manual = MethodBody(check, "private async Task PlayRadioTakeAsync(");
+            string automatic = MethodBody(check, "private void TickPostUnkey(FlexBase rig)");
+            string iq = MethodBody(ReadWorkshop("Listenback"),
+                "private async Task<bool> PlayTakeAfterClickAsync(");
+            string controls = File.ReadAllText(Path.Combine(IntegrationPassTree.Root,
+                "JJFlexWpf", "RecorderControls.cs"));
+            string slice = MethodBody(controls, "public static async Task<RecorderOutcome> ToggleSlicePlayAsync(");
+            string computer = MethodBody(controls, "public static async Task<RecorderOutcome> ToggleComputerPlayAsync(");
+            string speak = MethodBody(controls, "public static void Speak(RecorderOutcome outcome)");
 
-            Assert.True(radio >= 0,
-                "Play last take no longer asks the radio's record buffer, so a take made by a "
-                + "Record and play back check has become unreachable from the button that offers "
-                + "to play it. See task #455.");
-            Assert.True(folder >= 0,
-                "Play last take no longer asks RecordingStore, which is the store Open recordings "
-                + "folder opens and the store the recorder writes to. That is exactly the split "
-                + "that made this button tell Don he had no recordings while his files sat in the "
-                + "folder. See task #455.");
-            Assert.True(denial > radio && denial > folder,
-                "Play last take announces that there is no take before it has finished asking both "
-                + "stores. The message is only honest after both have said no. See task #455.");
+            AssertClickBefore(manual, "rig.StartSlicePlayAsync(target)");
+            AssertClickBefore(automatic, "rig.StartSlicePlayAsync(_recorderTarget)");
+            AssertClickBefore(slice, "rig.ToggleSlicePlayAsync(target, owner)");
+            AssertClickBefore(computer, "ComputerRecorder.TogglePlaybackAsync");
+            Assert.True(iq.IndexOf("EarconPlayer.ConfirmTone()", StringComparison.Ordinal) <
+                iq.IndexOf("RecordingPlayer.Play(path", StringComparison.Ordinal));
+            Assert.DoesNotContain("outcome.Cue == RecorderCue.PlayStart", speak, StringComparison.Ordinal);
+            Assert.Contains("outcome.Cue == RecorderCue.PlayStop", speak, StringComparison.Ordinal);
+        }
+
+        private static void AssertClickBefore(string body, string start)
+        {
+            int click = body.IndexOf("PlayStartClick", StringComparison.Ordinal);
+            int play = body.IndexOf(start, StringComparison.Ordinal);
+            Assert.True(click >= 0 && play > click, "The start click must precede " + start + ".");
         }
 
         /// <summary>
@@ -132,6 +164,19 @@ namespace Radios.Tests
         {
             string body = MethodBody(ReadWorkshop("AudioCheck"), "private void PlayLastTake()");
             Assert.DoesNotContain("audio.no_radio_connected", body, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void OldTakeDateLivesInTheButtonLabelAndPlaybackStartsWithoutSpeechWait()
+        {
+            string source = ReadWorkshop("AudioCheck");
+            string label = MethodBody(source, "private void SyncPlayTakeLabel()");
+            Assert.Contains("SelectTakeForPlayback().MadeUtc", label, StringComparison.Ordinal);
+            Assert.Contains("AutomationProperties.SetName(_playTakeButton, label)", label, StringComparison.Ordinal);
+            Assert.Contains("_playTakeButton.Content = label", label, StringComparison.Ordinal);
+            Assert.Contains("_playTakeButton.GotFocus +=", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("WaitForOldTakeDateAsync", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("WaitForOldTakeDateAsync", ReadWorkshop("Listenback"), StringComparison.Ordinal);
         }
 
         // ── #458 ────────────────────────────────────────────────────────────

@@ -180,6 +180,14 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     packet against the echoed rate. RXAudioStream.cs is no longer safe to copy
     from a vendor drop without merging this patch.
 
+20. **Slice recorder duration (2026-10-24)**: keep the comment-marked JJFlex patch
+    in `FlexLib_API/FlexLib/Slice.cs` that exposes the radio's `record_time`
+    status as the read-only `RecordTimeRaw` property and raises `PropertyChanged`
+    only when the raw value changes. The recorder parses this field to recover a
+    take's length after reconnect and logs the raw value for bench validation
+    without enabling telnet tracing. Remove this patch if a later FlexLib release
+    exposes the same radio-reported field.
+
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 
 FlexLib is not the only vendor code in this repo, and a patch in one of the

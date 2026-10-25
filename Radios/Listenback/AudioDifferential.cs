@@ -9,8 +9,17 @@ public sealed record AudioShape(double RmsDb, double PeakDb, double CrestDb, dou
 {
     public double TiltDb => HighDb - LowDb;
 }
+/// <summary>
+/// A comparison's verdict. <see cref="SetupChanges"/> (round 14) carries the
+/// setup facts that differed between the two takes: for a comparable result,
+/// the differences to NAME in front of the numbers; for a refusal with
+/// <c>Reason</c> <c>unlike-takes:source</c>, one entry keyed <c>source</c>
+/// whose values are the two takes' sources, so the refusal can say which was
+/// which.
+/// </summary>
 public sealed record AudioDifference(bool Comparable, string Reason, double LevelDb = 0,
-    double TiltDb = 0, double CrestDb = 0, double StopbandDb = 0);
+    double TiltDb = 0, double CrestDb = 0, double StopbandDb = 0,
+    IReadOnlyList<SetupChange> SetupChanges = null);
 
 /// <summary>Sample-derived audio comparison; independent of the meter differential.</summary>
 public static class AudioDifferential
@@ -61,11 +70,72 @@ public static class AudioDifferential
         return values.Count == 0 ? new(false, "no-keyed-gap-free-span") : new(true, "aligned-spans",
             values.Average(v => v.LevelDb), values.Average(v => v.TiltDb), values.Average(v => v.CrestDb), values.Average(v => v.StopbandDb));
     }
+    /// <summary>Compare independent live readings without claiming sample alignment.</summary>
+    public static AudioDifference CompareOverallAverage(float[] first, IReadOnlyList<TakeSpan> firstSpans,
+        float[] second, IReadOnlyList<TakeSpan> secondSpans, int rate, double filterLow, double filterHigh)
+    {
+        static (double Level, double Tilt)? Average(float[] samples, IReadOnlyList<TakeSpan> spans,
+            int rate, double filterLow, double filterHigh)
+        {
+            const int window = 512;
+            double squares = 0, lowPower = 0, highPower = 0;
+            long sampleCount = 0;
+            int windows = 0;
+            double lowEnd = filterLow + (filterHigh - filterLow) / 3;
+            double highStart = filterLow + 2 * (filterHigh - filterLow) / 3;
+            foreach (var span in spans)
+            {
+                int from = (int)Math.Clamp(span.Start, 0, samples.Length);
+                int to = (int)Math.Clamp(span.End, 0, samples.Length);
+                for (int i = from; i < to; i++) { squares += samples[i] * (double)samples[i]; sampleCount++; }
+                for (int start = from; start + window <= to; start += window)
+                {
+                    var tapered = new double[window];
+                    for (int i = 0; i < window; i++)
+                        tapered[i] = samples[start + i] * (.5 - .5 * Math.Cos(2 * Math.PI * i / (window - 1)));
+                    for (int bin = 1; bin < window / 2; bin++)
+                    {
+                        double hz = bin * (double)rate / window;
+                        if (hz < filterLow || hz > filterHigh || (hz >= lowEnd && hz < highStart)) continue;
+                        double coefficient = 2 * Math.Cos(2 * Math.PI * bin / window), p = 0, pp = 0;
+                        foreach (double value in tapered) { double current = value + coefficient * p - pp; pp = p; p = current; }
+                        double power = Math.Max(0, p * p + pp * pp - coefficient * p * pp);
+                        if (hz < lowEnd) lowPower += power;
+                        else highPower += power;
+                    }
+                    windows++;
+                }
+            }
+            if (sampleCount < rate / 4 || windows == 0 || squares <= 0 || lowPower <= 0 || highPower <= 0)
+                return null;
+            return (Db(squares / sampleCount), Db(highPower / windows) - Db(lowPower / windows));
+        }
+        var a = Average(first, firstSpans, rate, filterLow, filterHigh);
+        var b = Average(second, secondSpans, rate, filterLow, filterHigh);
+        return a == null || b == null ? new(false, "no-keyed-gap-free-speech") :
+            new(true, "overall-average", b.Value.Level - a.Value.Level, b.Value.Tilt - a.Value.Tilt);
+    }
+    /// <summary>
+    /// The facts two takes must share before their numbers mean anything, or
+    /// "" when they do. The radio, the mode, the IQ rate, both antennas and the
+    /// receive gain, the frequencies, the dummy load and the render scale are
+    /// refusals: a change in any of them changes what the ears heard for
+    /// reasons that have nothing to do with the operator's audio. So is the
+    /// SOURCE (round 14, #794): a tone take against a voice take, or either
+    /// against the reference, is "source".
+    ///
+    /// <para>NOT refusals any more, RULED by Noel 2026-10-22 05:39: the
+    /// transmit filter and the RF power. How narrowing the filter changed the
+    /// sound is what the feature is for, so those are compared and the
+    /// difference named (<see cref="TakeSetup.Changes"/>). An antenna change
+    /// stays a refusal.</para>
+    /// </summary>
     public static string Compatibility(TakeInspection a, TakeInspection b)
     {
-        foreach (string key in new[] { "serial", "mode", "rate-echoed", "receive-antenna", "rf-gain", "tx-antenna", "rf-power",
-            "tx-frequency-mhz", "pan-centre-mhz", "tx-filter-low", "tx-filter-high", "dummy-load", "render-scale" })
+        foreach (string key in new[] { "serial", "mode", "rate-echoed", "receive-antenna", "rf-gain", "tx-antenna",
+            "tx-frequency-mhz", "pan-centre-mhz", "dummy-load", "render-scale" })
             if (a.Get(key) == null || b.Get(key) == null || a.Get(key) != b.Get(key)) return key;
+        if (TakeSetup.Source(a) != TakeSetup.Source(b)) return "source";
         return "";
     }
 }

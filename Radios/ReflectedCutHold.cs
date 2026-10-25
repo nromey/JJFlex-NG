@@ -244,7 +244,6 @@ namespace Radios
         private readonly Func<long> _clock;
 
         private int _generation;
-        private int _voxNoteGeneration;
         private bool _holding;
         private long _beganMs;
         private TransmitSetup _atCut;
@@ -354,7 +353,6 @@ namespace Radios
                 _lastVoxOffToneMs = long.MinValue / 2;
                 _generation++;
                 generation = _generation;
-                System.Threading.Volatile.Write(ref _voxNoteGeneration, generation);
                 _holding = true;
                 _beganMs = nowMs;
                 _atCut = atCut;
@@ -403,33 +401,25 @@ namespace Radios
             // The one note the operator gets about VOX, at their own verbosity
             // and under their own sound switches (Noel, 2026-10-22 05:38), after
             // the cut sentence, which is Urgent and goes first. Once per hold,
-            // however many settings end up paused. The speech arbiter retains
-            // the note behind that turn. On the kill switch's path the cut has
-            // not been submitted yet, so admission waits for SpeakPendingVoxNote.
+            // however many settings end up paused. The note joins the ordinary
+            // speech queue and expires with this hold. On the kill switch's
+            // path the cut has not been submitted yet, so admission waits for
+            // SpeakPendingVoxNote.
             if (_voxNoteGiven || _voxNotePending) return;
             if (_voxNoteNow) SpeakVoxNoteLocked(nowMs: _clock());
             else _voxNotePending = true;
         }
 
         /// <summary>
-        /// A historical account of the pause, retained for recovery behind
-        /// the cut. The hold can end before a long explanation finishes, so
-        /// a recovered note must not claim a remaining number of seconds.
+        /// A current account of the pause. It queues behind the cut and is
+        /// withdrawn if the hold ends before the reader reaches it.
         /// </summary>
-        // DRAFT PROSE (#571): awaiting Noel
         private void SpeakVoxNoteLocked(long nowMs)
         {
             _voxNoteGiven = true;
             _voxNotePending = false;
             _voxTonePending = true;
             _voxToneDueMs = Math.Max(_lastAlarmMs + VoxOffCueDelayMs, nowMs);
-            int generation = _generation;
-            // A historical statement remains true if the cut's speech takes
-            // longer than the hold. Never replay an obsolete seconds-left claim.
-            ScreenReaderOutput.SpeakSafetyFollowup(
-                Lexicon.Get("audio.ptt.cut_hold_vox_pause_notice"), VerbosityLevel.Terse,
-                subject: SpeechSubject.VoxPausedAfterCut,
-                stillValid: () => System.Threading.Volatile.Read(ref _voxNoteGeneration) == generation);
         }
 
         /// <summary>
@@ -744,7 +734,6 @@ namespace Radios
             {
                 _endCue?.Dispose();
                 _endCue = null;
-                System.Threading.Volatile.Write(ref _voxNoteGeneration, 0);
                 if (!_holding) return;
                 ended = EndHoldLocked(EndReason.Abandoned, why, nowMs, immediate);
             }
@@ -754,7 +743,8 @@ namespace Radios
         private (int, EndReason, string) EndHoldLocked(EndReason reason, string detail, long nowMs, bool immediate)
         {
             _holding = false;
-            if (reason == EndReason.Abandoned) System.Threading.Volatile.Write(ref _voxNoteGeneration, 0);
+            if (_voxNoteGiven)
+                ScreenReaderOutput.Supersede(SpeechSubject.VoxPausedAfterCut, "the VOX hold ended");
             LastEnd = reason;
             LastEndDetail = detail;
             long heldMs = nowMs - _beganMs;

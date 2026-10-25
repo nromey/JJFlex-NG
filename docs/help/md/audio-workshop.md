@@ -21,7 +21,7 @@ These work anywhere inside the workshop window, and only there:
 - `Ctrl+Enter` — start the Audio Check, or stop the one running, without hunting for the button.
 - `Ctrl+S` — save a preset. `Ctrl+O` — load one. The universal document keys, doing the universal document things.
 - `Alt+E` — export a preset to a file. `Alt+I` — import one from a file. `Alt+R` — reset the transmit chain to defaults.
-- `Escape` — two-stage while a check is transmitting: the first press unkeys, the second closes the workshop. Escape never leaves you transmitting.
+- `Escape` — stop a running check and stay in the workshop. After the check ends, press it again to close. Stopping unkeys the radio.
 
 ## Transmit audio: three categories, not one
 
@@ -50,8 +50,8 @@ At the top of the tab. Press **Start Audio Check** (or `Ctrl+Enter`) and the rad
   - **Dummy load, no RF** — the default. The check keys the radio with transmit and tune power at zero watts. Nothing goes on the air, and nothing needs to: every meter the check reads — mic audio, ALC, the verdict — measures your audio *before* the power amplifier, so the reading is identical at zero watts and at a hundred. The safety line says "Audio check, dummy load, no RF" so you always know this is that kind of check.
   - **Low power** — for the different question, "is RF actually leaving my radio?" Pick the wattage yourself, right down to 1 watt. It's a cap: if your power is already below the number, the check leaves it alone, and it never raises power. The safety line names the actual power, "Audio check, transmitting at 1 watt."
   - If you've engaged Dummy Load Mode yourself from the Transmit menu, the check respects it either way — it will never raise power behind a dummy load's back, and it leaves your dummy load exactly as you set it.
-- **Play last take** replays the recording buffer whenever you like, or stops a playback in progress.
-- **Escape is two-stage** while a check is transmitting: the first press unkeys ("Transmit off") and leaves you in the workshop with your settings; the second press closes the window. Escape never leaves you transmitting.
+- **Play last take** appears with Record and play back or Off the air. It plays that method's take, or stops a playback in progress. The button is hidden with Monitor.
+- **Escape stops a running check** and leaves you in the workshop with your settings. Stopping unkeys the radio. After the check ends, another press closes the window.
 - The session ends itself — and puts back everything it changed — on every exit: the Stop button, Escape, the transmit timeout, closing the window, or the radio going away.
 
 One honest warning worth knowing: if your hand mic keys the radio through a hardware line (the front-panel jack or the rear RCA connector), software cannot unkey it. If that ever happens the workshop tells you plainly, names the keying source, and keeps warning until the line releases.
@@ -118,7 +118,7 @@ Mic gain, mic boost, mic bias, the compander and its level, the speech processor
 
 ### Loopback Check — for radios with two receivers
 
-On radios with two receive chains and transverter ports (the 6600, 6700, and 8600 families), the **Loopback Check** button runs your actual RF through the radio and back: it transmits at one watt into the transverter port while a second slice listens on the same port, then puts every setting back and removes the extra slice when you stop.
+On radios with two receive chains and transverter ports (the 6600, 6700, and 8600 families), the **Loopback Check** button transmits at one watt into one transverter port while a second slice listens on another transverter receive input. The check temporarily mutes the other receive slices and sets the listening slice's RF gain to 32. When you stop, it restores the saved mute and radio settings and removes the extra slice. If the radio does not list another transverter receive input, the check says so before transmitting.
 
 Be clear about what this is: your signal arrives at that receiver enormously strong, so what you hear is your audio — present, processed, recognizably you — through an overloaded front end. It proves your audio chain and your transmitter work end to end ("is my radio actually transmitting" and "check my audio" are the same button), but it is not a faithful recording-studio listen. For ground truth on how you sound on the air, nothing beats a real receiver on a real antenna — a WebSDR or KiwiSDR tuned to your frequency is the gold standard.
 
@@ -157,3 +157,6 @@ The toolbar's Load, Save, Export, Import, and Reset buttons work on the whole TX
 The moment-to-moment listening levels have three homes, none of them here: the Audio expander on JJ Flexible Home (press `Ctrl+Shift+U` and arrow to the level you want), volume mode (`Ctrl+J`, then `V`), and the two levels dialogs on the Audio menu — **PC Audio Levels** for this computer's side of the wire and **On-Radio Levels** for the radio's own jacks (see the Audio Levels help page). The workshop is for shaping your transmit audio, not for turning the speakers up a hair.
 
 **Tip:** If you are running into audio issues — no sound, distorted audio, audio from the wrong device — see the Audio Troubleshooting help page for a step-by-step checklist.
+
+
+The Record and play back Audio Check records the transmit slice even when a different slice is active. For local playback, JJ Flexible pauses VOX or CW break-in and restores it after the take. The slice Play control shows the recording length when known; pressing it during an existing transmission sends that recording through the transmit slice until you unkey. Play never keys the radio itself.

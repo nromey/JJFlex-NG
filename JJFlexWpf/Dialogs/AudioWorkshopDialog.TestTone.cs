@@ -41,6 +41,9 @@ public partial class AudioWorkshopDialog
         _toneCheck = MakeToggle("Test tone instead of microphone");
         _toneCheck.Checked += (s, e) => ToneArmChanged(true);
         _toneCheck.Unchecked += (s, e) => ToneArmChanged(false);
+        JJFlexHelp.SetText(_toneCheck,
+            "The tone replaces your microphone while you transmit. Its level is set in Tone level. "
+            + "Clear this box or press Ctrl+J, Ctrl+G to disarm it. VOX is turned off while the tone is armed.");
         AddToSection(HearYourselfContent, _toneCheck);
 
         _tonePresetControl = MakeCycle("Tone frequency", new[]
@@ -53,9 +56,7 @@ public partial class AudioWorkshopDialog
         _tonePresetControl.SelectionChanged += (s, idx) =>
         {
             if (_polling) return;
-            bool custom = idx >= TonePresetHz.Length;
-            if (_toneFreqControl != null)
-                _toneFreqControl.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
+            UpdateToneControlsVisibility(); // the custom field follows the preset
             ToneParamsChanged(speakPassband: true);
         };
         AddToSection(HearYourselfContent, _tonePresetControl);
@@ -95,6 +96,64 @@ public partial class AudioWorkshopDialog
         AutomationProperties.SetName(_toneInfo, "Test tone passband status");
         AutomationProperties.SetLiveSetting(_toneInfo, AutomationLiveSetting.Polite);
         AddToSection(HearYourselfContent, _toneInfo);
+
+        // The tone starts off, so its controls start hidden (round 14).
+        UpdateToneControlsVisibility();
+    }
+
+    /// <summary>
+    /// The tone's frequency, level and monitor controls, the custom frequency
+    /// field and the passband status line are in the tab order only while the
+    /// tone is ON (Noel, 2026-10-21 20:12, "agreed"). They do nothing until
+    /// "Test tone instead of microphone" is ticked, and a control that
+    /// currently does nothing comes out of the ring: the same house rule
+    /// <see cref="UpdateCheckWattsVisibility"/> applies to the watts field.
+    /// </summary>
+    /// <remarks>
+    /// <para>"On" is read from the ENGINE first. The Ctrl+J, Ctrl+G chord arms
+    /// the tone from outside this dialog, and a chord-armed tone must show its
+    /// controls; <see cref="SyncToneArmUi"/> brings the checkbox into line on
+    /// the next meter tick and lands here through
+    /// <see cref="SetToneCheckSilently"/>. The checkbox is consulted as well,
+    /// so the controls appear the moment the box is ticked rather than up to a
+    /// second later when the radio confirms the injection path (#458's pending
+    /// arm), and go again if that arm is refused and the box is cleared.</para>
+    ///
+    /// <para>The custom frequency field keeps its own rule inside that: shown
+    /// only for the Custom preset, as before.</para>
+    ///
+    /// <para>The passband status line, <c>_toneInfo</c>, hides WITH the
+    /// controls. It describes a frequency the operator can no longer see or
+    /// change, and nothing is lost by hiding it: arming re-speaks the passband
+    /// verdict in the arm sentence (<see cref="ArmToneNow"/>), every key-down
+    /// re-checks it (<see cref="BuildToneAnnouncement"/>), and the edge
+    /// warning for a filter moved out from under an ARMED tone
+    /// (<see cref="UpdateToneStatus"/>) only ever fires while the tone is on,
+    /// which is exactly when the line is visible. What goes away is a polite
+    /// live-region announcement about an unarmed tone's passband whenever the
+    /// transmit filter moved, which told the operator about a thing they were
+    /// not doing.</para>
+    /// </remarks>
+    private void UpdateToneControlsVisibility()
+    {
+        bool on = _rig?.TxToneEngaged == true || _toneCheck?.IsChecked == true;
+        // A tone disarmed from outside (the chord) while focus sits on one of
+        // these controls would collapse the focused control under the reader;
+        // focus goes to the tone checkbox instead (Codex's round 14 check).
+        if (!on && _toneCheck != null && (_tonePresetControl?.IsKeyboardFocusWithin == true ||
+            _toneFreqControl?.IsKeyboardFocusWithin == true || _toneLevelControl?.IsKeyboardFocusWithin == true ||
+            _toneMonitorCheck?.IsKeyboardFocusWithin == true))
+            _toneCheck.Focus();
+        var shown = on ? Visibility.Visible : Visibility.Collapsed;
+        if (_tonePresetControl != null) _tonePresetControl.Visibility = shown;
+        if (_toneLevelControl != null) _toneLevelControl.Visibility = shown;
+        if (_toneMonitorCheck != null) _toneMonitorCheck.Visibility = shown;
+        if (_toneInfo != null) _toneInfo.Visibility = shown;
+        if (_toneFreqControl != null)
+        {
+            bool custom = (_tonePresetControl?.SelectedIndex ?? 0) >= TonePresetHz.Length;
+            _toneFreqControl.Visibility = on && custom ? Visibility.Visible : Visibility.Collapsed;
+        }
     }
 
     /// <summary>The effective tone frequency: preset value, or the custom field.</summary>
@@ -133,8 +192,6 @@ public partial class AudioWorkshopDialog
                 _toneFreqControl.SuppressEvents = true;
                 _toneFreqControl.Value = freq;
                 _toneFreqControl.SuppressEvents = false;
-                _toneFreqControl.Visibility = presetIdx >= TonePresetHz.Length
-                    ? Visibility.Visible : Visibility.Collapsed;
             }
             if (_toneLevelControl != null)
             {
@@ -149,6 +206,7 @@ public partial class AudioWorkshopDialog
         {
             _polling = false;
         }
+        UpdateToneControlsVisibility(); // the custom field follows the loaded preset
 
         if (_rig != null)
         {
@@ -284,10 +342,18 @@ public partial class AudioWorkshopDialog
     private void ToneArmChanged(bool armed)
     {
         if (_polling) return;
+        // Show or hide the tone's controls on the tick itself, before the
+        // radio has answered: a refused arm clears the box through
+        // SetToneCheckSilently, which hides them again.
+        UpdateToneControlsVisibility();
 
         if (!armed)
         {
             DisarmTone(speak: true);
+            // The check above ran while the engine still had the tone on, so
+            // it left the controls showing; SyncToneArmUi will not correct
+            // them, because box and engine now agree (round 14 bench, 06:57).
+            UpdateToneControlsVisibility();
             return;
         }
 
@@ -319,7 +385,7 @@ public partial class AudioWorkshopDialog
     /// What was changed to clear the path, or empty. It rides the arm
     /// announcement rather than being spoken separately — one arm, one sentence.
     /// </param>
-    private void ArmToneNow(FlexBase rig, string pathNote)
+    private async void ArmToneNow(FlexBase rig, string pathNote)
     {
         // Clearing the path can take up to a second, which is long enough for
         // the operator to untick the box or for the radio to go away. Arming
@@ -333,18 +399,38 @@ public partial class AudioWorkshopDialog
 
         int freq = CurrentToneFrequencyHz();
         int level = _toneLevelControl?.Value ?? -10;
+        bool voxWasOn = rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox;
         rig.TxToneFrequency = freq;
         rig.TxToneLevelDb = level;
-        rig.TxToneStart();
+        // Same as the reference's arm: the VOX-off wait is an arm in flight,
+        // and the status poll must not untick it meanwhile.
+        bool started;
+        _injectionArmPending = true;
+        try { started = await rig.TxToneStartAsync(); }
+        finally { _injectionArmPending = false; }
+        if (!started)
+        {
+            if (!StillWantsToArm(rig, _toneCheck))
+            {
+                RestoreInjectionPath(rig, out _);
+                return;
+            }
+            SetToneCheckSilently(false);
+            RestoreInjectionPath(rig, out _);
+            ScreenReaderOutput.Speak(RecorderControls.ToneVoxPauseRefusal, VerbosityLevel.Critical, interrupt: true);
+            return;
+        }
+        if (!StillWantsToArm(rig, _toneCheck))
+        {
+            rig.TxToneStop();
+            RestoreInjectionPath(rig, out _);
+            return;
+        }
 
         // Every key-down anywhere in the app now says the tone is riding it.
         PttSafetyController.KeyDownAnnouncementExtra = () => _instance?.BuildToneAnnouncement();
 
-        var line = new StringBuilder();
-        line.Append(Lexicon.Get("audio.tone.armed", ("freq", freq), ("level", level)));
-        line.Append(' ');
-        line.Append(Lexicon.Get("audio.tone.armed_replaces_mic"));
-        if (!string.IsNullOrEmpty(pathNote)) line.Append(' ').Append(pathNote);
+        var line = new StringBuilder(RecorderControls.ToneArmed(freq, voxWasOn));
         string pb = PassbandCheck(freq, out bool outside);
         if (!string.IsNullOrEmpty(pb)) line.Append(' ').Append(pb);
         _toneOutsideWarned = outside;
@@ -368,7 +454,7 @@ public partial class AudioWorkshopDialog
     private void DisarmTone(bool speak, FlexBase? rig = null)
     {
         FlexBase? live = rig ?? _rig;
-        live?.TxToneStop();
+        bool voxRestored = live?.TxToneStop() == true;
         PttSafetyController.KeyDownAnnouncementExtra = null;
         EarconPlayer.StopTxToneMonitor();
         _toneMonitorSounding = false;
@@ -384,8 +470,7 @@ public partial class AudioWorkshopDialog
         if (speak)
         {
             EarconPlayer.FeatureOffTone();
-            string line = Lexicon.Get("audio.tone.disarmed");
-            if (!string.IsNullOrEmpty(pathNote)) line += " " + pathNote;
+            string line = RecorderControls.ToneDisarmed(voxRestored);
             ScreenReaderOutput.Speak(line, VerbosityLevel.Critical, interrupt: true);
         }
     }
@@ -397,6 +482,9 @@ public partial class AudioWorkshopDialog
         _polling = true;
         try { _toneCheck.IsChecked = value; }
         finally { _polling = false; }
+        // Every silent road into or out of the armed state (the chord, a
+        // refused arm, a radio switch) shows or hides the tone's controls too.
+        UpdateToneControlsVisibility();
     }
 
     /// <summary>
@@ -449,10 +537,7 @@ public partial class AudioWorkshopDialog
         // being enabled — the local monitor — only sounds while armed AND
         // transmitting, so flipping it while unkeyed produces no other
         // audible change at all.
-        EarconPlayer.ToggleTone(on);
-
-        // DELETED: pure state echo of a CheckBox the screen reader already
-        // announces.
+        ToggleFeedback.Announce("Hear the tone while it transmits", on);
         SyncToneMonitor(); // apply immediately, not at the next timer tick
     }
 

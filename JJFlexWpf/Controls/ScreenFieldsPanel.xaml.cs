@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -125,6 +126,7 @@ public partial class ScreenFieldsPanel : UserControl
     // QB Track I — true while the TX power field is in transverter-drive
     // personality (dBm, hundredths) because the TX antenna is the XVTR port.
     private bool _txPowerXvtrMode;
+    private Button _fullDuplexButton = null!;
     private CheckBox _voxCheck = null!;
     private ValueFieldControl _voxGainControl = null!;
     private ValueFieldControl _voxDelayControl = null!;
@@ -448,8 +450,8 @@ public partial class ScreenFieldsPanel : UserControl
             _audioPipeline.RnnEnabled = true;
             _pcRnnStrengthControl.Visibility = Visibility.Visible;
             _pcRnnVoiceOnlyCheck.Visibility = Visibility.Visible;
-            EarconPlayer.FeatureOnTone();
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.pc_neural_nr_on"), VerbosityLevel.Terse, interrupt: true);
+            ToggleFeedback.Announce("PC Neural NR", true,
+                sentence: Lexicon.Get("audio.fields.pc_neural_nr_on"));
             FindMainWindow()?.PersistDspSettings();
         };
         _pcRnnCheck.Unchecked += (s, e) =>
@@ -458,8 +460,8 @@ public partial class ScreenFieldsPanel : UserControl
             _audioPipeline.RnnEnabled = false;
             _pcRnnStrengthControl.Visibility = Visibility.Collapsed;
             _pcRnnVoiceOnlyCheck.Visibility = Visibility.Collapsed;
-            EarconPlayer.FeatureOffTone();
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.pc_neural_nr_off"), VerbosityLevel.Terse, interrupt: true);
+            ToggleFeedback.Announce("PC Neural NR", false,
+                sentence: Lexicon.Get("audio.fields.pc_neural_nr_off"));
             FindMainWindow()?.PersistDspSettings();
         };
         DspContent.Children.Add(_pcRnnCheck);
@@ -485,16 +487,16 @@ public partial class ScreenFieldsPanel : UserControl
         {
             if (_polling || _audioPipeline == null) return;
             _audioPipeline.RnnAutoDisableNonVoice = true;
-            EarconPlayer.FeatureOnTone();
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.pc_neural_nr_voice_only_on"), VerbosityLevel.Terse, interrupt: true);
+            ToggleFeedback.Announce("Voice only", true,
+                sentence: Lexicon.Get("audio.fields.pc_neural_nr_voice_only_on"));
             FindMainWindow()?.PersistDspSettings();
         };
         _pcRnnVoiceOnlyCheck.Unchecked += (s, e) =>
         {
             if (_polling || _audioPipeline == null) return;
             _audioPipeline.RnnAutoDisableNonVoice = false;
-            EarconPlayer.FeatureOffTone();
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.pc_neural_nr_voice_only_off"), VerbosityLevel.Terse, interrupt: true);
+            ToggleFeedback.Announce("Voice only", false,
+                sentence: Lexicon.Get("audio.fields.pc_neural_nr_voice_only_off"));
             FindMainWindow()?.PersistDspSettings();
         };
         DspContent.Children.Add(_pcRnnVoiceOnlyCheck);
@@ -506,13 +508,11 @@ public partial class ScreenFieldsPanel : UserControl
             _audioPipeline.SpectralEnabled = true;
             _pcSpectralStrengthControl.Visibility = Visibility.Visible;
             _pcSpectralFloorControl.Visibility = Visibility.Visible;
-            EarconPlayer.FeatureOnTone();
             // The no-profile message now names the exit — before this track
             // it announced a dead end no surface in the app could resolve.
-            ScreenReaderOutput.Speak(_audioPipeline.HasNoiseProfile
+            ToggleFeedback.Announce("PC Spectral NR", true, sentence: _audioPipeline.HasNoiseProfile
                 ? Lexicon.Get("audio.fields.pc_spectral_nr_on")
-                : Lexicon.Get("audio.fields.pc_spectral_nr_on_no_profile"),
-                VerbosityLevel.Terse, interrupt: true);
+                : Lexicon.Get("audio.fields.pc_spectral_nr_on_no_profile"));
             FindMainWindow()?.PersistDspSettings();
         };
         _pcSpectralCheck.Unchecked += (s, e) =>
@@ -521,8 +521,8 @@ public partial class ScreenFieldsPanel : UserControl
             _audioPipeline.SpectralEnabled = false;
             _pcSpectralStrengthControl.Visibility = Visibility.Collapsed;
             _pcSpectralFloorControl.Visibility = Visibility.Collapsed;
-            EarconPlayer.FeatureOffTone();
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.pc_spectral_nr_off"), VerbosityLevel.Terse, interrupt: true);
+            ToggleFeedback.Announce("PC Spectral NR", false,
+                sentence: Lexicon.Get("audio.fields.pc_spectral_nr_off"));
             FindMainWindow()?.PersistDspSettings();
         };
         DspContent.Children.Add(_pcSpectralCheck);
@@ -652,8 +652,8 @@ public partial class ScreenFieldsPanel : UserControl
 
         // Meter Tones
         _meterToneCheck = MakeToggle(Lexicon.Get("audio.fields.meter_tones"));
-        _meterToneCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = true; EarconPlayer.FeatureOnTone(); ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.tones_on"), VerbosityLevel.Terse); } };
-        _meterToneCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = false; EarconPlayer.FeatureOffTone(); ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.tones_off"), VerbosityLevel.Terse); } };
+        _meterToneCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = true; ToggleFeedback.Announce("Meter tones", true); } };
+        _meterToneCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = false; ToggleFeedback.Announce("Meter tones", false); } };
         DspContent.Children.Add(_meterToneCheck);
 
         _peakWatcherCheck = MakeToggle(Lexicon.Get("audio.fields.peak_watcher"));
@@ -757,6 +757,10 @@ public partial class ScreenFieldsPanel : UserControl
         };
         AudioContent.Children.Add(_micVerdictDisplay);
 
+        // Record to file and play from computer (#787), with the rest of
+        // what this computer does with the radio's audio.
+        BuildComputerRecorderControls();
+
         // === On-radio outputs group ===
         // "On-radio" is the load-bearing word: these move the radio's own
         // jacks, which a remote PC-audio operator cannot hear.
@@ -859,10 +863,10 @@ public partial class ScreenFieldsPanel : UserControl
             if (_rig == null) return;
             bool target = !_rig.AllMySlicesMuted;
             _rig.SetAllMySlicesMute(target);
-            if (target) EarconPlayer.MuteAllOnTone();
-            else EarconPlayer.MuteAllOffTone();
-            ScreenReaderOutput.Speak(
-                target ? Lexicon.Get("audio.fields.all_slices_muted") : Lexicon.Get("audio.fields.all_slices_unmuted"), VerbosityLevel.Terse);
+            ToggleFeedback.Announce("All slices mute", target,
+                sentence: target ? Lexicon.Get("audio.fields.all_slices_muted") : Lexicon.Get("audio.fields.all_slices_unmuted"),
+                speak: said => ScreenReaderOutput.Speak(said, VerbosityLevel.Terse),
+                tone: EarconPlayer.ToggleAllTone);
         };
         AudioContent.Children.Add(muteAllButton);
 
@@ -903,6 +907,9 @@ public partial class ScreenFieldsPanel : UserControl
             }
         };
         AudioContent.Children.Add(releaseAllButton);
+
+        // The radio's per-slice recorder (#787), beside the slice buttons.
+        BuildSliceRecorderControls();
     }
 
     private void BuildReceiverControls()
@@ -982,8 +989,26 @@ public partial class ScreenFieldsPanel : UserControl
         };
         TxContent.Children.Add(_txPowerControl);
 
+        _fullDuplexButton = new Button { Content = Lexicon.Get("audio.full_duplex.not_reported"), Margin = new Thickness(4) };
+        System.Windows.Automation.AutomationProperties.SetName(_fullDuplexButton, Lexicon.Get("audio.full_duplex.not_reported"));
+        JJFlexHelp.SetText(_fullDuplexButton, Lexicon.Get("audio.full_duplex.help"));
+        _fullDuplexButton.Click += (_, _) => { if (!_polling) _ = FullDuplexControl.ToggleAsync(_rig); };
+        TxContent.Children.Add(_fullDuplexButton);
+
         _voxCheck = MakeToggle(Lexicon.Get("audio.fields.vox"));
-        _voxCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.vox"), v => { if (_rig != null) _rig.Vox = v; }, true);
+        _voxCheck.Checked += (s, e) =>
+        {
+            if (_polling) return;
+            if (_rig?.TxToneEngaged == true)
+            {
+                _polling = true;
+                try { _voxCheck.IsChecked = false; }
+                finally { _polling = false; }
+                ScreenReaderOutput.Speak("VOX disabled when tone is enabled.", VerbosityLevel.Critical, interrupt: true);
+                return;
+            }
+            ToggleRig(Lexicon.Get("audio.fields.vox"), v => { if (_rig != null) _rig.Vox = v; }, true);
+        };
         _voxCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.vox"), v => { if (_rig != null) _rig.Vox = v; }, false);
         TxContent.Children.Add(_voxCheck);
 
@@ -1304,11 +1329,8 @@ public partial class ScreenFieldsPanel : UserControl
     {
         if (_polling || _rig == null) return;
         setter(isOn ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off);
-        if (isOn) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
         // interrupt: true cuts off NVDA's native "checked"/"not checked" announcement
-        ScreenReaderOutput.Speak(
-            sentence ?? Lexicon.Get(isOn ? "audio.fields.toggle_on" : "audio.fields.toggle_off", ("label", label)),
-            VerbosityLevel.Terse, interrupt: true);
+        ToggleFeedback.Announce(label, isOn, sentence: sentence);
     }
 
     /// <summary>
@@ -1365,10 +1387,7 @@ public partial class ScreenFieldsPanel : UserControl
     {
         if (_polling || _rig == null) return;
         setter(isOn);
-        if (isOn) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-        ScreenReaderOutput.Speak(
-            Lexicon.Get(isOn ? "audio.fields.toggle_on" : "audio.fields.toggle_off", ("label", label)),
-            VerbosityLevel.Terse, interrupt: true);
+        ToggleFeedback.Announce(label, isOn);
     }
 
     #endregion
@@ -1499,6 +1518,10 @@ public partial class ScreenFieldsPanel : UserControl
         _headphoneMuteCheck.IsChecked = _rig.HeadphoneMute;
         _lineoutMuteCheck.IsChecked = _rig.LineoutMute;
         _frontSpeakerMuteCheck.IsChecked = _rig.FrontSpeakerMute;
+
+        // The radio's per-slice recorder, and the computer's (#787).
+        PollSliceRecorder();
+        UpdateComputerRecorderButtons();
     }
 
     /// <summary>
@@ -1682,6 +1705,12 @@ public partial class ScreenFieldsPanel : UserControl
         }
 
         _txPowerControl.Value = xvtrNow ? _rig.XvtrDrivePowerCentiDbm : _rig.XmitPower;
+        string fullDuplexText = Lexicon.Get(_rig.FullDuplexAvailable == true ?
+            (_rig.FullDuplexEnabled ? "audio.full_duplex.on" : "audio.full_duplex.off") : "audio.full_duplex.not_reported");
+        _fullDuplexButton.Content = fullDuplexText;
+        System.Windows.Automation.AutomationProperties.SetName(_fullDuplexButton, fullDuplexText);
+        _fullDuplexButton.IsEnabled = _rig.FullDuplexAvailable == true;
+        _fullDuplexButton.IsTabStop = _fullDuplexButton.IsEnabled;
         _voxCheck.IsChecked = _rig.Vox == FlexBase.OffOnValues.on;
 
         // VOX gain and delay: always shown in voice and digital modes whether
@@ -1970,7 +1999,7 @@ public partial class ScreenFieldsPanel : UserControl
         // Ctrl+Tab → jump to next Expander header
         if (e.Key == Key.Tab && Keyboard.Modifiers == ModifierKeys.Control)
         {
-            FocusNextExpander(forward: true);
+            FocusNextHomePane(forward: true);
             e.Handled = true;
             return;
         }
@@ -1978,10 +2007,29 @@ public partial class ScreenFieldsPanel : UserControl
         // Ctrl+Shift+Tab → jump to previous Expander header
         if (e.Key == Key.Tab && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
         {
-            FocusNextExpander(forward: false);
+            FocusNextHomePane(forward: false);
             e.Handled = true;
             return;
         }
+    }
+
+    /// <summary>Close Home expanders without moving focus away from Home (#812).
+    /// The window calls this only after its safety and key-layer Escape handlers.</summary>
+    public bool TryCloseExpandedGroups()
+    {
+        if (!_expanders.Any(exp => exp.IsExpanded)) return false;
+
+        var focused = FindFocusedExpandedGroup();
+        if (focused != null)
+        {
+            ExpanderFocus.FocusHeader(focused);
+            focused.IsExpanded = false;
+        }
+        else
+        {
+            CloseAllGroups(goHome: false);
+        }
+        return true;
     }
 
     /// <summary>
@@ -2002,11 +2050,15 @@ public partial class ScreenFieldsPanel : UserControl
     }
 
     /// <summary>
-    /// Sprint 28 Phase 3 — collapse every expanded group without individual
-    /// earcons or announcements, then play the gavel earcon, announce once
-    /// (&quot;All panels collapsed, home&quot;), and return focus to FreqOut.
+    /// Collapse every expanded group with one cue and Chatty announcement,
+    /// then return focus to FreqOut.
     /// </summary>
     private void CollapseAllGroupsAndGoHome()
+    {
+        CloseAllGroups(goHome: true);
+    }
+
+    private void CloseAllGroups(bool goHome)
     {
         // Play the gavel first so it leads audibly — bulk collapse is essentially
         // instantaneous; playing the gavel afterward would desync audio from the
@@ -2027,15 +2079,15 @@ public partial class ScreenFieldsPanel : UserControl
             _suppressCollapseEarcons = false;
         }
 
-        ScreenReaderOutput.Speak(
-            Lexicon.Get("audio.fields.all_collapsed"), VerbosityLevel.Terse, interrupt: true);
+        if (ScreenReaderOutput.CurrentVerbosity == VerbosityLevel.Chatty)
+            ScreenReaderOutput.Speak("All expanders closed.", VerbosityLevel.Chatty, interrupt: true);
 
         // Return focus to Home (FreqOut) — MainWindow wires this event to
         // FreqOut.FocusDisplay() per the pattern established pre-Sprint-28.
-        EscapePressed?.Invoke(this, EventArgs.Empty);
+        if (goHome) EscapePressed?.Invoke(this, EventArgs.Empty);
     }
 
-    private void FocusNextExpander(bool forward)
+    public void FocusNextHomePane(bool forward)
     {
         // Get visible expanders only
         var visible = new List<Expander>();
@@ -2045,7 +2097,7 @@ public partial class ScreenFieldsPanel : UserControl
                 visible.Add(exp);
         }
 
-        if (visible.Count == 0) return;
+        if (visible.Count == 0) { ReturnFocusToFreqOut?.Invoke(); return; }
 
         // Find which expander the focused element is inside
         var focused = Keyboard.FocusedElement as DependencyObject;
@@ -2064,17 +2116,8 @@ public partial class ScreenFieldsPanel : UserControl
         }
 
         // Calculate next index
-        int nextIndex;
-        if (currentIndex < 0)
-        {
-            nextIndex = forward ? 0 : visible.Count - 1;
-        }
-        else
-        {
-            nextIndex = forward
-                ? (currentIndex + 1) % visible.Count
-                : (currentIndex - 1 + visible.Count) % visible.Count;
-        }
+        int nextIndex = HomePaneNavigation.Next(currentIndex, visible.Count, forward);
+        if (nextIndex < 0) { ReturnFocusToFreqOut?.Invoke(); return; }
 
         // Focus the expander's toggle button (header). Using the shared
         // ExpanderFocus helper so the toggle receives keyboard focus

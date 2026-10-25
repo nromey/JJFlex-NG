@@ -72,7 +72,13 @@ public static class TakeAnalysis
                 (lastPacket.ArrivalTicks - firstPacket.ArrivalTicks) / (double)Stopwatch.Frequency));
         AudioAlignmentResult alignment = new(false, "sent-unavailable", Array.Empty<SpanAlignment>());
         AudioDifference difference = new(false, "sent-unavailable");
-        if (take.Get("sent-status") == "clean" && File.Exists(Path.Combine(directory, "sent.wav")))
+        if (keyedSpans.Count == 0)
+        {
+            alignment = new(false, "not-keyed", Array.Empty<SpanAlignment>());
+            difference = new(false, "not-keyed");
+            File.WriteAllText(Path.Combine(directory, "align.txt"), "aligned=not-applicable\nreason=not-keyed\n");
+        }
+        else if (take.Get("sent-status") == "clean" && File.Exists(Path.Combine(directory, "sent.wav")))
         {
             var sentInfo = TakeHeader.Read(Path.Combine(directory, "sent.txt"));
             string sum = sentInfo.LastOrDefault(p => p.Key == "sha256").Value;
@@ -126,15 +132,9 @@ public static class TakeAnalysis
 
     public static ToneSurvivalResult CheckTone(string directory, TakeInspection take, int rate, IReadOnlyList<TakeSpan> spans)
     {
-        bool engaged = string.Equals(take.Get("tone-engaged"), "True", StringComparison.OrdinalIgnoreCase);
-        double.TryParse(take.Get("tone-hz"), NumberStyles.Float, CultureInfo.InvariantCulture, out double hz);
-        var keyedTone = take.Fields.LastOrDefault(p => p.Key == "tone-at-keying").Value;
-        if (keyedTone != null)
-        {
-            using var json = JsonDocument.Parse(keyedTone);
-            engaged = json.RootElement.GetProperty("Engaged").GetBoolean();
-            hz = json.RootElement.GetProperty("Frequency").GetDouble();
-        }
+        // One reader of the keyed-tone record, shared with the comparison gate
+        // (round 14), so the two can never disagree about which take was a tone.
+        bool engaged = TakeSetup.ToneAtKeying(take, out double hz);
         if (!engaged || spans.Count == 0) return new(false, "no-recorded-keyed-tone");
         var span = spans.FirstOrDefault(s => s.Length >= rate / 4 && s.Start >= rate / 4);
         if (span.Length == 0) return new(false, "no-gap-free-tone-and-rest-span");
@@ -162,21 +162,44 @@ public static class TakeAnalysis
         return new(above >= 20, above >= 20 ? "predicted-tone-above-rest" : "tone-not-identified", offset, above);
     }
 
-    public static AudioDifference CompareTakes(string previousDirectory, string currentDirectory)
+    public static AudioDifference CompareTakes(string previousDirectory, string currentDirectory,
+        bool reuseRenders = false)
     {
         var a = TakeReader.Inspect(previousDirectory); var b = TakeReader.Inspect(currentDirectory);
         if (!a.Playable || !b.Playable) return new(false, "corrupt-take");
         string mismatch = AudioDifferential.Compatibility(a, b);
+        if (mismatch == "source")
+            return new(false, "unlike-takes:source",
+                SetupChanges: new[] { new SetupChange("source", TakeSetup.Source(a), TakeSetup.Source(b)) });
         if (mismatch != "") return new(false, "unlike-takes:" + mismatch);
-        SsbTakeRenderer.Render(previousDirectory); SsbTakeRenderer.Render(currentDirectory);
+        var changes = TakeSetup.Changes(a, b);
+        return CompareAudio(a, b, previousDirectory, currentDirectory, reuseRenders) with { SetupChanges = changes };
+    }
+
+    private static AudioDifference CompareAudio(TakeInspection a, TakeInspection b, string previousDirectory,
+        string currentDirectory, bool reuseRenders)
+    {
+        if (!reuseRenders || !File.Exists(Path.Combine(previousDirectory, "heard.wav")))
+            SsbTakeRenderer.Render(previousDirectory);
+        if (!reuseRenders || !File.Exists(Path.Combine(currentDirectory, "heard.wav")))
+            SsbTakeRenderer.Render(currentDirectory);
         var (rate, first) = TakeAudio.ReadMono(Path.Combine(previousDirectory, "heard.wav"));
         var (_, second) = TakeAudio.ReadMono(Path.Combine(currentDirectory, "heard.wav"));
-        var firstSpan = TakeTimeline.WithoutGaps(TakeTimeline.KeyedSpans(a, first.Length), TakeTimeline.Gaps(a)).FirstOrDefault();
-        var secondSpan = TakeTimeline.WithoutGaps(TakeTimeline.KeyedSpans(b, second.Length), TakeTimeline.Gaps(b)).FirstOrDefault();
-        int length = (int)Math.Min(firstSpan.Length, secondSpan.Length);
-        if (length < rate / 4) return new(false, "no-keyed-gap-free-span");
-        first = first.AsSpan((int)firstSpan.Start, length).ToArray(); second = second.AsSpan((int)secondSpan.Start, length).ToArray();
-        var alignment = AudioAlignment.Measure(first, second, rate, new[] { new TakeSpan(0, length) });
-        return AudioDifferential.Compare(first, second, rate, alignment, Number(a, "tx-filter-low"), Number(a, "tx-filter-high"));
+        var firstSpans = TakeTimeline.WithoutGaps(TakeTimeline.KeyedSpans(a, first.Length), TakeTimeline.Gaps(a));
+        var secondSpans = TakeTimeline.WithoutGaps(TakeTimeline.KeyedSpans(b, second.Length), TakeTimeline.Gaps(b));
+        double filterLow = Number(a, "tx-filter-low"), filterHigh = Number(a, "tx-filter-high");
+        var firstSpan = firstSpans.FirstOrDefault(s => s.Length >= rate / 4);
+        var secondSpan = secondSpans.FirstOrDefault(s => s.Length >= rate / 4);
+        if (firstSpan.Length > 0 && secondSpan.Length > 0)
+        {
+            int length = (int)Math.Min(firstSpan.Length, secondSpan.Length);
+            var alignedFirst = first.AsSpan((int)firstSpan.Start, length).ToArray();
+            var alignedSecond = second.AsSpan((int)secondSpan.Start, length).ToArray();
+            var alignment = AudioAlignment.Measure(alignedFirst, alignedSecond, rate, new[] { new TakeSpan(0, length) });
+            if (alignment.Aligned)
+                return AudioDifferential.Compare(alignedFirst, alignedSecond, rate, alignment, filterLow, filterHigh);
+        }
+        return AudioDifferential.CompareOverallAverage(first, firstSpans, second, secondSpans,
+            rate, filterLow, filterHigh);
     }
 }

@@ -79,5 +79,6 @@
          Referenced directly rather than relied on transitively through Radios,
          so the dependency is visible where it is used. -->
     <ProjectReference Include="..\JJPortaudio\JJPortaudio\JJPortaudio.csproj" />
+    <ProjectReference Include="..\P-Opus-master\POpusCodec.csproj" />
   </ItemGroup>
 </Project>

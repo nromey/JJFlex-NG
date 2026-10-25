@@ -2,6 +2,7 @@
 using System;
 using System.Diagnostics;
 using System.Threading;
+using System.Threading.Tasks;
 using Flex.Smoothlake.FlexLib;
 using JJPortaudio;
 using JJTrace;
@@ -17,6 +18,13 @@ namespace Radios
     /// </remarks>
     public partial class FlexBase
     {
+        private volatile bool _localReceiveMutedForTakePlayback;
+        /// <summary>Suppress only decoded live receive sound on this computer during local take playback.</summary>
+        public bool LocalReceiveMutedForTakePlayback
+        {
+            get => _localReceiveMutedForTakePlayback;
+            set => _localReceiveMutedForTakePlayback = value;
+        }
         // region remote audio
         #region RemoteAudio
         // Note that here input and output refer to input and output from the rig.
@@ -321,6 +329,10 @@ namespace Radios
             }
         }
         private audioChannelData opusOutputChannel;
+
+        /// <summary>The receive device rate, available only while computer receive audio runs.</summary>
+        public uint ReceiveAudioSampleRate => opusOutputChannel?.PortAudioStream?.SampleRate ?? 0;
+        public bool ReceiveAudioRunning => opusOutputChannel?.Started == true;
         private audioChannelData opusInputChannel;
         // False when the microphone stream failed to open. Without it every
         // key-up re-attempts a start that cannot succeed and waits a second for
@@ -847,6 +859,8 @@ namespace Radios
             opusOutputChannel.PortAudioStream.OutputGain = PcOutputGainFactor;
             // Wire PC-side audio processing if a pipeline has been configured
             opusOutputChannel.PortAudioStream.PostDecodeProcessor = _audioPostProcessor;
+            opusOutputChannel.PortAudioStream.PostOutputObserver =
+                samples => (ComputerRecorder.Current as ComputerFlacRecorder)?.ReceiveHeard(this, samples);
             Tracing.TraceLine("remoteAudioProc:opusOutputChannel:" + opusOutputChannel.Name + " setup, OutputGain=" + opusOutputChannel.PortAudioStream.OutputGain + ", PostDecodeProcessor=" + (_audioPostProcessor != null ? "yes" : "none"), TraceLevel.Info);
 
             if (!startOpusOutputChannel())
@@ -1194,6 +1208,7 @@ namespace Radios
                 // get opus data, even during transmit (for QSK).
                 byte[] opusBuf = null;
                 double consumedTs = -1;
+                int consumedSequence = -1;
                 lock (opusOutputChannel)
                 {
                     RXAudioStream stream = opusOutputChannel.OpusChannel;
@@ -1224,6 +1239,7 @@ namespace Radios
                                 {
                                     opusBuf = stream._opusRXList.Values[i].payload;
                                     consumedTs = stream._opusRXList.Keys[i];
+                                    consumedSequence = stream._opusRXList.Values[i].Header.packet_count;
                                     stream.LastOpusTimestampConsumed = consumedTs;
                                     break;
                                 }
@@ -1238,7 +1254,13 @@ namespace Radios
                     // than differenced between timestamps. See
                     // ReceiveContinuityMeter for why the difference matters.
                     _opusRxContinuity.Consume(consumedTs);
-                    opusOutputChannel.PortAudioStream.WriteOpus(opusBuf);
+                    (ComputerRecorder.Current as ComputerFlacRecorder)?.Receive(this, opusBuf,
+                        consumedSequence, consumedTs, LocalReceiveMutedForTakePlayback);
+                    // Local take playback owns this computer-side gate. Keep
+                    // consuming timestamps while muted; never send a radio
+                    // mute command or make the receive stream fall behind.
+                    if (!LocalReceiveMutedForTakePlayback)
+                        opusOutputChannel.PortAudioStream.WriteOpus(opusBuf);
                 }
                 else
                 {
@@ -1276,6 +1298,7 @@ namespace Radios
             }
 
             remoteDone:
+            (ComputerRecorder.Current as ComputerFlacRecorder)?.ReceiveEnded(this);
             // Both exits pass through here, so the continuity totals are
             // reported for aborted runs too.
             TraceOpusRxContinuitySummary();
@@ -1429,7 +1452,10 @@ namespace Radios
         // reference the two fields it needs.
         private JJPortaudio.TxInputSourceMux _txInputSources;
         private JJPortaudio.TxInputSourceMux TxInputSources =>
-            _txInputSources ??= new JJPortaudio.TxInputSourceMux(txToneGen, txFilePlayer);
+            _txInputSources ??= new JJPortaudio.TxInputSourceMux(txToneGen, txFilePlayer)
+            {
+                MuteOutput = () => theRadio?.TXTune == true
+            };
 
         // Track I: the TX conditioning chain (noise reduction + gate +
         // residual monitor tap), owned here like the tone generator and the
@@ -1475,17 +1501,96 @@ namespace Radios
         /// its place in the TX stream. Takes effect immediately if
         /// transmitting, otherwise at the next key-down.
         /// </summary>
-        public void TxToneStart()
+        public bool TxToneStart()
         {
-            Tracing.TraceLine("TxToneStart: " + txToneGen.Frequency + " Hz at " + txToneGen.LevelDb + " dBFS", TraceLevel.Info);
-            txToneGen.Start();
+            lock (_voxPauseGate)
+            {
+                if (txToneGen.Engaged) return true;
+                if (_toneVoxLease != null || theRadio?.Connected != true || theRadio.SimpleVOXEnable)
+                    return false;
+                var lease = VoxPauses.Acquire(VoxSetting.SimpleVox);
+                if (lease == null) return false;
+                _toneVoxLease = lease;
+                return StartToneWithLease(lease);
+            }
+        }
+
+        /// <summary>Wait for the radio to confirm VOX off before a tone can reach its transmit input.</summary>
+        public async Task<bool> TxToneStartAsync()
+        {
+            Flex.Smoothlake.FlexLib.Radio radio;
+            VoxPauseOwner.Lease lease;
+            lock (_voxPauseGate)
+            {
+                if (txToneGen.Engaged) return true;
+                if (_toneVoxLease != null) return false;
+                radio = theRadio;
+                if (radio?.Connected != true) return false;
+                if (!radio.SimpleVOXEnable) return TxToneStart();
+                lease = VoxPauses.Acquire(VoxSetting.SimpleVox);
+                if (lease == null) return false;
+                _toneVoxLease = lease;
+            }
+            try
+            {
+                // The owner writes on the rig queue. The barrier ensures its
+                // reply task exists before we inspect it.
+                await IqQueue(() => { }).ConfigureAwait(false);
+                if (!await LastVoxWriteReply(VoxSetting.SimpleVox, radio, on: false)
+                    .WaitAsync(SliceVoxOffWait).ConfigureAwait(false)) return FailToneArm(lease);
+                lock (_voxPauseGate)
+                {
+                    if (!ReferenceEquals(radio, theRadio) || radio.SimpleVOXEnable ||
+                        !ReferenceEquals(_toneVoxLease, lease)) return FailToneArm(lease);
+                    return StartToneWithLease(lease);
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TxToneStartAsync: " + ex.Message, TraceLevel.Warning);
+                return FailToneArm(lease);
+            }
+        }
+
+        private bool FailToneArm(VoxPauseOwner.Lease lease)
+        {
+            lock (_voxPauseGate)
+            {
+                if (ReferenceEquals(_toneVoxLease, lease)) _toneVoxLease = null;
+                lease.Dispose();
+                return false;
+            }
+        }
+
+        private bool StartToneWithLease(VoxPauseOwner.Lease lease)
+        {
+            try
+            {
+                Tracing.TraceLine("TxToneStart: " + txToneGen.Frequency + " Hz at " + txToneGen.LevelDb + " dBFS", TraceLevel.Info);
+                txToneGen.Start();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TxToneStart: " + ex.Message, TraceLevel.Warning);
+                return FailToneArm(lease);
+            }
         }
 
         /// <summary>Release the test tone and restore the microphone.</summary>
-        public void TxToneStop()
+        public bool TxToneStop()
         {
-            Tracing.TraceLine("TxToneStop", TraceLevel.Info);
-            txToneGen.Stop();
+            lock (_voxPauseGate)
+            {
+                Tracing.TraceLine("TxToneStop", TraceLevel.Info);
+                txToneGen.Stop();
+                var lease = _toneVoxLease;
+                _toneVoxLease = null;
+                if (lease == null) return false;
+                bool paused = lease.Paused;
+                ReleaseVoxWhenReceive(lease);
+                return paused;
+            }
         }
 
         /// <summary>
@@ -1536,6 +1641,96 @@ namespace Radios
         /// microphone.
         /// </summary>
         public bool TxFilePlaying => txFilePlayer.Engaged;
+
+        private long _lastTransmitEndMs = long.MinValue;
+
+        /// <summary>Release a VOX pause after the live transmit capture path has drained.</summary>
+        private void ReleaseVoxAfterTransmitDrain(VoxPauseOwner.Lease lease, bool fromNow = false)
+        {
+            double measuredMs = opusInputChannel?.PortAudioStream?.InputDrainMilliseconds ?? 0;
+            // Slice playback can run without a PC transmit input stream. In
+            // that case reserve two configured callback buffers for its tail.
+            if (fromNow && measuredMs <= 0)
+                measuredMs = 2 * (1000.0 / TxAudioCallbacksPerSecond);
+            // The measurement includes the device path and callback buffer. A
+            // 50 ms margin covers scheduling and the final encoded frames.
+            int drainMs = (int)Math.Ceiling(measuredMs + 50);
+            long elapsed = fromNow ? 0 : _lastTransmitEndMs == long.MinValue
+                ? drainMs : Math.Max(0, Environment.TickCount64 - _lastTransmitEndMs);
+            int remaining = (int)Math.Max(0, drainMs - elapsed);
+            if (remaining == 0) { lease.Dispose(); return; }
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(remaining).ConfigureAwait(false);
+                lease.Dispose();
+            });
+        }
+
+        private void ReleaseVoxWhenReceive(VoxPauseOwner.Lease lease, bool playbackTail = false)
+        {
+            if (!_Transmit) { ReleaseVoxAfterTransmitDrain(lease, playbackTail); return; }
+            _ = Task.Run(async () =>
+            {
+                while (_Transmit && theRadio?.Connected == true)
+                    await Task.Delay(20).ConfigureAwait(false);
+                ReleaseVoxAfterTransmitDrain(lease, playbackTail);
+            });
+        }
+
+        /// <summary>The Workshop reference has an active VOX lease.</summary>
+        public bool TxReferenceArmed
+        {
+            get { lock (_voxPauseGate) return _referenceVoxLease != null; }
+        }
+
+        /// <summary>Arm a reference only after the radio confirms VOX is off.</summary>
+        public async Task<bool> TxReferenceStartAsync()
+        {
+            Flex.Smoothlake.FlexLib.Radio radio;
+            VoxPauseOwner.Lease lease;
+            bool waitForOff;
+            lock (_voxPauseGate)
+            {
+                if (_referenceVoxLease != null || theRadio?.Connected != true || !txFilePlayer.HasContent)
+                    return false;
+                radio = theRadio;
+                waitForOff = radio.SimpleVOXEnable;
+                lease = VoxPauses.Acquire(VoxSetting.SimpleVox);
+                if (lease == null) return false;
+                _referenceVoxLease = lease;
+            }
+            try
+            {
+                if (waitForOff)
+                {
+                    await IqQueue(() => { }).ConfigureAwait(false);
+                    if (!await LastVoxWriteReply(VoxSetting.SimpleVox, radio, on: false)
+                        .WaitAsync(SliceVoxOffWait).ConfigureAwait(false)) return FailReferenceArm(lease);
+                }
+                lock (_voxPauseGate)
+                {
+                    if (!ReferenceEquals(radio, theRadio) || radio.SimpleVOXEnable ||
+                        !ReferenceEquals(_referenceVoxLease, lease)) return FailReferenceArm(lease);
+                    TxFileStart();
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TxReferenceStartAsync: " + ex.Message, TraceLevel.Warning);
+                return FailReferenceArm(lease);
+            }
+        }
+
+        private bool FailReferenceArm(VoxPauseOwner.Lease lease)
+        {
+            lock (_voxPauseGate)
+            {
+                if (ReferenceEquals(_referenceVoxLease, lease)) _referenceVoxLease = null;
+                lease.Dispose();
+                return false;
+            }
+        }
 
         /// <summary>
         /// Start transmitting the loaded recording in place of the
@@ -1611,9 +1806,22 @@ namespace Radios
         /// </remarks>
         public void TxFileStop()
         {
-            Tracing.TraceLine("TxFileStop", TraceLevel.Info);
-            _txFileFlowsWhileReceiving = false;
-            txFilePlayer.Stop();
+            lock (_voxPauseGate)
+            {
+                Tracing.TraceLine("TxFileStop", TraceLevel.Info);
+                _txFileFlowsWhileReceiving = false;
+                txFilePlayer.Stop();
+                // A disarm during an owned transmission stops the samples
+                // immediately, but VOX remains paused until the radio reports
+                // receive. Restoring it on the unkey REQUEST could rekey from
+                // the tail of the source before Mox actually falls.
+                if (!_Transmit)
+                {
+                    var lease = _referenceVoxLease;
+                    _referenceVoxLease = null;
+                    if (lease != null) ReleaseVoxAfterTransmitDrain(lease);
+                }
+            }
         }
 
         /// <summary>

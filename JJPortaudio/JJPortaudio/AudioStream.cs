@@ -53,6 +53,9 @@ namespace JJPortaudio
         /// </summary>
         public Action<float[]>? PostDecodeProcessor { get; set; }
 
+        /// <summary>Observer of the final receive samples; it must return without blocking.</summary>
+        public Action<float[]>? PostOutputObserver { get; set; }
+
         /// <summary>
         /// Audio Track C: optional TX injection source for input streams.
         /// When set and engaged, its samples REPLACE the microphone samples in
@@ -112,6 +115,7 @@ namespace JJPortaudio
         /// report, log or speak.
         /// </summary>
         public uint SampleRate { get { return (aud != null) ? aud.SampleRate : 0; } }
+        public double InputDrainMilliseconds => aud?.InputDrainMilliseconds ?? 0;
         /// <summary>
         /// Channels this stream opened with: 1 on a genuinely mono device, 2
         /// otherwise. The audio itself is stereo either way — a mono capture is
@@ -360,6 +364,7 @@ namespace JJPortaudio
 
             // PC-side audio processing (NR, spectral subtraction, etc.)
             PostDecodeProcessor?.Invoke(buf);
+            PostOutputObserver?.Invoke(buf);
 
             // Measure what is actually going to the speakers, AFTER the gain,
             // the limiter and any noise reduction — rather than computing it

@@ -222,7 +222,7 @@ public partial class AudioWorkshopDialog
             return;
         }
 
-        if (want) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+        ToggleFeedback.Announce("Amplifier operate", want);
     }
 
     #endregion

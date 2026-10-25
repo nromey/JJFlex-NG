@@ -73,6 +73,9 @@ namespace JJFlexWpf
         /// Returns null/empty when there is nothing to say.
         /// </summary>
         public static Func<string?>? KeyDownAnnouncementExtra { get; set; }
+        private const string KeyDownExtraSubject = "ptt-key-down-extra";
+        /// <summary>The Audio Check supplies its own short keying narration.</summary>
+        public bool AudioCheckNarration { get; set; }
 
         private static void SpeakKeyDownExtra()
         {
@@ -80,21 +83,26 @@ namespace JJFlexWpf
             try { extra = KeyDownAnnouncementExtra?.Invoke(); }
             catch { /* never let an announcement hook break keying */ }
             if (!string.IsNullOrEmpty(extra))
-                ScreenReaderOutput.Speak(extra, VerbosityLevel.Critical);
+                ScreenReaderOutput.Speak(extra, Radios.Speech.SpeechIntent.Queue,
+                    VerbosityLevel.Critical, subject: KeyDownExtraSubject);
         }
 
         /// <summary>
-        /// Session-scoped soft-timeout override in seconds (QB Track G,
-        /// 2026-08-07). When non-null, the effective lock timeout is the
-        /// SMALLER of the operator's configured timeout and this value; the
-        /// existing warning ladder scales off the effective value unchanged
-        /// and the 15-minute hard kill is untouched. Set by the Audio Check
-        /// session on start (a check wants a short leash regardless of the
-        /// operator's ragchew timeout) and cleared on session end. This is
-        /// deliberately the minimal hook — the session must NOT grow its own
-        /// safety timer stack.
+        /// Legacy session-scoped soft-timeout override. Audio Check now owns
+        /// its recorder limit and suppresses this warning ladder during checks.
+        /// Ordinary transmissions retain the configured warning and hard kill.
         /// </summary>
         public int? SessionTimeoutOverrideSeconds { get; set; }
+
+        /// <summary>
+        /// A planned stop that owns this transmission's cut (the Record and
+        /// play back check's recorder limit). The warning ladder stands down
+        /// ONLY while the planned stop comes before the operator's own
+        /// timeout; when the operator's timeout is the shorter leash, it runs
+        /// exactly as for any other transmission. Null for every other
+        /// transmission, Monitor and off-air checks included.
+        /// </summary>
+        public int? PlannedStopSeconds { get; set; }
 
         private double EffectiveTimeoutSeconds =>
             SessionTimeoutOverrideSeconds is int o
@@ -748,6 +756,11 @@ namespace JJFlexWpf
             return _getRadioPowerOn() && _getRigControl() != null;
         }
 
+        /// <summary>Admission for a recording joining an existing transmission; never requests keying.</summary>
+        public bool AllowsRecorderPlayback(FlexBase rig) => ReferenceEquals(_getRigControl(), rig) &&
+            CanTransmit() && !RefuseIfHeldAfterCut("slice playback") &&
+            (CanTransmitHereCheck?.Invoke() ?? true);
+
         // ── Detecting a screen reader that does not deliver held keys (#216) ──
         //
         // JAWS synthesises key-down/key-UP pairs rather than passing a held key
@@ -869,9 +882,9 @@ namespace JJFlexWpf
                 StartFreshAudioSample();
                 if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
                 _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_transmitting"));
-                if (_config.SpeechEnabled)
+                if (_config.SpeechEnabled && !AudioCheckNarration)
                     ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.announce_transmitting"), VerbosityLevel.Critical, interrupt: true);
-                SpeakKeyDownExtra(); // armed test tone, etc. — always speaks
+                if (!AudioCheckNarration) SpeakKeyDownExtra();
                 _healthReflectedWarned = false;
                 _reflectedRun.Reset();
                 _healthTxSeconds = 0;
@@ -939,6 +952,14 @@ namespace JJFlexWpf
             }
         }
 
+        /// <summary>The planned recorder stop: one cue and one outcome, without the timeout ladder.</summary>
+        public void RecorderLimitUnlock()
+        {
+            if (State == PttState.Idle) return;
+            if (!_config.ChirpEnabled) EarconPlayer.ConfirmTone();
+            GoIdle("Check stopped at the recorder's two-minute limit.", forceSpeech: true);
+        }
+
         // -------------------------------------------------------------------
         // State transitions
         // -------------------------------------------------------------------
@@ -994,9 +1015,9 @@ namespace JJFlexWpf
             StartFreshAudioSample(); // SC_MIC peak-hold and LUFS sample both start here
 
             _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_locked"));
-            if (_config.SpeechEnabled)
+            if (_config.SpeechEnabled && !AudioCheckNarration)
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.announce_locked"), VerbosityLevel.Critical, interrupt: true);
-            SpeakKeyDownExtra(); // armed test tone, etc. — always speaks
+            if (!AudioCheckNarration) SpeakKeyDownExtra();
             Tracing.TraceLine("PTT: Locked", TraceLevel.Info);
 
             StartWarningTimer();
@@ -1017,6 +1038,7 @@ namespace JJFlexWpf
             var wasState = State;
             State = PttState.Idle;
             SetTx(false);
+            ScreenReaderOutput.Supersede(KeyDownExtraSubject, "transmission ended");
             if (_config.ChirpEnabled) EarconPlayer.TxStopTone();
 
             // Read the transmission's audio verdict BEFORE the counters below
@@ -1024,7 +1046,7 @@ namespace JJFlexWpf
             // three paths that are a safety outcome — timeout, hard kill, ALC
             // release — and an operator who has just been unkeyed by the
             // software does not also need to hear about their microphone gain.
-            string levelAdvice = forceSpeech ? "" : MicLevelAdviceOrEmpty(_getRigControl(), wasState);
+            string levelAdvice = forceSpeech || AudioCheckNarration ? "" : MicLevelAdviceOrEmpty(_getRigControl(), wasState);
 
             StopAllTimers();
             _alcZeroConsecutiveSeconds = 0;
@@ -1060,7 +1082,7 @@ namespace JJFlexWpf
             // answer. Captured AFTER SetTx(false) above, which is the ended
             // transmission's episode: the answer stays yes until RF next goes
             // on.
-            if ((forceSpeech || _config.SpeechEnabled) && !string.IsNullOrEmpty(unkeyMessage))
+            if ((forceSpeech || (_config.SpeechEnabled && !AudioCheckNarration)) && !string.IsNullOrEmpty(unkeyMessage))
                 ScreenReaderOutput.Speak(
                     unkeyMessage,
                     forceSpeech
@@ -1093,6 +1115,10 @@ namespace JJFlexWpf
         private void WarningTimerTick(object? sender, EventArgs e)
         {
             if (State == PttState.Idle) { StopAllTimers(); return; }
+            // A planned stop that comes first owns the cut, so the ladder for
+            // a later timeout would only be noise. A shorter operator timeout
+            // still wins, and the 15-minute hard kill runs regardless.
+            if (PlannedStopSeconds is int planned && EffectiveTimeoutSeconds > planned) return;
 
             var elapsed = (DateTime.UtcNow - _lockStartTime).TotalSeconds;
             var timeout = EffectiveTimeoutSeconds;
@@ -1601,7 +1627,8 @@ namespace JJFlexWpf
                 // other's (#237).
                 EarconPlayer.WarningAlarmTone();
                 string cutAntenna = rig.TXAntennaName ?? "";
-                GoIdle(TransmitSafety.ReflectedCutTextFor(cut, reading, cutAntenna),
+                GoIdle(TransmitSafety.ReflectedCutTextFor(cut, reading, cutAntenna,
+                           rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox),
                        forceSpeech: true,
                        subject: Radios.Speech.SpeechSubject.ReflectedPowerCut);
                 // And nothing re-keys into the same fault for the next few

@@ -22,6 +22,10 @@ public sealed class IqTakeWriter : IDisposable
     private double _maxArrivalJitter;
     private bool _failed, _finished;
     private ushort? _lastClass;
+    private IqBlock _leading, _following;
+    private bool _startupSettled;
+    private long _startupDiscards;
+    private bool _startupSignatureDetected;
     private readonly object _gate = new();
     public string DirectoryPath { get; }
     public TakeHeader Header { get; }
@@ -29,6 +33,7 @@ public sealed class IqTakeWriter : IDisposable
     public bool IsReady => _ready.Task.IsCompletedSuccessfully && _ready.Task.Result;
     public long PairsWritten => _pairs;
     public long FillPairs => _fill;
+    public bool StartupSignatureDetected => _startupSignatureDetected;
     public string Failure { get; private set; }
     public Task<string> Failed => _failure.Task;
     private readonly TaskCompletionSource<string> _failure = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -79,7 +84,17 @@ public sealed class IqTakeWriter : IDisposable
         {
             Header.Event("packet-class", h);
             _lastClass = h.ClassCode;
-            if (_first == null) _classifierCount = 0;
+            if (_first == null)
+            {
+                _classifierCount = 0;
+                foreach (var held in new[] { _leading, _following })
+                    if (held != null)
+                    {
+                        Header.Event("startup-discard", new { Reason = "packet-class-changed-before-clock-established", held.Header, Pairs = held.Samples.Length / 2 });
+                        _startupDiscards++;
+                    }
+                _leading = _following = null;
+            }
         }
         if (!Active || EchoedRate != _rate || h.Rate != EchoedRate)
         {
@@ -91,9 +106,59 @@ public sealed class IqTakeWriter : IDisposable
         if (data.Length == 0 || (data.Length & 1) != 0) { Fail("invalid-payload-length"); return; }
         for (int i = 0; i < data.Length; ++i)
             if (!float.IsFinite(data[i]) || !float.IsFinite(data[i] * 32768f)) { Fail("non-finite-payload"); return; }
+        // Hold the head until another packet establishes its clock. A large
+        // forward jump alone cannot prove which packet is stale: require a
+        // third, contiguous timestamp and counter before discarding the head.
+        if (!_startupSettled && _leading == null && !h.HasRadioClock) _startupSettled = true;
+        if (!_startupSettled)
+        {
+            if (_leading == null) { _leading = block with { Samples = block.Samples.ToArray() }; return; }
+            var first = _leading.Header;
+            double radioJump = h.SecondsSince(first);
+            double arrivalGap = (h.ArrivalTicks - first.ArrivalTicks) / (double)Stopwatch.Frequency;
+            // A burst can deliver two genuine packets milliseconds apart even
+            // though their radio clocks are one full packet apart. Suspect the
+            // head only when its successor is NOT contiguous by radio time and
+            // the unexplained jump is much larger than the arrival gap.
+            bool contiguousClock = Math.Abs(radioJump * _rate - _leading.Samples.Length / 2) < .75;
+            bool suspect = first.HasRadioClock && h.HasRadioClock && first.IntegerKind == h.IntegerKind &&
+                !contiguousClock && radioJump > arrivalGap + .05 && arrivalGap is >= 0 and < 1 &&
+                block.DroppedPackets == 0 && _leading.DroppedPackets == 0;
+            if (_following == null && suspect) { _following = block with { Samples = block.Samples.ToArray() }; return; }
+            _startupSettled = true;
+            if (_following != null)
+            {
+                var second = _following.Header;
+                bool continuous = h.HasRadioClock && h.IntegerKind == second.IntegerKind &&
+                    h.Count == (second.Count + 1) % 16 && block.DroppedPackets == 0 &&
+                    Math.Abs(h.SecondsSince(second) * _rate - _following.Samples.Length / 2) < .75 &&
+                    (h.ArrivalTicks - second.ArrivalTicks) / (double)Stopwatch.Frequency is >= 0 and < 1;
+                if (!continuous) { Fail("timestamp-discontinuity"); return; }
+                Header.Event("startup-discard", new { Reason = "isolated-stale-leading-clock; following two packets contiguous",
+                    Header = first, Pairs = _leading.Samples.Length / 2, Following = second, Confirming = h });
+                _startupDiscards++;
+                WriteBlock(_following);
+            }
+            else WriteBlock(_leading);
+            _leading = _following = null;
+        }
+        if (!_failed) WriteBlock(block);
+    }
+    private void WriteBlock(IqBlock block)
+    {
+        var h = block.Header;
+        ReadOnlySpan<float> data = block.Samples.Span;
         var gap = _ledger.Observe(h, data.Length / 2, block.DroppedPairs);
         if (!gap.Exact || gap.FillPairs != 0 || gap.Discard)
             Header.Event("gap", new { AtPair = _pairs, Header = h, gap.FillPairs, gap.Discard, gap.Exact, gap.Basis });
+        if (gap.Exact && !gap.Discard && gap.Basis == "radio-timestamp" && gap.FillPairs == 4 &&
+            _pairs == 128 && _lastPacketPairs == 128 && _gaps == 0 &&
+            block.DroppedPackets == 0 && block.DroppedPairs == 0)
+        {
+            _startupSignatureDetected = true;
+            Header.Event("startup-signature-gap", new { AtPair = _pairs, gap.FillPairs, gap.Exact, gap.Basis });
+            Header.Write("startup-signature", "detected");
+        }
         if (gap.Discard)
         {
             _discards++;
@@ -180,11 +245,27 @@ public sealed class IqTakeWriter : IDisposable
     }
     public void MarkTone(bool engaged, double frequency)
     { lock (_gate) if (!_finished) Header.Event("tone-at-keying", new { Engaged = engaged, Frequency = frequency }); }
+    /// <summary>
+    /// Whether Reference Audio was feeding the transmitter at this keying edge
+    /// (round 14, #794). Written beside <see cref="MarkTone"/> at the same
+    /// moment, because the keying edge is when the source is settled; the
+    /// provenance block's <c>reference-audio</c> is the same fact at take start.
+    /// </summary>
+    public void MarkReference(bool engaged)
+    { lock (_gate) if (!_finished) Header.Event("reference-at-keying", new { Engaged = engaged }); }
     public void Finish(string reason, long droppedPackets = 0, long droppedPairs = 0, long subscriberFailures = 0)
     {
         lock (_gate)
         {
             if (_finished) return;
+            // A single packet carries no contradictory clock evidence. Preserve
+            // it on stop; a suspected discontinuity without confirmation fails.
+            if (!_startupSettled && !_failed)
+            {
+                if (_following != null) Fail("timestamp-discontinuity");
+                else if (_leading != null) WriteBlock(_leading);
+                _leading = _following = null;
+            }
             _finished = true;
             _ready.TrySetResult(false);
             try
@@ -212,11 +293,12 @@ public sealed class IqTakeWriter : IDisposable
                 Header.Write("gaps", _gaps);
                 Header.Write("fill-pairs", _fill);
                 Header.Write("discarded-packets", _discards);
+                Header.Write("startup-discarded-packets", _startupDiscards);
                 Header.Write("overrun-packets", Math.Max(_overruns, droppedPackets));
                 Header.Write("overrun-pairs", droppedPairs);
                 Header.Write("subscriber-failures", subscriberFailures);
                 Header.Write("sha256", TakeHeader.Checksum(Path.Combine(DirectoryPath, "rf.iq")));
-                bool clean = IsReady && !_failed && _gaps == 0 && _discards == 0 &&
+                bool clean = IsReady && !_failed && _gaps == (_startupSignatureDetected ? 1 : 0) && _discards == 0 &&
                     droppedPackets == 0 && _overruns == 0 && subscriberFailures == 0 && reason == "operator-stop";
                 Header.Write("closed", clean ? "clean" : "incomplete");
             }

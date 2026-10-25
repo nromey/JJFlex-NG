@@ -899,14 +899,17 @@ namespace Radios
         /// The cut sentence for whichever rung fired, in that rung's own unit.
         /// </summary>
         public static string ReflectedCutTextFor(ReflectedCut rung, in TransmitPowerReading reading,
-                                                 string antennaName)
+                                                 string antennaName, bool voxPaused = false)
         {
-            switch (rung)
-            {
-                case ReflectedCut.Share: return ReflectedCutText(reading.ReflectedShare, antennaName);
-                case ReflectedCut.Watts: return ReflectedCutWattsText(reading.ReflectedWatts, antennaName);
-                default: return "";
-            }
+            if (rung == ReflectedCut.None) return "";
+            string measurement = rung == ReflectedCut.Share
+                ? $"{(int)Math.Round(reading.ReflectedShare * 100f)} percent reflected"
+                : $"{(int)Math.Round(reading.ReflectedWatts)} watts reflected";
+            if (ScreenReaderOutput.CurrentVerbosity != VerbosityLevel.Chatty)
+                return "Transmit stopped, " + measurement + ".";
+            string where = string.IsNullOrWhiteSpace(antennaName) ? "" : " on " + antennaName;
+            return "Transmit stopped. " + measurement + where + "."
+                + (voxPaused ? $" VOX paused for {ReflectedCutHold.HoldSeconds} seconds." : "");
         }
 
         // ==================================================================

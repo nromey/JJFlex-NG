@@ -104,9 +104,10 @@ namespace Radios
         /// <summary>
         /// Add a pan and slice.
         /// </summary>
+        private enum DiagnosticSlicePurpose { None, Listenback, Loopback, OffAir }
         public bool NewSlice() => NewSlice(null);
 
-        private bool NewSlice(LoopbackSliceResources resources)
+        private bool NewSlice(LoopbackSliceResources resources, DiagnosticSlicePurpose diagnosticPurpose = DiagnosticSlicePurpose.None)
         {
             // Use model-based TotalMaxSlices (always correct) instead of theRadio.MaxSlices
             // which reports available-remaining (can be 0 at startup when profile fills all slots).
@@ -123,9 +124,14 @@ namespace Radios
             int myTXSliceIndex = VFOToSliceIndex(TXVFO);
             resources?.ExpectCreationReply();
             mySliceAdded = false; // need to know when slice added.
-            // #117: this application asked, so the resulting layout is
-            // provisional and the operator gets told so once it settles.
-            NoteOperatorChangedSliceSet();
+            // #117: an operator-requested layout is provisional and gets a
+            // receipt. A check's temporary listener is not their request.
+            if (diagnosticPurpose == DiagnosticSlicePurpose.None) NoteOperatorChangedSliceSet();
+            else if (!SuppressSpeech && diagnosticPurpose == DiagnosticSlicePurpose.Listenback)
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.iq.adding_listener"), VerbosityLevel.Terse);
+            // Loopback and off-air share this setup. Their one purpose-specific
+            // announcement belongs to the confirmed start line, after the
+            // ears exist; a progress line here was rescued after keying.
             q.Enqueue((FunctionDel)(() =>
             {
                 if (resources == null) theRadio.RequestPanafall();
@@ -141,6 +147,8 @@ namespace Radios
                     return mySliceAdded & (MyNumPanadapters == MyNumSlices);
                 }, 3000))
                 {
+                    if (resources?.Slice != null && diagnosticPurpose != DiagnosticSlicePurpose.None)
+                        lock (_sliceSettleLock) _diagnosticSlices[resources.Slice] = diagnosticPurpose;
                     // restore VFOs by identity.
                     int rxVfo = SliceIndexToVFO(myRXSliceIndex);
                     if (rxVfo >= 0) RXVFO = rxVfo;
@@ -293,6 +301,8 @@ namespace Radios
         /// provisional about the layout the radio just restored.
         /// </summary>
         private volatile bool _operatorChangedSliceSet;
+        private readonly Dictionary<Slice, DiagnosticSlicePurpose> _diagnosticSlices = new();
+        private readonly List<(Slice Slice, bool Added, bool DiagnosticAtEvent)> _sliceSetEvents = new();
 
         /// <summary>
         /// #359 — one fact, two vocabularies, 60 to 94 ms apart. On a connect
@@ -344,11 +354,12 @@ namespace Radios
         /// Note that the slice set has changed and (re)start the settle timer.
         /// Called from the slice added and removed handlers.
         /// </summary>
-        private void NoteSliceSetChanged()
+        private void NoteSliceSetChanged(Slice slice, bool added)
         {
             _sliceSetChurning = true;
             lock (_sliceSettleLock)
             {
+                _sliceSetEvents.Add((slice, added, !added && _diagnosticSlices.ContainsKey(slice)));
                 if (_sliceSettleTimer == null)
                 {
                     _sliceSettleTimer = new System.Threading.Timer(
@@ -372,10 +383,25 @@ namespace Radios
             _sliceSetChurning = false;
             bool operatorDid = _operatorChangedSliceSet;
             _operatorChangedSliceSet = false;
+            bool diagnosticOnly;
+            lock (_sliceSettleLock)
+            {
+                diagnosticOnly = _sliceSetEvents.Count > 0 && _sliceSetEvents.TrueForAll(e =>
+                    e.DiagnosticAtEvent || (e.Added && _diagnosticSlices.ContainsKey(e.Slice)));
+                foreach (var e in _sliceSetEvents)
+                    if (!e.Added) _diagnosticSlices.Remove(e.Slice);
+                _sliceSetEvents.Clear();
+            }
 
             // Slices also disappear on the way out. Saying anything then is
             // noise at best and a crash at worst.
             if (Disconnecting || theRadio == null) return;
+
+            if (diagnosticOnly && !operatorDid)
+            {
+                Tracing.TraceLine("Slice census suppressed: diagnostic listening slice change", TraceLevel.Info);
+                return;
+            }
 
             AnnounceSliceCensus(operatorInitiated: operatorDid);
             if (operatorDid) SpeakProvisionalSliceChangeReceipt();

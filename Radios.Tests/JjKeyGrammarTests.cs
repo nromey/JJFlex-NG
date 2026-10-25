@@ -189,6 +189,31 @@ namespace Radios.Tests
             [Keys.Oem2 | Keys.Shift] = "help tier — the same key with Shift held, which is how ? arrives",
         };
 
+        /// <summary>
+        /// Ctrl+Shift+letter chords, each with the Ctrl+letter chord it is the
+        /// VARIANT of. #515's ruling of 2026-10-05 admitted Ctrl+Shift to the
+        /// grammar with one meaning — "Ctrl is the feature, Ctrl+Shift is its
+        /// variant" — for true siblings that share an initial. A tier with one
+        /// meaning can be checked, so this is checked: every Ctrl+Shift+letter
+        /// arm must be declared here, every line here must still be handled,
+        /// and the Ctrl chord it is a variant of must exist. "Whichever of the
+        /// two lost the coin toss" is not a meaning, and a Ctrl+Shift chord
+        /// with no Ctrl twin is exactly that.
+        /// </summary>
+        /// <remarks>
+        /// Until Tape Deck track 2 (#787) no Ctrl+Shift arm existed, and no
+        /// test examined that tier at all: <see cref="IsTier"/> matches the
+        /// modifier set exactly, so Ctrl+Shift+R is invisible to the Ctrl
+        /// audits. Same blind-spot shape as <see cref="NonLetterArms"/>.
+        /// </remarks>
+        private static readonly Dictionary<Keys, (Keys Of, string Why)> CtrlShiftVariants = new()
+        {
+            [Keys.R | Keys.Control | Keys.Shift] = (Keys.R | Keys.Control,
+                "record to file — the computer's recorder, beside the radio's (Ctrl+R) (#787)"),
+            [Keys.P | Keys.Control | Keys.Shift] = (Keys.P | Keys.Control,
+                "play from computer — the computer's playback, beside the slice's (Ctrl+P) (#787)"),
+        };
+
         private static readonly Regex LayerEntry = new(@"\bEnter\w*(?:Mode|Layer)\s*\(", RegexOptions.Compiled);
         private static readonly Regex SliceJump = new(@"\bJumpToSlice\s*\(\s*(\d+)\s*\)", RegexOptions.Compiled);
 
@@ -449,6 +474,67 @@ namespace Radios.Tests
             Assert.True(stale.Count == 0,
                 "AltTierLayerDebt lists chords that no longer open a layer — delete their lines: "
                 + string.Join(", ", stale.Select(Name)));
+        }
+
+        [Fact]
+        public void Every_ctrl_shift_chord_is_the_declared_variant_of_a_ctrl_chord_that_exists()
+        {
+            var arms = LeaderSourceScan.RealSwitchArms();
+            var handled = arms.SelectMany(a => a.Labels).ToHashSet();
+            var ctrlShift = handled.Where(l => IsTier(l, Keys.Control | Keys.Shift)).ToList();
+
+            var undeclared = ctrlShift.Where(l => !CtrlShiftVariants.ContainsKey(l)).Select(Name).ToList();
+            Assert.True(undeclared.Count == 0,
+                "Ctrl+Shift+letter chords handled by DoLeaderCommand and not declared in "
+                + "CtrlShiftVariants: " + string.Join(", ", undeclared)
+                + ". Under #515 Ctrl+Shift is the VARIANT of the Ctrl feature with the same initial; "
+                + "declare which Ctrl chord this is the variant of, or put it on another tier.");
+
+            var stale = CtrlShiftVariants.Keys.Where(k => !handled.Contains(k)).Select(Name).ToList();
+            Assert.True(stale.Count == 0,
+                "CtrlShiftVariants declares chords DoLeaderCommand no longer handles — delete their "
+                + "lines: " + string.Join(", ", stale));
+
+            var orphans = CtrlShiftVariants.Where(kv => !handled.Contains(kv.Value.Of))
+                .Select(kv => Name(kv.Key) + " (variant of the unbound " + Name(kv.Value.Of) + ")").ToList();
+            Assert.True(orphans.Count == 0,
+                "Ctrl+Shift chords whose Ctrl twin is not bound: " + string.Join(", ", orphans)
+                + ". A variant of nothing is a coin toss, not a meaning (#515, 2026-10-05).");
+
+            var mismatched = CtrlShiftVariants
+                .Where(kv => (kv.Key & Keys.KeyCode) != (kv.Value.Of & Keys.KeyCode)
+                             || (kv.Value.Of & Keys.Modifiers) != Keys.Control)
+                .Select(kv => Name(kv.Key)).ToList();
+            Assert.True(mismatched.Count == 0,
+                "CtrlShiftVariants lines whose twin is not the same letter on the plain Ctrl tier: "
+                + string.Join(", ", mismatched));
+        }
+
+        [Theory]
+        [InlineData(Keys.Control | Keys.R, "RecordActiveSliceHandler")]
+        [InlineData(Keys.Control | Keys.P, "PlayActiveSliceHandler")]
+        [InlineData(Keys.Control | Keys.Shift | Keys.R, "RecordToFileHandler")]
+        [InlineData(Keys.Control | Keys.Shift | Keys.P, "PlayFromComputerHandler")]
+        public void Recorder_chords_route_to_their_declared_actions(Keys chord, string handler)
+        {
+            var arm = LeaderSourceScan.RealSwitchArms().Single(a => a.Labels.Contains(chord));
+            var calls = Regex.Matches(arm.Body, @"\b(\w+Handler)\s*\(")
+                .Select(m => m.Groups[1].Value).ToArray();
+            Assert.Equal(new[] { handler }, calls);
+        }
+
+        [Fact]
+        public void The_ctrl_shift_audit_can_see_the_tier_it_audits()
+        {
+            // Positive control: IsTier must match Ctrl+Shift exactly, or the
+            // audit above is blind to the very chords it exists for, and the
+            // real switch must actually hold some, or a pass means nothing.
+            Assert.True(IsTier(Keys.Q | Keys.Control | Keys.Shift, Keys.Control | Keys.Shift));
+            Assert.False(IsTier(Keys.Q | Keys.Control, Keys.Control | Keys.Shift));
+            Assert.False(IsTier(Keys.Q | Keys.Control | Keys.Shift, Keys.Control));
+            var seen = LeaderSourceScan.RealSwitchArms().SelectMany(a => a.Labels)
+                .Count(l => IsTier(l, Keys.Control | Keys.Shift));
+            Assert.Equal(CtrlShiftVariants.Count, seen);
         }
 
         [Fact]

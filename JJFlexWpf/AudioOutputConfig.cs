@@ -99,6 +99,8 @@ namespace JJFlexWpf
         /// is the right default for the one category that speaks unprompted.
         /// </summary>
         public bool EarconWarningsEnabled { get; set; } = true;
+        public bool RecorderBeepsEnabled { get; set; } = true;
+        public bool RecorderSpeechEnabled { get; set; } = true;
         // EarconContextHelpEnabled lived here until #343 removed the cue. Files
         // that still carry the element deserialize fine — XmlSerializer skips
         // unknown elements — and the next Save drops it.
@@ -702,6 +704,8 @@ namespace JJFlexWpf
             EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.TuningAndFilters, EarconTuningEnabled);
             EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.CommandsAndConfirmations, EarconCommandsEnabled);
             EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.Warnings, EarconWarningsEnabled);
+            EarconPlayer.RecorderBeepsEnabled = RecorderBeepsEnabled;
+            RecorderControls.StatusSpeechEnabled = RecorderSpeechEnabled;
             // #147 — which set of voice definitions the earcons resolve
             // against. Applied before anything can make a sound, and clamped
             // rather than cast blind: a hand-edited config saying 7 should get
@@ -811,6 +815,8 @@ namespace JJFlexWpf
             EarconTuningEnabled = EarconPlayer.GetCategoryEnabled(EarconPlayer.EarconCategory.TuningAndFilters);
             EarconCommandsEnabled = EarconPlayer.GetCategoryEnabled(EarconPlayer.EarconCategory.CommandsAndConfirmations);
             EarconWarningsEnabled = EarconPlayer.GetCategoryEnabled(EarconPlayer.EarconCategory.Warnings);
+            RecorderBeepsEnabled = EarconPlayer.RecorderBeepsEnabled;
+            RecorderSpeechEnabled = RecorderControls.StatusSpeechEnabled;
             MasterVolume = EarconPlayer.MasterVolume;
             AlertVolume = EarconPlayer.AlertVolume;
             MasterEarconVolume = (int)(EarconPlayer.AlertVolume * 100);

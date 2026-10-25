@@ -193,13 +193,14 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void VOX_note_enters_the_protected_recovery_ledger_past_the_public_speech_gate()
+        public void Hold_does_not_create_a_separate_VOX_speech_obligation()
         {
             ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;
             Begin(new FakeRadio { SimpleVox = true });
             var field = typeof(ScreenReaderOutput).GetField("_arbiter", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
             var arbiter = (SpeechArbiter)field.GetValue(null)!;
-            Assert.Contains(arbiter.OwedSafetyObligations, o => o.Subject == SpeechSubject.VoxPausedAfterCut);
+            Assert.DoesNotContain(arbiter.OwedSafetyObligations, o => o.Subject == SpeechSubject.VoxPausedAfterCut);
+            Assert.False(Delivered("VOX is paused for 5 seconds."));
         }
 
         [Theory]
@@ -285,7 +286,49 @@ namespace Radios.Tests
             Assert.Equal(1, radio.Tones);
         }
 
-        private const string VoxNote = "VOX was paused for the hold on keying.";
+        private const string VoxNote = "VOX is paused for 5 seconds.";
+
+        [Fact]
+        public void The_VOX_pause_adds_no_separate_sentence_after_the_cut()
+        {
+            ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;
+            const string cut = "Transmit stopped. Check the antenna before keying again.";
+            ScreenReaderOutput.Speak(cut, SpeechIntent.Urgent, VerbosityLevel.Critical,
+                subject: SpeechSubject.ReflectedPowerCut);
+            Begin(new FakeRadio { SimpleVox = true });
+
+            var delivered = Speech().Where(e => e.GetProperty("text").GetString() is var text
+                && (text == cut || text == VoxNote)).ToArray();
+            Assert.Equal(new[] { cut }, delivered.Select(e => e.GetProperty("text").GetString()));
+            var arbiter = (SpeechArbiter)typeof(ScreenReaderOutput)
+                .GetField("_arbiter", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
+                .GetValue(null)!;
+            Assert.DoesNotContain(arbiter.OwedSafetyObligations,
+                o => o.Subject == SpeechSubject.VoxPausedAfterCut);
+        }
+
+        [Fact]
+        public void An_expired_VOX_note_is_withdrawn_before_the_next_key_up()
+        {
+            ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;
+            var hold = Begin(new FakeRadio { SimpleVox = true });
+            _now += ReflectedCutHold.HoldMs;
+            hold.Tick(Setup(), _now);
+
+            var arbiter = (SpeechArbiter)typeof(ScreenReaderOutput)
+                .GetField("_arbiter", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
+                .GetValue(null)!;
+            Assert.DoesNotContain(arbiter.OwedSafetyObligations,
+                o => o.Subject == SpeechSubject.VoxPausedAfterCut);
+            ScreenReaderOutput.Speak("Transmitting, locked", SpeechIntent.Interrupt,
+                VerbosityLevel.Critical, subject: "transmit-state");
+            var speech = Speech();
+            int keyUp = Array.FindLastIndex(speech,
+                e => e.GetProperty("text").GetString() == "Transmitting, locked");
+            Assert.True(keyUp >= 0);
+            Assert.DoesNotContain(speech.Skip(keyUp + 1),
+                e => e.GetProperty("text").GetString() == VoxNote);
+        }
 
         // ──────────────────────────────────────────────────────────────────
         //  The window
@@ -531,7 +574,7 @@ namespace Radios.Tests
             Assert.True(hold.VoxPaused);
             Assert.Equal(new[] { FlexBase.VoxSetting.SimpleVox }, hold.PausedSettings);
             Assert.Equal(0, radio.Tones);
-            Assert.True(Delivered(VoxNote), "the VOX-paused note was not delivered at Terse");
+            Assert.False(Delivered(VoxNote), "the old separate VOX note must stay silent");
 
             int spokenBefore = Speech().Length;
             _now += ReflectedCutHold.HoldMs;
@@ -590,7 +633,7 @@ namespace Radios.Tests
             Assert.Equal(new[] { FlexBase.VoxSetting.SimpleVox, FlexBase.VoxSetting.CwBreakIn }, hold.PausedSettings);
             Assert.False(radio.CwBreakIn);
             Assert.Equal(0, radio.Tones);
-            Assert.Single(Speech(), e => e.GetProperty("text").GetString() == VoxNote);
+            Assert.DoesNotContain(Speech(), e => e.GetProperty("text").GetString() == VoxNote);
 
             _now += ReflectedCutHold.HoldMs;
             hold.Tick(Setup(mode: "CW"), _now);
@@ -661,12 +704,12 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_VOX_note_follows_the_operators_verbosity_and_is_gated_at_Off()
+        public void The_separate_VOX_note_is_absent_even_at_Off()
         {
             ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Critical;   // Off
             var radio = new FakeRadio { SimpleVox = true };
             Begin(radio);
-            Assert.True(Gated(VoxNote), "the VOX note should be gated at Off; it is not a safety sentence");
+            Assert.False(Gated(VoxNote), "the old VOX note should not be submitted");
             Assert.False(Delivered(VoxNote));
             Assert.Equal(0, radio.Tones);
         }
@@ -676,7 +719,7 @@ namespace Radios.Tests
         // ──────────────────────────────────────────────────────────────────
 
         [Fact]
-        public void On_the_kill_switchs_path_the_VOX_note_waits_for_the_cut_sentence_and_is_given_once_after_it()
+        public void On_the_kill_switchs_path_the_pending_VOX_cue_has_no_separate_speech()
         {
             // N4: the kill switch speaks its Urgent cut sentence AFTER the hold
             // begins, and Urgent flushes the queue; a note given at Begin would
@@ -693,11 +736,11 @@ namespace Radios.Tests
 
             _now += 1600;   // ConfirmDown's wait, then the sentence
             hold.SpeakPendingVoxNote();
-            Assert.True(Delivered(VoxNote), "the note was not given after the sentence");
+            Assert.False(Delivered("VOX is paused for 4 seconds."));
             Assert.Equal(0, radio.Tones);
 
             hold.SpeakPendingVoxNote();   // a second call gives nothing more
-            Assert.Single(Speech(), e => e.GetProperty("text").GetString()!.StartsWith("VOX", StringComparison.Ordinal));
+            Assert.DoesNotContain(Speech(), e => e.GetProperty("text").GetString()!.StartsWith("VOX", StringComparison.Ordinal));
         }
 
         [Fact]
@@ -716,16 +759,16 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_controllers_own_path_gives_the_note_at_once_as_before()
+        public void The_controllers_own_path_does_not_add_a_separate_note()
         {
             ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;
             var radio = new FakeRadio { SimpleVox = true };
             Begin(radio);   // the rung overload: the cut sentence has already been spoken by GoIdle
-            Assert.True(Delivered(VoxNote));
+            Assert.False(Delivered(VoxNote));
         }
 
         [Fact]
-        public void A_late_mode_change_gets_a_historical_note_that_cannot_claim_stale_seconds()
+        public void A_late_mode_change_still_pauses_VOX_without_a_second_sentence()
         {
             ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;
             var radio = new FakeRadio { Mode = "CW", CwBreakIn = false, SimpleVox = true };
@@ -734,8 +777,7 @@ namespace Radios.Tests
             radio.Mode = "USB";
             hold.NoteMode("USB", _now);
             Assert.True(hold.VoxPaused);
-            Assert.True(Delivered(VoxNote));
-            Assert.DoesNotContain(Speech(), e => e.GetProperty("text").GetString()!.Contains("second"));
+            Assert.False(Delivered("VOX is paused for 1 second."));
         }
 
         [Fact]

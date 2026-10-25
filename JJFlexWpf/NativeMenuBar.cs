@@ -94,6 +94,7 @@ public class NativeMenuBar : IDisposable
     private readonly Dictionary<int, string> _itemNames = new();
     // Items with dynamic checkmarks: menu item ID → (parent HMENU, state getter)
     private readonly List<(IntPtr popup, int id, Func<bool> stateGetter, string baseText, bool enabled)> _checkItems = new();
+    private readonly Dictionary<int, Func<string>> _recorderMenuLabels = new();
     /// <summary>
     /// Ids of check items that belong to a MUTUALLY EXCLUSIVE group — one of
     /// N is on, the rest are off — rather than being independent toggles.
@@ -204,6 +205,7 @@ public class NativeMenuBar : IDisposable
         _handlers.Clear();
         _itemNames.Clear();
         _checkItems.Clear();
+        _recorderMenuLabels.Clear();
         _radioGroupItems.Clear();
         _popupNames.Clear();
 
@@ -424,7 +426,9 @@ public class NativeMenuBar : IDisposable
 
                 // Update text with state suffix so screen readers always announce on/off
                 string stateText = isOn ? "On" : "Off";
-                ModifyMenuW(itemPopup, (uint)id, MF_BYCOMMAND | MF_STRING, (UIntPtr)id, $"{baseText}: {stateText}");
+                string label = _recorderMenuLabels.TryGetValue(id, out var getLabel) ? getLabel() : baseText;
+                _itemNames[id] = label;
+                ModifyMenuW(itemPopup, (uint)id, MF_BYCOMMAND | MF_STRING, (UIntPtr)id, $"{label}: {stateText}");
             }
             catch { /* don't let state read errors block menu display */ }
         }
@@ -521,11 +525,16 @@ public class NativeMenuBar : IDisposable
 
         var current = getter();
         var newVal = Rig.ToggleOffOn(current);
+        if (label == "VOX" && newVal == FlexBase.OffOnValues.on && (Rig.TxToneEngaged || Rig.TxReferenceArmed))
+        {
+            SpeakAfterMenuClose(Rig.TxReferenceArmed
+                ? "VOX disabled when reference is enabled."
+                : "VOX disabled when tone is enabled.");
+            return;
+        }
         setter(newVal);
-        EarconPlayer.ToggleTone(newVal == FlexBase.OffOnValues.on);
-        SpeakAfterMenuClose(newVal == FlexBase.OffOnValues.on
-            ? Radios.Lexicon.Get("audio.dsp.toggled_on", ("label", label))
-            : Radios.Lexicon.Get("audio.dsp.toggled_off", ("label", label)));
+        ToggleFeedback.Announce(label, newVal == FlexBase.OffOnValues.on,
+            message => SpeakAfterMenuClose(message));
     }
 
     /// <summary>
@@ -1092,6 +1101,16 @@ public class NativeMenuBar : IDisposable
                     AddChecked(parent, label, MenuToggleBinaural,
                         () => Rig?.Binaural == FlexBase.OffOnValues.on, enabled);
                     break;
+                case "record-to-file":
+                    AddChecked(parent, label,
+                        () => _ = RecorderControls.ToggleComputerRecordAsync(Rig, SpeakRecorderAfterMenuClose),
+                        () => Radios.ComputerRecorder.Current.IsRecording, enabled);
+                    break;
+                case "play-from-computer":
+                    AddChecked(parent, label,
+                        () => _ = RecorderControls.ToggleComputerPlayAsync(Rig, SpeakRecorderAfterMenuClose),
+                        () => Radios.ComputerRecorder.Current.IsPlaying, enabled);
+                    break;
                 case "pc-audio-levels":
                     AddWired(parent, label, MenuPcAudioLevels, enabled);
                     break;
@@ -1277,6 +1296,49 @@ public class NativeMenuBar : IDisposable
     // of the Audio menu like any other and now lives in the layout with them.
     private void MenuAudioWorkshop()
         => Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 0);
+
+    /// <summary>
+    /// Slice, Recorder (#787): a record row and a play row for EACH of our
+    /// slices, so a slice you are not listening to can be recorded from the
+    /// menu as well as from Home (Noel, 2026-10-21 11:00). Checked rows, so the
+    /// popup rewrites each one with ": On" or ": Off" when it opens and the
+    /// state is read from the recorder at that moment, not when the menu was
+    /// built. No accelerator column, for the reason AudioMenuLayout gives: a
+    /// key hint would put ": On" inside the keystroke. Every row goes through
+    /// <see cref="RecorderControls"/>, the same door the keys and Home use.
+    /// </summary>
+    private void BuildSliceRecorderItems(IntPtr parent)
+    {
+        if (Rig == null) return;
+        for (int i = 0; i < Math.Min(Rig.MyNumSlices, 8); i++)
+        {
+            string letter = Rig.VFOToLetter(i);
+            if (string.IsNullOrEmpty(letter)) continue;
+            var target = Radios.SliceRecorderTarget.Letter(letter[0]);
+            AddChecked(parent, $"Record Slice {letter}",
+                () => _ = RecorderControls.ToggleSliceRecordAsync(Rig, target, SpeakRecorderAfterMenuClose),
+                () => Rig?.IsSliceRecording(target) == true);
+            _recorderMenuLabels[_nextId - 1] = () => $"Record Slice {letter}";
+            AddChecked(parent, $"Play Slice {letter} Recording",
+                () => _ = RecorderControls.ToggleSlicePlayAsync(Rig, target, SpeakRecorderAfterMenuClose),
+                () => Rig?.IsSlicePlaying(target) == true);
+            _recorderMenuLabels[_nextId - 1] = () => $"Play Slice {letter}, {RecorderControls.RecordingSummary(Rig, target)}";
+        }
+    }
+
+    /// <summary>
+    /// A recorder outcome, spoken once the menu has closed — the same 500 ms
+    /// wait <see cref="SpeakAfterMenuClose"/> gives NVDA, but keeping the
+    /// outcome's subject and its refusal tone.
+    /// </summary>
+    private void SpeakRecorderAfterMenuClose(Radios.RecorderOutcome outcome)
+    {
+        _window.Dispatcher.BeginInvoke(async () =>
+        {
+            await System.Threading.Tasks.Task.Delay(500);
+            RecorderControls.Speak(outcome);
+        });
+    }
 
     /// <summary>
     /// Build slice management items (Create/Release Slice).
@@ -1748,6 +1810,12 @@ public class NativeMenuBar : IDisposable
             AddWired(parent, "Connect a radio first", SpeakNoRadio);
             return;
         }
+
+        if (Rig.FullDuplexAvailable == true)
+            AddChecked(parent, Radios.Lexicon.Get("audio.full_duplex.label") + "\tCtrl+J, Ctrl+X",
+                () => _ = FullDuplexControl.ToggleAsync(Rig), () => Rig?.FullDuplexEnabled == true);
+        else AddWired(parent, Radios.Lexicon.Get("audio.full_duplex.not_reported"),
+                () => SpeakAfterMenuClose(Radios.Lexicon.Get("audio.full_duplex.not_reported")));
 
         // --- Power cluster ---
         AddWired(parent, "&Power...", () =>
@@ -2258,6 +2326,12 @@ public class NativeMenuBar : IDisposable
             // menu below — the same row wired in two places, which is a second
             // copy of the menu's order living outside the menu's order.
             BuildAudioItems(audioSub);
+
+            // The radio's per-slice recorder (#787). Slice record and play
+            // live under Slice (Noel, 2026-10-21 11:01); record to file and
+            // play from computer are on the Audio menu.
+            var recorderSub = AddSubmenu(slice, "Recorder");
+            BuildSliceRecorderItems(recorderSub);
 
             // Slice management
             BuildSliceItems(slice);

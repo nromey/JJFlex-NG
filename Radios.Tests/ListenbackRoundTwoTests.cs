@@ -46,6 +46,7 @@ public sealed class ListenbackRoundTwoTests : IDisposable
                 null, new object[] { F.Vendor.Radio }, null)!;
             Property(pan, "StreamID", (uint)(0x40000000 + index));
             Property(pan, "ClientHandle", RigOnVendorRadio.OurHandle);
+            Field(pan, "_rx_antenna_list", new[] { "ANT1", "XVT-A", "XVT-B" });
             Property(s, "Panadapter", pan);
             Field(s, "_tx_ant_list", new[] { "ANT1", "XVT-A", "XVT-B" });
             Field(s, "_txant", "ANT1");
@@ -57,6 +58,14 @@ public sealed class ListenbackRoundTwoTests : IDisposable
         }
         internal void Respond(string command)
         {
+            if (command == "sub radio all") F.Vendor.Status("radio full_duplex_enabled=" + (F.Vendor.Radio.FullDuplexEnabled ? "1" : "0"));
+            if (command == "sub tx all") F.Vendor.Status($"transmit rfpower={F.Vendor.Radio.RFPower} sb_monitor={(F.Vendor.Radio.TXMonitor ? 1 : 0)}");
+            if (command == "sub slice all")
+                foreach (var slice in F.Vendor.Radio.SliceList)
+                    F.Vendor.Status($"slice {slice.Index} client_handle=0x{slice.ClientHandle:X} pan=0x{slice.Panadapter?.StreamID:X} txant={slice.TXAnt} RF_frequency={slice.Freq.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)} mode={slice.DemodMode} rxant={slice.RXAnt}");
+            if (command == "sub pan all")
+                foreach (var pan in F.Vendor.Radio.PanadapterList)
+                    F.Vendor.Status($"display pan 0x{pan.StreamID:X} client_handle=0x{pan.ClientHandle:X} center={pan.CenterFreq.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)} rxant={pan.RXAnt}");
             if (command.StartsWith("radio set ")) F.Vendor.Status("radio " + command[10..]);
             if (command.StartsWith("transmit set ")) F.Vendor.Status("transmit " + command[13..].Replace("mon=", "sb_monitor="));
             if (command.StartsWith("slice set ")) F.Vendor.Status("slice " + command[10..]);
@@ -173,15 +182,39 @@ public sealed class ListenbackRoundTwoTests : IDisposable
         Assert.False(executed); Assert.Empty(c.F.Vendor.Transport.Commands);
     }
     [Fact]
-    public async Task One_scu_remote_off_air_is_refused_before_preflight_or_mutation()
+    public async Task One_scu_local_off_air_is_refused_before_mutation()
     {
         using var c = new RadioCase();
         Property(c.F.Vendor.Radio, "Model", "FLEX-6300");
-        Property(c.F.Vendor.Radio, "IsWan", true);
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             c.F.Rig.StartListenbackAsync(new ListenbackOptions(OffAir: true), default));
         Assert.Equal("one-scu-not-confirmed", error.Message);
         Assert.Empty(c.F.Vendor.Transport.Commands); Assert.Equal(0, c.F.Rig.q.Count);
+        Assert.Null(c.F.Rig.PendingListenbackRecovery);
+    }
+
+    [Fact]
+    public async Task Two_receiver_radio_without_transverter_port_does_not_claim_one_receiver()
+    {
+        using var c = new RadioCase();
+        Field(c.Tx, "_tx_ant_list", new[] { "ANT1" });
+        Assert.Equal("no-transverter-port", c.F.Rig.OffAirListenbackRefusalReason);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            c.F.Rig.StartListenbackAsync(new ListenbackOptions(OffAir: true), default));
+        Assert.Equal("no-transverter-port", error.Message);
+        Assert.Empty(c.F.Vendor.Transport.Commands);
+    }
+
+    [Fact]
+    public async Task SmartLinkOffAirRefusesWithoutStartingTheCapacityRun()
+    {
+        using var c = new RadioCase();
+        Property(c.F.Vendor.Radio, "IsWan", true);
+        Assert.Equal("smartlink-iq-unavailable", c.F.Rig.OffAirListenbackRefusalReason);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            c.F.Rig.StartListenbackAsync(new ListenbackOptions(OffAir: true), default));
+        Assert.Equal("smartlink-iq-unavailable", error.Message);
+        Assert.Empty(c.F.Vendor.Transport.Commands);
         Assert.Null(c.F.Rig.PendingListenbackRecovery);
     }
     [Fact]
@@ -293,7 +326,7 @@ public sealed class ListenbackRoundTwoTests : IDisposable
         Assert.All(keyed[800..], value => Assert.Equal(0, value));
     }
     [Fact]
-    public void Sparse_loopback_integration_identifies_its_reply_pan_and_reserves_queued_removal()
+    public async Task Sparse_loopback_integration_identifies_its_reply_pan_and_reserves_queued_removal()
     {
         using var c = new RadioCase(); var d = c.Add(3, 7.1);
         c.F.Vendor.Transport.CommandWritten = command =>
@@ -307,10 +340,12 @@ public sealed class ListenbackRoundTwoTests : IDisposable
             }
             else c.Respond(command);
         };
-        Assert.True(c.F.Rig.StartLoopbackArrangement());
+        Assert.True(await c.Pump(c.F.Rig.StartLoopbackArrangementAsync()));
         while (c.F.Rig.q.Count > 0) if (c.F.Rig.q.Dequeue().Item is FlexBase.FunctionDel a) a();
         Assert.Equal(14.2, c.Ears.Freq); Assert.Equal(7.1, d.Freq);
-        c.F.Rig.EndLoopbackArrangement();
+        var end = c.F.Rig.EndLoopbackArrangementAsync();
+        while (c.F.Rig.q.Count > 0) if (c.F.Rig.q.Dequeue().Item is FlexBase.FunctionDel a) a();
+        await c.Pump(end);
         Assert.True(c.F.Rig.NewSlice()); // pending removal must count before the queue runs
         // Do not execute the new creation request; it only tests the capacity gate.
         while (c.F.Rig.q.Count > 0)

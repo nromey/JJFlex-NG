@@ -82,7 +82,12 @@ Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it
 
 ### Toggles — Ctrl plus the initial
 
+- **Ctrl+X** — Toggle full duplex for the whole radio. The new state is announced when the radio reports it. Home, Transmit and the Transmit menu show the same control. If the radio has not reported full duplex, the control says so.
 - **Ctrl+G** — Arm or disarm the TX test tone (it replaces your microphone while transmitting)
+- **Ctrl+R** — Record the active slice, or stop recording it — the radio's own recorder keeps one recording per slice, up to the last two minutes
+- **Ctrl+P** — Play the active slice's recording through your speakers, or stop it — never on the air, and not while you are transmitting
+- **Ctrl+Shift+R** — Record to file: record what the radio plays through this computer, or stop — the Shift form of Ctrl+R, the other recorder
+- **Ctrl+Shift+P** — Play from computer: play your last recording on this computer, or stop — the Shift form of Ctrl+P
 - **Ctrl+T** — Toggle meter tones on/off
 - **Ctrl+E** — Toggle alert sounds (earcons) on/off — E for earcons; it was `Shift+T`
 - **Ctrl+Q** — Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all (see "QSO signal analyzer" below)
@@ -616,7 +621,7 @@ These keys are active anywhere inside the Audio Workshop window (`Ctrl+Shift+W` 
 - **Alt+E** — Export a preset to a file you can share
 - **Alt+I** — Import a preset from a file (it joins your saved presets — nothing changes on the radio until you load it)
 - **Alt+R** — Reset the TX audio chain to defaults
-- **Escape** — Two-stage while a check is transmitting: first press unkeys and stays in the workshop, second press closes it. Escape never leaves you transmitting
+- **Escape** — While an Audio Check or Loopback Check is running, stop it and stay in the workshop; press again after it ends to close. Stopping unkeys the radio
 
 Inside the Load Preset picker, the `Delete` key (or the Delete button) deletes the preset you're on — it asks before doing anything, and deleting never touches the radio.
 
@@ -688,7 +693,7 @@ The ScreenFields panel has five expandable categories you can toggle open and cl
 - **Ctrl+Shift+X** — Transmission
 - **Ctrl+Shift+A** — Antenna
 
-**Tip:** Each category expands to show its controls. Press the hotkey again to collapse it. Remember that you can also collapse any field group by pressing Escape. Press Escape twice quickly to close all field categories. `Ctrl+Tab` and `Ctrl+Shift+Tab` move between categories.
+**Tip:** Each category expands to show its controls. Press the hotkey again to collapse it. Remember that you can also collapse any field group by pressing Escape. Press Escape twice quickly to close all field categories. `Ctrl+Tab` and `Ctrl+Shift+Tab` move between categories and the Home slice strip, whether the categories are open or closed.
 
 ## View Controls
 
@@ -826,3 +831,12 @@ These keys are active when focus is on the row list inside the Archive Browser t
 - **Ctrl+C** — Copy the selected trace's full file path to the clipboard
 - **Delete** — Delete the selected trace(s), with a confirmation prompt
 - **Ctrl+A** — Select every row in the current filter
+
+
+## Home recorder
+
+- On each slice's **Record** field, **Space** or **Enter** starts or stops recording that slice. The next field plays its recording with **Space** or **Enter**, and shows the length when known. Press again to stop playback.
+- **Ctrl+Tab / Ctrl+Shift+Tab** includes the Home slice strip as well as the field-group headers.
+- **Ctrl+J, Ctrl+R** records the active slice; **Ctrl+J, Ctrl+P** plays it. Play pressed during your transmission sends the recording over the air until you unkey; otherwise it plays locally. JJ Flexible pauses VOX or CW break-in for local playback and restores it when playback stops. Play never keys or selects a transmit slice.
+- **Ctrl+J, Ctrl+Shift+R** records to a computer file; **Ctrl+J, Ctrl+Shift+P** plays the selected or last computer recording locally. Computer playback to air is not available yet.
+- **F11** records the active slice; **Ctrl+F11** plays it. **Alt+F11** records to a file; **Ctrl+Alt+F11** plays from the computer. These are flat keys for the same four JJ key commands above.

@@ -2,6 +2,14 @@ using System;
 using System.IO;
 using JJFlexWpf.Tests.Infrastructure;
 using NAudio.Wave;
+using Radios;
+using System.Linq;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+using JJFlexWpf.Dialogs;
+using Radios.Listenback;
 using Xunit;
 
 namespace JJFlexWpf.Tests;
@@ -18,6 +26,315 @@ namespace JJFlexWpf.Tests;
 /// </remarks>
 public sealed class EngineLatencyTests
 {
+    [Theory]
+    [InlineData(-0.02)]
+    [InlineData(-0.49)]
+    [InlineData(0.49)]
+    public void SubHalfDbLevelIsSpokenAsTheSameLevelInEveryComparison(double level)
+    {
+        var difference = new AudioDifference(true, "overall-average", LevelDb: level);
+        Assert.Contains("same level", AudioWorkshopDialog.DifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("same level", AudioWorkshopDialog.ReferenceDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("same level", AudioWorkshopDialog.AverageDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("same level", AudioWorkshopDialog.AutoComparisonSentence(difference), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(-0.5, "quieter")]
+    [InlineData(0.5, "louder")]
+    public void HalfDbLevelKeepsItsDirectionInEveryComparison(double level, string word)
+    {
+        var difference = new AudioDifference(true, "overall-average", LevelDb: level);
+        Assert.Contains($"{word} by 0.5 dB", AudioWorkshopDialog.DifferenceSentence(difference));
+        Assert.Contains($"{word} by 0.5 dB", AudioWorkshopDialog.ReferenceDifferenceSentence(difference));
+        Assert.Contains($"{word} by 0.5 dB", AudioWorkshopDialog.AverageDifferenceSentence(difference));
+        Assert.Contains($"{word} by 0.5 dB", AudioWorkshopDialog.AutoComparisonSentence(difference));
+    }
+
+    [Theory]
+    [InlineData(-0.49, "same tone")]
+    [InlineData(0.49, "same tone")]
+    [InlineData(-0.5, "darker")]
+    [InlineData(0.5, "brighter")]
+    public void TiltUsesTheSameAudibleThresholdInEveryComparison(double tilt, string phrase)
+    {
+        var difference = new AudioDifference(true, "overall-average", TiltDb: tilt);
+        Assert.Contains(phrase, AudioWorkshopDialog.DifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(phrase, AudioWorkshopDialog.ReferenceDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(phrase, AudioWorkshopDialog.AverageDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(phrase, AudioWorkshopDialog.AutoComparisonSentence(difference), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(-0.49, "punch is unchanged")]
+    [InlineData(0.49, "punch is unchanged")]
+    [InlineData(-0.5, "more compressed by 0.5 dB")]
+    [InlineData(0.5, "more peaky by 0.5 dB")]
+    public void CrestUsesTheSameAudibleThreshold(double crest, string phrase)
+    {
+        var difference = new AudioDifference(true, "aligned-spans", CrestDb: crest);
+        Assert.Contains(phrase, AudioWorkshopDialog.DifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(phrase, AudioWorkshopDialog.ReferenceDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(-0.49, "out-of-filter energy is unchanged")]
+    [InlineData(0.49, "out-of-filter energy is unchanged")]
+    [InlineData(-0.5, "fell by 0.5 dB")]
+    [InlineData(0.5, "rose by 0.5 dB")]
+    public void StopbandUsesTheSameAudibleThreshold(double stopband, string phrase)
+    {
+        var difference = new AudioDifference(true, "aligned-spans", StopbandDb: stopband);
+        Assert.Contains(phrase, AudioWorkshopDialog.DifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(phrase, AudioWorkshopDialog.ReferenceDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void EveryComparisonCombinationStartsAFullSentenceAfterAStop()
+    {
+        foreach (double level in new[] { -0.5, 0, 0.5 })
+        {
+            foreach (double tilt in new[] { -0.5, 0, 0.5 })
+            {
+                foreach (double crest in new[] { -0.5, 0, 0.5 })
+                {
+                    foreach (double stopband in new[] { -0.5, 0, 0.5 })
+                    {
+                        var difference = new AudioDifference(true, "aligned-spans", level, tilt, crest, stopband);
+                        foreach (string sentence in new[] { AudioWorkshopDialog.DifferenceSentence(difference),
+                            AudioWorkshopDialog.ReferenceDifferenceSentence(difference),
+                            AudioWorkshopDialog.AverageDifferenceSentence(difference),
+                            AudioWorkshopDialog.AutoComparisonSentence(difference) })
+                        {
+                            Assert.EndsWith(".", sentence);
+                            Assert.False(Regex.IsMatch(sentence, @"\.\s+[a-z]"), sentence);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void SentReferenceAndPreviousTakeComparisonsNameTheirOwnSubjects()
+    {
+        foreach (double level in new[] { -0.5, 0, 0.5 })
+        {
+            foreach (double tilt in new[] { -0.5, 0, 0.5 })
+            {
+                foreach (double crest in new[] { -0.5, 0, 0.5 })
+                {
+                    foreach (double stopband in new[] { -0.5, 0, 0.5 })
+                    {
+                        var difference = new AudioDifference(true, "aligned-spans", level, tilt, crest, stopband);
+                        string reference = AudioWorkshopDialog.ReferenceDifferenceSentence(difference);
+                        string previous = AudioWorkshopDialog.DifferenceSentence(difference);
+                        Assert.Contains("received audio", reference, StringComparison.OrdinalIgnoreCase);
+                        Assert.Contains("what was sent", reference, StringComparison.OrdinalIgnoreCase);
+                        Assert.DoesNotContain("last take", reference, StringComparison.OrdinalIgnoreCase);
+                        Assert.Contains("last take", previous, StringComparison.OrdinalIgnoreCase);
+                        Assert.DoesNotContain("reference", previous, StringComparison.OrdinalIgnoreCase);
+                    }
+                }
+            }
+        }
+    }
+    /// <summary>
+    /// Noel's +30 dB ruling (2026-10-20 09:01) is for the quiet, fixed-scale off-air render only.
+    /// A take this computer recorded is at microphone level and must play exactly as recorded:
+    /// lifting it would drive a -8 dBFS voice into the limiter. Pins both sides.
+    /// </summary>
+    [Fact]
+    public void ListeningGainAppliesToTheOffAirRenderOnly()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        float[] voice = { 0.4f, -0.4f, 0.01f, -0.01f };
+        var unity = new RecordingPlayer.FixedGainLimiterSampleProvider(new ArraySource(voice), gained: false);
+        var unityOut = new float[voice.Length];
+        unity.Read(unityOut);
+        Assert.Equal(voice, unityOut);
+        Assert.False(unity.Limited);
+
+        var offAir = new RecordingPlayer.FixedGainLimiterSampleProvider(new ArraySource(voice), gained: true);
+        var offAirOut = new float[voice.Length];
+        offAir.Read(offAirOut);
+        Assert.Equal(0.31623f, offAirOut[2], 3); // 0.01 x 31.6228, below the ceiling
+        Assert.True(offAir.Limited);             // 0.4 x 31.6228 is far above it
+    }
+
+    private sealed class ArraySource : ISampleProvider
+    {
+        private readonly float[] _data;
+        private int _at;
+        public ArraySource(float[] data) => _data = data;
+        public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(48000, 1);
+        public int Read(Span<float> buffer)
+        {
+            int n = Math.Min(buffer.Length, _data.Length - _at);
+            _data.AsSpan(_at, n).CopyTo(buffer);
+            _at += n;
+            return n;
+        }
+    }
+
+    [Fact]
+    public void OffAirPlaybackAnnouncementReachesOutputOnceWithFixedGain()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        string path = Path.Combine(Path.GetTempPath(), "jjflex-playback-speech-" + Guid.NewGuid().ToString("N") + ".jsonl");
+        try
+        {
+            OutputChannelRecorder.Configure(render: false, record: true, explicitPath: path);
+            RecordingPlayer.AnnounceStarted("Playing the received off-air take.");
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(stream);
+            var speech = reader.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => JsonDocument.Parse(line))
+                .Where(d => d.RootElement.GetProperty("event").GetString() == "speech")
+                .Select(d => d.RootElement.GetProperty("text").GetString()).ToArray();
+            Assert.Single(speech);
+            Assert.Equal("Playing the received off-air take. Played 30 dB louder.", speech[0]);
+        }
+        finally
+        {
+            OutputChannelRecorder.Configure(render: false, record: false);
+            try { File.Delete(path); } catch { }
+        }
+    }
+
+    [Fact]
+    public void PlaybackUsesOneFixedGainAndSoftLimitsStrongerTakes()
+    {
+        var source = new Samples(0.01f, -0.01f, 0.2f);
+        var gain = new RecordingPlayer.FixedGainLimiterSampleProvider(source);
+        var output = new float[3];
+        Assert.Equal(3, gain.Read(output));
+        Assert.Equal(0.31623f, output[0], 4);
+        Assert.Equal(-0.31623f, output[1], 4);
+        Assert.InRange(output[2], 0.8f, 0.99f);
+        Assert.True(gain.Limited);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FailedPlaybackRestoresTheExactPriorComputerReceiveMute(bool priorMute)
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        string path = Path.Combine(Path.GetTempPath(), "jjflex-playback-failure-" + Guid.NewGuid().ToString("N") + ".wav");
+        var rig = (FlexBase)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(FlexBase));
+        rig.LocalReceiveMutedForTakePlayback = priorMute;
+        try
+        {
+            using (var writer = new WaveFileWriter(path, new WaveFormat(44100, 16, 1)))
+                writer.Write(new byte[882], 0, 882);
+            // The permitted WPF test run has audio rendering gated off, so
+            // the mixer refuses the file after the local mute was applied.
+            Assert.False(RecordingPlayer.Play(path, "A test take.", rig));
+            Assert.Equal(priorMute, rig.LocalReceiveMutedForTakePlayback);
+            Assert.False(RecordingPlayer.IsPlaying);
+        }
+        finally
+        {
+            RecordingPlayer.Stop();
+            try { File.Delete(path); } catch { }
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PreMutedTakePlaybackHandsItsOriginalMuteToThePlayer(bool priorMute)
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        string path = Path.Combine(Path.GetTempPath(), "jjflex-premuted-take-" + Guid.NewGuid().ToString("N") + ".wav");
+        var rig = (FlexBase)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(FlexBase));
+        try
+        {
+            using (var writer = new WaveFileWriter(path, new WaveFormat(44100, 16, 1)))
+                writer.Write(new byte[882], 0, 882);
+            rig.LocalReceiveMutedForTakePlayback = true; // the click's live-audio gate
+            Assert.False(RecordingPlayer.PlayWithMixer(path, "A test take.", rig, false,
+                _ => false, priorLiveMute: priorMute));
+            Assert.Equal(priorMute, rig.LocalReceiveMutedForTakePlayback);
+        }
+        finally { RecordingPlayer.Stop(); try { File.Delete(path); } catch { } }
+    }
+
+    [Fact]
+    public async Task PlaybackStartedOffTheUiThreadRestoresLiveAudioWhenTheFileEnds()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        string path = Path.Combine(Path.GetTempPath(), "jjflex-playback-end-" + Guid.NewGuid().ToString("N") + ".wav");
+        var rig = (FlexBase)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(FlexBase));
+        ISampleProvider? mixerInput = null;
+        try
+        {
+            using (var writer = new WaveFileWriter(path, new WaveFormat(44100, 16, 1)))
+                writer.Write(new byte[882], 0, 882);
+            Assert.True(await Task.Run(() => RecordingPlayer.PlayWithMixer(path, "Test take.", rig, false,
+                source => { mixerInput = source; return true; })));
+            Assert.True(rig.LocalReceiveMutedForTakePlayback);
+            Assert.NotNull(mixerInput);
+            await Task.Run(() =>
+            {
+                var samples = new float[4096];
+                while (mixerInput.Read(samples) > 0) { }
+            });
+            Assert.True(SpinWait.SpinUntil(() => !rig.LocalReceiveMutedForTakePlayback, TimeSpan.FromSeconds(2)));
+            Assert.False(RecordingPlayer.IsPlaying);
+        }
+        finally
+        {
+            RecordingPlayer.Stop();
+            try { File.Delete(path); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task PlaybackThroughTheRealMixerEndsWhenTheMixerDropsTheFile()
+    {
+        // The test above reads its own input until zero, which the real mixer
+        // never does: MixingSampleProvider drops an input on its first short
+        // read. Bench 2026-10-20: an 8.4 s take still "playing" after 13 s.
+        NoiseReductionPerChannelTests.AssertWindowless();
+        string path = Path.Combine(Path.GetTempPath(), "jjflex-playback-mixer-" + Guid.NewGuid().ToString("N") + ".wav");
+        var rig = (FlexBase)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(FlexBase));
+        var mixer = new NAudio.Wave.SampleProviders.MixingSampleProvider(
+            WaveFormat.CreateIeeeFloatWaveFormat(44100, 2)) { ReadFully = true };
+        try
+        {
+            using (var writer = new WaveFileWriter(path, new WaveFormat(44100, 16, 1)))
+                writer.Write(new byte[8820], 0, 8820);
+            Assert.True(await Task.Run(() => RecordingPlayer.PlayWithMixer(path, "Test take.", rig, true,
+                source => { mixer.AddMixerInput(source); return true; })));
+            Assert.True(rig.LocalReceiveMutedForTakePlayback);
+            await Task.Run(() =>
+            {
+                var samples = new float[4096];
+                for (int i = 0; i < 20 && mixer.MixerInputs.Any(); i++) mixer.Read(samples.AsSpan());
+            });
+            Assert.Empty(mixer.MixerInputs);
+            Assert.True(SpinWait.SpinUntil(() => !rig.LocalReceiveMutedForTakePlayback, TimeSpan.FromSeconds(2)),
+                "the mixer dropped the file but live audio stayed muted");
+            Assert.False(RecordingPlayer.IsPlaying);
+        }
+        finally
+        {
+            RecordingPlayer.Stop();
+            try { File.Delete(path); } catch { }
+        }
+    }
+
+    private sealed class Samples(params float[] samples) : ISampleProvider
+    {
+        public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
+        public int Read(Span<float> buffer)
+        {
+            samples.AsSpan().CopyTo(buffer);
+            return samples.Length;
+        }
+    }
     [Fact]
     public void RnnoiseReportsTheDelayItHas()
     {

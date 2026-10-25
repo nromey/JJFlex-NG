@@ -354,6 +354,12 @@ public static class KeyInventory
         new("XIT", "XIT field", "Plus / Minus", "Make the offset positive or negative",
             new[] { "xit", "positive", "negative", "sign" }),
 
+        // DRAFT PROSE (#787): awaiting Noel
+        new("Record", "Record field", "Space / Enter", "Start or stop recording this slice",
+            new[] { "record", "recorder", "slice" }),
+        new("Recorded", "Play recording field", "Space / Enter", "Play or stop this slice's recording.",
+            new[] { "play", "recording", "recorder", "slice" }),
+
         // ── Mute field (Classic only) ──
         new("Mute", "Mute field", "Space or M", "Toggle mute",
             new[] { "mute", "toggle" }),
@@ -400,7 +406,7 @@ public static class KeyInventory
             new[] { "value", "enter", "type", "exact", "number" }, "Radio", "ValueField"),
         new("ValueField", "Value fields", "Escape", "Collapse the group; press Escape twice quickly to collapse all groups",
             new[] { "escape", "collapse", "group" }, "Radio", "ValueField"),
-        new("ValueField", "Value fields", "Ctrl+Tab / Ctrl+Shift+Tab", "Next or previous category",
+        new("ValueField", "Value fields", "Ctrl+Tab / Ctrl+Shift+Tab", "Next or previous Home group or slice strip",
             new[] { "category", "next", "previous", "tab" }, "Radio", "ValueField"),
     };
 
@@ -529,9 +535,21 @@ public static class KeyInventory
         // whose level it already holds. The AudioLayerCommands row carries it.
         // Audio Arc Keys Track (2026-08-11) — the tone generator; a toggle on
         // its own initial since Sprint 48 Track C (it was plain G).
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+X", Radios.Lexicon.Get("audio.full_duplex.command"),
+            new[] { "full", "duplex", "fdx", "toggle", "switch", "enable", "disable", "on", "off", "receive", "transmit" }, "Radio", "Audio"),
         new("Leader", "JJ key", "Ctrl+J, Ctrl+G", "Arm or disarm the TX test tone (replaces your microphone while transmitting)",
             new[] { "tone", "test", "generator", "arm", "disarm", "440", "transmit", "tx",
                     "audio", "check", "calibrate", "leader", "toggle" }, "Radio", "Audio"),
+        // #787, Tape Deck track 2: the radio's per-slice recorder, on the
+        // ACTIVE slice. Record and play are switches on their own initials.
+        // Group "Slice": Noel ruled slice record and play live under Slice
+        // (2026-10-21 11:01), which is where the Command Finder files them.
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+R", "Record the active slice, or stop recording it — the radio's own recorder keeps one recording per slice, up to the last two minutes",
+            new[] { "record", "recording", "recorder", "slice", "active", "capture", "tape", "save",
+                    "buddy", "listen", "back", "radio", "leader", "toggle" }, "Radio", "Slice"),
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+P", "Play the active slice's recording, or stop it — locally while receiving, or on the air when already keyed",
+            new[] { "play", "playback", "replay", "recording", "recorder", "slice", "active", "hear",
+                    "listen", "back", "radio", "leader", "toggle" }, "Radio", "Slice"),
         new("Leader", "JJ key", "Ctrl+J, Ctrl+T", "Toggle meter tones",
             new[] { "meter", "tones", "leader", "toggle" }, "Global", "Audio"),
         // E for Earcons, the feature's own name; A for alert is Auto Notch.
@@ -569,6 +587,19 @@ public static class KeyInventory
             "Start or stop a detailed capture — everything the app is doing",
             new[] { "capture", "detailed", "diagnostic", "diagnostics", "trace", "tracing", "log",
                     "record", "bug", "problem", "report", "verbose", "leader" }, "Global", "General"),
+
+        // ── Ctrl+Shift+letter is the VARIANT of its Ctrl chord ──────────
+        // #515, ruled 2026-10-05: Ctrl is the feature, Ctrl+Shift its
+        // variant, for true siblings that share an initial. The computer's
+        // recorder is the other recorder (#787): record to file beside
+        // Ctrl+R, play from computer beside Ctrl+P. Group "Audio": computer
+        // recording lives under Audio (Noel, 2026-10-21 11:01).
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+Shift+R", "Record to file: record what the radio plays through this computer, or stop",
+            new[] { "record", "recording", "file", "computer", "save", "conversation", "qso", "capture",
+                    "tape", "audio", "leader", "toggle" }, "Radio", "Audio"),
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+Shift+P", "Play from computer: play your last recording on this computer, or stop — never on the air",
+            new[] { "play", "playback", "replay", "recording", "file", "computer", "last", "listen",
+                    "back", "audio", "leader", "toggle" }, "Global", "Audio"),
 
         // ── Alt+letter is an ACTION: speak, open, send, capture ────────
         // Sprint 48 Track C moved K, Q, E, L, M and O here from their plain

@@ -43,13 +43,14 @@ public sealed class ListenbackIntegrityTests
                 var random = new Random(10);
                 var samples = Enumerable.Range(0, 16384).Select(_ => random.Next(-30, 31) * 16f / 32768).ToArray();
                 writer.Accept(new(new(1, 0, 0x02e3, 1, 2, 10, 0, 0), samples, 0, 0));
+                writer.Accept(new(new(1, 1, 0x02e3, 1, 2, 10, 341333333333, 3413333), new float[352], 0, 0));
                 Assert.True(writer.IsReady);
                 writer.Finish("operator-stop", 2, 352);
             }
             var take = TakeReader.Inspect(directory);
             Assert.Equal("incomplete", take.State);
             Assert.Equal("352", take.Get("fill-pairs"));
-            Assert.Equal((8192 + 352) * 8, new FileInfo(Path.Combine(directory, "rf.iq")).Length);
+            Assert.Equal((8192 + 176 + 352) * 8, new FileInfo(Path.Combine(directory, "rf.iq")).Length);
             string headerPath = Path.Combine(directory, "take.txt");
             var lines = File.ReadAllLines(headerPath).Where(s => !s.StartsWith("sha256=") && !s.StartsWith("closed=")).ToArray();
             File.WriteAllLines(headerPath, lines);

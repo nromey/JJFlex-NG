@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Windows;
@@ -43,7 +43,7 @@ public partial class AudioWorkshopDialog
 {
     #region Reference Audio Section (Sprint 33 Track I)
 
-    private CycleFieldControl? _refPickControl;
+    private ComboBox? _refPickControl;
     private CheckBox? _refArmCheck;
     private Button? _refRecordButton;
     private Button? _refFolderButton;
@@ -51,6 +51,7 @@ public partial class AudioWorkshopDialog
 
     /// <summary>The choices behind <see cref="_refPickControl"/>, in order.</summary>
     private readonly List<string> _refPaths = new();
+    private readonly Dictionary<string, (DateTime Stamp, int Rate, TxAudioFile.Loaded File)> _refPrepared = new();
 
     /// <summary>The file currently handed to the rig's player, or empty.</summary>
     private string _refLoadedPath = "";
@@ -62,8 +63,13 @@ public partial class AudioWorkshopDialog
     {
         AddRadioSection(HearYourselfContent, "Reference Audio");
 
-        _refPickControl = MakeCycle("Reference recording", new[] { "(none available)" });
-        _refPickControl.SelectionChanged += (s, idx) =>
+        _refPickControl = new ComboBox
+        {
+            ItemsSource = new[] { "(none available)" }, SelectedIndex = 0,
+            Margin = new Thickness(2), MinWidth = 280
+        };
+        AutomationProperties.SetName(_refPickControl, "Reference recording");
+        _refPickControl.SelectionChanged += (s, e) =>
         {
             if (_polling) return;
             ReferenceSelectionChanged();
@@ -161,13 +167,13 @@ public partial class AudioWorkshopDialog
         if (ReferenceVoice.IsInstalled)
         {
             _refPaths.Add(ReferenceVoice.FilePath);
-            labels.Add("JJ Flexible reference voice (shipped)");
+            labels.Add("JJ Flexible reference voice (shipped)" + ReferenceListDetails(ReferenceVoice.FilePath));
         }
 
         foreach (var rec in RecordingStore.Enumerate())
         {
             _refPaths.Add(rec.Path);
-            labels.Add(rec.Describe());
+            labels.Add(rec.Describe() + ReferenceListDetails(rec.Path, includeLength: false));
         }
 
         if (labels.Count == 0)
@@ -188,14 +194,43 @@ public partial class AudioWorkshopDialog
             if (found >= 0) want = found;
         }
 
-        // One Setup call rather than Setup-then-select: the control raises a
-        // UIA value-change event per call, and a picker that announces itself
-        // twice every time the list is rebuilt is noise, not information.
         _polling = true;
-        try { _refPickControl.Setup("Reference recording", labels.ToArray(), want); }
+        try
+        {
+            _refPickControl.ItemsSource = labels;
+            _refPickControl.SelectedIndex = want;
+        }
         finally { _polling = false; }
 
         UpdateReferenceStatus();
+    }
+
+    private string ReferenceListDetails(string path, bool includeLength = true)
+    {
+        if (!TryPrepareReference(path, out var loaded, out _)) return ", unavailable";
+        string details = includeLength ? ", " + RecordingStore.DescribeLength(loaded!.Seconds) : "";
+        if (loaded!.PeakDb > JJPortaudio.MicProbe.SilenceDb)
+            details += ", peak " + loaded.PeakDb.ToString("F1") + " dBFS";
+        if (loaded.IntegratedLufs > JJPortaudio.LufsMeter.Floor)
+            details += ", loudness " + loaded.IntegratedLufs.ToString("F1") + " LUFS";
+        return details;
+    }
+
+    private bool TryPrepareReference(string path, out TxAudioFile.Loaded? loaded, out string trouble)
+    {
+        loaded = null;
+        trouble = "";
+        DateTime stamp = File.Exists(path) ? File.GetLastWriteTimeUtc(path) : default;
+        int rate = (int)FlexBase.OpusTxSampleRateSetting;
+        if (_refPrepared.TryGetValue(path, out var cached) && cached.Stamp == stamp && cached.Rate == rate)
+        {
+            loaded = cached.File;
+            return true;
+        }
+        _refPrepared.Remove(path);
+        if (!TxAudioFile.TryLoad(path, rate, out loaded, out trouble)) return false;
+        _refPrepared[path] = (stamp, rate, loaded!);
+        return true;
     }
 
     /// <summary>The file the picker currently names, or empty.</summary>
@@ -243,7 +278,7 @@ public partial class AudioWorkshopDialog
             && rig.TxFilePlayer.HasContent)
             return true;
 
-        if (!TxAudioFile.TryLoadInto(rig, path, out TxAudioFile.Loaded? loaded, out string trouble))
+        if (!TryPrepareReference(path, out TxAudioFile.Loaded? loaded, out string trouble))
         {
             EarconPlayer.Warning2Beep();
             ScreenReaderOutput.Speak(
@@ -252,6 +287,7 @@ public partial class AudioWorkshopDialog
             return false;
         }
 
+        rig.TxFilePlayer.Load(loaded!.Mono, loaded.SampleRate, loaded.Name);
         _refLoadedPath = path;
         _refLastDescription = loaded!.Describe();
         return true;
@@ -307,7 +343,7 @@ public partial class AudioWorkshopDialog
     /// <summary>
     /// Arm the reference for real: the path is clear and the radio has said so.
     /// </summary>
-    private void ArmReferenceNow(FlexBase rig, string pathNote)
+    private async void ArmReferenceNow(FlexBase rig, string pathNote)
     {
         // Same guard as the tone's: clearing the path can take up to a second,
         // and an arm nobody still wants must not go through.
@@ -326,7 +362,29 @@ public partial class AudioWorkshopDialog
             return;
         }
 
-        rig.TxFileStart();
+        bool voxWasOn = rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox;
+        // The wait for the radio's VOX-off reply is an arm in flight: a ticked
+        // box with nothing engaged yet. Without the pending flag the status
+        // poll reads it as out of step, unticks it, and the arm then cancels
+        // itself silently (bench 2026-10-24).
+        bool started;
+        _injectionArmPending = true;
+        try { started = await rig.TxReferenceStartAsync(); }
+        finally { _injectionArmPending = false; }
+        if (!started)
+        {
+            SetReferenceArmSilently(false);
+            RestoreInjectionPath(rig, out _);
+            ScreenReaderOutput.Speak("VOX disabled when reference is enabled.",
+                VerbosityLevel.Critical, interrupt: true);
+            return;
+        }
+        if (!StillWantsToArm(rig, _refArmCheck))
+        {
+            rig.TxFileStop();
+            RestoreInjectionPath(rig, out _);
+            return;
+        }
         _refPassRunning = true;
 
         // #128 sweep audit (2026-08-21): arm answers back, mirroring the test
@@ -334,8 +392,8 @@ public partial class AudioWorkshopDialog
         // transmit path and must sound alike. Only the success path tones;
         // every declined path above reverts the checkbox and warns instead.
         EarconPlayer.FeatureOnTone();
-        string line = Lexicon.Get("audio.reference.armed", ("recording", _refLastDescription));
-        if (!string.IsNullOrEmpty(pathNote)) line += " " + pathNote;
+        string line = Lexicon.Get("audio.reference.armed");
+        if (voxWasOn) line += " VOX disabled when reference is enabled.";
         ScreenReaderOutput.Speak(line, VerbosityLevel.Critical, interrupt: true);
         UpdateReferenceStatus();
     }
@@ -408,16 +466,10 @@ public partial class AudioWorkshopDialog
     /// A take just landed. Put it in the list and select it, so the obvious
     /// next thing — sending it — is one arm away.
     /// </summary>
-    /// <remarks>
-    /// It also becomes the newest take, which is what Play last take now plays
-    /// (#455). Before that, the take an operator had this second was invisible
-    /// to the only button in the dialog offering to play one.
-    /// </remarks>
     private void OnRecordingSaved(string path)
     {
         Dispatcher.BeginInvoke(new Action(() =>
         {
-            _newestTakeIsAFile = true;
             RefreshReferenceList(selectPath: path);
         }));
     }
@@ -451,12 +503,19 @@ public partial class AudioWorkshopDialog
             // restores it too, exactly as the operator-initiated disarm does.
             // Without this the sentence would have been the lie the whole
             // finding is about.
+            rig.TxFileStop();
             RestoreInjectionPath(rig, out string pathNote);
             string finished = Lexicon.Get("audio.reference.finished");
             if (!string.IsNullOrEmpty(pathNote)) finished += " " + pathNote;
             ScreenReaderOutput.Speak(finished, VerbosityLevel.Terse, interrupt: false);
             SetReferenceArmSilently(false);
             UpdateReferenceStatus();
+            return;
+        }
+
+        if (_refPassRunning && !engaged)
+        {
+            DisarmReference(speak: false);
             return;
         }
 

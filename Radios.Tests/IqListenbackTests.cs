@@ -142,8 +142,9 @@ public sealed class IqListenbackTests
         Assert.Equal(0, writer.PairsWritten);
         writer.EchoedRate = 24000;
         writer.Accept(new(Header(1000, 1), Noise(16384), 0, 0));
+        writer.Accept(new(Header(9192, 2), Noise(352), 0, 0));
         Assert.True(writer.IsReady);
-        Assert.Equal(8192, writer.PairsWritten);
+        Assert.Equal(8368, writer.PairsWritten);
         writer.Finish("operator-stop");
         var take = TakeReader.Inspect(temp.Path);
         Assert.Equal("24000", take.Get("rate-echoed"));
