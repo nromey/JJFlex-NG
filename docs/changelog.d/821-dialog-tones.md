@@ -1,0 +1,1 @@
+Every window now plays a little rising pair of tones when it opens and a falling pair when it closes, so you can tell when one has gone away, even when it was a small window inside another. If that gets too busy for you, Settings has a switch just for it, called Dialog open and close tones.

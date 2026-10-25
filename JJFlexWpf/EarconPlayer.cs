@@ -713,6 +713,12 @@ namespace JJFlexWpf
         /// <summary>Independent recorder cue switch; routed only to the computer alert mixer.</summary>
         public static bool RecorderBeepsEnabled { get; set; } = true;
 
+        /// <summary>
+        /// The dialog open and close tones' own switch, on by default (#821,
+        /// Noel 2026-10-25). They answer to the Dialogs and panels family too.
+        /// </summary>
+        public static bool DialogTonesEnabled { get; set; } = true;
+
         public static void RecorderStartBeep()
         {
             if (!RecorderBeepsEnabled) return;
@@ -2103,7 +2109,7 @@ namespace JJFlexWpf
             Description = "Rising pair when a dialog or popup opens.")]
         public static void DialogOpenTone()
         {
-            if (!Gate(EarconCategory.DialogsAndPanels)) return;
+            if (!DialogTonesEnabled || !Gate(EarconCategory.DialogsAndPanels)) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (600, 50), (0, 30), (900, 50) }, VolumeSoft);
         }
@@ -2113,7 +2119,7 @@ namespace JJFlexWpf
             Description = "Falling pair when a dialog or popup closes.")]
         public static void DialogCloseTone()
         {
-            if (!Gate(EarconCategory.DialogsAndPanels)) return;
+            if (!DialogTonesEnabled || !Gate(EarconCategory.DialogsAndPanels)) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (900, 50), (0, 30), (600, 50) }, VolumeSoft);
         }

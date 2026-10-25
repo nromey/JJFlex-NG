@@ -114,6 +114,14 @@ namespace JJFlexWpf
             Loaded += (_, _) => StartStrandedFocusSentinel();
             Closed += (_, _) => StopStrandedFocusSentinel();
 
+            // A rising pair when any dialog opens and a falling pair when it
+            // closes (#821, Noel 2026-10-25: "it's hard to tell when that's
+            // closed since there's the child window"). Here, once, so every
+            // dialog has it and none can forget it. Behind its own switch as
+            // well as the Dialogs and panels family: "it could get kinda noisy".
+            Loaded += (_, _) => EarconPlayer.DialogOpenTone();
+            Closed += (_, _) => EarconPlayer.DialogCloseTone();
+
             // This window's own title is worthless once the window has gone,
             // and until 2026-09-23 nothing said so: a title queued behind a
             // backlog could still be spoken after the dialog it names had been

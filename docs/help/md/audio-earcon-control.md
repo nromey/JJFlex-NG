@@ -24,6 +24,7 @@ Under **Settings, then the Notifications tab, under Alert Sounds** you will find
 - **Connection sounds** — the counting tones while a connection is being made, and the double-beep when it lands.
 - **Transmit sounds** — transmit start and stop, the hard-kill warning, the tune carrier, and the antenna tuner's progress and verdict.
 - **Dialog and panel sounds** — the dings when a dialog opens or closes, and the sweeps when a Home panel expands or collapses.
+  - **Dialog open and close tones** — a rising pair when a dialog opens and a falling pair when it closes, so you can tell when a window has gone. It has its own switch because it can get busy, and it is on unless you turn it off. Dialog and panel sounds must be on as well.
 - **Tuning and filter sounds** — filter-edge clicks and sweeps, the band-boundary beep, and the frequency-entry ding.
 - **Command and confirmation sounds** — the JJ key layer's tones, feature on and off beeps, mute-all, and confirmations. Think twice before turning these off: without them the JJ key gives no sign it is listening.
 - **Warning sounds** — the warning alarm, and the quieter two-note tone that says a problem was recorded and is waiting in the Problems list. This is the one category worth leaving on. Every other sound here is the app answering a key you just pressed; these two fire when the app has something to tell you that you did not ask about — such as transmit audio that would not have gone out.
