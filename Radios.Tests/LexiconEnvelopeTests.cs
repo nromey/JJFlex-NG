@@ -984,6 +984,12 @@ namespace Radios.Tests
                 // wraps, never spoken alone, so TextOnly (the #777
                 // reasoning). DRAFT awaiting Noel.
                 "settings.keys.editor.navigation_key_reserved",
+                // Junkbox #753, 2026-10-25: the Home Mode field's spoken
+                // label. A LABEL, read when focus lands on the field, so
+                // delivery: null - TextOnly (the #726 item 6 reasoning). Its
+                // siblings settings.home.field_label_* are legacy and still
+                // frozen; WHEN THE PASS REACHES THEM, DECIDE THEM WITH THIS ONE.
+                "settings.home.field_label_mode",
                 // #778b, same reasoning: the fine-step sentence the engine
                 // appends to the digit line where Shift with the arrows really
                 // is the fine step. Noel asked for one at 14:33; this wording

@@ -4119,15 +4119,17 @@ public partial class MainWindow : UserControl
         var fields = new List<FrequencyDisplay.DisplayField>();
 
         // Field order (Sprint 28 bug bundle 2026-04-28 — parity with Modern):
-        //   Slice → SliceOps → Freq → SMeter → Squelch → SquelchLevel
+        //   Slice → SliceOps → Freq → SMeter → Mode → Squelch → SquelchLevel
         //   → Split → VOX → Offset → RIT → XIT → Mute → Volume
         //
         // Modern (post-Sprint-26-Phase-8) is the canonical sequence; Classic
         // mirrors it for the shared fields so muscle memory transfers between
-        // modes. Mute and Volume are Classic-only (Modern handles them via the
-        // M universal key and the Audio expander) and now sit at the end of
-        // the order so they don't interrupt the high-traffic Freq → SMeter
-        // path. Customize Home (Sprint 30+) will let users override.
+        // modes. Mute and Volume sit at the end of the order so they don't
+        // interrupt the high-traffic Freq → SMeter path. Volume is
+        // Classic-only (Modern reaches it through the Audio expander); Mute
+        // was too, on the reasoning that Modern had the M universal key,
+        // until #753 found M could only change mute, never read it.
+        // Customize Home (Sprint 30+) will let users override.
         // HelpItems come from the KeyInventory table — the single source that
         // also drives the '?' handler, the Keys surface, and the key manifest.
         // QB Track H (2026-08-07): the previous inline lists had drifted from
@@ -4140,6 +4142,11 @@ public partial class MainWindow : UserControl
             HelpItems = KeyInventory.HelpItemsFor("Freq", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, "", "") { Label = "S Meter",
             HelpItems = KeyInventory.HelpItemsFor("SMeter", modern: false) });
+        // #753 — Mode, readable by arrowing and changeable in place. In both
+        // tuning modes for parity; after S Meter so the Freq → SMeter path
+        // stays uninterrupted.
+        fields.Add(new FrequencyDisplay.DisplayField("Mode", 4, " ", "") { Label = "Mode",
+            HelpItems = KeyInventory.HelpItemsFor("Mode", modern: false) });
         // Sprint 28 Phase 3.9 — Squelch + Squelch Level fields. Squelch state
         // always visible (toggle with Space or Q); level field always present
         // and adjustable (pre-loads threshold when squelch is off, takes effect
@@ -4183,17 +4190,18 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// Modern tuning mode: full field set minus Mute and Volume. Sprint 26
+    /// Modern tuning mode: full field set minus Volume. Sprint 26
     /// Phase 8 added the checkbox-field mirroring (Split, VOX, Offset, RIT,
     /// XIT) so operators can arrow-right to toggle them without leaving Modern
-    /// tuning. Mute is universal-key territory ('M' from any field). Volume
-    /// goes through the Slice menu / Audio expander.
+    /// tuning. Mode and Mute joined in #753 (ruled 2026-10-17): 'M' from any
+    /// field still toggles mute, but only the field READS it. Volume goes
+    /// through the Slice menu / Audio expander.
     ///
-    /// Field order: Slice → SliceOps → Freq → SMeter → Squelch → SquelchLevel
-    ///   → Split → VOX → Offset → RIT → XIT
+    /// Field order: Slice → SliceOps → Freq → SMeter → Mode → Squelch → SquelchLevel
+    ///   → Split → VOX → Offset → RIT → XIT → Mute
     ///
     /// Classic mirrors this sequence for the shared fields (Sprint 28 bug
-    /// bundle 2026-04-28) and appends Mute → Volume at the end. Until
+    /// bundle 2026-04-28) and appends Volume after Mute. Until
     /// Customize Home (Sprint 30+) ships, this is the canonical order — keep
     /// the two setup methods in sync when adding/removing fields.
     ///
@@ -4227,6 +4235,9 @@ public partial class MainWindow : UserControl
             HelpItems = KeyInventory.HelpItemsFor("Freq", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, " ", "") { Label = "S Meter",
             HelpItems = KeyInventory.HelpItemsFor("SMeter", modern: true) });
+        // #753 — Mode (see Classic setup).
+        fields.Add(new FrequencyDisplay.DisplayField("Mode", 4, " ", "") { Label = "Mode",
+            HelpItems = KeyInventory.HelpItemsFor("Mode", modern: true) });
         // Sprint 28 Phase 3.9 — Squelch + Squelch Level fields (see Classic setup for rationale)
         fields.Add(new FrequencyDisplay.DisplayField("Squelch", 1, "", "") { Label = "Squelch",
             HelpItems = KeyInventory.HelpItemsFor("Squelch", modern: true) });
@@ -4250,6 +4261,12 @@ public partial class MainWindow : UserControl
             HelpItems = KeyInventory.HelpItemsFor("RIT", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("XIT", 5, " ", "") { Label = "XIT", DefaultCursorOffset = 2,
             HelpItems = KeyInventory.HelpItemsFor("XIT", modern: true) });
+        // #753 — Mute joins Modern, ruled by Noel 2026-10-17: "I can read
+        // mute, I just have to toggle to find out." The M universal key only
+        // CHANGES mute, so reading it cost two changes and remembering which
+        // way round they started. Same place as Classic, at the end.
+        fields.Add(new FrequencyDisplay.DisplayField("Mute", 1, "", "") { Label = "Mute",
+            HelpItems = KeyInventory.HelpItemsFor("Mute", modern: true) });
 
         // Modern mode: Freq field uses modifier keys, not cursor position
         FreqOut.IsModernMode = true;
@@ -4375,6 +4392,13 @@ public partial class MainWindow : UserControl
                 case "SquelchLevel":
                     _freqOutHandlers.AdjustSquelchLevel(field, e);
                     break;
+                // #753 — Mode and Mute, read by arrowing and changed in place.
+                case "Mode":
+                    _freqOutHandlers.AdjustMode(field, e);
+                    break;
+                case "Mute":
+                    _freqOutHandlers.AdjustMute(field, e);
+                    break;
             }
             return;
         }
@@ -4417,6 +4441,9 @@ public partial class MainWindow : UserControl
                 break;
             case "SliceOps":
                 _freqOutHandlers.AdjustSliceOps(field, e);
+                break;
+            case "Mode":
+                _freqOutHandlers.AdjustMode(field, e);
                 break;
             case "Mute":
                 _freqOutHandlers.AdjustMute(field, e);
@@ -4495,6 +4522,10 @@ public partial class MainWindow : UserControl
             // (2026-04-28). Carries the active slice letter; the volume value is
             // announced when arrow up/down adjusts it, not on focus landing.
             FreqOut.SetFieldLabel("SliceOps", $"Slice operations: slice {RigControl.ActiveSliceLetter} controls");
+
+            // Mode — the active slice's mode (#753). The title bar below says
+            // it too; this is the field an operator arrows to.
+            FreqOut.Write("Mode", RigControl.Mode ?? "");
 
             // Mute — current active slice mute state (GetVFOAudio true = audio on = not muted)
             FreqOut.Write("Mute", RigControl.GetVFOAudio(RigControl.RXVFO) ? " " : "M");

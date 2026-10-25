@@ -489,6 +489,15 @@ When focused on the Slice Operations field (per-slice audio controls):
 
 There is deliberately no explicit "unmute" key here any more — the old S for "sound" mostly announced a state the slice was already in, so it read as a dead key and it's gone. M silences a slice fast without you having to know its current state, and Space toggles, which covers unmuting.
 
+## JJ Flexible Home — Mode Field Keys
+
+The Mode field sits after the S Meter, in both Classic and Modern tuning, and shows the active slice's mode. Arrow to it to hear the mode; change it right there:
+
+- **Space** or **Up** — Next mode
+- **Down** — Previous mode
+
+These go through the same list as Alt+M and Alt+Shift+M, so you hear the new mode the same way.
+
 ## JJ Flexible Home — Squelch and Squelch Level Field Keys
 
 On the Squelch field, Space, Up, Down, or Q all toggle squelch on and off. On the Squelch Level field:
@@ -585,9 +594,9 @@ The Transmit slice field sits after VOX and shows which slice keys the radio ("-
 
 On a receive-only connection these keys speak a refusal instead of acting silently. The same controls live in the Slice menu under Transmit Slice.
 
-## JJ Flexible Home — Mute and Volume Fields (Classic tuning only)
+## JJ Flexible Home — Mute and Volume Fields
 
-On the Mute field, Space or M toggles mute. On the Volume field, Up and Down adjust the volume. (Modern tuning handles these through the universal M key and the Audio expander.)
+On the Mute field, Space or M toggles mute. It sits after XIT in both Classic and Modern tuning, so you can arrow to it and hear whether the slice is muted without changing anything. On the Volume field, which is Classic tuning only, Up and Down adjust the volume; Modern tuning reaches volume through the Slice Operations field and the Audio expander.
 
 ## Mode Switching
 

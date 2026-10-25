@@ -1016,6 +1016,7 @@ public partial class FrequencyDisplay : UserControl
             "Slice" => Radios.Lexicon.Get("settings.home.field_label_slice"),
             "TXSlice" => Radios.Lexicon.Get("settings.home.field_label_txslice"),
             "Mute" => Radios.Lexicon.Get("settings.home.field_label_mute"),
+            "Mode" => Radios.Lexicon.Get("settings.home.field_label_mode"),   // #753
             "Volume" => Radios.Lexicon.Get("settings.home.field_label_volume"),
             "Split" => Radios.Lexicon.Get("settings.home.field_label_split"),
             "VOX" => Radios.Lexicon.Get("settings.home.field_label_vox"),

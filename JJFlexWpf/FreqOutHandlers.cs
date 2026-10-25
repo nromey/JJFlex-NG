@@ -2575,6 +2575,39 @@ public class FreqOutHandlers
 
     #endregion
 
+    #region AdjustMode — #753
+
+    /// <summary>
+    /// Mode field handler (#753, ruled by Noel 2026-10-17): read the active
+    /// slice's mode by arrowing to it, and change it there. Space or Up moves
+    /// to the next mode and Down to the previous one, through
+    /// <see cref="MainWindow.CycleMode"/> - the same path, the same mode list
+    /// and the same spoken answer as Alt+M and Alt+Shift+M, never a write of
+    /// its own.
+    /// </summary>
+    public void AdjustMode(FrequencyDisplay.DisplayField field, KeyEventArgs e)
+    {
+        if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
+        var key = RawKey(e);
+
+        if (key == Key.Space || key == Key.Up)
+        {
+            _window.CycleMode(1);
+            e.Handled = true;
+        }
+        else if (key == Key.Down)
+        {
+            _window.CycleMode(-1);
+            e.Handled = true;
+        }
+
+        // Universal Home keys fall-through (M/V/R/X/Q/=, Shift+M, Shift+,).
+        if (!e.Handled) TryHandleUniversalHomeKey(e);
+        if (!e.Handled) AnnounceDeadHomeKey(field, e);
+    }
+
+    #endregion
+
     #region AdjustMute
 
     /// <summary>

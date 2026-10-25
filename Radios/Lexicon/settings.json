@@ -295,6 +295,7 @@
   "settings.home.field_announcement": "{label} {value}",
   "settings.home.field_label_freq": "frequency",
   "settings.home.field_label_mute": "mute",
+  "settings.home.field_label_mode": { "text": "mode", "delivery": null },
   "settings.home.field_label_offset": "offset",
   "settings.home.field_label_rit": "RIT",
   "settings.home.field_label_slice": "slice",

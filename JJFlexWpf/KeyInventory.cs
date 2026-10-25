@@ -360,7 +360,14 @@ public static class KeyInventory
         new("Recorded", "Play recording field", "Space / Enter", "Play or stop this slice's recording.",
             new[] { "play", "recording", "recorder", "slice" }),
 
-        // ── Mute field (Classic only) ──
+        // ── Mode field (#753, both tuning modes) ──
+        // DRAFT PROSE (#753): awaiting Noel
+        new("Mode", "Mode field", "Space or Up", "Next mode",
+            new[] { "mode", "next", "change", "cycle", "usb", "lsb", "cw" }),
+        new("Mode", "Mode field", "Down", "Previous mode",
+            new[] { "mode", "previous", "change", "cycle" }),
+
+        // ── Mute field (Classic and, since #753, Modern) ──
         new("Mute", "Mute field", "Space or M", "Toggle mute",
             new[] { "mute", "toggle" }),
 
