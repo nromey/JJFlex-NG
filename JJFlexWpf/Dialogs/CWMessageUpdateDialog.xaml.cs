@@ -1,5 +1,4 @@
 using System.Windows;
-using System.Windows.Automation;
 using System.Windows.Controls;
 
 namespace JJFlexWpf.Dialogs
@@ -39,7 +38,13 @@ namespace JJFlexWpf.Dialogs
             // ListBox, so with messages present the buttons felt absent; Tab
             // reaches them and Escape closes. Initial focus stays on the list,
             // which is the right landing place.
-            AutomationProperties.SetHelpText(KeysList, Radios.Lexicon.Get("settings.cw_message.list_help"));
+            //
+            // On Ctrl+F1 ONLY (JJFlexHelp), never AutomationProperties.HelpText:
+            // NVDA reads HelpText as the control's description on EVERY focus,
+            // even at verbosity Off, so the round-one build recited this whole
+            // paragraph each time the list was reached (Noel's bench, 2026-10-25
+            // 19:19). The list's own rows already say what each message is.
+            JJFlexHelp.SetText(KeysList, Radios.Lexicon.Get("settings.cw_message.list_help"));
             Loaded += OnLoaded;
         }
 

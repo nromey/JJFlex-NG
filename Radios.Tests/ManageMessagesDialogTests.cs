@@ -47,6 +47,22 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void Nothing_in_the_dialog_is_recited_on_focus_as_a_description()
+        {
+            // Noel's bench, 2026-10-25 19:19: the list's help, set as
+            // AutomationProperties.HelpText, was read on EVERY focus, even at
+            // verbosity Off, because NVDA reads HelpText as the control's
+            // description (memory: project_helptext_announced_on_focus). It is
+            // JJFlexHelp.Text now, read on Ctrl+F1 and never on focus. Held for
+            // every control in the dialog, XAML and code alike.
+            string xaml = Source(Xaml);
+            string code = Source(CodeBehind);
+            Assert.DoesNotContain("AutomationProperties.HelpText", xaml);
+            Assert.DoesNotContain("SetHelpText", code);
+            Assert.DoesNotContain("HelpTextProperty", code);
+        }
+
+        [Fact]
         public void Deleting_the_last_message_does_not_report_a_cancellation()
         {
             string code = Source(CodeBehind);
@@ -60,17 +76,15 @@ namespace Radios.Tests
             string code = Source(CodeBehind);
             Assert.Contains("RowsFor(labels, Radios.Lexicon", code);
             Assert.Contains("settings.cw_message.list_empty", code);
-            Assert.Contains("SetHelpText(KeysList, Radios.Lexicon", code);
+            Assert.Contains("JJFlexHelp.SetText(KeysList, Radios.Lexicon", code);
             Assert.Contains("settings.cw_message.list_help", code);
-            // The help is set in code now; a second, XAML copy would drift.
-            Assert.DoesNotContain("AutomationProperties.HelpText", Source(Xaml));
 
             Lexicon.Forget();
             Lexicon.Load(Lexicon.Partitions);
             string help = Lexicon.Get("settings.cw_message.list_help");
-            // The shipped first sentence is kept: the row carries label, key
-            // and payload kind on purpose.
-            Assert.StartsWith("Each message with the key that sends it and what it carries: CW text, a recording, or both.", help);
+            // What the row carries is still named: label, key and payload kind
+            // are on the row on purpose (Sprint 48 Track A).
+            Assert.Contains("each message with the key that sends it and what it carries: CW text, a recording, or both.", help);
             Assert.Contains("Tab", help);
             Assert.Contains("Escape", help);
             string empty = Lexicon.Get("settings.cw_message.list_empty");

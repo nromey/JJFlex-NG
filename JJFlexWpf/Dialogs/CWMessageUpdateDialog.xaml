@@ -7,8 +7,9 @@
         SizeToContent="Height">
     <StackPanel Margin="12">
         <Label Content="Messages" Padding="0,0,0,4" />
-        <!-- HelpText is set from the lexicon in the constructor (#717):
-             settings.cw_message.list_help, which names Tab and Escape. -->
+        <!-- The list's explanation is set from the lexicon in the constructor
+             (#717), as JJFlexHelp.Text so it is read on Ctrl+F1 and never on
+             focus: settings.cw_message.list_help, which names Tab and Escape. -->
         <ListBox x:Name="KeysList" Height="160"
                  AutomationProperties.Name="Messages"
                  SelectionChanged="KeysList_SelectionChanged" />
