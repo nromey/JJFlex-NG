@@ -1,29 +1,32 @@
 WHAT IS NEW SINCE THE LAST BUILD
 
-The big one is the recorder. The changelog has the full list, under
-Unreleased. The ones you will notice:
+The big one is Recorded QSOs, the window for the recordings you make on
+this computer. The changelog has the full list, under Unreleased. The
+ones you will notice:
 
-- F11 records the slice you're on and Ctrl+F11 plays it back. Alt+F11
-  records to a file on this computer and Ctrl+Alt+F11 plays that file.
-  Playback starts and stops with a tape-deck click; recording keeps its
-  beeps.
-- Your radio's recordings show their length on Home, even after you
-  reconnect.
-- For checking your own audio, use the Audio Workshop's Audio Check
-  with Listen method set to "Record and play back". It records your
-  transmission on the radio and plays it back to you. It stops on its
-  own at the recorder's two-minute limit.
-- The reference recording stays armed between transmissions and keeps
-  VOX off until you untick it.
-- After the high reflected power alarm cuts a transmission, the radio
-  won't key again for five seconds, unless you change your antenna,
-  power, frequency or tuner.
-- Holding Shift+Space locks or unlocks once, instead of keying the
-  radio on and off.
-- Ctrl+Shift+L takes you in and out of Logging mode, and leaving it
-  tells you which tuning mode you're back in.
-- Under NVDA, words like "can't" are spoken properly again.
-- The meters come back after a reconnect.
+- Ctrl+Alt+Shift+F11 opens Recorded QSOs. Up and Down pick a recording,
+  Enter plays and pauses it, S stops, and Left and Right (or Ctrl+Left
+  and Ctrl+Right from anywhere in the window) step through it, down to
+  a tenth of a second. [ and ] mark a trim, Save As writes it out as
+  FLAC, MP3, Opus, WAV or M4A, and Delete and Prune send recordings to
+  the Recycle Bin.
+- While a recording plays back on your computer, the band drops behind
+  it and comes back up when you pause or stop, as a smooth crossfade.
+  Settings, Audio, "Radio audio during playback" sets how far, or mutes
+  it.
+- Dialogs play a rising pair of tones when they open and a falling pair
+  when they close. Settings has a switch for them under Dialog and panel
+  sounds.
+- Settings is in proper groups now, so your screen reader names each
+  section as you enter it, and F6 and Shift+F6 jump between sections.
+- The Home slice row has Mode, Mute and Volume, and period and comma
+  create and release a slice from any field on it. Typing a frequency,
+  period is still the decimal point.
+- Shift+S speaks your step sizes from any Home field in Modern tuning.
+- A JJ key near miss tells you the key you pressed isn't assigned, and
+  the JJ key lets go if you switch to another program.
+- Manage Messages says when it is empty and has a Close button, and the
+  Hotkey Editor lets Tab move on while it waits for a key.
 
 KNOWN ISSUES
 
