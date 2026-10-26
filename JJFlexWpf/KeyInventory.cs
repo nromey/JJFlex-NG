@@ -163,6 +163,14 @@ public static class KeyInventory
             new[] { "squelch", "toggle" }),
         new("Home", "Any Home field", "=", "Transceive: receive and transmit on the current slice",
             new[] { "transceive", "equals", "rx", "tx", "slice" }),
+        // Period and comma left the Slice field for every field (Noel,
+        // 2026-10-25 19:31), decided by context: on Frequency, once a digit
+        // has been typed, number entry owns them and period is the decimal
+        // point. DRAFT PROSE: awaiting Noel.
+        new("Home", "Any Home field", "Period", "Create a new slice; on Frequency, only before you type a digit",
+            new[] { "slice", "create", "new", "add", "period" }),
+        new("Home", "Any Home field", "Comma", "Release the current slice; on Frequency, only before you type a digit",
+            new[] { "slice", "release", "remove", "close", "comma" }),
     };
 
     // Per-field tables. Context keys match FrequencyDisplay.DisplayField.Key.
@@ -182,10 +190,6 @@ public static class KeyInventory
             new[] { "slice", "jump", "letter", "number", "digit" }),
         new("Slice", "Slice field", "T", "Make this slice the transmit slice",
             new[] { "transmit", "tx", "slice" }),
-        new("Slice", "Slice field", "Period", "Create a new slice",
-            new[] { "slice", "create", "new", "add" }),
-        new("Slice", "Slice field", "Comma", "Release the current slice",
-            new[] { "slice", "release", "remove", "close" }),
         new("Slice", "Slice field", "Page Up", "Pan hard right",
             new[] { "pan", "right", "stereo" }),
         new("Slice", "Slice field", "Home", "Pan center",

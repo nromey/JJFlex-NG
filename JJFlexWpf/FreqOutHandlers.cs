@@ -662,6 +662,11 @@ public class FreqOutHandlers
                 break;
         }
 
+        // Period and comma: create and release a slice, unless number entry
+        // owns them. Quick-type ran above and has already taken a period
+        // that is a decimal point; this passes it the same state so a comma
+        // typed mid-number releases nothing either (Noel, 2026-10-25 19:31).
+        if (!e.Handled) TryHandleUniversalHomeKey(e, numberEntryActive: _inQuickType);
         // A letter nothing above claimed must not vanish in silence (#338).
         if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }
@@ -1356,70 +1361,10 @@ public class FreqOutHandlers
                 ToggleSquelch();
                 e.Handled = true;
                 break;
-            case '.':
-                // Create/activate a new slice
-                {
-                    int countBefore = Rig.MyNumSlices;
-                    if (Rig.NewSlice())
-                    {
-                        Radios.ScreenReaderOutput.Speak(
-                            Lexicon.Get("settings.slice.created", ("count", countBefore + 1)),
-                            VerbosityLevel.Terse, true);
-                    }
-                    else
-                    {
-                        Radios.ScreenReaderOutput.Speak(
-                            Lexicon.Get("settings.slice.max_reached"), VerbosityLevel.Critical, true);
-                    }
-                }
-                e.Handled = true;
-                break;
-            case ',':
-                // Release/remove the current slice
-                if (Rig.MyNumSlices <= 1)
-                {
-                    Radios.ScreenReaderOutput.Speak(
-                        Lexicon.Get("settings.slice.cannot_release_last"), VerbosityLevel.Critical, true);
-                }
-                else
-                {
-                    int toRemove = vfo;
-                    int countBefore = Rig.MyNumSlices;
-                    string removedLetter = Rig.VFOToLetter(toRemove);
-                    // Find another slice to switch to
-                    int switchTo = -1;
-                    for (int i = 0; i < countBefore; i++)
-                    {
-                        if (i != toRemove)
-                        {
-                            switchTo = i;
-                            break;
-                        }
-                    }
-                    if (switchTo >= 0)
-                    {
-                        string switchLetter = Rig.VFOToLetter(switchTo);
-                        // Move TX away from the slice being removed if needed
-                        if (Rig.CanTransmit && toRemove == Rig.TXVFO)
-                            Rig.TXVFO = switchTo;
-                        Rig.RXVFO = switchTo;
-                        if (Rig.RemoveSlice(toRemove))
-                        {
-                            Radios.ScreenReaderOutput.Speak(
-                                Lexicon.Get("settings.slice.released",
-                                    ("letter", removedLetter), ("count", countBefore - 1)),
-                                VerbosityLevel.Terse, true);
-                        }
-                        else
-                        {
-                            Rig.RXVFO = toRemove; // revert
-                            Radios.ScreenReaderOutput.Speak(
-                                Lexicon.Get("settings.slice.cannot_release"), VerbosityLevel.Critical, true);
-                        }
-                    }
-                }
-                e.Handled = true;
-                break;
+            // Period and comma, create and release, are universal Home keys
+            // now (Noel, 2026-10-25 19:31): they fall through to
+            // TryHandleUniversalHomeKey at the bottom, which owns them for
+            // every field, this one included.
             default:
                 switch (key)
                 {
@@ -2279,7 +2224,14 @@ public class FreqOutHandlers
     /// audit (Split, VOX, Offset, Mute, Volume, RIT, XIT) so the doc claim
     /// "M/V/R/X/Q/= work from any Home field" matches reality.
     /// </summary>
-    private bool TryHandleUniversalHomeKey(KeyEventArgs e)
+    /// <param name="numberEntryActive">
+    /// The Frequency field's own number-entry state, <c>_inQuickType</c>,
+    /// passed only by the two Frequency handlers: true from the first digit
+    /// typed until Enter commits the entry or Escape cancels it. While it
+    /// holds, period and comma belong to number entry. Every other field
+    /// passes nothing, because on them a period has never been a number.
+    /// </param>
+    private bool TryHandleUniversalHomeKey(KeyEventArgs e, bool numberEntryActive = false)
     {
         if (e.Handled) return false;
         if (Rig == null) return false;
@@ -2352,6 +2304,26 @@ public class FreqOutHandlers
         if (ch == '=')
         {
             ToggleTransceive();
+            e.Handled = true;
+            return true;
+        }
+
+        // Period creates a slice and comma releases the current one, from
+        // EVERY field on the slice row, Frequency included, decided by
+        // context (Noel, 2026-10-25 19:31). Once a digit has been typed on
+        // the Frequency field, number entry owns both keys and period is the
+        // decimal point; quick-type takes that period before this runs. A
+        // period with no digit before it is never a decimal: "you should
+        // always type a zero first."
+        if (ch == '.' && !numberEntryActive)
+        {
+            CreateSliceAndAnnounce();
+            e.Handled = true;
+            return true;
+        }
+        if (ch == ',' && !numberEntryActive)
+        {
+            ReleaseActiveSliceAndAnnounce();
             e.Handled = true;
             return true;
         }
@@ -2487,6 +2459,77 @@ public class FreqOutHandlers
     /// all the extras." Speaks a no-op announcement when only one slice is
     /// active. Reuses the multi-slice tri-tone earcon per user request.
     /// </summary>
+    /// <summary>
+    /// Create a slice and say so, or say the radio has no more. The body the
+    /// Slice field's period ran before it became a universal Home key.
+    /// </summary>
+    private void CreateSliceAndAnnounce()
+    {
+        if (Rig == null) return;
+        int countBefore = Rig.MyNumSlices;
+        if (Rig.NewSlice())
+        {
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.slice.created", ("count", countBefore + 1)),
+                VerbosityLevel.Terse, true);
+        }
+        else
+        {
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.slice.max_reached"), VerbosityLevel.Critical, true);
+        }
+    }
+
+    /// <summary>
+    /// Release the receive slice, moving receive (and transmit, if it was
+    /// there) to another slice first, and say so; refuses the last slice. The
+    /// body the Slice field's comma ran before it became a universal Home key.
+    /// </summary>
+    private void ReleaseActiveSliceAndAnnounce()
+    {
+        if (Rig == null) return;
+        int vfo = Rig.RXVFO;
+        if (Rig.MyNumSlices <= 1)
+        {
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.slice.cannot_release_last"), VerbosityLevel.Critical, true);
+            return;
+        }
+
+        int toRemove = vfo;
+        int countBefore = Rig.MyNumSlices;
+        string removedLetter = Rig.VFOToLetter(toRemove);
+        // Find another slice to switch to
+        int switchTo = -1;
+        for (int i = 0; i < countBefore; i++)
+        {
+            if (i != toRemove)
+            {
+                switchTo = i;
+                break;
+            }
+        }
+        if (switchTo < 0) return;
+
+        // Move TX away from the slice being removed if needed
+        if (Rig.CanTransmit && toRemove == Rig.TXVFO)
+            Rig.TXVFO = switchTo;
+        Rig.RXVFO = switchTo;
+        if (Rig.RemoveSlice(toRemove))
+        {
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.slice.released",
+                    ("letter", removedLetter), ("count", countBefore - 1)),
+                VerbosityLevel.Terse, true);
+        }
+        else
+        {
+            Rig.RXVFO = toRemove; // revert
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.slice.cannot_release"), VerbosityLevel.Critical, true);
+        }
+    }
+
     private void ReleaseAllExtraSlicesAndAnnounce()
     {
         if (Rig == null) return;
@@ -2966,6 +3009,8 @@ public class FreqOutHandlers
                 break;
         }
 
+        // Period and comma, by context — see the same line in AdjustFreq.
+        if (!e.Handled) TryHandleUniversalHomeKey(e, numberEntryActive: _inQuickType);
         // A letter nothing above claimed must not vanish in silence (#338).
         if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }

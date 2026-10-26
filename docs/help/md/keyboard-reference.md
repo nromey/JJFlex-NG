@@ -452,9 +452,13 @@ These keys work from ANY field within your JJ Flexible Home. First, remember to 
 - **X** — Toggle XIT on/off
 - **Q** — Toggle squelch on/off
 - **=** — Transceive current slice (set both RX and TX to this slice)
+- **. (period)** — Create a new slice
+- **, (comma)** — Release the current slice
 - **Shift+M** — Mute or unmute every slice at once
 - **Shift+Comma** — Release every slice except the one you are on
 - **?** — Speak the keys for the field you're on
+
+Period and comma work on the Frequency field too, and there they go by what you are doing. Before you type a digit, they are the slice keys like everywhere else. Once you have typed a digit you are entering a frequency, so the period is the decimal point and the comma does nothing: type 14.2 and press Enter and you are on 14.200. A period with no digit in front of it is never a decimal point, so for a frequency under one megahertz, type the zero first: 0.5, not .5.
 
 Navigation inside the Home: Left and Right arrows move one character at a time, Home jumps to the first field (except on the Slice field, where it pans center), End jumps to the last field, and Page Down jumps straight to the Frequency field from fields that don't use Page Down themselves.
 
@@ -470,8 +474,7 @@ When focused on the Slice field specifically:
 - **Up / Down** — Next or previous slice. Down goes A, B, C — the way the list reads. If you would rather have it the other way round, the Accessibility tab in Settings holds a Slice arrow direction choice, and it applies to the Slice Operations field too
 - **0-9 or A-H** — Jump directly to the desired slice by number or letter (you'll hear "not created" if it doesn't exist yet, and "no such slice" for a number past what any radio holds)
 - **T** — Make this slice the TX slice
-- **. (period)** — Create a new slice
-- **, (comma)** — Release the current slice
+- **. (period)** and **, (comma)** — Create a new slice, or release the current one. These work from every Home field now, not just this one; see the keys above
 - **Page Up** — Pan hard right
 - **Home** — Pan center
 - **Page Down** — Pan hard left
