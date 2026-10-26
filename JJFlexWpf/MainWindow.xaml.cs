@@ -4125,10 +4125,12 @@ public partial class MainWindow : UserControl
         // Modern (post-Sprint-26-Phase-8) is the canonical sequence; Classic
         // mirrors it for the shared fields so muscle memory transfers between
         // modes. Mute and Volume sit at the end of the order so they don't
-        // interrupt the high-traffic Freq → SMeter path. Volume is
-        // Classic-only (Modern reaches it through the Audio expander); Mute
-        // was too, on the reasoning that Modern had the M universal key,
-        // until #753 found M could only change mute, never read it.
+        // interrupt the high-traffic Freq → SMeter path. Both were
+        // Classic-only: Mute on the reasoning that Modern had the M universal
+        // key, until #753 found M could only change mute, never read it; and
+        // Volume on the reasoning that Modern reached it through Slice
+        // Operations and the Audio expander, until Noel ruled on the bench
+        // (2026-10-25 19:35) that it joins Modern's row after Mute, as here.
         // Customize Home (Sprint 30+) will let users override.
         // HelpItems come from the KeyInventory table — the single source that
         // also drives the '?' handler, the Keys surface, and the key manifest.
@@ -4190,18 +4192,18 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// Modern tuning mode: full field set minus Volume. Sprint 26
+    /// Modern tuning mode: the full field set. Sprint 26
     /// Phase 8 added the checkbox-field mirroring (Split, VOX, Offset, RIT,
     /// XIT) so operators can arrow-right to toggle them without leaving Modern
     /// tuning. Mode and Mute joined in #753 (ruled 2026-10-17): 'M' from any
-    /// field still toggles mute, but only the field READS it. Volume goes
-    /// through the Slice menu / Audio expander.
+    /// field still toggles mute, but only the field READS it. Volume joined
+    /// after Mute on Noel's bench ruling of 2026-10-25, as Classic has it.
     ///
     /// Field order: Slice → SliceOps → Freq → SMeter → Mode → Squelch → SquelchLevel
-    ///   → Split → VOX → Offset → RIT → XIT → Mute
+    ///   → Split → VOX → Offset → RIT → XIT → Mute → Volume
     ///
     /// Classic mirrors this sequence for the shared fields (Sprint 28 bug
-    /// bundle 2026-04-28) and appends Volume after Mute. Until
+    /// bundle 2026-04-28), Mute and Volume at the end in both. Until
     /// Customize Home (Sprint 30+) ships, this is the canonical order — keep
     /// the two setup methods in sync when adding/removing fields.
     ///
@@ -4267,6 +4269,11 @@ public partial class MainWindow : UserControl
         // way round they started. Same place as Classic, at the end.
         fields.Add(new FrequencyDisplay.DisplayField("Mute", 1, "", "") { Label = "Mute",
             HelpItems = KeyInventory.HelpItemsFor("Mute", modern: true) });
+        // Volume joins Modern after Mute, as Classic has it (Noel's bench
+        // ruling, 2026-10-25 19:35). Up and Down ride AdjustVolume, the
+        // Classic field's own handler; the field reads the level.
+        fields.Add(new FrequencyDisplay.DisplayField("Volume", 3, "", "") { Label = "Volume",
+            HelpItems = KeyInventory.HelpItemsFor("Volume", modern: true) });
 
         // Modern mode: Freq field uses modifier keys, not cursor position
         FreqOut.IsModernMode = true;
@@ -4398,6 +4405,9 @@ public partial class MainWindow : UserControl
                     break;
                 case "Mute":
                     _freqOutHandlers.AdjustMute(field, e);
+                    break;
+                case "Volume":
+                    _freqOutHandlers.AdjustVolume(field, e);
                     break;
             }
             return;

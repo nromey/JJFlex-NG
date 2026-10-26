@@ -596,7 +596,7 @@ On a receive-only connection these keys speak a refusal instead of acting silent
 
 ## JJ Flexible Home — Mute and Volume Fields
 
-On the Mute field, Space or M toggles mute. It sits after XIT in both Classic and Modern tuning, so you can arrow to it and hear whether the slice is muted without changing anything. On the Volume field, which is Classic tuning only, Up and Down adjust the volume; Modern tuning reaches volume through the Slice Operations field and the Audio expander.
+On the Mute field, Space or M toggles mute. It sits after XIT in both Classic and Modern tuning, so you can arrow to it and hear whether the slice is muted without changing anything. The Volume field sits right after Mute, in both Classic and Modern tuning: arrow to it to hear the slice's volume, and press Up or Down to change it.
 
 ## Mode Switching
 

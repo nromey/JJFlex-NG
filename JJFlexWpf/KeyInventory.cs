@@ -371,7 +371,7 @@ public static class KeyInventory
         new("Mute", "Mute field", "Space or M", "Toggle mute",
             new[] { "mute", "toggle" }),
 
-        // ── Volume field (Classic only) ──
+        // ── Volume field (Classic and, since the 2026-10-25 bench ruling, Modern) ──
         new("Volume", "Volume field", "Up / Down", "Adjust volume",
             new[] { "volume", "adjust", "gain" }),
     };

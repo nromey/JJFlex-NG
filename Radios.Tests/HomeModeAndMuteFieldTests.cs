@@ -89,6 +89,35 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void Modern_carries_Volume_right_after_Mute_routed_to_the_Classic_handler()
+        {
+            // Noel's bench ruling, 2026-10-25 19:35: Volume joins the Modern
+            // slice row as Mute did, right after it, as Classic has it. Up and
+            // Down ride AdjustVolume, the one volume field handler there is;
+            // the field reads the level that ShowFrequency writes into it.
+            string main = Source("JJFlexWpf/MainWindow.xaml.cs");
+            string modern = Body(main, "private void SetupFreqoutModern()");
+            Assert.Contains("new FrequencyDisplay.DisplayField(\"Volume\"", modern);
+            Assert.Contains("HelpItemsFor(\"Volume\", modern: true)", modern);
+            int mute = modern.IndexOf("DisplayField(\"Mute\"", StringComparison.Ordinal);
+            int volume = modern.IndexOf("DisplayField(\"Volume\"", StringComparison.Ordinal);
+            Assert.True(mute >= 0 && volume > mute, "Volume must come after Mute");
+            Assert.True(modern.IndexOf("DisplayField(", volume + 1, StringComparison.Ordinal) < 0,
+                "nothing may sit between Mute and Volume or after Volume: it is the end of the row, as in Classic");
+
+            string dispatch = Body(main,
+                "private void FreqOut_FieldKeyDown(FrequencyDisplay.DisplayField field, System.Windows.Input.KeyEventArgs e)");
+            int modernAt = dispatch.IndexOf("if (ActiveUIMode == UIMode.Modern)", StringComparison.Ordinal);
+            int classicAt = dispatch.IndexOf("// Classic mode: full field routing", StringComparison.Ordinal);
+            string modernDispatch = dispatch.Substring(modernAt, classicAt - modernAt);
+            Assert.Contains("case \"Volume\":", modernDispatch);
+            Assert.Contains("_freqOutHandlers.AdjustVolume(field, e);", modernDispatch);
+
+            Assert.Contains("FreqOut.Write(\"Volume\", vol.ToString());", main);
+            Assert.DoesNotContain("Volume field (Classic only)", Source("JJFlexWpf/KeyInventory.cs"));
+        }
+
+        [Fact]
         public void The_inventory_no_longer_calls_Mute_Classic_only()
         {
             string inventory = Source("JJFlexWpf/KeyInventory.cs");
