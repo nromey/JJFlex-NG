@@ -274,6 +274,10 @@ public static class KeyInventory
         new("Freq.Modern", "Frequency field (Modern tuning)", "S", "Choose both step sizes from a list",
             new[] { "step", "steps", "size", "sizes", "coarse", "fine", "choose", "pick", "set",
                     "list", "picker", "tuning" }),
+        // Kept on the Frequency field's own list too: the key still works there,
+        // and that field's help reads the step values beside it (TuningContextHelp).
+        new("Freq.Modern", "Frequency field (Modern tuning)", "Shift+S", "Speak the coarse and fine step sizes",
+            new[] { "step", "speak", "coarse", "fine" }),
         // Same letter, same toggle, as Classic (#344) — split must not change
         // meaning across a mode boundary that is only about how you tune.
         new("Freq.Modern", "Frequency field (Modern tuning)", "P", "Toggle split on or off",

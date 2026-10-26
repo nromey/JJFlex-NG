@@ -55,6 +55,15 @@ namespace JJFlexWpf.Dialogs
                 ? Radios.Lexicon.Get("settings.keys.editor.title_editable")
                 : Radios.Lexicon.Get("settings.keys.editor.title_readonly");
 
+            // The window's own description. Without one NVDA reads the plain
+            // labels as the description on arrival: "Hotkey Editor, dialog,
+            // Arrange: Category: Status" (bench 2026-10-25 20:47). Noel's
+            // wording, editable form only; the read-only Key Assignments form
+            // has no ruled wording yet (#823).
+            if (editable)
+                System.Windows.Automation.AutomationProperties.SetHelpText(this,
+                    Radios.Lexicon.Get("settings.keys.editor.description"));
+
             if (!editable)
             {
                 EditPanel.Visibility = Visibility.Collapsed;

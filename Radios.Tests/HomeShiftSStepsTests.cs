@@ -62,7 +62,8 @@ namespace Radios.Tests
 
             string inventory = FieldKeyMapScan.ReadSource(FieldKeyMapScan.InventoryFile);
             Assert.Contains("new(\"Home\", \"Any Home field\", \"Shift+S\"", inventory);
-            Assert.DoesNotContain("new(\"Freq.Modern\", \"Frequency field (Modern tuning)\", \"Shift+S\"", inventory);
+            // The Frequency field keeps its own row too (orchestrator, 2026-10-25): its help reads the step values beside it.
+            Assert.Contains("new(\"Freq.Modern\", \"Frequency field (Modern tuning)\", \"Shift+S\"", inventory);
         }
     }
 }

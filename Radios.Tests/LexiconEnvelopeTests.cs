@@ -984,6 +984,7 @@ namespace Radios.Tests
                 // wraps, never spoken alone, so TextOnly (the #777
                 // reasoning). DRAFT awaiting Noel.
                 "settings.keys.editor.navigation_key_reserved",
+                "settings.keys.editor.description",
                 // Junkbox #753, 2026-10-25: the Home Mode field's spoken
                 // label. A LABEL, read when focus lands on the field, so
                 // delivery: null - TextOnly (the #726 item 6 reasoning). Its
