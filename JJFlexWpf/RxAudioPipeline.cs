@@ -195,6 +195,32 @@ namespace JJFlexWpf
             float gain, float target, float depthDb)
         {
             if (target >= 0.9999f && gain >= 0.9999f) return 1f;
+
+            // Coming back to full is the band's half of the crossfade, so it is
+            // the mirror of the recording's equal-power cosine: a sine in
+            // amplitude, quick at first, from the lowered level to 1 over
+            // ReleaseMs. The decibel curve rose slowly at first and left "a
+            // slight dip in volume" (bench 2026-10-25 21:19). Where the glide
+            // is on that sine is read back from the gain itself, so nothing
+            // else has to be remembered between buffers.
+            if (target >= 0.9999f && gain < target)
+            {
+                float low = MathF.Pow(10f, -Math.Max(0f, depthDb) / 20f);
+                if (depthDb >= 59f) low = 0f; // muted
+                float span = 1f - low;
+                float t = span <= 0f ? 1f
+                    : MathF.Asin(Math.Clamp((gain - low) / span, 0f, 1f)) * 2f / MathF.PI;
+                float advance = 1f / Math.Max(1f, sampleRate * (RxPlaybackLevel.ReleaseMs / 1000f));
+                for (int i = 0; i < count; i += channels)
+                {
+                    t = Math.Min(1f, t + advance);
+                    gain = t >= 1f ? 1f : low + span * MathF.Sin(t * MathF.PI / 2f);
+                    for (int c = 0; c < channels && i + c < count; c++)
+                        buffer[i + c] *= gain;
+                }
+                return gain;
+            }
+
             float db = ToDb(gain), targetDb = ToDb(target);
             float ms = targetDb < db ? RxPlaybackLevel.AttackMs : RxPlaybackLevel.ReleaseMs;
             float step = depthDb / Math.Max(1f, sampleRate * (ms / 1000f));

@@ -310,13 +310,18 @@ public sealed class RecordedQsoTransportTests : IDisposable
         Assert.True(buffer[0] > buffer[^1]);
         Assert.Equal(gain, buffer[^1], 4);
 
-        // Back up: 300 ms crosses 12 dB, IN DECIBELS (retest 2026-10-25: the
-        // straight-line return was heard as a blip). Half the time is half the
-        // decibels, -6 dB, 0.501, where a straight amplitude ramp would be at
-        // 0.626.
+        // Back up over 300 ms on a SINE in amplitude, the mirror of the
+        // recording's cosine fade, so the two sum to an even level (bench
+        // 2026-10-25 21:19: a decibel curve rose slowly at first and left "a
+        // slight dip"). Half the time: 0.251 + 0.749 x sin(45 degrees) = 0.781,
+        // where the decibel curve was at 0.501.
         var back = Enumerable.Repeat(1f, 7200).ToArray();
         gain = RxAudioPipeline.GlideGain(back, back.Length, 1, 48000, 0.251f, 1f, 12f);
-        Assert.InRange(gain, 0.49f, 0.51f);
+        Assert.InRange(gain, 0.77f, 0.79f);
+        // Picked up mid-way it carries on along the same curve: the rest of the
+        // 300 ms arrives at exactly 1.
+        var rest = Enumerable.Repeat(1f, 7200).ToArray();
+        Assert.Equal(1f, RxAudioPipeline.GlideGain(rest, rest.Length, 1, 48000, gain, 1f, 12f));
         for (int i = 1; i < back.Length; i++) Assert.True(back[i] >= back[i - 1]);
 
         // Muted arrives at exactly zero, and at full gain with nothing asked
