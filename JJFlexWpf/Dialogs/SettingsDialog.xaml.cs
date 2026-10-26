@@ -390,6 +390,7 @@ namespace JJFlexWpf.Dialogs
             EarconConnectionCheck.IsChecked = _audioConfig.EarconConnectionEnabled;
             EarconTransmitCheck.IsChecked = _audioConfig.EarconTransmitEnabled;
             EarconDialogsCheck.IsChecked = _audioConfig.EarconDialogsEnabled;
+            EarconDialogTonesCheck.IsChecked = _audioConfig.EarconDialogTonesEnabled;
             EarconTuningCheck.IsChecked = _audioConfig.EarconTuningEnabled;
             EarconCommandsCheck.IsChecked = _audioConfig.EarconCommandsEnabled;
             EarconWarningsCheck.IsChecked = _audioConfig.EarconWarningsEnabled;
@@ -1472,6 +1473,7 @@ namespace JJFlexWpf.Dialogs
             _audioConfig.EarconConnectionEnabled = EarconConnectionCheck.IsChecked == true;
             _audioConfig.EarconTransmitEnabled = EarconTransmitCheck.IsChecked == true;
             _audioConfig.EarconDialogsEnabled = EarconDialogsCheck.IsChecked == true;
+            _audioConfig.EarconDialogTonesEnabled = EarconDialogTonesCheck.IsChecked == true;
             _audioConfig.EarconTuningEnabled = EarconTuningCheck.IsChecked == true;
             _audioConfig.EarconCommandsEnabled = EarconCommandsCheck.IsChecked == true;
             _audioConfig.EarconWarningsEnabled = EarconWarningsCheck.IsChecked == true;

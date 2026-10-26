@@ -1525,6 +1525,14 @@
                                           Content="Dialog and panel sounds" Margin="0,0,0,4"
                                           AutomationProperties.Name="Dialog and panel sounds"
                            local:JJFlexHelp.Text="The dings when a dialog opens or closes, and the sweeps when a Home panel expands or collapses."/>
+                                <!-- #821: the dialog tones' own switch (Noel, 2026-10-25:
+                                     "I'd make an extra setting for dialogs, it could get
+                                     kinda noisy"). On by default; it also needs the
+                                     family switch above. -->
+                                <CheckBox x:Name="EarconDialogTonesCheck"
+                                          Content="Dialog open and close tones" Margin="20,0,0,4"
+                                          AutomationProperties.Name="Dialog open and close tones"
+                           local:JJFlexHelp.Text="A rising pair of tones when a dialog opens and a falling pair when it closes, so you can tell when a window has gone. Dialog and panel sounds must be on as well."/>
                                 <CheckBox x:Name="EarconTuningCheck"
                                           Content="Tuning and filter sounds" Margin="0,0,0,4"
                                           AutomationProperties.Name="Tuning and filter sounds"

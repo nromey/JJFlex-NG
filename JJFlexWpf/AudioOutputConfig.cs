@@ -108,6 +108,8 @@ namespace JJFlexWpf
         /// the combo does not offer falls back to 5 seconds.
         /// </summary>
         public double RecordedQsosStepSeconds { get; set; } = 5;
+        /// <summary>The dialog open and close tones (#821). On by default.</summary>
+        public bool EarconDialogTonesEnabled { get; set; } = true;
         // EarconContextHelpEnabled lived here until #343 removed the cue. Files
         // that still carry the element deserialize fine — XmlSerializer skips
         // unknown elements — and the next Save drops it.
@@ -720,6 +722,7 @@ namespace JJFlexWpf
             EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.CommandsAndConfirmations, EarconCommandsEnabled);
             EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.Warnings, EarconWarningsEnabled);
             EarconPlayer.RecorderBeepsEnabled = RecorderBeepsEnabled;
+            EarconPlayer.DialogTonesEnabled = EarconDialogTonesEnabled;
             RecorderControls.StatusSpeechEnabled = RecorderSpeechEnabled;
             // #147 — which set of voice definitions the earcons resolve
             // against. Applied before anything can make a sound, and clamped
@@ -832,6 +835,7 @@ namespace JJFlexWpf
             EarconCommandsEnabled = EarconPlayer.GetCategoryEnabled(EarconPlayer.EarconCategory.CommandsAndConfirmations);
             EarconWarningsEnabled = EarconPlayer.GetCategoryEnabled(EarconPlayer.EarconCategory.Warnings);
             RecorderBeepsEnabled = EarconPlayer.RecorderBeepsEnabled;
+            EarconDialogTonesEnabled = EarconPlayer.DialogTonesEnabled;
             RecorderSpeechEnabled = RecorderControls.StatusSpeechEnabled;
             MasterVolume = EarconPlayer.MasterVolume;
             AlertVolume = EarconPlayer.AlertVolume;

@@ -123,17 +123,10 @@ namespace Radios.Tests
         private static readonly Dictionary<string, string> UnwiredAwaitingDecision =
             new(StringComparer.Ordinal)
         {
-            ["DialogOpenTone"] =
-                "FOUND 2026-09-01 by the Sprint 43 Track D inventory, and it is the #383 " +
-                "shape again: zero callers anywhere in the tree, including inside " +
-                "EarconPlayer. Meanwhile the 'Dialogs and panels' family switch in Settings " +
-                "and docs/help/md/audio-earcon-control.md both promise the operator 'the " +
-                "dings when a dialog opens or closes'. Two shipped surfaces describe a sound " +
-                "the application cannot make. Only PlayExpand / PlayCollapse / " +
-                "PlayCollapseAll in that family are live.",
-
-            ["DialogCloseTone"] =
-                "The other half of DialogOpenTone, identical status and same report.",
+            // DialogOpenTone and DialogCloseTone sat here from 2026-09-01 until
+            // #821 wired them into JJFlexDialog on 2026-10-25, on Noel's ruling.
+            // The list is empty and stays, so the next unwired sound has a place
+            // to be named rather than a reason to delete the check.
         };
 
         [Fact]
