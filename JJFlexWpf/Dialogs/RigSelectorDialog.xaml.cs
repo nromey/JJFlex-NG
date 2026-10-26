@@ -734,6 +734,10 @@ namespace JJFlexWpf.Dialogs
 
     public partial class RigSelectorDialog : JJFlexDialog
     {
+        // Part of the connect, so no open and close tones (#821, Noel
+        // 2026-10-25: "I'd silence the radio list and the searching list").
+        protected internal override bool PlaysOpenCloseTones => false;
+
         // Lexicon-backed, so no longer const: a const must be a compile-time
         // literal and Lexicon.Get is resolved at run time.
         private static string MustSelect => Lexicon.Get("connect.selector.must_select");

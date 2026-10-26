@@ -50,6 +50,10 @@ namespace JJFlexWpf.Dialogs
     /// </summary>
     public sealed class DiscoveringRadiosWindow : JJFlexDialog
     {
+        // Comes and goes on its own during a connect, so no open and close
+        // tones (#821, Noel 2026-10-25).
+        protected internal override bool PlaysOpenCloseTones => false;
+
         /// <summary>Hard ceiling on the wait, however discovery is going.</summary>
         ///
         /// Two seconds is the operator's own estimate of when local churn

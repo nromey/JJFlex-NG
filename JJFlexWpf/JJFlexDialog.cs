@@ -119,8 +119,8 @@ namespace JJFlexWpf
             // closed since there's the child window"). Here, once, so every
             // dialog has it and none can forget it. Behind its own switch as
             // well as the Dialogs and panels family: "it could get kinda noisy".
-            Loaded += (_, _) => EarconPlayer.DialogOpenTone();
-            Closed += (_, _) => EarconPlayer.DialogCloseTone();
+            Loaded += (_, _) => { if (PlaysOpenCloseTones) EarconPlayer.DialogOpenTone(); };
+            Closed += (_, _) => { if (PlaysOpenCloseTones) EarconPlayer.DialogCloseTone(); };
 
             // This window's own title is worthless once the window has gone,
             // and until 2026-09-23 nothing said so: a title queued behind a
@@ -351,6 +351,15 @@ namespace JJFlexWpf
         /// operator then hears the name once instead of twice.
         /// </summary>
         protected internal virtual bool SpeaksOwnTitle => true;
+
+        /// <summary>
+        /// Whether this dialog plays the open and close tones (#821). True for
+        /// every dialog except the ones that come and go on their own during a
+        /// connect, which override it to false: the bench of 2026-10-25 heard
+        /// "two opens and a close before it even connected", and Noel ruled
+        /// "I'd silence the radio list and the searching list".
+        /// </summary>
+        protected internal virtual bool PlaysOpenCloseTones => true;
 
         /// <summary>
         /// Finds and focuses the first focusable interactive control in the dialog.

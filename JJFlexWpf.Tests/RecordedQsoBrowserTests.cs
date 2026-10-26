@@ -414,4 +414,18 @@ public sealed class RecordedQsoBrowserTests
         taken.Add(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(source)!, "QSO-2026-10-25-172707.mp3"));
         Assert.Equal("QSO-2026-10-25-172707-copy.mp3", RecordedQsoSaveAs.SuggestName(source, true, mp3, taken.Contains));
     }
+
+    // #821 at the bench (2026-10-25): the connect played "two opens and a
+    // close before it even connected". The radio list and the searching
+    // window opt out; every other dialog keeps its tones.
+    [Fact]
+    public void The_connect_windows_play_no_dialog_tones_and_other_dialogs_still_do()
+    {
+        JJFlexDialog Bare(System.Type t) =>
+            (JJFlexDialog)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(t);
+        Assert.False(Bare(typeof(RigSelectorDialog)).PlaysOpenCloseTones);
+        Assert.False(Bare(typeof(DiscoveringRadiosWindow)).PlaysOpenCloseTones);
+        Assert.True(Bare(typeof(RecordedQsosDialog)).PlaysOpenCloseTones);
+        Assert.True(Bare(typeof(AudioWorkshopDialog)).PlaysOpenCloseTones);
+    }
 }
