@@ -119,6 +119,25 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void On_Frequency_a_comma_after_a_digit_is_a_thousands_separator()
+        {
+            // Noel, 2026-10-25 20:35: "if you're typing frequencies, it could
+            // be a thousands separator." Number entry takes the comma, gated by
+            // its own state, ahead of the slice keys; the parse is held in
+            // JJFlexWpf.Tests (QuickTypeCommitTests).
+            string src = FieldKeyMapScan.ReadSource(Handlers);
+            string quick = Body(src, "private bool HandleQuickTypeKey(Key key, char ch, KeyEventArgs e)");
+            int comma = quick.IndexOf("if (ch == ',' && _inQuickType)", StringComparison.Ordinal);
+            Assert.True(comma >= 0, "number entry no longer takes the comma");
+            Assert.Contains("QuickTypeSeparator();", quick.Substring(comma));
+
+            var freq = FieldKeyMapScan.ScanRepository().Fields.Where(f => f.Context.StartsWith("Freq", StringComparison.Ordinal)).ToList();
+            Assert.Equal(2, freq.Count);
+            foreach (var f in freq)
+                Assert.Contains(f.Claims, c => c.Binding.Display == "," && c.StateGated && c.Gate.Contains("_inQuickType"));
+        }
+
+        [Fact]
         public void The_Slice_field_keeps_no_copy_of_its_own()
         {
             // One home for the pair. A second copy on the Slice field would

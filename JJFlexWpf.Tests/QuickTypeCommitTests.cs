@@ -81,6 +81,31 @@ public sealed class QuickTypeCommitTests
         Assert.Equal("Frequency set to 5.360 megahertz", o.Arrival);
     }
 
+    // ---------------- thousands separator (Noel, 2026-10-25 20:35) ----------------
+
+    [Theory]
+    [InlineData("14,225.000", 14.225)]   // his example: grouped thousands are kilohertz
+    [InlineData("14,225", 14.225)]
+    [InlineData("7,074", 7.074)]
+    [InlineData("14,225.5", 14.2255)]
+    [InlineData("14.225", 14.225)]       // unchanged: a decimal with no grouping is megahertz
+    [InlineData("14.2", 14.2)]
+    [InlineData("14225", 14.225)]        // unchanged: plain digits are kilohertz
+    [InlineData("0.5", 0.5)]
+    public void A_comma_in_a_typed_frequency_is_a_thousands_separator(string typed, double mhz)
+    {
+        var parsed = FreqOutHandlers.ParseQuickTypeFreq(typed);
+        Assert.NotNull(parsed);
+        Assert.Equal(mhz, parsed!.Value, 6);
+    }
+
+    [Fact]
+    public void Grouping_never_rescues_a_frequency_out_of_range()
+    {
+        Assert.Null(FreqOutHandlers.ParseQuickTypeFreq("1,000,000"));   // a gigahertz
+        Assert.Null(FreqOutHandlers.ParseQuickTypeFreq("14225.000"));   // ungrouped, read as megahertz, as before
+    }
+
     // ---------------- band jump ----------------
 
     [Fact]

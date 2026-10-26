@@ -51,7 +51,7 @@ A small set of letter keys works the same way from most fields inside the JJ Fle
 - `Q` — toggle squelch on or off
 - `=` — make the current slice transceive (receive and transmit on the same slice)
 - `.` (period) — create a new slice
-- `,` (comma) — release the current slice. On the Frequency field, period and comma are slice keys only until you type a digit; after that you are entering a frequency, the period is its decimal point, and the comma does nothing. So type the zero first for a frequency under one megahertz: 0.5, not .5
+- `,` (comma) — release the current slice. On the Frequency field, period and comma are slice keys only until you type a digit; after that you are entering a frequency, the period is its decimal point, and the comma is a thousands separator, so 14,225.000 is 14.225 megahertz. So type the zero first for a frequency under one megahertz: 0.5, not .5
 - `Shift+Comma` (the `<` key on US keyboards) — release every slice except the one you are currently on, so you end up cleanly on a single-slice setup. Handy when you want to reset back to one slice in one keystroke.
 
 These universal keys let you make quick adjustments without having to arrow to the exact field.

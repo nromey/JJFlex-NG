@@ -458,7 +458,7 @@ These keys work from ANY field within your JJ Flexible Home. First, remember to 
 - **Shift+Comma** — Release every slice except the one you are on
 - **?** — Speak the keys for the field you're on
 
-Period and comma work on the Frequency field too, and there they go by what you are doing. Before you type a digit, they are the slice keys like everywhere else. Once you have typed a digit you are entering a frequency, so the period is the decimal point and the comma does nothing: type 14.2 and press Enter and you are on 14.200. A period with no digit in front of it is never a decimal point, so for a frequency under one megahertz, type the zero first: 0.5, not .5.
+Period and comma work on the Frequency field too, and there they go by what you are doing. Before you type a digit, they are the slice keys like everywhere else. Once you have typed a digit you are entering a frequency, so the period is the decimal point and the comma is a thousands separator: type 14.2 and press Enter and you are on 14.200, or type 14,225.000 in kilohertz and you are on 14.225. A period with no digit in front of it is never a decimal point, so for a frequency under one megahertz, type the zero first: 0.5, not .5.
 
 Navigation inside the Home: Left and Right arrows move one character at a time, Home jumps to the first field (except on the Slice field, where it pans center), End jumps to the last field, and Page Down jumps straight to the Frequency field from fields that don't use Page Down themselves.
 

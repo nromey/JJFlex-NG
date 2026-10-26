@@ -906,6 +906,34 @@ public class FreqOutHandlers
     }
 
     /// <summary>
+    /// A comma during quick-type entry: a thousands separator, accepted and
+    /// otherwise ignored (Noel, 2026-10-25 20:35: "if you're typing
+    /// frequencies, it could be a thousands separator"). It is kept in the
+    /// buffer only so the parse can see that the whole part was grouped, which
+    /// makes the number kilohertz: "14,225.000" is 14.225 megahertz. After the
+    /// decimal point a comma groups nothing and is dropped. Says nothing: it
+    /// changes no digit, and the digits already speak. A separator setting is
+    /// #825, not this.
+    /// </summary>
+    private void QuickTypeSeparator()
+    {
+        if (!_inQuickType) return;
+        if (!_quickTypeBuffer.Contains('.')) _quickTypeBuffer += ',';
+        _lastDigitTime = DateTime.Now;
+
+        // Reset the timeout, as a digit or the point does, so the
+        // confirmation prompt does not land in the middle of the number.
+        _quickTypeTimeout?.Cancel();
+        _quickTypeTimeout = new CancellationTokenSource();
+        var token = _quickTypeTimeout.Token;
+        Task.Delay(1000, token).ContinueWith(t =>
+        {
+            if (!t.IsCanceled)
+                _window.Dispatcher.BeginInvoke(new Action(PromptQuickType));
+        });
+    }
+
+    /// <summary>
     /// Speak confirmation prompt after typing pause.
     /// </summary>
     private void PromptQuickType()
@@ -928,11 +956,28 @@ public class FreqOutHandlers
 
     /// <summary>
     /// Parse the quick-type buffer into a frequency in MHz.
-    /// Digits without decimal = kHz. With decimal = MHz.
+    /// Digits without decimal = kHz. With decimal = MHz. A thousands separator
+    /// in the whole part (a comma, see <see cref="QuickTypeSeparator"/>) means
+    /// the number was written in kHz, decimal or not: "14,225.000" and
+    /// "14,225" are both 14.225 MHz.
     /// </summary>
-    private static double? ParseQuickTypeFreq(string input)
+    internal static double? ParseQuickTypeFreq(string input)
     {
         if (string.IsNullOrWhiteSpace(input)) return null;
+
+        int point = input.IndexOf('.');
+        string whole = point < 0 ? input : input.Substring(0, point);
+        if (whole.Contains(','))
+        {
+            // Grouped thousands: kilohertz, with the decimal (if any) a
+            // fraction of a kilohertz.
+            if (double.TryParse(input.Replace(",", ""), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out double groupedKhz)
+                && groupedKhz > 100 && groupedKhz < 500000)
+                return groupedKhz / 1000.0;
+            return null;
+        }
+        input = input.Replace(",", "");
 
         if (input.Contains('.'))
         {
@@ -1071,6 +1116,15 @@ public class FreqOutHandlers
         if (ch == '.' && _inQuickType)
         {
             QuickTypeDot();
+            e.Handled = true;
+            return true;
+        }
+        // Once a digit is typed, number entry owns the comma too: a thousands
+        // separator (Noel, 2026-10-25 20:35). A bare comma, with no digit
+        // typed, never gets here and releases a slice instead.
+        if (ch == ',' && _inQuickType)
+        {
+            QuickTypeSeparator();
             e.Handled = true;
             return true;
         }
