@@ -9,6 +9,60 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-10-25 — RECORDED QSOs BENCHED AND MERGED, A SEVEN-ITEM JUNK BOX BATCH, DIALOG TONES, AND SETTINGS IN REAL GROUPS
+
+**Usage:** the weekly reset arrived at 04:00. Noel read 2% total and 0% Fable at 16:29. Today's guidance (memory `project_model_tiers_and_delegation.md`): Fable for planning and briefs, Opus for defined execution. Everything today ran on Opus, in this window and in one `jjflex-track-ruled` agent; Codex Sol (high) ran two read-only checks.
+
+**Main (`b592c154`, then this seal's commit), pushed with the branches:**
+- **Tape Deck track 4, Recorded QSOs (#787)**, merged as `27e47b47` after a whole day on the bench. It has:
+  - its own description and a single title;
+  - stepping that really seeks while playing, and a slider that follows quietly;
+  - Escape while paused closes; Ctrl+Left and Ctrl+Right work window-wide;
+  - Opus playback through our own Ogg reader and libopus (Windows has no Ogg Opus decoder);
+  - shorter saved-file rows, a File name box, and "original QSO recording" on the recorder's own rows;
+  - "-copy" and "-copy2" for duplicate names;
+  - Delete defaulting on Enter, labelled Delete;
+  - Prune's three choices, including "Keep the newest", worded Delete;
+  - the band lowered during any playback (RxPlaybackLevel: a Settings combo, Unchanged / 6 / 12 / 18 / 24 dB / Muted), with an equal-power crossfade on pause and stop. Noel's design was "it pauses a bit and can then smoothly crossfade", tuned twice by ear until he said "perfect".
+  - Settings became 28 real GroupBoxes, with F6 and Shift+F6 through a shared SectionNavigator (#822, used by the Workshop too).
+- **The junk box batch** (`junkbox/2026-10-25-batch`, merged `f6684ea8`):
+  - #650 trace numbers in the invariant culture;
+  - #584 the Slice menu count;
+  - #693 the near-miss wording, and a layer that lets go on WM_ACTIVATEAPP;
+  - #717 Manage Messages;
+  - #705 the Hotkey Editor: Tab during capture, tab order, and a window description;
+  - #753 Mode, Mute and Volume on Modern's slice row;
+  - #463 the menu shortcut agreement test;
+  - plus Noel's rulings: period and comma by context (a comma is a thousands separator while typing; leaving the field cancels the entry), and Shift+S anywhere in Modern.
+- **#821, dialog tones**, merged `efc388f2`. JJFlexDialog.PlaysOpenCloseTones lets a window opt out; the radio list and "Searching for radios" do.
+- CLAUDE.md: the desk-safe filter gains five classes (twenty-three, 352 tests).
+- `debug-notes.txt` rewritten for this build.
+- **Nightly published:** 4.1.16.2568 to the Dropbox top level at Noel's 21:47 word ("this can go to dropbox ... as nightly"); NAS archive verified.
+
+**Codex, two checks, both earned:**
+- Recorded QSOs got FIX FIRST. Blocker 1: Claude's `$Recycle.Bin` fast path weakened the never-permanent-delete guarantee; it was withdrawn, and the next delete measured 0.16 s, so the earlier 4.5 s freeze is still unexplained. Blocker 2: `Newest()` could pick a Save As FLAC.
+- The junk box got five pass and two FIX FIRST (#693 focus loss, #463 test strength). All four blockers were fixed and benched.
+
+**The agent:** round 3 was stopped by Noel's request when Claude Code's agent timer printed each tick on a new line under NVDA. Claude checked the worktree for a half-applied mutation and finished the round inline. Memory `feedback_background_agent_timer_floods_the_screen_reader.md`, corrected by Noel: agents are fine while he is present.
+
+**Register:**
+- Closed: #649 (already on main), #650, #584, #693, #717, #705, #753, #463, #821, #822.
+- Opened: #823 (the control help audit, including dialogs whose labels get scraped), #824 (Customize Home, Settings tab, Ctrl+Up/Down plus the ordinal combo chain), #825 (decimal and thousands separator setting).
+- The combo-reorder idea from 2026-10-20 had never been registered; it was recovered from the transcripts and saved as memory `project_reorder_by_ordinal_combos.md`.
+- 431 open.
+
+**Worktrees:**
+- Nine merged worktrees removed, with their briefs copied to `agile/worktree-briefs-2026-10-25/`.
+- Kept: `jjflex-jb803` (#803, two commits NOT in main; branch now on origin).
+- `jjflex-base`, Jim's comparison tree with a broken worktree link, moved to the NAS `historical\dev-orphans\` with a README. The empty `jjflex-bug-bundle` was removed.
+
+**Not done:** the changelog review of rounds 4 to 12 (Noel's "later today" did not come round); #820; the record-start sentence ("Recording to the computer"?) still unanswered; the Ogg reader's validation follow-up; MEMORY.md at 15.6 KB, restructure carried. Today's NVDA IO log was recycled by NVDA restarts before the seal (the archived pair is 5 KB and 8 KB).
+
+**Cross-surface:** Freight Fate 16 unpushed (dirty 1), rigmeter 13 unpushed, Civ VI dirty 2, all unchanged today; pushing them is Noel's call. No Codex commits.
+
+### Rigmeter snapshot — end of 2026-10-25
+Main since midnight: 38 commits (Track 4's day of commits now merged), 119 files; work done +11,392 / -1,973 (net +9,419); C# +9,950 / -1,040, XAML +928 / -814 (the Settings re-indent). About 7.5 hours read aloud.
+
 ## END-OF-DAY SEAL — 2026-10-24 — THE RECORDER LANDS ON MAIN AFTER SIX BENCHED ROUNDS, TRACK 4 IS BUILT AND CHECKED, AND THE NIGHTLY GOES OUT
 
 **Usage regime (until Sunday 04:00):** Codex Sol built every recorder round; Claude orchestrated, committed, fixed and checked. Claude total 84% at 15:18 (Noel's /usage); the Track 4 build then ran on Opus (~636k tokens). Codex weekly 10% to 16% across the day, resets Fri 10-30 13:42; Noel holds two banked Codex resets.
