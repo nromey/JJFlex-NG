@@ -327,40 +327,43 @@
                          that never explains itself is worse than a sentence that
                          says why it is not there.
                          ============================================================ -->
-                    <TextBlock Text="Radio Outputs" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <GroupBox Header="Radio Outputs" Margin="0,4,0,8"
+                              AutomationProperties.Name="Radio Outputs">
+                        <StackPanel Margin="4">
 
-                    <TextBlock x:Name="RadioOutputsAdvisory"
-                               Style="{StaticResource DialogLabel}"
-                               TextWrapping="Wrap"
-                               Margin="0,0,0,6"
-                               Focusable="True"
-                               AutomationProperties.LiveSetting="Polite"
-                               AutomationProperties.Name="Radio audio status"/>
+                            <TextBlock x:Name="RadioOutputsAdvisory"
+                                       Style="{StaticResource DialogLabel}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,0,0,6"
+                                       Focusable="True"
+                                       AutomationProperties.LiveSetting="Polite"
+                                       AutomationProperties.Name="Radio audio status"/>
 
-                    <StackPanel x:Name="RadioOutputsPanel" Visibility="Collapsed">
-                        <controls:ValueFieldControl x:Name="HeadphoneLevelControl"
-                            Margin="0,0,0,8"
-                            AutomationProperties.Name="Headphone level, 0 to 100, sent to the radio as you change it"/>
-                        <controls:ValueFieldControl x:Name="LineOutLevelControl"
-                            Margin="0,0,0,8"
-                            AutomationProperties.Name="Line out level, 0 to 100, sent to the radio as you change it"/>
-                        <CheckBox x:Name="HeadphoneMuteCheck"
-                                  Content="Mute the headphone output"
-                                  Margin="0,0,0,4"
-                                  AutomationProperties.Name="Mute the radio's headphone output"
-                                  Click="RadioOutputMute_Click"/>
-                        <CheckBox x:Name="LineOutMuteCheck"
-                                  Content="Mute the line out output"
-                                  Margin="0,0,0,4"
-                                  AutomationProperties.Name="Mute the radio's line out output"
-                                  Click="RadioOutputMute_Click"/>
-                        <CheckBox x:Name="FrontSpeakerMuteCheck"
-                                  Content="Mute the front panel speaker"
-                                  Margin="0,0,0,8"
-                                  AutomationProperties.Name="Mute the radio's front panel speaker"
-                                  Click="RadioOutputMute_Click"/>
-                    </StackPanel>
+                            <StackPanel x:Name="RadioOutputsPanel" Visibility="Collapsed">
+                                <controls:ValueFieldControl x:Name="HeadphoneLevelControl"
+                                    Margin="0,0,0,8"
+                                    AutomationProperties.Name="Headphone level, 0 to 100, sent to the radio as you change it"/>
+                                <controls:ValueFieldControl x:Name="LineOutLevelControl"
+                                    Margin="0,0,0,8"
+                                    AutomationProperties.Name="Line out level, 0 to 100, sent to the radio as you change it"/>
+                                <CheckBox x:Name="HeadphoneMuteCheck"
+                                          Content="Mute the headphone output"
+                                          Margin="0,0,0,4"
+                                          AutomationProperties.Name="Mute the radio's headphone output"
+                                          Click="RadioOutputMute_Click"/>
+                                <CheckBox x:Name="LineOutMuteCheck"
+                                          Content="Mute the line out output"
+                                          Margin="0,0,0,4"
+                                          AutomationProperties.Name="Mute the radio's line out output"
+                                          Click="RadioOutputMute_Click"/>
+                                <CheckBox x:Name="FrontSpeakerMuteCheck"
+                                          Content="Mute the front panel speaker"
+                                          Margin="0,0,0,8"
+                                          AutomationProperties.Name="Mute the radio's front panel speaker"
+                                          Click="RadioOutputMute_Click"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
 
                     <!-- The pointer to the radio silence check's new home (Sprint 32
                          Track C) was removed 2026-10-25 on Noel's word at the
@@ -380,52 +383,55 @@
                          section used to warn about is closed by announcing the
                          applied state out loud on every connect.
                          ============================================================ -->
-                    <TextBlock Text="Radio Audio Through This Computer" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <CheckBox x:Name="PcAudioCheck"
-                              Content="Play radio audio through this computer"
-                              Margin="0,0,0,4"
-                              AutomationProperties.Name="Play radio audio through this computer"
-                   local:JJFlexHelp.Text="and send this computer's microphone to the radio"
-                              Click="PcAudioCheck_Click"/>
-                    <TextBlock x:Name="PcAudioStatusText"
-                               Style="{StaticResource DialogLabel}"
-                               TextWrapping="Wrap"
-                               Margin="0,0,0,8"
-                               AutomationProperties.LiveSetting="Polite"
-                               AutomationProperties.Name="Radio audio through this computer, status"/>
-                    <!-- Per-radio on-connect behaviour. Collapsed (out of the
-                         tab order, house rule) when no radio is connected —
-                         the setting is keyed by the radio's serial. Saves as
-                         it changes, like its live neighbors above. -->
-                    <StackPanel x:Name="PcAudioOnConnectPanel" Visibility="Collapsed">
-                        <TextBlock Text="When this radio connects"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,0,2"/>
-                        <ComboBox x:Name="PcAudioOnConnectCombo"
-                                  HorizontalAlignment="Left" MinWidth="320"
-                                  Margin="0,0,0,8"
-                                  AutomationProperties.Name="PC audio when this radio connects, saved for this radio"
-                                  SelectionChanged="PcAudioOnConnectCombo_SelectionChanged">
-                            <ComboBoxItem Content="As I left it"/>
-                            <ComboBoxItem Content="Always on for this radio"/>
-                            <ComboBoxItem Content="Always off for this radio"/>
-                        </ComboBox>
-                    </StackPanel>
-                    <!-- PC output volume (Audio Arc Track A) — the playback
-                         boost for radio audio through this computer, in dB.
-                         App-level and persisted, unlike the PC audio on/off
-                         above; applies live like the radio output levels. -->
-                    <controls:ValueFieldControl x:Name="PcOutputVolumeControl"
-                        Margin="0,0,0,8"
-                        AutomationProperties.Name="PC output volume in dB"
-                   local:JJFlexHelp.Text="how loud radio audio plays through this computer, applied as you change it"/>
-                    <Button x:Name="AudioDevicesButton"
-                            Content="Audio _Devices..."
-                            HorizontalAlignment="Left" Padding="12,4"
-                            Margin="0,0,0,8"
-                            AutomationProperties.Name="Audio Devices, choose which sound devices JJ Flex uses"
-                            AutomationProperties.AcceleratorKey="Alt+D"
-                            Click="AudioDevicesButton_Click"/>
+                    <GroupBox Header="Radio Audio Through This Computer" Margin="0,4,0,8"
+                              AutomationProperties.Name="Radio Audio Through This Computer">
+                        <StackPanel Margin="4">
+                            <CheckBox x:Name="PcAudioCheck"
+                                      Content="Play radio audio through this computer"
+                                      Margin="0,0,0,4"
+                                      AutomationProperties.Name="Play radio audio through this computer"
+                           local:JJFlexHelp.Text="and send this computer's microphone to the radio"
+                                      Click="PcAudioCheck_Click"/>
+                            <TextBlock x:Name="PcAudioStatusText"
+                                       Style="{StaticResource DialogLabel}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,0,0,8"
+                                       AutomationProperties.LiveSetting="Polite"
+                                       AutomationProperties.Name="Radio audio through this computer, status"/>
+                            <!-- Per-radio on-connect behaviour. Collapsed (out of the
+                                 tab order, house rule) when no radio is connected —
+                                 the setting is keyed by the radio's serial. Saves as
+                                 it changes, like its live neighbors above. -->
+                            <StackPanel x:Name="PcAudioOnConnectPanel" Visibility="Collapsed">
+                                <TextBlock Text="When this radio connects"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,0,2"/>
+                                <ComboBox x:Name="PcAudioOnConnectCombo"
+                                          HorizontalAlignment="Left" MinWidth="320"
+                                          Margin="0,0,0,8"
+                                          AutomationProperties.Name="PC audio when this radio connects, saved for this radio"
+                                          SelectionChanged="PcAudioOnConnectCombo_SelectionChanged">
+                                    <ComboBoxItem Content="As I left it"/>
+                                    <ComboBoxItem Content="Always on for this radio"/>
+                                    <ComboBoxItem Content="Always off for this radio"/>
+                                </ComboBox>
+                            </StackPanel>
+                            <!-- PC output volume (Audio Arc Track A) — the playback
+                                 boost for radio audio through this computer, in dB.
+                                 App-level and persisted, unlike the PC audio on/off
+                                 above; applies live like the radio output levels. -->
+                            <controls:ValueFieldControl x:Name="PcOutputVolumeControl"
+                                Margin="0,0,0,8"
+                                AutomationProperties.Name="PC output volume in dB"
+                           local:JJFlexHelp.Text="how loud radio audio plays through this computer, applied as you change it"/>
+                            <Button x:Name="AudioDevicesButton"
+                                    Content="Audio _Devices..."
+                                    HorizontalAlignment="Left" Padding="12,4"
+                                    Margin="0,0,0,8"
+                                    AutomationProperties.Name="Audio Devices, choose which sound devices JJ Flex uses"
+                                    AutomationProperties.AcceleratorKey="Alt+D"
+                                    Click="AudioDevicesButton_Click"/>
+                        </StackPanel>
+                    </GroupBox>
 
                     <Separator Margin="0,4,0,8"/>
 
@@ -433,169 +439,184 @@
                          rather than on Notifications, because CW notifications
                          play through the alert device — the device and the
                          switch that uses it should read as one thing. -->
-                    <TextBlock Text="Alerts and CW Notifications" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <controls:ValueFieldControl x:Name="EarconVolumeControl"
-                        Margin="0,0,0,8"
-                        AutomationProperties.Name="Alert volume, 0 to 100"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <controls:DecorativeText Text="Alert device:"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <ComboBox x:Name="EarconDeviceCombo" Width="200"
-                                  Style="{StaticResource DialogComboBox}"
-                                  AutomationProperties.Name="Alert audio output device, also used for CW notifications"/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <controls:DecorativeText Text="Alert tone set:"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <ComboBox x:Name="AlertToneSetCombo" Width="280"
-                                  Style="{StaticResource DialogComboBox}"
-                                  SelectionChanged="AlertToneSetCombo_SelectionChanged"
-                                  AutomationProperties.Name="Alert tone set, rich or simple"
-                   local:JJFlexHelp.Text="arrow through to hear each one. Rich tones are layered so they carry better through band noise; Simple ones are plain, closer to earlier versions"/>
-                    </StackPanel>
-                    <CheckBox x:Name="CwNotificationsCheck"
-                              Content="Enable CW notifications (AS, BT, SK prosigns)"
-                              Margin="0,0,0,4"
-                              AutomationProperties.Name="Enable Morse code notifications for connection events"
-                   local:JJFlexHelp.Text="played through the alert device"/>
-                    <StackPanel Orientation="Horizontal" Margin="20,0,0,4">
-                        <controls:DecorativeText Text="CW pitch:"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <ComboBox x:Name="CwPitchSourceCombo" Width="280"
-                                  Style="{StaticResource DialogComboBox}"
-                                  SelectionChanged="CwPitchSourceCombo_SelectionChanged"
-                                  AutomationProperties.Name="CW notification pitch source"
-                   local:JJFlexHelp.Text="follow the radio's own sidetone, or use the frequency below. With no radio connected the frequency below is used"/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="20,0,0,4">
-                        <controls:DecorativeText Text="CW tone shape:"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <ComboBox x:Name="CwWaveformCombo" Width="280"
-                                  Style="{StaticResource DialogComboBox}"
-                                  SelectionChanged="CwWaveformCombo_SelectionChanged"
-                                  AutomationProperties.Name="CW notification tone shape"
-                   local:JJFlexHelp.Text="arrow through to hear each one. A richer shape is harder for band noise to hide, and harder to mistake for received CW"/>
-                    </StackPanel>
-                    <Grid Margin="20,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="100"/>
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <controls:DecorativeText Grid.Row="0" Grid.Column="0"
-                                   Text="Sidetone frequency (Hz):"
-                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
-                        <TextBox x:Name="CwSidetoneBox" Grid.Row="0" Grid.Column="1"
-                                 Style="{StaticResource DialogTextBox}"
-                                 AutomationProperties.Name="CW sidetone frequency, 400 to 1200 hertz"/>
-                        <controls:DecorativeText Grid.Row="1" Grid.Column="0"
-                                   Text="Speed (WPM):"
-                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
-                        <TextBox x:Name="CwSpeedBox" Grid.Row="1" Grid.Column="1"
-                                 Style="{StaticResource DialogTextBox}"
-                                 AutomationProperties.Name="CW notification speed, 10 to 60 words per minute"/>
-                    </Grid>
-                    <CheckBox x:Name="CwModeAnnounceCheck"
-                              Content="Use CW to announce mode changes"
-                              Margin="0,0,0,8"
-                              AutomationProperties.Name="Use CW to announce mode changes"/>
+                    <GroupBox Header="Alerts and CW Notifications" Margin="0,4,0,8"
+                              AutomationProperties.Name="Alerts and CW Notifications">
+                        <StackPanel Margin="4">
+                            <controls:ValueFieldControl x:Name="EarconVolumeControl"
+                                Margin="0,0,0,8"
+                                AutomationProperties.Name="Alert volume, 0 to 100"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <controls:DecorativeText Text="Alert device:"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="EarconDeviceCombo" Width="200"
+                                          Style="{StaticResource DialogComboBox}"
+                                          AutomationProperties.Name="Alert audio output device, also used for CW notifications"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <controls:DecorativeText Text="Alert tone set:"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="AlertToneSetCombo" Width="280"
+                                          Style="{StaticResource DialogComboBox}"
+                                          SelectionChanged="AlertToneSetCombo_SelectionChanged"
+                                          AutomationProperties.Name="Alert tone set, rich or simple"
+                           local:JJFlexHelp.Text="arrow through to hear each one. Rich tones are layered so they carry better through band noise; Simple ones are plain, closer to earlier versions"/>
+                            </StackPanel>
+                            <CheckBox x:Name="CwNotificationsCheck"
+                                      Content="Enable CW notifications (AS, BT, SK prosigns)"
+                                      Margin="0,0,0,4"
+                                      AutomationProperties.Name="Enable Morse code notifications for connection events"
+                           local:JJFlexHelp.Text="played through the alert device"/>
+                            <StackPanel Orientation="Horizontal" Margin="20,0,0,4">
+                                <controls:DecorativeText Text="CW pitch:"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="CwPitchSourceCombo" Width="280"
+                                          Style="{StaticResource DialogComboBox}"
+                                          SelectionChanged="CwPitchSourceCombo_SelectionChanged"
+                                          AutomationProperties.Name="CW notification pitch source"
+                           local:JJFlexHelp.Text="follow the radio's own sidetone, or use the frequency below. With no radio connected the frequency below is used"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="20,0,0,4">
+                                <controls:DecorativeText Text="CW tone shape:"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="CwWaveformCombo" Width="280"
+                                          Style="{StaticResource DialogComboBox}"
+                                          SelectionChanged="CwWaveformCombo_SelectionChanged"
+                                          AutomationProperties.Name="CW notification tone shape"
+                           local:JJFlexHelp.Text="arrow through to hear each one. A richer shape is harder for band noise to hide, and harder to mistake for received CW"/>
+                            </StackPanel>
+                            <Grid Margin="20,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="100"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <controls:DecorativeText Grid.Row="0" Grid.Column="0"
+                                           Text="Sidetone frequency (Hz):"
+                                           Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                                <TextBox x:Name="CwSidetoneBox" Grid.Row="0" Grid.Column="1"
+                                         Style="{StaticResource DialogTextBox}"
+                                         AutomationProperties.Name="CW sidetone frequency, 400 to 1200 hertz"/>
+                                <controls:DecorativeText Grid.Row="1" Grid.Column="0"
+                                           Text="Speed (WPM):"
+                                           Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                                <TextBox x:Name="CwSpeedBox" Grid.Row="1" Grid.Column="1"
+                                         Style="{StaticResource DialogTextBox}"
+                                         AutomationProperties.Name="CW notification speed, 10 to 60 words per minute"/>
+                            </Grid>
+                            <CheckBox x:Name="CwModeAnnounceCheck"
+                                      Content="Use CW to announce mode changes"
+                                      Margin="0,0,0,8"
+                                      AutomationProperties.Name="Use CW to announce mode changes"/>
+                        </StackPanel>
+                    </GroupBox>
 
                     <Separator Margin="0,4,0,8"/>
 
                     <!-- Meter section -->
-                    <TextBlock Text="Meter Tones" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <controls:ValueFieldControl x:Name="MeterVolumeControl"
-                        Margin="0,0,0,8"
-                        AutomationProperties.Name="Meter tone volume, 0 to 100"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <controls:DecorativeText Text="Meter device:"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <ComboBox x:Name="MeterDeviceCombo" Width="200"
-                                  Style="{StaticResource DialogComboBox}"
-                                  AutomationProperties.Name="Meter tone audio output device"/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <controls:DecorativeText Text="Preset:"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <ComboBox x:Name="MeterPresetCombo" Width="150"
-                                  Style="{StaticResource DialogComboBox}"
-                                  AutomationProperties.Name="Meter tone preset"/>
-                    </StackPanel>
-                    <CheckBox x:Name="PeakWatcherCheck"
-                              Content="Transmit level alerts"
-                              Margin="0,0,0,8"
-                              AutomationProperties.Name="Enable transmit level alerts"/>
-                    <CheckBox x:Name="MeterSpeechCheck"
-                              Content="Meter speech readout"
-                              Margin="0,0,0,8"
-                              AutomationProperties.Name="Enable meter speech readout"/>
+                    <GroupBox Header="Meter Tones" Margin="0,4,0,8"
+                              AutomationProperties.Name="Meter Tones">
+                        <StackPanel Margin="4">
+                            <controls:ValueFieldControl x:Name="MeterVolumeControl"
+                                Margin="0,0,0,8"
+                                AutomationProperties.Name="Meter tone volume, 0 to 100"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <controls:DecorativeText Text="Meter device:"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="MeterDeviceCombo" Width="200"
+                                          Style="{StaticResource DialogComboBox}"
+                                          AutomationProperties.Name="Meter tone audio output device"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <controls:DecorativeText Text="Preset:"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="MeterPresetCombo" Width="150"
+                                          Style="{StaticResource DialogComboBox}"
+                                          AutomationProperties.Name="Meter tone preset"/>
+                            </StackPanel>
+                            <CheckBox x:Name="PeakWatcherCheck"
+                                      Content="Transmit level alerts"
+                                      Margin="0,0,0,8"
+                                      AutomationProperties.Name="Enable transmit level alerts"/>
+                            <CheckBox x:Name="MeterSpeechCheck"
+                                      Content="Meter speech readout"
+                                      Margin="0,0,0,8"
+                                      AutomationProperties.Name="Enable meter speech readout"/>
+                        </StackPanel>
+                    </GroupBox>
 
                     <Separator Margin="0,4,0,8"/>
 
                     <!-- Typing sound -->
-                    <TextBlock Text="Frequency Entry" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <controls:DecorativeText Text="Typing sound:"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <ComboBox x:Name="TypingSoundCombo" Width="180"
-                                  Style="{StaticResource DialogComboBox}"
-                                  AutomationProperties.Name="Frequency entry typing sound mode"/>
-                    </StackPanel>
+                    <GroupBox Header="Frequency Entry" Margin="0,4,0,8"
+                              AutomationProperties.Name="Frequency Entry">
+                        <StackPanel Margin="4">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <controls:DecorativeText Text="Typing sound:"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="TypingSoundCombo" Width="180"
+                                          Style="{StaticResource DialogComboBox}"
+                                          AutomationProperties.Name="Frequency entry typing sound mode"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
 
                     <Separator Margin="0,4,0,8"/>
 
                     <!-- Recorder: its own heading since 2026-10-25 (Noel, retest),
                          after these sat under Frequency Entry. -->
-                    <TextBlock Text="Recorder" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <!-- DRAFT PROSE (#787): settings help awaits Noel. -->
-                    <CheckBox x:Name="RecorderBeepsCheck" Content="Recorder beeps" Margin="0,0,0,4"
-                              AutomationProperties.Name="Recorder beeps"
-                              local:JJFlexHelp.Text="Recorder beeps play as two low tones when recording or playback starts and two high tones when it stops."/>
-                    <CheckBox x:Name="RecorderSpeechCheck" Content="Recorder speech" Margin="0,0,0,8"
-                              AutomationProperties.Name="Recorder speech"
-                              local:JJFlexHelp.Text="Speak recorder start and stop status. Refusals and failures always speak."/>
-                    <!-- DRAFT PROSE (#787, bench 2026-10-25): the help awaits Noel. -->
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <controls:DecorativeText Text="Radio audio during playback:"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <ComboBox x:Name="PlaybackRadioLevelCombo" Width="180"
-                                  Style="{StaticResource DialogComboBox}"
-                                  AutomationProperties.Name="Radio audio during playback"
-                                  local:JJFlexHelp.Text="Sets how much the radio's audio on this computer is lowered while a recording plays back, or mutes it. Audio from the radio's own speaker is not affected."/>
-                    </StackPanel>
+                    <GroupBox Header="Recorder" Margin="0,4,0,8"
+                              AutomationProperties.Name="Recorder">
+                        <StackPanel Margin="4">
+                            <!-- DRAFT PROSE (#787): settings help awaits Noel. -->
+                            <CheckBox x:Name="RecorderBeepsCheck" Content="Recorder beeps" Margin="0,0,0,4"
+                                      AutomationProperties.Name="Recorder beeps"
+                                      local:JJFlexHelp.Text="Recorder beeps play as two low tones when recording or playback starts and two high tones when it stops."/>
+                            <CheckBox x:Name="RecorderSpeechCheck" Content="Recorder speech" Margin="0,0,0,8"
+                                      AutomationProperties.Name="Recorder speech"
+                                      local:JJFlexHelp.Text="Speak recorder start and stop status. Refusals and failures always speak."/>
+                            <!-- DRAFT PROSE (#787, bench 2026-10-25): the help awaits Noel. -->
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <controls:DecorativeText Text="Radio audio during playback:"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="PlaybackRadioLevelCombo" Width="180"
+                                          Style="{StaticResource DialogComboBox}"
+                                          AutomationProperties.Name="Radio audio during playback"
+                                          local:JJFlexHelp.Text="Sets how much the radio's audio on this computer is lowered while a recording plays back, or mutes it. Audio from the radio's own speaker is not affected."/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
 
                     <Separator Margin="0,4,0,8"/>
 
                     <!-- Braille Display section -->
-                    <TextBlock Text="Braille Display" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <CheckBox x:Name="BrailleEnabledCheck"
-                              Content="Enable braille status line"
-                              Margin="0,0,0,8"
-                              AutomationProperties.Name="Enable braille status line on home position"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <controls:DecorativeText Text="Display cells:"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <ComboBox x:Name="BrailleCellsCombo" Width="80"
-                                  Style="{StaticResource DialogComboBox}"
-                                  AutomationProperties.Name="Braille display cell count"/>
-                    </StackPanel>
+                    <GroupBox Header="Braille Display" Margin="0,4,0,8"
+                              AutomationProperties.Name="Braille Display">
+                        <StackPanel Margin="4">
+                            <CheckBox x:Name="BrailleEnabledCheck"
+                                      Content="Enable braille status line"
+                                      Margin="0,0,0,8"
+                                      AutomationProperties.Name="Enable braille status line on home position"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <controls:DecorativeText Text="Display cells:"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="BrailleCellsCombo" Width="80"
+                                          Style="{StaticResource DialogComboBox}"
+                                          AutomationProperties.Name="Braille display cell count"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
 
                     <Separator Margin="0,4,0,8"/>
 
@@ -612,78 +633,81 @@
             <TabItem Header="Network" AutomationProperties.Name="Network and SmartLink settings">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
-                    <TextBlock Text="SmartLink Port Forwarding (Tier 1)" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <!-- Track C: this text used to claim the radio listens on the
-                         port you type. It does not — the typed port is the
-                         EXTERNAL port your router shows the internet; the radio
-                         always listens on its LAN address at TCP 4994 and UDP
-                         4993. The old wording misled a live debugging session
-                         (2026-08-14). -->
-                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Tell the radio which external port to advertise for SmartLink. The port you choose here is the one the internet sees — the radio itself always listens on its LAN address at TCP port 4994 and UDP port 4993. Your router needs two rules: forward your chosen external TCP port to the radio's LAN IP at port 4994, and your chosen external UDP port to the radio's LAN IP at port 4993. Changing this requires an active radio connection; press Apply or OK to send it."/>
+                    <GroupBox Header="SmartLink Port Forwarding (Tier 1)" Margin="0,4,0,8"
+                              AutomationProperties.Name="SmartLink Port Forwarding (Tier 1)">
+                        <StackPanel Margin="4">
+                            <!-- Track C: this text used to claim the radio listens on the
+                                 port you type. It does not — the typed port is the
+                                 EXTERNAL port your router shows the internet; the radio
+                                 always listens on its LAN address at TCP 4994 and UDP
+                                 4993. The old wording misled a live debugging session
+                                 (2026-08-14). -->
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                                       Text="Tell the radio which external port to advertise for SmartLink. The port you choose here is the one the internet sees — the radio itself always listens on its LAN address at TCP port 4994 and UDP port 4993. Your router needs two rules: forward your chosen external TCP port to the radio's LAN IP at port 4994, and your chosen external UDP port to the radio's LAN IP at port 4993. Changing this requires an active radio connection; press Apply or OK to send it."/>
 
-                    <!-- Sprint 27 Track A: Tier 1 framing prose. Explains what this mode means and why it's the recommended default. -->
-                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Tier 1 (Manual Port Forwarding) is the recommended default. You choose the external port and set the two router rules yourself, and JJ Flex tells the radio to advertise that port. Tier 1 is sovereign — there is no third-party coordination, no UPnP, and no hole-punch. It is the only tier compatible with organizational security policies that require UPnP disabled (DISA STIGs, PCI-DSS, HIPAA), and it is the most reliable path through strict NAT configurations. Your chosen port is saved with your SmartLink account; on future connections, JJ Flex applies it automatically."/>
+                            <!-- Sprint 27 Track A: Tier 1 framing prose. Explains what this mode means and why it's the recommended default. -->
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                                       Text="Tier 1 (Manual Port Forwarding) is the recommended default. You choose the external port and set the two router rules yourself, and JJ Flex tells the radio to advertise that port. Tier 1 is sovereign — there is no third-party coordination, no UPnP, and no hole-punch. It is the only tier compatible with organizational security policies that require UPnP disabled (DISA STIGs, PCI-DSS, HIPAA), and it is the most reliable path through strict NAT configurations. Your chosen port is saved with your SmartLink account; on future connections, JJ Flex applies it automatically."/>
 
-                    <TextBlock x:Name="NetworkCurrentStateText"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,8"
-                               AutomationProperties.LiveSetting="Polite"/>
+                            <TextBlock x:Name="NetworkCurrentStateText"
+                                       Style="{StaticResource DialogLabel}" Margin="0,0,0,8"
+                                       AutomationProperties.LiveSetting="Polite"/>
 
-                    <CheckBox x:Name="PortForwardEnabledCheck"
-                              Content="Enable manual port forwarding"
-                              Margin="0,0,0,8"
-                              AutomationProperties.Name="Enable manual port forwarding on the radio"
-                              Click="PortForwardEnabledCheck_Click"/>
+                            <CheckBox x:Name="PortForwardEnabledCheck"
+                                      Content="Enable manual port forwarding"
+                                      Margin="0,0,0,8"
+                                      AutomationProperties.Name="Enable manual port forwarding on the radio"
+                                      Click="PortForwardEnabledCheck_Click"/>
 
-                    <Grid Margin="20,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="100"/>
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <controls:DecorativeText Grid.Row="0" Grid.Column="0"
-                                   Text="Port (TCP and UDP):"
-                                   x:Name="PortForwardTcpLabel"
-                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
-                        <TextBox x:Name="PortForwardTcpBox" Grid.Row="0" Grid.Column="1"
-                                 Text="4992"
-                                 Style="{StaticResource DialogTextBox}"
-                                 AutomationProperties.Name="Port number, 1024 to 65535, applied to TCP and UDP"
-                                 TextChanged="PortForwardTcpBox_TextChanged"/>
-                        <controls:DecorativeText Grid.Row="1" Grid.Column="0"
-                                   Text="UDP port:"
-                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
-                        <TextBox x:Name="PortForwardUdpBox" Grid.Row="1" Grid.Column="1"
-                                 Text="4992" IsEnabled="False"
-                                 Style="{StaticResource DialogTextBox}"
-                                 AutomationProperties.Name="UDP port number, 1024 to 65535"/>
-                    </Grid>
+                            <Grid Margin="20,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="100"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <controls:DecorativeText Grid.Row="0" Grid.Column="0"
+                                           Text="Port (TCP and UDP):"
+                                           x:Name="PortForwardTcpLabel"
+                                           Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                                <TextBox x:Name="PortForwardTcpBox" Grid.Row="0" Grid.Column="1"
+                                         Text="4992"
+                                         Style="{StaticResource DialogTextBox}"
+                                         AutomationProperties.Name="Port number, 1024 to 65535, applied to TCP and UDP"
+                                         TextChanged="PortForwardTcpBox_TextChanged"/>
+                                <controls:DecorativeText Grid.Row="1" Grid.Column="0"
+                                           Text="UDP port:"
+                                           Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                                <TextBox x:Name="PortForwardUdpBox" Grid.Row="1" Grid.Column="1"
+                                         Text="4992" IsEnabled="False"
+                                         Style="{StaticResource DialogTextBox}"
+                                         AutomationProperties.Name="UDP port number, 1024 to 65535"/>
+                            </Grid>
 
-                    <CheckBox x:Name="PortForwardSeparatePortsCheck"
-                              Content="Use different TCP and UDP ports (advanced)"
-                              Margin="20,0,0,8"
-                              AutomationProperties.Name="Allow different TCP and UDP ports"
-                              Checked="PortForwardSeparatePortsCheck_Changed"
-                              Unchecked="PortForwardSeparatePortsCheck_Changed"/>
+                            <CheckBox x:Name="PortForwardSeparatePortsCheck"
+                                      Content="Use different TCP and UDP ports (advanced)"
+                                      Margin="20,0,0,8"
+                                      AutomationProperties.Name="Allow different TCP and UDP ports"
+                                      Checked="PortForwardSeparatePortsCheck_Changed"
+                                      Unchecked="PortForwardSeparatePortsCheck_Changed"/>
 
-                    <!-- Track C: the per-feature "Apply to connected radio" button is
-                         gone — the dialog's own Apply and OK commit these edits now,
-                         the same as every other setting, so an edit here can no
-                         longer be silently discarded by OK. Test performs local
-                         validation only (range + common-conflict blocklist) without
-                         touching the radio or persisting. -->
-                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                        <Button Content="Te_st port"
-                                Width="120"
-                                AutomationProperties.Name="Test the port number locally for validity and common conflicts"
-                                AutomationProperties.AcceleratorKey="Alt+S"
-                                Click="TestPortButton_Click"/>
-                    </StackPanel>
+                            <!-- Track C: the per-feature "Apply to connected radio" button is
+                                 gone — the dialog's own Apply and OK commit these edits now,
+                                 the same as every other setting, so an edit here can no
+                                 longer be silently discarded by OK. Test performs local
+                                 validation only (range + common-conflict blocklist) without
+                                 touching the radio or persisting. -->
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                <Button Content="Te_st port"
+                                        Width="120"
+                                        AutomationProperties.Name="Test the port number locally for validity and common conflicts"
+                                        AutomationProperties.AcceleratorKey="Alt+S"
+                                        Click="TestPortButton_Click"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
 
                     <!-- Sprint 27 Track F: Connection mode three-option radio group. Replaces B.2's single UPnP checkbox. Three cumulative tiers: manual-only (Tier 1), manual + UPnP (Tier 1+2), manual + UPnP + hole-punch (Tier 1+2+3). Tier 2 and Tier 3 options are gated on a valid Tier 1 port being configured. -->
                     <Separator Margin="0,16,0,8"/>
@@ -751,95 +775,110 @@
                          port saved by an older build is still honored as a legacy
                          fallback until the radio has its own profile setting. -->
                     <Separator Margin="0,16,0,8"/>
-                    <TextBlock Text="Hole-punch Port" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="The hole-punch port is a per-radio setting — it belongs to the radio's site, not your account. Set it on the Radios tab, which works whether or not a radio is connected. Leaving it blank there is recommended: JJ Flex then picks a fresh port for every connection, which avoids clashing with a leftover mapping in the router. A port saved here by an earlier version of JJ Flex is still honored until the radio has its own setting."/>
+                    <GroupBox Header="Hole-punch Port" Margin="0,4,0,8"
+                              AutomationProperties.Name="Hole-punch Port">
+                        <StackPanel Margin="4">
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                                       Text="The hole-punch port is a per-radio setting — it belongs to the radio's site, not your account. Set it on the Radios tab, which works whether or not a radio is connected. Leaving it blank there is recommended: JJ Flex then picks a fresh port for every connection, which avoids clashing with a leftover mapping in the router. A port saved here by an earlier version of JJ Flex is still honored until the radio has its own setting."/>
+                        </StackPanel>
+                    </GroupBox>
 
                     <!-- What the radio and SmartLink actually report, as opposed to
                          what has been configured. The two differ constantly, and the
                          difference is the whole story when a connection will not
                          come up. -->
                     <Separator Margin="0,16,0,8"/>
-                    <TextBlock Text="What the Radio Reports" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Live facts from the radio and from SmartLink, rather than what is configured above. When a connection will not come up, the gap between the two is usually the answer."/>
-                    <TextBlock x:Name="ReachabilityStatusText"
-                               Style="{StaticResource DialogLabel}"
-                               TextWrapping="Wrap"
-                               Margin="0,0,0,8"
-                               AutomationProperties.LiveSetting="Polite"
-                               AutomationProperties.Name="What the radio reports about its reachability"/>
-                    <Button Content="Refresh what the radio reports"
-                            HorizontalAlignment="Left" Padding="12,4" Margin="0,0,0,8"
-                            AutomationProperties.Name="Re-read the radio's reachability status"
-                            Click="RefreshReachabilityButton_Click"/>
+                    <GroupBox Header="What the Radio Reports" Margin="0,4,0,8"
+                              AutomationProperties.Name="What the Radio Reports">
+                        <StackPanel Margin="4">
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                                       Text="Live facts from the radio and from SmartLink, rather than what is configured above. When a connection will not come up, the gap between the two is usually the answer."/>
+                            <TextBlock x:Name="ReachabilityStatusText"
+                                       Style="{StaticResource DialogLabel}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,0,0,8"
+                                       AutomationProperties.LiveSetting="Polite"
+                                       AutomationProperties.Name="What the radio reports about its reachability"/>
+                            <Button Content="Refresh what the radio reports"
+                                    HorizontalAlignment="Left" Padding="12,4" Margin="0,0,0,8"
+                                    AutomationProperties.Name="Re-read the radio's reachability status"
+                                    Click="RefreshReachabilityButton_Click"/>
+                        </StackPanel>
+                    </GroupBox>
 
                     <!-- Private-IP enforcement. Surfaced because Tailscale hands out
                          CGNAT addresses (100.64.x.x), which are not private addresses
                          in the sense the radio means — with this on, a tailnet client
                          gets refused with no useful explanation. -->
                     <Separator Margin="0,16,0,8"/>
-                    <TextBlock Text="Who May Connect" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <CheckBox x:Name="EnforcePrivateIpCheck"
-                              Content="Only allow connections from addresses on your own network"
-                              Margin="0,0,0,4"
-                              AutomationProperties.Name="Only allow connections from private network addresses"
-                              Click="EnforcePrivateIpCheck_Click"/>
-                    <TextBlock TextWrapping="Wrap" Margin="20,0,0,8"
-                               Text="Leave this on for a radio on an ordinary home network. Turn it off if you reach the radio over Tailscale or a similar service — those hand out addresses the radio does not count as local, so it will refuse the connection without saying why. Changing this needs a connected radio."/>
+                    <GroupBox Header="Who May Connect" Margin="0,4,0,8"
+                              AutomationProperties.Name="Who May Connect">
+                        <StackPanel Margin="4">
+                            <CheckBox x:Name="EnforcePrivateIpCheck"
+                                      Content="Only allow connections from addresses on your own network"
+                                      Margin="0,0,0,4"
+                                      AutomationProperties.Name="Only allow connections from private network addresses"
+                                      Click="EnforcePrivateIpCheck_Click"/>
+                            <TextBlock TextWrapping="Wrap" Margin="20,0,0,8"
+                                       Text="Leave this on for a radio on an ordinary home network. Turn it off if you reach the radio over Tailscale or a similar service — those hand out addresses the radio does not count as local, so it will refuse the connection without saying why. Changing this needs a connected radio."/>
+                        </StackPanel>
+                    </GroupBox>
 
                     <!-- Sprint 27 Track C: full NetworkTest probe via SmartLink backend. Distinct from Te_st port above, which is local-only validation. -->
                     <Separator Margin="0,16,0,8"/>
-                    <TextBlock Text="Network Diagnostic" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Asks Flex's SmartLink backend to probe your network from outside, then reports whether UPnP and manual port forwarding are reachable from the internet, and whether your NAT preserves source ports (the signal that decides whether hole-punch / Tier 3 can work). Requires an active radio connection and an authenticated SmartLink session. Results are cached for 5 minutes."/>
+                    <GroupBox Header="Network Diagnostic" Margin="0,4,0,8"
+                              AutomationProperties.Name="Network Diagnostic">
+                        <StackPanel Margin="4">
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                                       Text="Asks Flex's SmartLink backend to probe your network from outside, then reports whether UPnP and manual port forwarding are reachable from the internet, and whether your NAT preserves source ports (the signal that decides whether hole-punch / Tier 3 can work). Requires an active radio connection and an authenticated SmartLink session. Results are cached for 5 minutes."/>
 
-                    <TextBlock x:Name="NetworkDiagnosticResultText"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,8"
-                               AutomationProperties.LiveSetting="Polite"
-                               TextWrapping="Wrap"/>
+                            <TextBlock x:Name="NetworkDiagnosticResultText"
+                                       Style="{StaticResource DialogLabel}" Margin="0,0,0,8"
+                                       AutomationProperties.LiveSetting="Polite"
+                                       TextWrapping="Wrap"/>
 
-                    <!-- Sprint 27 Track D: Test / Copy / Save / Help row + Verbose toggle. -->
-                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                        <Button Content="Test _network"
-                                Width="150" Margin="0,0,8,0"
-                                AutomationProperties.Name="Run a fresh SmartLink network diagnostic probe against the connected radio"
-                                AutomationProperties.AcceleratorKey="Alt+N"
-                                Click="TestNetworkButton_Click"/>
-                        <Button Content="Copy _report"
-                                Width="130" Margin="0,0,8,0"
-                                AutomationProperties.Name="Copy the last network diagnostic report to the clipboard as markdown"
-                                AutomationProperties.AcceleratorKey="Alt+R"
-                                Click="CopyNetworkReportButton_Click"/>
-                        <Button Content="Sa_ve report"
-                                Width="130" Margin="0,0,8,0"
-                                AutomationProperties.Name="Save the last network diagnostic report to a file"
-                                AutomationProperties.AcceleratorKey="Alt+V"
-                                Click="SaveNetworkReportButton_Click"/>
-                        <Button Content="_Help"
-                                Width="90"
-                                AutomationProperties.Name="Open the help document relevant to the current network state"
-                                AutomationProperties.AcceleratorKey="Alt+H"
-                                Click="NetworkHelpButton_Click"/>
-                    </StackPanel>
-                    <CheckBox x:Name="VerboseDiagnosticsCheck"
-                              Content="Verbose network diagnostics (include raw details in status announcements)"
-                              Margin="0,8,0,0"
-                              AutomationProperties.Name="Enable verbose network diagnostic output"
-                              Click="VerboseDiagnosticsCheck_Click"/>
+                            <!-- Sprint 27 Track D: Test / Copy / Save / Help row + Verbose toggle. -->
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                <Button Content="Test _network"
+                                        Width="150" Margin="0,0,8,0"
+                                        AutomationProperties.Name="Run a fresh SmartLink network diagnostic probe against the connected radio"
+                                        AutomationProperties.AcceleratorKey="Alt+N"
+                                        Click="TestNetworkButton_Click"/>
+                                <Button Content="Copy _report"
+                                        Width="130" Margin="0,0,8,0"
+                                        AutomationProperties.Name="Copy the last network diagnostic report to the clipboard as markdown"
+                                        AutomationProperties.AcceleratorKey="Alt+R"
+                                        Click="CopyNetworkReportButton_Click"/>
+                                <Button Content="Sa_ve report"
+                                        Width="130" Margin="0,0,8,0"
+                                        AutomationProperties.Name="Save the last network diagnostic report to a file"
+                                        AutomationProperties.AcceleratorKey="Alt+V"
+                                        Click="SaveNetworkReportButton_Click"/>
+                                <Button Content="_Help"
+                                        Width="90"
+                                        AutomationProperties.Name="Open the help document relevant to the current network state"
+                                        AutomationProperties.AcceleratorKey="Alt+H"
+                                        Click="NetworkHelpButton_Click"/>
+                            </StackPanel>
+                            <CheckBox x:Name="VerboseDiagnosticsCheck"
+                                      Content="Verbose network diagnostics (include raw details in status announcements)"
+                                      Margin="0,8,0,0"
+                                      AutomationProperties.Name="Enable verbose network diagnostic output"
+                                      Click="VerboseDiagnosticsCheck_Click"/>
+                        </StackPanel>
+                    </GroupBox>
 
                     <!-- Radio addressing. The same control also appears as a
                          numbered step in Radio Setup; this is the copy for people
                          who already know what they are looking for and came
                          straight here. -->
                     <Separator Margin="0,16,0,8"/>
-                    <TextBlock Text="Radio Network Address" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <controls:StaticIpControl x:Name="NetworkStaticIpControl"/>
+                    <GroupBox Header="Radio Network Address" Margin="0,4,0,8"
+                              AutomationProperties.Name="Radio Network Address">
+                        <StackPanel Margin="4">
+                            <controls:StaticIpControl x:Name="NetworkStaticIpControl"/>
+                        </StackPanel>
+                    </GroupBox>
 
                     <!-- Learning the connection path (task #102).
                          App-level, not per-operator: the store it governs
@@ -847,43 +886,46 @@
                          shared by every operator profile on this machine, so a
                          per-operator switch could only ever half-apply. -->
                     <Separator Margin="0,16,0,8"/>
-                    <TextBlock Text="Learning Your Connection Path" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="When a radio connects the same way several times running, JJ Flexible can take the hint and try that way first next time. It only ever fills in a blank: if you have chosen a connection path for a radio yourself, on the Radios tab or in the radio picker, your choice wins and nothing here can change it."/>
+                    <GroupBox Header="Learning Your Connection Path" Margin="0,4,0,8"
+                              AutomationProperties.Name="Learning Your Connection Path">
+                        <StackPanel Margin="4">
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                                       Text="When a radio connects the same way several times running, JJ Flexible can take the hint and try that way first next time. It only ever fills in a blank: if you have chosen a connection path for a radio yourself, on the Radios tab or in the radio picker, your choice wins and nothing here can change it."/>
 
-                    <CheckBox x:Name="PathLearningEnabledCheck"
-                              Content="Let JJ Flexible learn which connection path each radio prefers"
-                              Margin="0,0,0,4"
-                              AutomationProperties.Name="Learn which connection path each radio prefers"
-                              local:JJFlexHelp.Text="With this off, JJ Flexible never prefills a connection path from a radio's history. Your own choices still apply, and radios you have not chosen a path for fall back to trying the local network first. Turn it off if you are often on the road, where half your connects say nothing about where you usually are. It does not stop the history being kept — that is the record behind the connection times, and it stays either way."
-                              Checked="PathLearningEnabledCheck_Changed"
-                              Unchecked="PathLearningEnabledCheck_Changed"/>
+                            <CheckBox x:Name="PathLearningEnabledCheck"
+                                      Content="Let JJ Flexible learn which connection path each radio prefers"
+                                      Margin="0,0,0,4"
+                                      AutomationProperties.Name="Learn which connection path each radio prefers"
+                                      local:JJFlexHelp.Text="With this off, JJ Flexible never prefills a connection path from a radio's history. Your own choices still apply, and radios you have not chosen a path for fall back to trying the local network first. Turn it off if you are often on the road, where half your connects say nothing about where you usually are. It does not stop the history being kept — that is the record behind the connection times, and it stays either way."
+                                      Checked="PathLearningEnabledCheck_Changed"
+                                      Unchecked="PathLearningEnabledCheck_Changed"/>
 
-                    <StackPanel x:Name="PathLearningThresholdPanel"
-                                Orientation="Horizontal" Margin="20,4,0,8">
-                        <controls:DecorativeText Text="Connects in a row before it takes the hint:"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <ComboBox x:Name="PathLearningThresholdCombo" Width="70"
-                                  Style="{StaticResource DialogComboBox}"
-                                  AutomationProperties.Name="Connects in a row before JJ Flexible takes the hint"
-                                  local:JJFlexHelp.Text="Three, four or five. Higher means more evidence before JJ Flexible concludes anything, which is what you want if you are often travelling. Five is the ceiling and the reason is the store, not caution: JJ Flexible keeps the last ten connection attempts per radio, and a radio that tries one way and falls back to the other uses two of those ten every time it connects — so five successes in a row is the most such a radio could ever show. A larger number would be one this app could never reach."
-                                  SelectionChanged="PathLearningThresholdCombo_SelectionChanged"/>
-                    </StackPanel>
+                            <StackPanel x:Name="PathLearningThresholdPanel"
+                                        Orientation="Horizontal" Margin="20,4,0,8">
+                                <controls:DecorativeText Text="Connects in a row before it takes the hint:"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="PathLearningThresholdCombo" Width="70"
+                                          Style="{StaticResource DialogComboBox}"
+                                          AutomationProperties.Name="Connects in a row before JJ Flexible takes the hint"
+                                          local:JJFlexHelp.Text="Three, four or five. Higher means more evidence before JJ Flexible concludes anything, which is what you want if you are often travelling. Five is the ceiling and the reason is the store, not caution: JJ Flexible keeps the last ten connection attempts per radio, and a radio that tries one way and falls back to the other uses two of those ten every time it connects — so five successes in a row is the most such a radio could ever show. A larger number would be one this app could never reach."
+                                          SelectionChanged="PathLearningThresholdCombo_SelectionChanged"/>
+                            </StackPanel>
 
-                    <TextBlock x:Name="PathLearningStatusText"
-                               Style="{StaticResource DialogLabel}"
-                               TextWrapping="Wrap" Margin="0,0,0,8"
-                               AutomationProperties.LiveSetting="Polite"/>
+                            <TextBlock x:Name="PathLearningStatusText"
+                                       Style="{StaticResource DialogLabel}"
+                                       TextWrapping="Wrap" Margin="0,0,0,8"
+                                       AutomationProperties.LiveSetting="Polite"/>
 
-                    <Button x:Name="PathLearningForgetButton"
-                            Content="Forget what has been _learned..."
-                            HorizontalAlignment="Left" Padding="12,4"
-                            AutomationProperties.Name="Forget what has been learned, for every radio"
-                            AutomationProperties.AcceleratorKey="Alt+L"
-                            local:JJFlexHelp.Text="Clears the connection history for every radio this computer knows, which is what JJ Flexible reads to work out a habit — so the habits go with it. It asks first and names what is lost. To do it for one radio only, press Shift F10 on that radio in the radio picker and choose Forget the learned connection path."
-                            Click="PathLearningForgetButton_Click"/>
+                            <Button x:Name="PathLearningForgetButton"
+                                    Content="Forget what has been _learned..."
+                                    HorizontalAlignment="Left" Padding="12,4"
+                                    AutomationProperties.Name="Forget what has been learned, for every radio"
+                                    AutomationProperties.AcceleratorKey="Alt+L"
+                                    local:JJFlexHelp.Text="Clears the connection history for every radio this computer knows, which is what JJ Flexible reads to work out a habit — so the habits go with it. It asks first and names what is lost. To do it for one radio only, press Shift F10 on that radio in the radio picker and choose Forget the learned connection path."
+                                    Click="PathLearningForgetButton_Click"/>
+                        </StackPanel>
+                    </GroupBox>
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -1426,72 +1468,78 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
                     <!-- Speech section -->
-                    <TextBlock Text="Speech" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <controls:DecorativeText Text="Speech verbosity:"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <ComboBox x:Name="SpeechVerbosityCombo" Width="120"
-                                  Style="{StaticResource DialogComboBox}"
-                                  AutomationProperties.Name="Speech verbosity level"/>
-                    </StackPanel>
+                    <GroupBox Header="Speech" Margin="0,4,0,8"
+                              AutomationProperties.Name="Speech">
+                        <StackPanel Margin="4">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <controls:DecorativeText Text="Speech verbosity:"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="SpeechVerbosityCombo" Width="120"
+                                          Style="{StaticResource DialogComboBox}"
+                                          AutomationProperties.Name="Speech verbosity level"/>
+                            </StackPanel>
 
-                    <!-- Mic-audio verdict output (Audio Arc Keys Track, 2026-08-11).
-                         Applies to Alt+Shift+S while transmitting and the
-                         Ctrl+J, Alt+K mic check. Default is plain English plus
-                         dBFS — what always shipped. -->
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <controls:DecorativeText Text="Mic audio readout:"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <ComboBox x:Name="MicVerdictOutputCombo" Width="220"
-                                  Style="{StaticResource DialogComboBox}"
-                                  AutomationProperties.Name="Mic audio readout"
-                   local:JJFlexHelp.Text="How spoken mic-audio checks read: plain English plus decibels, plain English only, or decibels only. Applies to the transmit status key and the JJ key mic check."/>
-                    </StackPanel>
+                            <!-- Mic-audio verdict output (Audio Arc Keys Track, 2026-08-11).
+                                 Applies to Alt+Shift+S while transmitting and the
+                                 Ctrl+J, Alt+K mic check. Default is plain English plus
+                                 dBFS — what always shipped. -->
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <controls:DecorativeText Text="Mic audio readout:"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="MicVerdictOutputCombo" Width="220"
+                                          Style="{StaticResource DialogComboBox}"
+                                          AutomationProperties.Name="Mic audio readout"
+                           local:JJFlexHelp.Text="How spoken mic-audio checks read: plain English plus decibels, plain English only, or decibels only. Applies to the transmit status key and the JJ key mic check."/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
 
                     <Separator Margin="0,4,0,8"/>
 
                     <!-- Earcons section -->
-                    <TextBlock Text="Alert Sounds" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <CheckBox x:Name="EarconsEnabledCheck"
-                              Content="Enable alert sounds (earcons)"
-                              Margin="0,0,0,8"
-                              AutomationProperties.Name="Enable alert sounds such as beeps and tones"
-                   local:JJFlexHelp.Text="The master switch for every alert sound the app makes. The JJ key quick mute, Control J then Control E, flips this same switch — and either way the choice is remembered next time you start. Meter tones and speech are separate and unaffected."/>
+                    <GroupBox Header="Alert Sounds" Margin="0,4,0,8"
+                              AutomationProperties.Name="Alert Sounds">
+                        <StackPanel Margin="4">
+                            <CheckBox x:Name="EarconsEnabledCheck"
+                                      Content="Enable alert sounds (earcons)"
+                                      Margin="0,0,0,8"
+                                      AutomationProperties.Name="Enable alert sounds such as beeps and tones"
+                           local:JJFlexHelp.Text="The master switch for every alert sound the app makes. The JJ key quick mute, Control J then Control E, flips this same switch — and either way the choice is remembered next time you start. Meter tones and speech are separate and unaffected."/>
 
-                    <!-- Per-category switches (Sprint 30, #43) — the finer
-                         controls the earcon help page promised before they
-                         existed. Indented under the master switch they answer
-                         to; the master off silences everything regardless. -->
-                    <StackPanel Margin="20,0,0,8">
-                        <CheckBox x:Name="EarconConnectionCheck"
-                                  Content="Connection sounds" Margin="0,0,0,4"
-                                  AutomationProperties.Name="Connection sounds"
-                   local:JJFlexHelp.Text="The counting tones while a connection is being made, and the double-beep when it lands."/>
-                        <CheckBox x:Name="EarconTransmitCheck"
-                                  Content="Transmit sounds" Margin="0,0,0,4"
-                                  AutomationProperties.Name="Transmit sounds"
-                   local:JJFlexHelp.Text="Transmit start and stop, the hard-kill warning, the tune carrier, and the antenna tuner's progress and verdict."/>
-                        <CheckBox x:Name="EarconDialogsCheck"
-                                  Content="Dialog and panel sounds" Margin="0,0,0,4"
-                                  AutomationProperties.Name="Dialog and panel sounds"
-                   local:JJFlexHelp.Text="The dings when a dialog opens or closes, and the sweeps when a Home panel expands or collapses."/>
-                        <CheckBox x:Name="EarconTuningCheck"
-                                  Content="Tuning and filter sounds" Margin="0,0,0,4"
-                                  AutomationProperties.Name="Tuning and filter sounds"
-                   local:JJFlexHelp.Text="Filter-edge clicks and sweeps, the band-boundary beep, and the frequency-entry ding."/>
-                        <CheckBox x:Name="EarconCommandsCheck"
-                                  Content="Command and confirmation sounds" Margin="0,0,0,4"
-                                  AutomationProperties.Name="Command and confirmation sounds"
-                   local:JJFlexHelp.Text="The JJ key layer's tones, feature on and off beeps, mute-all, and confirmations. Worth keeping — without them the JJ key gives no sign it is listening."/>
-                        <CheckBox x:Name="EarconWarningsCheck"
-                                  Content="Warning sounds" Margin="0,0,0,4"
-                                  AutomationProperties.Name="Warning sounds"
-                   local:JJFlexHelp.Text="The warning alarm — a long 800 hertz tone with harmonics, deliberately unlike anything else the app plays — and the quieter two-note tone that says a problem was recorded. This is the one worth leaving on. Every other sound here answers a key you just pressed; these two fire when the app has something to tell you that you did not ask about, such as transmit audio that would not have gone out."/>
-                    </StackPanel>
+                            <!-- Per-category switches (Sprint 30, #43) — the finer
+                                 controls the earcon help page promised before they
+                                 existed. Indented under the master switch they answer
+                                 to; the master off silences everything regardless. -->
+                            <StackPanel Margin="20,0,0,8">
+                                <CheckBox x:Name="EarconConnectionCheck"
+                                          Content="Connection sounds" Margin="0,0,0,4"
+                                          AutomationProperties.Name="Connection sounds"
+                           local:JJFlexHelp.Text="The counting tones while a connection is being made, and the double-beep when it lands."/>
+                                <CheckBox x:Name="EarconTransmitCheck"
+                                          Content="Transmit sounds" Margin="0,0,0,4"
+                                          AutomationProperties.Name="Transmit sounds"
+                           local:JJFlexHelp.Text="Transmit start and stop, the hard-kill warning, the tune carrier, and the antenna tuner's progress and verdict."/>
+                                <CheckBox x:Name="EarconDialogsCheck"
+                                          Content="Dialog and panel sounds" Margin="0,0,0,4"
+                                          AutomationProperties.Name="Dialog and panel sounds"
+                           local:JJFlexHelp.Text="The dings when a dialog opens or closes, and the sweeps when a Home panel expands or collapses."/>
+                                <CheckBox x:Name="EarconTuningCheck"
+                                          Content="Tuning and filter sounds" Margin="0,0,0,4"
+                                          AutomationProperties.Name="Tuning and filter sounds"
+                           local:JJFlexHelp.Text="Filter-edge clicks and sweeps, the band-boundary beep, and the frequency-entry ding."/>
+                                <CheckBox x:Name="EarconCommandsCheck"
+                                          Content="Command and confirmation sounds" Margin="0,0,0,4"
+                                          AutomationProperties.Name="Command and confirmation sounds"
+                           local:JJFlexHelp.Text="The JJ key layer's tones, feature on and off beeps, mute-all, and confirmations. Worth keeping — without them the JJ key gives no sign it is listening."/>
+                                <CheckBox x:Name="EarconWarningsCheck"
+                                          Content="Warning sounds" Margin="0,0,0,4"
+                                          AutomationProperties.Name="Warning sounds"
+                           local:JJFlexHelp.Text="The warning alarm — a long 800 hertz tone with harmonics, deliberately unlike anything else the app plays — and the quieter two-note tone that says a problem was recorded. This is the one worth leaving on. Every other sound here answers a key you just pressed; these two fire when the app has something to tell you that you did not ask about, such as transmit audio that would not have gone out."/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
 
                     <Separator Margin="0,4,0,8"/>
 
@@ -1516,67 +1564,70 @@
                          audio running, and the band dips at the depth you
                          chose. SaveSettings captures the live values back into
                          the config before Apply() so OK cannot clobber them. -->
-                    <TextBlock Text="Warnings and Radio Audio" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <CheckBox x:Name="RxDuckEnabledCheck"
-                              Content="Dip radio audio while a warning sounds"
-                              Margin="0,0,0,8"
-                              Checked="RxDuckEnabledCheck_Changed"
-                              Unchecked="RxDuckEnabledCheck_Changed"
-                              AutomationProperties.Name="Dip radio audio through this computer while a warning sounds"
-                   local:JJFlexHelp.Text="Off unless you switch it on. When it is on, radio audio through this computer dips while a warning sound plays, so the alert is heard over the band instead of buried in it, and then comes straight back. Worth trying if you work a noisy band and a warning has ever gone past you; worth leaving off if you would rather your receive audio was never touched at all. Warnings only — keyclicks, confirmations and every other sound never touch your audio. If you are on a remote connection, PC audio is the only audio path there is, so this switch is the only say you have over the dip. Takes effect the moment you change it."/>
-                    <!-- Collapsed rather than disabled when the duck is off:
-                         house rule keeps controls that cannot act out of the
-                         tab order. -->
-                    <StackPanel x:Name="RxDuckDepthPanel" Margin="20,0,0,8">
-                        <controls:ValueFieldControl x:Name="RxDuckDepthControl"
-                            Margin="0,0,0,4"
-                            AutomationProperties.Name="Dip depth in decibels"
-                   local:JJFlexHelp.Text="How far the band audio drops while a warning plays, from zero, no dip at all, to twelve decibels, a deep one. Four is the shipped default — enough for the alert to get through without tearing a hole in weak-signal copy. Applies as you change it: pick Warning alarm under Per-Sound Loudness below and press Play to hear the dip at your chosen depth."/>
+                    <GroupBox Header="Warnings and Radio Audio" Margin="0,4,0,8"
+                              AutomationProperties.Name="Warnings and Radio Audio">
+                        <StackPanel Margin="4">
+                            <CheckBox x:Name="RxDuckEnabledCheck"
+                                      Content="Dip radio audio while a warning sounds"
+                                      Margin="0,0,0,8"
+                                      Checked="RxDuckEnabledCheck_Changed"
+                                      Unchecked="RxDuckEnabledCheck_Changed"
+                                      AutomationProperties.Name="Dip radio audio through this computer while a warning sounds"
+                           local:JJFlexHelp.Text="Off unless you switch it on. When it is on, radio audio through this computer dips while a warning sound plays, so the alert is heard over the band instead of buried in it, and then comes straight back. Worth trying if you work a noisy band and a warning has ever gone past you; worth leaving off if you would rather your receive audio was never touched at all. Warnings only — keyclicks, confirmations and every other sound never touch your audio. If you are on a remote connection, PC audio is the only audio path there is, so this switch is the only say you have over the dip. Takes effect the moment you change it."/>
+                            <!-- Collapsed rather than disabled when the duck is off:
+                                 house rule keeps controls that cannot act out of the
+                                 tab order. -->
+                            <StackPanel x:Name="RxDuckDepthPanel" Margin="20,0,0,8">
+                                <controls:ValueFieldControl x:Name="RxDuckDepthControl"
+                                    Margin="0,0,0,4"
+                                    AutomationProperties.Name="Dip depth in decibels"
+                           local:JJFlexHelp.Text="How far the band audio drops while a warning plays, from zero, no dip at all, to twelve decibels, a deep one. Four is the shipped default — enough for the alert to get through without tearing a hole in weak-signal copy. Applies as you change it: pick Warning alarm under Per-Sound Loudness below and press Play to hear the dip at your chosen depth."/>
 
-                        <!-- #535 — how the dip moves. Attack, hold and release
-                             were compile-time constants until 2026-09-05, so
-                             when the dip read as a distraction (#534) the depth
-                             was the only thing anyone could turn - and a dip
-                             that distracts rather than helps is usually a
-                             timing complaint, not a level one. Three named
-                             steps rather than three millisecond sliders: the
-                             numbers interact, nobody hears "60 ms of hold",
-                             and two steps could not show a direction. The
-                             argument in full is on RxDuck. Quick is the
-                             shipped timing exactly, kept so the hypothesis has
-                             a control arm.
+                                <!-- #535 — how the dip moves. Attack, hold and release
+                                     were compile-time constants until 2026-09-05, so
+                                     when the dip read as a distraction (#534) the depth
+                                     was the only thing anyone could turn - and a dip
+                                     that distracts rather than helps is usually a
+                                     timing complaint, not a level one. Three named
+                                     steps rather than three millisecond sliders: the
+                                     numbers interact, nobody hears "60 ms of hold",
+                                     and two steps could not show a direction. The
+                                     argument in full is on RxDuck. Quick is the
+                                     shipped timing exactly, kept so the hypothesis has
+                                     a control arm.
 
-                             A GroupBox so the reader announces the group's
-                             name on entry; short radio names with the
-                             explanation in JJFlexHelp.Text, because a name is
-                             a thing and an explanation is help (#363). The
-                             group cycles and takes one tab stop, like the
-                             other radio groups in this dialog. Live, like the
-                             depth, for the same reason: it is found by ear. -->
-                        <GroupBox Header="How the dip moves" Margin="0,4,0,4"
-                                  AutomationProperties.Name="How the dip moves">
-                            <StackPanel Margin="4"
-                                        KeyboardNavigation.DirectionalNavigation="Cycle"
-                                        KeyboardNavigation.TabNavigation="Once">
-                                <RadioButton x:Name="RxDuckTimingQuickRadio" GroupName="RxDuckTiming"
-                                             Content="Quick" Margin="0,2,0,2"
-                                             AutomationProperties.Name="Quick"
-                                             Checked="RxDuckTimingRadio_Checked"
-                   local:JJFlexHelp.Text="The band snaps down as the warning starts and snaps back the instant it ends. This is how the dip shipped. The most abrupt of the three, and the one whose movement your ear is most likely to catch as an event of its own. Applies as you change it: pick Warning alarm under Per-Sound Loudness below and press Play to hear it."/>
-                                <RadioButton x:Name="RxDuckTimingGentleRadio" GroupName="RxDuckTiming"
-                                             Content="Gentle" Margin="0,2,0,2"
-                                             AutomationProperties.Name="Gentle"
-                                             Checked="RxDuckTimingRadio_Checked"
-                   local:JJFlexHelp.Text="The band eases down over a moment, stays down a little after the warning, and eases back over about a third of a second at the shipped depth. Try this first if the quick setting drew your ear to the dip rather than to the warning. Deeper dips come back more slowly on every setting, so the return never lurches."/>
-                                <RadioButton x:Name="RxDuckTimingLingeringRadio" GroupName="RxDuckTiming"
-                                             Content="Lingering" Margin="0,2,0,2"
-                                             AutomationProperties.Name="Lingering"
-                                             Checked="RxDuckTimingRadio_Checked"
-                   local:JJFlexHelp.Text="The band eases down, stays down noticeably after the warning has finished, and comes back slowly, well over half a second at the shipped depth, so it breathes rather than steps. The smoothest movement of the three, paid for with the most band time after each warning. It never takes longer than a second and a half to come all the way back, however deep the dip."/>
+                                     A GroupBox so the reader announces the group's
+                                     name on entry; short radio names with the
+                                     explanation in JJFlexHelp.Text, because a name is
+                                     a thing and an explanation is help (#363). The
+                                     group cycles and takes one tab stop, like the
+                                     other radio groups in this dialog. Live, like the
+                                     depth, for the same reason: it is found by ear. -->
+                                <GroupBox Header="How the dip moves" Margin="0,4,0,4"
+                                          AutomationProperties.Name="How the dip moves">
+                                    <StackPanel Margin="4"
+                                                KeyboardNavigation.DirectionalNavigation="Cycle"
+                                                KeyboardNavigation.TabNavigation="Once">
+                                        <RadioButton x:Name="RxDuckTimingQuickRadio" GroupName="RxDuckTiming"
+                                                     Content="Quick" Margin="0,2,0,2"
+                                                     AutomationProperties.Name="Quick"
+                                                     Checked="RxDuckTimingRadio_Checked"
+                           local:JJFlexHelp.Text="The band snaps down as the warning starts and snaps back the instant it ends. This is how the dip shipped. The most abrupt of the three, and the one whose movement your ear is most likely to catch as an event of its own. Applies as you change it: pick Warning alarm under Per-Sound Loudness below and press Play to hear it."/>
+                                        <RadioButton x:Name="RxDuckTimingGentleRadio" GroupName="RxDuckTiming"
+                                                     Content="Gentle" Margin="0,2,0,2"
+                                                     AutomationProperties.Name="Gentle"
+                                                     Checked="RxDuckTimingRadio_Checked"
+                           local:JJFlexHelp.Text="The band eases down over a moment, stays down a little after the warning, and eases back over about a third of a second at the shipped depth. Try this first if the quick setting drew your ear to the dip rather than to the warning. Deeper dips come back more slowly on every setting, so the return never lurches."/>
+                                        <RadioButton x:Name="RxDuckTimingLingeringRadio" GroupName="RxDuckTiming"
+                                                     Content="Lingering" Margin="0,2,0,2"
+                                                     AutomationProperties.Name="Lingering"
+                                                     Checked="RxDuckTimingRadio_Checked"
+                           local:JJFlexHelp.Text="The band eases down, stays down noticeably after the warning has finished, and comes back slowly, well over half a second at the shipped depth, so it breathes rather than steps. The smoothest movement of the three, paid for with the most band time after each warning. It never takes longer than a second and a half to come all the way back, however deep the dip."/>
+                                    </StackPanel>
+                                </GroupBox>
                             </StackPanel>
-                        </GroupBox>
-                    </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
 
                     <Separator Margin="0,4,0,8"/>
 
@@ -1592,50 +1643,53 @@
                          than +3 wants a different tier, and -12 cannot reach
                          silence because losing a warning should never be one
                          slider away. -->
-                    <TextBlock Text="Per-Sound Loudness" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <TextBlock Style="{StaticResource DialogLabel}"
-                               TextWrapping="Wrap"
-                               Margin="0,0,0,8"
-                               Focusable="True"
-                               Text="Any single sound can be raised up to 3 decibels or cut up to 12, relative to the loudness it ships at. It cannot be trimmed to silence — the switches above are for turning sounds off. Only sounds you trim are remembered."
-                               AutomationProperties.Name="Any single sound can be raised up to 3 decibels or cut up to 12, relative to the loudness it ships at. It cannot be trimmed to silence — the switches above are for turning sounds off. Only sounds you trim are remembered."/>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <controls:DecorativeText Text="Sound:"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <ComboBox x:Name="EarconTrimSoundCombo" Width="300"
-                                  Style="{StaticResource DialogComboBox}"
-                                  SelectionChanged="EarconTrimSoundCombo_SelectionChanged"
-                                  AutomationProperties.Name="Which sound to adjust"
-                   local:JJFlexHelp.Text="Every sound the app can make, grouped by family. Each one plays as you land on it, already at your trim, so you can find a sound by ear rather than by name. The continuous ATU progress sound is the one exception — use its Play and Stop buttons instead."/>
-                    </StackPanel>
-                    <controls:ValueFieldControl x:Name="EarconTrimControl"
-                        Margin="0,0,0,8"
-                        AutomationProperties.Name="Loudness trim in decibels"
-                   local:JJFlexHelp.Text="This sound's loudness, relative to where it ships: 0 is untouched, minus values are quieter, plus values are louder. Applies as you change it — press Play to hear the result."/>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <Button x:Name="EarconTrimPlayButton"
-                                Content="Play"
-                                HorizontalAlignment="Left" Padding="12,0" Height="26"
-                                Margin="0,0,6,0"
-                                AutomationProperties.Name="Play the selected sound"
-                   local:JJFlexHelp.Text="Plays the selected sound at its current trim, exactly as it will sound in use. If its family is switched off above, this says so instead of playing nothing."
-                                Click="EarconTrimPlayButton_Click"/>
-                        <!-- Only visible while a continuous sound is selected —
-                             a button that starts something it cannot finish is
-                             a trap, and the ATU progress tone would still be
-                             running long after the operator moved on. Same
-                             honesty rule as the Earcon Explorer's Start/Stop
-                             pair. -->
-                        <Button x:Name="EarconTrimStopButton"
-                                Content="Stop"
-                                Visibility="Collapsed"
-                                HorizontalAlignment="Left" Padding="12,0" Height="26"
-                                AutomationProperties.Name="Stop the selected sound"
-                   local:JJFlexHelp.Text="Stops the continuous sound the Play button started."
-                                Click="EarconTrimStopButton_Click"/>
-                    </StackPanel>
+                    <GroupBox Header="Per-Sound Loudness" Margin="0,4,0,8"
+                              AutomationProperties.Name="Per-Sound Loudness">
+                        <StackPanel Margin="4">
+                            <TextBlock Style="{StaticResource DialogLabel}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,0,0,8"
+                                       Focusable="True"
+                                       Text="Any single sound can be raised up to 3 decibels or cut up to 12, relative to the loudness it ships at. It cannot be trimmed to silence — the switches above are for turning sounds off. Only sounds you trim are remembered."
+                                       AutomationProperties.Name="Any single sound can be raised up to 3 decibels or cut up to 12, relative to the loudness it ships at. It cannot be trimmed to silence — the switches above are for turning sounds off. Only sounds you trim are remembered."/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <controls:DecorativeText Text="Sound:"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="EarconTrimSoundCombo" Width="300"
+                                          Style="{StaticResource DialogComboBox}"
+                                          SelectionChanged="EarconTrimSoundCombo_SelectionChanged"
+                                          AutomationProperties.Name="Which sound to adjust"
+                           local:JJFlexHelp.Text="Every sound the app can make, grouped by family. Each one plays as you land on it, already at your trim, so you can find a sound by ear rather than by name. The continuous ATU progress sound is the one exception — use its Play and Stop buttons instead."/>
+                            </StackPanel>
+                            <controls:ValueFieldControl x:Name="EarconTrimControl"
+                                Margin="0,0,0,8"
+                                AutomationProperties.Name="Loudness trim in decibels"
+                           local:JJFlexHelp.Text="This sound's loudness, relative to where it ships: 0 is untouched, minus values are quieter, plus values are louder. Applies as you change it — press Play to hear the result."/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <Button x:Name="EarconTrimPlayButton"
+                                        Content="Play"
+                                        HorizontalAlignment="Left" Padding="12,0" Height="26"
+                                        Margin="0,0,6,0"
+                                        AutomationProperties.Name="Play the selected sound"
+                           local:JJFlexHelp.Text="Plays the selected sound at its current trim, exactly as it will sound in use. If its family is switched off above, this says so instead of playing nothing."
+                                        Click="EarconTrimPlayButton_Click"/>
+                                <!-- Only visible while a continuous sound is selected —
+                                     a button that starts something it cannot finish is
+                                     a trap, and the ATU progress tone would still be
+                                     running long after the operator moved on. Same
+                                     honesty rule as the Earcon Explorer's Start/Stop
+                                     pair. -->
+                                <Button x:Name="EarconTrimStopButton"
+                                        Content="Stop"
+                                        Visibility="Collapsed"
+                                        HorizontalAlignment="Left" Padding="12,0" Height="26"
+                                        AutomationProperties.Name="Stop the selected sound"
+                           local:JJFlexHelp.Text="Stops the continuous sound the Play button started."
+                                        Click="EarconTrimStopButton_Click"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
 
                     <Separator Margin="0,4,0,8"/>
 
@@ -1645,57 +1699,72 @@
                          pointer stays for anyone who learned the old location —
                          a setting that has moved should say where it went, not
                          just vanish. -->
-                    <TextBlock Text="CW Morse Notifications" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <TextBlock Style="{StaticResource DialogLabel}"
-                               TextWrapping="Wrap"
-                               Margin="0,0,0,8"
-                               Focusable="True"
-                               Text="CW notification settings are on the Audio tab now, beside the alert device they play through."
-                               AutomationProperties.Name="CW notification settings are on the Audio tab now"
-                   local:JJFlexHelp.Text="beside the alert device they play through."/>
+                    <GroupBox Header="CW Morse Notifications" Margin="0,4,0,8"
+                              AutomationProperties.Name="CW Morse Notifications">
+                        <StackPanel Margin="4">
+                            <TextBlock Style="{StaticResource DialogLabel}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,0,0,8"
+                                       Focusable="True"
+                                       Text="CW notification settings are on the Audio tab now, beside the alert device they play through."
+                                       AutomationProperties.Name="CW notification settings are on the Audio tab now"
+                           local:JJFlexHelp.Text="beside the alert device they play through."/>
+                        </StackPanel>
+                    </GroupBox>
 
                     <Separator Margin="0,4,0,8"/>
 
                     <!-- Meter Tones enable (moved from Audio) -->
-                    <TextBlock Text="Meter Tones" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <CheckBox x:Name="MeterTonesNotifCheck"
-                              Content="Enable meter tones"
-                              Margin="0,0,0,8"
-                              AutomationProperties.Name="Enable meter tones"/>
+                    <GroupBox Header="Meter Tones" Margin="0,4,0,8"
+                              AutomationProperties.Name="Meter Tones">
+                        <StackPanel Margin="4">
+                            <CheckBox x:Name="MeterTonesNotifCheck"
+                                      Content="Enable meter tones"
+                                      Margin="0,0,0,8"
+                                      AutomationProperties.Name="Enable meter tones"/>
+                        </StackPanel>
+                    </GroupBox>
 
                     <Separator Margin="0,4,0,8"/>
 
                     <!-- Display elements -->
-                    <TextBlock Text="Display" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <CheckBox x:Name="ShowPanadapterCheck"
-                              Content="Show panadapter / waterfall display"
-                              Margin="0,0,0,8"
-                              AutomationProperties.Name="Show the panadapter and waterfall display"
-                   local:JJFlexHelp.Text="When unchecked, the display is hidden from view and removed from the tab order and braille refreshes are suppressed."/>
+                    <GroupBox Header="Display" Margin="0,4,0,8"
+                              AutomationProperties.Name="Display">
+                        <StackPanel Margin="4">
+                            <CheckBox x:Name="ShowPanadapterCheck"
+                                      Content="Show panadapter / waterfall display"
+                                      Margin="0,0,0,8"
+                                      AutomationProperties.Name="Show the panadapter and waterfall display"
+                           local:JJFlexHelp.Text="When unchecked, the display is hidden from view and removed from the tab order and braille refreshes are suppressed."/>
+                        </StackPanel>
+                    </GroupBox>
 
                     <Separator Margin="0,4,0,8"/>
 
                     <!-- Tune feedback -->
-                    <TextBlock Text="Tune Feedback" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <CheckBox x:Name="AnnounceSwrAfterTuneCheck"
-                              Content="Read final SWR reading after manual or automatic tune"
-                              Margin="0,0,0,8"
-                              AutomationProperties.Name="Read final SWR reading after manual or automatic tune."/>
+                    <GroupBox Header="Tune Feedback" Margin="0,4,0,8"
+                              AutomationProperties.Name="Tune Feedback">
+                        <StackPanel Margin="4">
+                            <CheckBox x:Name="AnnounceSwrAfterTuneCheck"
+                                      Content="Read final SWR reading after manual or automatic tune"
+                                      Margin="0,0,0,8"
+                                      AutomationProperties.Name="Read final SWR reading after manual or automatic tune."/>
+                        </StackPanel>
+                    </GroupBox>
 
                     <Separator Margin="0,4,0,8"/>
 
                     <!-- Connection progress -->
-                    <TextBlock Text="Connection Progress" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <CheckBox x:Name="SpeakConnectionProgressCheck"
-                              Content="Speak connection progress while connecting to a radio"
-                              Margin="0,0,0,8"
-                              AutomationProperties.Name="Speak connection progress"
-                   local:JJFlexHelp.Text="When checked, JJ Flex announces each connection phase and plays a counting tone (1, 2, then 3 tones) as the connect proceeds. Critical messages (errors, cancel, timeout) always speak regardless of this setting."/>
+                    <GroupBox Header="Connection Progress" Margin="0,4,0,8"
+                              AutomationProperties.Name="Connection Progress">
+                        <StackPanel Margin="4">
+                            <CheckBox x:Name="SpeakConnectionProgressCheck"
+                                      Content="Speak connection progress while connecting to a radio"
+                                      Margin="0,0,0,8"
+                                      AutomationProperties.Name="Speak connection progress"
+                           local:JJFlexHelp.Text="When checked, JJ Flex announces each connection phase and plays a counting tone (1, 2, then 3 tones) as the connect proceeds. Critical messages (errors, cancel, timeout) always speak regardless of this setting."/>
+                        </StackPanel>
+                    </GroupBox>
 
                     <Separator Margin="0,4,0,8"/>
 
@@ -1707,45 +1776,48 @@
                          own. The help text has to carry the shared-state warning
                          because a global profile belongs to the radio, not to
                          the person who happened to disconnect last. -->
-                    <TextBlock Text="Saving Your Setup to the Radio" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <CheckBox x:Name="OfferStationSaveOnDisconnectCheck"
-                              Content="Offer to save my setup to the radio when I disconnect"
-                              Margin="0,0,0,8"
-                              AutomationProperties.Name="Offer to save my setup to the radio when I disconnect"
-                   local:JJFlexHelp.Text="Slices you add or release live only in the current session — the radio restores its own stored setup the next time you connect. When checked, JJ Flex asks on the way out whether to save your setup into the radio, so it comes back the way you left it. It only ever asks; it never saves on its own. It stays quiet when you changed nothing, when another operator is connected to the same radio, and on any radio you have not marked as yours on the Radios tab. You can save at any time without this, from Save Station Setup to Radio on the Slice menu."/>
-                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                               Style="{StaticResource DialogLabel}"
-                               Text="What gets saved is the radio's global profile, which is the whole station — every slice, its frequency and its mode — and it is shared with everyone who connects to that radio, not just you."/>
+                    <GroupBox Header="Saving Your Setup to the Radio" Margin="0,4,0,8"
+                              AutomationProperties.Name="Saving Your Setup to the Radio">
+                        <StackPanel Margin="4">
+                            <CheckBox x:Name="OfferStationSaveOnDisconnectCheck"
+                                      Content="Offer to save my setup to the radio when I disconnect"
+                                      Margin="0,0,0,8"
+                                      AutomationProperties.Name="Offer to save my setup to the radio when I disconnect"
+                           local:JJFlexHelp.Text="Slices you add or release live only in the current session — the radio restores its own stored setup the next time you connect. When checked, JJ Flex asks on the way out whether to save your setup into the radio, so it comes back the way you left it. It only ever asks; it never saves on its own. It stays quiet when you changed nothing, when another operator is connected to the same radio, and on any radio you have not marked as yours on the Radios tab. You can save at any time without this, from Save Station Setup to Radio on the Slice menu."/>
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                                       Style="{StaticResource DialogLabel}"
+                                       Text="What gets saved is the radio's global profile, which is the whole station — every slice, its frequency and its mode — and it is shared with everyone who connects to that radio, not just you."/>
 
-                    <!-- Messages You Have Silenced (#267). Its own StackPanel
-                         so the Loaded hook belongs to this section alone and
-                         the count refreshes every time the tab is reached —
-                         the same pattern the Radios tab uses. A setting the
-                         operator can turn off must be a setting the operator
-                         can turn back on, and until Sprint 36 this one could
-                         not be. -->
-                    <StackPanel Loaded="SilencedSection_Loaded">
-                        <Separator Margin="0,4,0,8"/>
-                        <TextBlock Text="Messages You Have Silenced" FontWeight="SemiBold"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                                   Style="{StaticResource DialogLabel}"
-                                   Focusable="True"
-                                   Text="When a message offers &quot;Don't show this again&quot; and you take it, JJ Flexible keeps it here by name. Nothing is lost — you can bring any of them back."
-                                   AutomationProperties.Name="When a message offers Don't show this again and you take it, JJ Flexible keeps it here by name. Nothing is lost, you can bring any of them back."/>
-                        <TextBlock x:Name="SilencedCountText" TextWrapping="Wrap" Margin="0,0,0,8"
-                                   Style="{StaticResource DialogLabel}"
-                                   Focusable="True"
-                                   AutomationProperties.Name="How many messages are silenced"/>
-                        <Button x:Name="ReviewSilencedButton"
-                                Content="_Review silenced messages..."
-                                HorizontalAlignment="Left" Padding="12,0" Height="26"
-                                Margin="0,0,0,8"
-                                AutomationProperties.Name="Review silenced messages"
-                   local:JJFlexHelp.Text="Opens the list of every message you have told JJ Flexible not to show again. Each one says what it was and when you silenced it, and any of them can be brought back on its own — or all of them at once."
-                                Click="ReviewSilencedButton_Click"/>
-                    </StackPanel>
+                            <!-- Messages You Have Silenced (#267). Its own StackPanel
+                                 so the Loaded hook belongs to this section alone and
+                                 the count refreshes every time the tab is reached —
+                                 the same pattern the Radios tab uses. A setting the
+                                 operator can turn off must be a setting the operator
+                                 can turn back on, and until Sprint 36 this one could
+                                 not be. -->
+                            <StackPanel Loaded="SilencedSection_Loaded">
+                                <Separator Margin="0,4,0,8"/>
+                                <TextBlock Text="Messages You Have Silenced" FontWeight="SemiBold"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                                <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                                           Style="{StaticResource DialogLabel}"
+                                           Focusable="True"
+                                           Text="When a message offers &quot;Don't show this again&quot; and you take it, JJ Flexible keeps it here by name. Nothing is lost — you can bring any of them back."
+                                           AutomationProperties.Name="When a message offers Don't show this again and you take it, JJ Flexible keeps it here by name. Nothing is lost, you can bring any of them back."/>
+                                <TextBlock x:Name="SilencedCountText" TextWrapping="Wrap" Margin="0,0,0,8"
+                                           Style="{StaticResource DialogLabel}"
+                                           Focusable="True"
+                                           AutomationProperties.Name="How many messages are silenced"/>
+                                <Button x:Name="ReviewSilencedButton"
+                                        Content="_Review silenced messages..."
+                                        HorizontalAlignment="Left" Padding="12,0" Height="26"
+                                        Margin="0,0,0,8"
+                                        AutomationProperties.Name="Review silenced messages"
+                           local:JJFlexHelp.Text="Opens the list of every message you have told JJ Flexible not to show again. Each one says what it was and when you silenced it, and any of them can be brought back on its own — or all of them at once."
+                                        Click="ReviewSilencedButton_Click"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -1757,42 +1829,45 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
                     <!-- Input Timing section -->
-                    <TextBlock Text="Input Timing" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Double-tap tolerance controls how quickly you need to press a key twice for JJ Flex to recognize the second press as part of a double-tap. This affects filter-edge bracket double-tap (entering single-edge adjust mode) and Escape-Escape to collapse all field groups. Pick a setting that matches your typing cadence — faster if you tap quickly, slower if you verify speech between presses."/>
-
-                    <GroupBox Header="Double-tap tolerance" Margin="0,0,0,8"
-                              AutomationProperties.Name="Double-tap tolerance">
+                    <GroupBox Header="Input Timing" Margin="0,4,0,8"
+                              AutomationProperties.Name="Input Timing">
                         <StackPanel Margin="4">
-                            <RadioButton x:Name="DoubleTapQuickRadio"
-                                         GroupName="DoubleTapTolerance"
-                                         Margin="0,4,0,4"
-                                         AutomationProperties.Name="Quick, 250 milliseconds, for fast typists"
-                                         Checked="DoubleTapToleranceRadio_Checked">
-                                <TextBlock Text="Quick (250 ms)"/>
-                            </RadioButton>
-                            <RadioButton x:Name="DoubleTapNormalRadio"
-                                         GroupName="DoubleTapTolerance"
-                                         Margin="0,4,0,4"
-                                         AutomationProperties.Name="Normal, 500 milliseconds, recommended default"
-                                         Checked="DoubleTapToleranceRadio_Checked">
-                                <TextBlock Text="Normal (500 ms, recommended)"/>
-                            </RadioButton>
-                            <RadioButton x:Name="DoubleTapRelaxedRadio"
-                                         GroupName="DoubleTapTolerance"
-                                         Margin="0,4,0,4"
-                                         AutomationProperties.Name="Relaxed, 750 milliseconds, for deliberate input"
-                                         Checked="DoubleTapToleranceRadio_Checked">
-                                <TextBlock Text="Relaxed (750 ms)"/>
-                            </RadioButton>
-                            <RadioButton x:Name="DoubleTapLeisurelyRadio"
-                                         GroupName="DoubleTapTolerance"
-                                         Margin="0,4,0,4"
-                                         AutomationProperties.Name="Leisurely, 1000 milliseconds, for verifying speech between presses"
-                                         Checked="DoubleTapToleranceRadio_Checked">
-                                <TextBlock Text="Leisurely (1000 ms)"/>
-                            </RadioButton>
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                                       Text="Double-tap tolerance controls how quickly you need to press a key twice for JJ Flex to recognize the second press as part of a double-tap. This affects filter-edge bracket double-tap (entering single-edge adjust mode) and Escape-Escape to collapse all field groups. Pick a setting that matches your typing cadence — faster if you tap quickly, slower if you verify speech between presses."/>
+
+                            <GroupBox Header="Double-tap tolerance" Margin="0,0,0,8"
+                                      AutomationProperties.Name="Double-tap tolerance">
+                                <StackPanel Margin="4">
+                                    <RadioButton x:Name="DoubleTapQuickRadio"
+                                                 GroupName="DoubleTapTolerance"
+                                                 Margin="0,4,0,4"
+                                                 AutomationProperties.Name="Quick, 250 milliseconds, for fast typists"
+                                                 Checked="DoubleTapToleranceRadio_Checked">
+                                        <TextBlock Text="Quick (250 ms)"/>
+                                    </RadioButton>
+                                    <RadioButton x:Name="DoubleTapNormalRadio"
+                                                 GroupName="DoubleTapTolerance"
+                                                 Margin="0,4,0,4"
+                                                 AutomationProperties.Name="Normal, 500 milliseconds, recommended default"
+                                                 Checked="DoubleTapToleranceRadio_Checked">
+                                        <TextBlock Text="Normal (500 ms, recommended)"/>
+                                    </RadioButton>
+                                    <RadioButton x:Name="DoubleTapRelaxedRadio"
+                                                 GroupName="DoubleTapTolerance"
+                                                 Margin="0,4,0,4"
+                                                 AutomationProperties.Name="Relaxed, 750 milliseconds, for deliberate input"
+                                                 Checked="DoubleTapToleranceRadio_Checked">
+                                        <TextBlock Text="Relaxed (750 ms)"/>
+                                    </RadioButton>
+                                    <RadioButton x:Name="DoubleTapLeisurelyRadio"
+                                                 GroupName="DoubleTapTolerance"
+                                                 Margin="0,4,0,4"
+                                                 AutomationProperties.Name="Leisurely, 1000 milliseconds, for verifying speech between presses"
+                                                 Checked="DoubleTapToleranceRadio_Checked">
+                                        <TextBlock Text="Leisurely (1000 ms)"/>
+                                    </RadioButton>
+                                </StackPanel>
+                            </GroupBox>
                         </StackPanel>
                     </GroupBox>
 
@@ -1800,28 +1875,31 @@
                          bottom-to-top: Down-arrow walked backwards through the
                          alphabet. Noel ruled it a setting rather than a flip —
                          better default, operator keeps the choice. -->
-                    <TextBlock Text="Slice list" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,8,0,4"/>
-                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Which way the up and down arrows walk the slice letters, on the Slice field and the Slice Operations field. This does not change what any key is bound to — only which slice each arrow reaches."/>
-
-                    <GroupBox Header="Slice arrow direction" Margin="0,0,0,8"
-                              AutomationProperties.Name="Slice arrow direction">
+                    <GroupBox Header="Slice list" Margin="0,4,0,8"
+                              AutomationProperties.Name="Slice list">
                         <StackPanel Margin="4">
-                            <RadioButton x:Name="SliceOrderTopToBottomRadio"
-                                         GroupName="SliceArrowOrder"
-                                         Margin="0,4,0,4"
-                                         AutomationProperties.Name="Down arrow moves toward slice B"
-                                         Checked="SliceArrowOrderRadio_Checked">
-                                <TextBlock Text="Down arrow goes A to B to C (recommended)"/>
-                            </RadioButton>
-                            <RadioButton x:Name="SliceOrderBottomToTopRadio"
-                                         GroupName="SliceArrowOrder"
-                                         Margin="0,4,0,4"
-                                         AutomationProperties.Name="Up arrow moves toward slice B"
-                                         Checked="SliceArrowOrderRadio_Checked">
-                                <TextBlock Text="Up arrow goes A to B to C (previous behaviour)"/>
-                            </RadioButton>
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                                       Text="Which way the up and down arrows walk the slice letters, on the Slice field and the Slice Operations field. This does not change what any key is bound to — only which slice each arrow reaches."/>
+
+                            <GroupBox Header="Slice arrow direction" Margin="0,0,0,8"
+                                      AutomationProperties.Name="Slice arrow direction">
+                                <StackPanel Margin="4">
+                                    <RadioButton x:Name="SliceOrderTopToBottomRadio"
+                                                 GroupName="SliceArrowOrder"
+                                                 Margin="0,4,0,4"
+                                                 AutomationProperties.Name="Down arrow moves toward slice B"
+                                                 Checked="SliceArrowOrderRadio_Checked">
+                                        <TextBlock Text="Down arrow goes A to B to C (recommended)"/>
+                                    </RadioButton>
+                                    <RadioButton x:Name="SliceOrderBottomToTopRadio"
+                                                 GroupName="SliceArrowOrder"
+                                                 Margin="0,4,0,4"
+                                                 AutomationProperties.Name="Up arrow moves toward slice B"
+                                                 Checked="SliceArrowOrderRadio_Checked">
+                                        <TextBlock Text="Up arrow goes A to B to C (previous behaviour)"/>
+                                    </RadioButton>
+                                </StackPanel>
+                            </GroupBox>
                         </StackPanel>
                     </GroupBox>
 
@@ -1844,16 +1922,19 @@
                          Committed on OK like its neighbours. Arming or
                          disarming a rescue belongs in the deliberate act, the
                          same call ReflectedCutCheckbox makes on the PTT tab. -->
-                    <TextBlock Text="If another program takes your keyboard" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,8,0,4"/>
-                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Windows lets any program take the keyboard once you have been idle for a few minutes. When that happens while one of this program's dialogs is waiting on you, JJ Flexible Radio Access notices within a few seconds, takes the keyboard back, and tells you what happened. It only does this when you were idle — if you went somewhere on purpose, it leaves you there — and it never takes the keyboard from a password, security or permission prompt. Turn this off if a window ever comes to the front when you did not ask for it."/>
+                    <GroupBox Header="If another program takes your keyboard" Margin="0,4,0,8"
+                              AutomationProperties.Name="If another program takes your keyboard">
+                        <StackPanel Margin="4">
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                                       Text="Windows lets any program take the keyboard once you have been idle for a few minutes. When that happens while one of this program's dialogs is waiting on you, JJ Flexible Radio Access notices within a few seconds, takes the keyboard back, and tells you what happened. It only does this when you were idle — if you went somewhere on purpose, it leaves you there — and it never takes the keyboard from a password, security or permission prompt. Turn this off if a window ever comes to the front when you did not ask for it."/>
 
-                    <CheckBox x:Name="ReclaimForegroundCheckbox"
-                              Content="Take the keyboard back if another program takes it while you are idle"
-                              Margin="0,4,0,8"
-                              AutomationProperties.Name="Take the keyboard back if another program takes it while you are idle"
-                              local:JJFlexHelp.Text="On, which is the default, this program watches while one of its dialogs is waiting on you, and if another program takes the keyboard at a moment when you were not touching anything, it takes the keyboard back and says so. Off, it watches and does nothing: the keyboard stays where it went, nothing is announced, and the fact that it would have stepped in is written into the diagnostic log so it can be looked at afterwards. Switching this off does not affect the separate repair for a keyboard that has gone nowhere at all — if no window on your screen is taking input, a dialog of this program's will still bring itself back."/>
+                            <CheckBox x:Name="ReclaimForegroundCheckbox"
+                                      Content="Take the keyboard back if another program takes it while you are idle"
+                                      Margin="0,4,0,8"
+                                      AutomationProperties.Name="Take the keyboard back if another program takes it while you are idle"
+                                      local:JJFlexHelp.Text="On, which is the default, this program watches while one of its dialogs is waiting on you, and if another program takes the keyboard at a moment when you were not touching anything, it takes the keyboard back and says so. Off, it watches and does nothing: the keyboard stays where it went, nothing is announced, and the fact that it would have stepped in is written into the diagnostic log so it can be looked at afterwards. Switching this off does not affect the separate repair for a keyboard that has gone nowhere at all — if no window on your screen is taking input, a dialog of this program's will still bring itself back."/>
+                        </StackPanel>
+                    </GroupBox>
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -1884,58 +1965,61 @@
             <TabItem Header="Updates" AutomationProperties.Name="Update channel and auto-check preferences">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
-                    <TextBlock Text="Update channel" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Stable is the public release channel. Beta gets milestone previews. Nightly tracks the very latest overnight build — useful for testers and for picking up fixes the same day, but it can be unstable."/>
-
-                    <GroupBox Header="Channel" Margin="0,0,0,8"
-                              AutomationProperties.Name="Update channel selector">
+                    <GroupBox Header="Update channel" Margin="0,4,0,8"
+                              AutomationProperties.Name="Update channel">
                         <StackPanel Margin="4">
-                            <RadioButton x:Name="UpdateChannelStableRadio"
-                                         GroupName="UpdateChannel"
-                                         Margin="0,4,0,4"
-                                         AutomationProperties.Name="Stable, public releases"
-                                         Checked="UpdateChannelRadio_Checked">
-                                <TextBlock Text="Stable (public releases)"/>
-                            </RadioButton>
-                            <RadioButton x:Name="UpdateChannelBetaRadio"
-                                         GroupName="UpdateChannel"
-                                         Margin="0,4,0,4"
-                                         AutomationProperties.Name="Beta, milestone previews"
-                                         Checked="UpdateChannelRadio_Checked">
-                                <TextBlock Text="Beta (milestone previews)"/>
-                            </RadioButton>
-                            <RadioButton x:Name="UpdateChannelNightlyRadio"
-                                         GroupName="UpdateChannel"
-                                         Margin="0,4,0,4"
-                                         AutomationProperties.Name="Nightly, overnight builds, may be unstable"
-                                         Checked="UpdateChannelRadio_Checked">
-                                <TextBlock Text="Nightly (overnight builds, may be unstable)"/>
-                            </RadioButton>
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                                       Text="Stable is the public release channel. Beta gets milestone previews. Nightly tracks the very latest overnight build — useful for testers and for picking up fixes the same day, but it can be unstable."/>
+
+                            <GroupBox Header="Channel" Margin="0,0,0,8"
+                                      AutomationProperties.Name="Update channel selector">
+                                <StackPanel Margin="4">
+                                    <RadioButton x:Name="UpdateChannelStableRadio"
+                                                 GroupName="UpdateChannel"
+                                                 Margin="0,4,0,4"
+                                                 AutomationProperties.Name="Stable, public releases"
+                                                 Checked="UpdateChannelRadio_Checked">
+                                        <TextBlock Text="Stable (public releases)"/>
+                                    </RadioButton>
+                                    <RadioButton x:Name="UpdateChannelBetaRadio"
+                                                 GroupName="UpdateChannel"
+                                                 Margin="0,4,0,4"
+                                                 AutomationProperties.Name="Beta, milestone previews"
+                                                 Checked="UpdateChannelRadio_Checked">
+                                        <TextBlock Text="Beta (milestone previews)"/>
+                                    </RadioButton>
+                                    <RadioButton x:Name="UpdateChannelNightlyRadio"
+                                                 GroupName="UpdateChannel"
+                                                 Margin="0,4,0,4"
+                                                 AutomationProperties.Name="Nightly, overnight builds, may be unstable"
+                                                 Checked="UpdateChannelRadio_Checked">
+                                        <TextBlock Text="Nightly (overnight builds, may be unstable)"/>
+                                    </RadioButton>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <CheckBox x:Name="UpdateAutoCheckCheckbox"
+                                      Content="Check for updates when JJ Flex starts"
+                                      Margin="0,0,0,4"
+                                      AutomationProperties.Name="Check for updates when JJ Flex starts"/>
+                            <CheckBox x:Name="UpdatePeriodicCheckCheckbox"
+                                      Content="Check every two hours while JJ Flex is running"
+                                      Margin="0,0,0,12"
+                                      AutomationProperties.Name="Check every two hours while JJ Flex is running"/>
+
+                            <TextBlock x:Name="UpdateLastCheckText"
+                                       Text="Last check: never"
+                                       Margin="0,0,0,8"
+                                       AutomationProperties.Name="Last update check timestamp"/>
+
+                            <Button x:Name="UpdateCheckNowButton"
+                                    Content="Check for updates now"
+                                    HorizontalAlignment="Left"
+                                    Padding="12,4"
+                                    AutomationProperties.Name="Check for updates now"
+                                    Click="UpdateCheckNowButton_Click"/>
                         </StackPanel>
                     </GroupBox>
-
-                    <CheckBox x:Name="UpdateAutoCheckCheckbox"
-                              Content="Check for updates when JJ Flex starts"
-                              Margin="0,0,0,4"
-                              AutomationProperties.Name="Check for updates when JJ Flex starts"/>
-                    <CheckBox x:Name="UpdatePeriodicCheckCheckbox"
-                              Content="Check every two hours while JJ Flex is running"
-                              Margin="0,0,0,12"
-                              AutomationProperties.Name="Check every two hours while JJ Flex is running"/>
-
-                    <TextBlock x:Name="UpdateLastCheckText"
-                               Text="Last check: never"
-                               Margin="0,0,0,8"
-                               AutomationProperties.Name="Last update check timestamp"/>
-
-                    <Button x:Name="UpdateCheckNowButton"
-                            Content="Check for updates now"
-                            HorizontalAlignment="Left"
-                            Padding="12,4"
-                            AutomationProperties.Name="Check for updates now"
-                            Click="UpdateCheckNowButton_Click"/>
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>

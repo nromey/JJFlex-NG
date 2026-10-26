@@ -73,6 +73,14 @@ internal static class RecordedQsoSaveAs
         string folder = Path.GetDirectoryName(sourcePath) ?? "";
         string stem = Path.GetFileNameWithoutExtension(sourcePath) + (whole ? "" : "-trim");
         string name = stem + kind.Extension;
+        // A whole copy in the source's own type would take the source's own
+        // name, so it is called a copy rather than "-2" (Noel, retest
+        // 2026-10-25: "I'd make it copy yes please").
+        if (SameFile(Path.Combine(folder, name), sourcePath))
+        {
+            stem += "-copy";
+            name = stem + kind.Extension;
+        }
         int n = 2;
         while (exists(Path.Combine(folder, name)) || SameFile(Path.Combine(folder, name), sourcePath))
             name = stem + "-" + n++ + kind.Extension;

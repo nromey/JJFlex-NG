@@ -741,7 +741,7 @@ Settings holds eleven categories and the Audio Workshop holds several, so both w
 - Plain **Tab** is still plain Tab. It moves through the controls of the category you are on and never changes category by itself.
 - Settings opens on the list rather than on a button, so the first thing you hear is where you are and what else there is.
 
-Inside the Audio Workshop, **F6** and **Shift+F6** then move between the sections of whichever category you are on. Categories are the big divisions, sections are the groups within one.
+Inside Settings and the Audio Workshop, **F6** and **Shift+F6** then move between the sections of whichever category you are on, and say the section's name. Categories are the big divisions, sections are the groups within one. Tabbing into a section says its name too.
 
 If you knew the old tab strip: it is gone, and the list replaces it. Nothing you could reach before is out of reach — the same categories, in the same order, with a key that works from anywhere instead of only when the strip happened to have focus.
 
@@ -851,6 +851,7 @@ These keys work inside the Recorded QSOs window (**Ctrl+Alt+Shift+F11**, or **Ct
 - **Home / End** — The newest or the oldest recording
 - **Enter** — Start or pause playback of the selected recording, from the play head
 - **S** — Stop, and return the play head to the beginning of the file, from anywhere in the window
+- **Ctrl+Left Arrow / Ctrl+Right Arrow** — Move the play head backward or forward by the selected step size from anywhere in the window, including during playback
 - **Left Arrow / Right Arrow** — Move the play head backward or forward by the selected step size, including during playback
 - **[** (left bracket) — Set the trim start mark at the play head, even while it plays
 - **]** (right bracket) — Set the trim end mark at the play head, even while it plays

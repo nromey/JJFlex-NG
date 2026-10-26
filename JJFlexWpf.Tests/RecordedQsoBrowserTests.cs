@@ -161,6 +161,8 @@ public sealed class RecordedQsoBrowserTests
         Assert.False(RecordedQsoCatalog.IsSaveAsName("QSO-2026-10-24-153012"));
         Assert.False(RecordedQsoCatalog.IsSaveAsName("Contest pileup-trim"));
         Assert.False(RecordedQsoCatalog.IsSaveAsName("QSO-2026-10-24-153012-trimmed"));
+        Assert.True(RecordedQsoCatalog.IsSaveAsName("QSO-2026-10-24-153012-copy"));
+        Assert.True(RecordedQsoCatalog.IsSaveAsName("QSO-2026-10-24-153012-copy-2"));
         Assert.False(opus.IsFlac);
         Assert.True(Qso(Now).IsFlac);
     }
@@ -350,7 +352,7 @@ public sealed class RecordedQsoBrowserTests
         string source = @"C:\rec\2026\10\QSO-2026-10-24-153012.flac";
         var flac = RecordedQsoSaveAs.For(RecordedQsoExport.Format.Flac);
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { source };
-        Assert.Equal("QSO-2026-10-24-153012-2.flac", RecordedQsoSaveAs.SuggestName(source, true, flac, taken.Contains));
+        Assert.Equal("QSO-2026-10-24-153012-copy.flac", RecordedQsoSaveAs.SuggestName(source, true, flac, taken.Contains));
         Assert.Equal("QSO-2026-10-24-153012-trim.flac", RecordedQsoSaveAs.SuggestName(source, false, flac, taken.Contains));
         taken.Add(@"C:\rec\2026\10\QSO-2026-10-24-153012-trim.flac");
         Assert.Equal("QSO-2026-10-24-153012-trim-2.flac", RecordedQsoSaveAs.SuggestName(source, false, flac, taken.Contains));
@@ -392,13 +394,16 @@ public sealed class RecordedQsoBrowserTests
         var mp3 = RecordedQsoSaveAs.For(RecordedQsoExport.Format.Mp3);
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { source };
         string first = RecordedQsoSaveAs.SuggestName(source, true, flac, taken.Contains);
-        Assert.Equal("QSO-2026-10-25-172707-2.flac", first);
+        Assert.Equal("QSO-2026-10-25-172707-copy.flac", first);
 
         Assert.Equal("QSO-2026-10-25-172707.mp3",
             RecordedQsoSaveAs.NameForType(first, first, source, true, mp3, taken.Contains));
         Assert.Equal("pileup.mp3",
             RecordedQsoSaveAs.NameForType("pileup.flac", first, source, true, mp3, taken.Contains));
-        Assert.Equal("QSO-2026-10-25-172707-2.mp3",
+        Assert.Equal("QSO-2026-10-25-172707-copy.mp3",
             RecordedQsoSaveAs.NameForType(first, null, source, true, mp3, taken.Contains));
+        // A second whole FLAC copy: "-copy" is taken, so "-copy-2".
+        taken.Add(@"C:\rec\2026\10\QSO-2026-10-25-172707-copy.flac");
+        Assert.Equal("QSO-2026-10-25-172707-copy-2.flac", RecordedQsoSaveAs.SuggestName(source, true, flac, taken.Contains));
     }
 }

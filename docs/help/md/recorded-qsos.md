@@ -17,7 +17,7 @@ The selected file's full name, with its extension, is in the read-only File name
 - **Enter** starts or pauses playback of the selected recording, from the play head.
 - **S** stops and returns the play head to the beginning of the file.
 - **Space** only selects. It never plays, and Ctrl+Space is still push to talk.
-- **Left and Right** move the play head backward and forward by the selected step size, including during playback.
+- **Left and Right** move the play head backward and forward by the selected step size, including during playback, when you are on the list or the position slider. **Ctrl+Left and Ctrl+Right** do it from anywhere in the window.
 - **Delete** moves the selected recording to the Recycle Bin.
 
 If any file in the folder couldn't be read, I tell you how many when the window opens, rather than quietly showing you a shorter list.

@@ -354,6 +354,7 @@ public static class RecordingPlayer
         EndOfFileSampleProvider? provider;
         bool limited;
         string completedPath;
+        TransportSampleProvider? transport;
         lock (Gate)
         {
             if (expected != null && !ReferenceEquals(_provider, expected)) return;
@@ -361,6 +362,7 @@ public static class RecordingPlayer
             provider = _provider;
             limited = _gain?.Limited ?? false;
             completedPath = _path;
+            transport = _transport;
             _reader = null;
             _provider = null;
             _gain = null;
@@ -370,6 +372,31 @@ public static class RecordingPlayer
         }
         if (provider == null) return;
 
+        // Fade, then retire (retest 2026-10-25, the crossfade). The fields are
+        // already cleared, so a new playback can start at once; this input
+        // fades out under it for a few tens of milliseconds and then leaves.
+        if (transport != null && !transport.Paused)
+        {
+            transport.Paused = true;
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay((int)(TransportSampleProvider.FadeOutSeconds * 1000) + 40).ConfigureAwait(false);
+                Retire(provider, reader);
+            });
+        }
+        else Retire(provider, reader);
+
+        StateChanged?.Invoke();
+        if (confirmTone) EarconPlayer.ConfirmTone();
+        if (!string.IsNullOrEmpty(spokenReason))
+            ScreenReaderOutput.Speak(spokenReason, VerbosityLevel.Terse, interrupt: false);
+        if (limited) ScreenReaderOutput.Speak(Lexicon.Get("audio.take.limiter_engaged"), VerbosityLevel.Terse);
+        if (expected != null) PlaybackCompleted?.Invoke(completedPath);
+    }
+
+    /// <summary>Take a finished input off the mixer and close its file.</summary>
+    private static void Retire(EndOfFileSampleProvider provider, WaveStream? reader)
+    {
         EarconPlayer.RemoveRecordingPlayback(provider);
         try
         {
@@ -383,13 +410,6 @@ public static class RecordingPlayer
             // operator unable to stop playback at all.
             Trace.WriteLine($"RecordingPlayer: dispose failed: {ex.Message}");
         }
-
-        StateChanged?.Invoke();
-        if (confirmTone) EarconPlayer.ConfirmTone();
-        if (!string.IsNullOrEmpty(spokenReason))
-            ScreenReaderOutput.Speak(spokenReason, VerbosityLevel.Terse, interrupt: false);
-        if (limited) ScreenReaderOutput.Speak(Lexicon.Get("audio.take.limiter_engaged"), VerbosityLevel.Terse);
-        if (expected != null) PlaybackCompleted?.Invoke(completedPath);
     }
 
     /// <summary>Say why it will not play, with the tone that means refusal.</summary>
@@ -478,6 +498,15 @@ public static class RecordingPlayer
         private long _frames;
         private volatile bool _paused;
 
+        // The crossfade (Noel, retest 2026-10-25: stopping gave "a bit of a
+        // blip as it brings the band up"). A pause or a stop fades the
+        // recording out instead of cutting it, while the band comes up under
+        // it; a resume fades back in. Lengths in seconds.
+        internal const double FadeOutSeconds = 0.06;
+        internal const double FadeInSeconds = 0.015;
+        private int _fadeOutLeft, _fadeOutTotal, _fadeInLeft, _fadeInTotal;
+        private long _pausedAt = -1;  // the frame the pause was asked at; the fade reads past it
+
         internal TransportSampleProvider(WaveStream reader)
         {
             _reader = reader;
@@ -488,7 +517,36 @@ public static class RecordingPlayer
 
         public WaveFormat WaveFormat => _source.WaveFormat;
 
-        internal bool Paused { get => _paused; set => _paused = value; }
+        /// <summary>
+        /// Paused, the recording fades out over <see cref="FadeOutSeconds"/> and
+        /// then plays silence; resumed, it goes back to where the pause was asked
+        /// (the fade read a little past it) and fades in.
+        /// </summary>
+        internal bool Paused
+        {
+            get => _paused;
+            set
+            {
+                lock (_lock)
+                {
+                    if (value == _paused) return;
+                    if (value)
+                    {
+                        _pausedAt = _frames;
+                        _fadeOutTotal = _fadeOutLeft = Math.Max(1, (int)(_rate * FadeOutSeconds));
+                        _fadeInLeft = 0;
+                    }
+                    else
+                    {
+                        if (_pausedAt >= 0 && _pausedAt != _frames) SeekFramesLocked(_pausedAt);
+                        _pausedAt = -1;
+                        _fadeOutLeft = 0;
+                        _fadeInTotal = _fadeInLeft = Math.Max(1, (int)(_rate * FadeInSeconds));
+                    }
+                    _paused = value;
+                }
+            }
+        }
 
         /// <summary>Where playback started, in seconds; the earliest a heard position can be.</summary>
         internal double StartSeconds { get; private set; }
@@ -496,7 +554,7 @@ public static class RecordingPlayer
         /// <summary>How far into the file the mixer has read, in seconds.</summary>
         internal double PositionSeconds
         {
-            get { lock (_lock) return _frames / (double)_rate; }
+            get { lock (_lock) return (_paused && _pausedAt >= 0 ? _pausedAt : _frames) / (double)_rate; }
         }
 
         /// <summary>Move to a point in the file, in whole sample frames, clamped to the file.</summary>
@@ -504,27 +562,61 @@ public static class RecordingPlayer
         {
             lock (_lock)
             {
-                long frame = (long)Math.Floor(Math.Max(0, seconds) * _rate);
-                int block = _reader.WaveFormat.BlockAlign;
-                long bytes = frame * block;
-                if (_reader.Length > 0 && bytes > _reader.Length) bytes = _reader.Length - _reader.Length % block;
-                _reader.Position = bytes;
-                _frames = bytes / block;
+                SeekFramesLocked((long)Math.Floor(Math.Max(0, seconds) * _rate));
                 StartSeconds = _frames / (double)_rate;
+                if (_paused)
+                {
+                    // A move while paused is where Resume carries on from, and
+                    // there is nothing left to fade.
+                    _pausedAt = _frames;
+                    _fadeOutLeft = 0;
+                }
             }
+        }
+
+        private void SeekFramesLocked(long frame)
+        {
+            int block = _reader.WaveFormat.BlockAlign;
+            long bytes = frame * block;
+            if (_reader.Length > 0 && bytes > _reader.Length) bytes = _reader.Length - _reader.Length % block;
+            _reader.Position = bytes;
+            _frames = bytes / block;
         }
 
         public int Read(Span<float> buffer)
         {
-            if (_paused)
-            {
-                buffer.Clear();
-                return buffer.Length;
-            }
             lock (_lock)
             {
+                if (_paused)
+                {
+                    // Always a full buffer while paused: a short read would end
+                    // the file for the mixer. The fade, then silence.
+                    if (_fadeOutLeft <= 0)
+                    {
+                        buffer.Clear();
+                        return buffer.Length;
+                    }
+                    int got = _source.Read(buffer);
+                    int frames = got / _channels;
+                    for (int f = 0; f < frames; f++)
+                    {
+                        float g = _fadeOutLeft > 0 ? _fadeOutLeft / (float)_fadeOutTotal : 0f;
+                        if (_fadeOutLeft > 0) _fadeOutLeft--;
+                        for (int c = 0; c < _channels; c++) buffer[f * _channels + c] *= g;
+                    }
+                    _frames += frames;
+                    if (got < buffer.Length) buffer.Slice(got).Clear();
+                    return buffer.Length;
+                }
                 int read = _source.Read(buffer);
-                _frames += read / _channels;
+                int readFrames = read / _channels;
+                for (int f = 0; f < readFrames && _fadeInLeft > 0; f++)
+                {
+                    float g = 1f - _fadeInLeft / (float)_fadeInTotal;
+                    _fadeInLeft--;
+                    for (int c = 0; c < _channels; c++) buffer[f * _channels + c] *= g;
+                }
+                _frames += readFrames;
                 return read;
             }
         }

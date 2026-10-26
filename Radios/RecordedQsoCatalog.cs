@@ -218,16 +218,18 @@ public static class RecordedQsoCatalog
     }
 
     /// <summary>
-    /// A name Save As made up itself: the recorder's stamp, then "-trim", then
-    /// optionally "-2", "-3". A row for such a file leaves the name off, as a
+    /// A name Save As made up itself: the recorder's stamp, then "-trim" or
+    /// "-copy", then optionally "-2", "-3". A row for such a file leaves the name off, as a
     /// recording's row does, because it only repeats what the row already says.
     /// </summary>
     public static bool IsSaveAsName(string name)
     {
         if (name == null) return false;
-        int at = name.IndexOf("-trim", StringComparison.Ordinal);
+        string suffix = "-trim";
+        int at = name.IndexOf(suffix, StringComparison.Ordinal);
+        if (at < 0) { suffix = "-copy"; at = name.IndexOf(suffix, StringComparison.Ordinal); }
         if (at < 0) return false;
-        string tail = name.Substring(at + "-trim".Length);
+        string tail = name.Substring(at + suffix.Length);
         if (tail.Length > 0 && (tail[0] != '-' || tail.Length == 1 || !tail.Skip(1).All(char.IsAsciiDigit)))
             return false;
         return TryParseRecorderName(name.Substring(0, at), out _);

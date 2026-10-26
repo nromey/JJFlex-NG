@@ -13,3 +13,5 @@ Changed at the 2026-10-25 bench (Noel): Enter used to play or stop, P paused and
 These lines are ALREADY in docs/help/md/keyboard-reference.md and docs/help/md/leader-key.md on this branch, because
 LeaderDocCoverageTests fails until every JJ key chord has a line on both pages. This fragment is the record of what
 changed, for whoever folds the fragments at merge time; it does not need applying a second time.
+
+Retest 2026-10-25: Ctrl+Left and Ctrl+Right move the play head from anywhere in the window. Settings: F6 and Shift+F6 move between sections, as in the Audio Workshop (#822).

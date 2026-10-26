@@ -511,6 +511,15 @@ public sealed class RecordedQsosDialog : JJFlexDialog
             StopToStart(speak: true);
             return;
         }
+        // Ctrl+Left and Ctrl+Right move the play head from anywhere in the
+        // window, as [ and ] mark from anywhere (Noel, retest 2026-10-25: plain
+        // arrows on the step size or a button did their own job, not a step).
+        if ((key == Key.Left || key == Key.Right) && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            e.Handled = true;
+            StepPosition(key == Key.Right ? 1 : -1);
+            return;
+        }
         if (key == Key.F1 && Keyboard.Modifiers == ModifierKeys.None)
         {
             e.Handled = true;

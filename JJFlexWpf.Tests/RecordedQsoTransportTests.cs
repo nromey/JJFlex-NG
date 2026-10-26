@@ -81,8 +81,15 @@ public sealed class RecordedQsoTransportTests : IDisposable
         Assert.True(RecordingPlayer.IsPlaying, "paused is still playing: the preview is not over");
         double pausedAt = RecordingPlayer.PositionSeconds!.Value;
         Assert.InRange(pausedAt, 1.09, 1.2);
+        // The pause fades the recording out rather than cutting it (retest
+        // 2026-10-25, the crossfade): the first read after it starts loud and
+        // ends silent; the next is silence. Both are full reads, because a
+        // short one would end the file for the mixer. This asserted instant
+        // silence until then, which was the cut Noel heard.
+        Assert.Equal(buffer.Length, ReadOnce(input!, buffer));
+        Assert.True(Math.Abs(buffer[0]) > 0.3f, "the fade starts near full level");
+        Assert.Equal(0f, buffer[^1]);
         Array.Fill(buffer, 1f);
-        // A full read of silence: a short one would end the file for the mixer.
         Assert.Equal(buffer.Length, ReadOnce(input!, buffer));
         Assert.All(buffer, s => Assert.Equal(0f, s));
         Assert.Equal(pausedAt, RecordingPlayer.PositionSeconds!.Value, 3);
@@ -265,18 +272,30 @@ public sealed class RecordedQsoTransportTests : IDisposable
     [Fact]
     public void The_playback_level_glides_down_and_back_rather_than_stepping()
     {
-        // 48 kHz mono: the 60 ms way down is 2,880 frames, so one
-        // 480-frame buffer gets a sixth of the way, and the last sample is
-        // lower than the first. Never a step.
+        // 48 kHz mono, a 12 dB level. Down: 60 ms crosses 12 dB, so one
+        // 480-frame buffer (10 ms) goes 2 dB, to 0.794. Never a step.
         var buffer = Enumerable.Repeat(1f, 480).ToArray();
-        float gain = RxAudioPipeline.GlideGain(buffer, buffer.Length, 1, 48000, 1f, 0f);
-        Assert.InRange(gain, 0.82f, 0.84f);
+        float gain = RxAudioPipeline.GlideGain(buffer, buffer.Length, 1, 48000, 1f, 0.251f, 12f);
+        Assert.InRange(gain, 0.78f, 0.81f);
         Assert.True(buffer[0] > buffer[^1]);
         Assert.Equal(gain, buffer[^1], 4);
 
-        // At full gain with nothing asked, the audio passes untouched.
+        // Back up: 500 ms crosses 12 dB, IN DECIBELS (retest 2026-10-25: the
+        // straight-line return was heard as a blip). Half the time is half the
+        // decibels, -6 dB, 0.501, where a straight amplitude ramp would be at
+        // 0.626.
+        var back = Enumerable.Repeat(1f, 12000).ToArray();
+        gain = RxAudioPipeline.GlideGain(back, back.Length, 1, 48000, 0.251f, 1f, 12f);
+        Assert.InRange(gain, 0.49f, 0.51f);
+        for (int i = 1; i < back.Length; i++) Assert.True(back[i] >= back[i - 1]);
+
+        // Muted arrives at exactly zero, and at full gain with nothing asked
+        // the audio passes untouched.
+        var mute = Enumerable.Repeat(1f, 4800).ToArray();
+        Assert.Equal(0f, RxAudioPipeline.GlideGain(mute, mute.Length, 1, 48000, 1f, 0f, 60f));
+        Assert.Equal(0f, mute[^1]);
         var untouched = Enumerable.Repeat(0.5f, 480).ToArray();
-        Assert.Equal(1f, RxAudioPipeline.GlideGain(untouched, untouched.Length, 1, 48000, 1f, 1f));
+        Assert.Equal(1f, RxAudioPipeline.GlideGain(untouched, untouched.Length, 1, 48000, 1f, 1f, 12f));
         Assert.All(untouched, v => Assert.Equal(0.5f, v));
     }
 

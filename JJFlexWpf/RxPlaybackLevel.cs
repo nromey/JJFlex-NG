@@ -56,8 +56,13 @@ namespace JJFlexWpf
         /// <summary>Glide down to the playback level over this long.</summary>
         internal const float AttackMs = 60f;
 
-        /// <summary>Glide back to full over this long when playback ends.</summary>
-        internal const float ReleaseMs = 250f;
+        /// <summary>
+        /// Glide back to full over this long when playback pauses or ends. Half a
+        /// second, on a decibel curve: the first version came back in a straight
+        /// line in a quarter of a second, and Noel heard the band jump ("a bit of
+        /// a blip as it brings the band up", retest 2026-10-25).
+        /// </summary>
+        internal const float ReleaseMs = 500f;
 
         private static volatile int _level = (int)DefaultLevel;
         private static volatile bool _active;
@@ -91,6 +96,17 @@ namespace JJFlexWpf
             PlaybackRadioLevel.Unchanged => 1f,
             PlaybackRadioLevel.Muted => 0f,
             _ => (float)Math.Pow(10, -(int)level / 20.0),
+        };
+
+        /// <summary>
+        /// How deep the chosen level goes, in dB: a full excursion of the glide.
+        /// Muted counts as 60 dB, where the glide's floor is.
+        /// </summary>
+        internal static float DepthDb => Level switch
+        {
+            PlaybackRadioLevel.Unchanged => 0f,
+            PlaybackRadioLevel.Muted => 60f,
+            _ => (int)Level,
         };
 
         /// <summary>The persisted name: "Lowered12", "Muted" and so on.</summary>

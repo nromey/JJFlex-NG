@@ -171,6 +171,9 @@ namespace JJFlexWpf.Dialogs
             // (explain the focused control) is untouched — modifier check.
             PreviewKeyDown += (s, e) =>
             {
+                // F6 and Shift+F6: the next or previous section of this tab,
+                // as in the Audio Workshop (#822, Noel 2026-10-25).
+                if (SectionNavigator.TryHandle(e, SettingsTabs)) return;
                 if (e.Key == System.Windows.Input.Key.F1 &&
                     System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.None)
                 {

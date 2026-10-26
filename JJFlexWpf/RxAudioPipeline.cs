@@ -174,25 +174,36 @@ namespace JJFlexWpf
 
         private void ApplyPlaybackLevel(float[] buffer, int count) =>
             _playbackGain = GlideGain(buffer, count, Math.Max(_channels, 1), _sampleRate,
-                _playbackGain, RxPlaybackLevel.TargetGain);
+                _playbackGain, RxPlaybackLevel.TargetGain, Math.Max(6f, RxPlaybackLevel.DepthDb));
+
+        private const float FloorDb = -60f;
+
+        private static float ToDb(float gain) => gain <= 0.001f ? FloorDb : 20f * MathF.Log10(gain);
 
         /// <summary>
         /// Ramp <paramref name="buffer"/> from <paramref name="gain"/> toward
         /// <paramref name="target"/>, per frame, and return where it got to.
-        /// A full excursion takes <see cref="RxPlaybackLevel.AttackMs"/> going
-        /// down and <see cref="RxPlaybackLevel.ReleaseMs"/> coming back: ramped,
-        /// never stepped, for the reason on <see cref="ApplyDuck"/>.
+        /// The ramp moves in DECIBELS, at a rate that crosses
+        /// <paramref name="depthDb"/> in <see cref="RxPlaybackLevel.AttackMs"/>
+        /// going down and <see cref="RxPlaybackLevel.ReleaseMs"/> coming back.
+        /// A straight ramp in amplitude sounds like a jump at its start, because
+        /// the ear hears loudness in decibels (retest 2026-10-25: "a bit of a
+        /// blip as it brings the band up"). Ramped, never stepped, for the
+        /// reason on <see cref="ApplyDuck"/>.
         /// </summary>
         internal static float GlideGain(float[] buffer, int count, int channels, float sampleRate,
-            float gain, float target)
+            float gain, float target, float depthDb)
         {
             if (target >= 0.9999f && gain >= 0.9999f) return 1f;
-            float ms = target < gain ? RxPlaybackLevel.AttackMs : RxPlaybackLevel.ReleaseMs;
-            float step = 1f / Math.Max(1f, sampleRate * (ms / 1000f));
+            float db = ToDb(gain), targetDb = ToDb(target);
+            float ms = targetDb < db ? RxPlaybackLevel.AttackMs : RxPlaybackLevel.ReleaseMs;
+            float step = depthDb / Math.Max(1f, sampleRate * (ms / 1000f));
             for (int i = 0; i < count; i += channels)
             {
-                if (gain > target) gain = Math.Max(target, gain - step);
-                else if (gain < target) gain = Math.Min(target, gain + step);
+                if (db > targetDb) db = Math.Max(targetDb, db - step);
+                else if (db < targetDb) db = Math.Min(targetDb, db + step);
+                // Arrived: exactly the target, so muted is a true zero.
+                gain = db == targetDb ? target : db <= FloorDb ? 0f : MathF.Pow(10f, db / 20f);
                 for (int c = 0; c < channels && i + c < count; c++)
                     buffer[i + c] *= gain;
             }
