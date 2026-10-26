@@ -117,6 +117,7 @@ namespace Radios
         private bool _leaderDown;
         private bool _leaderArmed;
         private bool _helpArmed;
+        private Keys _helpArmedChord;
         private uint _secondKeyVk;
 
         /// <summary>
@@ -162,7 +163,19 @@ namespace Radios
         /// slash key or Escape — so this class must claim exactly those three
         /// next and nothing else.
         /// </summary>
-        public void SetHelpArmed(bool armed) => _helpArmed = armed;
+        public void SetHelpArmed(bool armed) => SetHelpArmed(armed, Keys.None);
+
+        /// <summary>
+        /// The same, after a near miss (#693): the in-app layer also waits for
+        /// the chord the near miss named, so this class claims that chord as
+        /// well as H, the slash key and Escape. <see cref="Keys.None"/> after
+        /// an unknown key.
+        /// </summary>
+        public void SetHelpArmed(bool armed, Keys nearMissChord)
+        {
+            _helpArmed = armed;
+            _helpArmedChord = armed ? nearMissChord : Keys.None;
+        }
 
         /// <summary>
         /// The fail-safe decided the release was missed and unkeyed without
@@ -258,10 +271,13 @@ namespace Radios
                 _helpArmed = false;
                 if (vk == VK_ESCAPE)
                     return new SystemWideDecision(true, SystemWideAction.LeaderCancelled);
-                if (vk == VK_H || vk == VK_OEM_2)
+                Keys chord = (Keys)vk | held.Flags;
+                if (vk == VK_H || vk == VK_OEM_2
+                    || (_helpArmedChord != Keys.None && chord == _helpArmedChord))
                 {
+                    _helpArmedChord = Keys.None;
                     _secondKeyVk = vk;
-                    return new SystemWideDecision(true, SystemWideAction.LeaderKey, (Keys)vk | held.Flags);
+                    return new SystemWideDecision(true, SystemWideAction.LeaderKey, chord);
                 }
                 // The layer has let go. This key is NOT ours — but it might
                 // still be one of the chords below, so keep going.

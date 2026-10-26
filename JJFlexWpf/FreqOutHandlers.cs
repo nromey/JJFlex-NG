@@ -662,6 +662,11 @@ public class FreqOutHandlers
                 break;
         }
 
+        // Period and comma: create and release a slice, unless number entry
+        // owns them. Quick-type ran above and has already taken a period
+        // that is a decimal point; this passes it the same state so a comma
+        // typed mid-number releases nothing either (Noel, 2026-10-25 19:31).
+        if (!e.Handled) TryHandleUniversalHomeKey(e, numberEntryActive: _inQuickType);
         // A letter nothing above claimed must not vanish in silence (#338).
         if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }
@@ -901,6 +906,34 @@ public class FreqOutHandlers
     }
 
     /// <summary>
+    /// A comma during quick-type entry: a thousands separator, accepted and
+    /// otherwise ignored (Noel, 2026-10-25 20:35: "if you're typing
+    /// frequencies, it could be a thousands separator"). It is kept in the
+    /// buffer only so the parse can see that the whole part was grouped, which
+    /// makes the number kilohertz: "14,225.000" is 14.225 megahertz. After the
+    /// decimal point a comma groups nothing and is dropped. Says nothing: it
+    /// changes no digit, and the digits already speak. A separator setting is
+    /// #825, not this.
+    /// </summary>
+    private void QuickTypeSeparator()
+    {
+        if (!_inQuickType) return;
+        if (!_quickTypeBuffer.Contains('.')) _quickTypeBuffer += ',';
+        _lastDigitTime = DateTime.Now;
+
+        // Reset the timeout, as a digit or the point does, so the
+        // confirmation prompt does not land in the middle of the number.
+        _quickTypeTimeout?.Cancel();
+        _quickTypeTimeout = new CancellationTokenSource();
+        var token = _quickTypeTimeout.Token;
+        Task.Delay(1000, token).ContinueWith(t =>
+        {
+            if (!t.IsCanceled)
+                _window.Dispatcher.BeginInvoke(new Action(PromptQuickType));
+        });
+    }
+
+    /// <summary>
     /// Speak confirmation prompt after typing pause.
     /// </summary>
     private void PromptQuickType()
@@ -923,11 +956,28 @@ public class FreqOutHandlers
 
     /// <summary>
     /// Parse the quick-type buffer into a frequency in MHz.
-    /// Digits without decimal = kHz. With decimal = MHz.
+    /// Digits without decimal = kHz. With decimal = MHz. A thousands separator
+    /// in the whole part (a comma, see <see cref="QuickTypeSeparator"/>) means
+    /// the number was written in kHz, decimal or not: "14,225.000" and
+    /// "14,225" are both 14.225 MHz.
     /// </summary>
-    private static double? ParseQuickTypeFreq(string input)
+    internal static double? ParseQuickTypeFreq(string input)
     {
         if (string.IsNullOrWhiteSpace(input)) return null;
+
+        int point = input.IndexOf('.');
+        string whole = point < 0 ? input : input.Substring(0, point);
+        if (whole.Contains(','))
+        {
+            // Grouped thousands: kilohertz, with the decimal (if any) a
+            // fraction of a kilohertz.
+            if (double.TryParse(input.Replace(",", ""), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out double groupedKhz)
+                && groupedKhz > 100 && groupedKhz < 500000)
+                return groupedKhz / 1000.0;
+            return null;
+        }
+        input = input.Replace(",", "");
 
         if (input.Contains('.'))
         {
@@ -1028,6 +1078,30 @@ public class FreqOutHandlers
     }
 
     /// <summary>
+    /// The caret left a Home field. Leaving the Frequency field cancels an
+    /// unfinished number (Noel, 2026-10-25 20:49), so that coming back later,
+    /// a period there is a slice create again and not the decimal point of a
+    /// number typed and abandoned minutes ago.
+    /// </summary>
+    /// <param name="fromKey">The field left.</param>
+    /// <param name="toKey">Where the caret went, or null when focus left the display.</param>
+    public void FieldLeft(string fromKey, string? toKey)
+    {
+        if (!LeavingEndsNumberEntry(fromKey, toKey) || !_inQuickType) return;
+        Tracing.TraceLine("FreqOutHandlers: left the Frequency field with an unfinished number ("
+            + _quickTypeBuffer + "); cancelled", TraceLevel.Info);
+        CancelQuickType();
+    }
+
+    /// <summary>
+    /// Whether moving from <paramref name="fromKey"/> to
+    /// <paramref name="toKey"/> leaves the Frequency field, which is what
+    /// ends number entry. A move that stays on it does not.
+    /// </summary>
+    internal static bool LeavingEndsNumberEntry(string fromKey, string? toKey)
+        => fromKey == "Freq" && toKey != "Freq";
+
+    /// <summary>
     /// Cancel quick-type entry and restore previous state.
     /// </summary>
     private void CancelQuickType()
@@ -1066,6 +1140,15 @@ public class FreqOutHandlers
         if (ch == '.' && _inQuickType)
         {
             QuickTypeDot();
+            e.Handled = true;
+            return true;
+        }
+        // Once a digit is typed, number entry owns the comma too: a thousands
+        // separator (Noel, 2026-10-25 20:35). A bare comma, with no digit
+        // typed, never gets here and releases a slice instead.
+        if (ch == ',' && _inQuickType)
+        {
+            QuickTypeSeparator();
             e.Handled = true;
             return true;
         }
@@ -1356,70 +1439,10 @@ public class FreqOutHandlers
                 ToggleSquelch();
                 e.Handled = true;
                 break;
-            case '.':
-                // Create/activate a new slice
-                {
-                    int countBefore = Rig.MyNumSlices;
-                    if (Rig.NewSlice())
-                    {
-                        Radios.ScreenReaderOutput.Speak(
-                            Lexicon.Get("settings.slice.created", ("count", countBefore + 1)),
-                            VerbosityLevel.Terse, true);
-                    }
-                    else
-                    {
-                        Radios.ScreenReaderOutput.Speak(
-                            Lexicon.Get("settings.slice.max_reached"), VerbosityLevel.Critical, true);
-                    }
-                }
-                e.Handled = true;
-                break;
-            case ',':
-                // Release/remove the current slice
-                if (Rig.MyNumSlices <= 1)
-                {
-                    Radios.ScreenReaderOutput.Speak(
-                        Lexicon.Get("settings.slice.cannot_release_last"), VerbosityLevel.Critical, true);
-                }
-                else
-                {
-                    int toRemove = vfo;
-                    int countBefore = Rig.MyNumSlices;
-                    string removedLetter = Rig.VFOToLetter(toRemove);
-                    // Find another slice to switch to
-                    int switchTo = -1;
-                    for (int i = 0; i < countBefore; i++)
-                    {
-                        if (i != toRemove)
-                        {
-                            switchTo = i;
-                            break;
-                        }
-                    }
-                    if (switchTo >= 0)
-                    {
-                        string switchLetter = Rig.VFOToLetter(switchTo);
-                        // Move TX away from the slice being removed if needed
-                        if (Rig.CanTransmit && toRemove == Rig.TXVFO)
-                            Rig.TXVFO = switchTo;
-                        Rig.RXVFO = switchTo;
-                        if (Rig.RemoveSlice(toRemove))
-                        {
-                            Radios.ScreenReaderOutput.Speak(
-                                Lexicon.Get("settings.slice.released",
-                                    ("letter", removedLetter), ("count", countBefore - 1)),
-                                VerbosityLevel.Terse, true);
-                        }
-                        else
-                        {
-                            Rig.RXVFO = toRemove; // revert
-                            Radios.ScreenReaderOutput.Speak(
-                                Lexicon.Get("settings.slice.cannot_release"), VerbosityLevel.Critical, true);
-                        }
-                    }
-                }
-                e.Handled = true;
-                break;
+            // Period and comma, create and release, are universal Home keys
+            // now (Noel, 2026-10-25 19:31): they fall through to
+            // TryHandleUniversalHomeKey at the bottom, which owns them for
+            // every field, this one included.
             default:
                 switch (key)
                 {
@@ -2279,7 +2302,14 @@ public class FreqOutHandlers
     /// audit (Split, VOX, Offset, Mute, Volume, RIT, XIT) so the doc claim
     /// "M/V/R/X/Q/= work from any Home field" matches reality.
     /// </summary>
-    private bool TryHandleUniversalHomeKey(KeyEventArgs e)
+    /// <param name="numberEntryActive">
+    /// The Frequency field's own number-entry state, <c>_inQuickType</c>,
+    /// passed only by the two Frequency handlers: true from the first digit
+    /// typed until Enter commits the entry or Escape cancels it. While it
+    /// holds, period and comma belong to number entry. Every other field
+    /// passes nothing, because on them a period has never been a number.
+    /// </param>
+    private bool TryHandleUniversalHomeKey(KeyEventArgs e, bool numberEntryActive = false)
     {
         if (e.Handled) return false;
         if (Rig == null) return false;
@@ -2298,6 +2328,19 @@ public class FreqOutHandlers
         if (key == Key.OemComma && Keyboard.Modifiers == ModifierKeys.Shift)
         {
             ReleaseAllExtraSlicesAndAnnounce();
+            e.Handled = true;
+            return true;
+        }
+        // Shift+S speaks both step sizes from any Home field, where it
+        // applies: in Modern tuning, which has coarse and fine steps (Noel,
+        // 2026-10-25 20:51: "I'd allow it to work anywhere if it applies").
+        // In Classic it is not claimed, so the caller's dead-key answer says
+        // "Shift S does nothing on" the field, as he ruled. Once only the
+        // Modern Frequency field had it; the menu's "Speak Current Step"
+        // promised it everywhere.
+        if (key == Key.S && Keyboard.Modifiers == ModifierKeys.Shift && _window.FreqOut.IsModernMode)
+        {
+            SpeakCurrentStepFromMenu();
             e.Handled = true;
             return true;
         }
@@ -2352,6 +2395,26 @@ public class FreqOutHandlers
         if (ch == '=')
         {
             ToggleTransceive();
+            e.Handled = true;
+            return true;
+        }
+
+        // Period creates a slice and comma releases the current one, from
+        // EVERY field on the slice row, Frequency included, decided by
+        // context (Noel, 2026-10-25 19:31). Once a digit has been typed on
+        // the Frequency field, number entry owns both keys and period is the
+        // decimal point; quick-type takes that period before this runs. A
+        // period with no digit before it is never a decimal: "you should
+        // always type a zero first."
+        if (ch == '.' && !numberEntryActive)
+        {
+            CreateSliceAndAnnounce();
+            e.Handled = true;
+            return true;
+        }
+        if (ch == ',' && !numberEntryActive)
+        {
+            ReleaseActiveSliceAndAnnounce();
             e.Handled = true;
             return true;
         }
@@ -2487,6 +2550,77 @@ public class FreqOutHandlers
     /// all the extras." Speaks a no-op announcement when only one slice is
     /// active. Reuses the multi-slice tri-tone earcon per user request.
     /// </summary>
+    /// <summary>
+    /// Create a slice and say so, or say the radio has no more. The body the
+    /// Slice field's period ran before it became a universal Home key.
+    /// </summary>
+    private void CreateSliceAndAnnounce()
+    {
+        if (Rig == null) return;
+        int countBefore = Rig.MyNumSlices;
+        if (Rig.NewSlice())
+        {
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.slice.created", ("count", countBefore + 1)),
+                VerbosityLevel.Terse, true);
+        }
+        else
+        {
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.slice.max_reached"), VerbosityLevel.Critical, true);
+        }
+    }
+
+    /// <summary>
+    /// Release the receive slice, moving receive (and transmit, if it was
+    /// there) to another slice first, and say so; refuses the last slice. The
+    /// body the Slice field's comma ran before it became a universal Home key.
+    /// </summary>
+    private void ReleaseActiveSliceAndAnnounce()
+    {
+        if (Rig == null) return;
+        int vfo = Rig.RXVFO;
+        if (Rig.MyNumSlices <= 1)
+        {
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.slice.cannot_release_last"), VerbosityLevel.Critical, true);
+            return;
+        }
+
+        int toRemove = vfo;
+        int countBefore = Rig.MyNumSlices;
+        string removedLetter = Rig.VFOToLetter(toRemove);
+        // Find another slice to switch to
+        int switchTo = -1;
+        for (int i = 0; i < countBefore; i++)
+        {
+            if (i != toRemove)
+            {
+                switchTo = i;
+                break;
+            }
+        }
+        if (switchTo < 0) return;
+
+        // Move TX away from the slice being removed if needed
+        if (Rig.CanTransmit && toRemove == Rig.TXVFO)
+            Rig.TXVFO = switchTo;
+        Rig.RXVFO = switchTo;
+        if (Rig.RemoveSlice(toRemove))
+        {
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.slice.released",
+                    ("letter", removedLetter), ("count", countBefore - 1)),
+                VerbosityLevel.Terse, true);
+        }
+        else
+        {
+            Rig.RXVFO = toRemove; // revert
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.slice.cannot_release"), VerbosityLevel.Critical, true);
+        }
+    }
+
     private void ReleaseAllExtraSlicesAndAnnounce()
     {
         if (Rig == null) return;
@@ -2569,6 +2703,39 @@ public class FreqOutHandlers
         // Universal Home keys fall-through — QB Track H (2026-08-07): the
         // S Meter field had NO universal keys at all, breaking the
         // "works from ANY Home field" promise.
+        if (!e.Handled) TryHandleUniversalHomeKey(e);
+        if (!e.Handled) AnnounceDeadHomeKey(field, e);
+    }
+
+    #endregion
+
+    #region AdjustMode — #753
+
+    /// <summary>
+    /// Mode field handler (#753, ruled by Noel 2026-10-17): read the active
+    /// slice's mode by arrowing to it, and change it there. Space or Up moves
+    /// to the next mode and Down to the previous one, through
+    /// <see cref="MainWindow.CycleMode"/> - the same path, the same mode list
+    /// and the same spoken answer as Alt+M and Alt+Shift+M, never a write of
+    /// its own.
+    /// </summary>
+    public void AdjustMode(FrequencyDisplay.DisplayField field, KeyEventArgs e)
+    {
+        if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
+        var key = RawKey(e);
+
+        if (key == Key.Space || key == Key.Up)
+        {
+            _window.CycleMode(1);
+            e.Handled = true;
+        }
+        else if (key == Key.Down)
+        {
+            _window.CycleMode(-1);
+            e.Handled = true;
+        }
+
+        // Universal Home keys fall-through (M/V/R/X/Q/=, Shift+M, Shift+,).
         if (!e.Handled) TryHandleUniversalHomeKey(e);
         if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }
@@ -2840,19 +3007,10 @@ public class FreqOutHandlers
             }
 
             default:
-                if (key == Key.S && Keyboard.Modifiers == ModifierKeys.Shift)
-                {
-                    // Shift+S — announce both step sizes (no current mode to
-                    // pick between any more, so report the whole picture).
-                    // By KEY, not `ch`: a shifted letter is no character (#546).
-                    Radios.ScreenReaderOutput.Speak(
-                        Lexicon.Get("settings.tuning.steps_coarse_fine",
-                            ("coarse", FormatStepForSpeech(_coarseStep)),
-                            ("fine", FormatStepForSpeech(_fineStep))),
-                        VerbosityLevel.Terse, true);
-                    e.Handled = true;
-                }
-                else if (ch == 'S' && Keyboard.Modifiers == ModifierKeys.None)
+                // Shift+S, both step sizes, is a universal Home key in Modern
+                // tuning now and reaches this field through the fall-through
+                // at the bottom (Noel, 2026-10-25 20:51).
+                if (ch == 'S' && Keyboard.Modifiers == ModifierKeys.None)
                 {
                     // S — set both steps deliberately, instead of walking the
                     // ladder to them (#302). Paired with Shift+S on purpose:
@@ -2933,13 +3091,17 @@ public class FreqOutHandlers
                 break;
         }
 
+        // Period and comma, by context — see the same line in AdjustFreq.
+        if (!e.Handled) TryHandleUniversalHomeKey(e, numberEntryActive: _inQuickType);
         // A letter nothing above claimed must not vanish in silence (#338).
         if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }
 
     // Menu caller for "Speak Current Step" — announces both coarse and fine
     // steps. Survives tuning unity because step values are still configurable
-    // and operators want a one-press way to hear what they're set to.
+    // and operators want a one-press way to hear what they're set to. Also
+    // Shift+S from any Home field in Modern tuning (TryHandleUniversalHomeKey),
+    // so the menu's hint and the key say one sentence from one place.
     public void SpeakCurrentStepFromMenu()
     {
         Radios.ScreenReaderOutput.Speak(

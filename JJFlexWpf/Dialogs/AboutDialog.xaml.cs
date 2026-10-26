@@ -269,7 +269,7 @@ document.addEventListener('keydown', function (e) {
             if (ip.Length > 0) sb.AppendLine($"<p>IP Address: {Escape(ip)}</p>");
 
             sb.AppendLine("<h2>Capabilities</h2>");
-            sb.AppendLine($"<p>Active slices: {Rig.TotalNumSlices} of {Rig.MaxSlices}</p>");
+            if (Rig.SliceOccupancy != null) sb.AppendLine($"<p>Active slices: {Rig.SliceOccupancy}</p>");   // #584
             sb.AppendLine($"<p>Diversity: {(Rig.DiversityHardwareSupported ? "Available" : "Not available")}</p>");
 
             return sb.ToString();
@@ -290,7 +290,7 @@ document.addEventListener('keydown', function (e) {
             if (ip.Length > 0) sb.AppendLine($"IP Address: {ip}");
 
             sb.AppendLine();
-            sb.AppendLine($"Active slices: {Rig.TotalNumSlices} of {Rig.MaxSlices}");
+            if (Rig.SliceOccupancy != null) sb.AppendLine($"Active slices: {Rig.SliceOccupancy}");   // #584
             sb.AppendLine($"Diversity: {(Rig.DiversityHardwareSupported ? "Available" : "Not available")}");
             return sb.ToString().TrimEnd();
         }

@@ -5,9 +5,27 @@
         Title="Key Assignments"
         Width="680" Height="520"
         ResizeMode="CanResizeWithGrip">
-    <DockPanel Margin="12">
+    <!-- #705, Noel's bench ruling 2026-10-25 19:24: "put the arrange by
+         category and arrange by to the left tab wise from the list of keys
+         (shift tab) then you press tab to get to change key." So the TREE
+         order below is the tab order, top to bottom: Arrange, Category, the
+         key list, then the buttons. It was a DockPanel, which needs the
+         filling list LAST, so the list sat after Close in the tab order: Tab
+         from the list wrapped round to Arrange and Shift+Tab reached Close.
+         A Grid lays out the same rows in the same places on screen and lets
+         the children sit in the order a keyboard walks them. -->
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
         <!-- Arrange + category selectors -->
-        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+        <DockPanel Grid.Row="0" Margin="0,0,0,8">
             <Label Content="Arrange:" DockPanel.Dock="Left" Padding="0,0,8,0"
                    VerticalAlignment="Center" Target="{Binding ElementName=ViewCombo}" />
             <ComboBox x:Name="ViewCombo"
@@ -15,7 +33,7 @@
                       SelectionChanged="ViewCombo_SelectionChanged"
                       VerticalAlignment="Center" />
         </DockPanel>
-        <DockPanel x:Name="CategoryRow" DockPanel.Dock="Top" Margin="0,0,0,8">
+        <DockPanel x:Name="CategoryRow" Grid.Row="1" Margin="0,0,0,8">
             <Label Content="Category:" DockPanel.Dock="Left" Padding="0,0,8,0"
                    VerticalAlignment="Center" Target="{Binding ElementName=CategoryCombo}" />
             <ComboBox x:Name="CategoryCombo"
@@ -24,14 +42,32 @@
                       VerticalAlignment="Center" />
         </DockPanel>
 
-        <!-- Status line: live announcements mirror speech -->
-        <TextBlock x:Name="StatusText" DockPanel.Dock="Bottom"
-                   Margin="0,6,0,0" Foreground="Gray"
-                   AutomationProperties.Name="Status"
-                   AutomationProperties.LiveSetting="Polite" />
+        <!-- The one Keys list -->
+        <ListView x:Name="KeysList" Grid.Row="2"
+                  AutomationProperties.Name="Key assignments"
+                  SelectionChanged="KeysList_SelectionChanged"
+                  KeyDown="KeysList_KeyDown">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="Command" Width="300"
+                                    DisplayMemberBinding="{Binding Description}" />
+                    <GridViewColumn Header="Key" Width="130"
+                                    DisplayMemberBinding="{Binding KeyDisplay}" />
+                    <GridViewColumn Header="Scope" Width="80"
+                                    DisplayMemberBinding="{Binding Scope}" />
+                    <GridViewColumn Header="Default" Width="110"
+                                    DisplayMemberBinding="{Binding DefaultKeyDisplay}" />
+                </GridView>
+            </ListView.View>
+        </ListView>
+
+        <!-- View-mode hint -->
+        <TextBlock x:Name="ViewHint" Grid.Row="3"
+                   Margin="0,8,0,0" TextWrapping="Wrap"
+                   Text="Viewing only. To change a key, open Tools, then Hotkey Editor." />
 
         <!-- Button rows -->
-        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+        <StackPanel Grid.Row="4" Orientation="Horizontal"
                     HorizontalAlignment="Right" Margin="0,10,0,0">
             <StackPanel x:Name="EditPanel" Orientation="Horizontal">
                 <Button x:Name="ChangeKeyButton" Content="_Change Key"
@@ -70,28 +106,10 @@
                     AutomationProperties.Name="Close" />
         </StackPanel>
 
-        <!-- View-mode hint -->
-        <TextBlock x:Name="ViewHint" DockPanel.Dock="Bottom"
-                   Margin="0,8,0,0" TextWrapping="Wrap"
-                   Text="Viewing only. To change a key, open Tools, then Hotkey Editor." />
-
-        <!-- The one Keys list -->
-        <ListView x:Name="KeysList"
-                  AutomationProperties.Name="Key assignments"
-                  SelectionChanged="KeysList_SelectionChanged"
-                  KeyDown="KeysList_KeyDown">
-            <ListView.View>
-                <GridView>
-                    <GridViewColumn Header="Command" Width="300"
-                                    DisplayMemberBinding="{Binding Description}" />
-                    <GridViewColumn Header="Key" Width="130"
-                                    DisplayMemberBinding="{Binding KeyDisplay}" />
-                    <GridViewColumn Header="Scope" Width="80"
-                                    DisplayMemberBinding="{Binding Scope}" />
-                    <GridViewColumn Header="Default" Width="110"
-                                    DisplayMemberBinding="{Binding DefaultKeyDisplay}" />
-                </GridView>
-            </ListView.View>
-        </ListView>
-    </DockPanel>
+        <!-- Status line: live announcements mirror speech -->
+        <TextBlock x:Name="StatusText" Grid.Row="5"
+                   Margin="0,6,0,0" Foreground="Gray"
+                   AutomationProperties.Name="Status"
+                   AutomationProperties.LiveSetting="Polite" />
+    </Grid>
 </local:JJFlexDialog>

@@ -163,6 +163,18 @@ public static class KeyInventory
             new[] { "squelch", "toggle" }),
         new("Home", "Any Home field", "=", "Transceive: receive and transmit on the current slice",
             new[] { "transceive", "equals", "rx", "tx", "slice" }),
+        // Period and comma left the Slice field for every field (Noel,
+        // 2026-10-25 19:31), decided by context: on Frequency, once a digit
+        // has been typed, number entry owns them and period is the decimal
+        // point. DRAFT PROSE: awaiting Noel.
+        // Shift+S left the Modern Frequency field for every field, in Modern
+        // tuning only (Noel, 2026-10-25 20:51). DRAFT PROSE: awaiting Noel.
+        new("Home", "Any Home field", "Shift+S", "Speak the coarse and fine step sizes (Modern tuning)",
+            new[] { "step", "speak", "coarse", "fine" }),
+        new("Home", "Any Home field", "Period", "Create a new slice; on Frequency, only before you type a digit",
+            new[] { "slice", "create", "new", "add", "period" }),
+        new("Home", "Any Home field", "Comma", "Release the current slice; on Frequency, only before you type a digit",
+            new[] { "slice", "release", "remove", "close", "comma" }),
     };
 
     // Per-field tables. Context keys match FrequencyDisplay.DisplayField.Key.
@@ -182,10 +194,6 @@ public static class KeyInventory
             new[] { "slice", "jump", "letter", "number", "digit" }),
         new("Slice", "Slice field", "T", "Make this slice the transmit slice",
             new[] { "transmit", "tx", "slice" }),
-        new("Slice", "Slice field", "Period", "Create a new slice",
-            new[] { "slice", "create", "new", "add" }),
-        new("Slice", "Slice field", "Comma", "Release the current slice",
-            new[] { "slice", "release", "remove", "close" }),
         new("Slice", "Slice field", "Page Up", "Pan hard right",
             new[] { "pan", "right", "stereo" }),
         new("Slice", "Slice field", "Home", "Pan center",
@@ -266,6 +274,8 @@ public static class KeyInventory
         new("Freq.Modern", "Frequency field (Modern tuning)", "S", "Choose both step sizes from a list",
             new[] { "step", "steps", "size", "sizes", "coarse", "fine", "choose", "pick", "set",
                     "list", "picker", "tuning" }),
+        // Kept on the Frequency field's own list too: the key still works there,
+        // and that field's help reads the step values beside it (TuningContextHelp).
         new("Freq.Modern", "Frequency field (Modern tuning)", "Shift+S", "Speak the coarse and fine step sizes",
             new[] { "step", "speak", "coarse", "fine" }),
         // Same letter, same toggle, as Classic (#344) — split must not change
@@ -360,11 +370,18 @@ public static class KeyInventory
         new("Recorded", "Play recording field", "Space / Enter", "Play or stop this slice's recording.",
             new[] { "play", "recording", "recorder", "slice" }),
 
-        // ── Mute field (Classic only) ──
+        // ── Mode field (#753, both tuning modes) ──
+        // DRAFT PROSE (#753): awaiting Noel
+        new("Mode", "Mode field", "Space or Up", "Next mode",
+            new[] { "mode", "next", "change", "cycle", "usb", "lsb", "cw" }),
+        new("Mode", "Mode field", "Down", "Previous mode",
+            new[] { "mode", "previous", "change", "cycle" }),
+
+        // ── Mute field (Classic and, since #753, Modern) ──
         new("Mute", "Mute field", "Space or M", "Toggle mute",
             new[] { "mute", "toggle" }),
 
-        // ── Volume field (Classic only) ──
+        // ── Volume field (Classic and, since the 2026-10-25 bench ruling, Modern) ──
         new("Volume", "Volume field", "Up / Down", "Adjust volume",
             new[] { "volume", "adjust", "gain" }),
     };
@@ -799,7 +816,18 @@ public static class KeyInventory
     /// </remarks>
     public static bool TryFindLeaderNearMiss(WinFormsKeys pressed,
         out string altKeyName, out string altDescription)
+        => TryFindLeaderNearMiss(pressed, out _, out altKeyName, out altDescription);
+
+    /// <summary>
+    /// The near miss, with the bound chord itself as well as its spoken name,
+    /// so the leader can stay armed for exactly that chord (#693, ruled
+    /// 2026-10-06 under #695: the layer stays armed for H, slash, Escape and
+    /// the named chord).
+    /// </summary>
+    public static bool TryFindLeaderNearMiss(WinFormsKeys pressed,
+        out WinFormsKeys altChord, out string altKeyName, out string altDescription)
     {
+        altChord = WinFormsKeys.None;
         altKeyName = "";
         altDescription = "";
 
@@ -810,6 +838,7 @@ public static class KeyInventory
         {
             if (table.TryGetValue(candidate, out var hit))
             {
+                altChord = candidate;
                 altKeyName = hit.KeyName;
                 altDescription = ShortDescription(hit.Description);
                 return true;
@@ -1617,10 +1646,17 @@ public static class KeyInventory
             reason = "That key is reserved for push to talk";
             return true;
         }
+        // Refused modifier-independently, deliberately (#705): "Enter, Tab
+        // and Escape are never hotkeys" is a rule an operator understands,
+        // and "Enter is not but Ctrl+Enter is" is a special case to memorise.
+        // The reason names the key that was pressed (#705 split the one
+        // sentence that listed all three). In the editor's capture only Enter
+        // and a modified Tab reach here: Escape cancels and Tab moves focus.
         if (code == WinFormsKeys.Escape || code == WinFormsKeys.Tab ||
             code == WinFormsKeys.Return)
         {
-            reason = "Escape, Tab, and Enter are reserved for navigation";
+            reason = Radios.Lexicon.Get("settings.keys.editor.navigation_key_reserved",
+                ("key", KeyManifest.FormatKey(k)));
             return true;
         }
         if (k == (WinFormsKeys.F4 | WinFormsKeys.Alt))

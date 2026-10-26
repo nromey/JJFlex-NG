@@ -274,6 +274,37 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void After_a_near_miss_the_layer_also_claims_the_chord_it_named()
+        {
+            // #693 (ruled 2026-10-06 under #695): the in-app layer stays armed
+            // after a near miss for H, slash, Escape AND the chord it named,
+            // so from another program the hook must claim that chord too.
+            const uint VK_K = 0x4B;
+            var d = Live();
+            d.SetHelpArmed(true, Keys.K | Keys.Alt);
+            var k = d.Decide(VK_K, true, AltOnly);
+            Assert.Equal(SystemWideAction.LeaderKey, k.Action);
+            Assert.Equal(Keys.K | Keys.Alt, k.Key);
+            Assert.True(k.Swallow);
+            Assert.True(d.Decide(VK_K, false, AltOnly).Swallow);   // its up edge is ours too
+
+            // The chord is exact: bare K is not the chord it named, so the
+            // layer lets go and the key passes.
+            d.SetHelpArmed(true, Keys.K | Keys.Alt);
+            var bare = d.Decide(VK_K, true, Nothing);
+            Assert.False(bare.Swallow);
+            Assert.True(bare.HelpLetGo);
+
+            // H still works after a near miss, and an unknown key names no
+            // chord at all.
+            d.SetHelpArmed(true, Keys.K | Keys.Alt);
+            Assert.Equal(SystemWideAction.LeaderKey, d.Decide(VK_H, true, Nothing).Action);
+            d.Decide(VK_H, false, Nothing);
+            d.SetHelpArmed(true);
+            Assert.False(d.Decide(VK_K, true, AltOnly).Swallow);
+        }
+
+        [Fact]
         public void After_an_unknown_key_anything_else_lets_go_and_is_not_swallowed()
         {
             var d = Live();

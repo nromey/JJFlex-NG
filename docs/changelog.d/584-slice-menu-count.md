@@ -1,0 +1,1 @@
+The Slice menu now tells you how many slices are in use out of how many your radio holds, and it stays right after you add or release one. If the radio has not said how many it holds, the menu just says Slice rather than guessing. The About dialog's radio details follow the same rule.

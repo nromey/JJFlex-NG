@@ -189,91 +189,127 @@ namespace Radios.Tests
         // ────────────────────────────────────────────────────────────────
 
         [Fact]
-        public void The_unknown_key_arm_leaves_the_layer_armed_and_the_near_miss_does_not()
+        public void Both_arms_leave_the_layer_armed_and_only_the_near_miss_names_a_chord()
         {
-            // Stickiness follows the sentence that earns it. The near-miss
-            // names a chord to retry and says nothing about help, so a layer
-            // left armed there would be a mode the operator was never told
-            // about — which is the trap the narrow design exists to avoid.
+            // #693, ruled by Noel 2026-10-06 under #695: the near miss now
+            // leaves the layer armed too, because his Chatty sentence names
+            // JJ H, so the mode is told. This test said the opposite until
+            // then ("the near-miss does not"), which was #303's reasoning for
+            // a sentence that said nothing about help. Stickiness still
+            // follows the sentence that earns it; both sentences now earn it.
             string body = MethodBody(Source(KeyCommandsFile), "private bool DoLeaderCommand(Keys k)");
+            string code = Code(body);
 
-            int arms = Occurrences(body, "_leaderHelpArmed = true");
-            Assert.True(arms == 1,
-                $"expected exactly one arming site in DoLeaderCommand, found {arms}");
+            Assert.Equal(2, Occurrences(code, "_leaderHelpArmed = true"));
 
             int nearMissAt = body.IndexOf("leader.near_miss", StringComparison.Ordinal);
             int unknownAt = body.IndexOf("leader.unknown_key", StringComparison.Ordinal);
-            int armAt = body.IndexOf("_leaderHelpArmed = true", StringComparison.Ordinal);
-
+            int firstArm = code.IndexOf("_leaderHelpArmed = true", StringComparison.Ordinal);
+            int secondArm = code.IndexOf("_leaderHelpArmed = true", firstArm + 1, StringComparison.Ordinal);
             Assert.True(nearMissAt >= 0 && unknownAt >= 0, "both arms must still be present");
-            Assert.True(armAt > nearMissAt,
-                "the layer is armed in the near-miss branch, which never mentions help");
-            Assert.True(armAt < unknownAt,
-                "the layer must be armed before the unknown-key message is spoken, in that branch");
+            Assert.True(firstArm < nearMissAt, "the near-miss branch arms the layer before it speaks");
+            Assert.True(nearMissAt < secondArm && secondArm < unknownAt,
+                "the unknown-key branch arms the layer before it speaks, in that branch");
+
+            // The near miss remembers the chord it named; the unknown key
+            // names none, so it must clear what a previous near miss left.
+            int nearChordAt = code.IndexOf("_leaderNearMissChord = nearChord", StringComparison.Ordinal);
+            int noneAt = code.IndexOf("_leaderNearMissChord = Keys.None", StringComparison.Ordinal);
+            Assert.True(nearChordAt > firstArm && nearChordAt < secondArm, "the near miss must record its chord");
+            Assert.True(noneAt > secondArm && noneAt < unknownAt, "the unknown key must clear the chord");
         }
 
         // ────────────────────────────────────────────────────────────────
         //  #528 — below Chatty the thunk is the answer; the words are the
         //  fallback for when it cannot sound. Ruled by Noel 2026-09-02.
+        //  #693 — except that a near miss speaks at Terse (2026-10-06).
         // ────────────────────────────────────────────────────────────────
 
         [Fact]
-        public void The_near_miss_names_the_alternative_at_every_level()
+        public void The_near_miss_says_Noels_sentences_with_the_key_that_was_pressed()
         {
-            // This used to be a ladder (a citation "#558" stood here; it names
-            // no task in either register file — see #616): the
-            // fallback tiers said only "Ctrl+G is not a command" and the
-            // recovery lived at Chatty, on the reasoning that naming what to
-            // press instead is a hint and Terse carries values, not hints.
-            //
-            // What that produced was a Terse operator hearing ONLY the half
-            // they already knew — the refusal earcon had told them the chord
-            // did nothing a moment earlier. So the sentence is now the
-            // recovery and nothing else, at every level, and there is no
-            // ladder left to test.
+            // Ruled by Noel 2026-10-06, verbatim as a template (#693; the
+            // ruling is written into #695's body). Working chord first, the
+            // pressed key last, at both levels. Until then the sentence was
+            // "{alt}: {what}" at every level, and a colon reads as a LABEL:
+            // he heard "Ctrl+J, G: Arm or disarm the TX test tone" after
+            // Ctrl+G and could not tell whether Ctrl+G had done something.
+            // This test pinned that colon form as correct until then.
             Lexicon.Forget();
             Lexicon.Load(Lexicon.Partitions);
 
-            var args = new (string, object?)[] { ("alt", "G"), ("what", "Arm or disarm the TX test tone") };
-            const string expected = "G: Arm or disarm the TX test tone";
-            foreach (var level in new[] { VerbosityLevel.Chatty, VerbosityLevel.Terse, VerbosityLevel.Critical })
-                Assert.Equal(expected, Lexicon.Get("leader.near_miss", level, args));
+            var args = new (string, object?)[] { ("pressed", "K"), ("alt", "Alt+K"), ("what", "Mic check") };
 
-            // The pressed key is deliberately absent: the operator pressed it.
-            Assert.DoesNotContain("Ctrl+G", Lexicon.Get("leader.near_miss", VerbosityLevel.Chatty, args));
+            Assert.Equal(
+                "You pressed K which isn't assigned. Pressing Alt+K launches Mic check if that was what you "
+                + "were looking for, otherwise use JJ H to hear keys you can use with the JJ key.",
+                Lexicon.Get("leader.near_miss", VerbosityLevel.Chatty, args));
+            Assert.Equal("Alt+K launches Mic check, not K.",
+                Lexicon.Get("leader.near_miss", VerbosityLevel.Terse, args));
+            // Off says no more than Terse: the fallback tier, spoken only when
+            // the thunk cannot sound, is the Terse sentence.
+            Assert.Equal("Alt+K launches Mic check, not K.",
+                Lexicon.Get("leader.near_miss", VerbosityLevel.Critical, args));
+
+            // The dispatcher fills {pressed}; a missing argument would be
+            // spoken as the placeholder itself.
+            string arm = DefaultArm(MethodBody(Source(KeyCommandsFile), "private bool DoLeaderCommand(Keys k)"));
+            Assert.Contains("(\"pressed\", KeyManifest.FormatKey(k))", arm);
+            Assert.Contains("_miss\", verbosity,", arm);   // the ladder is asked at the operator's level
         }
 
         [Fact]
-        public void Below_chatty_the_thunk_gates_both_sentences_and_neither_gates_the_arm()
+        public void A_near_miss_speaks_at_Terse_and_an_unknown_key_does_not()
+        {
+            // The two predicates, side by side. A thunk can say "that key did
+            // nothing"; it cannot say which key to press instead.
+            foreach (bool tone in new[] { true, false })
+            {
+                Assert.False(Speech.RefusalVoice.NearMissToneStandsAlone(VerbosityLevel.Chatty, tone));
+                Assert.False(Speech.RefusalVoice.NearMissToneStandsAlone(VerbosityLevel.Terse, tone));
+                Assert.False(Speech.RefusalVoice.ToneStandsAlone(VerbosityLevel.Chatty, tone));
+            }
+            // With the tone sounding, Terse keeps the bare thunk for an
+            // unknown key, and Off keeps it for both.
+            Assert.True(Speech.RefusalVoice.ToneStandsAlone(VerbosityLevel.Terse, true));
+            Assert.True(Speech.RefusalVoice.ToneStandsAlone(VerbosityLevel.Critical, true));
+            Assert.True(Speech.RefusalVoice.NearMissToneStandsAlone(VerbosityLevel.Critical, true));
+            // With no tone, the words are the only answer at every level.
+            Assert.False(Speech.RefusalVoice.ToneStandsAlone(VerbosityLevel.Critical, false));
+            Assert.False(Speech.RefusalVoice.NearMissToneStandsAlone(VerbosityLevel.Critical, false));
+        }
+
+        [Fact]
+        public void Each_sentence_is_behind_its_own_gate_and_neither_gate_holds_an_arm()
         {
             // Read the dispatcher rather than trusting the description of it.
-            // Three things must be true of the default arm, and each is the
-            // kind that a tidy-up could break without a compile error:
-            //  - the gate is asked ONCE, from the shared rule, so the two
-            //    branches cannot drift into two verbosity policies;
-            //  - both sentences sit behind it;
-            //  - the arming does NOT — verbosity changes what is said, never
-            //    what happens, or H after a thunk would mean one thing at
-            //    Chatty and another at Terse.
+            //  - each gate is asked ONCE, from the shared rule in RefusalVoice,
+            //    so the branches cannot grow a third verbosity policy;
+            //  - the near-miss sentence sits behind the near-miss gate (#693)
+            //    and the unknown-key sentence behind the #528 gate;
+            //  - neither arming is inside a gate — verbosity changes what is
+            //    said, never what happens, or H after a thunk would mean one
+            //    thing at Chatty and another at Terse.
             string body = MethodBody(Source(KeyCommandsFile), "private bool DoLeaderCommand(Keys k)");
             string code = Code(body);
 
             Assert.Equal(1, Occurrences(code, "RefusalVoice.ToneStandsAlone("));
+            Assert.Equal(1, Occurrences(code, "RefusalVoice.NearMissToneStandsAlone("));
             Assert.Contains("EarconPlayer.IsOn(EarconPlayer.EarconCategory.CommandsAndConfirmations)", code);
 
-            int gateAt = code.IndexOf("RefusalVoice.ToneStandsAlone(", StringComparison.Ordinal);
+            int gateAt = code.IndexOf("RefusalVoice.NearMissToneStandsAlone(", StringComparison.Ordinal);
             int nearMissAt = code.IndexOf("TryFindLeaderNearMiss", StringComparison.Ordinal);
-            Assert.True(gateAt < nearMissAt, "the gate must be computed before the branches that use it");
+            Assert.True(gateAt < nearMissAt, "the gates must be computed before the branches that use them");
 
-            // Two guarded Speak calls, one per branch, and the arm between
-            // them is not inside either guard: it precedes the second guard
-            // and follows the first branch's guard.
-            int firstGuard = code.IndexOf("if (!toneStandsAlone)", gateAt, StringComparison.Ordinal);
-            int armAt = code.IndexOf("_leaderHelpArmed = true", StringComparison.Ordinal);
-            int secondGuard = code.IndexOf("if (!toneStandsAlone)", armAt, StringComparison.Ordinal);
-            Assert.True(firstGuard > gateAt && firstGuard < armAt, "the near-miss sentence must be behind the gate");
-            Assert.True(secondGuard > armAt, "the unknown-key sentence must be behind the gate, after the arm");
-            Assert.Equal(2, Occurrences(code, "if (!toneStandsAlone)"));
+            int firstArm = code.IndexOf("_leaderHelpArmed = true", nearMissAt, StringComparison.Ordinal);
+            int nearGuard = code.IndexOf("if (!nearMissToneStandsAlone)", StringComparison.Ordinal);
+            int secondArm = code.IndexOf("_leaderHelpArmed = true", firstArm + 1, StringComparison.Ordinal);
+            int unknownGuard = code.IndexOf("if (!toneStandsAlone)", StringComparison.Ordinal);
+            Assert.True(firstArm < nearGuard && nearGuard < secondArm,
+                "the near-miss sentence must be behind its gate, after its arm");
+            Assert.True(secondArm < unknownGuard, "the unknown-key sentence must be behind its gate, after its arm");
+            Assert.Equal(1, Occurrences(code, "if (!nearMissToneStandsAlone)"));
+            Assert.Equal(1, Occurrences(code, "if (!toneStandsAlone)"));
         }
 
         [Fact]
@@ -286,6 +322,12 @@ namespace Radios.Tests
             Assert.Contains("Terse", page);
             Assert.Contains("H for the list, Escape to cancel", page);
             Assert.Contains("earcons", page, StringComparison.OrdinalIgnoreCase);
+            // #693: the near-miss sentences the page quotes are the ones the
+            // app now says, and the page says the layer waits for the chord.
+            Assert.Contains("\"Alt+K launches Mic check, not K.\"", page);
+            Assert.Contains("You pressed K which isn't assigned.", page);
+            Assert.DoesNotContain("K is not a command", page);
+            Assert.Contains("the chord it just named", page);
         }
 
         [Fact]
@@ -314,19 +356,29 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_help_armed_state_never_dispatches_a_leader_command()
+        public void The_help_armed_state_dispatches_only_the_chord_a_near_miss_named()
         {
-            // The whole safety argument is that the three keys which keep the
-            // layer alive all LEAD OUT of it. If this block could reach the
-            // dispatcher, the layer would be fully sticky and an operator could
-            // be held in it without being told.
+            // The safety argument used to be that the three keys which keep
+            // the layer alive all LEAD OUT of it, and this test was named
+            // "never dispatches". #693 adds a fourth key, ruled by Noel
+            // 2026-10-06: the chord the near miss has just NAMED out loud. So
+            // the block may reach the dispatcher exactly once, behind the
+            // near-miss chord test, and nowhere else.
             string block = Code(HelpArmedBlock(Source(KeyCommandsFile)));
 
             Assert.Contains("_leaderHelpArmed = false", block);
             Assert.Contains("LeaderKeyHelp()", block);
             Assert.Contains("OpenKeyExplorer()", block);   // the second door (#519)
             Assert.Contains("LeaderCancel()", block);
-            Assert.DoesNotContain("DoLeaderCommand", block);
+            Assert.Equal(1, Occurrences(block, "DoLeaderCommand("));
+            int guard = block.IndexOf("if (IsNearMissChord(k))", StringComparison.Ordinal);
+            int dispatch = block.IndexOf("DoLeaderCommand(", StringComparison.Ordinal);
+            Assert.True(guard >= 0 && guard < dispatch, "the only dispatch must be behind the near-miss chord test");
+
+            // And the test is the chord a near miss recorded, never "any key".
+            string predicate = MethodBody(Source(KeyCommandsFile), "private bool IsNearMissChord(Keys k)");
+            Assert.Contains("_leaderNearMissChord != Keys.None", predicate);
+            Assert.Contains("k == _leaderNearMissChord", predicate);
         }
 
         [Fact]
@@ -378,6 +430,8 @@ namespace Radios.Tests
             "_context.Trace",
             "EarconPlayer.LeaderInvalidTone",
             "Radios.Speech.RefusalVoice.ToneStandsAlone",
+            "Radios.Speech.RefusalVoice.NearMissToneStandsAlone",
+            "KeyManifest.FormatKey",   // names the pressed key for {pressed} (#693)
             "EarconPlayer.IsOn",
             "KeyInventory.TryFindLeaderNearMiss",
             "Radios.ScreenReaderOutput.Speak",

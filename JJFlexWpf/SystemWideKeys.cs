@@ -271,11 +271,17 @@ namespace JJFlexWpf
         /// second key has been dispatched, so the hook claims exactly those
         /// three next and lets anything else go — the in-window behaviour.
         /// </summary>
-        public static void NoteHelpArmed(bool armed)
+        public static void NoteHelpArmed(bool armed) => NoteHelpArmed(armed, WinFormsKeys.None);
+
+        /// <summary>
+        /// The same, after a near miss (#693): the layer also waits for the
+        /// chord the near miss named, so the hook claims that chord too.
+        /// </summary>
+        public static void NoteHelpArmed(bool armed, WinFormsKeys nearMissChord)
         {
             lock (_gate)
             {
-                _decider.SetHelpArmed(armed);
+                _decider.SetHelpArmed(armed, nearMissChord);
                 if (armed)
                 {
                     // "H for the list, Escape to cancel" is a bare waiting
@@ -284,6 +290,17 @@ namespace JJFlexWpf
                     StartWatchLocked();
                 }
             }
+        }
+
+        /// <summary>
+        /// Is the hook in a bare waiting state — after its own JJ key, or
+        /// relayed as help-armed? For the window-free test that an IN-WINDOW
+        /// near miss is deliberately never relayed (#693 repair round; see
+        /// <c>KeyCommands.ApplicationDeactivated</c>).
+        /// </summary>
+        internal static bool HookIsWaiting
+        {
+            get { lock (_gate) return _decider.Waiting; }
         }
 
         // ── the hook thread ──────────────────────────────────────────────

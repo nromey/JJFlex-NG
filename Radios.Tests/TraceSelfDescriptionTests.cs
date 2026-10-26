@@ -514,9 +514,30 @@ namespace Radios.Tests
         /// through the REAL handlers on a radioless rig into a real live file:
         /// each kind's introduction sits on the line immediately before its
         /// first record, once, and the record's text is what it always was.
+        /// <para>#650: run under a comma-decimal culture too. The expected text
+        /// used to be built with <c>13.5f.ToString()</c>, in the machine's
+        /// culture, so it reproduced the writer's defect in its own
+        /// expectation and passed under every culture. It is now the literal
+        /// invariant text, and the number is parsed back invariantly.</para>
         /// </summary>
-        [Fact]
-        public void The_supply_voltage_and_PA_efficiency_handlers_introduce_themselves()
+        [Theory]
+        [InlineData("en-US")]
+        [InlineData("de-DE")]
+        public void The_supply_voltage_and_PA_efficiency_handlers_introduce_themselves(string cultureName)
+        {
+            System.Globalization.CultureInfo savedCulture = System.Globalization.CultureInfo.CurrentCulture;
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo(cultureName);
+            try
+            {
+                SupplyVoltageAndEfficiencyIntroduceThemselves();
+            }
+            finally
+            {
+                System.Globalization.CultureInfo.CurrentCulture = savedCulture;
+            }
+        }
+
+        private void SupplyVoltageAndEfficiencyIntroduceThemselves()
         {
             TraceTransitionResult began = TraceCoordinator.Begin(_livePath, TraceLevel.Verbose, asDetailedCapture: false);
             Assert.Equal(TraceTransition.Accepted, began.Status);
@@ -545,12 +566,16 @@ namespace Radios.Tests
             _out.WriteLine(string.Join(Environment.NewLine, lines));
             foreach ((TraceRecordKind kind, string head, string first) in new[]
             {
-                (FlexBase.SupplyVoltsRecord, "VoltsDataHandler:", "VoltsDataHandler:" + 13.5f.ToString()),
-                (FlexBase.PaEfficiencyRecord, "paEffData:", "paEffData:" + 42.5f.ToString()),
+                (FlexBase.SupplyVoltsRecord, "VoltsDataHandler:", "VoltsDataHandler:13.5"),
+                (FlexBase.PaEfficiencyRecord, "paEffData:", "paEffData:42.5"),
             })
             {
                 int record = Array.FindIndex(lines, l => l.EndsWith("] " + first, StringComparison.Ordinal));
-                Assert.True(record > 0, head + " wrote nothing");
+                Assert.True(record > 0, head + " wrote nothing, or wrote it in the machine's culture");
+                string written = lines[record].Substring(lines[record].IndexOf("] " + head, StringComparison.Ordinal) + 2 + head.Length);
+                Assert.True(double.TryParse(written, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out double parsed), head + " is not an invariant number: " + written);
+                Assert.Equal(head == "VoltsDataHandler:" ? 13.5 : 42.5, parsed);
                 Assert.Equal(record - 1, Only(lines, TraceSelfDescription.Introduction(kind), head + " introduction"));
                 Assert.Equal(2, lines.Count(l => l.Contains("] " + head, StringComparison.Ordinal)));
             }

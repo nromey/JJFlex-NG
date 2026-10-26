@@ -25,11 +25,38 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         public Action<int>? DeleteMessage { get; set; }
 
+        /// <summary>
+        /// True while the library holds no messages and the list shows the
+        /// one empty-state row (#717). Update and Delete act on nothing then.
+        /// </summary>
+        private bool _listIsEmpty;
+
         public CWMessageUpdateDialog()
         {
             InitializeComponent();
+            // #717: the list names the way out. Arrow keys never leave a
+            // ListBox, so with messages present the buttons felt absent; Tab
+            // reaches them and Escape closes. Initial focus stays on the list,
+            // which is the right landing place.
+            //
+            // On Ctrl+F1 ONLY (JJFlexHelp), never AutomationProperties.HelpText:
+            // NVDA reads HelpText as the control's description on EVERY focus,
+            // even at verbosity Off, so the round-one build recited this whole
+            // paragraph each time the list was reached (Noel's bench, 2026-10-25
+            // 19:19). The list's own rows already say what each message is.
+            JJFlexHelp.SetText(KeysList, Radios.Lexicon.Get("settings.cw_message.list_help"));
             Loaded += OnLoaded;
         }
+
+        /// <summary>
+        /// The rows the list shows: the messages, or, when there are none, the
+        /// one row that says so (#717). An empty ListBox reports nothing, so an
+        /// empty library was indistinguishable from a dialog that failed to
+        /// load. The message rows are passed through untouched: label, key and
+        /// payload kind, deliberately (Sprint 48 Track A).
+        /// </summary>
+        internal static string[] RowsFor(string[]? labels, string emptyRow) =>
+            labels == null || labels.Length == 0 ? new[] { emptyRow } : labels;
 
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
@@ -41,13 +68,14 @@ namespace JJFlexWpf.Dialogs
         {
             int oldIndex = KeysList.SelectedIndex;
             string[]? labels = GetMessageLabels?.Invoke();
+            _listIsEmpty = labels == null || labels.Length == 0;
             KeysList.ItemsSource = null;
-            KeysList.ItemsSource = labels;
-            if (labels != null && labels.Length > 0)
-            {
-                KeysList.SelectedIndex = Math.Min(oldIndex, labels.Length - 1);
-                if (KeysList.SelectedIndex < 0) KeysList.SelectedIndex = 0;
-            }
+            KeysList.ItemsSource = RowsFor(labels, Radios.Lexicon.Get("settings.cw_message.list_empty"));
+            // Nothing to update or delete: out of the tab order, as every
+            // unavailable control is, and back the moment a message exists.
+            UpdateButton.IsEnabled = !_listIsEmpty;
+            DeleteButton.IsEnabled = !_listIsEmpty;
+            KeysList.SelectedIndex = _listIsEmpty ? 0 : Math.Max(0, Math.Min(oldIndex, labels!.Length - 1));
         }
 
         private void AddButton_Click(object sender, RoutedEventArgs e)
@@ -59,7 +87,7 @@ namespace JJFlexWpf.Dialogs
 
         private void UpdateButton_Click(object sender, RoutedEventArgs e)
         {
-            if (KeysList.SelectedIndex < 0) return;
+            if (_listIsEmpty || KeysList.SelectedIndex < 0) return;
             UpdateMessage?.Invoke(KeysList.SelectedIndex);
             RefreshList();
             KeysList.Focus();
@@ -67,25 +95,23 @@ namespace JJFlexWpf.Dialogs
 
         private void DeleteButton_Click(object sender, RoutedEventArgs e)
         {
-            if (KeysList.SelectedIndex < 0) return;
+            if (_listIsEmpty || KeysList.SelectedIndex < 0) return;
             int idx = KeysList.SelectedIndex;
             if (idx > 0) KeysList.SelectedIndex = idx - 1;
             DeleteMessage?.Invoke(idx);
             RefreshList();
-            string[]? labels = GetMessageLabels?.Invoke();
-            if (labels == null || labels.Length == 0)
-            {
-                DialogResult = false;
-                Close();
-                return;
-            }
+            // #717: deleting the last message used to close the dialog with its
+            // result set to false, so the one path that changed something
+            // reported a cancellation. It now stays, on the list, which says
+            // it is empty and how to add one; Close or Escape leaves.
             KeysList.Focus();
         }
 
         private void KeysList_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            UpdateButton.IsDefault = KeysList.SelectedIndex >= 0;
-            AddButton.IsDefault = KeysList.SelectedIndex < 0;
+            bool onAMessage = !_listIsEmpty && KeysList.SelectedIndex >= 0;
+            UpdateButton.IsDefault = onAMessage;
+            AddButton.IsDefault = !onAMessage;
         }
     }
 }

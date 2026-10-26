@@ -111,7 +111,9 @@ namespace Radios.Tests
             // no-station companions, local network and unknown source (#634).
             // Eighteen from Sprint 48 Track F: the noise layer's entry
             // sentence, a ladder like the audio and filter layers' (#518).
-            Assert.Equal(18, ladders);
+            // Nineteen from junkbox #693: the JJ key near miss, Noel's ruled
+            // Chatty and Terse sentences (2026-10-06).
+            Assert.Equal(19, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -855,6 +857,10 @@ namespace Radios.Tests
             // the manifest refuses, so they leave it and are classified below
             // beside their four transmit and microphone siblings, as the
             // fragments they are.
+            //
+            // One fewer at junkbox #693 (2026-10-25): leader.near_miss left
+            // the manifest when Noel's ruled sentences replaced it, and is
+            // classified below.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -952,6 +958,39 @@ namespace Radios.Tests
                 // frequency entry. RULED by Noel 14:33-14:34 ("just say
                 // selected number").
                 "audio.value_layer.typed_number",
+                // Junkbox #693, 2026-10-25: the JJ key layer's near miss, now
+                // Noel's ruled ladder (2026-10-06, written into #695's body)
+                // with the {pressed} placeholder it never had. Classified, not
+                // re-frozen, because rewording a frozen key is what the
+                // manifest refuses (#720). delivery: null - TextOnly - on the
+                // #726 reasoning: spoken ONLY in answer to the press that
+                // missed, through the leader's refusal path where
+                // RefusalVoice decides whether words or the tone are heard.
+                // Its sibling leader.unknown_key is legacy and still frozen;
+                // WHEN THE PASS REACHES IT, DECIDE IT WITH THIS ONE IN VIEW.
+                "leader.near_miss",
+                // Junkbox #717, 2026-10-25: Manage Messages' empty-state row
+                // and the list's help text, which names Tab and Escape.
+                // Classified rather than frozen because they were written
+                // here (#720). delivery: null - TextOnly - because both are
+                // the control's own text, read when focus lands on the list
+                // (the #726 item 6 reasoning for labels); the application
+                // never says either on its own account. DRAFTS awaiting Noel.
+                "settings.cw_message.list_empty",
+                "settings.cw_message.list_help",
+                // Junkbox #705, 2026-10-25: the Hotkey Editor's reason for a
+                // key that can never be assigned (Enter, and Tab or Escape
+                // with a modifier). A FRAGMENT that settings.keys.editor.key_reserved
+                // wraps, never spoken alone, so TextOnly (the #777
+                // reasoning). DRAFT awaiting Noel.
+                "settings.keys.editor.navigation_key_reserved",
+                "settings.keys.editor.description",
+                // Junkbox #753, 2026-10-25: the Home Mode field's spoken
+                // label. A LABEL, read when focus lands on the field, so
+                // delivery: null - TextOnly (the #726 item 6 reasoning). Its
+                // siblings settings.home.field_label_* are legacy and still
+                // frozen; WHEN THE PASS REACHES THEM, DECIDE THEM WITH THIS ONE.
+                "settings.home.field_label_mode",
                 // #778b, same reasoning: the fine-step sentence the engine
                 // appends to the digit line where Shift with the arrows really
                 // is the fine step. Noel asked for one at 14:33; this wording
@@ -1771,7 +1810,7 @@ namespace Radios.Tests
                 "audio.qsos.close_help",
             };
 
-            Assert.Equal(3141, unclassified);
+            Assert.Equal(3140, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

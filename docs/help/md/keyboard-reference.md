@@ -2,7 +2,7 @@
 
 Welcome to your one-stop reference for every keyboard shortcut in JJ Flexible Radio Access. You can also press `Ctrl+/` at any time to open the Command Finder, which lets you search for commands by name. And here's the newest trick: while you're in the JJ Flexible Home, press `?` on any field and the app speaks the keys that work right there.
 
-Almost every shortcut below can be changed. Open Tools, then Hotkey Editor, pick a command, and press the new key you want — the app tells you about any conflict and asks before taking a key away from another command. Help → Key Assignments opens the same list for browsing. Commands listed as having no key can be given one there too.
+Almost every shortcut below can be changed. Open Tools, then Hotkey Editor, pick a command, and press the new key you want — the app tells you about any conflict and asks before taking a key away from another command. While it waits for the new key, `Escape` cancels, `Tab` and `Shift+Tab` stop waiting and move on as they always do, and `Enter` is refused, because Enter, Tab and Escape can never be assigned. You land on the list of commands; `Shift+Tab` from there reaches Arrange by and Category, and `Tab` goes straight to Change Key and the other buttons. Help → Key Assignments opens the same list for browsing. Commands listed as having no key can be given one there too.
 
 JJ Flexible Radio Access has three operating scopes: some keys work everywhere (Global), some only work when you're controlling the radio (Radio scope, which includes both Classic and Modern tuning modes), and some only work when you're in the logging pane (Logging scope).
 
@@ -38,7 +38,7 @@ Three keys work while another program has the keyboard — a contest logger, a b
 
 Those are the defaults, and they are provisional on purpose. A system-wide key is taken from every program on this computer, so if one collides with your logger, your screen reader, or anything else, change it: Settings, **System-wide keys** (the Tools menu item of the same name opens that tab, and so does Change Key or Enter on a system-wide row in the Hotkey Editor). Pick a role, press Change, press the new key. Every key needs two of Ctrl, Alt and Shift plus a key, and the dialog refuses anything less — an accidental press of the push-to-talk key puts you on the air. When you assign a key it reads back four checks: whether any JJ Flexible command already uses it, whether another program has registered it with Windows, a reminder that Windows cannot see programs that watch the keyboard directly (screen readers included), and the one test that can see them, which is switching to another program and pressing it. There are two switches at the top, not one: the JJ key from other programs, and push to talk with the transmit lock from other programs. They are separate on purpose, because if the JJ key collides with your logger you can switch that off and keep the push to talk that was the point. Both are on to begin with; while a switch is off, nothing under it is taken from anybody.
 
-The JJ key layer opened from another program closes on its own if you leave it waiting for about ten seconds with nothing on screen, so a layer you forgot about cannot swallow a keystroke you meant for your logger. Every key you press restarts that clock, and while the key list or the key explorer is open the clock is paused entirely — read for as long as you like. It closes quietly; the next key simply goes to the program you are in. Inside the JJ Flexible window the layer still waits as long as you like.
+The JJ key layer opened from another program closes on its own if you leave it waiting for about ten seconds with nothing on screen, so a layer you forgot about cannot swallow a keystroke you meant for your logger. Every key you press restarts that clock, and while the key list or the key explorer is open the clock is paused entirely — read for as long as you like. It closes quietly; the next key simply goes to the program you are in. Inside the JJ Flexible window the layer still waits as long as you like, until you switch to another program: then it lets go quietly, so the key you press when you come back does its ordinary job.
 
 With no radio connected, the push-to-talk and lock keys say so instead of doing nothing. A held push to talk from another program is watched the whole time: if the release is ever missed, the transmit is ended on its own and you are told.
 
@@ -126,7 +126,7 @@ One switch is left here: tuning speech debounce wants `Ctrl+D`, which is the det
 
 Don't worry if you press the JJ key by accident or if you simply don't want to access the command layer. Press Escape to leave the JJ Command layer — you'll hear a little descending tone, and you can go back to whatever you were doing previously in JJ Flexible Radio. The layer waits patiently until you press a key or cancel; there's no timer sneaking you out of it.
 
-Press a key the layer doesn't know and it now says "Unknown key. H for the list, Escape to cancel." — and then it actually waits for you. After an unknown key the layer stays open for three keys only: `H` opens the command list, the slash key opens the JJ key explorer, and `Escape` closes it. Any other key and the layer has already let go, so that key does its ordinary job. The full story is on the JJ Key Commands page.
+Press a key the layer doesn't know and it now says "Unknown key. H for the list, Escape to cancel." — and then it actually waits for you. After an unknown key the layer stays open for three keys only: `H` opens the command list, the slash key opens the JJ key explorer, and `Escape` closes it. Any other key and the layer has already let go, so that key does its ordinary job. Press a key that isn't assigned but sits one modifier away from one that is, such as `K` when `Alt+K` is the mic check, and the layer names the right chord and waits for it too, so `Alt+K` straight away runs the mic check without `Ctrl+J` again. The full story is on the JJ Key Commands page.
 
 One more thing worth knowing: the JJ key's built-in help (`Ctrl+J` then `H`) used to read you every command in the layer in one breath — thirty-odd of them, the better part of a minute, with no way to go back to the one you missed. It's a list now. It tells you how many commands there are first, then opens a window with one command per row: arrow up and down, hear each one by itself, and type a letter to jump straight to that key. Escape closes it and you're back exactly where you were. A short layer — volume mode, with its handful of targets — is still simply spoken, because six things are a sentence and a window would be more trouble than the answer. The list has an **Explore the JJ key** button (`Alt+X`) that opens the JJ key explorer, a tree of the whole layer: plain letters, Shift letters, Control letters, Alt letters, then help — and under any chord that opens a mode of its own, the keys that only work inside it. Right arrow opens a branch, Left closes it, and a letter jumps to that key.
 
@@ -453,9 +453,14 @@ These keys work from ANY field within your JJ Flexible Home. First, remember to 
 - **X** — Toggle XIT on/off
 - **Q** — Toggle squelch on/off
 - **=** — Transceive current slice (set both RX and TX to this slice)
+- **. (period)** — Create a new slice
+- **, (comma)** — Release the current slice
+- **Shift+S** — In Modern tuning, speak both your coarse and fine step sizes. Classic tuning has no coarse and fine steps, so there it says Shift S does nothing on the field you are on
 - **Shift+M** — Mute or unmute every slice at once
 - **Shift+Comma** — Release every slice except the one you are on
 - **?** — Speak the keys for the field you're on
+
+Period and comma work on the Frequency field too, and there they go by what you are doing. Before you type a digit, they are the slice keys like everywhere else. Once you have typed a digit you are entering a frequency, so the period is the decimal point and the comma is a thousands separator: type 14.2 and press Enter and you are on 14.200, or type 14,225.000 in kilohertz and you are on 14.225. A period with no digit in front of it is never a decimal point, so for a frequency under one megahertz, type the zero first: 0.5, not .5.
 
 Navigation inside the Home: Left and Right arrows move one character at a time, Home jumps to the first field (except on the Slice field, where it pans center), End jumps to the last field, and Page Down jumps straight to the Frequency field from fields that don't use Page Down themselves.
 
@@ -471,8 +476,7 @@ When focused on the Slice field specifically:
 - **Up / Down** — Next or previous slice. Down goes A, B, C — the way the list reads. If you would rather have it the other way round, the Accessibility tab in Settings holds a Slice arrow direction choice, and it applies to the Slice Operations field too
 - **0-9 or A-H** — Jump directly to the desired slice by number or letter (you'll hear "not created" if it doesn't exist yet, and "no such slice" for a number past what any radio holds)
 - **T** — Make this slice the TX slice
-- **. (period)** — Create a new slice
-- **, (comma)** — Release the current slice
+- **. (period)** and **, (comma)** — Create a new slice, or release the current one. These work from every Home field now, not just this one; see the keys above
 - **Page Up** — Pan hard right
 - **Home** — Pan center
 - **Page Down** — Pan hard left
@@ -489,6 +493,15 @@ When focused on the Slice Operations field (per-slice audio controls):
 - **=** — Transceive the currently selected slice
 
 There is deliberately no explicit "unmute" key here any more — the old S for "sound" mostly announced a state the slice was already in, so it read as a dead key and it's gone. M silences a slice fast without you having to know its current state, and Space toggles, which covers unmuting.
+
+## JJ Flexible Home — Mode Field Keys
+
+The Mode field sits after the S Meter, in both Classic and Modern tuning, and shows the active slice's mode. Arrow to it to hear the mode; change it right there:
+
+- **Space** or **Up** — Next mode
+- **Down** — Previous mode
+
+These go through the same list as Alt+M and Alt+Shift+M, so you hear the new mode the same way.
 
 ## JJ Flexible Home — Squelch and Squelch Level Field Keys
 
@@ -543,7 +556,7 @@ When focused on the Frequency field in Modern tuning mode:
 - **Digits** — Type a frequency, then Enter to apply
 - **F** — Speak the current frequency
 - **S** — Choose both step sizes from a list
-- **Shift+S** — Speak both your coarse and fine step sizes
+- **Shift+S** — Speak both your coarse and fine step sizes. In Modern tuning this works from every Home field, not just this one
 - **P** — Toggle split on or off
 
 There's one rule under all four arrow pairs, and it's worth learning once: **up and down tune, left and right size, and adding Shift makes it fine instead of coarse.** Up and Down move the frequency by your coarse step; Shift with them moves by your fine step. Left and Right change the step sizes themselves — Shift for the fine step, Alt for the coarse one. Left is always smaller, Right is always larger.
@@ -586,9 +599,9 @@ The Transmit slice field sits after VOX and shows which slice keys the radio ("-
 
 On a receive-only connection these keys speak a refusal instead of acting silently. The same controls live in the Slice menu under Transmit Slice.
 
-## JJ Flexible Home — Mute and Volume Fields (Classic tuning only)
+## JJ Flexible Home — Mute and Volume Fields
 
-On the Mute field, Space or M toggles mute. On the Volume field, Up and Down adjust the volume. (Modern tuning handles these through the universal M key and the Audio expander.)
+On the Mute field, Space or M toggles mute. It sits after XIT in both Classic and Modern tuning, so you can arrow to it and hear whether the slice is muted without changing anything. The Volume field sits right after Mute, in both Classic and Modern tuning: arrow to it to hear the slice's volume, and press Up or Down to change it.
 
 ## Mode Switching
 
@@ -658,7 +671,7 @@ Your messages — a CQ, your exchange, a sign-off — live in one list, and one 
 
 A message can carry CW text, a recording, or both. In CW the key hands the text to the radio's keyer. In a voice mode it sends the recording in place of your microphone: the radio keys, the recording goes out, and the radio unkeys when it ends. If you are already transmitting — holding PTT, or on VOX — the recording simply replaces your microphone for its length and your microphone comes back afterwards. Press the same key again, or Escape, to stop a recording early. A message that has nothing for the mode you are in says so rather than doing nothing.
 
-Recordings come from your recordings folder, the same one the Audio Workshop records into, so a take you made there is ready to choose with no extra step. To add, change or remove messages, open Tools, then Manage Messages. Each message has a label, the key that sends it, its CW text and its recording; a key already used by something else is refused, so pick a free one.
+Recordings come from your recordings folder, the same one the Audio Workshop records into, so a take you made there is ready to choose with no extra step. To add, change or remove messages, open Tools, then Manage Messages. Each message has a label, the key that sends it, its CW text and its recording; a key already used by something else is refused, so pick a free one. The list is where you land: arrow through your messages, Tab to reach the Add, Update, Delete and Close buttons, and press Escape to close. Every change is saved as you make it, so there is nothing to confirm on the way out. With no messages yet, the list says so. Ctrl+F1 on the list says all of this again whenever you want it; nothing is read out when you simply land there.
 
 ## Logging Mode
 

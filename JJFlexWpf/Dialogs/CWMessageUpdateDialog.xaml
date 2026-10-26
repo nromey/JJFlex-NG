@@ -7,9 +7,11 @@
         SizeToContent="Height">
     <StackPanel Margin="12">
         <Label Content="Messages" Padding="0,0,0,4" />
+        <!-- The list's explanation is set from the lexicon in the constructor
+             (#717), as JJFlexHelp.Text so it is read on Ctrl+F1 and never on
+             focus: settings.cw_message.list_help, which names Tab and Escape. -->
         <ListBox x:Name="KeysList" Height="160"
                  AutomationProperties.Name="Messages"
-                 AutomationProperties.HelpText="Each message with the key that sends it and what it carries: CW text, a recording, or both."
                  SelectionChanged="KeysList_SelectionChanged" />
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
             <Button x:Name="AddButton" Content="_Add" MinWidth="70" Height="28"
@@ -24,9 +26,13 @@
                     Margin="0,0,8,0" Click="DeleteButton_Click"
                     AutomationProperties.Name="Delete"
                     AutomationProperties.AcceleratorKey="Alt+D" />
-            <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="70" Height="28"
+            <!-- Close, not Cancel and not OK (#717): every add, update and
+                 delete is already saved when its own step returns, so there is
+                 nothing to cancel and nothing left to confirm. IsCancel keeps
+                 Escape closing it. -->
+            <Button x:Name="CloseButton" Content="_Close" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="70" Height="28"
                     IsCancel="True"
-                    AutomationProperties.Name="Cancel" />
+                    AutomationProperties.Name="Close" />
         </StackPanel>
     </StackPanel>
 </local:JJFlexDialog>

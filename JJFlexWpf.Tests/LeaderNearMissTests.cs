@@ -80,6 +80,34 @@ namespace JJFlexWpf.Tests
         }
 
         [Fact]
+        public void The_near_miss_gives_back_the_chord_the_layer_then_waits_for()
+        {
+            // #693: the layer stays armed for the chord it named, so the
+            // lookup must hand back the chord itself, not only its name, and
+            // the two must agree. The assembled sentences are read here as
+            // the operator hears them, from the real table and the shipped
+            // lexicon.
+            bool found = KeyInventory.TryFindLeaderNearMiss(Keys.K, out Keys chord, out string key, out string what);
+
+            Assert.True(found);
+            Assert.Equal(Keys.K | Keys.Alt, chord);
+            Assert.Equal(KeyManifest.FormatKey(chord), key);
+
+            Radios.Lexicon.Forget();
+            Radios.Lexicon.Load(Radios.Lexicon.Partitions);
+            var args = new (string, object?)[] { ("pressed", KeyManifest.FormatKey(Keys.K)), ("alt", key), ("what", what) };
+            Assert.Equal("Alt+K launches Mic check, not K.",
+                Radios.Lexicon.Get("leader.near_miss", Radios.VerbosityLevel.Terse, args));
+            Assert.Equal("You pressed K which isn't assigned. Pressing Alt+K launches Mic check if that was what you "
+                + "were looking for, otherwise use JJ H to hear keys you can use with the JJ key.",
+                Radios.Lexicon.Get("leader.near_miss", Radios.VerbosityLevel.Chatty, args));
+
+            // A chord that is bound gives back nothing to wait for.
+            Assert.False(KeyInventory.TryFindLeaderNearMiss(Keys.K | Keys.Alt, out Keys none, out _, out _));
+            Assert.Equal(Keys.None, none);
+        }
+
+        [Fact]
         public void The_named_alternative_is_a_line_not_a_paragraph()
         {
             // Every near-miss the layer can produce, measured. The worst case
