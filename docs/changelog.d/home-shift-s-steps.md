@@ -1,0 +1,1 @@
+In Modern tuning, Shift+S tells you your coarse and fine step sizes from anywhere on your Home row now, not only from the Frequency field, which is what the Tuning menu had been promising all along. In Classic tuning, where there are no coarse and fine steps, it simply says it does nothing there.

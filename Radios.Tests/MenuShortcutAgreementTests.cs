@@ -82,6 +82,7 @@ namespace Radios.Tests
 
         private const string MenuFile = "JJFlexWpf/NativeMenuBar.cs";
         private const string KeysFile = "JJFlexWpf/KeyCommands.cs";
+        private const string HandlersFile = "JJFlexWpf/FreqOutHandlers.cs";
 
         /// <summary>
         /// The menu's shortcut count on 2026-10-25: 57 literals carrying a tab,
@@ -100,15 +101,11 @@ namespace Radios.Tests
         /// </summary>
         private static readonly Dictionary<string, string> KnownDrift = new(StringComparer.Ordinal)
         {
-            // #463, for Noel. The Tuning submenu's "Speak Current Step" shows
-            // Shift+S, which is bound in NO scope the menu implies: it is a
-            // key of the Frequency field in Modern tuning only (KeyInventory
-            // "Freq.Modern", "Shift+S", "Speak the coarse and fine step
-            // sizes"). Pressed anywhere else it is a letter with Shift that
-            // does nothing on that field. The two do the same thing where both
-            // work; whether the menu should name the field, the chord should
-            // become global, or the hint should go, is not ruled.
-            ["Speak Current Step	Shift+S"] = "#463: a Frequency-field key in Modern tuning, shown as if global",
+            // Empty since 2026-10-25. Its last entry was "Speak Current Step,
+            // Shift+S": a key of the Modern Frequency field only, shown in the
+            // menu as if it worked anywhere. Noel ruled at 20:51 that Shift+S
+            // works from every Home field where it applies (Modern tuning), and
+            // this test now holds the row through the Home keys.
         };
 
         // ────────────────────────────────────────────────────────────────
@@ -183,6 +180,7 @@ namespace Radios.Tests
                          "Next Mode\tAlt+M", "Previous Mode\tAlt+Shift+M", "USB\tAlt+U",
                          "Antenna\tCtrl+Shift+A", "Speak Status\tCtrl+Shift+S", "Status Dialog\tCtrl+Alt+S",
                          "On-Radio Neural NR (RNN)\tCtrl+J, N, R", "Log Statistics\tCtrl+J, Alt+L",
+                         "Speak Current Step\tShift+S",
                      })
             {
                 var known = Assert.Single(menu, m => m.Id == id);
@@ -202,6 +200,8 @@ namespace Radios.Tests
                 AddWired(tools, ""Status Dialog\tCtrl+Alt+S"", () => _window.SpeakStatusCallback?.Invoke());
                 AddChecked(nbSub, ""Noise Blanker (NB)\tCtrl+J, N, B"", () =>
                     ToggleDSP(""Noise Blanker"", () => Rig.WidebandNoiseBlanker, v => Rig.WidebandNoiseBlanker = v), () => true);
+                AddWired(tuningSub, ""Speak Current Step\tShift+S"", () => _window.SpeakFrequency());
+                AddWired(tuningSub, ""Speak Current Step\tShift+Q"", () => _window.TuningMenuSpeakStep());
             }
             void C() {
                 foreach (string modeName in RigCaps.ModeTable)
@@ -211,7 +211,7 @@ namespace Radios.Tests
                     AddRadioChecked(modeSub, m + accel, () => { Rig.Mode = m; }, () => true);
                 }
             } }");
-            Assert.Equal(11, planted.Count);
+            Assert.Equal(13, planted.Count);
             Assert.All(planted, p => Assert.False(keys.Judge(p).Agrees, p.Id + " was read as agreeing: " + keys.Judge(p).Describe()));
 
             // And the same plants written correctly agree, so the reds above
@@ -335,6 +335,8 @@ namespace Radios.Tests
             private const string MenuClass = "NativeMenuBar";
             private static readonly string[] KeyHomes = { KeyClass, "MainWindow" };
             private static readonly string[] MenuHomes = { MenuClass, "MainWindow" };
+            private const string HomeClass = "FreqOutHandlers";
+            private static readonly string[] HomeHomes = { HomeClass, "MainWindow" };
 
             /// <summary>Every file whose methods a side may be read one call
             /// into. A class not here is read at its call only.</summary>
@@ -343,7 +345,7 @@ namespace Radios.Tests
                 KeysFile, MenuFile,
                 "JJFlexWpf/MainWindow.xaml.cs", "JJFlexWpf/MainWindow.AutoUpdate.cs",
                 "JJFlexWpf/MainWindow.FirmwareAdvisory.cs", "JJFlexWpf/MainWindow.Recorder.cs",
-                "JJFlexWpf/NoiseProfiles.cs",
+                "JJFlexWpf/NoiseProfiles.cs", HandlersFile,
             };
 
             private readonly Dictionary<Keys, List<string>> _commandsByChord = new();
@@ -353,6 +355,7 @@ namespace Radios.Tests
             private readonly HashSet<string> _indexedTypes = new(StringComparer.Ordinal);
             private readonly Dictionary<string, string> _callbackCommand;
             private readonly List<LeaderSourceScan.SwitchArm> _leaderArms;
+            private readonly MethodDeclarationSyntax? _universalHome;
 
             internal static KeyBindings Load() => new(
                 Source(KeysFile),
@@ -418,6 +421,30 @@ namespace Radios.Tests
                     .ToDictionary(m => m.Groups[1].Value, m => m.Groups[2].Value, StringComparer.Ordinal);
 
                 _leaderArms = LeaderSourceScan.SwitchArms(keyCommandsSource, "DoLeaderCommand");
+                _universalHome = Methods(HomeClass, "TryHandleUniversalHomeKey").FirstOrDefault();
+            }
+
+            /// <summary>
+            /// The branch of <c>FreqOutHandlers.TryHandleUniversalHomeKey</c>
+            /// that answers <paramref name="chord"/>: an <c>if</c> testing the
+            /// key by name (<c>key == Key.S</c>) and exactly the modifiers the
+            /// chord carries (<c>Keyboard.Modifiers == ModifierKeys.Shift</c>).
+            /// Null when no branch does.
+            /// </summary>
+            private SyntaxNode? HomeKeyBranch(Keys chord)
+            {
+                if (_universalHome == null) return null;
+                var mods = new List<string>();
+                if ((chord & Keys.Control) != 0) mods.Add("Control");
+                if ((chord & Keys.Shift) != 0) mods.Add("Shift");
+                if ((chord & Keys.Alt) != 0) mods.Add("Alt");
+                if (mods.Count == 0) return null;   // bare letters are read through ch, not this shape
+                string keyTest = "key == Key." + (chord & Keys.KeyCode);
+                string modTest = "Keyboard.Modifiers == " + string.Join(" | ", mods.Select(m => "ModifierKeys." + m));
+                return _universalHome.DescendantNodes().OfType<IfStatementSyntax>()
+                    .FirstOrDefault(i => i.Condition.ToString().Contains(keyTest, StringComparison.Ordinal)
+                                         && i.Condition.ToString().Contains(modTest, StringComparison.Ordinal))
+                    ?.Statement;
             }
 
             internal Verdict Judge(MenuShortcut item)
@@ -473,7 +500,18 @@ namespace Radios.Tests
                     if (!Radios.LeaderChordParser.TryParseChord(chordText, out Keys chord))
                         return new Verdict(false, "cannot read the chord '" + chordText + "'");
                     if (!_commandsByChord.TryGetValue(chord, out var commands))
-                        return new Verdict(false, chordText + " is in no _defaultKeys row");
+                    {
+                        // Not a registry chord: it may be a universal Home key,
+                        // which the Home fields answer themselves (Shift+S).
+                        var homeKey = HomeKeyBranch(chord);
+                        if (homeKey == null)
+                            return new Verdict(false, chordText + " is in no _defaultKeys row and is no universal Home key");
+                        if (command != null)
+                            return new Verdict(false, chordText + " is a Home key, but the menu item runs the command " + command);
+                        key = Read(homeKey, NoBindings, HomeClass, HomeHomes);
+                        where = "the universal Home key " + chordText;
+                        goto compare;
+                    }
                     if (command != null)
                     {
                         // The menu names its command: held to it exactly.
@@ -486,6 +524,7 @@ namespace Radios.Tests
                     where = chordText + " (" + string.Join(", ", commands) + ")";
                 }
 
+            compare:
                 var shared = menu.Own.Intersect(key.All).Union(key.Own.Intersect(menu.All))
                     .OrderBy(s => s, StringComparer.Ordinal).ToList();
                 return shared.Count > 0

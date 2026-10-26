@@ -454,6 +454,7 @@ These keys work from ANY field within your JJ Flexible Home. First, remember to 
 - **=** — Transceive current slice (set both RX and TX to this slice)
 - **. (period)** — Create a new slice
 - **, (comma)** — Release the current slice
+- **Shift+S** — In Modern tuning, speak both your coarse and fine step sizes. Classic tuning has no coarse and fine steps, so there it says Shift S does nothing on the field you are on
 - **Shift+M** — Mute or unmute every slice at once
 - **Shift+Comma** — Release every slice except the one you are on
 - **?** — Speak the keys for the field you're on
@@ -554,7 +555,7 @@ When focused on the Frequency field in Modern tuning mode:
 - **Digits** — Type a frequency, then Enter to apply
 - **F** — Speak the current frequency
 - **S** — Choose both step sizes from a list
-- **Shift+S** — Speak both your coarse and fine step sizes
+- **Shift+S** — Speak both your coarse and fine step sizes. In Modern tuning this works from every Home field, not just this one
 - **P** — Toggle split on or off
 
 There's one rule under all four arrow pairs, and it's worth learning once: **up and down tune, left and right size, and adding Shift makes it fine instead of coarse.** Up and Down move the frequency by your coarse step; Shift with them moves by your fine step. Left and Right change the step sizes themselves — Shift for the fine step, Alt for the coarse one. Left is always smaller, Right is always larger.

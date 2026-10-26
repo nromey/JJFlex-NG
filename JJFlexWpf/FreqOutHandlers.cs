@@ -2331,6 +2331,19 @@ public class FreqOutHandlers
             e.Handled = true;
             return true;
         }
+        // Shift+S speaks both step sizes from any Home field, where it
+        // applies: in Modern tuning, which has coarse and fine steps (Noel,
+        // 2026-10-25 20:51: "I'd allow it to work anywhere if it applies").
+        // In Classic it is not claimed, so the caller's dead-key answer says
+        // "Shift S does nothing on" the field, as he ruled. Once only the
+        // Modern Frequency field had it; the menu's "Speak Current Step"
+        // promised it everywhere.
+        if (key == Key.S && Keyboard.Modifiers == ModifierKeys.Shift && _window.FreqOut.IsModernMode)
+        {
+            SpeakCurrentStepFromMenu();
+            e.Handled = true;
+            return true;
+        }
 
         // Single-key universals require no modifier so Ctrl+M, Alt+R, etc.
         // (used by other commands) don't accidentally trigger here.
@@ -2994,19 +3007,10 @@ public class FreqOutHandlers
             }
 
             default:
-                if (key == Key.S && Keyboard.Modifiers == ModifierKeys.Shift)
-                {
-                    // Shift+S — announce both step sizes (no current mode to
-                    // pick between any more, so report the whole picture).
-                    // By KEY, not `ch`: a shifted letter is no character (#546).
-                    Radios.ScreenReaderOutput.Speak(
-                        Lexicon.Get("settings.tuning.steps_coarse_fine",
-                            ("coarse", FormatStepForSpeech(_coarseStep)),
-                            ("fine", FormatStepForSpeech(_fineStep))),
-                        VerbosityLevel.Terse, true);
-                    e.Handled = true;
-                }
-                else if (ch == 'S' && Keyboard.Modifiers == ModifierKeys.None)
+                // Shift+S, both step sizes, is a universal Home key in Modern
+                // tuning now and reaches this field through the fall-through
+                // at the bottom (Noel, 2026-10-25 20:51).
+                if (ch == 'S' && Keyboard.Modifiers == ModifierKeys.None)
                 {
                     // S — set both steps deliberately, instead of walking the
                     // ladder to them (#302). Paired with Shift+S on purpose:
@@ -3095,7 +3099,9 @@ public class FreqOutHandlers
 
     // Menu caller for "Speak Current Step" — announces both coarse and fine
     // steps. Survives tuning unity because step values are still configurable
-    // and operators want a one-press way to hear what they're set to.
+    // and operators want a one-press way to hear what they're set to. Also
+    // Shift+S from any Home field in Modern tuning (TryHandleUniversalHomeKey),
+    // so the menu's hint and the key say one sentence from one place.
     public void SpeakCurrentStepFromMenu()
     {
         Radios.ScreenReaderOutput.Speak(

@@ -167,6 +167,10 @@ public static class KeyInventory
         // 2026-10-25 19:31), decided by context: on Frequency, once a digit
         // has been typed, number entry owns them and period is the decimal
         // point. DRAFT PROSE: awaiting Noel.
+        // Shift+S left the Modern Frequency field for every field, in Modern
+        // tuning only (Noel, 2026-10-25 20:51). DRAFT PROSE: awaiting Noel.
+        new("Home", "Any Home field", "Shift+S", "Speak the coarse and fine step sizes (Modern tuning)",
+            new[] { "step", "speak", "coarse", "fine" }),
         new("Home", "Any Home field", "Period", "Create a new slice; on Frequency, only before you type a digit",
             new[] { "slice", "create", "new", "add", "period" }),
         new("Home", "Any Home field", "Comma", "Release the current slice; on Frequency, only before you type a digit",
@@ -270,8 +274,6 @@ public static class KeyInventory
         new("Freq.Modern", "Frequency field (Modern tuning)", "S", "Choose both step sizes from a list",
             new[] { "step", "steps", "size", "sizes", "coarse", "fine", "choose", "pick", "set",
                     "list", "picker", "tuning" }),
-        new("Freq.Modern", "Frequency field (Modern tuning)", "Shift+S", "Speak the coarse and fine step sizes",
-            new[] { "step", "speak", "coarse", "fine" }),
         // Same letter, same toggle, as Classic (#344) — split must not change
         // meaning across a mode boundary that is only about how you tune.
         new("Freq.Modern", "Frequency field (Modern tuning)", "P", "Toggle split on or off",
