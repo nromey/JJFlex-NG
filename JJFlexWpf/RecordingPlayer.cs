@@ -502,7 +502,7 @@ public static class RecordingPlayer
         // blip as it brings the band up"). A pause or a stop fades the
         // recording out instead of cutting it, while the band comes up under
         // it; a resume fades back in. Lengths in seconds.
-        internal const double FadeOutSeconds = 0.2;   // the band comes up over the same time (RxPlaybackLevel.ReleaseMs)
+        internal const double FadeOutSeconds = 0.3;   // the band comes up over the same time (RxPlaybackLevel.ReleaseMs)
         internal const double FadeInSeconds = 0.015;
         private int _fadeOutLeft, _fadeOutTotal, _fadeInLeft, _fadeInTotal;
         private long _pausedAt = -1;  // the frame the pause was asked at; the fade reads past it
@@ -600,7 +600,13 @@ public static class RecordingPlayer
                     int frames = got / _channels;
                     for (int f = 0; f < frames; f++)
                     {
-                        float g = _fadeOutLeft > 0 ? _fadeOutLeft / (float)_fadeOutTotal : 0f;
+                        // Equal-power: a cosine, which holds the recording's
+                        // loudness early and eases it out, against the band
+                        // rising in step (bench 2026-10-25: a straight line
+                        // "isn't crossed up enough").
+                        float g = _fadeOutLeft > 0
+                            ? MathF.Cos((1f - _fadeOutLeft / (float)_fadeOutTotal) * MathF.PI / 2f)
+                            : 0f;
                         if (_fadeOutLeft > 0) _fadeOutLeft--;
                         for (int c = 0; c < _channels; c++) buffer[f * _channels + c] *= g;
                     }

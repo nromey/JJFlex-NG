@@ -162,25 +162,33 @@ internal sealed class RecordedQsoSaveAsDialog : JJFlexDialog
         if (!RecordedQsoExport.HeAacM4aAvailable())
             _unavailable[RecordedQsoExport.Format.M4a] = Lexicon.Get("audio.qsos.saveas_m4a_unavailable");
 
+        // The Windows save dialog's order (Noel, retest 2026-10-25: "the browse
+        // button and folder name usually are before the filename field", and
+        // the file type next to the name): folder, Browse, file name, file
+        // type, then the rest. The window still opens on the file name.
         var root = new StackPanel { Margin = new Thickness(12) };
+        var folderRow = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+        folderRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        folderRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        folderRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var browse = new Button { Content = Lexicon.Get("audio.qsos.saveas_browse"), Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(8, 0, 0, 0) };
+        AutomationProperties.SetName(browse, Lexicon.Get("audio.qsos.saveas_browse"));
+        browse.Click += (_, _) => Browse();
+        var folderLabel = new Label { Content = Lexicon.Get("audio.qsos.saveas_folder"), Target = _folder, Padding = new Thickness(0, 4, 8, 0) };
+        AutomationProperties.SetName(_folder, Lexicon.Get("audio.qsos.saveas_folder"));
+        _folder.Text = Path.GetDirectoryName(source.Path) ?? "";
+        Grid.SetColumn(folderLabel, 0);
+        Grid.SetColumn(_folder, 1);
+        Grid.SetColumn(browse, 2);
+        folderRow.Children.Add(folderLabel);
+        folderRow.Children.Add(_folder);
+        folderRow.Children.Add(browse);
+        root.Children.Add(folderRow);
+
         Field(root, "audio.qsos.saveas_name", _name);
         _whole = whole;
         _name.Text = _suggested = RecordedQsoSaveAs.SuggestName(source.Path, whole, _kind);
         _name.TextChanged += (_, _) => OnNameChanged();
-
-        var folderRow = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
-        var browse = new Button { Content = Lexicon.Get("audio.qsos.saveas_browse"), Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(8, 0, 0, 0) };
-        AutomationProperties.SetName(browse, Lexicon.Get("audio.qsos.saveas_browse"));
-        browse.Click += (_, _) => Browse();
-        DockPanel.SetDock(browse, Dock.Right);
-        var folderLabel = new Label { Content = Lexicon.Get("audio.qsos.saveas_folder"), Target = _folder, Padding = new Thickness(0, 4, 8, 0) };
-        DockPanel.SetDock(folderLabel, Dock.Left);
-        AutomationProperties.SetName(_folder, Lexicon.Get("audio.qsos.saveas_folder"));
-        _folder.Text = Path.GetDirectoryName(source.Path) ?? "";
-        folderRow.Children.Add(folderLabel);
-        folderRow.Children.Add(browse);
-        folderRow.Children.Add(_folder);
-        root.Children.Add(folderRow);
 
         foreach (var kind in RecordedQsoSaveAs.Kinds)
         {

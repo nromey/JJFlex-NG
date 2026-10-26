@@ -88,9 +88,8 @@ public sealed class RecordedQsoTransportTests : IDisposable
         // silence until then, which was the cut Noel heard.
         Assert.Equal(buffer.Length, ReadOnce(input!, buffer));
         Assert.True(Math.Abs(buffer[0]) > 0.3f, "the fade starts near full level");
-        // 0.2 s of fade: two more 0.1 s reads take it to silence.
-        Assert.Equal(buffer.Length, ReadOnce(input!, buffer));
-        Assert.Equal(buffer.Length, ReadOnce(input!, buffer));
+        // 0.3 s of fade: three more 0.1 s reads take it to silence.
+        for (int i = 0; i < 3; i++) Assert.Equal(buffer.Length, ReadOnce(input!, buffer));
         Assert.Equal(0f, buffer[^1]);
         Array.Fill(buffer, 1f);
         Assert.Equal(buffer.Length, ReadOnce(input!, buffer));
@@ -311,11 +310,11 @@ public sealed class RecordedQsoTransportTests : IDisposable
         Assert.True(buffer[0] > buffer[^1]);
         Assert.Equal(gain, buffer[^1], 4);
 
-        // Back up: 200 ms crosses 12 dB, IN DECIBELS (retest 2026-10-25: the
+        // Back up: 300 ms crosses 12 dB, IN DECIBELS (retest 2026-10-25: the
         // straight-line return was heard as a blip). Half the time is half the
         // decibels, -6 dB, 0.501, where a straight amplitude ramp would be at
         // 0.626.
-        var back = Enumerable.Repeat(1f, 4800).ToArray();
+        var back = Enumerable.Repeat(1f, 7200).ToArray();
         gain = RxAudioPipeline.GlideGain(back, back.Length, 1, 48000, 0.251f, 1f, 12f);
         Assert.InRange(gain, 0.49f, 0.51f);
         for (int i = 1; i < back.Length; i++) Assert.True(back[i] >= back[i - 1]);

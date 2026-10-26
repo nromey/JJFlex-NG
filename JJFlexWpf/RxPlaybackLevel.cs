@@ -67,7 +67,7 @@ namespace JJFlexWpf
         /// stop". Noel's design: "it pauses a bit and can then smoothly
         /// crossfade".
         /// </summary>
-        internal const float ReleaseMs = 200f;
+        internal const float ReleaseMs = 300f;
 
         /// <summary>
         /// How long the band waits before it starts coming back, so its rise is
@@ -77,7 +77,7 @@ namespace JJFlexWpf
         /// milliseconds", RxDuck's remarks); tune it by ear. Settable so a test
         /// can take the wait out.
         /// </summary>
-        internal static int HandoverMs { get; set; } = 50;
+        internal static int HandoverMs { get; set; } = 0;   // 50 was "not crossed up enough" (bench 2026-10-25 20:36): the band now starts at once
 
         private static long _releaseAt;   // Environment.TickCount64 until which the band stays down
 
