@@ -106,6 +106,18 @@ public sealed class QuickTypeCommitTests
         Assert.Null(FreqOutHandlers.ParseQuickTypeFreq("14225.000"));   // ungrouped, read as megahertz, as before
     }
 
+    // ---------------- leaving the field (Noel, 2026-10-25 20:49) ----------------
+
+    [Theory]
+    [InlineData("Freq", "SMeter", true)]
+    [InlineData("Freq", "Slice", true)]
+    [InlineData("Freq", null, true)]       // focus left the display altogether
+    [InlineData("Freq", "Freq", false)]    // a move within the field keeps the number
+    [InlineData("SMeter", "Freq", false)]  // arriving is not leaving
+    [InlineData("SMeter", "Mode", false)]
+    public void Leaving_the_Frequency_field_ends_an_unfinished_number(string from, string? to, bool ends)
+        => Assert.Equal(ends, FreqOutHandlers.LeavingEndsNumberEntry(from, to));
+
     // ---------------- band jump ----------------
 
     [Fact]

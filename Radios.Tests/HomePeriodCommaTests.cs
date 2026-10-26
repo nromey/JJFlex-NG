@@ -138,6 +138,30 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void Leaving_the_Frequency_field_cancels_an_unfinished_number()
+        {
+            // Noel, 2026-10-25 20:49: leaving the Frequency field cancels an
+            // unfinished number entry, so a later period there is a slice again.
+            // The decision is held in JJFlexWpf.Tests (QuickTypeCommitTests);
+            // this holds the wiring, which needs a window to run.
+            string display = FieldKeyMapScan.ReadSource("JJFlexWpf/Controls/FrequencyDisplay.xaml.cs");
+            string preview = Body(display, "private void DisplayBox_PreviewKeyDown(object sender, KeyEventArgs e)");
+            Assert.Contains("RouteKey(e);", preview);
+            Assert.Contains("FieldLeft?.Invoke(before, after);", preview);
+            string lost = Body(display, "private void DisplayBox_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)");
+            Assert.Contains("FieldLeft?.Invoke(field, null);", lost);
+            Assert.Contains("LostKeyboardFocus=\"DisplayBox_LostKeyboardFocus\"",
+                FieldKeyMapScan.ReadSource("JJFlexWpf/Controls/FrequencyDisplay.xaml"));
+
+            Assert.Contains("FreqOut.FieldLeft += (from, to) => _freqOutHandlers?.FieldLeft(from.Key, to?.Key);",
+                FieldKeyMapScan.ReadSource(FieldKeyMapScan.DispatchFile));
+
+            string left = Body(FieldKeyMapScan.ReadSource(Handlers), "public void FieldLeft(string fromKey, string? toKey)");
+            Assert.Contains("LeavingEndsNumberEntry(fromKey, toKey)", left);
+            Assert.Contains("CancelQuickType();", left);
+        }
+
+        [Fact]
         public void The_Slice_field_keeps_no_copy_of_its_own()
         {
             // One home for the pair. A second copy on the Slice field would

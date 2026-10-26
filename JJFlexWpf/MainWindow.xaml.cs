@@ -4305,6 +4305,9 @@ public partial class MainWindow : UserControl
             FreqOutHandlersWireCallback?.Invoke(_freqOutHandlers);
             // Wire FieldKeyDown event to route keys to the handler for the field under cursor
             FreqOut.FieldKeyDown += FreqOut_FieldKeyDown;
+            // Leaving the Frequency field ends a number nobody finished
+            // typing (Noel, 2026-10-25 20:49).
+            FreqOut.FieldLeft += (from, to) => _freqOutHandlers?.FieldLeft(from.Key, to?.Key);
             // Typing sound and keyboard sounds applied later in PowerOn
             // after CurrentAudioConfig is loaded from disk.
         }

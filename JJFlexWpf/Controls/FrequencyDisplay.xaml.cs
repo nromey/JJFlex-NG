@@ -150,6 +150,16 @@ public partial class FrequencyDisplay : UserControl
     /// </summary>
     public event System.Action<DisplayField, KeyEventArgs>? FieldKeyDown;
 
+    /// <summary>
+    /// The caret has left a field: the first argument is the field it left,
+    /// the second where it went, or null when the keyboard focus left the
+    /// display altogether. Raised after a key has moved the caret to another
+    /// field, and when the display loses the keyboard focus. Lets the
+    /// Frequency field end a number nobody finished typing (Noel, 2026-10-25
+    /// 20:49).
+    /// </summary>
+    public event System.Action<DisplayField, DisplayField?>? FieldLeft;
+
     #endregion
 
     public FrequencyDisplay()
@@ -337,6 +347,34 @@ public partial class FrequencyDisplay : UserControl
     /// Other keys route to field-specific handlers.
     /// </summary>
     private void DisplayBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        // Every way a key can move the caret to another field (the arrows,
+        // Home, End, Page Down, a field handler of its own) runs inside
+        // RouteKey, so comparing the field before and after it sees them all.
+        var before = PositionToField(DisplayBox.SelectionStart);
+        try
+        {
+            RouteKey(e);
+        }
+        finally
+        {
+            var after = PositionToField(DisplayBox.SelectionStart);
+            if (before != null && !ReferenceEquals(before, after))
+                FieldLeft?.Invoke(before, after);
+        }
+    }
+
+    /// <summary>
+    /// The keyboard focus left the display: whatever field the caret was on
+    /// has been left too.
+    /// </summary>
+    private void DisplayBox_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        var field = PositionToField(DisplayBox.SelectionStart);
+        if (field != null) FieldLeft?.Invoke(field, null);
+    }
+
+    private void RouteKey(KeyEventArgs e)
     {
         // Left/Right: character-by-character cursor movement.
         //

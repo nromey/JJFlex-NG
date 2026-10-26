@@ -1078,6 +1078,30 @@ public class FreqOutHandlers
     }
 
     /// <summary>
+    /// The caret left a Home field. Leaving the Frequency field cancels an
+    /// unfinished number (Noel, 2026-10-25 20:49), so that coming back later,
+    /// a period there is a slice create again and not the decimal point of a
+    /// number typed and abandoned minutes ago.
+    /// </summary>
+    /// <param name="fromKey">The field left.</param>
+    /// <param name="toKey">Where the caret went, or null when focus left the display.</param>
+    public void FieldLeft(string fromKey, string? toKey)
+    {
+        if (!LeavingEndsNumberEntry(fromKey, toKey) || !_inQuickType) return;
+        Tracing.TraceLine("FreqOutHandlers: left the Frequency field with an unfinished number ("
+            + _quickTypeBuffer + "); cancelled", TraceLevel.Info);
+        CancelQuickType();
+    }
+
+    /// <summary>
+    /// Whether moving from <paramref name="fromKey"/> to
+    /// <paramref name="toKey"/> leaves the Frequency field, which is what
+    /// ends number entry. A move that stays on it does not.
+    /// </summary>
+    internal static bool LeavingEndsNumberEntry(string fromKey, string? toKey)
+        => fromKey == "Freq" && toKey != "Freq";
+
+    /// <summary>
     /// Cancel quick-type entry and restore previous state.
     /// </summary>
     private void CancelQuickType()
