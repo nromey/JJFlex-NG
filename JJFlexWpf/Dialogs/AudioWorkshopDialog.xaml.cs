@@ -485,18 +485,10 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// at all on the new categories while continuing to work perfectly on the
     /// old ones, which is the hardest kind of gap to notice.</para>
     /// </remarks>
-    private List<GroupBox> VisibleSections()
-    {
-        var found = new List<GroupBox>();
-        if (SelectedCategoryPanel() is not Panel panel) return found;
-
-        foreach (object child in panel.Children)
-        {
-            if (child is GroupBox g && g.Visibility == Visibility.Visible)
-                found.Add(g);
-        }
-        return found;
-    }
+    // The section list, the panel unwrap and the move now live in
+    // SectionNavigator, shared with Settings since #822 (2026-10-25). The
+    // remarks above still describe what they do.
+    private List<GroupBox> VisibleSections() => SectionNavigator.Sections(MainTabs);
 
     /// <summary>
     /// The content panel of whichever category is showing, unwrapping the
@@ -508,29 +500,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// in that panel — rather than every nested GroupBox anywhere below. A
     /// deeper walk would quietly change what F6 counts as a section.
     /// </remarks>
-    private Panel? SelectedCategoryPanel()
-    {
-        object? content = (MainTabs.SelectedItem as TabItem)?.Content;
-
-        // Unwrap the containers a category is likely to be built inside. Every
-        // category today is ScrollViewer > StackPanel, but three other tracks
-        // added categories this sprint and none of them had to know that, so
-        // this tolerates a Border or another ContentControl in the way rather
-        // than returning null and leaving F6 silently dead on their tabs.
-        for (int depth = 0; depth < 4 && content is not Panel; depth++)
-        {
-            content = content switch
-            {
-                ScrollViewer sv => sv.Content,
-                Border b => b.Child,
-                ContentControl cc => cc.Content,
-                Decorator d => d.Child,
-                _ => null,
-            };
-            if (content == null) break;
-        }
-        return content as Panel;
-    }
+    private Panel? SelectedCategoryPanel() => SectionNavigator.TabPanel(MainTabs);
 
     /// <summary>
     /// Move focus to the first focusable control of the next or previous
@@ -549,49 +519,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// and where they landed is information no control on screen carries.
     /// </para>
     /// </remarks>
-    private void MoveToSection(bool forward)
-    {
-        var sections = VisibleSections();
-        if (sections.Count == 0) return;
-
-        // Where are we now? The section containing focus, or -1 if focus is
-        // somewhere else entirely (the preset toolbar, the tab strip).
-        int current = -1;
-        for (int i = 0; i < sections.Count; i++)
-        {
-            if (sections[i].IsKeyboardFocusWithin) { current = i; break; }
-        }
-
-        int next;
-        if (current < 0)
-        {
-            // Not in a section yet: forward starts at the first, backward at
-            // the last, so both directions do something useful on first press.
-            next = forward ? 0 : sections.Count - 1;
-        }
-        else
-        {
-            next = forward ? current + 1 : current - 1;
-            if (next >= sections.Count) next = 0;
-            else if (next < 0) next = sections.Count - 1;
-        }
-
-        GroupBox target = sections[next];
-        string name = target.Header as string ?? Lexicon.Get("audio.workshop.unnamed_section");
-
-        if (!target.MoveFocus(new TraversalRequest(FocusNavigationDirection.First)))
-        {
-            // A section with nothing focusable in it -- possible if every
-            // control inside is collapsed. Say so rather than appearing to do
-            // nothing, and leave focus where it was.
-            ScreenReaderOutput.Speak(
-                Lexicon.Get("audio.workshop.section_nothing_to_adjust", ("section", name)),
-                VerbosityLevel.Terse, true);
-            return;
-        }
-
-        ScreenReaderOutput.Speak(name, VerbosityLevel.Terse, true);
-    }
+    private void MoveToSection(bool forward) => SectionNavigator.Move(MainTabs, forward);
 
     /// <summary>
     /// Show or bring to front the singleton Audio Workshop dialog.

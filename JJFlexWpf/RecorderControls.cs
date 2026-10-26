@@ -198,10 +198,34 @@ public static class RecorderControls
     public static async Task<RecorderOutcome> ToggleComputerPlayAsync(FlexBase? rig,
         Action<RecorderOutcome>? speak = null)
     {
-        if (!ComputerRecorder.Current.IsPlaying)
+        bool starting = !ComputerRecorder.Current.IsPlaying;
+        bool transmitting = rig?.Transmit == true;
+        FlexBase.LocalPlaybackVoxPause? pause = null;
+        if (starting && !transmitting)
+        {
+            // Tape Deck track 4 (#787): the speakers must not key the radio
+            // through VOX. The same pause slice playback takes, through the
+            // radio's one VOX owner; refused, like slice playback, when the
+            // radio does not confirm VOX off. While transmitting the play is
+            // refused below before any of this matters.
+            pause = await LocalPlaybackVox.PauseAsync(rig);
+            if (pause == null)
+            {
+                var refused = new RecorderOutcome(false, Lexicon.Get("audio.recorder.play_vox_unconfirmed"),
+                    SpeechSubject.ComputerRecorder);
+                (speak ?? Speak)(refused);
+                return refused;
+            }
+        }
+        if (starting)
             await PlayStartClickBeforeLocalAudioAsync();
-        var outcome = await Guarded(() => ComputerRecorder.TogglePlaybackAsync(rig?.Transmit == true),
+        var outcome = await Guarded(() => ComputerRecorder.TogglePlaybackAsync(transmitting),
             SpeechSubject.ComputerRecorder);
+        if (pause != null)
+        {
+            if (outcome.Success && ComputerRecorder.Current.IsPlaying) LocalPlaybackVox.HoldUntilPlaybackEnds(pause);
+            else pause.Dispose();
+        }
         (speak ?? Speak)(outcome);
         return outcome;
     }

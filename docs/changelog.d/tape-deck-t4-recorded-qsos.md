@@ -1,0 +1,6 @@
+- Recorded QSOs (Ctrl+Alt+Shift+F11, or the JJ key then Alt+F) lists your computer recordings, and the files you save from them, so you can pick the one Play from computer plays, listen to it, jump through it by as little as a tenth of a second, trim it, save it as MP3, Opus, WAV, FLAC or M4A, and send old ones to the Recycle Bin.
+- A recording playing back on your computer no longer sits right on top of the band. The radio's audio on your computer drops by 12 dB while it plays, and Settings has a choice called Radio audio during playback if you want it lower, unchanged, or muted. Pause, and the band comes back up until you carry on.
+- Play from computer now pauses VOX while it plays, so your speakers can't key the radio.
+- Pausing or stopping a recording now crossfades: the recording plays on for a moment as it fades out, while the band comes back up, instead of cutting off and jumping.
+- In Recorded QSOs, Ctrl+Left and Ctrl+Right move through the recording from anywhere in the window, and a copy whose name is already taken is called "-copy", then "-copy2", instead of "-2". Prune can also keep the newest so many recordings and move the rest.
+- Settings is in proper groups now, so your screen reader says each section's name as you enter it, and F6 and Shift+F6 jump between sections, just as they do in the Audio Workshop.

@@ -99,6 +99,8 @@ namespace JJFlexWpf
             // Sprint 48 Track B (#307): the system-wide keys are documented
             // on the keyboard reference, in their own section.
             { "SystemWideKeys", "pages/keyboard-reference.htm" },
+            // Tape Deck track 4 (#787): the recordings dialog's own page.
+            { "RecordedQsos", "pages/recorded-qsos.htm" },
         };
 
         /// <summary>True once the install has been handed to the hook thread.</summary>

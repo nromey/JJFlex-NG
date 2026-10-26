@@ -50,6 +50,26 @@
     <param name="Local" value="pages\audio-workshop.htm">
   </OBJECT>
   <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="recorded QSOs">
+    <param name="Local" value="pages\recorded-qsos.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="recordings, computer">
+    <param name="Local" value="pages\recorded-qsos.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="trim a recording">
+    <param name="Local" value="pages\recorded-qsos.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="save a recording as MP3">
+    <param name="Local" value="pages\recorded-qsos.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="prune recordings">
+    <param name="Local" value="pages\recorded-qsos.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
     <param name="Name" value="audio levels">
     <param name="Local" value="pages\audio-levels.htm">
   </OBJECT>

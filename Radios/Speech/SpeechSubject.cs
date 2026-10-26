@@ -546,6 +546,16 @@ namespace Radios.Speech
         /// covers them.
         /// </summary>
         public const string ComputerRecorder = "computer-recorder";
+
+        /// <summary>
+        /// The recordings dialog's own answers (#787, Tape Deck track 4): where
+        /// a preview is, the trim marks, Save As, delete and prune. One subject,
+        /// because each answer replaces the last: an unheard "you are at one
+        /// minute" is worthless once the next step has said where you are now.
+        /// The computer recorder's own start and stop keep
+        /// <see cref="ComputerRecorder"/>.
+        /// </summary>
+        public const string RecordedQsos = "recorded-qsos";
         /// A global-profile write refused because the radio is not declared
         /// the operator's, or its ownership is not yet answered (junkbox
         /// #777). Spoken from the funnel every global save passes through,

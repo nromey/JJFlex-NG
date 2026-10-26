@@ -62,6 +62,8 @@ Namespace My
                 Function(path) JJFlexWpf.RecordingPlayer.Play(path),
                 Sub() JJFlexWpf.RecordingPlayer.Stop(),
                 Function() JJFlexWpf.RecordingPlayer.IsPlaying))
+            ' Recorded QSOs lists the files Save As writes too; this reads their lengths.
+            JJFlexWpf.RecordedQsoMedia.Install()
 
             ' Enforce a modern TLS floor for all outbound HTTPS/TLS traffic in the app domain.
             ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 Or SecurityProtocolType.Tls13

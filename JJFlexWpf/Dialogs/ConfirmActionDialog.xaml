@@ -65,7 +65,6 @@
                         Content="_Yes"
                         Width="80"
                         IsDefault="False"
-                        AutomationProperties.Name="Yes, continue"
                         Click="YesButton_Click"/>
             </StackPanel>
         </DockPanel>

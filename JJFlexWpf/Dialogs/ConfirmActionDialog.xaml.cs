@@ -63,13 +63,34 @@ namespace JJFlexWpf.Dialogs
             string yesLabel = "_Yes",
             string noLabel = "_No",
             string? radioModel = null,
-            Radios.AdvisoryKey? suppressKey = null)
+            Radios.AdvisoryKey? suppressKey = null,
+            bool enterConfirms = false)
         {
             InitializeComponent();
+
+            // Opt-in, per caller: Enter on the message presses the action
+            // button. Off everywhere by default (the action button is not
+            // IsDefault, on purpose); Recorded QSOs' Delete turns it on, since
+            // its action only moves a file to the Recycle Bin (Noel, retest
+            // 2026-10-25: "enter should default to move to recycle").
+            if (enterConfirms)
+            {
+                PreviewKeyDown += (_, e) =>
+                {
+                    if (e.Key == System.Windows.Input.Key.Enter
+                        && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.None
+                        && BodyText.IsKeyboardFocusWithin)
+                    {
+                        e.Handled = true;
+                        YesButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    }
+                };
+            }
 
             Title = title;
             AutomationProperties.SetName(this, title);
             YesButton.Content = yesLabel;
+            AutomationProperties.SetName(YesButton, yesLabel.Replace("_", ""));
             NoButton.Content = noLabel;
             _radioModel = radioModel;
             _suppressKey = suppressKey;

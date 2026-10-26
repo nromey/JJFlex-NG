@@ -106,6 +106,7 @@ Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it
 - **Alt+V** — Speak the version, the build type and the date this copy was built (see "Which build am I on" below)
 - **Alt+W** — Open a list of every window on your screen — the one with the keyboard first, then this program's own windows, then the rest — with the program that owns each and whether it is still running (see "What is on my screen" below)
 - **Alt+N** — Open the tracking notch filters, where you place a notch yourself instead of letting Auto Notch hunt for one (see "Tracking notch filters" below)
+- **Alt+F** — Open Recorded QSOs, your computer recordings — F for files. Play one, trim it, save it as another format, delete it or prune old ones (see "Recorded QSOs" below)
 
 ### Still finding their layer
 
@@ -740,7 +741,7 @@ Settings holds eleven categories and the Audio Workshop holds several, so both w
 - Plain **Tab** is still plain Tab. It moves through the controls of the category you are on and never changes category by itself.
 - Settings opens on the list rather than on a button, so the first thing you hear is where you are and what else there is.
 
-Inside the Audio Workshop, **F6** and **Shift+F6** then move between the sections of whichever category you are on. Categories are the big divisions, sections are the groups within one.
+Inside Settings and the Audio Workshop, **F6** and **Shift+F6** then move between the sections of whichever category you are on, and say the section's name. Categories are the big divisions, sections are the groups within one. Tabbing into a section says its name too.
 
 If you knew the old tab strip: it is gone, and the list replaces it. Nothing you could reach before is out of reach — the same categories, in the same order, with a key that works from anywhere instead of only when the strip happened to have focus.
 
@@ -840,3 +841,22 @@ These keys are active when focus is on the row list inside the Archive Browser t
 - **Ctrl+J, Ctrl+R** records the active slice; **Ctrl+J, Ctrl+P** plays it. Play pressed during your transmission sends the recording over the air until you unkey; otherwise it plays locally. JJ Flexible pauses VOX or CW break-in for local playback and restores it when playback stops. Play never keys or selects a transmit slice.
 - **Ctrl+J, Ctrl+Shift+R** records to a computer file; **Ctrl+J, Ctrl+Shift+P** plays the selected or last computer recording locally. Computer playback to air is not available yet.
 - **F11** records the active slice; **Ctrl+F11** plays it. **Alt+F11** records to a file; **Ctrl+Alt+F11** plays from the computer. These are flat keys for the same four JJ key commands above.
+- **Ctrl+Alt+Shift+F11** opens Recorded QSOs, the list of your computer recordings. **Ctrl+J, Alt+F** opens it too. Computer playback pauses VOX or CW break-in while it plays, the same as slice playback.
+
+## Recorded QSOs
+
+These keys work inside the Recorded QSOs window (**Ctrl+Alt+Shift+F11**, or **Ctrl+J, Alt+F**).
+
+- **Up Arrow / Down Arrow** — Select a recording. Play from computer plays the selected recording
+- **Home / End** — The newest or the oldest recording
+- **Enter** — Start or pause playback of the selected recording, from the play head
+- **S** — Stop, and return the play head to the beginning of the file, from anywhere in the window
+- **Ctrl+Left Arrow / Ctrl+Right Arrow** — Move the play head backward or forward by the selected step size from anywhere in the window, including during playback
+- **Left Arrow / Right Arrow** — Move the play head backward or forward by the selected step size, including during playback
+- **[** (left bracket) — Set the trim start mark at the play head, even while it plays
+- **]** (right bracket) — Set the trim end mark at the play head, even while it plays
+- **Shift+[ / Shift+]** — Clear the trim start mark or the trim end mark
+- **Backspace** — Clear the selection: both trim marks go, and the whole recording is selected
+- **Delete** — Move the selected recording to the Recycle Bin. It is never deleted outright
+- **Escape** — Stop playback if a recording is playing, as S does; press again to close. While paused, close the window straight away. If you are transmitting, Escape unkeys first
+- **Space** only selects in the list and never plays, and **Ctrl+Space** is still push to talk

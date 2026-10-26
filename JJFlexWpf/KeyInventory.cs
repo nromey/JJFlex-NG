@@ -672,6 +672,12 @@ public static class KeyInventory
             new[] { "tnf", "tracking", "notch", "filter", "birdie", "carrier", "heterodyne", "tone",
                     "whistle", "interference", "qrm", "permanent", "deep", "narrow", "leader" },
             "Radio", "DSP"),
+        // Tape Deck track 4 (#787): F for Files, ruled by Noel 2026-10-24
+        // 15:50. Opening a dialog is an action. Works with no radio.
+        new("Leader", "JJ key", "Ctrl+J, Alt+F", "Recorded QSOs: your computer recordings, to play, trim, save as another format, delete or prune",
+            new[] { "recorded", "recordings", "recording", "qso", "qsos", "files", "file", "list", "trim",
+                    "save", "export", "mp3", "delete", "prune", "computer", "leader" },
+            "Global", "Audio"),
 
         // ── Not yet in the grammar — each with the reason, and a home ──
         // A toggle whose Ctrl initial is spoken for cannot derive a chord,
@@ -687,9 +693,10 @@ public static class KeyInventory
             new[] { "debounce", "tuning", "speech", "leader" }, "Global", "General"),
         // Two Ctrl chords that are not toggles, kept on purpose. Ctrl+C is
         // copy because it is copy everywhere in Windows (#433), and that rule
-        // outranks ours. Ctrl+F waits on the UNRULED question in #515 of
-        // whether the Alt tier means "speak it" — Alt+F is that proposal's
-        // own example — so it is not moved there ahead of the ruling.
+        // outranks ours. Ctrl+F stays where it is: Alt+F, where the grammar
+        // would put it, was held for #515's UNRULED "Alt means speak it"
+        // proposal and has been spent on Recorded QSOs (Noel, 2026-10-24
+        // 15:50), so there is nowhere on the Alt tier for it to go.
         new("Leader", "JJ key", "Ctrl+J, Ctrl+C", "Copy the message the history walk is sitting on",
             new[] { "copy", "clipboard", "paste", "spoken", "speech", "message", "report",
                     "text", "share", "leader" }, "Global", "General"),

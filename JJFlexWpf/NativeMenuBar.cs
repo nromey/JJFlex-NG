@@ -1111,6 +1111,9 @@ public class NativeMenuBar : IDisposable
                         () => _ = RecorderControls.ToggleComputerPlayAsync(Rig, SpeakRecorderAfterMenuClose),
                         () => Radios.ComputerRecorder.Current.IsPlaying, enabled);
                     break;
+                case "recorded-qsos":
+                    AddWired(parent, label, () => Dialogs.RecordedQsosDialog.Show(Rig), enabled);
+                    break;
                 case "pc-audio-levels":
                     AddWired(parent, label, MenuPcAudioLevels, enabled);
                     break;

@@ -135,7 +135,7 @@ namespace Radios.Tests
         private static readonly Dictionary<Keys, string> CtrlTierActionDebt = new()
         {
             [Keys.C | Keys.Control] = "copy what was said — Ctrl+C is copy everywhere in Windows (#433), and that rule outranks ours",
-            [Keys.F | Keys.Control] = "enter a frequency — Alt+F is the example chord of #515's UNRULED 'Alt means speak it' proposal, so it is not spent ahead of the ruling",
+            [Keys.F | Keys.Control] = "enter a frequency — the grammar would put it on Alt+F, which was held for #515's UNRULED 'Alt means speak it' proposal and was spent on Recorded QSOs (Noel, 2026-10-24 15:50), so it has nowhere on the Alt tier to go",
         };
 
         /// <summary>

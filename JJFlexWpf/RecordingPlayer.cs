@@ -62,6 +62,7 @@ public static class RecordingPlayer
     private static WaveStream? _reader;
     private static EndOfFileSampleProvider? _provider;
     private static FixedGainLimiterSampleProvider? _gain;
+    private static TransportSampleProvider? _transport;
     private static FlexBase? _liveRig;
     private static bool _priorLiveMute;
     private static string _path = "";
@@ -78,6 +79,93 @@ public static class RecordingPlayer
     {
         get { lock (Gate) return _provider != null ? _path : ""; }
     }
+
+    /// <summary>True while a recording is playing but paused (#787, the recordings dialog's preview).</summary>
+    public static bool IsPaused
+    {
+        get { lock (Gate) return _transport?.Paused == true; }
+    }
+
+    /// <summary>
+    /// Where the listener is in the file now, in seconds, or null when nothing
+    /// is playing. While playing this is what has reached the speakers, so it
+    /// trails what the mixer has read by the output's latency; once paused the
+    /// buffered audio has drained and the two agree. The recordings dialog
+    /// marks a trim point here when "[" or "]" is pressed mid-playback, and the
+    /// point should be what the operator HEARD at the press.
+    /// </summary>
+    public static double? PositionSeconds
+    {
+        get
+        {
+            TransportSampleProvider? transport;
+            lock (Gate) transport = _transport;
+            if (transport == null) return null;
+            double read = transport.PositionSeconds;
+            if (transport.Paused) return read;
+            double heard = read - EarconPlayer.AlertOutputLatencyMs / 1000.0;
+            return Math.Max(transport.StartSeconds, heard);
+        }
+    }
+
+    /// <summary>Pause the recording that is playing. False when nothing is playing.</summary>
+    public static bool Pause()
+    {
+        TransportSampleProvider? transport;
+        lock (Gate) transport = _transport;
+        if (transport == null) return false;
+        transport.Paused = true;
+        RxPlaybackLevel.SetPaused(true);
+        StateChanged?.Invoke();
+        return true;
+    }
+
+    /// <summary>Carry on from where <see cref="Pause"/> stopped. False when nothing is paused.</summary>
+    public static bool Resume()
+    {
+        TransportSampleProvider? transport;
+        lock (Gate) transport = _transport;
+        if (transport == null || !transport.Paused) return false;
+        transport.Paused = false;
+        RxPlaybackLevel.SetPaused(false);
+        StateChanged?.Invoke();
+        return true;
+    }
+
+    /// <summary>
+    /// Move the recording that is playing or paused to another point. Paused,
+    /// the next Resume carries on from there; sounding, playback jumps once
+    /// the audio already queued for the speakers has played out.
+    /// </summary>
+    /// <remarks>
+    /// Until 2026-10-25 this refused while sounding, a ruling of 2026-10-21
+    /// ("waits for a later round"). Noel asked for that round at the bench on
+    /// 2026-10-25 ("I'd make it so it can jump ahead and back"), and the
+    /// dialog was changed to step while playing, but this refusal stayed: every
+    /// step announced a new position while the audio carried on where it was.
+    /// The transport's lock already keeps a seek from landing mid-read.
+    /// </remarks>
+    public static bool Seek(double seconds)
+    {
+        TransportSampleProvider? transport;
+        lock (Gate) transport = _transport;
+        if (transport == null) return false;
+        try { transport.Seek(seconds); }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("RecordingPlayer: seek failed — " + ex.Message, TraceLevel.Warning);
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Play a recording from a point inside it (#787, the recordings dialog).
+    /// Everything else is <see cref="Play"/>'s: the one player, the one output,
+    /// the one end-of-file notice.
+    /// </summary>
+    public static bool PlayFrom(string path, double startSeconds, string announcement) =>
+        PlayWithMixer(path, announcement, null, false, EarconPlayer.AddRecordingPlayback, null, startSeconds);
 
     /// <summary>
     /// Play the recording, or stop the one already running — so one button can
@@ -101,7 +189,8 @@ public static class RecordingPlayer
             priorLiveMute);
 
     internal static bool PlayWithMixer(string path, string? announcement, FlexBase? liveRig,
-        bool offAirListeningGain, Func<ISampleProvider, bool> addPlayback, bool? priorLiveMute = null)
+        bool offAirListeningGain, Func<ISampleProvider, bool> addPlayback, bool? priorLiveMute = null,
+        double startSeconds = 0)
     {
         if (string.IsNullOrEmpty(path))
         {
@@ -120,9 +209,11 @@ public static class RecordingPlayer
                     ("file", Path.GetFileNameWithoutExtension(path))));
                 return false;
             }
+            // FLAC through our decoder; WAV, and the MP3, Opus and M4A files Save
+            // As writes into Recorded QSOs, through RecordedQsoMedia (#787).
             reader = string.Equals(Path.GetExtension(path), ".flac", StringComparison.OrdinalIgnoreCase)
                 ? new RecordedQsoFlacWaveStream(path)
-                : new WaveFileReader(path);
+                : RecordedQsoMedia.Open(path);
         }
         catch (Exception ex)
         {
@@ -134,12 +225,15 @@ public static class RecordingPlayer
 
         EndOfFileSampleProvider provider;
         FixedGainLimiterSampleProvider gain;
+        TransportSampleProvider transport;
         try
         {
+            transport = new TransportSampleProvider(reader);
+            if (startSeconds > 0) transport.Seek(startSeconds);
             // The +30 dB listening gain is for the off-air IQ render only (Noel, 2026-10-20 09:01),
             // which is fixed-scale and quiet. A take this computer recorded is already at
             // microphone level; lifting it 30 dB would drive it into the limiter.
-            gain = new FixedGainLimiterSampleProvider(ToMixerFormat(reader), offAirListeningGain);
+            gain = new FixedGainLimiterSampleProvider(ToMixerFormat(transport), offAirListeningGain);
             provider = new EndOfFileSampleProvider(gain);
         }
         catch (Exception ex)
@@ -176,11 +270,16 @@ public static class RecordingPlayer
             _reader = reader;
             _provider = provider;
             _gain = gain;
+            _transport = transport;
             _path = path;
             _name = Path.GetFileNameWithoutExtension(path);
             _liveRig = liveRig;
             _priorLiveMute = priorLiveMute ?? liveRig?.LocalReceiveMutedForTakePlayback ?? false;
             if (liveRig != null) liveRig.LocalReceiveMutedForTakePlayback = true;
+            // Lower or mute the radio on this computer for the playback, as
+            // the operator chose (RxPlaybackLevel). Every exit below goes
+            // through RestoreLiveAudio, which ends it.
+            RxPlaybackLevel.Begin();
         }
 
         if (!addPlayback(provider))
@@ -193,6 +292,7 @@ public static class RecordingPlayer
                 _reader = null;
                 _provider = null;
                 _gain = null;
+                _transport = null;
                 _path = "";
                 RestoreLiveAudio();
             }
@@ -227,6 +327,9 @@ public static class RecordingPlayer
 
     private static void RestoreLiveAudio()
     {
+        // The radio's audio comes back up with the same restore that lifts the
+        // workshop's gate, so no playback can end without it (#787).
+        RxPlaybackLevel.End();
         if (_liveRig != null) _liveRig.LocalReceiveMutedForTakePlayback = _priorLiveMute;
         _liveRig = null;
         _priorLiveMute = false;
@@ -238,12 +341,20 @@ public static class RecordingPlayer
     /// </summary>
     public static void Stop() => End(spokenReason: Lexicon.Get("audio.check.playback_stopped"));
 
+    /// <summary>
+    /// Stop playback without the stop sentence, for a caller that says
+    /// something more exact itself (the recordings dialog says where it
+    /// stopped). One stop, one sentence.
+    /// </summary>
+    public static void StopWithoutSpeaking() => End(spokenReason: "");
+
     private static void End(string spokenReason, bool confirmTone = false, EndOfFileSampleProvider? expected = null)
     {
         WaveStream? reader;
         EndOfFileSampleProvider? provider;
         bool limited;
         string completedPath;
+        TransportSampleProvider? transport;
         lock (Gate)
         {
             if (expected != null && !ReferenceEquals(_provider, expected)) return;
@@ -251,14 +362,41 @@ public static class RecordingPlayer
             provider = _provider;
             limited = _gain?.Limited ?? false;
             completedPath = _path;
+            transport = _transport;
             _reader = null;
             _provider = null;
             _gain = null;
+            _transport = null;
             _path = "";
             RestoreLiveAudio();
         }
         if (provider == null) return;
 
+        // Fade, then retire (retest 2026-10-25, the crossfade). The fields are
+        // already cleared, so a new playback can start at once; this input
+        // fades out under it for a few tens of milliseconds and then leaves.
+        if (transport != null && !transport.Paused)
+        {
+            transport.Paused = true;
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay((int)(TransportSampleProvider.FadeOutSeconds * 1000) + 40).ConfigureAwait(false);
+                Retire(provider, reader);
+            });
+        }
+        else Retire(provider, reader);
+
+        StateChanged?.Invoke();
+        if (confirmTone) EarconPlayer.ConfirmTone();
+        if (!string.IsNullOrEmpty(spokenReason))
+            ScreenReaderOutput.Speak(spokenReason, VerbosityLevel.Terse, interrupt: false);
+        if (limited) ScreenReaderOutput.Speak(Lexicon.Get("audio.take.limiter_engaged"), VerbosityLevel.Terse);
+        if (expected != null) PlaybackCompleted?.Invoke(completedPath);
+    }
+
+    /// <summary>Take a finished input off the mixer and close its file.</summary>
+    private static void Retire(EndOfFileSampleProvider provider, WaveStream? reader)
+    {
         EarconPlayer.RemoveRecordingPlayback(provider);
         try
         {
@@ -272,13 +410,6 @@ public static class RecordingPlayer
             // operator unable to stop playback at all.
             Trace.WriteLine($"RecordingPlayer: dispose failed: {ex.Message}");
         }
-
-        StateChanged?.Invoke();
-        if (confirmTone) EarconPlayer.ConfirmTone();
-        if (!string.IsNullOrEmpty(spokenReason))
-            ScreenReaderOutput.Speak(spokenReason, VerbosityLevel.Terse, interrupt: false);
-        if (limited) ScreenReaderOutput.Speak(Lexicon.Get("audio.take.limiter_engaged"), VerbosityLevel.Terse);
-        if (expected != null) PlaybackCompleted?.Invoke(completedPath);
     }
 
     /// <summary>Say why it will not play, with the tone that means refusal.</summary>
@@ -294,10 +425,9 @@ public static class RecordingPlayer
     /// rate a microphone offered and is usually mono; the mixer is 44100 Hz
     /// stereo and will refuse anything else.
     /// </summary>
-    private static ISampleProvider ToMixerFormat(WaveStream reader)
+    private static ISampleProvider ToMixerFormat(ISampleProvider source)
     {
         WaveFormat want = EarconPlayer.RecordingPlaybackFormat;
-        ISampleProvider source = reader.ToSampleProvider();
         if (source.WaveFormat.SampleRate != want.SampleRate)
             source = new WdlResamplingSampleProvider(source, want.SampleRate);
         if (source.WaveFormat.Channels == 1 && want.Channels == 2)
@@ -338,6 +468,163 @@ public static class RecordingPlayer
                 buffer[i] = (float)scaled;
             }
             return count;
+        }
+    }
+
+    /// <summary>
+    /// The file's own samples with a pause and a seek (#787, the recordings
+    /// dialog's preview), placed FIRST in the chain, before the resampler, so a
+    /// position is a position in the file and not in the mixer's rate.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Paused, it fills every read with silence, the whole length asked for.
+    /// A short read would be taken as the end of the file twice over: by
+    /// <see cref="EndOfFileSampleProvider"/>, and by NAudio's mixer, which
+    /// drops an input the moment it returns less than it was asked for.
+    /// </para>
+    /// <para>
+    /// Read runs on the audio render thread and Seek on the UI thread; one lock
+    /// keeps a seek from moving the decoder halfway through a read.
+    /// </para>
+    /// </remarks>
+    internal sealed class TransportSampleProvider : ISampleProvider
+    {
+        private readonly WaveStream _reader;
+        private readonly ISampleProvider _source;
+        private readonly object _lock = new();
+        private readonly int _channels;
+        private readonly int _rate;
+        private long _frames;
+        private volatile bool _paused;
+
+        // The crossfade (Noel, retest 2026-10-25: stopping gave "a bit of a
+        // blip as it brings the band up"). A pause or a stop fades the
+        // recording out instead of cutting it, while the band comes up under
+        // it; a resume fades back in. Lengths in seconds.
+        internal const double FadeOutSeconds = 0.3;   // the band comes up over the same time (RxPlaybackLevel.ReleaseMs)
+        internal const double FadeInSeconds = 0.015;
+        private int _fadeOutLeft, _fadeOutTotal, _fadeInLeft, _fadeInTotal;
+        private long _pausedAt = -1;  // the frame the pause was asked at; the fade reads past it
+
+        internal TransportSampleProvider(WaveStream reader)
+        {
+            _reader = reader;
+            _source = reader.ToSampleProvider();
+            _channels = Math.Max(1, _source.WaveFormat.Channels);
+            _rate = Math.Max(1, _source.WaveFormat.SampleRate);
+        }
+
+        public WaveFormat WaveFormat => _source.WaveFormat;
+
+        /// <summary>
+        /// Paused, the recording fades out over <see cref="FadeOutSeconds"/> and
+        /// then plays silence; resumed, it goes back to where the pause was asked
+        /// (the fade read a little past it) and fades in.
+        /// </summary>
+        internal bool Paused
+        {
+            get => _paused;
+            set
+            {
+                lock (_lock)
+                {
+                    if (value == _paused) return;
+                    if (value)
+                    {
+                        _pausedAt = _frames;
+                        _fadeOutTotal = _fadeOutLeft = Math.Max(1, (int)(_rate * FadeOutSeconds));
+                        _fadeInLeft = 0;
+                    }
+                    else
+                    {
+                        if (_pausedAt >= 0 && _pausedAt != _frames) SeekFramesLocked(_pausedAt);
+                        _pausedAt = -1;
+                        _fadeOutLeft = 0;
+                        _fadeInTotal = _fadeInLeft = Math.Max(1, (int)(_rate * FadeInSeconds));
+                    }
+                    _paused = value;
+                }
+            }
+        }
+
+        /// <summary>Where playback started, in seconds; the earliest a heard position can be.</summary>
+        internal double StartSeconds { get; private set; }
+
+        /// <summary>How far into the file the mixer has read, in seconds.</summary>
+        internal double PositionSeconds
+        {
+            get { lock (_lock) return (_paused && _pausedAt >= 0 ? _pausedAt : _frames) / (double)_rate; }
+        }
+
+        /// <summary>Move to a point in the file, in whole sample frames, clamped to the file.</summary>
+        internal void Seek(double seconds)
+        {
+            lock (_lock)
+            {
+                SeekFramesLocked((long)Math.Floor(Math.Max(0, seconds) * _rate));
+                StartSeconds = _frames / (double)_rate;
+                if (_paused)
+                {
+                    // A move while paused is where Resume carries on from, and
+                    // there is nothing left to fade.
+                    _pausedAt = _frames;
+                    _fadeOutLeft = 0;
+                }
+            }
+        }
+
+        private void SeekFramesLocked(long frame)
+        {
+            int block = _reader.WaveFormat.BlockAlign;
+            long bytes = frame * block;
+            if (_reader.Length > 0 && bytes > _reader.Length) bytes = _reader.Length - _reader.Length % block;
+            _reader.Position = bytes;
+            _frames = bytes / block;
+        }
+
+        public int Read(Span<float> buffer)
+        {
+            lock (_lock)
+            {
+                if (_paused)
+                {
+                    // Always a full buffer while paused: a short read would end
+                    // the file for the mixer. The fade, then silence.
+                    if (_fadeOutLeft <= 0)
+                    {
+                        buffer.Clear();
+                        return buffer.Length;
+                    }
+                    int got = _source.Read(buffer);
+                    int frames = got / _channels;
+                    for (int f = 0; f < frames; f++)
+                    {
+                        // Equal-power: a cosine, which holds the recording's
+                        // loudness early and eases it out, against the band
+                        // rising in step (bench 2026-10-25: a straight line
+                        // "isn't crossed up enough").
+                        float g = _fadeOutLeft > 0
+                            ? MathF.Cos((1f - _fadeOutLeft / (float)_fadeOutTotal) * MathF.PI / 2f)
+                            : 0f;
+                        if (_fadeOutLeft > 0) _fadeOutLeft--;
+                        for (int c = 0; c < _channels; c++) buffer[f * _channels + c] *= g;
+                    }
+                    _frames += frames;
+                    if (got < buffer.Length) buffer.Slice(got).Clear();
+                    return buffer.Length;
+                }
+                int read = _source.Read(buffer);
+                int readFrames = read / _channels;
+                for (int f = 0; f < readFrames && _fadeInLeft > 0; f++)
+                {
+                    float g = 1f - _fadeInLeft / (float)_fadeInTotal;
+                    _fadeInLeft--;
+                    for (int c = 0; c < _channels; c++) buffer[f * _channels + c] *= g;
+                }
+                _frames += readFrames;
+                return read;
+            }
         }
     }
 

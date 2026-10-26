@@ -160,6 +160,80 @@ namespace JJFlexWpf
             _spectralSub.ProcessInPlace(buffer, 0, count, _channels);
             _rnnoise.ProcessInPlace(buffer, 0, count, _channels);
             ApplyDuck(buffer, count);
+            ApplyPlaybackLevel(buffer, count);
+        }
+
+        // --- Recording playback level (#787, bench 2026-10-25) ---
+        //
+        // After the warning duck, and separate from it: the duck is
+        // warnings-only by ruling, and this one follows a recording playing on
+        // this computer. The two multiply, which is right — a warning during
+        // playback still dips the band further. See RxPlaybackLevel.
+
+        private float _playbackGain = 1f;
+
+        private void ApplyPlaybackLevel(float[] buffer, int count) =>
+            _playbackGain = GlideGain(buffer, count, Math.Max(_channels, 1), _sampleRate,
+                _playbackGain, RxPlaybackLevel.TargetGain, Math.Max(6f, RxPlaybackLevel.DepthDb));
+
+        private const float FloorDb = -60f;
+
+        private static float ToDb(float gain) => gain <= 0.001f ? FloorDb : 20f * MathF.Log10(gain);
+
+        /// <summary>
+        /// Ramp <paramref name="buffer"/> from <paramref name="gain"/> toward
+        /// <paramref name="target"/>, per frame, and return where it got to.
+        /// The ramp moves in DECIBELS, at a rate that crosses
+        /// <paramref name="depthDb"/> in <see cref="RxPlaybackLevel.AttackMs"/>
+        /// going down and <see cref="RxPlaybackLevel.ReleaseMs"/> coming back.
+        /// A straight ramp in amplitude sounds like a jump at its start, because
+        /// the ear hears loudness in decibels (retest 2026-10-25: "a bit of a
+        /// blip as it brings the band up"). Ramped, never stepped, for the
+        /// reason on <see cref="ApplyDuck"/>.
+        /// </summary>
+        internal static float GlideGain(float[] buffer, int count, int channels, float sampleRate,
+            float gain, float target, float depthDb)
+        {
+            if (target >= 0.9999f && gain >= 0.9999f) return 1f;
+
+            // Coming back to full is the band's half of the crossfade, so it is
+            // the mirror of the recording's equal-power cosine: a sine in
+            // amplitude, quick at first, from the lowered level to 1 over
+            // ReleaseMs. The decibel curve rose slowly at first and left "a
+            // slight dip in volume" (bench 2026-10-25 21:19). Where the glide
+            // is on that sine is read back from the gain itself, so nothing
+            // else has to be remembered between buffers.
+            if (target >= 0.9999f && gain < target)
+            {
+                float low = MathF.Pow(10f, -Math.Max(0f, depthDb) / 20f);
+                if (depthDb >= 59f) low = 0f; // muted
+                float span = 1f - low;
+                float t = span <= 0f ? 1f
+                    : MathF.Asin(Math.Clamp((gain - low) / span, 0f, 1f)) * 2f / MathF.PI;
+                float advance = 1f / Math.Max(1f, sampleRate * (RxPlaybackLevel.ReleaseMs / 1000f));
+                for (int i = 0; i < count; i += channels)
+                {
+                    t = Math.Min(1f, t + advance);
+                    gain = t >= 1f ? 1f : low + span * MathF.Sin(t * MathF.PI / 2f);
+                    for (int c = 0; c < channels && i + c < count; c++)
+                        buffer[i + c] *= gain;
+                }
+                return gain;
+            }
+
+            float db = ToDb(gain), targetDb = ToDb(target);
+            float ms = targetDb < db ? RxPlaybackLevel.AttackMs : RxPlaybackLevel.ReleaseMs;
+            float step = depthDb / Math.Max(1f, sampleRate * (ms / 1000f));
+            for (int i = 0; i < count; i += channels)
+            {
+                if (db > targetDb) db = Math.Max(targetDb, db - step);
+                else if (db < targetDb) db = Math.Min(targetDb, db + step);
+                // Arrived: exactly the target, so muted is a true zero.
+                gain = db == targetDb ? target : db <= FloorDb ? 0f : MathF.Pow(10f, db / 20f);
+                for (int c = 0; c < channels && i + c < count; c++)
+                    buffer[i + c] *= gain;
+            }
+            return gain;
         }
 
         // --- Warning duck (#116) ---

@@ -125,12 +125,14 @@ namespace Radios
             bool slicePaused = sliceLeases.Any(lease => lease?.Paused == true);
             lock (_voxPauseGate)
             {
-                if ((_toneVoxLease?.Paused == true || _referenceVoxLease?.Paused == true || slicePaused)
+                if ((_toneVoxLease?.Paused == true || _referenceVoxLease?.Paused == true || slicePaused
+                    || _localPlaybackVoxLeases.Any(lease => lease.Paused))
                     && theRadio?.Serial is string serial)
                     _voxPausedAtDisconnectSerial = serial;
                 txToneGen.Stop();
                 TxFileStop();
                 _voxPauses?.Disconnect();
+                _localPlaybackVoxLeases.Clear();
                 _referenceVoxLease?.Dispose();
                 _referenceVoxLease = null;
                 _toneVoxLease?.Dispose();

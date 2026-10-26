@@ -44,6 +44,34 @@ public sealed class ComputerRecorderControlTests : IDisposable
     }
 
     [Fact]
+    public async Task Finishing_a_new_recording_puts_Play_from_computer_back_on_the_newest()
+    {
+        // Noel, 2026-10-25 10:41: a recording chosen in Recorded QSOs plays
+        // until a new one is made.
+        var engine = new FakeEngine { IsRecording = true };
+        ComputerRecorder.Install(engine);
+        ComputerRecorder.ChosenRecording = @"C:\rec\older.flac";
+        var stopped = await ComputerRecorder.ToggleRecordingAsync(null);
+        Assert.True(stopped.Success);
+        Assert.Null(ComputerRecorder.ChosenRecording);
+
+        // Positive control: a choice survives anything that is not a finished recording.
+        engine.IsRecording = false;
+        ComputerRecorder.ChosenRecording = @"C:\rec\older.flac";
+        await ComputerRecorder.TogglePlaybackAsync(transmitting: false);
+        Assert.Equal(@"C:\rec\older.flac", ComputerRecorder.ChosenRecording);
+    }
+
+    [Fact]
+    public async Task Stopping_Play_from_computer_gives_the_tape_deck_click_not_the_recording_stop_beep()
+    {
+        // The 2026-10-25 bench heard a double beep: StopPlaybackAsync said Stop, the recording cue.
+        var engine = new ComputerFlacRecorder(_ => true, () => { }, () => true);
+        var outcome = await engine.StopPlaybackAsync();
+        Assert.Equal(RecorderCue.PlayStop, outcome.Cue);
+    }
+
+    [Fact]
     public void The_real_engine_defaults_to_radio_audio_in_mono()
     {
         var engine = new ComputerFlacRecorder(_ => true, () => { }, () => false);
@@ -86,12 +114,18 @@ public sealed class ComputerRecorderControlTests : IDisposable
     [Fact]
     public async Task Play_from_computer_plays_the_chosen_recording_else_the_last_one()
     {
-        var engine = new FakeEngine { LastRecordingPath = "last.flac" };
+        // Real files since Tape Deck track 4: a choice or a last recording
+        // that no longer exists is skipped (see RecordedQsoCatalogTests).
+        string last = System.IO.Path.Combine(_scope.Directory, "last.flac");
+        string chosen = System.IO.Path.Combine(_scope.Directory, "chosen.flac");
+        System.IO.File.WriteAllText(last, "");
+        System.IO.File.WriteAllText(chosen, "");
+        var engine = new FakeEngine { LastRecordingPath = last };
         ComputerRecorder.Install(engine);
         Assert.True((await ComputerRecorder.TogglePlaybackAsync(false)).Success);
-        ComputerRecorder.ChosenRecording = "chosen.flac";
+        ComputerRecorder.ChosenRecording = chosen;
         Assert.True((await ComputerRecorder.TogglePlaybackAsync(false)).Success);
-        Assert.Equal(new[] { "play last.flac", "play chosen.flac" }, engine.Calls);
+        Assert.Equal(new[] { "play " + last, "play " + chosen }, engine.Calls);
     }
 
     [Fact]
@@ -119,13 +153,15 @@ public sealed class ComputerRecorderControlTests : IDisposable
     [Fact]
     public async Task Local_computer_play_uses_only_the_speaker_path_even_with_VOX_on()
     {
-        var engine = new FakeEngine { LastRecordingPath = "last.flac" };
+        string last = System.IO.Path.Combine(_scope.Directory, "last.flac");
+        System.IO.File.WriteAllText(last, "");
+        var engine = new FakeEngine { LastRecordingPath = last };
         ComputerRecorder.Install(engine);
         Assert.True((await ComputerRecorder.TogglePlaybackAsync(false)).Success);
-        Assert.Equal(new[] { "play last.flac" }, engine.Calls);
+        Assert.Equal(new[] { "play " + last }, engine.Calls);
         engine.IsPlaying = true;
         Assert.True((await ComputerRecorder.TogglePlaybackAsync(false)).Success);
-        Assert.Equal(new[] { "play last.flac", "stop playback" }, engine.Calls);
+        Assert.Equal(new[] { "play " + last, "stop playback" }, engine.Calls);
         string controls = System.IO.File.ReadAllText(System.IO.Path.Combine(IntegrationPassTree.Root,
             "JJFlexWpf", "RecorderControls.cs"));
         Assert.DoesNotContain("rig?.Vox", controls);
