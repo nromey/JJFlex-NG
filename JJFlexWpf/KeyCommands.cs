@@ -6512,6 +6512,81 @@ public class KeyCommands
     }
 
     /// <summary>
+    /// Another program has taken the foreground from every JJ Flexible window
+    /// (the shell's WM_ACTIVATEAPP, BridgeForm.vb). Let go of the in-window
+    /// layer's two ONE-SHOT waiting states, quietly.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why (#693 repair round, Codex's blocker of 2026-10-25).</b> After an
+    /// in-window near miss the layer waits for H, slash, Escape and the chord
+    /// it named, and nothing in the window ever let that go except a later
+    /// key in the window. So Ctrl+J, K, then a move to a logger left the
+    /// flag armed behind the operator's back: the hook had never been told,
+    /// so Alt+K in the logger went to the logger, and the next H, Escape or
+    /// Alt+K pressed back in this window was claimed by a layer the operator
+    /// had long since left. The unknown-key arm (#303) had the same weakness
+    /// and the bare Ctrl+J wait has it too, so all three go here: they are the
+    /// in-window twins of the hook's own "bare waiting state"
+    /// (<see cref="Radios.SystemWideKeyDecider.Waiting"/>), which is exactly
+    /// what the system-wide timeout guards.
+    /// </para>
+    /// <para>
+    /// <b>The in-window arm is deliberately NOT relayed to the hook.</b> The
+    /// alternative was to tell <see cref="SystemWideKeys.NoteHelpArmed(bool, Keys)"/>
+    /// about an in-window arming too, so the chord would be claimed from the
+    /// logger. That is the forgotten-layer trap of #750 aimed at another
+    /// program: a slip made in this window would swallow a key typed in the
+    /// logger, and a relayed arm would also have the hook claim H and Escape
+    /// ahead of this window's own routing while it is still in front. So
+    /// "the chord works from another program too" holds where the near miss
+    /// was made through the system-wide JJ key, which already relays
+    /// (<see cref="SystemWideLeaderKey"/>), and only there. The system-wide
+    /// layer keeps its own ruled lifetime (Noel, 2026-10-05, filed under
+    /// #689): it is not cleared here, because it exists to outlive our focus.
+    /// </para>
+    /// <para>
+    /// <b>Value layers are left alone.</b> The audio and filter layers close
+    /// only on Enter, Escape or the JJ key (#778's ruling), and how long they
+    /// survive away from the window is #750's configurable timeout, ruled and
+    /// not yet built. This is not that.
+    /// </para>
+    /// <para>
+    /// Silent, as the system-wide expiry is silent: a layer that announces its
+    /// own abandonment into another program is noise. It is traced.
+    /// </para>
+    /// </remarks>
+    public static void ApplicationDeactivated()
+    {
+        _globalRoutingOwner?.ReleaseOneShotWaits("another program took the foreground");
+    }
+
+    /// <summary>
+    /// The body of <see cref="ApplicationDeactivated"/>, on an instance, so the
+    /// window-free tests can drive it on a KeyCommands that installed no
+    /// global routing.
+    /// </summary>
+    internal void ReleaseOneShotWaits(string why)
+    {
+        if (!_leaderKeyActive && !_leaderHelpArmed) return;
+        _context.Trace("Leader:released (" + why + ")"
+            + (_leaderKeyActive ? " waiting for the second key" : "")
+            + (_leaderHelpArmed ? " help-armed" + (_leaderNearMissChord != Keys.None ? " for " + _leaderNearMissChord : "") : ""));
+        _leaderKeyActive = false;
+        _leaderHelpArmed = false;
+        _leaderNearMissChord = Keys.None;
+    }
+
+    /// <summary>For the window-free tests: is the JJ key waiting for its second key?</summary>
+    internal bool LeaderWaitingForSecondKey => _leaderKeyActive;
+
+    /// <summary>For the window-free tests: is the layer waiting for H, slash or Escape (#303)?</summary>
+    internal bool LeaderHelpArmed => _leaderHelpArmed;
+
+    /// <summary>For the window-free tests: the chord a near miss named, while it is honoured (#693).</summary>
+    internal Keys LeaderNearMissChordHonoured => _leaderHelpArmed ? _leaderNearMissChord : Keys.None;
+
+    /// <summary>
     /// The key after the system-wide JJ key, with its modifiers.
     /// </summary>
     /// <param name="k">The chord, as DoLeaderCommand switches on it.</param>

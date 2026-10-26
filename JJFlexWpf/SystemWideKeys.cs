@@ -292,6 +292,17 @@ namespace JJFlexWpf
             }
         }
 
+        /// <summary>
+        /// Is the hook in a bare waiting state — after its own JJ key, or
+        /// relayed as help-armed? For the window-free test that an IN-WINDOW
+        /// near miss is deliberately never relayed (#693 repair round; see
+        /// <c>KeyCommands.ApplicationDeactivated</c>).
+        /// </summary>
+        internal static bool HookIsWaiting
+        {
+            get { lock (_gate) return _decider.Waiting; }
+        }
+
         // ── the hook thread ──────────────────────────────────────────────
 
         /// <summary>Runs ONLY on the hook thread.</summary>

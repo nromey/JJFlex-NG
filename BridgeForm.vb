@@ -163,6 +163,7 @@ Public Class ShellForm
     ' #550 - the focus goes straight into WPF, never through the host. See
     ' RouteFocusStraightToWpf below.
     Private Const WM_SETFOCUS As Integer = &H7
+    Private Const WM_ACTIVATEAPP As Integer = &H1C
 
     <System.Runtime.InteropServices.DllImport("user32.dll")>
     Private Shared Function GetFocus() As IntPtr
@@ -334,6 +335,17 @@ Public Class ShellForm
             ' #550 - BEFORE the base handler, which is where WinForms would
             ' otherwise hand the focus to the host. See RouteFocusStraightToWpf.
             RouteFocusStraightToWpf()
+        End If
+
+        ' #693 repair round - FOCUS LEFT FOR ANOTHER PROGRAM. WM_ACTIVATEAPP goes
+        ' to every top-level window of ours, whichever of them was active, so
+        ' this one place sees the app as a whole lose the foreground - and NOT a
+        ' move between our own windows, which is still inside JJ Flexible. A JJ
+        ' key layer still waiting for its next key must not outlive that: it
+        ' would claim a key pressed when the operator comes back, long after
+        ' they left it. See KeyCommands.ApplicationDeactivated.
+        If m.Msg = WM_ACTIVATEAPP AndAlso m.WParam = IntPtr.Zero Then
+            JJFlexWpf.KeyCommands.ApplicationDeactivated()
         End If
 
         ' #550 - the other order Windows can use: activate first, then send
