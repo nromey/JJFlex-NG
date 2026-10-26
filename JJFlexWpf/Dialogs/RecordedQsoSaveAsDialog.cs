@@ -73,17 +73,18 @@ internal static class RecordedQsoSaveAs
         string folder = Path.GetDirectoryName(sourcePath) ?? "";
         string stem = Path.GetFileNameWithoutExtension(sourcePath) + (whole ? "" : "-trim");
         string name = stem + kind.Extension;
-        // A whole copy in the source's own type would take the source's own
-        // name, so it is called a copy rather than "-2" (Noel, retest
-        // 2026-10-25: "I'd make it copy yes please").
-        if (SameFile(Path.Combine(folder, name), sourcePath))
-        {
-            stem += "-copy";
-            name = stem + kind.Extension;
-        }
+        // A name that is already taken, by the source itself or by any file
+        // there, becomes "-copy", then "-copy2", "-copy3". Never "-2" (Noel,
+        // retest 2026-10-25: "I'd make it copy", "if it's got a duplicate
+        // name use [it], otherwise it wouldn't need to", "There shouldn't be
+        // any -2", "-copy2").
+        bool Taken(string candidate) =>
+            exists(Path.Combine(folder, candidate)) || SameFile(Path.Combine(folder, candidate), sourcePath);
+        if (!Taken(name)) return name;
+        stem += "-copy";
+        name = stem + kind.Extension;
         int n = 2;
-        while (exists(Path.Combine(folder, name)) || SameFile(Path.Combine(folder, name), sourcePath))
-            name = stem + "-" + n++ + kind.Extension;
+        while (Taken(name)) name = stem + n++ + kind.Extension;
         return name;
     }
 

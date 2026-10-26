@@ -767,7 +767,8 @@ public sealed class RecordedQsosDialog : JJFlexDialog
                 ("length", RecordedQsoWords.Length(q.Seconds))),
             question: Lexicon.Get("audio.qsos.delete_question"),
             yesLabel: Lexicon.Get("audio.qsos.delete_yes"),
-            noLabel: Lexicon.Get("audio.qsos.delete_no"))
+            noLabel: Lexicon.Get("audio.qsos.delete_no"),
+            enterConfirms: true)
         { Owner = this };
         bool confirmed = confirm.ShowModalDialog() == true;
         SettleFocus(fromList);

@@ -343,6 +343,22 @@ public sealed class RecordedQsoCatalogTests : IDisposable
     }
 
     [Fact]
+    public void Prune_by_keeping_the_newest_takes_everything_older_than_them()
+    {
+        var rows = FiveDays();
+        var plan = RecordedQsoCatalog.PlanKeepNewest(rows, 2, _ => false);
+        Assert.Equal(new[] { "QSO-2026-10-01-120000", "QSO-2026-10-02-120000", "QSO-2026-10-03-120000" },
+            plan.Move.Select(r => r.Name));
+        Assert.Empty(RecordedQsoCatalog.PlanKeepNewest(rows, 5, _ => false).Move);
+        Assert.Empty(RecordedQsoCatalog.PlanKeepNewest(rows, 9, _ => false).Move);
+
+        string busy = rows.Single(r => r.Name == "QSO-2026-10-02-120000").Path;
+        var held = RecordedQsoCatalog.PlanKeepNewest(rows, 2, p => p == busy);
+        Assert.Equal(new[] { "QSO-2026-10-01-120000", "QSO-2026-10-03-120000" }, held.Move.Select(r => r.Name));
+        Assert.Equal(new[] { "QSO-2026-10-02-120000" }, held.InUse.Select(r => r.Name));
+    }
+
+    [Fact]
     public void Prune_by_age_takes_only_what_began_before_the_cutoff()
     {
         var rows = FiveDays();

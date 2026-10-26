@@ -1681,6 +1681,8 @@ namespace Radios.Tests
                 "audio.qsos.prune_by_age",
                 "audio.qsos.prune_count",
                 "audio.qsos.prune_days",
+                "audio.qsos.prune_by_keep",
+                "audio.qsos.prune_keep",
                 "audio.qsos.prune_preview_label",
                 "audio.qsos.prune_list",
                 "audio.qsos.prune_preview_one",

@@ -224,15 +224,16 @@ public static class RecordedQsoCatalog
     /// </summary>
     public static bool IsSaveAsName(string name)
     {
-        if (name == null) return false;
-        string suffix = "-trim";
-        int at = name.IndexOf(suffix, StringComparison.Ordinal);
-        if (at < 0) { suffix = "-copy"; at = name.IndexOf(suffix, StringComparison.Ordinal); }
-        if (at < 0) return false;
-        string tail = name.Substring(at + suffix.Length);
-        if (tail.Length > 0 && (tail[0] != '-' || tail.Length == 1 || !tail.Skip(1).All(char.IsAsciiDigit)))
-            return false;
-        return TryParseRecorderName(name.Substring(0, at), out _);
+        // The recorder's stamp, then "-trim" and/or "-copy", then a number:
+        // "-copy2" since 2026-10-25, or the "-2" style Save As used before.
+        if (name == null || name.Length < 21 || !TryParseRecorderName(name.Substring(0, 21), out _)) return false;
+        string tail = name.Substring(21);
+        bool saved = false;
+        if (tail.StartsWith("-trim", StringComparison.Ordinal)) { tail = tail.Substring(5); saved = true; }
+        if (tail.StartsWith("-copy", StringComparison.Ordinal)) { tail = tail.Substring(5); saved = true; }
+        if (!saved) return false;
+        if (tail.StartsWith("-", StringComparison.Ordinal)) tail = tail.Substring(1);
+        return tail.All(char.IsAsciiDigit);
     }
 
     /// <summary>True when the path is a file inside the folder, at any depth.</summary>
@@ -263,6 +264,21 @@ public static class RecordedQsoCatalog
         var oldest = recordings.OrderBy(r => r.RecordedAt).ThenBy(r => r.Name, StringComparer.Ordinal)
             .Take(Math.Max(0, count));
         return Plan(oldest, inUse);
+    }
+
+    /// <summary>
+    /// Prune by keeping (Noel, retest 2026-10-25: "keep x of the newest
+    /// recordings"): everything except the <paramref name="keep"/> newest,
+    /// oldest first. A file in use among them stays and is named, as for the
+    /// other two.
+    /// </summary>
+    public static RecordedQsoPrunePlan PlanKeepNewest(IReadOnlyList<RecordedQso> recordings, int keep,
+        Func<string, bool> inUse)
+    {
+        var older = recordings.OrderByDescending(r => r.RecordedAt).ThenByDescending(r => r.Name, StringComparer.Ordinal)
+            .Skip(Math.Max(0, keep))
+            .OrderBy(r => r.RecordedAt).ThenBy(r => r.Name, StringComparer.Ordinal);
+        return Plan(older, inUse);
     }
 
     /// <summary>

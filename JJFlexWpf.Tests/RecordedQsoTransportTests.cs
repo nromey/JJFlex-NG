@@ -88,6 +88,9 @@ public sealed class RecordedQsoTransportTests : IDisposable
         // silence until then, which was the cut Noel heard.
         Assert.Equal(buffer.Length, ReadOnce(input!, buffer));
         Assert.True(Math.Abs(buffer[0]) > 0.3f, "the fade starts near full level");
+        // 0.2 s of fade: two more 0.1 s reads take it to silence.
+        Assert.Equal(buffer.Length, ReadOnce(input!, buffer));
+        Assert.Equal(buffer.Length, ReadOnce(input!, buffer));
         Assert.Equal(0f, buffer[^1]);
         Array.Fill(buffer, 1f);
         Assert.Equal(buffer.Length, ReadOnce(input!, buffer));
@@ -223,6 +226,8 @@ public sealed class RecordedQsoTransportTests : IDisposable
     public void The_radio_audio_is_lowered_for_the_life_of_a_playback_and_comes_back_when_it_ends()
     {
         var before = RxPlaybackLevel.Level;
+        int handover = RxPlaybackLevel.HandoverMs;
+        RxPlaybackLevel.HandoverMs = 0;   // the wait has its own test below
         try
         {
             RxPlaybackLevel.Level = PlaybackRadioLevel.Lowered12;
@@ -248,7 +253,33 @@ public sealed class RecordedQsoTransportTests : IDisposable
             Assert.False(RecordingPlayer.PlayWithMixer(Wav(1), "A test recording.", null, false, _ => false));
             Assert.False(RxPlaybackLevel.Active);
         }
-        finally { RxPlaybackLevel.Level = before; }
+        finally { RxPlaybackLevel.Level = before; RxPlaybackLevel.HandoverMs = handover; }
+    }
+
+    // The crossfade (retest 2026-10-25): after a pause or a stop the band
+    // waits for the recording's fade to be heard, then comes up. Not before.
+    [Fact]
+    public void After_a_pause_or_a_stop_the_band_waits_for_the_handover_then_comes_back()
+    {
+        var before = RxPlaybackLevel.Level;
+        int handover = RxPlaybackLevel.HandoverMs;
+        try
+        {
+            RxPlaybackLevel.Level = PlaybackRadioLevel.Lowered12;
+            RxPlaybackLevel.HandoverMs = 150;
+            Assert.True(RecordingPlayer.PlayWithMixer(Wav(2), "A test recording.", null, false, _ => true));
+            Assert.True(RecordingPlayer.Pause());
+            Assert.Equal(0.251f, RxPlaybackLevel.TargetGain, 3);   // still down, at once
+            System.Threading.Thread.Sleep(250);
+            Assert.Equal(1f, RxPlaybackLevel.TargetGain);          // up, after the handover
+            Assert.True(RecordingPlayer.Resume());
+            Assert.Equal(0.251f, RxPlaybackLevel.TargetGain, 3);   // a resume drops it at once
+            RecordingPlayer.StopWithoutSpeaking();
+            Assert.Equal(0.251f, RxPlaybackLevel.TargetGain, 3);   // a stop waits too
+            System.Threading.Thread.Sleep(250);
+            Assert.Equal(1f, RxPlaybackLevel.TargetGain);
+        }
+        finally { RxPlaybackLevel.Level = before; RxPlaybackLevel.HandoverMs = handover; }
     }
 
     [Fact]
@@ -280,11 +311,11 @@ public sealed class RecordedQsoTransportTests : IDisposable
         Assert.True(buffer[0] > buffer[^1]);
         Assert.Equal(gain, buffer[^1], 4);
 
-        // Back up: 500 ms crosses 12 dB, IN DECIBELS (retest 2026-10-25: the
+        // Back up: 200 ms crosses 12 dB, IN DECIBELS (retest 2026-10-25: the
         // straight-line return was heard as a blip). Half the time is half the
         // decibels, -6 dB, 0.501, where a straight amplitude ramp would be at
         // 0.626.
-        var back = Enumerable.Repeat(1f, 12000).ToArray();
+        var back = Enumerable.Repeat(1f, 4800).ToArray();
         gain = RxAudioPipeline.GlideGain(back, back.Length, 1, 48000, 0.251f, 1f, 12f);
         Assert.InRange(gain, 0.49f, 0.51f);
         for (int i = 1; i < back.Length; i++) Assert.True(back[i] >= back[i - 1]);

@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 
 namespace JJFlexWpf
 {
@@ -57,12 +58,28 @@ namespace JJFlexWpf
         internal const float AttackMs = 60f;
 
         /// <summary>
-        /// Glide back to full over this long when playback pauses or ends. Half a
-        /// second, on a decibel curve: the first version came back in a straight
-        /// line in a quarter of a second, and Noel heard the band jump ("a bit of
-        /// a blip as it brings the band up", retest 2026-10-25).
+        /// Glide back to full over this long when playback pauses or ends, on a
+        /// decibel curve, the same length as the recording's own fade-out
+        /// (<see cref="RecordingPlayer.TransportSampleProvider.FadeOutSeconds"/>),
+        /// so one replaces the other. History, retest 2026-10-25: a straight
+        /// 250 ms line was heard as "a blip"; a 500 ms curve against a 60 ms
+        /// recording fade was heard as "a long fade in tail and a noticeable
+        /// stop". Noel's design: "it pauses a bit and can then smoothly
+        /// crossfade".
         /// </summary>
-        internal const float ReleaseMs = 500f;
+        internal const float ReleaseMs = 200f;
+
+        /// <summary>
+        /// How long the band waits before it starts coming back, so its rise is
+        /// heard as the recording's fade is: the recording leaves through the
+        /// alert device's buffers, which run deeper than the receive queue the
+        /// band's gain is applied in front of. An ESTIMATE ("some tens of
+        /// milliseconds", RxDuck's remarks); tune it by ear. Settable so a test
+        /// can take the wait out.
+        /// </summary>
+        internal static int HandoverMs { get; set; } = 50;
+
+        private static long _releaseAt;   // Environment.TickCount64 until which the band stays down
 
         private static volatile int _level = (int)DefaultLevel;
         private static volatile bool _active;
@@ -78,18 +95,31 @@ namespace JJFlexWpf
         /// <summary>True from a playback's start to its end.</summary>
         public static bool Active => _active;
 
-        internal static void Begin() { _paused = false; _active = true; }
+        internal static void Begin() { _paused = false; _active = true; Interlocked.Exchange(ref _releaseAt, 0); }
 
-        internal static void End() { _active = false; _paused = false; }
+        internal static void End()
+        {
+            if (_active && !_paused) Interlocked.Exchange(ref _releaseAt, Environment.TickCount64 + HandoverMs);
+            _active = false;
+            _paused = false;
+        }
 
         /// <summary>
         /// A paused playback gives the band back until it resumes (Noel, retest
         /// 2026-10-25: "pausing still should probably bring audio back up").
         /// </summary>
-        internal static void SetPaused(bool paused) => _paused = paused;
+        internal static void SetPaused(bool paused)
+        {
+            Interlocked.Exchange(ref _releaseAt, paused && _active && !_paused ? Environment.TickCount64 + HandoverMs : 0);
+            _paused = paused;
+        }
 
-        /// <summary>The gain the receive pipeline glides toward: 1 unless a recording is sounding.</summary>
-        public static float TargetGain => _active && !_paused ? GainFor(Level) : 1f;
+        /// <summary>
+        /// The gain the receive pipeline glides toward: lowered while a recording
+        /// sounds, and for <see cref="HandoverMs"/> after a pause or a stop, then 1.
+        /// </summary>
+        public static float TargetGain =>
+            (_active && !_paused) || Environment.TickCount64 < Interlocked.Read(ref _releaseAt) ? GainFor(Level) : 1f;
 
         internal static float GainFor(PlaybackRadioLevel level) => level switch
         {

@@ -31,6 +31,8 @@ internal sealed class RecordedQsoPruneDialog : JJFlexDialog
     private readonly Func<string, bool> _inUse;
     private readonly RadioButton _byCount = new();
     private readonly RadioButton _byAge = new();
+    private readonly RadioButton _byKeep = new();
+    private readonly TextBox _keep = new();
     private readonly TextBox _count = new();
     private readonly TextBox _days = new();
     private readonly TextBox _preview = new();
@@ -74,10 +76,13 @@ internal sealed class RecordedQsoPruneDialog : JJFlexDialog
         _byAge.Content = Lexicon.Get("audio.qsos.prune_by_age");
         AutomationProperties.SetName(_byCount, Lexicon.Get("audio.qsos.prune_by_count"));
         AutomationProperties.SetName(_byAge, Lexicon.Get("audio.qsos.prune_by_age"));
-        _byCount.GroupName = _byAge.GroupName = "rule";
+        _byKeep.Content = Lexicon.Get("audio.qsos.prune_by_keep");
+        AutomationProperties.SetName(_byKeep, Lexicon.Get("audio.qsos.prune_by_keep"));
+        _byCount.GroupName = _byAge.GroupName = _byKeep.GroupName = "rule";
         _byCount.IsChecked = true;
         _byCount.Checked += (_, _) => Update();
         _byAge.Checked += (_, _) => Update();
+        _byKeep.Checked += (_, _) => Update();
 
         // The two choices sit together, then their numbers. With a number box
         // between them, arrowing from the first choice went into the box and
@@ -85,8 +90,10 @@ internal sealed class RecordedQsoPruneDialog : JJFlexDialog
         // down on these radio buttons").
         top.Children.Add(_byCount);
         top.Children.Add(_byAge);
+        top.Children.Add(_byKeep);
         top.Children.Add(Number(_count, "audio.qsos.prune_count", OpeningCount(all.Count)));
         top.Children.Add(Number(_days, "audio.qsos.prune_days", DefaultDays));
+        top.Children.Add(Number(_keep, "audio.qsos.prune_keep", OpeningCount(all.Count)));
 
         top.Children.Add(new Label { Content = Lexicon.Get("audio.qsos.prune_preview_label"), Target = _preview, Padding = new Thickness(0, 4, 0, 2) });
         AutomationProperties.SetName(_preview, Lexicon.Get("audio.qsos.prune_preview_label"));
@@ -146,10 +153,12 @@ internal sealed class RecordedQsoPruneDialog : JJFlexDialog
     {
         if (_move == null) return; // during construction
         bool byCount = _byCount.IsChecked == true;
+        bool byKeep = _byKeep.IsChecked == true;
         _count.IsEnabled = byCount;
-        _days.IsEnabled = !byCount;
-        int max = byCount ? Math.Max(1, _all.Count) : 36500;
-        var box = byCount ? _count : _days;
+        _keep.IsEnabled = byKeep;
+        _days.IsEnabled = !byCount && !byKeep;
+        int max = byCount || byKeep ? Math.Max(1, _all.Count) : 36500;
+        var box = byCount ? _count : byKeep ? _keep : _days;
         if (!int.TryParse(box.Text.Trim(), NumberStyles.Integer, CultureInfo.CurrentCulture, out int n) || n < 1 || n > max)
         {
             _plan = new(Array.Empty<RecordedQso>(), Array.Empty<RecordedQso>(), 0);
@@ -157,6 +166,7 @@ internal sealed class RecordedQsoPruneDialog : JJFlexDialog
             return;
         }
         _plan = byCount ? RecordedQsoCatalog.PlanOldest(_all, n, _inUse)
+            : byKeep ? RecordedQsoCatalog.PlanKeepNewest(_all, n, _inUse)
             : RecordedQsoCatalog.PlanOlderThan(_all, n, DateTime.Now, _inUse);
         Show(Describe(_plan, DateTime.Now));
     }

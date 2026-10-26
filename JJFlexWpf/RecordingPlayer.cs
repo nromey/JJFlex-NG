@@ -502,7 +502,7 @@ public static class RecordingPlayer
         // blip as it brings the band up"). A pause or a stop fades the
         // recording out instead of cutting it, while the band comes up under
         // it; a resume fades back in. Lengths in seconds.
-        internal const double FadeOutSeconds = 0.06;
+        internal const double FadeOutSeconds = 0.2;   // the band comes up over the same time (RxPlaybackLevel.ReleaseMs)
         internal const double FadeInSeconds = 0.015;
         private int _fadeOutLeft, _fadeOutTotal, _fadeInLeft, _fadeInTotal;
         private long _pausedAt = -1;  // the frame the pause was asked at; the fade reads past it
