@@ -11,18 +11,13 @@ namespace Radios
     /// <remarks>
     /// <para>
     /// <b>Membership is deliberately small.</b> FlexLib exposes thirteen licence
-    /// features; this enum reads three of them (<c>noise_reduction</c>,
-    /// <c>div_esc</c> and <c>auto_tune</c>). The test for joining is not "is it
+    /// features; five capabilities are here. The test for joining is not "is it
     /// licensed" but <b>does the radio refuse in a way the operator can
     /// perceive</b>. SmartLink and MultiFlex fail at connect, loudly and
     /// self-explainingly, so a client-side gate would add nothing. The radio's
     /// own Digital Voice Keyer has no road in this application at all, by
     /// decision rather than omission. The rest are read nowhere in our code.
-    /// The verdict for each of the thirteen is recorded in #726, and
-    /// <c>CapabilityGateTests</c> holds every item FlexLib parses to either a
-    /// row here or a named, reasoned absence, so a fourteenth item cannot
-    /// arrive unconsidered (#746: NRL, ANFL and ANFT were licensed switches
-    /// that #726's own table never reached).
+    /// The verdict for each of the thirteen is recorded in #726.
     /// </para>
     /// <para>
     /// <b>Adding a gated feature must be ONE entry here.</b> That is the
@@ -57,20 +52,6 @@ namespace Radios
 
         /// <summary>CW Auto Tune — tunes the active slice to a CW signal in the passband.</summary>
         CwAutotune,
-
-        /// <summary>Legacy LMS noise reduction (NRL). Runs on every model, so
-        /// no hardware rung, but it is a SmartSDR+ algorithm on every series
-        /// and reads the <c>noise_reduction</c> licence item (#746).</summary>
-        NoiseReductionLegacy,
-
-        /// <summary>FFT auto-notch (ANFT). Every model; licensed like
-        /// <see cref="NoiseReductionLegacy"/> (#746). The noise layer's A key
-        /// writes this one.</summary>
-        AutoNotchFft,
-
-        /// <summary>Legacy LMS auto-notch (ANFL). Every model; licensed like
-        /// <see cref="NoiseReductionLegacy"/> (#746).</summary>
-        AutoNotchLegacy,
     }
 
     /// <summary>

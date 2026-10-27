@@ -317,62 +317,6 @@ namespace Radios
                     TierAwareLicenceTextPendingNoel("CW Autotune", reason, wording),
                 ModeRequirement = CwAutotuneModeRequirement,
             },
-            // THE THREE LICENSED SWITCHES #726's TABLE NEVER REACHED (#746).
-            // FlexRadio lists NRL, ANFL and ANFT as SmartSDR+ on every series,
-            // 6000s included: 4.3.16 made the DSP panel's CONTROLS Basic, not
-            // these algorithms. Feature Availability already reported all
-            // three on noise_reduction while every road wrote them unasked.
-            //
-            // NO HARDWARE RUNG, ON PURPOSE. They run on every model (the
-            // v4.1.3 notes' footnote 1,2), so a model test here would refuse a
-            // 6000-series owner something the radio can do.
-            //
-            // The refusal sentences are the advanced-NR family's, through the
-            // same reason-aware seam, so Noel's #720 wording reaches all six at
-            // once. The fallback literals below are unreachable while FlexLib
-            // supplies a FeatureGatedMessage for every disabled item (#742),
-            // and are there so a refusal can never resolve to an empty string,
-            // which CapabilityWriteRefusal would read as "not refused".
-            // DRAFT prose, in the CW Autotune row's own pattern.
-            new CapabilityDescriptor
-            {
-                Capability = RadioCapability.NoiseReductionLegacy,
-                Name = "Legacy NR",
-                NotConnectedText = "No radio connected.",
-                NoSliceText = "Select a slice",
-                Licence = r => r.theRadio?.FeatureLicense?.LicenseFeatNoiseReduction,
-                LicenceNotReportedText = null,
-                LicenceDisabledFallbackText = // DRAFT
-                    "Your radio reports that Legacy NR is not included in its current subscription.",
-                TierAwareLicenceDisabledText = (reason, wording) =>
-                    TierAwareLicenceTextPendingNoel("Legacy NR", reason, wording),
-            },
-            new CapabilityDescriptor
-            {
-                Capability = RadioCapability.AutoNotchFft,
-                Name = "FFT Auto-Notch",
-                NotConnectedText = "No radio connected.",
-                NoSliceText = "Select a slice",
-                Licence = r => r.theRadio?.FeatureLicense?.LicenseFeatNoiseReduction,
-                LicenceNotReportedText = null,
-                LicenceDisabledFallbackText = // DRAFT
-                    "Your radio reports that FFT Auto-Notch is not included in its current subscription.",
-                TierAwareLicenceDisabledText = (reason, wording) =>
-                    TierAwareLicenceTextPendingNoel("FFT Auto-Notch", reason, wording),
-            },
-            new CapabilityDescriptor
-            {
-                Capability = RadioCapability.AutoNotchLegacy,
-                Name = "Legacy Auto-Notch",
-                NotConnectedText = "No radio connected.",
-                NoSliceText = "Select a slice",
-                Licence = r => r.theRadio?.FeatureLicense?.LicenseFeatNoiseReduction,
-                LicenceNotReportedText = null,
-                LicenceDisabledFallbackText = // DRAFT
-                    "Your radio reports that Legacy Auto-Notch is not included in its current subscription.",
-                TierAwareLicenceDisabledText = (reason, wording) =>
-                    TierAwareLicenceTextPendingNoel("Legacy Auto-Notch", reason, wording),
-            },
         };
 
         // Carried verbatim from NativeMenuBar.AdvancedNrGateMessage so promoting

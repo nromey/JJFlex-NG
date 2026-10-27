@@ -336,13 +336,11 @@ public partial class ScreenFieldsPanel : UserControl
         // without the prefix, "Spectral NR" and "PC Spectral NR" sat in one
         // list daring an operator to guess which was which. Same vocabulary
         // as On-Radio Headphone Level vs PC Output Volume.
-        // The licensed switches go through ToggleGatedRig, which asks the
-        // capability ladder before it speaks: the advanced three here, and
-        // Legacy NR and both auto-notches below, which run on every model but
-        // read the same noise_reduction licence (#746 - this comment said they
-        // needed none until then, and Feature Availability disagreed). The
-        // blankers and the peak filter stay on plain ToggleRig on purpose:
-        // gating what does not need gating is how a gate stops meaning anything.
+        // The gated three go through ToggleGatedRig, which asks the capability
+        // ladder before it speaks. Legacy NR, the blankers and the notches
+        // below stay on plain ToggleRig on purpose: they run on every model and
+        // need no licence, and gating what does not need gating is how a gate
+        // stops meaning anything.
         _neuralNrCheck = MakeToggle(Lexicon.Get("audio.fields.neural_nr"));
         _neuralNrCheck.Checked += (s, e) => ToggleGatedRig(_neuralNrCheck,
             RadioCapability.NoiseReductionNeural, Lexicon.Get("audio.fields.neural_nr_spoken"),
@@ -371,18 +369,15 @@ public partial class ScreenFieldsPanel : UserControl
         DspContent.Children.Add(_nrfCheck);
 
         _legacyNrCheck = MakeToggle(Lexicon.Get("audio.fields.legacy_nr"));
-        // The level follows the box AFTER the gate has had its say: a refused
-        // press puts the box back, and the level must not appear for a switch
-        // the radio was never asked to turn on.
         _legacyNrCheck.Checked += (s, e) =>
         {
-            ToggleGatedRig(_legacyNrCheck, RadioCapability.NoiseReductionLegacy, Lexicon.Get("audio.fields.legacy_nr"), v => { if (_rig != null) _rig.NoiseReductionLegacy = v; }, true);
-            _nrLevelControl.Visibility = _legacyNrCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            ToggleRig(Lexicon.Get("audio.fields.legacy_nr"), v => { if (_rig != null) _rig.NoiseReductionLegacy = v; }, true);
+            _nrLevelControl.Visibility = Visibility.Visible;
         };
         _legacyNrCheck.Unchecked += (s, e) =>
         {
-            ToggleGatedRig(_legacyNrCheck, RadioCapability.NoiseReductionLegacy, Lexicon.Get("audio.fields.legacy_nr"), v => { if (_rig != null) _rig.NoiseReductionLegacy = v; }, false);
-            _nrLevelControl.Visibility = _legacyNrCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            ToggleRig(Lexicon.Get("audio.fields.legacy_nr"), v => { if (_rig != null) _rig.NoiseReductionLegacy = v; }, false);
+            _nrLevelControl.Visibility = Visibility.Collapsed;
         };
         DspContent.Children.Add(_legacyNrCheck);
 
@@ -428,13 +423,13 @@ public partial class ScreenFieldsPanel : UserControl
         DspContent.Children.Add(_wnbLevelControl);
 
         _fftNotchCheck = MakeToggle(Lexicon.Get("audio.fields.fft_auto_notch"));
-        _fftNotchCheck.Checked += (s, e) => ToggleGatedRig(_fftNotchCheck, RadioCapability.AutoNotchFft, Lexicon.Get("audio.fields.fft_auto_notch"), v => { if (_rig != null) _rig.AutoNotchFFT = v; }, true);
-        _fftNotchCheck.Unchecked += (s, e) => ToggleGatedRig(_fftNotchCheck, RadioCapability.AutoNotchFft, Lexicon.Get("audio.fields.fft_auto_notch"), v => { if (_rig != null) _rig.AutoNotchFFT = v; }, false);
+        _fftNotchCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.fft_auto_notch"), v => { if (_rig != null) _rig.AutoNotchFFT = v; }, true);
+        _fftNotchCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.fft_auto_notch"), v => { if (_rig != null) _rig.AutoNotchFFT = v; }, false);
         DspContent.Children.Add(_fftNotchCheck);
 
         _legacyNotchCheck = MakeToggle(Lexicon.Get("audio.fields.legacy_auto_notch"));
-        _legacyNotchCheck.Checked += (s, e) => ToggleGatedRig(_legacyNotchCheck, RadioCapability.AutoNotchLegacy, Lexicon.Get("audio.fields.legacy_auto_notch"), v => { if (_rig != null) _rig.AutoNotchLegacy = v; }, true);
-        _legacyNotchCheck.Unchecked += (s, e) => ToggleGatedRig(_legacyNotchCheck, RadioCapability.AutoNotchLegacy, Lexicon.Get("audio.fields.legacy_auto_notch"), v => { if (_rig != null) _rig.AutoNotchLegacy = v; }, false);
+        _legacyNotchCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.legacy_auto_notch"), v => { if (_rig != null) _rig.AutoNotchLegacy = v; }, true);
+        _legacyNotchCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.legacy_auto_notch"), v => { if (_rig != null) _rig.AutoNotchLegacy = v; }, false);
         DspContent.Children.Add(_legacyNotchCheck);
 
         _apfCheck = MakeToggle(Lexicon.Get("audio.fields.apf"));
