@@ -837,12 +837,17 @@ public class NativeMenuBar : IDisposable
                     _window.CurrentAudioConfig?.SpectralSubSampleDuration ?? 3);
             });
         }, radio);
-        AddWired(pcSub, "Noise Profiles...", () =>
+        // Needs a radio like Capture: the dialog's switches and strengths drive
+        // the PC audio pipeline, which exists only while connected, and with no
+        // pipeline they would accept a change and do nothing. The folder row
+        // below stays live.
+        AddWired(pcSub, R("Noise Profiles..."), () =>
         {
+            if (Rig == null) { SpeakNoRadio(); return; }
             new Dialogs.NoiseProfilesDialog(Rig, _window.FieldsPanel?.AudioPipeline,
                 () => _window.CurrentAudioConfig, () => _window.PersistDspSettings())
                 .ShowDialog();
-        });
+        }, radio);
         AddWired(pcSub, "Open Noise Profiles Folder", () =>
         {
             SpeakAfterMenuClose(NoiseProfileStore.OpenFolder()

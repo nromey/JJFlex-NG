@@ -208,6 +208,9 @@ namespace Radios.Tests
                          "R(\"WNB Level Up\")",
                          "R(\"WNB Level Down\")",
                          "R(\"Capture Noise Profile",
+                         // Its switches drive the PC pipeline, which exists only
+                         // while connected (the Codex check of 3fde5cfd).
+                         "R(\"Noise Profiles...\")",
                          "R(\"FFT Auto-Notch",
                          "R(\"Legacy Auto-Notch\")",
                          "R(\"Audio Peak Filter (APF)",
