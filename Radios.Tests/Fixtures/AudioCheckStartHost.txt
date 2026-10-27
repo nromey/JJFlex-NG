@@ -17,6 +17,7 @@ public class Host
     private void IqFailure(Exception ex) { }
     private void TrackOffAirRun(FlexBase rig, FakeRun run) { }
     private void ReleaseOffAirRun(FlexBase rig) { }
+    private static IDisposable TrackStart(FlexBase rig, string name) => new Empty();
     /*StartOffAirAsync*/
     private FlexBase _rig = new();
     private string _lastAudioCheckSource;

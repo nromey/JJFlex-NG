@@ -93,6 +93,9 @@ namespace Radios
         private int _kickAgain;
         private volatile bool _withheld;
         private bool _disposed;
+        private readonly List<Task> _starts = new();
+        private int _generation;
+        private bool _releasingEverything;
 
         /// <param name="transmitting">The radio's own transmit report, asked before every restore.</param>
         public CheckRestorations(Func<bool> transmitting)
@@ -120,11 +123,62 @@ namespace Radios
             lock (_gate)
             {
                 if (_disposed) { entry.Done.TrySetResult(false); return entry; }
+                // A teardown has released everything: a change registered now,
+                // by a start that is rolling itself back, is not held either.
+                if (_releasingEverything) entry._held = false;
                 _entries.Add(entry);
+                _generation++;
             }
-            if (!held) Kick();
+            if (!entry._held) Kick();
             return entry;
         }
+
+        /// <summary>
+        /// A check is STARTING on this radio and may be changing it right now
+        /// (#835, fix round 4). Dispose the token when the start has finished,
+        /// including any rollback of its own. A teardown waits for every start
+        /// in flight before it reads the owner: a start that changes the radio
+        /// registers its restores only as it ends, so a teardown that began
+        /// mid-start once found the owner empty and reported every change put
+        /// back while the start was still changing things.
+        /// </summary>
+        public IDisposable TrackStart(string name)
+        {
+            var done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (_gate)
+            {
+                if (_disposed) return new StartToken(this, done, name, tracked: false);
+                _starts.Add(done.Task);
+                _generation++;
+            }
+            return new StartToken(this, done, name, tracked: true);
+        }
+
+        private sealed class StartToken : IDisposable
+        {
+            private readonly CheckRestorations _owner;
+            private readonly TaskCompletionSource<bool> _done;
+            private readonly string _name;
+            private readonly bool _tracked;
+            private int _disposed;
+
+            internal StartToken(CheckRestorations owner, TaskCompletionSource<bool> done, string name, bool tracked)
+            {
+                _owner = owner; _done = done; _name = name; _tracked = tracked;
+            }
+
+            public void Dispose()
+            {
+                if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+                if (_tracked) lock (_owner._gate) _owner._starts.Remove(_done.Task);
+                _done.TrySetResult(true);
+            }
+
+            public override string ToString() => _name;
+        }
+
+        /// <summary>True while a start is in flight, or a change has not yet been put back.</summary>
+        public bool HasWork { get { lock (_gate) return _starts.Count > 0 || _entries.Any(e => !e.Finished); } }
 
         /// <summary>The change may now be put back (the check has unkeyed).</summary>
         public void Release(Entry? entry)
@@ -141,6 +195,23 @@ namespace Radios
             Kick();
         }
 
+        /// <summary>
+        /// For a teardown: release everything held, and everything registered
+        /// until <see cref="EndReleasingEverything"/>, since a start caught by
+        /// the teardown registers its rollback after this call.
+        /// </summary>
+        public void BeginReleasingEverything()
+        {
+            lock (_gate) _releasingEverything = true;
+            ReleaseAll();
+        }
+
+        /// <summary>The teardown is over; registrations are held as they ask again.</summary>
+        public void EndReleasingEverything()
+        {
+            lock (_gate) _releasingEverything = false;
+        }
+
         /// <summary>True while any change, held or not, has not yet been put back.</summary>
         public bool Pending { get { lock (_gate) return _entries.Any(e => !e.Finished); } }
 
@@ -154,11 +225,33 @@ namespace Radios
         /// </summary>
         public async Task<bool> CompletionAsync()
         {
-            Task<bool>[] all;
-            lock (_gate) all = _entries.Select(e => e.Task).ToArray();
-            if (all.Length == 0) return true;
-            var results = await System.Threading.Tasks.Task.WhenAll(all).ConfigureAwait(false);
-            return results.All(r => r);
+            // Starts first, then the changes, and again until nothing new
+            // arrived meanwhile: a start's rollback registers its restores as
+            // it finishes, after this began waiting (fix round 4).
+            bool ok = true;
+            while (true)
+            {
+                int generation;
+                Task[] starts;
+                Task<bool>[] all;
+                lock (_gate)
+                {
+                    generation = _generation;
+                    starts = _starts.ToArray();
+                    all = _entries.Select(e => e.Task).ToArray();
+                }
+                if (starts.Length > 0)
+                {
+                    await System.Threading.Tasks.Task.WhenAll(starts).ConfigureAwait(false);
+                    continue;
+                }
+                if (all.Length > 0)
+                {
+                    var results = await System.Threading.Tasks.Task.WhenAll(all).ConfigureAwait(false);
+                    if (!results.All(r => r)) ok = false;
+                }
+                lock (_gate) if (_generation == generation && _starts.Count == 0) return ok;
+            }
         }
 
         /// <summary>Forget failed entries once they have been reported.</summary>

@@ -11207,6 +11207,14 @@ namespace Radios
             if (_loopbackArranged) return true;
             if (System.Threading.Volatile.Read(ref _lbArrangementEnding) != 0) return false;
             if (System.Threading.Interlocked.Exchange(ref _lbArrangementStarting, 1) != 0) return false;
+            // #835, fix round 4: a teardown that begins while this is changing
+            // the radio waits for it, rollback included, before it reads the
+            // restore owner; and this stops at its next step once it sees one.
+            using var startTracking = CheckRestorations.TrackStart("loopback arrangement");
+            void UnlessTearingDown()
+            {
+                if (TeardownInProgress) throw new InvalidOperationException("teardown-in-progress");
+            }
             _lbSetupFailure = null;
             bool setupChanged = false;
             Radio arrangementRadio = null;
@@ -11214,6 +11222,11 @@ namespace Radios
             try
             {
             if (theRadio == null || !HasActiveSlice || !LoopbackSupported) return false;
+            if (TeardownInProgress)
+            {
+                Tracing.TraceLine("StartLoopbackArrangement: refused during an Audio Check teardown", TraceLevel.Warning);
+                return false;
+            }
             if (theRadio.SliceList.Count >= TotalMaxSlices)
             {
                 Tracing.TraceLine("StartLoopbackArrangement: no free slice slot", TraceLevel.Warning);
@@ -11276,6 +11289,7 @@ namespace Radios
                 _lbSavedMutes = null;
                 return false;
             }
+            UnlessTearingDown();
             if (confirmedPriorFullDuplex.HasValue)
             {
                 // Off-air takes restore by raw reply. Cache-sensitive setters
@@ -11322,6 +11336,7 @@ namespace Radios
                     saved.Slice, $"slice set {saved.Slice.Index} audio_mute=1", "mute setup").ConfigureAwait(false))
                     throw new InvalidOperationException("slice-mute-setup-unconfirmed");
             }
+            UnlessTearingDown();
 
             // NewSlice's queued creation waits for the owned pan and slice.
             // Do not report readiness until configuration and gain have replies.
@@ -11350,6 +11365,7 @@ namespace Radios
                     ears = resources.Slice;
                 }
             }).ConfigureAwait(false);
+            UnlessTearingDown();
             if (!await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection, ears,
                 $"slice set {ears.Index} rxant={earsAntenna}", "ears antenna setup").ConfigureAwait(false))
                 throw new InvalidOperationException("loopback-ears-setting-refused");

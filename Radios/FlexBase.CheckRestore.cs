@@ -97,12 +97,16 @@ public partial class FlexBase
         {
             await Task.Yield();
             var owner = CheckRestorations;
-            owner.ReleaseAll();
-            result = await AudioCheckTeardown.RunAsync(
-                settled: owner.CompletionAsync,
-                withheld: () => owner.WithheldByTransmit,
-                drain: DrainCommandQueueAsync,
-                bound: bound).ConfigureAwait(false);
+            owner.BeginReleasingEverything();
+            try
+            {
+                result = await AudioCheckTeardown.RunAsync(
+                    settled: owner.CompletionAsync,
+                    withheld: () => owner.WithheldByTransmit,
+                    drain: DrainCommandQueueAsync,
+                    bound: bound).ConfigureAwait(false);
+            }
+            finally { owner.EndReleasingEverything(); }
             owner.ClearFinished();
         }
         catch (Exception ex)

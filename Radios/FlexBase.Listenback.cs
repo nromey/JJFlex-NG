@@ -182,6 +182,9 @@ public partial class FlexBase
     {
         // #835: no IQ take starts while an Audio Check teardown holds admission.
         if (TeardownInProgress) throw new InvalidOperationException("teardown-in-progress");
+        // A teardown that begins while this is setting up waits for it to
+        // finish, its own rollback included (fix round 4).
+        using var startTracking = CheckRestorations.TrackStart("IQ take start");
         if (!await _iqLease.WaitAsync(0, cancellation).ConfigureAwait(false)) throw new InvalidOperationException("take-already-running");
         Radio radio = theRadio;
         var connection = radio?.CurrentCommandConnection;

@@ -165,6 +165,49 @@ public sealed class CheckRestorationTests : IDisposable
     }
 
     [Fact]
+    public async Task A_teardown_during_a_pending_Loopback_start_waits_for_the_starts_own_rollback()
+    {
+        // Codex round 4, follow-up 4: the arrangement registers nothing until
+        // it ends, so a teardown that began while the start was still changing
+        // the radio found an empty owner, reported every change put back, and
+        // the start's own rollback then ran after the radio had been handed on.
+        using var c = Arranged();
+        var answer = c.F.Vendor.Transport.CommandWritten;
+        int? held = null;
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            // The radio is slow to answer the first mute the start sends, so the
+            // start is caught mid-way, with full duplex, antenna and power changed.
+            if (held == null && command.StartsWith("slice set ", StringComparison.Ordinal) &&
+                command.EndsWith("audio_mute=1", StringComparison.Ordinal))
+            {
+                held = c.F.Vendor.LastSequence;
+                return;
+            }
+            answer!(command);
+        };
+        var start = c.F.Rig.StartLoopbackArrangementAsync();
+        Assert.True(await Within(() => { RunQueue(c); return held != null; }, TimeSpan.FromSeconds(3)), "the start reached its first mute");
+
+        c.F.Rig.BeginCheckTeardown();
+        var settle = c.F.Rig.SettleChecksForTeardownAsync(TimeSpan.FromSeconds(5));
+        var until = DateTime.UtcNow.AddMilliseconds(600);
+        while (DateTime.UtcNow < until) { RunQueue(c); await Task.Delay(20); }
+        Assert.False(settle.IsCompleted, "the teardown waits for the start that is still changing the radio");
+
+        // The reply arrives; the start sees the teardown, refuses, and rolls back.
+        int before = c.F.Vendor.Transport.Commands.Count;
+        c.F.Vendor.Reply(held!.Value, 0, "");
+        Assert.True(await Within(() => { RunQueue(c); return settle.IsCompleted; }, TimeSpan.FromSeconds(8)), "the teardown finished");
+        Assert.True(start.IsCompleted, "the start had finished before the teardown reported");
+        Assert.False(await start);
+        Assert.True((await settle).Completed);
+        // Its rollback had put the operator's power back before the teardown said so.
+        Assert.Contains(c.F.Vendor.Transport.Commands.Skip(before), x => x.Contains("rfpower", StringComparison.OrdinalIgnoreCase));
+        c.F.Rig.EndCheckTeardown();
+    }
+
+    [Fact]
     public async Task A_restore_that_reports_false_is_not_done()
     {
         using var owner = new CheckRestorations(() => false);
@@ -180,6 +223,44 @@ public sealed class CheckRestorationTests : IDisposable
         var deadline = DateTime.UtcNow + time;
         while (DateTime.UtcNow < deadline) { if (condition()) return true; await Task.Delay(10); }
         return condition();
+    }
+
+    [Fact]
+    public async Task Completion_waits_for_a_start_in_flight_and_for_what_it_registers_as_it_ends()
+    {
+        using var owner = new CheckRestorations(() => false);
+        var start = owner.TrackStart("a start");
+        Assert.True(owner.HasWork);
+        var completion = owner.CompletionAsync();
+        await Task.Delay(150);
+        Assert.False(completion.IsCompleted, "a start in flight is waited for");
+        // The start rolls back: it registers a restore that is slow to finish,
+        // and only then ends.
+        var slow = new TaskCompletionSource<bool>();
+        owner.Register("rollback", () => slow.Task);
+        start.Dispose();
+        await Task.Delay(150);
+        Assert.False(completion.IsCompleted, "what the start registered as it ended is waited for too");
+        slow.SetResult(true);
+        Assert.True(await completion.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.False(owner.HasWork);
+    }
+
+    [Fact]
+    public async Task During_a_teardown_a_change_registered_by_a_rolling_back_start_is_not_held()
+    {
+        using var owner = new CheckRestorations(() => false);
+        owner.BeginReleasingEverything();
+        int restored = 0;
+        var entry = owner.Register("rollback power", () => restored++, held: true);
+        Assert.True(await entry.Task.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.Equal(1, restored);
+        owner.EndReleasingEverything();
+        var later = owner.Register("next check", () => restored++, held: true);
+        await Task.Delay(150);
+        Assert.Equal(1, restored);                    // held again once the teardown is over
+        owner.Release(later);
+        Assert.True(await later.Task.WaitAsync(TimeSpan.FromSeconds(3)));
     }
 
     [Fact]

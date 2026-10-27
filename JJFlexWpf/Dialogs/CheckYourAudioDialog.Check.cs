@@ -437,6 +437,14 @@ public partial class CheckYourAudioDialog
     /// Teardown restores every saved value and removes the listening slice once
     /// the playback has finished or been stopped.
     /// </summary>
+    /// <summary>
+    /// Tell the radio's restore owner a start is under way (#835, fix round
+    /// 4). Dispose when the start has finished, its own rollback included: a
+    /// teardown that began mid-start waits for it, since the start registers
+    /// what it changed only as it ends or rolls back.
+    /// </summary>
+    private static IDisposable TrackStart(FlexBase rig, string name) => rig.CheckRestorations.TrackStart(name);
+
     private async Task StartLoopbackCheckAsync()
     {
         if (_checkStarts.IsBusy)
@@ -473,6 +481,8 @@ public partial class CheckYourAudioDialog
         using var start = _checkStarts.TryBegin();
         if (start == null) return;
         var rig = _rig;
+        // A teardown that begins mid-start waits for this, rollback included.
+        using var tracking = TrackStart(rig, "loopback check start");
         _loopbackStarting = true;
         SetStartButtonLabel("Stop Audio Check");
         try

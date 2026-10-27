@@ -296,6 +296,8 @@ public partial class CheckYourAudioDialog
         if (rig == null || _iqBusy || _iqRun != null) return;
         using var start = _checkStarts.TryBegin();
         if (start == null || _session?.Active == true) return;
+        // A teardown that begins mid-start waits for this, rollback included.
+        using var tracking = TrackStart(rig, "off-air check start");
         _iqBusy = true; _iqWasOffAir = true; _iqRecoveryReader = rig.CaptureListenbackRecoveryReader();
         _iqCancellation = new CancellationTokenSource();
         SetStartButtonLabel(Lexicon.Get("audio.iq.cancel_start"));
