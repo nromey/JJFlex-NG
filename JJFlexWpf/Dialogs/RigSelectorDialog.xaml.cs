@@ -2987,7 +2987,7 @@ namespace JJFlexWpf.Dialogs
             // This fires BEFORE the dialog closes and before a single byte has
             // travelled, so it is a prediction. It used to be worded as a
             // report — "Connecting to K5NER over SmartLink as
-            // nromey@fastmail.com" — which states the path as settled at the one
+            // noel@example.com" — which states the path as settled at the one
             // moment nothing has been attempted. When the walk then falls back,
             // the operator has been told something that turned out to be false,
             // and the sentence that corrects it arrives seconds later if at all.
@@ -4299,7 +4299,7 @@ namespace JJFlexWpf.Dialogs
 
             // The full address is deliberately NOT appended here. When a
             // friendly name exists it already identifies the account, and
-            // reading "Contest Station, nromey@fastmail.com" spends a second of
+            // reading "Contest Station, noel@example.com" spends a second of
             // speech to add nothing the operator did not already know. The
             // address is still on the Account button's own name, one Tab away,
             // for the moment it is actually the question.

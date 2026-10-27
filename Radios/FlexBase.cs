@@ -2916,7 +2916,7 @@ namespace Radios
                     // 14:11 Noel connected to DON'S 6300 and this line wrote HIS
                     // OWN port into it:
                     //
-                    //   ApplyAccountPortPreferenceIfAny: account=nromey@fastmail.com
+                    //   ApplyAccountPortPreferenceIfAny: account=noel@example.com
                     //     applying port=25678 (radio reports enabled=True tcp=4992 udp=4992)
                     //   SetSmartLinkPortForwarding: enabled=True tcp=25678 udp=25678
                     //

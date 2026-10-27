@@ -149,7 +149,7 @@ namespace Radios.Tests
                 LastSeenRemote = true,
                 LastSeenUtc = new DateTime(2026, 8, 18, 9, 0, 0, DateTimeKind.Utc),
             };
-            Assert.Equal(RadioOwnership.Unset, cfg.SuggestOwnership("nromey@gmail.com"));
+            Assert.Equal(RadioOwnership.Unset, cfg.SuggestOwnership("noel@example.com"));
         }
 
         [Fact]
@@ -157,11 +157,11 @@ namespace Radios.Tests
         {
             var cfg = new RadioConfig
             {
-                LastSeenViaAccount = "nromey@gmail.com",
+                LastSeenViaAccount = "noel@example.com",
                 LastSeenRemote = true,
                 LastSeenUtc = new DateTime(2026, 8, 18, 9, 0, 0, DateTimeKind.Utc),
             };
-            Assert.Equal(RadioOwnership.Mine, cfg.SuggestOwnership("nromey@gmail.com"));
+            Assert.Equal(RadioOwnership.Mine, cfg.SuggestOwnership("noel@example.com"));
         }
 
         [Fact]
@@ -189,9 +189,9 @@ namespace Radios.Tests
         {
             // Guarding the rule rather than one case of it: no combination of
             // observations may produce a pre-selected "not yours".
-            foreach (var account in new string?[] { null, "", "nromey@gmail.com" })
+            foreach (var account in new string?[] { null, "", "noel@example.com" })
             {
-                foreach (var seenVia in new[] { "", "nromey@gmail.com", "other@example.com" })
+                foreach (var seenVia in new[] { "", "noel@example.com", "other@example.com" })
                 {
                     foreach (var remote in new[] { true, false })
                     {

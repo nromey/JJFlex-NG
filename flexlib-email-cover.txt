@@ -188,6 +188,5 @@ or workarounds; the three QoL items are wishlist.
 Noel Romey (K5NER)Thanks for your time and for reading this.
 
 
-nromey@gmail.com
 JJ Flexible Radio Access
 github.com/nromey/JJFlex-NG
