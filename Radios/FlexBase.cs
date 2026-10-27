@@ -10226,6 +10226,7 @@ namespace Radios
             }
             set
             {
+                if (RefuseCapabilityWrite(RadioCapability.NoiseReductionLegacy)) return;
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
                     NoteOperatorChangedRadioSetting("NoiseReductionLegacy");
@@ -10318,6 +10319,7 @@ namespace Radios
             }
             set
             {
+                if (RefuseCapabilityWrite(RadioCapability.AutoNotchFft)) return;
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
                     NoteOperatorChangedRadioSetting("AutoNotchFFT");
@@ -10338,6 +10340,7 @@ namespace Radios
             }
             set
             {
+                if (RefuseCapabilityWrite(RadioCapability.AutoNotchLegacy)) return;
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
                     NoteOperatorChangedRadioSetting("AutoNotchLegacy");

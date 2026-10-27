@@ -5480,8 +5480,15 @@ public class KeyCommands
                 describe: gate == null ? null : on => Refused(gate()) ?? Say(on));
         }
 
+        // #746: auto notch is FFT auto-notch, licensed on noise_reduction. The
+        // setter refuses the write by itself; this gate is what makes A SAY
+        // so, instead of "Auto Notch on" for a command that was never sent.
+        // It is deliberately NOT in gatedSwitches: H's closing sentence calls
+        // those the radio's advanced noise reduction with a PC-side twin, and
+        // auto notch is neither. Its place in H is #752's wording to settle.
         var autoNotch = RadioSwitch("auto-notch", Keys.A, "audio.noise_layer.name_auto_notch",
-            () => rig.AutoNotchFFT, v => rig.AutoNotchFFT = v);
+            () => rig.AutoNotchFFT, v => rig.AutoNotchFFT = v,
+            () => rig.CapabilityWriteRefusal(Radios.RadioCapability.AutoNotchFft));
         var noiseBlanker = RadioSwitch("noise-blanker", Keys.B, "audio.noise_layer.name_noise_blanker",
             () => rig.NoiseBlanker, v => rig.NoiseBlanker = v);
         var widebandNb = RadioSwitch("wideband-nb", Keys.W, "audio.noise_layer.name_wideband_nb",

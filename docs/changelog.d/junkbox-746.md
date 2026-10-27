@@ -1,0 +1,1 @@
+On a radio whose licence does not include them, Legacy NR and the two auto-notch filters now say so when you turn them on, from the noise layer, the menu or the DSP controls, instead of announcing "on" while the radio does nothing.
