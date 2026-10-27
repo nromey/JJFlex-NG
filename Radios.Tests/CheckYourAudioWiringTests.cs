@@ -140,15 +140,18 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Ctrl_Enter_and_the_two_stage_Escape_live_in_the_window()
+        public void Ctrl_Enter_and_the_first_Escape_live_in_the_window()
         {
+            // The first Escape's arm only. The second press's RESULT is
+            // CheckYourAudioEscapeTests' (fix round 1): this test once carried
+            // "two-stage" in its name while checking one stage.
             string keys = Body(Dialog("CheckYourAudioDialog"), "protected override void OnPreviewKeyDown(KeyEventArgs e)");
             Assert.Contains("Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Enter", keys);
             Assert.Contains("ToggleAudioCheck();", keys);
-            int escape = keys.IndexOf("if (e.Key == Key.Escape && _session?.Active == true)", StringComparison.Ordinal);
+            int escape = keys.IndexOf("case AudioCheckEscapeAction.UnkeyAndStay:", StringComparison.Ordinal);
             Assert.True(escape >= 0);
             string first = keys.Substring(escape, keys.IndexOf("return;", escape, StringComparison.Ordinal) - escape);
-            Assert.Contains("_session.StopCheck();", first);
+            Assert.Contains("_session?.StopCheck();", first);
             Assert.Contains("e.Handled = true;", first);
         }
 

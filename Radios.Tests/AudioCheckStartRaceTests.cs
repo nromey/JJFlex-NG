@@ -61,9 +61,12 @@ public sealed class AudioCheckStartRaceTests
         // Check your audio's shell since #835, when the check left the Audio Workshop.
         var dialog = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root, "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.cs"))).GetRoot();
         var escape = dialog.DescendantNodes().OfType<MethodDeclarationSyntax>().Single(m => m.Identifier.Text == "OnPreviewKeyDown");
-        var pendingEscape = escape.DescendantNodes().OfType<IfStatementSyntax>()
-            .Single(x => x.Condition.ToString().Contains("Key.Escape") && x.Condition.ToString().Contains("&& _checkStarts.IsBusy"));
-        Assert.Contains("CancelCheckStart()", pendingEscape.Statement.ToString());
+        // Fix round 1: Escape is one switch over AudioCheckEscape.Decide, fed
+        // by the start gate, and its pending-start arm cancels the start.
+        Assert.Contains("AudioCheckEscape.Decide(_checkStarts.IsBusy, _checkStarts.IsCancelled,", escape.ToString());
+        var pendingEscape = escape.DescendantNodes().OfType<SwitchSectionSyntax>()
+            .Single(x => x.Labels.ToString().Contains("AudioCheckEscapeAction.CancelPendingStart"));
+        Assert.Contains("CancelCheckStart()", pendingEscape.ToString());
 
         var setRig = dialog.DescendantNodes().OfType<MethodDeclarationSyntax>().Single(m => m.Identifier.Text == "SetRig");
         var changed = setRig.DescendantNodes().OfType<IfStatementSyntax>()

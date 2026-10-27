@@ -215,35 +215,55 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     /// Two-stage Escape while a check transmits (the first unkeys and stays,
     /// the second closes), F6 between sections, and Ctrl+Enter to start or stop
     /// from anywhere in the window. The class handler runs before
-    /// JJFlexDialog's instance handler, so the first Escape can be consumed.
+    /// JJFlexDialog's instance handler, so the first Escape can be consumed and
+    /// the closing one simply let through.
     /// </summary>
+    /// <remarks>
+    /// <b>What decides is whether anything is still transmitting, not whether
+    /// a session object is alive (fix round 1).</b> After the unkey a session
+    /// stays Active through its post-unkey grace, its recorder's stop-then-play
+    /// startup and the whole Loopback playback. Asking only "is a session
+    /// active?" made a prompt second Escape stop the check a second time and a
+    /// third press necessary to close. <see cref="AudioCheckEscape.Decide"/> is
+    /// the rule; a radio still transmitting (a hardware PTT line, or a radio
+    /// slow to report its unkey) keeps the window open however often Escape is
+    /// pressed.
+    /// </remarks>
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
-        if (e.Key == Key.Escape && !_checkStarts.IsBusy && _session?.Active != true)
-            StopCheckPlayback();
-        if (e.Key == Key.Escape && _checkStarts.IsBusy)
+        if (e.Key == Key.Escape)
         {
-            if (_checkStarts.IsCancelled)
+            switch (AudioCheckEscape.Decide(_checkStarts.IsBusy, _checkStarts.IsCancelled,
+                _session?.Active == true, _session?.EscapeStopsTransmit == true))
             {
-                // A cancelled start keeps admission closed during rollback,
-                // but its rollback no longer holds this window open.
-                Close();
+                case AudioCheckEscapeAction.CancelPendingStart:
+                    CancelCheckStart();
+                    // DRAFT PROSE (#787): awaiting Noel.
+                    ScreenReaderOutput.Speak(Lexicon.Get("audio.check.start_cancelled_escape"), VerbosityLevel.Terse);
+                    e.Handled = true;
+                    return;
+                case AudioCheckEscapeAction.CloseCancelledStart:
+                    // A cancelled start keeps admission closed during rollback,
+                    // but its rollback no longer holds this window open.
+                    Close();
+                    e.Handled = true;
+                    return;
+                case AudioCheckEscapeAction.UnkeyAndStay:
+                    _session?.StopCheck();
+                    StopCheckPlayback();
+                    e.Handled = true;
+                    return;
+                case AudioCheckEscapeAction.EndAndClose:
+                    // Unkeyed already: end what remains (a playback, the
+                    // Loopback arrangement) and restore, then let the press
+                    // through so the dialog closes on this press.
+                    _session?.ForceEnd(null);
+                    StopCheckPlayback();
+                    break;
+                default:
+                    StopCheckPlayback();
+                    break;
             }
-            else
-            {
-                CancelCheckStart();
-                // DRAFT PROSE (#787): awaiting Noel.
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.start_cancelled_escape"), VerbosityLevel.Terse);
-            }
-            e.Handled = true;
-            return;
-        }
-        if (e.Key == Key.Escape && _session?.Active == true)
-        {
-            _session.StopCheck();
-            StopCheckPlayback();
-            e.Handled = true;
-            return;
         }
         if (e.Key == Key.F1 && Keyboard.Modifiers == ModifierKeys.None)
         {
