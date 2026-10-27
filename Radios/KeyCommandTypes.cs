@@ -205,6 +205,12 @@ public enum CommandValues
     // beside the computer recorder's Alt+F11 and Ctrl+Alt+F11 (Noel,
     // 2026-10-24 15:49), and Ctrl+J, Alt+F on the JJ key (15:50).
     OpenRecordedQsos = 130,
+    // Check your audio Track B (#835): Don's box, with VOX on sends key the
+    // radio. Appended for the same reason as every entry above. Unbound until
+    // Noel allocates its JJ key chord. Check your audio Track A runs beside
+    // this one and may append its dialog's command at the same number; if both
+    // took 131, the merge gives one of them 132 and moves the count test once.
+    ToggleVoxSendBox = 131,
 }
 
 /// <summary>

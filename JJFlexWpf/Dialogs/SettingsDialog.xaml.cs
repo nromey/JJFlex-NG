@@ -223,6 +223,12 @@ namespace JJFlexWpf.Dialogs
             JJFlexHelp.SetText(ReflectedCutCheckbox,
                 Lexicon.Get("settings.ptt.reflected_cut_help"));
 
+            // Don's box (#835). DRAFT PROSE (#835): awaiting Noel
+            VoxSendBoxCheckbox.Content = Lexicon.Get("audio.send.box_label");
+            System.Windows.Automation.AutomationProperties.SetName(VoxSendBoxCheckbox,
+                Lexicon.Get("audio.send.box_label"));
+            JJFlexHelp.SetText(VoxSendBoxCheckbox, Lexicon.Get("audio.send.box_help"));
+
             LoadSettings();
         }
 
@@ -242,6 +248,7 @@ namespace JJFlexWpf.Dialogs
             PttAlcBox.Text = _pttConfig.AlcAutoReleaseSeconds.ToString();
             PttSpeechCheckbox.IsChecked = _pttConfig.SpeechEnabled;
             ChirpEnabledCheckbox.IsChecked = _pttConfig.ChirpEnabled;
+            VoxSendBoxCheckbox.IsChecked = _audioConfig.VoxSendKeysRadio;
 
             // Suppressed like every other programmatic load in this dialog: an
             // operator who saved the cut OFF has already heard the warning and
@@ -1359,6 +1366,9 @@ namespace JJFlexWpf.Dialogs
             _pttConfig.AlcAutoReleaseSeconds = alc;
             _pttConfig.SpeechEnabled = PttSpeechCheckbox.IsChecked == true;
             _pttConfig.ChirpEnabled = ChirpEnabledCheckbox.IsChecked == true;
+            // Don's box (#835): saved with the audio settings, made live by
+            // _audioConfig.Apply() below.
+            _audioConfig.VoxSendKeysRadio = VoxSendBoxCheckbox.IsChecked == true;
             _pttConfig.CutTransmitOnReflectedAlarm = ReflectedCutCheckbox.IsChecked == true;
             _pttConfig.Validate();
 

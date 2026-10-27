@@ -103,6 +103,13 @@ namespace JJFlexWpf
         public bool RecorderSpeechEnabled { get; set; } = true;
 
         /// <summary>
+        /// Don's box (#835): with VOX on, sends key the radio themselves. Off by
+        /// default, and absent from an older audioConfig.xml, which deserializes
+        /// to this initializer, so nobody upgrading finds it on.
+        /// </summary>
+        public bool VoxSendKeysRadio { get; set; }
+
+        /// <summary>
         /// Recorded QSOs' step size in seconds, remembered across restarts
         /// (Noel, 2026-10-25). The dialog reads and writes it itself; a value
         /// the combo does not offer falls back to 5 seconds.
@@ -724,6 +731,7 @@ namespace JJFlexWpf
             EarconPlayer.RecorderBeepsEnabled = RecorderBeepsEnabled;
             EarconPlayer.DialogTonesEnabled = EarconDialogTonesEnabled;
             RecorderControls.StatusSpeechEnabled = RecorderSpeechEnabled;
+            Radios.VoxSendBox.Ticked = VoxSendKeysRadio;
             // #147 — which set of voice definitions the earcons resolve
             // against. Applied before anything can make a sound, and clamped
             // rather than cast blind: a hand-edited config saying 7 should get
@@ -837,6 +845,7 @@ namespace JJFlexWpf
             RecorderBeepsEnabled = EarconPlayer.RecorderBeepsEnabled;
             EarconDialogTonesEnabled = EarconPlayer.DialogTonesEnabled;
             RecorderSpeechEnabled = RecorderControls.StatusSpeechEnabled;
+            VoxSendKeysRadio = Radios.VoxSendBox.Ticked;
             MasterVolume = EarconPlayer.MasterVolume;
             AlertVolume = EarconPlayer.AlertVolume;
             MasterEarconVolume = (int)(EarconPlayer.AlertVolume * 100);

@@ -171,6 +171,14 @@
                               Margin="0,8,0,0"
                               AutomationProperties.Name="Play chirp tones on transmit and receive"/>
 
+                    <!-- Don's box (#835): with VOX on, sends key the radio. An
+                         operator preference saved with the audio settings,
+                         off by default. Its label, name and Ctrl+F1 text are
+                         set in code from the Lexicon (audio.send.box_*), the
+                         same words Home's Transmission group uses. -->
+                    <CheckBox x:Name="VoxSendBoxCheckbox"
+                              Margin="0,8,0,0"/>
+
                     <!-- The reflected-power cut's off switch (#224). Default ON,
                          ruled by Noel 2026-08-26; defeatable, ruled 2026-08-30.
                          Committed on OK like its neighbours, NOT applied live —
