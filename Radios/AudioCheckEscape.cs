@@ -33,11 +33,14 @@ namespace Radios
         public static AudioCheckEscapeAction Decide(bool startPending, bool startCancelled,
             bool sessionActive, bool stillTransmitting)
         {
+            // Escape never leaves you transmitting: while anything still
+            // transmits, every press unkeys and stays, a pending start
+            // included (fix round 2: a start had outranked this, so a hardware
+            // line asserted during preparation closed the window on the
+            // second press).
+            if (stillTransmitting) return AudioCheckEscapeAction.UnkeyAndStay;
             if (startPending)
                 return startCancelled ? AudioCheckEscapeAction.CloseCancelledStart : AudioCheckEscapeAction.CancelPendingStart;
-            // Escape never leaves you transmitting: while anything still
-            // transmits, every press unkeys and stays.
-            if (stillTransmitting) return AudioCheckEscapeAction.UnkeyAndStay;
             // Unkeyed, but the check is still in its post-unkey grace, its
             // recorder startup or the Loopback playback: this is the second
             // press, and it closes.

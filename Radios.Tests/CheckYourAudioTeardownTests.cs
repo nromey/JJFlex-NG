@@ -53,7 +53,7 @@ namespace Radios.Tests
             string check = Read("JJFlexWpf/Dialogs/CheckYourAudioDialog.Check.cs");
             Assert.Contains("private readonly FlexBase _changedRig;", check);
             string forceEnd = Body(check, "public void ForceEnd(string? reason)");
-            Assert.Contains("RestoreChangedState(_changedRig, speak: false);", forceEnd);
+            Assert.Contains("RestoreWhenReceiving(_changedRig);", forceEnd);
             Assert.DoesNotContain("var rig = Rig;", forceEnd);
         }
 

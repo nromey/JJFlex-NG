@@ -1188,10 +1188,18 @@ public partial class CheckYourAudioDialog
             if (!Active) return;
             if (_phase == Phase.Keyed)
                 HandleUnkey(external: false);
-            else if (_ptt.IsTransmitting || Rig?.Transmit == true)
+            else if (_ptt.IsTransmitting)
             {
                 _ptt.EscapeUnlock();
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.check.still_transmitting"),
+                    VerbosityLevel.Critical, interrupt: true);
+            }
+            else if (Rig?.Transmit == true)
+            {
+                // The app has let go and the radio is still keyed: a hardware
+                // line or VOX. Software cannot release it; say so, plainly.
+                // DRAFT PROSE (#835): awaiting Noel.
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.escape_radio_still_transmitting"),
                     VerbosityLevel.Critical, interrupt: true);
             }
             else ForceEnd(null);
@@ -1224,7 +1232,7 @@ public partial class CheckYourAudioDialog
                 if (Records)
                     _ = RecorderControls.ReportStopFailureAsync(_changedRig.StopSliceRecordAsync(_recorderTarget));
             }
-            RestoreChangedState(_changedRig, speak: false);
+            RestoreWhenReceiving(_changedRig);
             // Only the take THIS check started is stopped; a playback started
             // from Home or a menu on another slice is left alone. The Loopback
             // method's listening slice is still arranged here, so this reaches
@@ -1264,24 +1272,12 @@ public partial class CheckYourAudioDialog
             var rig = Rig;
             if (rig != null)
             {
-                if (_dummyEngaged)
-                {
-                    // Disabling dummy load restores transmit AND tune power
-                    // inside FlexBase.
-                    rig.DummyLoadMode = false;
-                    _dummyEngaged = false;
-                }
-                if (_powerTouched)
-                {
-                    using (rig.AppInitiatedSettingChanges())
-                        rig.XmitPower = _savedPower;
-                    _powerTouched = false;
-                }
-                if (_monitorTouched)
-                {
-                    rig.Monitor = FlexBase.OffOnValues.off;
-                    _monitorTouched = false;
-                }
+                // Power, the dummy load and the monitor come back only once the
+                // radio says it is receiving (fix round 2). They were restored
+                // right here, straight after the SOFTWARE unkey, so a hardware
+                // PTT line still holding the radio got the operator's full
+                // power the moment the check let go of it.
+                RestoreWhenReceiving(rig);
                 if (Records)
                 {
                     _recordStop = rig.StopSliceRecordAsync(_recorderTarget);
@@ -1505,6 +1501,35 @@ public partial class CheckYourAudioDialog
                     System.Diagnostics.TraceLevel.Warning);
             }
         }
+
+        /// <summary>
+        /// Put back what the check changed, but only once the radio reports it
+        /// is receiving (fix round 2): restoring the operator's power while a
+        /// hardware PTT line holds the radio keyed would transmit it. If the
+        /// radio is still transmitting, the restore waits for its own report of
+        /// receive, which can come after the check, or even the window, has
+        /// ended. Restoring twice is harmless: each part clears its own flag.
+        /// </summary>
+        private void RestoreWhenReceiving(FlexBase rig)
+        {
+            if (!_dummyEngaged && !_powerTouched && !_monitorTouched) return;
+            FlexBase.TransmitChangeDel? waiter = null;
+            waiter = (_, transmitting) =>
+            {
+                if (transmitting) return;
+                rig.TransmitChange -= waiter;
+                _owner.Dispatcher.BeginInvoke(new Action(() => RestoreChangedState(rig, speak: false)));
+            };
+            // Subscribe BEFORE asking, so a receive report that lands between
+            // the two cannot be missed.
+            rig.TransmitChange += waiter;
+            if (rig.Transmit) return;
+            rig.TransmitChange -= waiter;
+            RestoreChangedState(rig, speak: false);
+        }
+
+        /// <summary>True while something this check changed has not been put back yet.</summary>
+        internal bool RestorePending => _dummyEngaged || _powerTouched || _monitorTouched;
 
         private void RestoreChangedState(FlexBase rig, bool speak)
         {

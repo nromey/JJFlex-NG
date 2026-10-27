@@ -1840,6 +1840,9 @@ namespace Radios.Tests
                 "audio.tone.reference_already_armed",
                 "audio.diagnostics.bench_idle",
                 "audio.diagnostics.bench_smartlink",
+                // Track A fix round 2: the sentence for Escape when the radio
+                // is keyed by something other than this app.
+                "audio.check.escape_radio_still_transmitting",
             };
 
             Assert.Equal(3140, unclassified);

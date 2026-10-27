@@ -269,8 +269,13 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     {
         if (e.Key == Key.Escape)
         {
+            // The radio's own transmit report, not only the session's (fix round
+            // 2): a hardware PTT line can hold the radio keyed with no check
+            // running, or while one is still preparing.
+            bool transmitting = _session?.EscapeStopsTransmit == true || _rig?.Transmit == true
+                || PttControllerSource?.Invoke()?.IsTransmitting == true;
             switch (AudioCheckEscape.Decide(_checkStarts.IsBusy, _checkStarts.IsCancelled,
-                _session?.Active == true, _session?.EscapeStopsTransmit == true))
+                _session?.Active == true, transmitting))
             {
                 case AudioCheckEscapeAction.CancelPendingStart:
                     CancelCheckStart();
@@ -285,7 +290,9 @@ public partial class CheckYourAudioDialog : JJFlexDialog
                     e.Handled = true;
                     return;
                 case AudioCheckEscapeAction.UnkeyAndStay:
-                    _session?.StopCheck();
+                    if (_checkStarts.IsBusy && !_checkStarts.IsCancelled) CancelCheckStart();
+                    if (_session?.Active == true) _session.StopCheck();
+                    else UnkeyOutsideACheck();
                     StopCheckPlayback();
                     e.Handled = true;
                     return;
@@ -325,6 +332,22 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             return;
         }
         base.OnPreviewKeyDown(e);
+    }
+
+    /// <summary>
+    /// Escape with the radio transmitting and no check to stop (fix round 2):
+    /// ask the controller to unkey if it is the one keying, and if the radio is
+    /// still keyed by something else, a hardware line or VOX, say so plainly
+    /// rather than closing the window on it.
+    /// </summary>
+    private void UnkeyOutsideACheck()
+    {
+        var ptt = PttControllerSource?.Invoke();
+        if (ptt?.IsTransmitting == true) ptt.EscapeUnlock();
+        else if (_rig?.Transmit == true)
+            // DRAFT PROSE (#835): awaiting Noel.
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.escape_radio_still_transmitting"),
+                VerbosityLevel.Critical, interrupt: true);
     }
 
     /// <summary>

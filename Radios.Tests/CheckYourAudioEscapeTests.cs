@@ -64,8 +64,75 @@ namespace Radios.Tests
         {
             Assert.Equal(AudioCheckEscapeAction.CancelPendingStart, AudioCheckEscape.Decide(true, false, false, false));
             Assert.Equal(AudioCheckEscapeAction.CloseCancelledStart, AudioCheckEscape.Decide(true, true, false, false));
-            // A pending start outranks a session, as the handler always had it.
-            Assert.Equal(AudioCheckEscapeAction.CancelPendingStart, AudioCheckEscape.Decide(true, false, true, true));
+            // A pending start outranks a session that is not transmitting.
+            Assert.Equal(AudioCheckEscapeAction.CancelPendingStart, AudioCheckEscape.Decide(true, false, true, false));
+        }
+
+        [Fact]
+        public void A_transmitting_radio_outranks_a_pending_start_on_every_press()
+        {
+            // Fix round 2: a hardware line asserted while the check was still
+            // preparing. The first press cancelled the start without asking
+            // for an unkey, and the second closed the window on a keyed radio.
+            Assert.Equal(AudioCheckEscapeAction.UnkeyAndStay, AudioCheckEscape.Decide(true, false, false, true));
+            Assert.Equal(AudioCheckEscapeAction.UnkeyAndStay, AudioCheckEscape.Decide(true, true, false, true));
+            Assert.Equal(AudioCheckEscapeAction.UnkeyAndStay, AudioCheckEscape.Decide(true, false, true, true));
+        }
+
+        [Fact]
+        public void An_idle_window_on_a_transmitting_radio_stays_open()
+        {
+            // No check at all, the radio keyed by a hardware line: the old
+            // handler asked only the session and closed the window.
+            Assert.Equal(AudioCheckEscapeAction.UnkeyAndStay, AudioCheckEscape.Decide(false, false, false, true));
+        }
+
+        [Fact]
+        public void The_window_asks_the_radio_itself_whether_it_is_transmitting()
+        {
+            string shell = Shell();
+            int at = shell.IndexOf("protected override void OnPreviewKeyDown(KeyEventArgs e)", StringComparison.Ordinal);
+            string handler = shell.Substring(at, shell.IndexOf("base.OnPreviewKeyDown(e);", at, StringComparison.Ordinal) - at);
+            Assert.Contains("_rig?.Transmit == true", handler);
+            // With no session to stop, the stay arm asks the controller to
+            // unkey and says plainly when a hardware line is holding the radio.
+            int stay = handler.IndexOf("case AudioCheckEscapeAction.UnkeyAndStay:", StringComparison.Ordinal);
+            string arm = handler.Substring(stay, handler.IndexOf("return;", stay, StringComparison.Ordinal) - stay);
+            Assert.Contains("UnkeyOutsideACheck()", arm);
+            Assert.Contains("audio.check.escape_radio_still_transmitting", Shell());
+        }
+
+        [Fact]
+        public void Power_comes_back_only_once_the_radio_says_it_is_receiving()
+        {
+            // The inherited hazard: HandleUnkey released the dummy load and
+            // restored capped power straight after the software unkey. With a
+            // hardware PTT line still holding the radio, that put full power on
+            // the air.
+            string check = File.ReadAllText(Path.Combine(IntegrationPassTree.Root,
+                "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.Check.cs")).Replace("\r\n", "\n");
+            string unkey = Body(check, "private void HandleUnkey(bool external)");
+            Assert.DoesNotContain("DummyLoadMode = false", unkey);
+            Assert.DoesNotContain("XmitPower = _savedPower", unkey);
+            Assert.Contains("RestoreWhenReceiving(rig);", unkey);
+            Assert.Contains("RestoreWhenReceiving(_changedRig);", Body(check, "public void ForceEnd(string? reason)"));
+            string when = Body(check, "private void RestoreWhenReceiving(FlexBase rig)");
+            int subscribe = when.IndexOf("rig.TransmitChange +=", StringComparison.Ordinal);
+            int ask = when.IndexOf("rig.Transmit", subscribe + 1, StringComparison.Ordinal);
+            Assert.True(subscribe >= 0 && ask > subscribe, "subscribe to the radio's report before asking it, so a receive that lands in between is not missed");
+        }
+
+        private static string Body(string source, string signature)
+        {
+            int at = source.IndexOf(signature, StringComparison.Ordinal);
+            Assert.True(at >= 0, "Could not find " + signature);
+            int open = source.IndexOf('{', at), depth = 0;
+            for (int i = open; i < source.Length; i++)
+            {
+                if (source[i] == '{') depth++;
+                else if (source[i] == '}' && --depth == 0) return source.Substring(open, i - open + 1);
+            }
+            throw new InvalidOperationException("Unbalanced braces after " + signature);
         }
 
         [Fact]
