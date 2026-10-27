@@ -200,7 +200,13 @@ public partial class CheckYourAudioDialog
     /// idempotent, so FinishIqAsync's own stop and this one share one run.
     /// </summary>
     private void TrackOffAirRun(FlexBase rig, ListenbackRun run) =>
-        _iqRunRestore = rig.CheckRestorations.Register("off-air take", () => run.StopAsync("connection-ending"), held: true);
+        _iqRunRestore = rig.CheckRestorations.Register("off-air take", async () =>
+        {
+            // The stop completes normally even when the snapshot could not be
+            // put back; Restored is the real answer (fix round 4).
+            await run.StopAsync("connection-ending");
+            return run.Restored;
+        }, held: true);
 
     /// <summary>The take's entry in the radio's restore owner; released once this window has stopped the take itself.</summary>
     private CheckRestorations.Entry? _iqRunRestore;

@@ -87,6 +87,38 @@ public sealed class CheckRestorationTests : IDisposable
         Assert.NotEmpty(PowerOrAntenna(c.F.Vendor.Transport.Commands.Skip(before)));
     }
 
+    [Fact]
+    public async Task A_Loopback_restore_the_radio_refuses_makes_the_owner_unconfirmed()
+    {
+        // Codex round 4, blocker 2: a restore that FAILED without throwing (a
+        // refused mute, an unconfirmed full duplex, a changed connection, a
+        // recorder stop not confirmed) returned normally, and the owner then
+        // reported every change put back.
+        using var c = Arranged();
+        Assert.True(await c.Pump(c.F.Rig.StartLoopbackArrangementAsync()));
+        RunQueue(c);
+        var answer = c.F.Vendor.Transport.CommandWritten;
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            // The radio refuses every mute restore.
+            if (command.StartsWith("slice set ", StringComparison.Ordinal) && command.EndsWith("audio_mute=0", StringComparison.Ordinal))
+                c.F.Vendor.Reply(c.F.Vendor.LastSequence, 0x50000016, "refused");
+            else answer!(command);
+        };
+        string trouble = await c.Pump(c.F.Rig.EndLoopbackArrangementAsync());
+        Assert.Contains("mute restoration was not confirmed", trouble);
+        Assert.False(await c.F.Rig.CheckRestorations.CompletionAsync().WaitAsync(TimeSpan.FromSeconds(3)));
+    }
+
+    [Fact]
+    public async Task A_restore_that_reports_false_is_not_done()
+    {
+        using var owner = new CheckRestorations(() => false);
+        var entry = owner.Register("full duplex", () => Task.FromResult(false));
+        Assert.False(await entry.Task.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.False(await owner.CompletionAsync());
+    }
+
     // ── The owner on its own ────────────────────────────────────────────
 
     private static async Task<bool> Within(Func<bool> condition, TimeSpan time)
@@ -139,7 +171,7 @@ public sealed class CheckRestorationTests : IDisposable
     public async Task A_restore_that_throws_makes_completion_false_not_true()
     {
         using var owner = new CheckRestorations(() => false);
-        owner.Register("full duplex", () => throw new InvalidOperationException("no reply"));
+        owner.Register("full duplex", (Action)(() => throw new InvalidOperationException("no reply")));
         owner.Register("monitor", () => { });
         Assert.False(await owner.CompletionAsync().WaitAsync(TimeSpan.FromSeconds(3)));
         owner.ClearFinished();

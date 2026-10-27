@@ -6,6 +6,19 @@ using System.Threading.Tasks;
 
 namespace Radios
 {
+    /// <summary>What one restore attempt achieved (#835, fix round 4).</summary>
+    public enum RestoreOutcome
+    {
+        /// <summary>Put back.</summary>
+        Done,
+
+        /// <summary>Not put back: a refusal, an unconfirmed reply, a changed connection. Reported, never retried.</summary>
+        Failed,
+
+        /// <summary>Not put back YET: the radio was transmitting when the write was about to go out. Waits for receive and tries again.</summary>
+        Retry,
+    }
+
     /// <summary>
     /// Everything an Audio Check changed on one radio, with the action that puts
     /// each back, run only while that radio reports receive (#835, fix round 3).
@@ -53,7 +66,7 @@ namespace Radios
         /// <summary>One change to put back.</summary>
         public sealed class Entry
         {
-            internal Entry(string name, Func<Task> restore, bool held)
+            internal Entry(string name, Func<Task<RestoreOutcome>> restore, bool held)
             {
                 Name = name;
                 Restore = restore;
@@ -61,7 +74,7 @@ namespace Radios
             }
 
             public string Name { get; }
-            internal Func<Task> Restore { get; }
+            internal Func<Task<RestoreOutcome>> Restore { get; }
             internal volatile bool _held;
             internal readonly TaskCompletionSource<bool> Done = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -87,12 +100,21 @@ namespace Radios
             _transmitting = transmitting;
         }
 
-        /// <summary>Register a change and how to put it back. Not held: it runs as soon as the radio is receiving.</summary>
+        /// <summary>Register a change whose restore cannot report failure; it is done once it has run.</summary>
         public Entry Register(string name, Action restore, bool held = false) =>
-            Register(name, () => { restore(); return Task.CompletedTask; }, held);
+            Register(name, () => { restore(); return Task.FromResult(RestoreOutcome.Done); }, held);
 
-        /// <summary>Register a change whose restore is asynchronous (it waits for the radio's reply).</summary>
-        public Entry Register(string name, Func<Task> restore, bool held = false)
+        /// <summary>
+        /// Register a change whose restore says whether it worked: true is done,
+        /// false is a failure the owner reports. There is deliberately no overload
+        /// taking a plain Task: a restore that can fail must say so (fix round 4,
+        /// where several restores signalled failure by returning normally).
+        /// </summary>
+        public Entry Register(string name, Func<Task<bool>> restore, bool held = false) =>
+            Register(name, async () => await restore().ConfigureAwait(false) ? RestoreOutcome.Done : RestoreOutcome.Failed, held);
+
+        /// <summary>Register a change whose restore may also ask to be retried once the radio is receiving.</summary>
+        public Entry Register(string name, Func<Task<RestoreOutcome>> restore, bool held = false)
         {
             var entry = new Entry(name, restore, held);
             lock (_gate)
@@ -185,20 +207,28 @@ namespace Radios
                         break;
                     }
                     _withheld = false;
-                    bool ok;
-                    try
-                    {
-                        await next.Restore().ConfigureAwait(false);
-                        ok = true;
-                    }
+                    RestoreOutcome outcome;
+                    try { outcome = await next.Restore().ConfigureAwait(false); }
                     catch (Exception ex)
                     {
                         JJTrace.Tracing.TraceLine("Check restore failed (" + next.Name + "): " + ex, System.Diagnostics.TraceLevel.Error);
-                        ok = false;
+                        outcome = RestoreOutcome.Failed;
                     }
+                    if (outcome == RestoreOutcome.Retry)
+                    {
+                        // The radio keyed between the owner's question and the
+                        // write: stay pending, in order, and wait for receive.
+                        JJTrace.Tracing.TraceLine("Check restore: held at its write while the radio reports transmit (" + next.Name + ")",
+                            System.Diagnostics.TraceLevel.Warning);
+                        _withheld = true;
+                        break;
+                    }
+                    if (outcome == RestoreOutcome.Failed)
+                        JJTrace.Tracing.TraceLine("Check restore NOT confirmed (" + next.Name + ")", System.Diagnostics.TraceLevel.Warning);
                     // A failed entry is kept (finished, never pumped again) so
                     // the next CompletionAsync still answers false for it;
                     // ClearFinished forgets it once a teardown has reported it.
+                    bool ok = outcome == RestoreOutcome.Done;
                     if (ok) lock (_gate) _entries.Remove(next);
                     next.Done.TrySetResult(ok);
                 }

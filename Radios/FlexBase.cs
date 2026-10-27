@@ -11538,6 +11538,9 @@ namespace Radios
             var owner = CheckRestorations;
             var steps = new List<CheckRestorations.Entry>
             {
+                // Every step reports whether it really put its part back (fix
+                // round 4): a refusal, an unconfirmed reply or a changed
+                // connection is a failure the owner carries, not a normal return.
                 owner.Register("loopback: listening slice recorder", async () =>
                 {
                     // The listening slice must stop its own buffer before removal.
@@ -11545,10 +11548,12 @@ namespace Radios
                     _loopbackArranged = false;
                     if (!recorderStopped) Trouble("The listening slice recorder stop was not confirmed. ");
                     if (!Same()) Trouble("The radio connection changed before restoration could be confirmed. ");
+                    return recorderStopped && Same();
                 }),
                 owner.Register("loopback: listening slice and mutes", async () =>
                 {
-                    if (!Same()) return;
+                    if (!Same()) return false;
+                    bool ok = true;
                     // An operator who moved to the listening slice during the check
                     // (Noel did, to find its mute) would otherwise keep it: the
                     // removal refuses the active slice. Go back to where the check
@@ -11560,7 +11565,10 @@ namespace Radios
                     if (resources?.Slice != null &&
                         (ReferenceEquals(resources.Slice, VFOToSlice(RXVFO)) ||
                          ReferenceEquals(resources.Slice, SliceForTransmitSetting())))
+                    {
                         Trouble("The listening slice is your active slice, so it was kept. ");
+                        ok = false;
+                    }
                     bool reservedRemoval = resources != null && (resources.Slice == null ||
                         (!ReferenceEquals(resources.Slice, VFOToSlice(RXVFO)) && !ReferenceEquals(resources.Slice, SliceForTransmitSetting())));
                     if (reservedRemoval) System.Threading.Interlocked.Increment(ref _pendingRemovals);
@@ -11580,53 +11588,80 @@ namespace Radios
                         }
                         finally { if (reservedRemoval) System.Threading.Interlocked.Decrement(ref _pendingRemovals); }
                     }), "LoopbackEarsRemove");
-                    if (savedMutes == null) return;
+                    if (savedMutes == null) return ok;
                     foreach (var saved in savedMutes)
                     {
                         try
                         {
                             if (!await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection,
                                 saved.Slice, $"slice set {saved.Slice.Index} audio_mute={(saved.Muted ? 1 : 0)}", "mute restore").ConfigureAwait(false))
+                            {
                                 Trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
+                                ok = false;
+                            }
                             // The reply alone left FlexLib's Slice.Mute stale on the
                             // bench, and the station layout and the next check both
                             // read it. A fresh report corrects the cache and proves
                             // the restore.
                             else if (await ReadSliceMuteAsync(arrangementRadio, arrangementConnection,
                                 saved.Slice).ConfigureAwait(false) is bool read && read != saved.Muted)
+                            {
                                 Trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
+                                ok = false;
+                            }
                         }
                         catch (Exception ex)
                         {
                             Tracing.TraceLine("Loopback mute restore: " + ex.Message, TraceLevel.Error);
                             Trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
+                            ok = false;
                         }
                     }
+                    return ok;
                 }),
-                owner.Register("loopback: transmit antenna", () => { if (Same()) TXAntennaName = savedTxAnt; }),
-                owner.Register("loopback: power", () => { if (Same()) XmitPower = savedPower; }),
-                owner.Register("loopback: monitor", () => { if (Same()) Monitor = savedMonitor ? OffOnValues.on : OffOnValues.off; }),
+                owner.Register("loopback: transmit antenna", () =>
+                {
+                    if (!Same()) return Task.FromResult(false);
+                    TXAntennaName = savedTxAnt;
+                    return Task.FromResult(true);
+                }),
+                owner.Register("loopback: power", () =>
+                {
+                    if (!Same()) return Task.FromResult(false);
+                    XmitPower = savedPower;
+                    return Task.FromResult(true);
+                }),
+                owner.Register("loopback: monitor", () =>
+                {
+                    if (!Same()) return Task.FromResult(false);
+                    Monitor = savedMonitor ? OffOnValues.on : OffOnValues.off;
+                    return Task.FromResult(true);
+                }),
                 owner.Register("loopback: full duplex", async () =>
                 {
-                    if (!Same()) return;
+                    if (!Same()) return false;
                     try
                     {
-                        if (!await SetFullDuplexConfirmedAsync(savedFdx, arrangementRadio,
+                        if (await SetFullDuplexConfirmedAsync(savedFdx, arrangementRadio,
                             arrangementConnection, note => Tracing.TraceLine("Loopback full duplex restore: " + note, TraceLevel.Info)).ConfigureAwait(false))
-                            Trouble("Full duplex restoration was not confirmed. ");
+                            return true;
+                        Trouble("Full duplex restoration was not confirmed. ");
                     }
                     catch (Exception ex)
                     {
                         Tracing.TraceLine("Loopback full duplex restore: " + ex.Message, TraceLevel.Error);
                         Trouble("Full duplex restoration was not confirmed. ");
                     }
+                    return false;
                 }),
                 owner.Register("loopback: transverter drive", () =>
                 {
-                    if (!Same() || driveBand == null) return;
+                    if (driveBand == null) return Task.FromResult(true);
+                    if (!Same()) return Task.FromResult(false);
                     var band = driveBand;
                     double dbm = savedDriveDbm;
                     q.Enqueue((FunctionDel)(() => { band.MaxPower = dbm; }), "LoopbackDriveRestore");
+                    return Task.FromResult(true);
                 }),
                 owner.Register("loopback: forget the arrangement", () =>
                 {

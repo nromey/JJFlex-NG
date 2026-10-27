@@ -161,6 +161,8 @@ namespace Radios.Tests
             Assert.Contains("if (_iqClosing || _tearingDown) { AnnounceClosedRecovery(run.Restored); return; }", finish);
             // And the take is the owner's too, so a closed window's take is still stopped and waited for.
             Assert.Contains("rig.CheckRestorations.Register(\"off-air take\"", offAir);
+            // Fix round 4: its result is the take's own Restored, not "the stop returned".
+            Assert.Contains("return run.Restored;", offAir);
         }
     }
 }
