@@ -216,20 +216,75 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     {
         var inst = _instance;
         if (inst == null) return;
-        void End()
+        void Run()
         {
-            inst.CancelCheckStart();
-            inst._session?.ForceEnd("Radio disconnected, audio check ended");
-            inst._session = null;
-            inst.DisarmTone(speak: false);
-            inst.DisarmReference(speak: false);
+            var rig = inst._rig;
+            bool hadWork = inst._session?.Active == true || inst._iqRun != null || inst._checkStarts.IsBusy
+                || inst._session?.RestorePending == true;
+            var session = inst._session;
+            inst._tearingDown = true;
+            try
+            {
+                inst.CancelCheckStart();
+                inst._session?.ForceEnd("Radio disconnected, audio check ended");
+                inst._session = null;
+                inst.DisarmTone(speak: false);
+                inst.DisarmReference(speak: false);
+                if (rig == null || !hadWork) return;
+
+                // WAIT for it (fix round 2): ending a check starts work that
+                // finishes later, and the caller disposes the rig the moment
+                // this returns. The order is AudioCheckTeardown's: the radio
+                // receiving, the check's own ending, nothing left to restore,
+                // the command queue drained past it. A nested frame keeps this
+                // dispatcher pumping while it waits, because every stage
+                // continues on it; the bound keeps a radio that never answers
+                // from holding the close.
+                var ending = inst._sessionEnding;
+                if (inst._iqRun != null && ending.IsCompleted) ending = inst.FinishIqAsync("connection-ending");
+                var work = AudioCheckTeardown.RunAsync(
+                    transmitting: () => rig.Transmit,
+                    sessionEnding: () => ending,
+                    restorePending: () => session?.RestorePending == true,
+                    drain: left => rig.DrainCommandQueueAsync(left),
+                    bound: TeardownBound);
+                var frame = new System.Windows.Threading.DispatcherFrame();
+                work.ContinueWith(_ => inst.Dispatcher.BeginInvoke(new Action(() => frame.Continue = false)),
+                    TaskScheduler.Default);
+                // A second, independent stop, in case the work itself never
+                // completes its task: the bound plus a margin.
+                var guard = new System.Windows.Threading.DispatcherTimer { Interval = TeardownBound + TimeSpan.FromSeconds(1) };
+                guard.Tick += (_, _) => { guard.Stop(); frame.Continue = false; };
+                guard.Start();
+                System.Windows.Threading.Dispatcher.PushFrame(frame);
+                guard.Stop();
+
+                var result = work.IsCompletedSuccessfully ? work.Result : new AudioCheckTeardownResult(false, "did-not-finish");
+                JJTrace.Tracing.TraceLine("Check your audio teardown: " + (result.Completed ? "completed" : "NOT confirmed at " + result.Stage),
+                    result.Completed ? System.Diagnostics.TraceLevel.Info : System.Diagnostics.TraceLevel.Warning);
+                if (!result.Completed)
+                    // DRAFT PROSE (#835): awaiting Noel.
+                    ScreenReaderOutput.Speak(Lexicon.Get("audio.check.teardown_unconfirmed"), VerbosityLevel.Critical);
+            }
+            catch (Exception ex)
+            {
+                JJTrace.Tracing.TraceLine("Check your audio teardown failed: " + ex, System.Diagnostics.TraceLevel.Error);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.teardown_unconfirmed"), VerbosityLevel.Critical);
+            }
+            finally { inst._tearingDown = false; }
         }
-        if (inst.Dispatcher.CheckAccess()) End();
-        // Synchronously, so it is done before the caller disposes the rig;
-        // bounded, so a busy UI thread cannot hold the teardown forever.
-        else inst.Dispatcher.Invoke(End, System.Windows.Threading.DispatcherPriority.Send,
-            System.Threading.CancellationToken.None, TimeSpan.FromSeconds(2));
+        if (inst.Dispatcher.CheckAccess()) Run();
+        // From another thread, the same work on the window's thread, still
+        // finished before this returns and still bounded.
+        else inst.Dispatcher.Invoke(Run, System.Windows.Threading.DispatcherPriority.Send,
+            System.Threading.CancellationToken.None, TeardownBound + TimeSpan.FromSeconds(2));
     }
+
+    /// <summary>How long a teardown before a disconnect may hold the close, end to end.</summary>
+    private static readonly TimeSpan TeardownBound = TimeSpan.FromSeconds(5);
+
+    /// <summary>True while the window is putting a check back before the radio goes.</summary>
+    private bool _tearingDown;
 
     public static void NotifyRigGone() =>
         DialogSections.PostRigChange(_instance, w => w.SetRig(null), onlyIfLoaded: false);

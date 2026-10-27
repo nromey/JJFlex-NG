@@ -648,7 +648,15 @@ public partial class CheckYourAudioDialog
     /// arrangement is up, tear it down and say so. Runs on every exit path
     /// because every exit path funnels through the session's End.
     /// </summary>
-    private async void OnSessionEnded()
+    /// <summary>
+    /// The work a session's ending started (the Loopback teardown, the off-air
+    /// finish), kept so a teardown before a disconnect can wait for it (fix
+    /// round 2). It was an <c>async void</c> until then, which nothing could
+    /// wait on.
+    /// </summary>
+    private Task _sessionEnding = Task.CompletedTask;
+
+    private async Task OnSessionEndedAsync()
     {
         CancelCheckStart();
         UpdateMicReading();
@@ -656,7 +664,7 @@ public partial class CheckYourAudioDialog
         SetStartButtonLabel("Start Audio Check");
         // A method that left the offer while the check ran comes off now.
         RefreshOfferedMethods();
-        if (_iqWasOffAir && _iqRun != null) { _ = FinishIqAsync("operator-stop"); return; }
+        if (_iqWasOffAir && _iqRun != null) { await FinishIqAsync(_tearingDown ? "connection-ending" : "operator-stop"); return; }
         if (_rig != null && _rig.LoopbackArranged)
         {
             try
@@ -1252,7 +1260,7 @@ public partial class CheckYourAudioDialog
             _ptt.PlannedStopSeconds = null;
             if (!string.IsNullOrEmpty(reason))
                 ScreenReaderOutput.Speak(reason, VerbosityLevel.Terse);
-            _owner.OnSessionEnded();
+            _owner._sessionEnding = _owner.OnSessionEndedAsync();
         }
 
         /// <summary>

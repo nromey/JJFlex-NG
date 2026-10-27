@@ -209,7 +209,9 @@ public partial class CheckYourAudioDialog
         {
             await run.StopAsync(reason);
             if (!ReferenceEquals(runRig, _rig)) return;
-            if (_iqClosing) { AnnounceClosedRecovery(run.Restored); return; }
+            // A take ending because the radio is about to go restores and
+            // says so; it does not render and play (fix round 2).
+            if (_iqClosing || _tearingDown) { AnnounceClosedRecovery(run.Restored); return; }
             string? previousDirectory = ListenbackTakes.PreviousDirectory(run.DirectoryPath);
             _lastIqDirectory = run.DirectoryPath;
             _iqAnalysisDetails = "";

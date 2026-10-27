@@ -1843,6 +1843,9 @@ namespace Radios.Tests
                 // Track A fix round 2: the sentence for Escape when the radio
                 // is keyed by something other than this app.
                 "audio.check.escape_radio_still_transmitting",
+                // Track A fix round 2: a teardown that could not be confirmed
+                // before the radio went.
+                "audio.check.teardown_unconfirmed",
             };
 
             Assert.Equal(3140, unclassified);
