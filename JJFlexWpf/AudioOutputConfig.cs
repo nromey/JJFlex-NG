@@ -103,7 +103,7 @@ namespace JJFlexWpf
         public bool RecorderSpeechEnabled { get; set; } = true;
 
         /// <summary>
-        /// Don's box (#835): with VOX on, sends key the radio themselves. Off by
+        /// The VOX send box (#835): with VOX on, sends key the radio themselves. Off by
         /// default, and absent from an older audioConfig.xml, which deserializes
         /// to this initializer, so nobody upgrading finds it on.
         /// </summary>

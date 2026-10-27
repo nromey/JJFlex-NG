@@ -24,7 +24,7 @@ namespace JJFlexWpf;
 /// sentence.
 /// </para>
 /// <para>
-/// <b>Play never requests keying, except under Don's box (#835).</b> Slice
+/// <b>Play never requests keying, except under the VOX send box (#835).</b> Slice
 /// playback joins an existing owned transmission or listens locally with VOX
 /// off, using intent fixed at the press. Computer playback, keyed, now sends
 /// to the air through the voice message's transmit-file path
@@ -177,7 +177,7 @@ public static class RecorderControls
     /// Play the target slice's recording, or stop it playing.
     /// </summary>
     /// <remarks>
-    /// <b>Don's box (#835).</b> With the box ticked and VOX on, Play IS the
+    /// <b>The VOX send box (#835).</b> With the box ticked and VOX on, Play IS the
     /// send (Noel, 2026-10-27 15:22): the radio is keyed, the recording goes
     /// out whole and the operator hears it, then VOX comes back. Not for a door
     /// that tags its work (<paramref name="owner"/>, the Audio Workshop's
@@ -244,7 +244,7 @@ public static class RecorderControls
     /// <para>
     /// <b>Tape Deck phase 2 (#835).</b> Keyed, Play sends the chosen or last
     /// recording to the air through the transmit-file path, and never touches
-    /// the key (Noel, 2026-10-21 10:57). With Don's box ticked and VOX on, Play
+    /// the key (Noel, 2026-10-21 10:57). With the VOX send box ticked and VOX on, Play
     /// keys the radio itself, sends it whole and hands back to VOX (2026-10-27
     /// 14:54). Either way the operator hears it on this computer as it goes
     /// (15:22). Unkeyed with the box unticked, Play listens, as it always has.

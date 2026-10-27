@@ -565,7 +565,7 @@ public static class KeyInventory
         new("Leader", "JJ key", "Ctrl+J, Ctrl+R", "Record the active slice, or stop recording it — the radio's own recorder keeps one recording per slice, up to the last two minutes",
             new[] { "record", "recording", "recorder", "slice", "active", "capture", "tape", "save",
                     "buddy", "listen", "back", "radio", "leader", "toggle" }, "Radio", "Slice"),
-        // Check your audio Track B (#835): with VOX on and Don's box ticked,
+        // Check your audio Track B (#835): with VOX on and the VOX send box ticked,
         // Play keys the radio itself. DRAFT PROSE (#835): awaiting Noel
         new("Leader", "JJ key", "Ctrl+J, Ctrl+P", "Play the active slice's recording, or stop it — locally while receiving, on the air when already keyed, or keying the radio itself when VOX is on and sends key the radio",
             new[] { "play", "playback", "replay", "recording", "recorder", "slice", "active", "hear",

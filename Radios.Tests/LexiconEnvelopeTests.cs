@@ -1808,7 +1808,7 @@ namespace Radios.Tests
                 "audio.qsos.delete_help",
                 "audio.qsos.prune_help",
                 "audio.qsos.close_help",
-                // Check your audio Track B (#835): Don's box and the sends that
+                // Check your audio Track B (#835): the VOX send box and the sends that
                 // key the radio with VOX on, including a computer recording to
                 // the air (Tape Deck phase 2). Draft prose, awaiting Noel.
                 "audio.send.box_label",

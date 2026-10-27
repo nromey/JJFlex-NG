@@ -4,7 +4,7 @@ using Xunit;
 namespace Radios.Tests
 {
     /// <summary>
-    /// The one rule that decides what Don's box does to a send (#835), held
+    /// The one rule that decides what the VOX send box does to a send (#835), held
     /// at every combination of its four inputs.
     /// </summary>
     /// <remarks>

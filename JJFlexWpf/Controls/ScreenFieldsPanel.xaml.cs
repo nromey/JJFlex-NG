@@ -1039,7 +1039,7 @@ public partial class ScreenFieldsPanel : UserControl
         _voxDelayControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.VoxDelay = v; };
         TxContent.Children.Add(_voxDelayControl);
 
-        // Don's box (#835), straight after gain and delay (Noel, 2026-10-27
+        // The VOX send box (#835), straight after gain and delay (Noel, 2026-10-27
         // 15:36: "to the right of the delay and gain"), and NOT beside the VOX
         // checkbox (15:32). An operator preference, not a radio setting: it is
         // saved with the operator's audio settings, so it is not ToggleRig.

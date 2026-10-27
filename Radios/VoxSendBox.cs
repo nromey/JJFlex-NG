@@ -7,7 +7,7 @@ namespace Radios
     public enum SendRoute
     {
         /// <summary>
-        /// Don's box: key the radio, send the whole recording with VOX held
+        /// The VOX send box: key the radio, send the whole recording with VOX held
         /// off, unkey, hand back to VOX
         /// (<see cref="VoiceMessageSend.BeginKeyed"/>).
         /// </summary>
@@ -28,7 +28,7 @@ namespace Radios
     }
 
     /// <summary>
-    /// Don's box (#835, Noel 2026-10-27 14:54): one operator preference, off by
+    /// The VOX send box (#835, Noel 2026-10-27 14:54): one operator preference, off by
     /// default and saved with the operator's audio settings rather than per
     /// radio, and the one rule that decides what it does to a send.
     /// </summary>

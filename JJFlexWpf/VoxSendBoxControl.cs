@@ -4,7 +4,7 @@ using Radios.Speech;
 namespace JJFlexWpf;
 
 /// <summary>
-/// The one way every door changes Don's box (#835): Home's Transmission group,
+/// The one way every door changes the VOX send box (#835): Home's Transmission group,
 /// Settings, and the command the Command Finder runs. Sets the preference,
 /// saves it with the operator's audio settings at once, and says what it is now.
 /// </summary>

@@ -236,7 +236,7 @@ namespace Radios
         /// <summary>
         /// How many times every transmit source has been disarmed by a kill
         /// (<see cref="DisarmSources"/>, which every kill route calls). A send
-        /// that is still getting ready to key — Don's box waiting for the radio
+        /// that is still getting ready to key — the VOX send box waiting for the radio
         /// to confirm VOX off (#835) — reads this at the press and refuses to
         /// key if it has moved: a kill cancels every key after it, including
         /// one not yet made.
@@ -281,7 +281,7 @@ namespace Radios
         /// <see cref="Arm(FlexBase, string)"/>, saying whether Escape pressed
         /// ANYWHERE stops this transmit. The transmit checks need that, because
         /// they block the UI thread. A send keyed from the UI thread with the
-        /// dispatcher free (Don's box, #835) passes false: its Escape is the main
+        /// dispatcher free (the VOX send box, #835) passes false: its Escape is the main
         /// window's, and the process-wide poll would let Escape in another
         /// program end it. Everything else is identical: the reflected-power
         /// watch and its cut, the hold after it, and the refusal to raise a
@@ -476,7 +476,7 @@ namespace Radios
         public static void DisarmSources(FlexBase rig)
         {
             // First, and even with no rig: a send still getting ready to key
-            // (Don's box, #835) must find the kill when it next looks.
+            // (the VOX send box, #835) must find the kill when it next looks.
             Interlocked.Increment(ref _disarmGeneration);
             if (rig == null) return;
             try { rig.CancelSlicePlayback(); }

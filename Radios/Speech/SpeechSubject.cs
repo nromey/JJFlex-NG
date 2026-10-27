@@ -591,7 +591,7 @@ namespace Radios.Speech
         public const string SixtyMeterStop = "sixty-meter-stop";
 
         /// <summary>
-        /// Whether Don's box is ticked (#835): with VOX on, sends key the radio
+        /// Whether the VOX send box is ticked (#835): with VOX on, sends key the radio
         /// themselves. Spoken when the operator toggles it from Home, Settings
         /// or the command. The next toggle's answer covers an unheard one, and
         /// nothing else says anything about the box, so no other subject retires

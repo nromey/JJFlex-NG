@@ -637,7 +637,7 @@ public class KeyCommands
                                      "manage", "play", "preview", "trim", "cut", "edit", "save", "as", "export", "convert",
                                      "mp3", "flac", "wav", "opus", "m4a", "delete", "prune", "clean", "recycle", "tape", "f11" },
                   ShortActionLabel = "open recorded QSOs" },
-            // Check your audio Track B (#835): Don's box. With it on and VOX
+            // Check your audio Track B (#835): the VOX send box. With it on and VOX
             // on, a voice message or a played recording keys the radio itself
             // and hands back to VOX. Home's Transmission group and Settings,
             // PTT, carry the same box; every door goes through
@@ -646,7 +646,7 @@ public class KeyCommands
                 "Turn on or off whether sends key the radio when VOX is on",
                 "Sends key the radio with VOX", false, FunctionGroups.Audio, KeyScope.Global)
                 { Keywords = new[] { "vox", "send", "sends", "key", "keys", "keying", "ptt", "push", "talk", "transmit",
-                                     "play", "recording", "message", "voice", "air", "dropout", "clip", "box", "don" },
+                                     "play", "recording", "message", "voice", "air", "dropout", "clip", "box" },
                   ShortActionLabel = "toggle sends key the radio with VOX" },
 
             // ── Former hard-wired meta-commands (QB Track H, 2026-08-07) ──
@@ -1384,7 +1384,7 @@ public class KeyCommands
     private void PlayFromComputerHandler() =>
         _ = RecorderControls.ToggleComputerPlayAsync(_context.GetRigControl());
 
-    /// <summary>Don's box (#835): the one door the other doors share.</summary>
+    /// <summary>The VOX send box (#835): the one door the other doors share.</summary>
     private void ToggleVoxSendBoxHandler() => VoxSendBoxControl.Toggle();
 
     /// <summary>

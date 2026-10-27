@@ -5,7 +5,7 @@ using Xunit;
 namespace Radios.Tests
 {
     /// <summary>
-    /// The box send (#835, Don's box): with the box ticked and VOX on, a send
+    /// The box send (#835, the VOX send box): with the box ticked and VOX on, a send
     /// keys the radio itself, sends the whole recording, unkeys, and hands back
     /// to VOX. Driven by a fake radio and a number for the clock, as
     /// <see cref="VoiceMessageSendTests"/> drives the voice send it extends.

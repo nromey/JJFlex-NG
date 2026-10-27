@@ -171,7 +171,7 @@
                               Margin="0,8,0,0"
                               AutomationProperties.Name="Play chirp tones on transmit and receive"/>
 
-                    <!-- Don's box (#835): with VOX on, sends key the radio. An
+                    <!-- The VOX send box (#835): with VOX on, sends key the radio. An
                          operator preference saved with the audio settings,
                          off by default. Its label, name and Ctrl+F1 text are
                          set in code from the Lexicon (audio.send.box_*), the

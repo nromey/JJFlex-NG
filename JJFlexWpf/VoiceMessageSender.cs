@@ -14,7 +14,7 @@ namespace JJFlexWpf;
 /// place of the microphone, say what happened (Sprint 48 Track A, #151). And,
 /// since #835, the one host for every send to the air: a voice message, a
 /// computer recording (Tape Deck phase 2), or the radio's slice recording
-/// under Don's box.
+/// under the VOX send box.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -33,7 +33,7 @@ namespace JJFlexWpf;
 /// while any send is going out stops it, as the same message key does.
 /// </para>
 /// <para>
-/// <b>Don's box (#835).</b> With the box ticked and VOX on, every send
+/// <b>The VOX send box (#835).</b> With the box ticked and VOX on, every send
 /// takes the same road (<see cref="SendRoute.Box"/>): pause VOX through the
 /// radio's one VOX owner and wait for the radio to confirm it off; if VOX is
 /// still holding the radio up on the operator's last words, let it drop;
@@ -200,7 +200,7 @@ internal static class VoiceMessageSender
             return;
         }
 
-        // Don's box (#835): with it ticked and VOX on, the message keys the
+        // The VOX send box (#835): with it ticked and VOX on, the message keys the
         // radio itself rather than letting VOX key it. Unticked, #151's rule
         // stands exactly as it was: VOX keys it, otherwise the key keys it.
         if (RouteFor(rig) == SendRoute.Box)
@@ -267,7 +267,7 @@ internal static class VoiceMessageSender
     }
 
     /// <summary>
-    /// Send the radio's own slice recording under Don's box (#835): key, then
+    /// Send the radio's own slice recording under the VOX send box (#835): key, then
     /// start the slice's playback, which the radio sends to the air because the
     /// radio is keyed, and which the operator already hears as it goes out
     /// (Noel, 15:24) — so no local copy is played for this one.
@@ -340,7 +340,7 @@ internal static class VoiceMessageSender
         StartMonitor(info);
     }
 
-    // ── Don's box ───────────────────────────────────────────────────────
+    // ── the VOX send box ───────────────────────────────────────────────────────
 
     /// <summary>
     /// Pause VOX, let VOX's own tail drop, then key and send (#835). Every road

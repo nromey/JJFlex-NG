@@ -93,7 +93,7 @@ namespace Radios
     }
 
     /// <summary>
-    /// What a box send needs beyond the rig (#835, Don's box): who else might
+    /// What a box send needs beyond the rig (#835, the VOX send box): who else might
     /// take the transmitter, and whether the recording can start before the
     /// radio is keyed.
     /// </summary>
@@ -308,7 +308,7 @@ namespace Radios
         }
 
         /// <summary>
-        /// Start a BOX send (#835, Don's box; Noel 2026-10-27 14:54, 15:28,
+        /// Start a BOX send (#835, the VOX send box; Noel 2026-10-27 14:54, 15:28,
         /// 15:29): the radio is keyed by this send whatever VOX would have done,
         /// the whole recording goes out, and the send unkeys at the end.
         /// </summary>
