@@ -5,43 +5,39 @@ keywords:
 
 # TX Bandwidth Sculpting
 
-TX bandwidth sculpting lets you shape the sound of your transmitted audio by adjusting the low-frequency and high-frequency edges of the TX filter. This gives you control over how your signal sounds to other stations.
+You can shape the sound of your transmitted audio by adjusting the low and high edges of the transmit (TX) filter. These edges control the bandwidth of your signal and how it sounds to other stations.
 
 ## Why Sculpt Your TX Audio?
 
-Every voice is different, and band conditions change over the course of a contact. Sculpting lets you:
-
-- **Widen** the bandwidth for a natural-sounding ragchew audio profile.
-- **Narrow** the bandwidth for better readability in noisy conditions or during contests.
-- **Shift** the low and high edges to emphasise or cut certain frequency ranges in your voice.
+Every voice is different, and band conditions can change during a contact. You can widen the bandwidth for a natural-sounding ragchew audio profile, or narrow it for better readability in noisy conditions or during contests. You can also shift the low and high edges to emphasise or cut certain frequency ranges in your voice.
 
 ## Adjusting TX Bandwidth from the Keyboard
 
-You can adjust the TX filter edges directly from the keyboard, without opening any dialog:
+You can adjust either edge of the TX filter from the keyboard without opening a dialog:
 
-- `Ctrl+Shift+[` — lower the TX filter low edge.
-- `Ctrl+Shift+]` — raise the TX filter low edge.
-- `Ctrl+Alt+[` — lower the TX filter high edge.
-- `Ctrl+Alt+]` — raise the TX filter high edge.
+- Press `Ctrl+Shift+[` to lower the low edge of the TX filter.
+- Press `Ctrl+Shift+]` to raise the low edge of the TX filter.
+- Press `Ctrl+Alt+[` to lower the high edge of the TX filter.
+- Press `Ctrl+Alt+]` to raise the high edge of the TX filter.
 
-Each press adjusts the corresponding edge by one step, and JJ Flexible Radio Access speaks the new value aloud. The step is chosen by how wide the filter is right now — 50 hertz for an ordinary transmit filter, finer as it narrows, coarser out past 3.5 kilohertz — and it never speeds up while you hold the key, because an edge is placed by the number and your ear will not tell you when you have reached 2,800 hertz. It is the same step the Radio menu's TX Filter submenu uses and the same one the filter layer uses, so an edge moves the same distance whichever way you reach it.
+Each press moves the corresponding edge by one step, and JJ Flexible Radio Access speaks the new value. The step depends on the current width of the filter: it is 50 hertz for an ordinary transmit filter, finer as the filter narrows, and coarser beyond 3.5 kilohertz. The step does not speed up when you hold the key. An edge is placed by its numerical value, and your ear will not tell you when you have reached 2,800 hertz. The Radio menu's TX Filter submenu and the filter layer use the same step, so an edge moves the same distance whichever way you adjust it.
 
-You can also open the Audio Workshop (`Ctrl+Shift+W`) for a more visual view of the TX sculpting controls. From the Audio Workshop you can adjust:
+For a more visual view of the TX sculpting controls, open the Audio Workshop with `Ctrl+Shift+W`. From the workshop, you can adjust both edges:
 
-- **Low edge** — the lowest frequency passed by the TX filter (typically 100 to 300 Hz).
-- **High edge** — the highest frequency passed by the TX filter (typically 2700 to 3000 Hz).
+- The low edge is the lowest frequency passed by the TX filter, typically 100 to 300 hertz.
+- The high edge is the highest frequency passed by the TX filter, typically 2700 to 3000 hertz.
 
 ## Hearing Your Current TX Filter Settings
 
-To hear your current TX filter settings, open the Radio menu, then Transmit, then TX Filter, then Read TX Filter. The announcement includes the low edge, the high edge, and the calculated bandwidth between them. You can also press `Ctrl+J`, then `F` to open the filter layer; press `T` to select the TX filter and `S` to hear its settings.
+To hear the current TX filter settings, open the Radio menu, then Transmit, then TX Filter, and select Read TX Filter. The announcement includes the low edge, the high edge, and the calculated bandwidth between them. For example, you might hear: "TX filter 100 to 2900, 2.8 kilohertz."
 
-For example, you might hear: "TX filter 100 to 2900, 2.8 kilohertz."
+You can also press `Ctrl+J`, then `F` to open the filter layer. Press `T` to select the TX filter, then `S` to hear its settings.
 
 ## Typical Settings
 
-- **Standard SSB** — 100 to 2800 Hz (2.7 kHz bandwidth).
-- **Wide ragchew** — 50 to 3050 Hz (3.0 kHz bandwidth).
-- **Narrow / contest** — 200 to 2600 Hz (2.4 kHz bandwidth).
-- **DX pileup** — 300 to 2700 Hz (2.4 kHz, with the low end cut to reduce rumble in crowded pileups).
+- For standard SSB, the range is 100 to 2800 hertz, with a bandwidth of 2.7 kilohertz.
+- For a wide ragchew, the range is 50 to 3050 hertz, with a bandwidth of 3.0 kilohertz.
+- For narrow or contest operation, the range is 200 to 2600 hertz, with a bandwidth of 2.4 kilohertz.
+- For a DX pileup, the range is 300 to 2700 hertz, with a bandwidth of 2.4 kilohertz. The low end is cut to reduce rumble in crowded pileups.
 
-**Tip:** Ask a friend on the air to give you a signal report as you adjust. What sounds good to you through headphones may sound quite different on the air, and an honest on-air listener is the best tool you have for getting your sculpt right.
+As you adjust the filter, ask a friend on the air for a signal report. What sounds good to you through headphones may sound quite different on the air, and an honest on-air listener is the best tool you have for getting your sculpt right.
