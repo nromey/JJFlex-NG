@@ -52,8 +52,8 @@ namespace Radios
         /// The reasons <c>FlexBase.OffAirListenbackRefusalReason</c> gives that
         /// are a fact about the radio or the connection rather than about this
         /// moment. Kept as ONE-SCU-NOT-CONFIRMED on purpose: whether a
-        /// one-receiver radio can make a take is settled on a 6300 over a VPN,
-        /// and until then such a radio is refused as before (13:48).
+        /// one-receiver radio can make a take is still to be settled at the
+        /// bench, and until then such a radio is refused as before (13:48).
         /// </summary>
         public static bool IsLastingOffAirReason(string reason) => reason is
             "no-radio" or "smartlink-iq-unavailable" or "one-scu-not-confirmed" or "no-transverter-port";

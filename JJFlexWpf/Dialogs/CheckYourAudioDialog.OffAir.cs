@@ -31,7 +31,7 @@ namespace JJFlexWpf.Dialogs;
 /// yourself during the take". An off-air take forces its own separate pan, full
 /// duplex and receive antenna inside <c>FlexBase.StartListenbackAsync</c>, so
 /// those three boxes would do nothing here; they live with the diagnostic take,
-/// the one take that reads them (ASK-check-your-audio-ta-offair-options).
+/// the one take that reads them (agreed 2026-10-27).
 /// </para>
 /// </remarks>
 public partial class CheckYourAudioDialog

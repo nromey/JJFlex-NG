@@ -17,9 +17,9 @@ namespace JJFlexWpf.Dialogs;
 /// <remarks>
 /// <para>
 /// <b>Why it is its own window (#835, ruled by Noel 2026-10-27 13:57).</b> It
-/// was the Audio Workshop's Hear Yourself page. Don, on a one-receiver radio
-/// over SmartLink, found it confusing: it talked about off-air takes his radio
-/// cannot do, the Loopback Check was a button rather than a way of listening,
+/// was the Audio Workshop's Hear Yourself page, and it was confusing to use on
+/// a one-receiver radio over SmartLink: it talked about off-air takes that
+/// radio cannot do, the Loopback Check was a button rather than a way of listening,
 /// two slice-recorder buttons repeated the recorder that lives on Home, the
 /// menus and the JJ key, and setup controls, bench tools and take results sat
 /// in one long tab ring. A screen-reader user meets every one of those one Tab

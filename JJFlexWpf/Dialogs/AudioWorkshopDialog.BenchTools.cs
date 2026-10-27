@@ -36,7 +36,7 @@ namespace JJFlexWpf.Dialogs;
 /// <para>
 /// <b>The diagnostic take's options live with it.</b> Separate listening pan,
 /// full duplex and receive antenna are read only by this take; an off-air take
-/// forces all three for itself (see ASK-check-your-audio-ta-offair-options).
+/// forces all three for itself, so they live here (agreed 2026-10-27).
 /// </para>
 /// <para>
 /// <b>Not over SmartLink.</b> These are IQ tools, and SmartLink carries no IQ
