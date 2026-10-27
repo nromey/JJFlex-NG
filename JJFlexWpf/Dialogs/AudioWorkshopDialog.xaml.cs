@@ -196,7 +196,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             _meterTimer.Stop();
             // The Core Audio endpoint and its volume callback must not
             // outlive the dialog that subscribed them.
-            _gain.Release();
+            _gain.Dispose();
             // Nor must the meter-inventory subscription: the inventory lives as
             // long as the rig, so a closed dialog left subscribed is a closed
             // dialog kept alive by the radio.

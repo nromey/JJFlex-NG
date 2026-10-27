@@ -49,6 +49,20 @@ internal sealed class TransmitGainControls
     private readonly Func<string?> _audioDevicesPath;
     private WindowsMicLevel? _pcMicLevel;
 
+    /// <summary>When audioDevices.xml was last written, as of the last bind.</summary>
+    private DateTime _boundFileStamp;
+
+    private DateTime DeviceFileStamp()
+    {
+        try
+        {
+            string? path = _audioDevicesPath();
+            return !string.IsNullOrEmpty(path) && System.IO.File.Exists(path)
+                ? System.IO.File.GetLastWriteTimeUtc(path) : default;
+        }
+        catch (Exception) { return default; }
+    }
+
     /// <summary>The radio's Mic Gain. Collapsed while this computer is the source.</summary>
     public ValueFieldControl MicGain { get; }
 
@@ -76,6 +90,7 @@ internal sealed class TransmitGainControls
         _rig = rig;
         _polling = polling;
         _audioDevicesPath = audioDevicesPath;
+        lock (Live) Live.Add(this);
 
         MicGain = new ValueFieldControl();
         MicGain.Setup("Mic Gain", 0, 100, 1);
@@ -144,7 +159,14 @@ internal sealed class TransmitGainControls
         MicGain.Value = rig.MicGain;
 
         bool pcSource = string.Equals(rig.MicSource, "PC", StringComparison.OrdinalIgnoreCase);
-        if (pcSource == PcSourceActive) return false;
+        if (pcSource == PcSourceActive)
+        {
+            // The microphone can also be changed where neither window hears
+            // about it (Audio Devices from the Audio menu). The saved choice is
+            // a file, so its write time says when to rebind: one stat per poll.
+            if (pcSource && DeviceFileStamp() != _boundFileStamp) BindPcLevel();
+            return false;
+        }
         PcSourceActive = pcSource;
 
         // Where focus stands is asked BEFORE anything hides. WPF pulls keyboard
@@ -181,7 +203,49 @@ internal sealed class TransmitGainControls
     /// </summary>
     public void DeviceSelectionMayHaveChanged()
     {
+        DeviceChangesSeen++;
         if (PcSourceActive) BindPcLevel();
+    }
+
+    /// <summary>How many device-change notices this binding has had. For the test that proves a notice reaches every live binding.</summary>
+    internal int DeviceChangesSeen { get; private set; }
+
+    /// <summary>
+    /// Every live binding, so a microphone change reaches all of them (fix
+    /// round 1). The two windows share this implementation but each holds its
+    /// own endpoint binding, and until this a change made in the Workshop told
+    /// only the Workshop's, leaving Check your audio's level moving the
+    /// previous microphone.
+    /// </summary>
+    private static readonly System.Collections.Generic.List<TransmitGainControls> Live = new();
+
+    /// <summary>
+    /// The microphone chosen on this computer may have changed: tell every
+    /// live binding. <paramref name="origin"/>, the binding in the window where
+    /// the change was made, is told first and at once; the others on their own
+    /// dispatchers.
+    /// </summary>
+    internal static void MicrophoneChoiceMayHaveChanged(TransmitGainControls? origin)
+    {
+        TransmitGainControls[] all;
+        lock (Live) all = Live.ToArray();
+        origin?.DeviceSelectionMayHaveChanged();
+        foreach (var binding in all)
+        {
+            if (ReferenceEquals(binding, origin)) continue;
+            if (binding._dispatcher.CheckAccess()) binding.DeviceSelectionMayHaveChanged();
+            else binding._dispatcher.BeginInvoke(new Action(binding.DeviceSelectionMayHaveChanged));
+        }
+    }
+
+    /// <summary>
+    /// The window is closing: let go of the endpoint and stop hearing about
+    /// microphone changes. Both hosts call this from their Closed handler.
+    /// </summary>
+    public void Dispose()
+    {
+        lock (Live) Live.Remove(this);
+        Release();
     }
 
     /// <summary>
@@ -191,6 +255,7 @@ internal sealed class TransmitGainControls
     private void BindPcLevel()
     {
         Release();
+        _boundFileStamp = DeviceFileStamp();
 
         string? name = null;
         int savedHostApiTypeId = -1;

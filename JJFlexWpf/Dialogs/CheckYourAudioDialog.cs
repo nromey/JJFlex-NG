@@ -144,7 +144,7 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             // sounding, and keep calling back into a button that is gone.
             DetachTakePlayback();
             _pollTimer.Stop();
-            _gain.Release();
+            _gain.Dispose();
             // Guarded: only THIS window clears the pointer (the Workshop learned
             // this the hard way with a second instance from Settings).
             if (ReferenceEquals(_instance, this)) _instance = null;

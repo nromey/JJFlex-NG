@@ -163,7 +163,7 @@ namespace Radios.Tests
             Assert.True(closed >= 0);
             string handler = shell.Substring(closed, shell.IndexOf("};", closed, StringComparison.Ordinal) - closed);
             foreach (string step in new[] { "CancelCheckStart();", "_session?.ForceEnd(", "DisarmTone(speak: false);",
-                                            "DisarmReference(speak: false);", "DetachTakePlayback();", "_gain.Release();",
+                                            "DisarmReference(speak: false);", "DetachTakePlayback();", "_gain.Dispose();",
                                             "if (ReferenceEquals(_instance, this)) _instance = null;" })
                 Assert.Contains(step, handler);
         }
@@ -292,6 +292,17 @@ namespace Radios.Tests
                 .Where(f => File.ReadAllText(f).Contains("private void BindPcLevel()"))
                 .Select(Path.GetFileName).ToList();
             Assert.Equal(new[] { "TransmitGainControls.cs" }, binders);
+
+            // One implementation is not one binding (fix round 1): a microphone
+            // changed in the Workshop tells every live binding, and a change
+            // made where neither window hears (Audio Devices from the Audio
+            // menu) is caught by the saved choice's write time on the poll.
+            // JJFlexWpf.Tests.TransmitGainBindingTests runs the first.
+            Assert.Contains("TransmitGainControls.MicrophoneChoiceMayHaveChanged(_gain);", Dialog("AudioWorkshopDialog.TxAudio"));
+            string gain = Dialog("TransmitGainControls");
+            Assert.Contains("if (pcSource && DeviceFileStamp() != _boundFileStamp) BindPcLevel();",
+                Body(gain, "public bool Poll(FlexBase rig, Action? fallbackFocus)"));
+            Assert.Contains("_boundFileStamp = DeviceFileStamp();", Body(gain, "private void BindPcLevel()"));
         }
     }
 }

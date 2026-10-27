@@ -539,7 +539,9 @@ public partial class AudioWorkshopDialog
         // microphone is chosen — and if the Windows input level is standing
         // in for Mic Gain right now, it must follow the choice rather than
         // keep moving the previous device's level.
-        _gain.DeviceSelectionMayHaveChanged();
+        // Every live binding, not only this window's: Check your audio has its
+        // own (fix round 1).
+        TransmitGainControls.MicrophoneChoiceMayHaveChanged(_gain);
     }
 
 
