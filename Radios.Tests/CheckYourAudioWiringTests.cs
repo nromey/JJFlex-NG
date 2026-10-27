@@ -156,7 +156,7 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Closing_by_any_route_stops_the_check_and_puts_everything_back()
+        public void Closing_this_window_stops_the_check_and_puts_everything_back()
         {
             string shell = Dialog("CheckYourAudioDialog");
             int closed = shell.IndexOf("Closed += (s, e) =>", StringComparison.Ordinal);

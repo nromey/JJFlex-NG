@@ -38,8 +38,10 @@ namespace JJFlexWpf.Dialogs;
 /// </para>
 /// <para>
 /// <b>Escape never leaves you transmitting.</b> While a check transmits, the
-/// first Escape unkeys and stays; the second closes. Closing by any route stops
-/// a running check and puts back whatever it changed.
+/// first Escape unkeys and stays; the second closes. Closing THIS window, by
+/// any route, stops a running check and puts back whatever it changed, and so
+/// does the radio going away. Closing the Audio Workshop does not: this is an
+/// independent window, and a check running here is not the Workshop's.
 /// </para>
 /// <para>
 /// The hooks it needs from the shell (the PTT controller, the app's audio
