@@ -1300,5 +1300,7 @@
   "audio.diagnostics.bench_idle": {"text": "Ready for a receive-only diagnostic take.", "delivery": null},
   "audio.diagnostics.bench_smartlink": {"text": "The bench tools are not offered over SmartLink, because they use IQ and SmartLink does not carry it. Connect locally or over a VPN to use them.", "delivery": null},
   "audio.check.escape_radio_still_transmitting": {"text": "The radio is still transmitting after this app let go. A hardware P T T line or VOX may be holding it; release it, or check the radio.", "delivery": null},
-  "audio.check.teardown_unconfirmed": {"text": "The audio check could not confirm it put the radio back before disconnecting. When you reconnect, check transmit power, the monitor and full duplex.", "delivery": null}
+  "audio.check.teardown_unconfirmed": {"text": "The audio check could not confirm it put the radio back before disconnecting. When you reconnect, check transmit power, the transmit antenna, transverter drive, the monitor, full duplex and your slices.", "delivery": null},
+  "audio.check.teardown_withheld": {"text": "The radio was still transmitting, so the audio check held back your power and antenna settings rather than put them back while it transmitted. When you reconnect, check transmit power, the transmit antenna, transverter drive, the monitor, full duplex and your slices.", "delivery": null},
+  "audio.check.teardown_refuses": {"text": "Disconnecting from the radio. Nothing can start or transmit until that has finished.", "delivery": null}
 }

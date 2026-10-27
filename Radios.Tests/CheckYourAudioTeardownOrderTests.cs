@@ -7,23 +7,19 @@ using Xunit;
 namespace Radios.Tests
 {
     /// <summary>
-    /// The check is put back, in order and to completion, before the shell
-    /// tears the radio down (#835, fix round 2, Codex blocker 2).
+    /// The teardown before a disconnect waits, bounded, for the radio's restore
+    /// owner and then the command queue, and never calls a failure a completion
+    /// (#835, fix rounds 2 and 3).
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>The defect.</b> <c>EndCheckBeforeTeardown</c> ran only to the first
-    /// await: <c>OnSessionEnded</c> was <c>async void</c>, the Loopback
-    /// teardown and an off-air take's restore were discarded tasks, and the
-    /// disconnect then stopped the command loop with no final drain, so queued
-    /// unkey and restore writes could be lost. The first fix round had moved
-    /// the call earlier; earlier is not finished.
-    /// </para>
-    /// <para>
-    /// <b>What these run:</b> the real <see cref="AudioCheckTeardown"/> order
-    /// with fake stages, the real drain on an unconnected radio, and pins that
-    /// the window waits on them. <b>What they cannot see:</b> a real radio
-    /// applying the writes, which is the bench step.
+    /// Round 2 waited on the window's session and a guess at whether there was
+    /// work, so a check that had already ended, or whose window had closed, was
+    /// not waited for at all. Round 3 waits on the radio's
+    /// <see cref="CheckRestorations"/>, which holds every change regardless.
+    /// These run the real <see cref="AudioCheckTeardown"/> with fake stages and
+    /// pin the window and the shell to it; the owner's own behaviour is
+    /// <c>CheckRestorationTests</c>.
     /// </para>
     /// </remarks>
     public sealed class CheckYourAudioTeardownOrderTests
@@ -31,43 +27,71 @@ namespace Radios.Tests
         private static readonly TimeSpan Bound = TimeSpan.FromSeconds(2);
 
         [Fact]
-        public async Task Every_stage_runs_in_order_and_the_drain_comes_last()
+        public async Task The_restores_come_first_and_the_drain_last()
         {
             var order = new System.Collections.Generic.List<string>();
-            int transmitting = 3;
-            bool pending = true;
-            var ending = new TaskCompletionSource();
+            var restored = new TaskCompletionSource<bool>();
             var run = AudioCheckTeardown.RunAsync(
-                transmitting: () => { if (transmitting-- > 0) return true; order.Add("receiving"); return false; },
-                sessionEnding: () => { order.Add("ending-asked"); return ending.Task; },
-                restorePending: () => { if (pending) { order.Add("restore-waited"); pending = false; return true; } return false; },
+                settled: () => { order.Add("settle-asked"); return restored.Task; },
+                withheld: () => false,
                 drain: _ => { order.Add("drain"); return Task.FromResult(true); },
                 bound: Bound);
             await Task.Delay(150);
-            Assert.DoesNotContain("drain", order);          // waits for the session's own ending
-            ending.SetResult();
+            Assert.DoesNotContain("drain", order);
+            restored.SetResult(true);
             var result = await run;
             Assert.True(result.Completed);
-            Assert.Equal(new[] { "receiving", "ending-asked", "restore-waited", "drain" }, order);
+            Assert.Equal(new[] { "settle-asked", "drain" }, order);
         }
 
-        [Theory]
-        [InlineData("still-transmitting")]
-        [InlineData("session-ending")]
-        [InlineData("restore")]
-        [InlineData("queue")]
-        public async Task A_stage_that_cannot_finish_is_named_and_the_close_is_not_held(string stuck)
+        [Fact]
+        public async Task Restores_withheld_by_a_transmitting_radio_are_named_as_withheld_not_restored()
+        {
+            var result = await AudioCheckTeardown.RunAsync(
+                settled: () => new TaskCompletionSource<bool>().Task,
+                withheld: () => true,
+                drain: _ => Task.FromResult(true),
+                bound: TimeSpan.FromMilliseconds(200));
+            Assert.False(result.Completed);
+            Assert.Equal("still-transmitting", result.Stage);
+        }
+
+        [Fact]
+        public async Task A_restore_still_running_at_the_bound_is_named_and_the_close_is_not_held()
         {
             var started = DateTime.UtcNow;
             var result = await AudioCheckTeardown.RunAsync(
-                transmitting: () => stuck == "still-transmitting",
-                sessionEnding: () => stuck == "session-ending" ? new TaskCompletionSource().Task : Task.CompletedTask,
-                restorePending: () => stuck == "restore",
-                drain: _ => Task.FromResult(stuck != "queue"),
+                settled: () => new TaskCompletionSource<bool>().Task,
+                withheld: () => false,
+                drain: _ => Task.FromResult(true),
                 bound: TimeSpan.FromMilliseconds(300));
-            Assert.False(result.Completed);
-            Assert.Equal(stuck, result.Stage);
-            Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(3), "the bound held");
+            Assert.Equal(new AudioCheckTeardownResult(false, "restore"), result);
+            Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(3));
+        }
+
+        [Fact]
+        public async Task A_faulted_or_cancelled_or_failed_restore_is_unconfirmed_never_completed()
+        {
+            // Codex round 3, follow-up 5: an ending that faulted was waited on
+            // and then reported Completed.
+            var faulted = Task.FromException<bool>(new InvalidOperationException("boom"));
+            var cancelled = Task.FromCanceled<bool>(new System.Threading.CancellationToken(true));
+            foreach (var settle in new[] { faulted, cancelled, Task.FromResult(false) })
+            {
+                var result = await AudioCheckTeardown.RunAsync(() => settle, () => false, _ => Task.FromResult(true), Bound);
+                Assert.Equal(new AudioCheckTeardownResult(false, "faulted"), result);
+            }
+            var threw = await AudioCheckTeardown.RunAsync(() => throw new InvalidOperationException(), () => false,
+                _ => Task.FromResult(true), Bound);
+            Assert.Equal("faulted", threw.Stage);
+        }
+
+        [Fact]
+        public async Task A_queue_that_does_not_drain_is_unconfirmed()
+        {
+            var result = await AudioCheckTeardown.RunAsync(() => Task.FromResult(true), () => false,
+                _ => Task.FromResult(false), Bound);
+            Assert.Equal(new AudioCheckTeardownResult(false, "queue"), result);
         }
 
         [Fact]
@@ -95,23 +119,38 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_window_keeps_the_sessions_ending_and_waits_on_it_before_the_rig_goes()
+        public void The_window_shuts_admission_first_and_waits_on_the_radios_owner_not_its_session()
+        {
+            string shell = Read("JJFlexWpf/Dialogs/CheckYourAudioDialog.cs");
+            string teardown = Body(shell, "public static void EndCheckBeforeTeardown(FlexBase? rig)");
+            int shut = teardown.IndexOf("rig.BeginCheckTeardown();", StringComparison.Ordinal);
+            int end = teardown.IndexOf("ForceEnd(", StringComparison.Ordinal);
+            int settle = teardown.IndexOf("rig.SettleChecksForTeardownAsync(TeardownBound)", StringComparison.Ordinal);
+            int pump = teardown.IndexOf("Dispatcher.PushFrame(", StringComparison.Ordinal);
+            int open = teardown.IndexOf("rig.EndCheckTeardown();", StringComparison.Ordinal);
+            Assert.True(shut >= 0 && end > shut && settle > end && pump > settle && open > pump,
+                "admission shut, then the check ended, then the owner settled, then the wait, then admission reopened");
+            // No guess at whether there is work, and no wait on the window's session.
+            Assert.DoesNotContain("hadWork", teardown);
+            Assert.DoesNotContain("_sessionEnding", teardown);
+            Assert.Contains("audio.check.teardown_withheld", teardown);
+            Assert.Contains("audio.check.teardown_unconfirmed", teardown);
+            // It runs whether or not the window is still open.
+            Assert.DoesNotContain("if (inst == null) return;", teardown);
+            Assert.Contains("Dialogs.CheckYourAudioDialog.EndCheckBeforeTeardown(RigControl);", Read("JJFlexWpf/MainWindow.xaml.cs"));
+        }
+
+        [Fact]
+        public void A_new_check_and_app_keying_are_refused_while_a_teardown_holds_admission()
         {
             string check = Read("JJFlexWpf/Dialogs/CheckYourAudioDialog.Check.cs");
-            Assert.DoesNotContain("private async void OnSessionEnded()", check);
-            Assert.Contains("private async Task OnSessionEndedAsync()", check);
-            Assert.Contains("_owner._sessionEnding = _owner.OnSessionEndedAsync();", Body(check, "private void End(string? reason)"));
-            string ended = Body(check, "private async Task OnSessionEndedAsync()");
-            Assert.Contains("await FinishIqAsync(", ended);
-            Assert.DoesNotContain("_ = FinishIqAsync(", ended);
-
-            string shell = Read("JJFlexWpf/Dialogs/CheckYourAudioDialog.cs");
-            string teardown = Body(shell, "public static void EndCheckBeforeTeardown()");
-            Assert.Contains("AudioCheckTeardown.RunAsync(", teardown);
-            Assert.Contains("DrainCommandQueueAsync", teardown);
-            Assert.Contains("Dispatcher.PushFrame(", teardown);
-            // A timeout or a failure is traced and said, not swallowed.
-            Assert.Contains("audio.check.teardown_unconfirmed", teardown);
+            string toggle = Body(check, "public void ToggleAudioCheck()");
+            int refuse = toggle.IndexOf("if (RefusedForTeardown(_rig)) return;", StringComparison.Ordinal);
+            Assert.True(refuse >= 0 && refuse < toggle.IndexOf("StartOffAirAsync", StringComparison.Ordinal));
+            Assert.Contains("|| rig.TeardownInProgress", Body(check, "public async Task<bool> StartAsync(AudioCheckStartGate.Lease start)"));
+            string ptt = Read("JJFlexWpf/PttSafetyController.cs");
+            Assert.Contains("if (State == PttState.Idle && RefusedForTeardown()) return;", Body(ptt, "public void PttDown()"));
+            Assert.Contains("if (State == PttState.Idle && RefusedForTeardown()) return;", Body(ptt, "public void ToggleLock()"));
         }
 
         [Fact]
@@ -120,6 +159,8 @@ namespace Radios.Tests
             string offAir = Read("JJFlexWpf/Dialogs/CheckYourAudioDialog.OffAir.cs");
             string finish = Body(offAir, "private async Task FinishIqAsync(string reason)");
             Assert.Contains("if (_iqClosing || _tearingDown) { AnnounceClosedRecovery(run.Restored); return; }", finish);
+            // And the take is the owner's too, so a closed window's take is still stopped and waited for.
+            Assert.Contains("rig.CheckRestorations.Register(\"off-air take\"", offAir);
         }
     }
 }

@@ -3863,7 +3863,7 @@ public partial class MainWindow : UserControl
         // Then any check in Check your audio (#835), for the same reason: its
         // restoration (power, dummy load, monitor, the Loopback arrangement)
         // has to reach the radio before CloseTheRadio disposes it.
-        Dialogs.CheckYourAudioDialog.EndCheckBeforeTeardown();
+        Dialogs.CheckYourAudioDialog.EndCheckBeforeTeardown(RigControl);
 
         PollTimerEnabled = false;
         _radioPowerOn = false;

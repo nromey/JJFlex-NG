@@ -563,6 +563,8 @@ public partial class CheckYourAudioDialog
             ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical);
             return;
         }
+        // A teardown has shut admission (fix round 3): nothing starts until it is done.
+        if (RefusedForTeardown(_rig)) return;
 
         var ptt = PttControllerSource?.Invoke();
         if (ptt == null)
@@ -648,14 +650,11 @@ public partial class CheckYourAudioDialog
     /// arrangement is up, tear it down and say so. Runs on every exit path
     /// because every exit path funnels through the session's End.
     /// </summary>
-    /// <summary>
-    /// The work a session's ending started (the Loopback teardown, the off-air
-    /// finish), kept so a teardown before a disconnect can wait for it (fix
-    /// round 2). It was an <c>async void</c> until then, which nothing could
-    /// wait on.
-    /// </summary>
-    private Task _sessionEnding = Task.CompletedTask;
-
+    /// <remarks>
+    /// A teardown does not wait on this task (fix round 3): what the ending puts
+    /// back, the Loopback arrangement included, is registered with the radio's
+    /// own restore owner, and the teardown waits on that.
+    /// </remarks>
     private async Task OnSessionEndedAsync()
     {
         CancelCheckStart();
@@ -994,11 +993,12 @@ public partial class CheckYourAudioDialog
         private Task<RecorderOutcome>? _playStart;
 
         // State the session changed and must restore.
-        private int _savedPower;
-        private bool _powerTouched;
-        private bool _monitorTouched; // we only ever turn monitor ON; restore = off
-        private bool _dummyEngaged;   // WE turned dummy load on; disable restores power
-        private int _dummySavedPower; // pre-engage watts, for the spoken restore line
+        // What this check changed, each registered with the radio's own
+        // restore owner (FlexBase.CheckRestorations, fix round 3) and held
+        // there until the check releases it at unkey. The owner, not this
+        // session, carries out the restores, so they survive the session and
+        // the window, and it runs each only while the radio reports receive.
+        private readonly List<CheckRestorations.Entry> _restores = new();
 
         public bool Active { get; private set; }
         public bool IsLoopback => _loopback;
@@ -1103,28 +1103,31 @@ public partial class CheckYourAudioDialog
                 {
                     if (!rig.DummyLoadMode)
                     {
-                        _dummySavedPower = currentPower;
                         rig.DummyLoadMode = true;
-                        _dummyEngaged = true;
+                        // Releasing the dummy load restores transmit AND tune power.
+                        Remember(rig, "audio check: dummy load", () => { if (rig.DummyLoadMode) rig.DummyLoadMode = false; });
                     }
                 }
                 else if (!rig.DummyLoadMode && currentPower > _lowPowerWatts)
                 {
                     // Low power is a CAP: it only ever lowers power, never
                     // raises it — and it cannot override an active dummy load.
-                    _savedPower = currentPower;
-                    _powerTouched = true;
+                    int saved = currentPower;
                     // The cap is the check's own mechanical act, not an
                     // operator settings change (#225). Same for the restores.
                     using (rig.AppInitiatedSettingChanges())
                         rig.XmitPower = _lowPowerWatts;
+                    Remember(rig, "audio check: power", () =>
+                    {
+                        using (rig.AppInitiatedSettingChanges()) rig.XmitPower = saved;
+                    });
                 }
 
                 if (_method == AudioCheckListenMethods.Monitor &&
                     rig.Monitor != FlexBase.OffOnValues.on)
                 {
-                    _monitorTouched = true;
                     rig.Monitor = FlexBase.OffOnValues.on;
+                    Remember(rig, "audio check: monitor", () => rig.Monitor = FlexBase.OffOnValues.off);
                 }
             }
 
@@ -1137,7 +1140,8 @@ public partial class CheckYourAudioDialog
             _ptt.PlannedStopSeconds = Records ? FlexBase.SliceRecordBufferSeconds : null;
             bool admitted = start.TryRun(() =>
             {
-                if (_owner._iqClosing || !ReferenceEquals(rig, Rig) || _ptt.IsTransmitting || rig.Transmit)
+                if (_owner._iqClosing || !ReferenceEquals(rig, Rig) || _ptt.IsTransmitting || rig.Transmit
+                    || rig.TeardownInProgress)
                     return false;
                 _ptt.ToggleLock();
                 return true;
@@ -1147,7 +1151,7 @@ public partial class CheckYourAudioDialog
                 _ptt.AudioCheckNarration = false;
                 _ptt.PlannedStopSeconds = null;
                 if (_method == AudioCheckListenMethods.OffAir) _owner._iqRun?.OwnKeying(false);
-                RestoreChangedState(rig, speak: false);
+                RestoreWhenReceiving(rig);
                 if (Records && !recorderAlreadyRunning)
                     await RecorderControls.ReportStopFailureAsync(rig.StopSliceRecordAsync(_recorderTarget));
                 return false;
@@ -1159,7 +1163,7 @@ public partial class CheckYourAudioDialog
                 // Refused (license lockout spoke its own warning, or no
                 // power). Roll back everything we touched.
                 _ptt.SessionTimeoutOverrideSeconds = null;
-                RestoreChangedState(rig, speak: false);
+                RestoreWhenReceiving(rig);
                 if (Records && !recorderAlreadyRunning)
                     await RecorderControls.ReportStopFailureAsync(rig.StopSliceRecordAsync(_recorderTarget));
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.check.could_not_start"),
@@ -1260,7 +1264,7 @@ public partial class CheckYourAudioDialog
             _ptt.PlannedStopSeconds = null;
             if (!string.IsNullOrEmpty(reason))
                 ScreenReaderOutput.Speak(reason, VerbosityLevel.Terse);
-            _owner._sessionEnding = _owner.OnSessionEndedAsync();
+            _ = _owner.OnSessionEndedAsync();
         }
 
         /// <summary>
@@ -1510,64 +1514,25 @@ public partial class CheckYourAudioDialog
             }
         }
 
+        /// <summary>Register a change this check made, held until the check releases it.</summary>
+        private void Remember(FlexBase rig, string name, Action restore) =>
+            _restores.Add(rig.CheckRestorations.Register(name, restore, held: true));
+
         /// <summary>
-        /// Put back what the check changed, but only once the radio reports it
-        /// is receiving (fix round 2): restoring the operator's power while a
-        /// hardware PTT line holds the radio keyed would transmit it. If the
-        /// radio is still transmitting, the restore waits for its own report of
-        /// receive, which can come after the check, or even the window, has
-        /// ended. Restoring twice is harmless: each part clears its own flag.
+        /// Hand this check's changes to the radio's owner to put back (fix
+        /// rounds 2 and 3). The owner runs each only while the radio reports
+        /// receive, asking again before each write, and retries on the receive
+        /// report and a slow poll; so a hardware PTT line still holding the
+        /// radio keyed never gets the operator's power back while it is held.
+        /// Safe to call more than once.
         /// </summary>
         private void RestoreWhenReceiving(FlexBase rig)
         {
-            if (!_dummyEngaged && !_powerTouched && !_monitorTouched) return;
-            FlexBase.TransmitChangeDel? waiter = null;
-            waiter = (_, transmitting) =>
-            {
-                if (transmitting) return;
-                rig.TransmitChange -= waiter;
-                _owner.Dispatcher.BeginInvoke(new Action(() => RestoreChangedState(rig, speak: false)));
-            };
-            // Subscribe BEFORE asking, so a receive report that lands between
-            // the two cannot be missed.
-            rig.TransmitChange += waiter;
-            if (rig.Transmit) return;
-            rig.TransmitChange -= waiter;
-            RestoreChangedState(rig, speak: false);
+            foreach (var entry in _restores) rig.CheckRestorations.Release(entry);
         }
 
         /// <summary>True while something this check changed has not been put back yet.</summary>
-        internal bool RestorePending => _dummyEngaged || _powerTouched || _monitorTouched;
-
-        private void RestoreChangedState(FlexBase rig, bool speak)
-        {
-            if (_dummyEngaged)
-            {
-                rig.DummyLoadMode = false;
-                _dummyEngaged = false;
-                if (speak)
-                    ScreenReaderOutput.Speak(
-                        Lexicon.Get("audio.check.dummy_load_released", ("watts", _dummySavedPower)),
-                        VerbosityLevel.Terse);
-            }
-            if (_powerTouched)
-            {
-                using (rig.AppInitiatedSettingChanges())
-                    rig.XmitPower = _savedPower;
-                _powerTouched = false;
-                if (speak)
-                    ScreenReaderOutput.Speak(
-                        Lexicon.Get("audio.check.power_restored", ("watts", _savedPower)),
-                        VerbosityLevel.Terse);
-            }
-            if (_monitorTouched)
-            {
-                rig.Monitor = FlexBase.OffOnValues.off;
-                _monitorTouched = false;
-                if (speak)
-                    ScreenReaderOutput.Speak(Lexicon.Get("audio.check.monitor_restored_off"), VerbosityLevel.Terse);
-            }
-        }
+        internal bool RestorePending => _restores.Exists(e => !e.Finished);
     }
 
     #endregion

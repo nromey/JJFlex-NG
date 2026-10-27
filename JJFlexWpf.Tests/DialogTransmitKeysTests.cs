@@ -259,6 +259,34 @@ public sealed class DialogTransmitKeysTests : IDisposable
     }
 
     [Fact]
+    public void Ctrl_space_in_a_dialog_keys_nothing_while_a_teardown_holds_admission()
+    {
+        // #835, fix round 3 (Codex round-3 blocker 1). A disconnect waits for an
+        // Audio Check's restores with the dispatcher pumping; until this round
+        // Ctrl+Space in a dialog could key the still-powered controller during
+        // that wait, behind the teardown's own queue barrier.
+        AssertTheDeskIsSafe(); WireDoor();
+        var w = new FakeWindow();
+        _rig.BeginCheckTeardown();
+        try
+        {
+            Down(w, Keys.Space | Keys.Control);
+            Assert.Equal(Idle, _controller.State);
+            Thread.Sleep(PttHoldFilter.ImplausibleReleaseMs + 20);
+            DialogTransmitKeys.KeyUp(Keys.Space | Keys.Control);
+            Assert.Equal(Idle, _controller.State);
+        }
+        finally { _rig.EndCheckTeardown(); }
+
+        // Positive control: the same press keys once the teardown is done.
+        Assert.True(Down(w, Keys.Space | Keys.Control));
+        Assert.Equal(Hold, _controller.State);
+        Thread.Sleep(PttHoldFilter.ImplausibleReleaseMs + 20);
+        Assert.True(DialogTransmitKeys.KeyUp(Keys.Space | Keys.Control));
+        Assert.Equal(Idle, _controller.State);
+    }
+
+    [Fact]
     public void Letting_go_of_ctrl_before_space_still_unkeys()
     {
         AssertTheDeskIsSafe(); WireDoor();

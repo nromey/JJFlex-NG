@@ -15,6 +15,8 @@ public class Host
     private Control _iqRate, _iqHearSelfDuringTake, _takeStatus;
     private Watcher _iqWatch = new();
     private void IqFailure(Exception ex) { }
+    private void TrackOffAirRun(FlexBase rig, FakeRun run) { }
+    private void ReleaseOffAirRun(FlexBase rig) { }
     /*StartOffAirAsync*/
     private FlexBase _rig = new();
     private string _lastAudioCheckSource;
@@ -88,6 +90,8 @@ public class Host
             AudioCheckPowerModes powerMode, int lowPowerWatts, bool loopback = false)
         { _owner=owner; _ptt=ptt; _method=method; _powerMode=powerMode; _lowPowerWatts=lowPowerWatts; _loopback=loopback; }
         private void RestoreChangedState(FlexBase rig, bool speak) { }
+        private void RestoreWhenReceiving(FlexBase rig) { }
+        private void Remember(FlexBase rig, string name, Action restore) { }
         private static string FormatMHz(double f) => f.ToString();
         private static string SourceFriendlyName(string s) => s;
         private void HandleUnkey(bool external) { _ptt.EscapeUnlock(); Active=false; _owner.OnSessionEnded(); }
@@ -106,7 +110,7 @@ public class FlexBase
     public string OffAirListenbackRefusalReason => "";
     public object CaptureListenbackRecoveryReader() => null;
     public Task<FakeRun> StartListenbackAsync(ListenbackOptions options, CancellationToken token) => OffAir.Task;
-    public bool LoopbackArranged, Transmit, DummyLoadMode, RemoteRig, LoopbackDriveManaged;
+    public bool LoopbackArranged, Transmit, DummyLoadMode, RemoteRig, LoopbackDriveManaged, TeardownInProgress;
     private int _power=20;
     public Action PowerChanged;
     public int XmitPower { get => _power; set { _power=value; PowerChanged?.Invoke(); } }

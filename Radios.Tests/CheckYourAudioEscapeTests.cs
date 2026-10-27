@@ -116,10 +116,13 @@ namespace Radios.Tests
             Assert.DoesNotContain("XmitPower = _savedPower", unkey);
             Assert.Contains("RestoreWhenReceiving(rig);", unkey);
             Assert.Contains("RestoreWhenReceiving(_changedRig);", Body(check, "public void ForceEnd(string? reason)"));
+            // Fix round 3: the session no longer restores anything itself. It
+            // hands its changes to the radio's owner, which asks the radio
+            // before EACH write; CheckRestorationTests runs that behaviour.
             string when = Body(check, "private void RestoreWhenReceiving(FlexBase rig)");
-            int subscribe = when.IndexOf("rig.TransmitChange +=", StringComparison.Ordinal);
-            int ask = when.IndexOf("rig.Transmit", subscribe + 1, StringComparison.Ordinal);
-            Assert.True(subscribe >= 0 && ask > subscribe, "subscribe to the radio's report before asking it, so a receive that lands in between is not missed");
+            Assert.Contains("rig.CheckRestorations.Release(entry)", when);
+            Assert.DoesNotContain("XmitPower", when);
+            Assert.DoesNotContain("DummyLoadMode", when);
         }
 
         [Fact]

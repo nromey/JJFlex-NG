@@ -193,6 +193,24 @@ public partial class CheckYourAudioDialog
 
     private bool StillWantsPlayback(FlexBase? rig) => !_iqClosing && ReferenceEquals(rig, _rig);
 
+    /// <summary>
+    /// The off-air take restores its own snapshot when it stops. Registered with
+    /// the radio's restore owner, held, so a teardown still stops it (and waits
+    /// for the restore) after this window has closed (fix round 3). The stop is
+    /// idempotent, so FinishIqAsync's own stop and this one share one run.
+    /// </summary>
+    private void TrackOffAirRun(FlexBase rig, ListenbackRun run) =>
+        _iqRunRestore = rig.CheckRestorations.Register("off-air take", () => run.StopAsync("connection-ending"), held: true);
+
+    /// <summary>The take's entry in the radio's restore owner; released once this window has stopped the take itself.</summary>
+    private CheckRestorations.Entry? _iqRunRestore;
+
+    private void ReleaseOffAirRun(FlexBase rig)
+    {
+        rig.CheckRestorations.Release(_iqRunRestore);
+        _iqRunRestore = null;
+    }
+
     private async Task FinishIqAsync(string reason)
     {
         ScreenReaderOutput.Supersede("audio.iq.preparing", "take finished");
@@ -208,6 +226,9 @@ public partial class CheckYourAudioDialog
         try
         {
             await run.StopAsync(reason);
+            // Stopped here; the owner's own stop of the same run now just joins it.
+            runRig?.CheckRestorations.Release(_iqRunRestore);
+            _iqRunRestore = null;
             if (!ReferenceEquals(runRig, _rig)) return;
             // A take ending because the radio is about to go restores and
             // says so; it does not render and play (fix round 2).
@@ -281,6 +302,7 @@ public partial class CheckYourAudioDialog
             _iqRun = await rig.StartListenbackAsync(new ListenbackOptions(Rate: rate, OffAir: true,
                 HearSelfDuringOffAir: _iqHearSelfDuringTake?.IsChecked == true), _iqCancellation.Token);
             _iqRunRig = rig;
+            TrackOffAirRun(rig, _iqRun);
             if (!start.IsCurrent || _iqClosing || _iqCancellation.IsCancellationRequested || !ReferenceEquals(rig, _rig) || ptt.IsTransmitting || rig.Transmit)
                 throw new OperationCanceledException();
             var session = new AudioCheckSession(this, rig, ptt, AudioCheckListenMethods.OffAir,
@@ -297,6 +319,7 @@ public partial class CheckYourAudioDialog
         {
             try { if (_iqRun != null) await _iqRun.StopAsync("start-failed"); }
             catch (Exception cleanup) { JJTrace.Tracing.TraceLine("Listenback cleanup: " + cleanup, System.Diagnostics.TraceLevel.Error); }
+            ReleaseOffAirRun(rig);
             _iqRun = null; _iqRunRig = null; _iqWasOffAir = false;
             SetStartButtonLabel("Start Audio Check"); if (ReferenceEquals(rig, _rig)) IqFailure(ex);
         }

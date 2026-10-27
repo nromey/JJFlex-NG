@@ -4,67 +4,60 @@ using System.Threading.Tasks;
 namespace Radios
 {
     /// <summary>How an Audio Check's teardown before a disconnect ended.</summary>
-    /// <param name="Completed">Every stage finished inside the bound.</param>
-    /// <param name="Stage">The stage the bound ran out in, or empty: <c>still-transmitting</c>, <c>session-ending</c>, <c>restore</c> or <c>queue</c>.</param>
+    /// <param name="Completed">Every change was put back and the command queue ran past it, inside the bound.</param>
+    /// <param name="Stage">
+    /// Why not, or empty: <c>still-transmitting</c> (restores withheld because
+    /// the radio kept reporting transmit; correct, and not a restore),
+    /// <c>restore</c> (a restore did not finish in time), <c>faulted</c> (a
+    /// restore failed), <c>queue</c> (the command queue did not run past them),
+    /// <c>failed</c> (the teardown itself threw).
+    /// </param>
     public sealed record AudioCheckTeardownResult(bool Completed, string Stage);
 
     /// <summary>
-    /// The order a check is put back in before the shell tears the radio down
-    /// (#835, fix round 2), with one bound over the whole of it.
+    /// The wait a teardown makes before the radio goes (#835, fix rounds 2 and
+    /// 3): every change any check made put back, then the command queue drained
+    /// past them, under one bound.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Why an order, and why waiting.</b> Ending a check starts work that
-    /// finishes later: the radio has to report it is receiving before power may
-    /// come back (a hardware PTT line can still be holding it); the Loopback
-    /// arrangement's teardown and an off-air take's restore wait on the radio's
-    /// replies; and every write rides the command queue, which a disconnect
-    /// stops with no final drain. Calling the teardown and then disposing the
-    /// rig at once let the disconnect outrun all of it.
+    /// Round 2 waited on the window's session and its own guess at whether
+    /// there was work; round 3 waits on the radio's
+    /// <see cref="CheckRestorations"/>, which holds every change whether or not
+    /// its session or window still exists. The receive rule lives there: a
+    /// restore runs only while the radio reports receive.
     /// </para>
     /// <para>
-    /// <b>The stages, in order:</b> the radio receiving; the check's own ending
-    /// (the Loopback teardown, the off-air finish); nothing left to restore;
-    /// and the command queue drained past it all. A stage that cannot finish
-    /// inside the bound is named in the result, and the caller says so rather
-    /// than hanging the close.
+    /// <b>A failure is never a completion.</b> A restore that threw, or a
+    /// completion task that faulted or was cancelled, makes the result
+    /// unconfirmed.
     /// </para>
     /// </remarks>
     public static class AudioCheckTeardown
     {
-        /// <summary>How often a waited-on condition is asked again.</summary>
-        public static readonly TimeSpan Poll = TimeSpan.FromMilliseconds(25);
-
         public static async Task<AudioCheckTeardownResult> RunAsync(
-            Func<bool> transmitting, Func<Task> sessionEnding, Func<bool> restorePending,
+            Func<Task<bool>> settled, Func<bool> withheld,
             Func<TimeSpan, Task<bool>> drain, TimeSpan bound)
         {
             var deadline = DateTime.UtcNow + bound;
             TimeSpan Left() => deadline - DateTime.UtcNow;
 
-            while (transmitting())
-            {
-                if (Left() <= TimeSpan.Zero) return new(false, "still-transmitting");
-                await Task.Delay(Poll);
-            }
-
-            var ending = sessionEnding() ?? Task.CompletedTask;
-            if (!ending.IsCompleted)
+            Task<bool> done;
+            try { done = settled() ?? Task.FromResult(true); }
+            catch (Exception) { return new(false, "faulted"); }
+            if (!done.IsCompleted)
             {
                 var left = Left();
-                if (left <= TimeSpan.Zero || await Task.WhenAny(ending, Task.Delay(left)) != ending)
-                    return new(false, "session-ending");
+                if (left > TimeSpan.Zero) await Task.WhenAny(done, Task.Delay(left)).ConfigureAwait(false);
+                if (!done.IsCompleted) return new(false, withheld() ? "still-transmitting" : "restore");
             }
-
-            while (restorePending())
-            {
-                if (Left() <= TimeSpan.Zero) return new(false, "restore");
-                await Task.Delay(Poll);
-            }
+            if (!done.IsCompletedSuccessfully || !done.Result) return new(false, "faulted");
 
             var remaining = Left();
-            if (remaining <= TimeSpan.Zero || !await drain(remaining)) return new(false, "queue");
-            return new(true, "");
+            bool drained;
+            try { drained = remaining > TimeSpan.Zero && await drain(remaining).ConfigureAwait(false); }
+            catch (Exception) { drained = false; }
+            return drained ? new(true, "") : new(false, "queue");
         }
     }
 }

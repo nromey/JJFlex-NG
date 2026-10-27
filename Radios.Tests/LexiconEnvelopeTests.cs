@@ -1846,6 +1846,10 @@ namespace Radios.Tests
                 // Track A fix round 2: a teardown that could not be confirmed
                 // before the radio went.
                 "audio.check.teardown_unconfirmed",
+                // Track A fix round 3: restores withheld because the radio kept
+                // transmitting, and the refusal while a teardown holds admission.
+                "audio.check.teardown_withheld",
+                "audio.check.teardown_refuses",
             };
 
             Assert.Equal(3140, unclassified);
