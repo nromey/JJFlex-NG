@@ -105,17 +105,11 @@ namespace Radios
     public sealed class KeyedSendOptions
     {
         /// <summary>
-        /// True once the operator has keyed the radio themselves — push to talk
-        /// or the transmit lock. Read on every tick of a box send. Noel,
-        /// 2026-10-27 15:26: <i>"yep ptt takes over"</i>.
-        /// </summary>
-        public Func<bool>? OperatorKeyed { get; init; }
-
-        /// <summary>
         /// Who, if anyone, has taken the transmitter, read on every tick of a
         /// box send: the host's <see cref="BoxSendTakeover.Check"/>.
-        /// <see cref="BoxTakeover.Controller"/> is the same takeover as
-        /// <see cref="OperatorKeyed"/>; <see cref="BoxTakeover.Hardware"/> is a
+        /// <see cref="BoxTakeover.Controller"/> is push to talk or the lock
+        /// (Noel, 2026-10-27 15:26: <i>"yep ptt takes over"</i>): the recording
+        /// stops and the controller owns the unkey. <see cref="BoxTakeover.Hardware"/> is a
         /// hardware PTT line, after which the send also withdraws its own
         /// software key, because the line holds the carrier and nobody else
         /// would ever drop the software one.
@@ -486,13 +480,10 @@ namespace Radios
         /// </summary>
         private void TickBoxed(long nowMs, KeyedSendOptions box)
         {
-            bool operatorKeyed;
-            try { operatorKeyed = box.OperatorKeyed?.Invoke() == true; }
-            catch { operatorKeyed = false; }
             BoxTakeover by;
             try { by = box.TakenBy?.Invoke() ?? BoxTakeover.None; }
             catch { by = BoxTakeover.None; }
-            if (operatorKeyed || by == BoxTakeover.Controller)
+            if (by == BoxTakeover.Controller)
             {
                 Finish(VoiceMessageOutcome.TakenOver);
                 return;

@@ -118,7 +118,7 @@ namespace Radios.Tests
         public void PushToTalkDuringTheSendStopsTheRecordingAndLeavesTheKeyToTheOperator()
         {
             bool operatorKeyed = false;
-            var (rig, send) = Keyed(new KeyedSendOptions { OperatorKeyed = () => operatorKeyed });
+            var (rig, send) = Keyed(new KeyedSendOptions { TakenBy = () => operatorKeyed ? BoxTakeover.Controller : BoxTakeover.None });
 
             operatorKeyed = true;
             send.Tick(2000);
@@ -137,7 +137,7 @@ namespace Radios.Tests
         public void TheOperatorKeyingOnTheLastTickStillTakesOver()
         {
             bool operatorKeyed = false;
-            var (rig, send) = Keyed(new KeyedSendOptions { OperatorKeyed = () => operatorKeyed });
+            var (rig, send) = Keyed(new KeyedSendOptions { TakenBy = () => operatorKeyed ? BoxTakeover.Controller : BoxTakeover.None });
             operatorKeyed = true;
             rig.FileReachedEnd = true;
             send.Tick(8200);
