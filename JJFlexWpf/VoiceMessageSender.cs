@@ -76,6 +76,8 @@ internal static class VoiceMessageSender
         /// <summary>The box's VOX pause, given back when the send has settled.</summary>
         public FlexBase.LocalPlaybackVoxPause? VoxPause;
         public SliceSendRig? Slice;
+        /// <summary>The box send's cut owner (the transmit kill switch's arm), disposed when it settles.</summary>
+        public BoxSendOwnedRig? Owned;
     }
 
     private static SendInfo? _current;
@@ -418,7 +420,11 @@ internal static class VoiceMessageSender
             SourceFailed = info.Slice == null ? null : () => info.Slice.Failed,
             Keyed = () => StartMonitor(info),
         };
-        var send = VoiceMessageSend.BeginKeyed(sendRig, Name(info), Environment.TickCount64, options);
+        // The carrier this send keys is under the reflected-power CUT for its
+        // whole life (fix round 1, Codex's blocker 1): armed on the transmit
+        // kill switch before the key, keyed through it, disarmed in Settle.
+        info.Owned = BoxSendOwnedRig.Own(rig, sendRig, "the box send of " + Name(info));
+        var send = VoiceMessageSend.BeginKeyed(info.Owned, Name(info), Environment.TickCount64, options);
         Launch(rig, info, send, seconds, info.MonitorPath ?? "", "box");
     }
 
@@ -454,11 +460,15 @@ internal static class VoiceMessageSender
         PttSafetyController? ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
         _send = send;
         _current = info;
-        if (_send.WeKeyed && ptt != null)
+        // A box send's carrier is owned by the transmit kill switch, which
+        // warns AND cuts (BoxSendOwnedRig); asking the controller to watch it
+        // too would only say the reflected-power warning twice. An unboxed
+        // keyed voice message keeps the controller's watch as before. NOTE:
+        // that watch WARNS but cannot CUT — the controller judges its cut only
+        // for a transmission it owns, and here it is Idle. That gap is
+        // pre-existing for unboxed voice messages and is not this track's.
+        if (_send.WeKeyed && !_send.Boxed && ptt != null)
         {
-            // The controller's live transmit monitoring runs over this
-            // carrier exactly as it does over a transmit check's. For a box
-            // send that is the protection #804 says a VOX-keyed send lacks.
             ptt.BeginExternalTransmitWatch();
             _watchedBy = ptt;
         }
@@ -552,6 +562,8 @@ internal static class VoiceMessageSender
         // receive and the transmit path has drained, so the recording's tail
         // cannot key it again. A send the operator took over gives it back
         // when THEY unkey, by the same rule.
+        // Disarm the box send's cut owner. The send has already unkeyed.
+        info?.Owned?.Dispose();
         if (info?.VoxPause != null)
         {
             info.VoxPause.Dispose();
