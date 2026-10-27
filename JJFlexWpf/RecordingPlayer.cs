@@ -188,9 +188,32 @@ public static class RecordingPlayer
         PlayWithMixer(path, announcement, liveRig, offAirListeningGain, EarconPlayer.AddRecordingPlayback,
             priorLiveMute);
 
+    /// <summary>
+    /// Play a recording on this computer's speakers while the same recording
+    /// goes to the air, so the operator hears what they are sending (#835;
+    /// Noel, 2026-10-27 15:22: <i>"We need to make sure that when we send out,
+    /// we are able to hear what we're sending."</i>). Silent at both ends: the
+    /// send says what it is sending and how it ended, and a second "playing"
+    /// and "playback finished" from here would be two voices for one press.
+    /// The send stops it with <see cref="StopWithoutSpeaking"/> when it ends,
+    /// so a copy running a little behind the air cannot outlive the send. Over
+    /// SmartLink the radio's transmit monitor arrives late; this copy does not
+    /// depend on it.
+    /// </summary>
+    internal static bool PlayAlongsideSend(string path) =>
+        PlayWithMixer(path, null, null, false, EarconPlayer.AddRecordingPlayback, quiet: true);
+
+    /// <summary>True while the playback running is a send's own copy (<see cref="PlayAlongsideSend"/>).</summary>
+    internal static bool PlayingAlongsideSend
+    {
+        get { lock (Gate) return _provider != null && _quiet; }
+    }
+
+    private static bool _quiet;
+
     internal static bool PlayWithMixer(string path, string? announcement, FlexBase? liveRig,
         bool offAirListeningGain, Func<ISampleProvider, bool> addPlayback, bool? priorLiveMute = null,
-        double startSeconds = 0)
+        double startSeconds = 0, bool quiet = false)
     {
         if (string.IsNullOrEmpty(path))
         {
@@ -273,6 +296,7 @@ public static class RecordingPlayer
             _transport = transport;
             _path = path;
             _name = Path.GetFileNameWithoutExtension(path);
+            _quiet = quiet;
             _liveRig = liveRig;
             _priorLiveMute = priorLiveMute ?? liveRig?.LocalReceiveMutedForTakePlayback ?? false;
             if (liveRig != null) liveRig.LocalReceiveMutedForTakePlayback = true;
@@ -304,8 +328,9 @@ public static class RecordingPlayer
         try
         {
             StateChanged?.Invoke();
-            AnnounceStarted(announcement ?? Lexicon.Get("audio.take.playing",
-                ("name", _name), ("length", RecordingStore.DescribeLength(seconds))), offAirListeningGain);
+            if (!quiet)
+                AnnounceStarted(announcement ?? Lexicon.Get("audio.take.playing",
+                    ("name", _name), ("length", RecordingStore.DescribeLength(seconds))), offAirListeningGain);
             announced.TrySetResult(true);
             return true;
         }
@@ -355,9 +380,12 @@ public static class RecordingPlayer
         bool limited;
         string completedPath;
         TransportSampleProvider? transport;
+        bool quiet;
         lock (Gate)
         {
             if (expected != null && !ReferenceEquals(_provider, expected)) return;
+            quiet = _provider != null && _quiet;
+            _quiet = false;
             reader = _reader;
             provider = _provider;
             limited = _gain?.Limited ?? false;
@@ -387,6 +415,8 @@ public static class RecordingPlayer
         else Retire(provider, reader);
 
         StateChanged?.Invoke();
+        // A send's own copy ends without a word or a tone: the send speaks.
+        if (quiet) return;
         if (confirmTone) EarconPlayer.ConfirmTone();
         if (!string.IsNullOrEmpty(spokenReason))
             ScreenReaderOutput.Speak(spokenReason, VerbosityLevel.Terse, interrupt: false);

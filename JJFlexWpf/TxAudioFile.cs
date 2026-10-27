@@ -122,8 +122,8 @@ public static class TxAudioFile
 
         try
         {
-            using var reader = new AudioFileReader(path);
-            ISampleProvider source = reader;
+            using WaveStream reader = OpenReader(path);
+            ISampleProvider source = reader as ISampleProvider ?? reader.ToSampleProvider();
 
             // Mix down first, then resample: half as many samples through the
             // resampler, and the result is identical.
@@ -170,6 +170,24 @@ public static class TxAudioFile
             trouble = System.IO.Path.GetFileName(path) + " could not be read: " + ex.Message;
             return false;
         }
+    }
+
+    /// <summary>
+    /// Open a file for decoding. A computer recording is FLAC, and Save As in
+    /// Recorded QSOs can write Opus; both go through the decoders
+    /// <see cref="RecordingPlayer"/> already plays them with
+    /// (<see cref="RecordedQsoFlacWaveStream"/>, <see cref="RecordedQsoMedia"/>),
+    /// so a recording that plays on the speakers is the same recording that
+    /// goes to the air (#835, Tape Deck phase 2). Everything else — the WAV
+    /// files voice messages and the reference audio use — opens exactly as it
+    /// always has.
+    /// </summary>
+    private static WaveStream OpenReader(string path)
+    {
+        string type = System.IO.Path.GetExtension(path);
+        if (type.Equals(".flac", StringComparison.OrdinalIgnoreCase)) return new RecordedQsoFlacWaveStream(path);
+        if (type.Equals(".opus", StringComparison.OrdinalIgnoreCase)) return RecordedQsoMedia.Open(path);
+        return new AudioFileReader(path);
     }
 
     /// <summary>

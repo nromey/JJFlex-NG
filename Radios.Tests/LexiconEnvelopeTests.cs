@@ -1808,6 +1808,29 @@ namespace Radios.Tests
                 "audio.qsos.delete_help",
                 "audio.qsos.prune_help",
                 "audio.qsos.close_help",
+                // Check your audio Track B (#835): Don's box and the sends that
+                // key the radio with VOX on, including a computer recording to
+                // the air (Tape Deck phase 2). Draft prose, awaiting Noel.
+                "audio.send.box_label",
+                "audio.send.box_help",
+                "audio.send.box_on",
+                "audio.send.box_off",
+                "audio.send.what_computer",
+                "audio.send.what_slice",
+                "audio.send.sending",
+                "audio.send.sent",
+                "audio.send.stopped",
+                "audio.send.interrupted",
+                "audio.send.ran_long",
+                "audio.send.taken_over",
+                "audio.send.source_stopped",
+                "audio.send.not_sent",
+                "audio.send.message_taken_over",
+                "audio.send.message_source_stopped",
+                "audio.send.vox_unconfirmed",
+                "audio.send.no_computer_recording",
+                "audio.send.not_yet_transmitting",
+                "audio.send.command_help",
             };
 
             Assert.Equal(3140, unclassified);

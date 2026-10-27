@@ -24,10 +24,12 @@ namespace JJFlexWpf;
 /// sentence.
 /// </para>
 /// <para>
-/// <b>Play never requests keying.</b> Slice playback joins an existing owned
-/// transmission or listens locally with VOX off, using intent fixed at the press.
-/// Computer playback still refuses while transmitting; its FLAC engine has
-/// no direct route into the voice-message transmit stream.
+/// <b>Play never requests keying, except under Don's box (#835).</b> Slice
+/// playback joins an existing owned transmission or listens locally with VOX
+/// off, using intent fixed at the press. Computer playback, keyed, now sends
+/// to the air through the voice message's transmit-file path
+/// (<see cref="VoiceMessageSender.SendComputerRecording"/>). With the box
+/// ticked and VOX on, both key the radio themselves through the one box send.
 /// </para>
 /// </remarks>
 public static class RecorderControls
@@ -165,16 +167,56 @@ public static class RecorderControls
         return outcome;
     }
 
-    /// <summary>Play the target slice's recording, or stop it playing.</summary>
+    /// <summary>
+    /// A Play press that a send now answers (#835): the send says what it is
+    /// doing itself, under the message key's subject, so the door says nothing.
+    /// </summary>
+    private static RecorderOutcome HandedToSend(string subject) => new(true, "", subject);
+
+    /// <summary>
+    /// Play the target slice's recording, or stop it playing.
+    /// </summary>
+    /// <remarks>
+    /// <b>Don's box (#835).</b> With the box ticked and VOX on, Play IS the
+    /// send (Noel, 2026-10-27 15:22): the radio is keyed, the recording goes
+    /// out whole and the operator hears it, then VOX comes back. Not for a door
+    /// that tags its work (<paramref name="owner"/>, the Audio Workshop's
+    /// listen-back buttons), whose Play is a check you listen to, never a send.
+    /// Pressed again while the send is going out, Play stops it.
+    /// </remarks>
     public static async Task<RecorderOutcome> ToggleSlicePlayAsync(FlexBase? rig, SliceRecorderTarget target,
         Action<RecorderOutcome>? speak = null, object? owner = null)
     {
+        if (owner == null && VoiceMessageSender.InFlightFromPlay)
+        {
+            VoiceMessageSender.Stop();
+            return HandedToSend(SpeechSubject.SliceRecorder(""));
+        }
+        if (owner == null && rig != null && !rig.IsSlicePlaying(target)
+            && VoiceMessageSender.RouteFor(rig) == SendRoute.Box)
+        {
+            VoiceMessageSender.SendSliceRecording(rig, target);
+            return HandedToSend(SpeechSubject.SliceRecorder(""));
+        }
         Observe(rig);
         if (rig != null && !rig.IsSlicePlaying(target)) PlayStartClick();
         var outcome = rig == null
             ? NoRadio(SpeechSubject.SliceRecorder(""))
             : await Guarded(() => rig.ToggleSlicePlayAsync(target, owner), SpeechSubject.SliceRecorder(""));
         (speak ?? Speak)(outcome);
+        return outcome;
+    }
+
+    /// <summary>
+    /// The slice's playback into a transmission the operator is holding, as
+    /// Play did before the box (#835): the box send hands back to this when it
+    /// finds the radio held by someone other than VOX once VOX is off.
+    /// </summary>
+    internal static async Task<RecorderOutcome> StartSliceOnAirAsync(FlexBase rig, SliceRecorderTarget target)
+    {
+        Observe(rig);
+        var outcome = await Guarded(() => rig.StartSlicePlayAsync(target), SpeechSubject.SliceRecorder(""));
+        Speak(outcome);
         return outcome;
     }
 
@@ -195,10 +237,44 @@ public static class RecorderControls
     /// dialog, to the speakers; or stop it playing. Needs no radio. Refused
     /// while transmitting, in ComputerRecorder.TogglePlaybackAsync, before the engine is asked.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Tape Deck phase 2 (#835).</b> Keyed, Play sends the chosen or last
+    /// recording to the air through the transmit-file path, and never touches
+    /// the key (Noel, 2026-10-21 10:57). With Don's box ticked and VOX on, Play
+    /// keys the radio itself, sends it whole and hands back to VOX (2026-10-27
+    /// 14:54). Either way the operator hears it on this computer as it goes
+    /// (15:22). Unkeyed with the box unticked, Play listens, as it always has.
+    /// </para>
+    /// <para>Pressed again while the send is going out, Play stops it.</para>
+    /// </remarks>
     public static async Task<RecorderOutcome> ToggleComputerPlayAsync(FlexBase? rig,
         Action<RecorderOutcome>? speak = null)
     {
+        if (VoiceMessageSender.InFlight)
+        {
+            VoiceMessageSender.Stop();
+            return HandedToSend(SpeechSubject.ComputerRecorder);
+        }
         bool starting = !ComputerRecorder.Current.IsPlaying;
+        if (starting && rig != null)
+        {
+            SendRoute route = VoiceMessageSender.RouteFor(rig);
+            if (route != SendRoute.AsBefore)
+            {
+                string? path = ComputerRecorder.ChosenForPlayback();
+                if (string.IsNullOrEmpty(path))
+                {
+                    // DRAFT PROSE (#835): awaiting Noel
+                    var none = new RecorderOutcome(false, Lexicon.Get("audio.send.no_computer_recording"),
+                        SpeechSubject.ComputerRecorder);
+                    (speak ?? Speak)(none);
+                    return none;
+                }
+                VoiceMessageSender.SendComputerRecording(rig, path, route);
+                return HandedToSend(SpeechSubject.ComputerRecorder);
+            }
+        }
         bool transmitting = rig?.Transmit == true;
         FlexBase.LocalPlaybackVoxPause? pause = null;
         if (starting && !transmitting)
