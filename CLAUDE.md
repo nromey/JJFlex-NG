@@ -1184,7 +1184,8 @@ Every sprint follows this lifecycle. Claude (in the Desktop/orchestrator session
    > otherwise.
    >
    > **STAYS in the repo:** `docs/help/` (a build input — `build-help.bat`
-   > converts it to the CHM), `docs/CHANGELOG.md` (the user record),
+   > builds the CHM and the HTML help from `docs/help/outline.md` and the
+   > pages under `docs/help/md/`), `docs/CHANGELOG.md` (the user record),
    > `MIGRATION.md`, `Agent.md`. Moving the existing 70,124 lines out is #260.
 3. **Track decomposition** — Claude analyzes the work and splits it into parallel tracks:
    - Identify independent work units (dialogs, features, files that don't overlap)
