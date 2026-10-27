@@ -3916,6 +3916,8 @@ namespace Radios
         public void Disconnect()
         {
             Tracing.TraceLine("Disconnect:" + (string)((theRadio == null) ? "null" : theRadio.Serial), TraceLevel.Info);
+            // The session's last speech counts, before the radio goes (#506).
+            Speech.SpeechTally.Shared.Write("disconnect");
             if (theRadio == null) return;
             AttachSliceRecorderStatus(null);
 

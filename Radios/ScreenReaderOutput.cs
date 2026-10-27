@@ -741,25 +741,18 @@ namespace Radios
                             // is that it has only ever meant "handed to the
                             // reader". The ticket says a real answer is coming.
                             //
-                            // AT THE DROP LINE'S LEVEL, NOT VERBOSE (#506). The
-                            // arbiter's "dropped a salvage" lines are Warning,
-                            // so until this an ordinary capture recorded what
-                            // the application failed to say and not what it
-                            // said: a numerator with no denominator. A trace
-                            // line carries no level tag, so the level decides
-                            // only which captures hold the line, and matching
-                            // the drop line's is what makes the two appear
-                            // together at every level. SpeechDeliveryTraceLevelTests
-                            // holds the three to one level. Measured before
-                            // the change: 260 deliveries across 13 Verbose
-                            // captures, at most 57 in one session, against
-                            // an ordinary capture's median of 2,345 lines.
+                            // VERBOSE ON PURPOSE (#506): detailed capture records
+                            // every sentence spoken; the ordinary log gets
+                            // SpeechTally's counts instead, because a log that
+                            // wrote every sentence all day grows fast (Noel,
+                            // 2026-10-27).
+                            Speech.SpeechTally.Shared.NoteSaid();
                             Tracing.TraceLine(
                                 $"ScreenReaderOutput: Spoke '{message}' via "
                                 + $"{_screenReaderName ?? "no named reader"} (interrupt={interrupt}"
                                 + $"{(salvaged ? ", salvaged" : string.Empty)}"
                                 + $"{(ticket != 0 ? $", paced #{ticket}" : string.Empty)})",
-                                TraceLevel.Warning);
+                                TraceLevel.Verbose);
                         }
                         NoteDelivery(delivery, message);
                     }
@@ -820,6 +813,7 @@ namespace Radios
         {
             if (delivery.Refused)
             {
+                Speech.SpeechTally.Shared.NoteRefused();
                 bool first = System.Threading.Interlocked.Exchange(ref _deliveryFailing, 1) == 0;
                 if (first)
                 {
@@ -1054,11 +1048,12 @@ namespace Radios
                     if (delivery.Delivered)
                     {
                         rendered = OutputChannelRecorder.RenderEnabled;
-                        // Same level as "Spoke" and the drop lines, #506.
+                        // Verbose like "Spoke", and counted the same way (#506).
+                        Speech.SpeechTally.Shared.NoteSaid();
                         Tracing.TraceLine(
                             $"ScreenReaderOutput: Output '{message}' via "
                             + $"{_screenReaderName ?? "no named reader"}",
-                            TraceLevel.Warning);
+                            TraceLevel.Verbose);
                     }
                     // #277: same instrument as the speech path. This one
                     // carries braille as well, so a refusal here is the only
@@ -1161,6 +1156,9 @@ namespace Radios
         /// </summary>
         public static void Shutdown()
         {
+            // The last speech counts first, while the trace is still open (#506).
+            try { Speech.SpeechTally.Shared.Write("shutdown"); } catch { /* ignore */ }
+
             // The watchdog first: it is the one thing that can decide to build
             // a NEW backend, and it must not do that while we are tearing the
             // current one down.
