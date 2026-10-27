@@ -11550,10 +11550,12 @@ namespace Radios
                     if (!Same()) Trouble("The radio connection changed before restoration could be confirmed. ");
                     return recorderStopped && Same();
                 }),
-                owner.Register("loopback: listening slice and mutes", async () =>
+                // The return to, and removal of, the listening slice, then each
+                // mute on its own: separate entries, so the radio is asked
+                // again between them (fix round 4).
+                owner.Register("loopback: return from the listening slice", async () =>
                 {
                     if (!Same()) return false;
-                    bool ok = true;
                     // An operator who moved to the listening slice during the check
                     // (Noel did, to find its mute) would otherwise keep it: the
                     // removal refuses the active slice. Go back to where the check
@@ -11562,6 +11564,12 @@ namespace Radios
                         !ReferenceEquals(resources.Slice, SliceForTransmitSetting()))
                         await ReturnFromListeningSliceAsync(arrangementRadio, arrangementConnection,
                             resources.Slice, savedActive).ConfigureAwait(false);
+                    return true;
+                }),
+                owner.Register("loopback: listening slice removal", () =>
+                {
+                    if (!Same()) return Task.FromResult(false);
+                    bool ok = true;
                     if (resources?.Slice != null &&
                         (ReferenceEquals(resources.Slice, VFOToSlice(RXVFO)) ||
                          ReferenceEquals(resources.Slice, SliceForTransmitSetting())))
@@ -11588,55 +11596,58 @@ namespace Radios
                         }
                         finally { if (reservedRemoval) System.Threading.Interlocked.Decrement(ref _pendingRemovals); }
                     }), "LoopbackEarsRemove");
-                    if (savedMutes == null) return ok;
-                    foreach (var saved in savedMutes)
-                    {
-                        try
-                        {
-                            if (!await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection,
-                                saved.Slice, $"slice set {saved.Slice.Index} audio_mute={(saved.Muted ? 1 : 0)}", "mute restore").ConfigureAwait(false))
-                            {
-                                Trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
-                                ok = false;
-                            }
-                            // The reply alone left FlexLib's Slice.Mute stale on the
-                            // bench, and the station layout and the next check both
-                            // read it. A fresh report corrects the cache and proves
-                            // the restore.
-                            else if (await ReadSliceMuteAsync(arrangementRadio, arrangementConnection,
-                                saved.Slice).ConfigureAwait(false) is bool read && read != saved.Muted)
-                            {
-                                Trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
-                                ok = false;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Tracing.TraceLine("Loopback mute restore: " + ex.Message, TraceLevel.Error);
-                            Trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
-                            ok = false;
-                        }
-                    }
-                    return ok;
+                    return Task.FromResult(ok);
                 }),
+            };
+            // Each saved mute is its own entry, registered here so the FIFO
+            // order stays the one the steps were written in.
+            foreach (var saved in savedMutes ?? new List<(Slice Slice, bool Muted)>())
+            {
+                steps.Add(owner.Register($"loopback: slice {saved.Slice.Index} mute", async () =>
+                {
+                    if (!Same()) return false;
+                    try
+                    {
+                        if (!await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection,
+                            saved.Slice, $"slice set {saved.Slice.Index} audio_mute={(saved.Muted ? 1 : 0)}", "mute restore").ConfigureAwait(false))
+                        {
+                            Trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
+                            return false;
+                        }
+                        // The reply alone left FlexLib's Slice.Mute stale on the
+                        // bench, and the station layout and the next check both
+                        // read it. A fresh report corrects the cache and proves
+                        // the restore.
+                        if (await ReadSliceMuteAsync(arrangementRadio, arrangementConnection,
+                            saved.Slice).ConfigureAwait(false) is bool read && read != saved.Muted)
+                        {
+                            Trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
+                            return false;
+                        }
+                        return true;
+                    }
+                    catch (Exception ex)
+                    {
+                        Tracing.TraceLine("Loopback mute restore: " + ex.Message, TraceLevel.Error);
+                        Trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
+                        return false;
+                    }
+                }));
+            }
+            steps.AddRange(new[]
+            {
                 owner.Register("loopback: transmit antenna", () =>
                 {
                     if (!Same()) return Task.FromResult(false);
                     TXAntennaName = savedTxAnt;
                     return Task.FromResult(true);
                 }),
-                owner.Register("loopback: power", () =>
-                {
-                    if (!Same()) return Task.FromResult(false);
-                    XmitPower = savedPower;
-                    return Task.FromResult(true);
-                }),
-                owner.Register("loopback: monitor", () =>
-                {
-                    if (!Same()) return Task.FromResult(false);
-                    Monitor = savedMonitor ? OffOnValues.on : OffOnValues.off;
-                    return Task.FromResult(true);
-                }),
+                owner.Register("loopback: power", () => Same()
+                    ? RestoreWritesAtReceiveAsync("loopback power", () => XmitPower = savedPower)
+                    : Task.FromResult(RestoreOutcome.Failed)),
+                owner.Register("loopback: monitor", () => Same()
+                    ? RestoreWritesAtReceiveAsync("loopback monitor", () => Monitor = savedMonitor ? OffOnValues.on : OffOnValues.off)
+                    : Task.FromResult(RestoreOutcome.Failed)),
                 owner.Register("loopback: full duplex", async () =>
                 {
                     if (!Same()) return false;
@@ -11656,12 +11667,12 @@ namespace Radios
                 }),
                 owner.Register("loopback: transverter drive", () =>
                 {
-                    if (driveBand == null) return Task.FromResult(true);
-                    if (!Same()) return Task.FromResult(false);
+                    if (driveBand == null) return Task.FromResult(RestoreOutcome.Done);
+                    if (!Same()) return Task.FromResult(RestoreOutcome.Failed);
                     var band = driveBand;
                     double dbm = savedDriveDbm;
-                    q.Enqueue((FunctionDel)(() => { band.MaxPower = dbm; }), "LoopbackDriveRestore");
-                    return Task.FromResult(true);
+                    return RestoreWritesAtReceiveAsync("loopback transverter drive",
+                        () => q.Enqueue((FunctionDel)(() => { band.MaxPower = dbm; }), "LoopbackDriveRestore"));
                 }),
                 owner.Register("loopback: forget the arrangement", () =>
                 {
@@ -11672,7 +11683,7 @@ namespace Radios
                     if (ReferenceEquals(_lbArrangementRadio, arrangementRadio)) _lbArrangementRadio = null;
                     if (ReferenceEquals(_lbArrangementConnection, arrangementConnection)) _lbArrangementConnection = null;
                 }),
-            };
+            });
             return FinishLoopbackEndAsync(steps, trouble);
         }
 

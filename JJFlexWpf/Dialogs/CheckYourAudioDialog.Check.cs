@@ -1103,9 +1103,31 @@ public partial class CheckYourAudioDialog
                 {
                     if (!rig.DummyLoadMode)
                     {
+                        // The powers the dummy load will put back, kept here too:
+                        // a restore whose queued writes meet a keyed radio runs
+                        // again at receive (fix round 4), and by then the dummy
+                        // load is already released, so the retry writes them.
+                        int rf = rig.XmitPower, tune = rig.TunePower;
+                        bool released = false;
                         rig.DummyLoadMode = true;
                         // Releasing the dummy load restores transmit AND tune power.
-                        Remember(rig, "audio check: dummy load", () => { if (rig.DummyLoadMode) rig.DummyLoadMode = false; });
+                        Remember(rig, "audio check: dummy load", () =>
+                        {
+                            if (!released)
+                            {
+                                // An operator who released it during the check
+                                // has had both powers back already.
+                                if (!rig.DummyLoadMode) return;
+                                released = true;
+                                rig.DummyLoadMode = false;
+                                return;
+                            }
+                            using (rig.AppInitiatedSettingChanges())
+                            {
+                                rig.XmitPower = rf;
+                                rig.TunePower = tune;
+                            }
+                        });
                     }
                 }
                 else if (!rig.DummyLoadMode && currentPower > _lowPowerWatts)
@@ -1515,8 +1537,16 @@ public partial class CheckYourAudioDialog
         }
 
         /// <summary>Register a change this check made, held until the check releases it.</summary>
+        /// <summary>
+        /// Register a change this check made, held until the check unkeys.
+        /// <paramref name="restore"/> calls ordinary setters; each queued write
+        /// asks the radio again when it runs (fix round 4), and a write that
+        /// meets a keyed radio makes the owner run the whole restore again at
+        /// receive, so every restore given here must be safe to repeat.
+        /// </summary>
         private void Remember(FlexBase rig, string name, Action restore) =>
-            _restores.Add(rig.CheckRestorations.Register(name, restore, held: true));
+            _restores.Add(rig.CheckRestorations.Register(name,
+                () => rig.RestoreWritesAtReceiveAsync(name, restore), held: true));
 
         /// <summary>
         /// Hand this check's changes to the radio's owner to put back (fix

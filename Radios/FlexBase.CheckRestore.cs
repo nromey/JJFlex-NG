@@ -117,6 +117,39 @@ public partial class FlexBase
         lock (_checkTeardownGate) if (_checkTeardownHolders == 0) _checkTeardown = null;
     }
 
+    /// <summary>
+    /// Run restore writes so that each QUEUED write asks the radio again at
+    /// the moment it runs (#835, fix round 4): <paramref name="writes"/> calls
+    /// ordinary setters, which enqueue; under the ambient
+    /// <see cref="StationConnect.QueuedWriteGate"/> each of those is refused at
+    /// its run if the radio then reports transmit. Waits for the queue to reach
+    /// them, then says what happened: Done, Retry (a write met a transmitting
+    /// radio; the owner waits for receive and runs the whole set again, which
+    /// is why every set must be safe to repeat), or Failed (a write threw, or the
+    /// queue never reached them).
+    /// </summary>
+    /// <remarks>
+    /// Before this, the owner asked the radio before an entry and the entry's
+    /// setters then queued writes that went out unasked, so a hardware line or
+    /// VOX keying in between got the operator's power while keyed.
+    /// </remarks>
+    public async Task<RestoreOutcome> RestoreWritesAtReceiveAsync(string name, Action writes)
+    {
+        var gate = StationConnect.QueuedWriteGate.Open(() => Transmit ? "the radio reports transmit" : null);
+        try { writes(); }
+        finally { gate.Dispose(); }
+        if (!await DrainCommandQueueAsync(RestoreWriteWait).ConfigureAwait(false))
+        {
+            Tracing.TraceLine("Check restore " + name + ": the command queue did not reach its writes", System.Diagnostics.TraceLevel.Warning);
+            return RestoreOutcome.Failed;
+        }
+        if (gate.Refused > 0) return RestoreOutcome.Retry;
+        return gate.Threw > 0 ? RestoreOutcome.Failed : RestoreOutcome.Done;
+    }
+
+    /// <summary>How long a set of restore writes may take to reach the radio.</summary>
+    internal TimeSpan RestoreWriteWait { get; set; } = TimeSpan.FromSeconds(5);
+
     // ── The admission boundary (#835, fix round 4) ──────────────────────
     //
     // While TeardownInProgress, nothing APP-INITIATED may key this radio or

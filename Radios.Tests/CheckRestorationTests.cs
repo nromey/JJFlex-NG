@@ -111,6 +111,60 @@ public sealed class CheckRestorationTests : IDisposable
     }
 
     [Fact]
+    public async Task A_power_restore_admitted_at_receive_is_refused_at_its_write_when_the_radio_keyed_in_between()
+    {
+        // Codex round 4, follow-up 3: the owner asked the radio before the
+        // power entry, the entry's setter QUEUED the write, and the write then
+        // went out unasked. A hardware line keying in that gap got the
+        // operator's power while keyed. The queued write must ask again when
+        // it runs, and the restore must wait for receive and go again.
+        using var c = Arranged();
+        Assert.True(await c.Pump(c.F.Rig.StartLoopbackArrangementAsync()));
+        RunQueue(c);
+        bool antennaBack = false, keyed = false;
+        var whileKeyed = new List<string>();
+        var answer = c.F.Vendor.Transport.CommandWritten;
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command.Contains("txant", StringComparison.OrdinalIgnoreCase)) antennaBack = true;
+            if (keyed) lock (whileKeyed) whileKeyed.Add(command);
+            answer!(command);
+        };
+        int before = c.F.Vendor.Transport.Commands.Count;
+        var end = c.F.Rig.EndLoopbackArrangementAsync();
+        var deadline = DateTime.UtcNow.AddSeconds(4);
+        DateTime? keyedAt = null;
+        while (DateTime.UtcNow < deadline && !(keyedAt is DateTime k && DateTime.UtcNow - k > TimeSpan.FromSeconds(1.5)))
+        {
+            while (c.F.Rig.q.Count > 0)
+            {
+                var next = c.F.Rig.q.Dequeue();
+                // The antenna is back, so the owner has admitted the power entry
+                // and its write is the next ordinary item in the queue: the
+                // hardware line keys the radio now, after the owner asked.
+                if (antennaBack && !keyed && next.Name == "unnamed")
+                {
+                    Mox(c.F.Rig, true);
+                    keyed = true;
+                    keyedAt = DateTime.UtcNow;
+                }
+                if (next.Item is FlexBase.FunctionDel a) a();
+            }
+            await Task.Delay(20);
+        }
+        Assert.True(keyed, "the interleave happened: the radio keyed between the owner's question and the queued write");
+        lock (whileKeyed) Assert.Empty(PowerOrAntenna(whileKeyed));
+        Assert.False(end.IsCompleted, "the power restore waits for receive; it does not claim to have finished");
+
+        // Positive control: receive, and the same restore now writes the power.
+        Mox(c.F.Rig, false);
+        keyed = false;
+        await c.Pump(end);
+        RunQueue(c);
+        Assert.Contains(c.F.Vendor.Transport.Commands.Skip(before), x => x.Contains("rfpower", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task A_restore_that_reports_false_is_not_done()
     {
         using var owner = new CheckRestorations(() => false);
