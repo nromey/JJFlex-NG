@@ -82,6 +82,9 @@ public partial class CheckYourAudioDialog
         {
             if (_polling) return;
             SavePerRadioPrefs(methodChosen: true);
+            // A take's sentence describes the take it was about; a method the
+            // operator has just chosen starts from its own description.
+            _offAirStatus = "";
             ApplyMethodLayout();
             // The control announces its own value; this adds only what the tree
             // cannot carry, and only where it matters.
