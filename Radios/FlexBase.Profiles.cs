@@ -1503,6 +1503,25 @@ namespace Radios
         /// <para>Global profiles have no such report, so global reads false.
         /// That is an honest gap, not a claim of safety.</para>
         /// </summary>
+        /// <summary>
+        /// The radio's two unsaved-changes flags, as one trace fragment (#763).
+        /// </summary>
+        /// <remarks>
+        /// <para>Traced at the station's first verdict (the
+        /// <c>GetProfileInfo:</c> line) and on every move, because
+        /// <c>ProfileSkipReason.OwnerHasUnsavedWork</c> fires on these and a
+        /// guard whose input is never recorded is a guard nobody can confirm
+        /// ran. They are also the one reading that says whether an autosave
+        /// question is about TX and MIC profiles rather than global ones.</para>
+        /// <para><b>Read a false with care.</b> FlexLib starts both at false
+        /// and raises nothing when the radio reports the value it already
+        /// holds, so "false" at the first verdict means "not unsaved, or not yet
+        /// reported", and only a moved line proves the radio spoke.</para>
+        /// </remarks>
+        internal string DescribeUnsavedProfileChanges()
+            => "unsaved_changes tx=" + UnsavedProfileChangesFor(ProfileTypes.tx).ToString().ToLowerInvariant()
+               + " mic=" + UnsavedProfileChangesFor(ProfileTypes.mic).ToString().ToLowerInvariant();
+
         public bool UnsavedProfileChangesFor(ProfileTypes type)
         {
             var radio = theRadio;

@@ -4834,6 +4834,15 @@ namespace Radios
                 case "FeatureLicense":
                     HookFeatureLicense(r);
                     break;
+                case "UnsavedProfileChangesTX":
+                case "UnsavedProfileChangesMIC":
+                    // #763: the input to OwnerHasUnsavedWork, on every move.
+                    // FlexLib raises these only when the value changes, so
+                    // this is a transition line, never a flood.
+                    if (ReferenceEquals(r, theRadio))
+                        Tracing.TraceLine("UnsavedProfileChanges moved: " + DescribeUnsavedProfileChanges(),
+                            TraceLevel.Info);
+                    break;
                 case "ProfileAutoSave":
                     // The radio has told us its own profile-autosave setting.
                     // FlexLib has no "reported" flag of its own — it collapses
