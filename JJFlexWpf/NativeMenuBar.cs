@@ -730,12 +730,11 @@ public class NativeMenuBar : IDisposable
                     Radios.RadioCapability.NoiseReductionFilter),
                 () => Rig?.NoiseReductionFilter == FlexBase.OffOnValues.on);
         }
-        // Legacy NR runs on every model but is licensed like the three
-        // above (#746), so it asks the ladder before it speaks. It carries no
-        // "needs subscription" marker yet: that label is #752's to word.
+        // Legacy NR is available on every radio, licensed or not: an
+        // unlicensed 8600 accepted it and applied it (measured 2026-10-27,
+        // #746), so it passes no capability and needs no gate.
         AddChecked(nrSub, "Legacy NR", () =>
-            ToggleDSP("Legacy NR", () => Rig.NoiseReductionLegacy, v => Rig.NoiseReductionLegacy = v,
-                Radios.RadioCapability.NoiseReductionLegacy),
+            ToggleDSP("Legacy NR", () => Rig.NoiseReductionLegacy, v => Rig.NoiseReductionLegacy = v),
             () => Rig?.NoiseReductionLegacy == FlexBase.OffOnValues.on);
         // QB Track I menu parity — the level under the toggle (matches the
         // ScreenFields NR Level field that appears when Legacy NR is on).
@@ -828,15 +827,16 @@ public class NativeMenuBar : IDisposable
 
         // === Auto Notch ===
         var anfSub = AddSubmenu(parent, "Auto Notch");
-        // Both notches are licensed on noise_reduction (#746): every model,
-        // so no hardware rung, and the ladder answers before the speech.
+        // FFT auto-notch is licensed on noise_reduction (#746, measured: an
+        // unlicensed 8600 refused anft with its licence code), so the ladder
+        // answers before the speech. Legacy Auto-Notch is NOT: the same radio
+        // accepted lms_anf and applied it, so it passes no capability.
         AddChecked(anfSub, "FFT Auto-Notch\tCtrl+J, N, A", () =>
             ToggleDSP("FFT Auto-Notch", () => Rig.AutoNotchFFT, v => Rig.AutoNotchFFT = v,
                 Radios.RadioCapability.AutoNotchFft),
             () => Rig?.AutoNotchFFT == FlexBase.OffOnValues.on);
         AddChecked(anfSub, "Legacy Auto-Notch", () =>
-            ToggleDSP("Legacy Auto-Notch", () => Rig.AutoNotchLegacy, v => Rig.AutoNotchLegacy = v,
-                Radios.RadioCapability.AutoNotchLegacy),
+            ToggleDSP("Legacy Auto-Notch", () => Rig.AutoNotchLegacy, v => Rig.AutoNotchLegacy = v),
             () => Rig?.AutoNotchLegacy == FlexBase.OffOnValues.on);
 
         // === Audio Peak Filter (CW only) ===

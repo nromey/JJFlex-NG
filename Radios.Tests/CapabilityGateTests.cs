@@ -282,18 +282,17 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// #746: Legacy NR, FFT auto-notch and legacy auto-notch refuse the
-        /// write when the radio reports <c>noise_reduction</c> disabled.
+        /// #746: FFT auto-notch refuses the write when the radio reports
+        /// <c>noise_reduction</c> disabled.
         /// </summary>
         /// <remarks>
-        /// Through the setters, the road every surface reaches the radio by -
-        /// the noise layer's A key included. Hardware is NOT a rung for these
-        /// three: the rig here is an 8600, but the assertion that a 6000-series
-        /// model is never refused on hardware is
-        /// <see cref="TheThreeNoiseLicensedSwitchesHaveNoHardwareRung"/>.
+        /// Through the setter, the road every surface reaches the radio by -
+        /// the noise layer's A key included. Measured 2026-10-27: an unlicensed
+        /// 8600 answered <c>anft=1</c> and <c>anft=0</c> with 0x50004001, its
+        /// licence refusal, so this gate agrees with the radio.
         /// </remarks>
         [Fact]
-        public void TheThreeNoiseLicensedSwitchesRefuseTheWriteWhenTheLicenceIsDisabled()
+        public void FftAutoNotchRefusesTheWriteWhenTheLicenceIsDisabled()
         {
             FlexBase rig = OfflineDiversityRig(sliceCount: 1);
             try
@@ -304,24 +303,11 @@ namespace Radios.Tests
                 var refused = new List<RadioCapability>();
                 rig.CapabilityWriteRefused += (_, e) => refused.Add(e.Verdict.Capability);
 
-                rig.NoiseReductionLegacy = FlexBase.OffOnValues.on;
                 rig.AutoNotchFFT = FlexBase.OffOnValues.on;
-                rig.AutoNotchLegacy = FlexBase.OffOnValues.on;
 
-                Assert.Equal(new[]
-                {
-                    RadioCapability.NoiseReductionLegacy,
-                    RadioCapability.AutoNotchFft,
-                    RadioCapability.AutoNotchLegacy,
-                }, refused);
-
-                // And every presentation that asks before it speaks hears a
-                // refusal, not silence.
-                foreach (var capability in refused)
-                {
-                    Assert.False(string.IsNullOrWhiteSpace(rig.CapabilityWriteRefusal(capability)));
-                    Assert.True(rig.CapabilityIsClosedOnThisRadio(capability));
-                }
+                Assert.Equal(new[] { RadioCapability.AutoNotchFft }, refused);
+                Assert.False(string.IsNullOrWhiteSpace(rig.CapabilityWriteRefusal(RadioCapability.AutoNotchFft)));
+                Assert.True(rig.CapabilityIsClosedOnThisRadio(RadioCapability.AutoNotchFft));
             }
             finally
             {
@@ -331,34 +317,113 @@ namespace Radios.Tests
 
         /// <summary>
         /// The positive control for the test above: an enabled licence and an
-        /// unreported one both let all three through.
+        /// unreported one both let FFT auto-notch through.
         /// </summary>
         [Fact]
-        public void TheThreeNoiseLicensedSwitchesPassWhenLicensedOrNotYetReported()
+        public void FftAutoNotchPassesWhenLicensedOrNotYetReported()
         {
-            var capabilities = new[]
-            {
-                RadioCapability.NoiseReductionLegacy,
-                RadioCapability.AutoNotchFft,
-                RadioCapability.AutoNotchLegacy,
-            };
-
             foreach (Feature? licence in new[] { new Feature("noise_reduction", true, FeatureStatusReason.Plus), null })
             {
                 FlexBase rig = OfflineDiversityRig(sliceCount: 1);
                 try
                 {
                     rig.theRadio!.FeatureLicense.LicenseFeatNoiseReduction = licence;
-                    foreach (var capability in capabilities)
-                    {
-                        Assert.False(rig.RefuseCapabilityWrite(capability),
-                            capability + " refused with licence " + (licence == null ? "unreported" : "enabled"));
-                        Assert.Null(rig.CapabilityWriteRefusal(capability));
-                    }
+                    Assert.False(rig.RefuseCapabilityWrite(RadioCapability.AutoNotchFft),
+                        "refused with licence " + (licence == null ? "unreported" : "enabled"));
+                    Assert.Null(rig.CapabilityWriteRefusal(RadioCapability.AutoNotchFft));
                 }
                 finally
                 {
                     DisposeOfflineRig(rig);
+                }
+            }
+        }
+
+        /// <summary>
+        /// LEGACY NR (NRL) AND LEGACY AUTO-NOTCH (ANFL) ARE NOT LICENCE-GATED.
+        /// Do not re-gate them from FlexRadio's documents.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Measured 2026-10-27 (#746)</b> on an unlicensed 8600 reporting
+        /// <c>noise_reduction</c> reported=true enabled=false reason=plus, with
+        /// raw <c>slice set 0 &lt;cmd&gt;=1/0</c> and the radio's reply traced:
+        /// <c>lms_nr</c> and <c>lms_anf</c> were ACCEPTED (0x00000000) and the
+        /// operator heard both change the audio, while <c>anft</c>,
+        /// <c>speex_nr</c>, <c>nrf</c> and <c>rnnoise</c> were REFUSED with
+        /// 0x50004001.
+        /// </para>
+        /// <para>
+        /// FlexRadio's licence documents group NRL and ANFL with ANFT as
+        /// SmartSDR+, and the first #746 build gated all three on that basis,
+        /// which would have taken two working features away from every
+        /// unlicensed radio. The documents were wrong for these two, as they
+        /// were for diversity under #745. This test holds every surface to the
+        /// measurement: no capability, no refused write, no "unsubscribed" in
+        /// Feature Availability, and no gated road in the menu or the DSP
+        /// expander.
+        /// </para>
+        /// </remarks>
+        [Fact]
+        public void LegacyNrAndLegacyAutoNotchAreNotLicenceGated()
+        {
+            // No capability exists for them, so nothing can gate them.
+            string[] names = Enum.GetNames<RadioCapability>();
+            Assert.DoesNotContain("NoiseReductionLegacy", names);
+            Assert.DoesNotContain("AutoNotchLegacy", names);
+
+            FlexBase rig = OfflineDiversityRig(sliceCount: 1);
+            try
+            {
+                rig.theRadio!.FeatureLicense.LicenseFeatNoiseReduction =
+                    new Feature("noise_reduction", false, FeatureStatusReason.Plus);
+
+                // The writes are not refused on a radio whose licence is off.
+                var refused = new List<RadioCapability>();
+                rig.CapabilityWriteRefused += (_, e) => refused.Add(e.Verdict.Capability);
+                rig.NoiseReductionLegacy = FlexBase.OffOnValues.on;
+                rig.AutoNotchLegacy = FlexBase.OffOnValues.on;
+                Assert.Empty(refused);
+
+                // Feature Availability agrees: neither line is called
+                // unsubscribed, or tied to the licence at all.
+                string[] lines = rig.BuildFeatureAvailabilityText()
+                    .Split(new[] { Environment.NewLine }, StringSplitOptions.None);
+                string nrl = Assert.Single(lines.Where(l => l.StartsWith("Noise Reduction (NRL):", StringComparison.Ordinal)));
+                string anfl = Assert.Single(lines.Where(l => l.StartsWith("Auto Notch (ANFL):", StringComparison.Ordinal)));
+                Assert.DoesNotContain("unsubscribed", nrl, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("unsubscribed", anfl, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("SmartSDR", nrl, StringComparison.Ordinal);
+                Assert.DoesNotContain("SmartSDR", anfl, StringComparison.Ordinal);
+
+                // Positive control: the same radio and the same text DO call
+                // ANFT unsubscribed, so the absence above is not a blind spot.
+                Assert.Contains(lines, l => l.StartsWith("Auto Notch (ANFT): unsubscribed", StringComparison.Ordinal));
+            }
+            finally
+            {
+                DisposeOfflineRig(rig);
+            }
+
+            // And no presentation road asks a ladder about them.
+            string menu = ReadRepoFile("JJFlexWpf/NativeMenuBar.cs");
+            foreach (string label in new[] { "Legacy NR", "Legacy Auto-Notch" })
+            {
+                int at = menu.IndexOf("ToggleDSP(\"" + label + "\"", StringComparison.Ordinal);
+                Assert.True(at >= 0, "no ToggleDSP call for " + label);
+                int end = menu.IndexOf(");", at, StringComparison.Ordinal);
+                Assert.DoesNotContain("RadioCapability.", menu.Substring(at, end - at));
+            }
+
+            string panel = ReadRepoFile("JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs");
+            foreach (string control in new[] { "_legacyNrCheck", "_legacyNotchCheck" })
+            {
+                foreach (string handler in new[] { ".Checked +=", ".Unchecked +=" })
+                {
+                    int at = panel.IndexOf(control + handler, StringComparison.Ordinal);
+                    Assert.True(at >= 0, control + handler + " not found");
+                    int end = panel.IndexOf(");", at, StringComparison.Ordinal);
+                    Assert.DoesNotContain("ToggleGatedRig", panel.Substring(at, end - at));
                 }
             }
         }
@@ -371,16 +436,20 @@ namespace Radios.Tests
         /// <para>
         /// <b>This is the guard that would have caught #746, and the item-level
         /// guard above would not.</b> <c>noise_reduction</c> was already read
-        /// by three rows before NRL, ANFL and ANFT were gated, so "every item
-        /// has a row" passed while three switches on that item had none. The
-        /// defect was two surfaces disagreeing about one radio: Feature
-        /// Availability said unsubscribed, the key said on. So the test reads
-        /// the surface that already knows, and demands the write gate agree.
+        /// by three rows before ANFT was gated, so "every item has a row"
+        /// passed while a switch on that item had none. The defect was two
+        /// surfaces disagreeing about one radio: Feature Availability said
+        /// unsubscribed, the key said on. So the test reads the surface that
+        /// already knows, and demands the write gate agree.
         /// </para>
         /// <para>
-        /// A NEW unsubscribed line with no entry in the map fails here as
-        /// unmapped, which is the point: a feature reported as licensed is a
-        /// switch somebody must decide how to gate.
+        /// Agreement runs both ways. The repair round of 2026-10-27 found that
+        /// Feature Availability was itself wrong about NRL and ANFL (the radio
+        /// runs them unlicensed), so they left BOTH surfaces at once: this
+        /// list, and the gate. A NEW unsubscribed line with no entry in the map
+        /// fails here as unmapped, which is the point: a feature reported as
+        /// licensed is a switch somebody must decide how to gate, against the
+        /// radio's own answer.
         /// </para>
         /// </remarks>
         [Fact]
@@ -392,9 +461,7 @@ namespace Radios.Tests
                 ["Noise Reduction (RNN)"] = RadioCapability.NoiseReductionNeural,
                 ["Noise Reduction (NRF)"] = RadioCapability.NoiseReductionFilter,
                 ["Noise Reduction (NRS)"] = RadioCapability.NoiseReductionSpectral,
-                ["Noise Reduction (NRL)"] = RadioCapability.NoiseReductionLegacy,
                 ["Auto Notch (ANFT)"] = RadioCapability.AutoNotchFft,
-                ["Auto Notch (ANFL)"] = RadioCapability.AutoNotchLegacy,
             };
 
             var divEsc = new Feature("div_esc", false, FeatureStatusReason.Plus);
@@ -412,7 +479,7 @@ namespace Radios.Tests
 
                 // Positive control: the surface really does report the licence
                 // state this radio was given, so an empty list cannot pass.
-                Assert.Equal(7, unsubscribed.Count);
+                Assert.Equal(5, unsubscribed.Count);
 
                 foreach (string feature in unsubscribed)
                 {
@@ -430,25 +497,17 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// The three run on every model, so no model may be refused them on
+        /// FFT auto-notch runs on every model, so no model may be refused it on
         /// hardware - that would turn a licence question into "your radio
         /// cannot", which is false on a 6300.
         /// </summary>
         [Fact]
-        public void TheThreeNoiseLicensedSwitchesHaveNoHardwareRung()
+        public void FftAutoNotchHasNoHardwareRung()
         {
-            foreach (var capability in new[]
-                     {
-                         RadioCapability.NoiseReductionLegacy,
-                         RadioCapability.AutoNotchFft,
-                         RadioCapability.AutoNotchLegacy,
-                     })
-            {
-                var descriptor = FlexBase.DescriptorFor(capability);
-                Assert.Null(descriptor.Hardware);
-                Assert.NotNull(descriptor.Licence);
-                Assert.False(string.IsNullOrWhiteSpace(descriptor.LicenceDisabledFallbackText));
-            }
+            var descriptor = FlexBase.DescriptorFor(RadioCapability.AutoNotchFft);
+            Assert.Null(descriptor.Hardware);
+            Assert.NotNull(descriptor.Licence);
+            Assert.False(string.IsNullOrWhiteSpace(descriptor.LicenceDisabledFallbackText));
         }
 
         /// <summary>
@@ -936,9 +995,7 @@ namespace Radios.Tests
         [InlineData("JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs", "_neuralNrCheck", "NoiseReductionNeural")]
         [InlineData("JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs", "_spectralNrCheck", "NoiseReductionSpectral")]
         [InlineData("JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs", "_nrfCheck", "NoiseReductionFilter")]
-        [InlineData("JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs", "_legacyNrCheck", "NoiseReductionLegacy")]
         [InlineData("JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs", "_fftNotchCheck", "AutoNotchFft")]
-        [InlineData("JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs", "_legacyNotchCheck", "AutoNotchLegacy")]
         public void TheExpandersCheckboxesAskTheLadderBeforeTheySpeak(
             string relativePath, string control, string capability)
         {
@@ -973,12 +1030,14 @@ namespace Radios.Tests
         /// starts getting removed wholesale.
         /// </para>
         /// <para>
-        /// <b>Until #746 this test pinned the bug.</b> It asserted Legacy NR
-        /// was deliberately ungated because it "runs on every model and needs
-        /// no licence". The first half is true and the second is not: NRL,
-        /// ANFL and ANFT are SmartSDR+ on every series, and Feature Availability
-        /// already reported them on <c>noise_reduction</c>. The negative half
-        /// now holds the noise blanker, which really does need nothing.
+        /// <b>A record of a correction that was itself wrong.</b> Before #746
+        /// this test held Legacy NR ungated because it "runs on every model and
+        /// needs no licence". The first #746 build called that a pinned bug,
+        /// trusting FlexRadio's documents, and gated it. The radio then
+        /// settled it on 2026-10-27: an unlicensed 8600 accepted lms_nr and
+        /// lms_anf and refused only anft. So the original assertion was right,
+        /// Legacy NR and Legacy Auto-Notch are back on the ungated side beside
+        /// the blankers, and FFT Auto-Notch joins the gated side.
         /// </para>
         /// </remarks>
         [Fact]
@@ -991,9 +1050,7 @@ namespace Radios.Tests
                          ("On-Radio Neural NR", "NoiseReductionNeural"),
                          ("On-Radio Spectral NR", "NoiseReductionSpectral"),
                          ("NR Filter", "NoiseReductionFilter"),
-                         ("Legacy NR", "NoiseReductionLegacy"),
                          ("FFT Auto-Notch", "AutoNotchFft"),
-                         ("Legacy Auto-Notch", "AutoNotchLegacy"),
                      })
             {
                 int at = source.IndexOf("ToggleDSP(\"" + label + "\"", StringComparison.Ordinal);
@@ -1004,9 +1061,10 @@ namespace Radios.Tests
                 Assert.Contains("RadioCapability." + capability, source.Substring(at, end - at));
             }
 
-            // The noise blankers run on every model with no licence, and are
+            // The noise blankers, Legacy NR and Legacy Auto-Notch run on every
+            // model with no licence (the last two measured, #746), and are
             // deliberately ungated.
-            foreach (string ungated in new[] { "Noise Blanker", "Wideband NB" })
+            foreach (string ungated in new[] { "Noise Blanker", "Wideband NB", "Legacy NR", "Legacy Auto-Notch" })
             {
                 int at = source.IndexOf("ToggleDSP(\"" + ungated + "\"", StringComparison.Ordinal);
                 Assert.True(at >= 0, "no ToggleDSP call for " + ungated);

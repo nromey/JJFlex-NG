@@ -1,1 +1,1 @@
-On a radio whose licence does not include them, Legacy NR and the two auto-notch filters now say so when you turn them on, from the noise layer, the menu or the DSP controls, instead of announcing "on" while the radio does nothing.
+On a radio whose licence does not include it, FFT auto-notch now tells you so when you turn it on, from the noise layer, the menu or the DSP controls, instead of announcing "on" while the radio does nothing. Legacy NR and Legacy Auto-Notch work on every radio, and Feature Availability no longer calls them unsubscribed.

@@ -9622,7 +9622,9 @@ namespace Radios
             // second, stricter predicate that excluded the AU-510, while NRF and NRS
             // claimed no hardware requirement at all and so read as available on every
             // 6000-series radio that holds a licence. Three answers, one requirement (#729).
-            // NRL below is correctly unconditional — it runs on the 6000s too.
+            // NRL below is unconditional on hardware AND on licence: it runs on
+            // the 6000s too, and an unlicensed 8600 accepted lms_nr and applied
+            // it (measured 2026-10-27, #746), so it is not licence-gated.
             bool advancedNrSupported = NeuralNRHardwareSupported;
             string advancedNrReason = advancedNrSupported ? "" : "requires 8000-series radio";
 
@@ -9644,11 +9646,11 @@ namespace Radios
                 hasSlice, nrModeAllowed, "not available in CW or FM modes",
                 licenseFeature, licenseReported, licenseEnabled));
 
-            lines.Add(BuildAdvancedNoiseStatus("Noise Reduction (NRL)",
+            // Not licence-gated (#746): reported like the basic NR above, so
+            // this tab stops calling it unsubscribed on a radio that runs it.
+            lines.Add(BuildBaseNoiseStatus("Noise Reduction (NRL)",
                 NoiseReductionLegacy == OffOnValues.on,
-                true, "",
-                hasSlice, nrModeAllowed, "not available in CW or FM modes",
-                licenseFeature, licenseReported, licenseEnabled));
+                hasSlice, nrModeAllowed, "not available in CW or FM modes"));
 
             return lines;
         }
@@ -9676,11 +9678,12 @@ namespace Radios
                 hasSlice, anfModeAllowed, "not available in FM mode",
                 licenseFeature, licenseReported, licenseEnabled));
 
-            lines.Add(BuildAdvancedNoiseStatus("Auto Notch (ANFL)",
+            // ANFL is not licence-gated: an unlicensed 8600 accepted lms_anf
+            // and applied it (measured 2026-10-27, #746). ANFT above is, and
+            // keeps its licence line.
+            lines.Add(BuildBaseNoiseStatus("Auto Notch (ANFL)",
                 AutoNotchLegacy == OffOnValues.on,
-                true, "",
-                hasSlice, anfModeAllowed, "not available in FM mode",
-                licenseFeature, licenseReported, licenseEnabled));
+                hasSlice, anfModeAllowed, "not available in FM mode"));
 
             return lines;
         }
@@ -10237,7 +10240,6 @@ namespace Radios
             }
             set
             {
-                if (RefuseCapabilityWrite(RadioCapability.NoiseReductionLegacy)) return;
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
                     NoteOperatorChangedRadioSetting("NoiseReductionLegacy");
@@ -10351,7 +10353,6 @@ namespace Radios
             }
             set
             {
-                if (RefuseCapabilityWrite(RadioCapability.AutoNotchLegacy)) return;
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
                     NoteOperatorChangedRadioSetting("AutoNotchLegacy");

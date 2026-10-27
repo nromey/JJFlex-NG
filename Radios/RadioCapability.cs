@@ -58,19 +58,18 @@ namespace Radios
         /// <summary>CW Auto Tune — tunes the active slice to a CW signal in the passband.</summary>
         CwAutotune,
 
-        /// <summary>Legacy LMS noise reduction (NRL). Runs on every model, so
-        /// no hardware rung, but it is a SmartSDR+ algorithm on every series
-        /// and reads the <c>noise_reduction</c> licence item (#746).</summary>
-        NoiseReductionLegacy,
-
-        /// <summary>FFT auto-notch (ANFT). Every model; licensed like
-        /// <see cref="NoiseReductionLegacy"/> (#746). The noise layer's A key
-        /// writes this one.</summary>
+        /// <summary>FFT auto-notch (ANFT). Every model, so no hardware rung,
+        /// but licensed on <c>noise_reduction</c>: on 2026-10-27 an unlicensed
+        /// 8600 answered <c>slice set 0 anft=1</c> (and =0) with 0x50004001,
+        /// the same licence refusal it gave NRS, NRF and RNN (#746). The noise
+        /// layer's A key writes this one.
+        /// <para><b>Legacy NR (NRL) and Legacy Auto-Notch (ANFL) are NOT here,
+        /// on purpose.</b> FlexRadio's documents group them with ANFT, and the
+        /// first #746 build gated all three; the same radio, in the same run,
+        /// ACCEPTED <c>lms_nr</c> and <c>lms_anf</c> with 0x00000000 and the
+        /// operator heard both apply. Do not add them back from the
+        /// documents.</para></summary>
         AutoNotchFft,
-
-        /// <summary>Legacy LMS auto-notch (ANFL). Every model; licensed like
-        /// <see cref="NoiseReductionLegacy"/> (#746).</summary>
-        AutoNotchLegacy,
     }
 
     /// <summary>
