@@ -208,6 +208,46 @@ public sealed class CheckRestorationTests : IDisposable
     }
 
     [Fact]
+    public async Task A_listening_slice_the_radio_never_confirms_removed_makes_the_owner_unconfirmed()
+    {
+        // Codex round 5, blocker 2: the removal entry returned true once it had
+        // queued the removal; the removal's own timeout only traced.
+        using var c = Arranged();
+        Assert.True(await c.Pump(c.F.Rig.StartLoopbackArrangementAsync()));
+        RunQueue(c);
+        var answer = c.F.Vendor.Transport.CommandWritten;
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            // The radio acknowledges the removal and never reports it.
+            if (command.StartsWith("slice remove ", StringComparison.Ordinal)) c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
+            else answer!(command);
+        };
+        string trouble = await c.Pump(c.F.Rig.EndLoopbackArrangementAsync());
+        Assert.Contains("listening slice", trouble, StringComparison.OrdinalIgnoreCase);
+        Assert.False(await c.F.Rig.CheckRestorations.CompletionAsync().WaitAsync(TimeSpan.FromSeconds(3)));
+    }
+
+    [Fact]
+    public async Task A_mute_restore_the_radio_cannot_read_back_is_unconfirmed()
+    {
+        // Codex round 5, blocker 2: a missing readback (null) passed as true.
+        using var c = Arranged();
+        Assert.True(await c.Pump(c.F.Rig.StartLoopbackArrangementAsync()));
+        RunQueue(c);
+        c.F.Rig.ListenbackConfirmationWait = TimeSpan.FromMilliseconds(200);
+        var answer = c.F.Vendor.Transport.CommandWritten;
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            // The restore itself is acknowledged; the fresh report never comes.
+            if (command == "sub slice all") c.F.Vendor.Reply(c.F.Vendor.LastSequence, 0x50000016, "refused");
+            else answer!(command);
+        };
+        string trouble = await c.Pump(c.F.Rig.EndLoopbackArrangementAsync());
+        Assert.Contains("mute restoration was not confirmed", trouble);
+        Assert.False(await c.F.Rig.CheckRestorations.CompletionAsync().WaitAsync(TimeSpan.FromSeconds(3)));
+    }
+
+    [Fact]
     public async Task A_restore_that_reports_false_is_not_done()
     {
         using var owner = new CheckRestorations(() => false);

@@ -594,7 +594,17 @@ public partial class FlexBase
             finally
             {
                 if (ownedLoopback != null && ReferenceEquals(_lbResources, ownedLoopback)) { _loopbackArranged = false; _lbResources = null; _lbDriveBand = null; }
-                if (snapshot != null && SameConnection()) await RestoreListenbackSnapshotAsync(snapshot, true, identities).ConfigureAwait(false);
+                if (snapshot != null)
+                {
+                    // The rollback's own answer reaches the restore owner (fix
+                    // round 5): a start whose rollback failed leaves a failure a
+                    // later teardown must report, not a joined attempt that
+                    // reads as success.
+                    bool restored = false;
+                    try { restored = SameConnection() && await RestoreListenbackSnapshotAsync(snapshot, true, identities).ConfigureAwait(false); }
+                    catch (Exception rollback) { JJTrace.Tracing.TraceLine("StartListenbackAsync rollback: " + rollback, System.Diagnostics.TraceLevel.Error); }
+                    if (!restored) CheckRestorations.RecordFailure("IQ take start rollback");
+                }
             }
             throw;
         }

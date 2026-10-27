@@ -177,8 +177,32 @@ namespace Radios
             public override string ToString() => _name;
         }
 
-        /// <summary>True while a start is in flight, or a change has not yet been put back.</summary>
-        public bool HasWork { get { lock (_gate) return _starts.Count > 0 || _entries.Any(e => !e.Finished); } }
+        /// <summary>
+        /// True while a start is in flight, a change has not yet been put back,
+        /// or a restore FAILED and no teardown has reported it yet (fix round
+        /// 5): a finished failure is still owed to the next teardown, so it is
+        /// work, not "nothing to restore". A successful entry leaves the list
+        /// as it finishes, so anything still in it is owed.
+        /// </summary>
+        public bool HasWork { get { lock (_gate) return _starts.Count > 0 || _entries.Count > 0; } }
+
+        /// <summary>
+        /// Carry a restoration that has ALREADY failed somewhere else (a start's
+        /// own rollback) as a failed entry, so the next teardown reports it.
+        /// </summary>
+        public Entry RecordFailure(string name)
+        {
+            var entry = new Entry(name, () => System.Threading.Tasks.Task.FromResult(RestoreOutcome.Failed), held: false);
+            JJTrace.Tracing.TraceLine("Check restore NOT confirmed (" + name + ")", System.Diagnostics.TraceLevel.Warning);
+            entry.Done.TrySetResult(false);
+            lock (_gate)
+            {
+                if (_disposed) return entry;
+                _entries.Add(entry);
+                _generation++;
+            }
+            return entry;
+        }
 
         /// <summary>The change may now be put back (the check has unkeyed).</summary>
         public void Release(Entry? entry)

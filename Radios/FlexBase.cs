@@ -11602,37 +11602,57 @@ namespace Radios
                             resources.Slice, savedActive).ConfigureAwait(false);
                     return true;
                 }),
-                owner.Register("loopback: listening slice removal", () =>
+                owner.Register("loopback: listening slice removal", async () =>
                 {
-                    if (!Same()) return Task.FromResult(false);
-                    bool ok = true;
+                    if (!Same()) return false;
+                    bool kept = false;
                     if (resources?.Slice != null &&
                         (ReferenceEquals(resources.Slice, VFOToSlice(RXVFO)) ||
                          ReferenceEquals(resources.Slice, SliceForTransmitSetting())))
                     {
                         Trouble("The listening slice is your active slice, so it was kept. ");
-                        ok = false;
+                        kept = true;
                     }
                     bool reservedRemoval = resources != null && (resources.Slice == null ||
                         (!ReferenceEquals(resources.Slice, VFOToSlice(RXVFO)) && !ReferenceEquals(resources.Slice, SliceForTransmitSetting())));
                     if (reservedRemoval) System.Threading.Interlocked.Increment(ref _pendingRemovals);
+                    // The removal reports back (fix round 5): a refused release,
+                    // a changed connection or a radio that never confirms the
+                    // slice gone is a failure the owner carries, not a trace.
+                    var removed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                     q.Enqueue((FunctionDel)(() =>
                     {
+                        bool ok = false;
                         try
                         {
                             if (!ReferenceEquals(theRadio, arrangementRadio) || resources == null) return;
+                            bool hadSlice;
                             lock (mySlices)
                             {
                                 mySliceRemoved = false;
+                                hadSlice = resources.Slice != null && mySlices.Contains(resources.Slice);
                                 if (!resources.Release(mySlices, arrangementRadio.PanadapterList,
                                     VFOToSlice(RXVFO), SliceForTransmitSetting())) return;
                             }
-                            if (!FlexBase.@await(() => mySliceRemoved, 3000))
+                            if (hadSlice && !FlexBase.@await(() => mySliceRemoved, 3000))
+                            {
                                 Tracing.TraceLine("Loopback ears removal: radio confirmation timed out", TraceLevel.Error);
+                                return;
+                            }
+                            ok = true;
                         }
-                        finally { if (reservedRemoval) System.Threading.Interlocked.Decrement(ref _pendingRemovals); }
+                        finally
+                        {
+                            if (reservedRemoval) System.Threading.Interlocked.Decrement(ref _pendingRemovals);
+                            removed.TrySetResult(ok);
+                        }
                     }), "LoopbackEarsRemove");
-                    return Task.FromResult(ok);
+                    bool gone;
+                    try { gone = await removed.Task.WaitAsync(ListenbackQueueWait + TimeSpan.FromSeconds(3)).ConfigureAwait(false); }
+                    catch (TimeoutException) { gone = false; }
+                    if (kept) return false;
+                    if (!gone) Trouble("The listening slice removal was not confirmed. ");
+                    return gone;
                 }),
             };
             // Each saved mute is its own entry, registered here so the FIFO
@@ -11654,8 +11674,10 @@ namespace Radios
                         // bench, and the station layout and the next check both
                         // read it. A fresh report corrects the cache and proves
                         // the restore.
+                        // A readback that never came (null) is unconfirmed too
+                        // (fix round 5): the fresh report is the proof.
                         if (await ReadSliceMuteAsync(arrangementRadio, arrangementConnection,
-                            saved.Slice).ConfigureAwait(false) is bool read && read != saved.Muted)
+                            saved.Slice).ConfigureAwait(false) is not bool read || read != saved.Muted)
                         {
                             Trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
                             return false;

@@ -171,6 +171,67 @@ public sealed class ListenbackRoundFourTests : IDisposable
         Assert.NotNull(report); Assert.Equal("",problem); Assert.Equal(21.195,report.Frequency); Assert.Equal(2,lines.Length);
     }
 
+    [Fact]
+    public async Task A_failed_start_whose_rollback_is_refused_leaves_a_failure_for_the_teardown()
+    // Codex round 5, blocker 2: the rollback's answer was discarded, so a
+    // teardown that joined the start reported success over a refused restore.
+    {
+        bool confirmationTimeout = false;
+        using var c = new RadioCase(); var radio = c.F.Vendor.Radio;
+        c.F.Rig.ListenbackConfirmationWait = TimeSpan.FromMilliseconds(80);
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command.StartsWith("display panafall create"))
+            {
+                c.Ears = c.Add(0,21.195);
+                c.F.Vendor.Status("slice 0 in_use=1 pan=0x40000000 RF_frequency=21.195 mode=USB rxant=ANT1");
+                // Deliberately missing ownership on slice status, while vendor
+                // object exists: a missing proof is not permission to guess.
+                c.F.Vendor.Status($"display pan 0x40000000 client_handle=0x{radio.ClientHandle:X} center=21.195 rxant=ANT1");
+                Field(c.F.Rig,"_RXVFO",1); Field(c.F.Rig,"_TXVFO",1);
+                c.F.Vendor.Reply(c.F.Vendor.LastSequence,0,"0x40000000,0x42000000");
+            }
+            else if(command.StartsWith("stream create type=dax_iq"))
+            {
+                c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
+                c.F.Vendor.Status($"stream 0x20000000 type=dax_iq client_handle=0x{radio.ClientHandle:X} daxiq_channel=1 pan=0x0 daxiq_rate=48000 active=1 payload_endian=little");
+            }
+            else if (confirmationTimeout && command == "sub slice all")
+            {
+                c.F.Vendor.Status("slice 0 in_use=1 pan=0x40000000 RF_frequency=21.195 mode=USB rxant=ANT1");
+                c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
+            }
+            else if (command == "radio set full_duplex_enabled=0")
+                c.F.Vendor.Reply(c.F.Vendor.LastSequence, 0x50000016, "refused");   // the rollback is refused
+            else
+            {
+                c.Respond(command);
+                if(command == "display pan set 0x40000000 daxiq_channel=1")
+                {
+                    c.F.Vendor.Status($"stream 0x20000000 type=dax_iq client_handle=0x{radio.ClientHandle:X} daxiq_channel=1 pan=0x40000000 daxiq_rate=24000 active=1 payload_endian=little");
+                    var stream = radio.DAXIQStreamList.Single();
+                    var packet = new VitaIFDataPacket { StreamId = stream.StreamID, TimestampInt = 100,
+                        payload = confirmationTimeout ? Noise(8192) : new[] { float.NaN,0f } };
+                    packet.ClassId.PacketClassCode = 0x02e3;
+                    var dispatch = typeof(RXAudioStream).GetMethod("AddRXData",BindingFlags.NonPublic|BindingFlags.Instance,null,new[] { typeof(VitaIFDataPacket) },null)!;
+                    dispatch.Invoke(stream,new object[] { packet });
+                    if(confirmationTimeout)
+                    {
+                        packet.Header.packet_count = 1; packet.TimestampFrac = 341333333333;
+                        dispatch.Invoke(stream,new object[] { packet });
+                    }
+                }
+            }
+        };
+        string takesRoot = Path.Combine(RadioConfig.AppDataRoot,"Recordings","takes");
+        var beforeTakes = Directory.Exists(takesRoot) ? Directory.GetDirectories(takesRoot) : Array.Empty<string>();
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            c.Pump(c.F.Rig.StartListenbackAsync(new ListenbackOptions(SeparatePan:true,FullDuplex:true),default)));
+        Assert.Equal("non-finite-payload", error.Message);
+        Assert.True(radio.FullDuplexEnabled, "the radio refused the rollback");
+        Assert.False(await c.F.Rig.CheckRestorations.CompletionAsync().WaitAsync(TimeSpan.FromSeconds(3)));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -226,6 +287,7 @@ public sealed class ListenbackRoundFourTests : IDisposable
             c.Pump(c.F.Rig.StartListenbackAsync(new ListenbackOptions(SeparatePan:true,FullDuplex:true),default)));
         Assert.Equal(confirmationTimeout ? "listening-state-not-confirmed" : "non-finite-payload",error.Message);
         Assert.False(radio.FullDuplexEnabled); Assert.Null(c.F.Rig.PendingListenbackRecovery);
+        Assert.True(await c.F.Rig.CheckRestorations.CompletionAsync().WaitAsync(TimeSpan.FromSeconds(3)));   // a successful rollback owes nothing
         var commands = c.F.Vendor.Transport.Commands.ToList();
         int streamRemove = commands.IndexOf("stream remove 0x20000000");
         int unbind = commands.IndexOf("display pan set 0x40000000 daxiq_channel=0");

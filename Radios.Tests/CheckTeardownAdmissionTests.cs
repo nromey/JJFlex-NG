@@ -211,6 +211,27 @@ public sealed class CheckTeardownAdmissionTests : IDisposable
     }
 
     [Fact]
+    public async Task A_restore_that_failed_before_the_teardown_makes_the_teardown_unconfirmed()
+    {
+        // Codex round 5, blocker 2: the empty-owner shortcut counted only
+        // unfinished entries, so a check that had stopped earlier with a
+        // failed restore, followed by Disconnect, was reported put back.
+        using var c = new RadioCase();
+        var failed = c.F.Rig.CheckRestorations.Register("full duplex", () => Task.FromResult(false));
+        Assert.False(await failed.Task.WaitAsync(TimeSpan.FromSeconds(3)));
+        c.F.Rig.BeginCheckTeardown();
+        var settle = c.F.Rig.SettleChecksForTeardownAsync(TimeSpan.FromSeconds(5));
+        var deadline = DateTime.UtcNow.AddSeconds(6);
+        while (!settle.IsCompleted && DateTime.UtcNow < deadline) { RunQueue(c); await Task.Delay(20); }
+        Assert.False((await settle).Completed);
+        c.F.Rig.EndCheckTeardown();
+        // Reported once: the next disconnect has nothing owed.
+        c.F.Rig.BeginCheckTeardown();
+        Assert.True((await c.F.Rig.SettleChecksForTeardownAsync(TimeSpan.FromSeconds(5))).Completed);
+        c.F.Rig.EndCheckTeardown();
+    }
+
+    [Fact]
     public async Task An_IQ_take_is_not_started_during_a_teardown()
     {
         using var c = new RadioCase();
