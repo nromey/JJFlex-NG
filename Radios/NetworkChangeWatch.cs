@@ -78,7 +78,7 @@ namespace Radios
             {
                 Tracing.TraceLine("NetworkChangeWatch: the machine's IP addresses changed "
                     + "(a VPN, a dock, a wifi join or a tether all look like this). Anything "
-                    + "that fails from here on is a candidate for #316. " + Snapshot(),
+                    + "that fails from here on may be related to this change. " + Snapshot(),
                     TraceLevel.Warning);
             }
             catch

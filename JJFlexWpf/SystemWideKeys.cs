@@ -619,7 +619,7 @@ namespace JJFlexWpf
                     case SystemWidePttWatch.Verdict.UnkeyMissedRelease:
                         Tracing.TraceLine("SystemWideKeys: the push to talk key has read physically UP for "
                             + SystemWidePttWatch.MissedReleaseMs + " ms with no release seen by the hook — "
-                            + "posting the release ourselves (#307: a missed key-up fails to unkeyed).",
+                            + "posting the release ourselves (a missed key-up fails to unkeyed).",
                             TraceLevel.Warning);
                         Post(() => PttEdge?.Invoke(false));
                         break;

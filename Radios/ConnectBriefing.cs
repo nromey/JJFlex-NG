@@ -410,7 +410,7 @@ namespace Radios
                 if (_inFlight)
                 {
                     _heldArrival = u;
-                    Tracing.TraceLine("ConnectBriefing: Home arrival held until the connect settles (#511)",
+                    Tracing.TraceLine("ConnectBriefing: Home arrival held until the connect settles",
                         System.Diagnostics.TraceLevel.Info);
                     return;
                 }

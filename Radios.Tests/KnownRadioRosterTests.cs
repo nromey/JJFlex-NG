@@ -303,7 +303,7 @@ namespace Radios.Tests
             Assert.Equal("dbreda@example.com", row.LastSeenViaAccount);
 
             // A different account must not inherit someone else's list.
-            var theirs = KnownRadioRoster.Load("someone@else.com");
+            var theirs = KnownRadioRoster.Load("someone-else@example.com");
             Assert.False(theirs.Single().InAccountCache);
 
             // And no account at all is not the same as every account.

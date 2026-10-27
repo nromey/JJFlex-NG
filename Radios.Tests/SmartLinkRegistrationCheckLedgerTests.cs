@@ -24,7 +24,7 @@ namespace Radios.Tests
     /// </remarks>
     public sealed class SmartLinkRegistrationCheckLedgerTests
     {
-        private const string A = "4925-1213-8600-6245";
+        private const string A = "1234-5678-9012-3456";
         private const string B = "1111-2222-6400-3333";
         private const string AsAccount = "a-owner@example.com";
 

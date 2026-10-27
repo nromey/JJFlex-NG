@@ -214,7 +214,7 @@ namespace Radios.Speech
                     // client. It can speak but cannot answer, so it is useless
                     // here — and it is exactly the copy #541 warned would be
                     // found first if anything were ever bound by name.
-                    _diagnosis = $"'{absolutePath}' exports speakText but not speakSsml — this is the pre-2024.1 client (#541); completion reporting is off";
+                    _diagnosis = $"'{absolutePath}' exports speakText but not speakSsml — this is the pre-2024.1 client; completion reporting is off";
                     Tracing.TraceLine("NvdaControllerClient: " + _diagnosis, System.Diagnostics.TraceLevel.Error);
                     NativeLibrary.Free(h);
                     return false;

@@ -45,10 +45,10 @@ namespace Radios.Tests
         // ------------------------------------------------------------------
 
         [Theory]
-        [InlineData("4925-1213-8600-6245")]  // Noel's 8600
-        [InlineData("1315-4176-6300-7236")]  // a 6300
+        [InlineData("1234-5678-9012-3456")]  // the generic radio serial
+        [InlineData("1234-5678-6300-4567")]  // a serial in a 6300's shape
         [InlineData("0123-4567-8600-0002")]  // a delete-test fixture
-        public void RealSerialsAreWellFormed(string serial)
+        public void RadioShapedSerialsAreWellFormed(string serial)
         {
             Assert.True(RadioConfig.IsWellFormedRadioId(serial));
         }
@@ -75,7 +75,7 @@ namespace Radios.Tests
         [Fact]
         public void SurroundingWhitespaceIsToleratedRatherThanTreatedAsADifferentRadio()
         {
-            Assert.True(RadioConfig.IsWellFormedRadioId("  4925-1213-8600-6245  "));
+            Assert.True(RadioConfig.IsWellFormedRadioId("  1234-5678-9012-3456  "));
         }
 
         // ------------------------------------------------------------------
@@ -109,7 +109,7 @@ namespace Radios.Tests
         [Fact]
         public void AWellFormedSerialStillSaves()
         {
-            const string serial = "4925-1213-8600-6245";
+            const string serial = "1234-5678-8600-3456";
             Assert.True(new RadioConfig { Nickname = "the 8600" }.Save(_dir, serial));
             Assert.Equal(new[] { serial }, RadioConfig.ListKnownRadioIds(_dir));
             Assert.Equal("the 8600", RadioConfig.Load(_dir, serial).Nickname);
@@ -123,7 +123,7 @@ namespace Radios.Tests
         public void CreatingAProfileWhoseModelContradictsItsSerialIsRefused()
         {
             var cfg = new RadioConfig { Model = "FLEX-6300" };
-            Assert.False(cfg.Save(_dir, "4925-1213-8600-6245"));
+            Assert.False(cfg.Save(_dir, "1234-5678-8600-3456"));
             Assert.Empty(RadioConfig.ListKnownRadioIds(_dir));
         }
 
@@ -135,7 +135,7 @@ namespace Radios.Tests
             // persisting, triggered by some other bug writing a wrong Model —
             // the lying-receipt failure. Model is a mutable observation; the
             // serial is the identity.
-            const string serial = "4925-1213-8600-6245";
+            const string serial = "1234-5678-8600-3456";
             Assert.True(new RadioConfig { Nickname = "the 8600" }.Save(_dir, serial));
 
             var wrong = RadioConfig.Load(_dir, serial);

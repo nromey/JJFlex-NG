@@ -1720,7 +1720,7 @@ namespace Radios
             {
                 Tracing.TraceLine(
                     $"RadioConfig.SaveForRadio: refusing radio id \"{radioId}\" — a Flex "
-                    + "serial is four groups of four digits (task #245). Nothing was "
+                    + "serial is four groups of four digits. Nothing was "
                     + "written.",
                     System.Diagnostics.TraceLevel.Error);
                 return false;
@@ -1931,8 +1931,7 @@ namespace Radios
                         $"RadioConfig.ListKnownRadioIds: \"{id}\" is not a Flex serial "
                         + "(four groups of four digits) but has a config.xml, so it will "
                         + "appear as a radio that can never connect. Written before the "
-                        + "write-side check, or by hand. Delete it from the radio list "
-                        + "(task #245).",
+                        + "write-side check, or by hand. Delete it from the radio list.",
                         System.Diagnostics.TraceLevel.Warning);
                 }
             }
@@ -1987,9 +1986,9 @@ namespace Radios
         //
         // THE SHAPE, grounded rather than guessed. Every per-radio profile on
         // the operator's machine on 2026-08-26 — three real radios plus two
-        // deliberate test fixtures — is four groups of four digits:
+        // deliberate test fixtures — is four groups of four digits: two
+        // 6300s and an 8600, and the fixtures
         //
-        //     1315-4176-6300-7236   2116-5319-6300-6334   4925-1213-8600-6245
         //     0123-4567-8600-0002   0123-4567-8600-9001
         //
         // and the third group is the model in every one. FlexLib itself
@@ -2008,7 +2007,7 @@ namespace Radios
 
         /// <summary>
         /// Whether a string has the shape of a FlexRadio serial: four
-        /// dash-separated groups of four digits, e.g. <c>4925-1213-8600-6245</c>.
+        /// dash-separated groups of four digits.
         /// SHAPE ONLY — it says nothing about whether such a radio exists.
         /// </summary>
         public static bool IsWellFormedRadioId(string? radioId)
@@ -2081,7 +2080,7 @@ namespace Radios
             {
                 Tracing.TraceLine(
                     $"{who}: refusing radio id \"{radioId}\" — a Flex serial is four "
-                    + "groups of four digits (task #245). Nothing was written; a row "
+                    + "groups of four digits. Nothing was written; a row "
                     + "with this id would have appeared in the radio list and could "
                     + "never have connected.",
                     System.Diagnostics.TraceLevel.Error);
@@ -2108,7 +2107,7 @@ namespace Radios
                     $"{who}: \"{radioId}\" has model group {ModelGroupOf(radioId)} but its "
                     + $"profile says \"{model}\" ({expected}). The profile already exists, so "
                     + "this is a stale or wrong model string rather than a bogus serial — "
-                    + "saving anyway. Worth chasing whatever wrote that model (task #245).",
+                    + "saving anyway. Worth chasing whatever wrote that model.",
                     System.Diagnostics.TraceLevel.Warning);
                 return true;
             }
@@ -2120,7 +2119,7 @@ namespace Radios
             Tracing.TraceLine(
                 $"{who}: refusing to CREATE a profile for \"{radioId}\" — its model group "
                 + $"says {ModelGroupOf(radioId)} while the model being stored is \"{model}\" "
-                + $"({expected}) (task #245).",
+                + $"({expected}).",
                 System.Diagnostics.TraceLevel.Error);
             return false;
         }

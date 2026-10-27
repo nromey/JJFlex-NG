@@ -415,7 +415,7 @@ namespace JJTrace
                     + "; listeners=" + DescribeListeners()
                     + "; defaultListenerDetached=" + DefaultListenerDetached
                     + ". A large 'other listeners' figure at about 10,000 ms is"
-                    + " OutputDebugString waiting on an unserviced debug monitor (#434).";
+                    + " OutputDebugString waiting on an unserviced debug monitor.";
 
                 Trace.WriteLine(TracePrefix() + marker);
             }

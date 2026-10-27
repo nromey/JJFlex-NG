@@ -17,7 +17,7 @@ namespace Radios.Tests
     /// anyone knows whether the radio opened. On 2026-08-26 four consecutive
     /// SmartLink attempts to a radio at 192.168.50.100 died in the
     /// station-name wait, and all four were written into
-    /// <c>4925-1213-8600-6245\connect-history.json</c> as successes, with
+    /// that radio's <c>connect-history.json</c> as successes, with
     /// durations of 341, 1334, 350 and 913 ms — each one matching a
     /// <c>ReconnectRemote: END connected=True</c> line in the trace.</para>
     ///
@@ -39,7 +39,7 @@ namespace Radios.Tests
             _scope.Dispose();
         }
 
-        private const string Serial = "4925-1213-8600-6245";
+        private const string Serial = "1234-5678-9012-3456";
 
         [Fact]
         public void ArmingRecordsNothingYet()

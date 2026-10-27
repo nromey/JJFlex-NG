@@ -2193,7 +2193,7 @@ namespace Radios.Speech
                 foreach (var (subject, silenced) in tell)
                 {
                     Tracing.TraceLine($"SpeechArbiter: the operator silenced an alarm's warning [subject '{subject}']; the alarm is told, "
-                        + "so its interval reminder of the same reading is withheld until the reading worsens (#617). "
+                        + "so its interval reminder of the same reading is withheld until the reading worsens. "
                         + "Nothing is acknowledged and the condition is unchanged.", TraceLevel.Info);
                     try { silenced(); }
                     catch (Exception ex) { Tracing.TraceLine($"SpeechArbiter: the silenced callback threw — {ex.Message}", TraceLevel.Warning); }

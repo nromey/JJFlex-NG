@@ -1971,7 +1971,7 @@ namespace Radios
                 Tracing.TraceLine("PutBackSavedMicInput (" + when + "): NOT writing '" + swap.Saved
                     + "' - it was saved from radio " + swap.Serial + " in run " + swap.Run
                     + ", and this is radio " + (radio?.Serial ?? "(none)") + " in run " + run
-                    + "; a value saved from another radio or an earlier run is never written (#686)",
+                    + "; a value saved from another radio or an earlier run is never written",
                     TraceLevel.Warning);
                 return null;
             }
@@ -1997,13 +1997,13 @@ namespace Radios
                 {
                     radio.MicInput = swap.Saved;
                     Tracing.TraceLine("PutBackSavedMicInput (" + when + "): mic input put back to '"
-                        + swap.Saved + "' (#686)", TraceLevel.Info);
+                        + swap.Saved + "'", TraceLevel.Info);
                 }
                 else
                 {
                     Tracing.TraceLine("PutBackSavedMicInput (" + when + "): mic input is now '" + nowInput
                         + "', not the PC this app set, so it is left there rather than"
-                        + " restored to '" + swap.Saved + "' (#686)", TraceLevel.Info);
+                        + " restored to '" + swap.Saved + "'", TraceLevel.Info);
                 }
             }
             catch (Exception ex)
@@ -2083,7 +2083,7 @@ namespace Radios
                 if (!ReferenceEquals(theRadio, radio) || !radio.Connected)
                 {
                     Tracing.TraceLine("PutBackSavedMicInput (" + when + "): NOT writing '" + swap.Saved
-                        + "' - the radio it was saved from is no longer the one connected (#686)",
+                        + "' - the radio it was saved from is no longer the one connected",
                         TraceLevel.Warning);
                     return;
                 }
@@ -2105,7 +2105,7 @@ namespace Radios
                 if (stale != null)
                 {
                     Tracing.TraceLine("PutBackSavedMicInput (" + when + "): NOT writing '" + swap.Saved
-                        + "' - " + stale + ", so this queued put-back belongs to a session that is over (#686)",
+                        + "' - " + stale + ", so this queued put-back belongs to a session that is over",
                         TraceLevel.Warning);
                     return;
                 }
@@ -2124,17 +2124,17 @@ namespace Radios
                     // value), so it goes out raw, the way the switch did.
                     string command = "mic input " + (swap.Saved ?? "").ToUpperInvariant();
                     string notSent = SendRadioCommandWithReply(radio, command, reply =>
-                        Tracing.TraceLine("PutBackSavedMicInput (" + when + "): " + reply + " (#686)",
+                        Tracing.TraceLine("PutBackSavedMicInput (" + when + "): " + reply,
                             reply.Acknowledged ? TraceLevel.Info : TraceLevel.Warning));
                     Tracing.TraceLine("PutBackSavedMicInput (" + when + "): the radio has not reported the"
                         + " switch-back's PC, so '" + swap.Saved + "' is sent back regardless"
-                        + (notSent == null ? "" : " - NOT sent: " + notSent) + " (#686)",
+                        + (notSent == null ? "" : " - NOT sent: " + notSent),
                         notSent == null ? TraceLevel.Info : TraceLevel.Warning);
                 }
                 else
                 {
                     Tracing.TraceLine("PutBackSavedMicInput (" + when + "): mic input is now '" + nowInput
-                        + "', a newer choice than '" + swap.Saved + "', so it is left there (#686)",
+                        + "', a newer choice than '" + swap.Saved + "', so it is left there",
                         TraceLevel.Info);
                 }
             }
@@ -2191,7 +2191,7 @@ namespace Radios
             if (swap != null)
             {
                 Tracing.TraceLine("ResetPcMicSession (" + why + "): discarding the mic input '" + swap.Saved
-                    + "' saved from radio " + swap.Serial + " in run " + swap.Run + " without writing it (#686)",
+                    + "' saved from radio " + swap.Serial + " in run " + swap.Run + " without writing it",
                     TraceLevel.Warning);
             }
             _pcMicExpected = false;
@@ -2270,7 +2270,7 @@ namespace Radios
                     if (adopted != null)
                         Tracing.TraceLine("startOpusOutputChannel: took over the put-back of '" + saved
                             + "' that the last stop queued" + (adopted.Writing ? " (its write was already going out)" : "")
-                            + "; this session's stop owes it now (#686)", TraceLevel.Info);
+                            + "; this session's stop owes it now", TraceLevel.Info);
                     theRadio.MicInput = "PC";
                     // Remember that WE asked for PC, so the loop can tell a silent
                     // revert from a deliberate operator choice. See
@@ -2534,7 +2534,7 @@ namespace Radios
                         + "; by the time the write ran, session " + sessionNow
                         + (sessionOpenNow ? " is open" : " has closed")
                         + (ReferenceEquals(theRadio, radio) ? "" : " on a different radio")
-                        + " - nothing written (#686)", TraceLevel.Warning);
+                        + " - nothing written", TraceLevel.Warning);
                     SpeakMicSwitchBack(Lexicon.Get("audio.mic.switch_back_session_changed"));
                     return;
                 case MicSwitchBackOutcome.Held:
@@ -2544,10 +2544,10 @@ namespace Radios
                     // is the only time it is said.
                     if (!GuardRefuses("settings.guard.action.mic_input_pc"))
                         Tracing.TraceLine("SwitchMicInputBackToPc: the hold was armed when the switch ran and"
-                            + " lifted a moment later - nothing written (#686)", TraceLevel.Warning);
+                            + " lifted a moment later - nothing written", TraceLevel.Warning);
                     return;
                 case MicSwitchBackOutcome.AlreadyPc:
-                    Tracing.TraceLine("SwitchMicInputBackToPc: already PC when the write ran - nothing written (#686)",
+                    Tracing.TraceLine("SwitchMicInputBackToPc: already PC when the write ran - nothing written",
                         TraceLevel.Info);
                     return;
             }
@@ -2560,7 +2560,7 @@ namespace Radios
             Tracing.TraceLine("SwitchMicInputBackToPc: mic input '" + before + "', "
                 + (notSent == null ? "'" + MicInputPcCommand + "' sent at the operator's request; the radio's answer will"
                     + " follow, and the stop will put '" + before + "' back"
-                    : "'" + MicInputPcCommand + "' NOT sent: " + notSent) + " (#686)",
+                    : "'" + MicInputPcCommand + "' NOT sent: " + notSent),
                 notSent == null ? TraceLevel.Info : TraceLevel.Warning);
             if (notSent != null) OnMicSwitchBackReply(attempt, null, notSent);
         }
@@ -2618,7 +2618,7 @@ namespace Radios
                     : "refused: " + what;
             }
             Tracing.TraceLine("SwitchMicInputBackToPc: the radio's answer - " + LastMicSwitchBackReply
-                + (refused && skipped == null ? "; the saved put-back is undone" : "") + " (#686)",
+                + (refused && skipped == null ? "; the saved put-back is undone" : ""),
                 refused ? TraceLevel.Warning : TraceLevel.Info);
             if (refused && skipped == null)
                 SpeakMicSwitchBack(Lexicon.Get("audio.mic.switch_back_refused"));
@@ -2824,7 +2824,7 @@ namespace Radios
                 Tracing.TraceLine("checkPcMicSelection: radio mic selection is '" + current
                     + "', not PC, while computer transmit audio is running"
                     + " — NOT re-asserting: ownership is " + ownership
-                    + ", and on a radio not declared Mine the owner's choice stands (#686)",
+                    + ", and on a radio not declared Mine the owner's choice stands",
                     TraceLevel.Warning);
                 string report = Lexicon.Get("audio.mic.diverged_not_ours", ("current", current));
                 LastPcMicNotOursReport = report;

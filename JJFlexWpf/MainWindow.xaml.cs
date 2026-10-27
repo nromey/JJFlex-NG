@@ -444,7 +444,7 @@ public partial class MainWindow : UserControl
             if (routineTearDown)
             {
                 Tracing.TraceLine(
-                    $"SessionStatus: {prev} -> {status} suppressed as routine tear-down (#360)",
+                    $"SessionStatus: {prev} -> {status} suppressed as routine tear-down",
                     System.Diagnostics.TraceLevel.Info);
                 return;
             }
@@ -1443,7 +1443,7 @@ public partial class MainWindow : UserControl
         // state and the route taken, and leaves the cause to the trace lines
         // around it rather than asserting one it can no longer know.
         Tracing.TraceLine(
-            "Home panels missing with a radio present (#500/#410), after the arrival's restore decision"
+            "Home panels missing with a radio present, after the arrival's restore decision"
             + " (route: " + route + "). Something collapsed the fields panel that no restore on this arrival covered."
             + " | state: " + DescribeHomePanelVisibility()
             + " | FieldsPanelUserVisible=" + FieldsPanelUserVisible,
@@ -1942,7 +1942,7 @@ public partial class MainWindow : UserControl
                 Tracing.TraceLine(
                     "ConnectQuiet: failsafe expired after "
                     + $"{Radios.ConnectQuietScope.FailsafeMs / 1000}s - the flow is still "
-                    + "open, closing the scope so announcements come back (#395)",
+                    + "open, closing the scope so announcements come back",
                     TraceLevel.Warning);
                 FinishConnectFlowQuiet(fromFailsafe: true);
             };
@@ -2112,7 +2112,7 @@ public partial class MainWindow : UserControl
 
             Tracing.TraceLine(
                 "ConnectQuiet: focus was stranded with no window of ours in the "
-                + "foreground - repairing silently (#395 lockout guard)",
+                + "foreground - repairing silently (lockout guard)",
                 TraceLevel.Info);
             Radios.WindowActivation.EnsureForeground(ShellHandle());
             FocusHome();
@@ -3003,7 +3003,7 @@ public partial class MainWindow : UserControl
                     Tracing.TraceLine("PTT: screen reader is synthesising key-release pairs for a"
                         + " held Ctrl+Space (release " + _pttHoldFilter.SyntheticReleaseCount
                         + " arrived too fast to be human). Absorbing releases so transmit stays"
-                        + " keyed — see task #216. Windows repeat delay on this machine is "
+                        + " keyed. Windows repeat delay on this machine is "
                         + _pttHoldFilter.KeyRepeatDelayMs + " ms, so the first gap of a press is"
                         + " bridged with " + _pttHoldFilter.FirstGapDeferMs + " ms and gaps inside"
                         + " the repeat stream with " + _pttHoldFilter.RepeatGapDeferMs + " ms."
@@ -3176,7 +3176,7 @@ public partial class MainWindow : UserControl
                             + " reported the space bar physically down, so the hold was extended"
                             + " rather than unkeyed. This is the operating system's key state"
                             + " disagreeing with the screen reader's event stream, which is"
-                            + " exactly what #216 predicted — and it is the first evidence that"
+                            + " exactly what was predicted — and it is the first evidence that"
                             + " the physical key state survives a synthesising reader. Further"
                             + " extensions counted, not logged.",
                             TraceLevel.Error);
@@ -3591,7 +3591,7 @@ public partial class MainWindow : UserControl
                 Tracing.TraceLine(
                     $"SuggestRegistration: local connect to {serial} was judged against '{account}', "
                     + $"which is not this operator's account '{defaultAccount}' — saying nothing, "
-                    + "the answer is about the wrong account (#342)",
+                    + "the answer is about the wrong account",
                     TraceLevel.Info);
                 return;
             }

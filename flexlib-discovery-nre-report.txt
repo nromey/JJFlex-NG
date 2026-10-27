@@ -127,7 +127,6 @@ the exact diff if useful.
 Contact
 -------
 Noel Romey, K5NER
-nromey@gmail.com
 JJ Flexible Radio Access (alternative accessible UI for FlexRadio 6000/8000)
 
 
@@ -244,5 +243,4 @@ workaround when the underlying issue is addressed upstream.
 Contact
 -------
 Noel Romey, K5NER
-nromey@gmail.com
 JJ Flexible Radio Access (alternative accessible UI for FlexRadio 6000/8000)

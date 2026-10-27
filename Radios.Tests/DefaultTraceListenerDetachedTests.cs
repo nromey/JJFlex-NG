@@ -132,7 +132,9 @@ namespace Radios.Tests
             string described = DebugMonitorProbe.Describe();
 
             Assert.Contains("DBWIN_BUFFER_READY", described, StringComparison.Ordinal);
-            Assert.Contains("#434", described, StringComparison.Ordinal);
+            // It used to end by citing #434. Task numbers are kept out of trace
+            // text now, because the trace travels in the bundle an operator sends.
+            Assert.Contains("OutputDebugString", described, StringComparison.Ordinal);
             // Both namespaces are reported, so a "present" in either is visible.
             Assert.Contains("local=", described, StringComparison.Ordinal);
             Assert.Contains("global=", described, StringComparison.Ordinal);

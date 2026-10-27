@@ -304,7 +304,7 @@ public sealed class ConnectOwnershipTests : IDisposable
             // operator correctly declined.
             bool answerCanHelp = ownership == RadioOwnership.Unset
                 && (refusal == "the profile question for this radio is not answered"
-                    || refusal == "this connection is not the declared owner's; only the owner's connection restores a station (ruled 2026-09-21, #590)");
+                    || refusal == "this connection is not the declared owner's; only the owner's connection restores a station (ruled 2026-09-21)");
             Assert.Equal(answerCanHelp,
                 StationCoordinator.OwnershipQuestionWouldHelp(ownership, intent, hold));
             if (answerCanHelp)

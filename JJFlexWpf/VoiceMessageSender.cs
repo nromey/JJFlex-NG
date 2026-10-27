@@ -129,7 +129,7 @@ internal static class VoiceMessageSender
         Tracing.TraceLine("VoiceMessageSender: sending \"" + label + "\" from " + path
             + " (" + loaded.Describe() + "), "
             + (_send.WeKeyed ? "keying the radio"
-               : _send.ViaVox ? "letting VOX key the radio (#151)"
+               : _send.ViaVox ? "letting VOX key the radio"
                : "radio already transmitting"),
             TraceLevel.Info);
 

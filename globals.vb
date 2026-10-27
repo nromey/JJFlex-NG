@@ -3110,7 +3110,7 @@ Module globals
                 Tracing.TraceLine(
                     "knobThreadProc: the FlexControl knob could not be set up, so this " &
                     "session runs without one — the same as every install with no knob " &
-                    "attached (#319). " & ex.ToString(), TraceLevel.Error)
+                    "attached. " & ex.ToString(), TraceLevel.Error)
             Catch
             End Try
             Try

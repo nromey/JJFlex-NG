@@ -30,7 +30,7 @@ public sealed class RadioRowWordingTests
     private static RadioListItem Row(string name = "6300inshack", string model = "FLEX-6300") =>
         new()
         {
-            Serial = "1315-4176-6300-7236",
+            Serial = "1234-5678-9012-3456",
             Name = name,
             ModelName = model,
             DiscoverySettled = true,

@@ -94,12 +94,15 @@ namespace Radios.Tests
         /// <summary>
         /// The trace line records that the operator was TOLD, which is the fact
         /// #321 is about — distinct from the backend line the factory already
-        /// writes, which only records that speech failed.
+        /// writes, which only records that speech failed. It used to carry the
+        /// number #321 itself; task numbers are kept out of trace text now,
+        /// because the trace travels in the bundle an operator sends.
         /// </summary>
         [Fact]
-        public void TheTraceLineCarriesTheFindingNumber()
+        public void TheTraceLineRecordsThatTheOperatorWasTold()
         {
-            Assert.Contains("#321", SpeechFailureAlert.TraceLine, StringComparison.Ordinal);
+            Assert.Contains("alarm earcon sounded", SpeechFailureAlert.TraceLine, StringComparison.Ordinal);
+            Assert.Contains("no-speech dialog raised", SpeechFailureAlert.TraceLine, StringComparison.Ordinal);
         }
     }
 }

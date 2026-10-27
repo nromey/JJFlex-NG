@@ -1152,7 +1152,7 @@ namespace JJFlexWpf.Dialogs
                 Loaded += (_, _) => Dispatcher.BeginInvoke(new Action(() =>
                 {
                     Tracing.TraceLine(
-                        "RigSelector: AutoStartRemote pass beginning — background, not operator-initiated (#85)",
+                        "RigSelector: AutoStartRemote pass beginning — background, not operator-initiated",
                         System.Diagnostics.TraceLevel.Info);
                     Radios.ScreenReaderOutput.Speak(
                         Lexicon.Get("connect.selector.autostart_remote"),
@@ -1506,7 +1506,7 @@ namespace JJFlexWpf.Dialogs
             if (withdrawn.Count == 0) return;
 
             Tracing.TraceLine(
-                $"RigSelector.ReassessWanRows: {string.Join(", ", withdrawn)} came from a SmartLink list that is no longer current — shown as last seen and still selectable, no longer an auto-connect candidate (#619, Noel 2026-09-30)",
+                $"RigSelector.ReassessWanRows: {string.Join(", ", withdrawn)} came from a SmartLink list that is no longer current — shown as last seen and still selectable, no longer an auto-connect candidate (Noel 2026-09-30)",
                 System.Diagnostics.TraceLevel.Info);
             RefreshRadiosList();
             SyncPathAffordance();
@@ -1661,8 +1661,8 @@ namespace JJFlexWpf.Dialogs
             {
                 Tracing.TraceLine(
                     outcome.Treatment == Radios.PickerSightingTreatment.Ignored
-                        ? $"RigSelector.OnRadioFound: {radio.Serial} arrived from {sighting?.Origin}, which is no longer that session's current knowledge, and a current list already vouches for the row — left as it is (#619)"
-                        : $"RigSelector.OnRadioFound: {radio.Serial} arrived from {sighting?.Origin}, which is no longer that session's current knowledge — shown as last seen and still selectable, not as a live sighting: no arrival, the connecting window left open (#619, Noel 2026-09-30)",
+                        ? $"RigSelector.OnRadioFound: {radio.Serial} arrived from {sighting?.Origin}, which is no longer that session's current knowledge, and a current list already vouches for the row — left as it is"
+                        : $"RigSelector.OnRadioFound: {radio.Serial} arrived from {sighting?.Origin}, which is no longer that session's current knowledge — shown as last seen and still selectable, not as a live sighting: no arrival, the connecting window left open (Noel 2026-09-30)",
                     System.Diagnostics.TraceLevel.Info);
                 if (outcome.Treatment == Radios.PickerSightingTreatment.LastSeen)
                 {
@@ -1711,7 +1711,7 @@ namespace JJFlexWpf.Dialogs
                 if (!Radios.PickerSighting.MayAnnounceArrival(radio.RigData))
                 {
                     Tracing.TraceLine(
-                        $"RigSelector.OnRadioFound: {radio.Serial}'s list from {sighting?.Origin} stopped being current before its arrival could be spoken — not announced (#619, Noel 2026-09-30)",
+                        $"RigSelector.OnRadioFound: {radio.Serial}'s list from {sighting?.Origin} stopped being current before its arrival could be spoken — not announced (Noel 2026-09-30)",
                         System.Diagnostics.TraceLevel.Info);
                     return;
                 }
@@ -1838,7 +1838,7 @@ namespace JJFlexWpf.Dialogs
                 {
                     Tracing.TraceLine(
                         $"RigSelector.RecordSighting: {radio.Serial} attributed to {sawIt} "
-                        + $"(account in play: {CurrentAccountEmail()}) — #382",
+                        + $"(account in play: {CurrentAccountEmail()})",
                         System.Diagnostics.TraceLevel.Info);
                 }
 
@@ -1965,7 +1965,7 @@ namespace JJFlexWpf.Dialogs
                 {
                     Tracing.TraceLine(
                         $"RigSelector: {serial} lost its SmartLink home during OUR session "
-                        + "cycle — not announcing it as gone (#254).",
+                        + "cycle — not announcing it as gone.",
                         System.Diagnostics.TraceLevel.Info);
                     return;
                 }
@@ -2148,7 +2148,7 @@ namespace JJFlexWpf.Dialogs
                         $"RigSelector: {r.Serial} availability now lan={paths.Lan} wan={paths.Wan} "
                         + $"last-seen={paths.WanUnconfirmed} (was lan={before.Lan} wan={before.Wan} "
                         + $"last-seen={before.WanUnconfirmed}), SmartLink half from "
-                        + $"{(wanSighting as FlexBase.RigData)?.Origin ?? "no list"} — #254, #619");
+                        + $"{(wanSighting as FlexBase.RigData)?.Origin ?? "no list"}");
                     r.LanAvailable = paths.Lan;
                     r.WanAvailable = paths.Wan;
                     r.WanUnconfirmed = paths.WanUnconfirmed;
@@ -2273,7 +2273,7 @@ namespace JJFlexWpf.Dialogs
             if (engage == null)
             {
                 Tracing.TraceLine(
-                    "RigSelector: presence engagement not wired by host — roster rows stay as painted (#382)",
+                    "RigSelector: presence engagement not wired by host — roster rows stay as painted",
                     System.Diagnostics.TraceLevel.Info);
                 return;
             }
@@ -2283,14 +2283,14 @@ namespace JJFlexWpf.Dialogs
             {
                 // The LAN-only operator's path, and the guarantee in one line.
                 Tracing.TraceLine(
-                    "RigSelector: no account-bound rows on the roster — presence NOT engaged, nothing dials out (#382)",
+                    "RigSelector: no account-bound rows on the roster — presence NOT engaged, nothing dials out",
                     System.Diagnostics.TraceLevel.Info);
                 return;
             }
 
             Tracing.TraceLine(
                 $"RigSelector: roster has {accounts.Count} account-bound row account(s) "
-                + $"({string.Join(", ", accounts)}) — engaging SmartLink presence on open (#382)",
+                + $"({string.Join(", ", accounts)}) — engaging SmartLink presence on open",
                 System.Diagnostics.TraceLevel.Info);
 
             // Open the window BEFORE engaging. If Connect() were fast enough to
@@ -2368,7 +2368,7 @@ namespace JJFlexWpf.Dialogs
             RefreshRadiosList();
 
             Tracing.TraceLine(
-                "RigSelector: presence settle window closed; rows now report the session state they found (#382)",
+                "RigSelector: presence settle window closed; rows now report the session state they found",
                 System.Diagnostics.TraceLevel.Info);
         }
 
@@ -2987,7 +2987,7 @@ namespace JJFlexWpf.Dialogs
             // This fires BEFORE the dialog closes and before a single byte has
             // travelled, so it is a prediction. It used to be worded as a
             // report — "Connecting to K5NER over SmartLink as
-            // nromey@fastmail.com" — which states the path as settled at the one
+            // noel@example.com" — which states the path as settled at the one
             // moment nothing has been attempted. When the walk then falls back,
             // the operator has been told something that turned out to be false,
             // and the sentence that corrects it arrives seconds later if at all.
@@ -3923,7 +3923,7 @@ namespace JJFlexWpf.Dialogs
 
             Tracing.TraceLine(
                 $"RigSelector.StartRemoteFlow: operatorInitiated={operatorInitiated} "
-                + $"refreshing={refreshing} - #85 attribution trace",
+                + $"refreshing={refreshing} - attribution trace",
                 System.Diagnostics.TraceLevel.Info);
 
             // Say WHICH account is about to be used. Anyone with more than one
@@ -4299,7 +4299,7 @@ namespace JJFlexWpf.Dialogs
 
             // The full address is deliberately NOT appended here. When a
             // friendly name exists it already identifies the account, and
-            // reading "Contest Station, nromey@fastmail.com" spends a second of
+            // reading "Contest Station, noel@example.com" spends a second of
             // speech to add nothing the operator did not already know. The
             // address is still on the Account button's own name, one Tab away,
             // for the moment it is actually the question.

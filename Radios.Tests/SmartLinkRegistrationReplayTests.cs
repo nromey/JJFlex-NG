@@ -42,7 +42,7 @@ namespace Radios.Tests
     public sealed class SmartLinkRegistrationReplayTests : IDisposable
     {
         private const string Account = "default-account";
-        private const string Asked = "4925-1213-8600-6245";
+        private const string Asked = "1234-5678-9012-3456";
         private const string SomeoneElse = "1111-2222-6400-3333";
 
         private readonly SmartLinkSessionCoordinator _original;

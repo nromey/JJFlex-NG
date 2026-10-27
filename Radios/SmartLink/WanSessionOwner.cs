@@ -204,7 +204,7 @@ namespace Radios.SmartLink
         /// </summary>
         private void RaiseListCurrencyMayHaveChanged(string why)
         {
-            Tracing.TraceLine($"{_tracePrefix} list currency may have changed — {why} (#619)", TraceLevel.Info);
+            Tracing.TraceLine($"{_tracePrefix} list currency may have changed — {why}", TraceLevel.Info);
             try { ListCurrencyMayHaveChanged?.Invoke(this, EventArgs.Empty); }
             catch (Exception ex)
             {
@@ -883,7 +883,7 @@ namespace Radios.SmartLink
             // connection dialed after Dispose is refused by the same
             // predicate whatever the retired flag says.
             Tracing.TraceLine(
-                $"{_tracePrefix} connection {generation} dialing — connection {retiredFrom} is retired; a list must say {generation} to be this session's current knowledge (#619)",
+                $"{_tracePrefix} connection {generation} dialing — connection {retiredFrom} is retired; a list must say {generation} to be this session's current knowledge",
                 TraceLevel.Info);
             // Every list from an earlier connection is history from the
             // record above. A drop normally says so first, through its
@@ -914,7 +914,7 @@ namespace Radios.SmartLink
                     _liveTransportState = e.IsConnected ? TransportState.Up : TransportState.Down;
                     liveTransportDied = !e.IsConnected;
                     note = $"connection {e.ConnectionGeneration}'s transport reported {(e.IsConnected ? "up" : "gone")}"
-                         + (e.IsConnected ? "" : " — its list is history from here, whatever the session status still says (#619)");
+                         + (e.IsConnected ? "" : " — its list is history from here, whatever the session status still says");
                 }
             }
             Tracing.TraceLine($"{_tracePrefix} {note}", TraceLevel.Info);
@@ -986,7 +986,7 @@ namespace Radios.SmartLink
             if (refused != null)
             {
                 Tracing.TraceLine(
-                    $"{_tracePrefix} radio list count={e.Radios.Count} from connection {e.ConnectionGeneration} ignored — {refused} (#619)",
+                    $"{_tracePrefix} radio list count={e.Radios.Count} from connection {e.ConnectionGeneration} ignored — {refused}",
                     TraceLevel.Info);
                 return;
             }

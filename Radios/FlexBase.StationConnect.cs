@@ -999,7 +999,7 @@ namespace Radios
             // unanswered and the next attempt with the hold lifted migrates.
             if (ChangeNothingActive)
             {
-                Tracing.TraceLine("ProfileStewardship: the change-nothing hold is armed — the #495 pre-answer "
+                Tracing.TraceLine("ProfileStewardship: the change-nothing hold is armed — the pre-answer "
                     + "migration is skipped for this attempt; the profile question stays as it was.", TraceLevel.Info);
                 _stewardshipPreAnswered = false;
                 return;
@@ -1697,7 +1697,7 @@ namespace Radios
             var ownership = string.IsNullOrEmpty(serial) ? RadioOwnership.Unset : RadioConfig.OwnershipOf(serial);
             if (ownership == RadioOwnership.Mine) return false;
             Tracing.TraceLine("StationConnect: skipped '" + what + "' — this radio is not declared ours ("
-                + ownership + "); a guest writes nothing shared (#590)", TraceLevel.Info);
+                + ownership + "); a guest writes nothing shared", TraceLevel.Info);
             return true;
         }
 

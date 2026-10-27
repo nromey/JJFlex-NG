@@ -59,7 +59,7 @@ namespace Radios.Tests
             typeof(WanServer).GetMethod("OnRadioListReceivedForThisConnection",
                 BindingFlags.NonPublic | BindingFlags.Instance);
 
-        private const string Serial = "4925-1213-8600-6245";
+        private const string Serial = "1234-5678-9012-3456";
 
         /// <summary>
         /// One radio, as the server's <c>radio list</c> line carries it. Every

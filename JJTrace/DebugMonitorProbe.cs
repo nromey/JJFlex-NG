@@ -62,7 +62,7 @@ namespace JJTrace
                 : "DefaultTraceListener is STILL ATTACHED, so tracing calls OutputDebugString on every line";
 
             return "DebugMonitor: " + BufferReadyEvent + " local=" + local
-                 + " global=" + global + " - " + verdict + "; " + immunity + " (#434).";
+                 + " global=" + global + " - " + verdict + "; " + immunity + ".";
         }
 
         /// <summary>

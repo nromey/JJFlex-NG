@@ -196,7 +196,7 @@ namespace Radios
                     {
                         _captureSelectionMissingTraced = true;
                         Tracing.TraceLine("recordCaptureMeters: no recorded-meter selection has been pushed to this rig, so the "
-                            + "temperature window records nothing until the alarm subsystem attaches (#566)", TraceLevel.Warning);
+                            + "temperature window records nothing until the alarm subsystem attaches", TraceLevel.Warning);
                     }
                     return false;
                 }
