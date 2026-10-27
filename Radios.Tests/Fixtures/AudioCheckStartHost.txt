@@ -114,6 +114,7 @@ public class FlexBase
     private int _power=20;
     public Action PowerChanged;
     public int XmitPower { get => _power; set { _power=value; PowerChanged?.Invoke(); } }
+    public int TunePower;
     public double TXFrequency;
     public string MicSource;
     public bool TxToneEngaged, TxFilePlaying;
