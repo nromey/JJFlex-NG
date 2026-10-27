@@ -58,9 +58,22 @@ if /I "%~1"=="/fallback" set "ALLOW_FALLBACK=1"
 where pandoc >nul 2>&1
 if %ERRORLEVEL% equ 0 (
     echo Using pandoc for Markdown conversion...
+    REM A page pandoc fails on leaves LAST build's .htm in pages\, and hhc
+    REM compiles that without complaint, so a conversion error must stop the
+    REM build here or the help ships a stale page under a fresh stamp (#830).
+    set "PANDOC_FAILED="
     for %%f in ("%MDDIR%\*.md") do (
         echo   Converting %%~nf.md
         pandoc "%%f" -f markdown -t html --standalone --css=../style.css -o "%PAGESDIR%\%%~nf.htm" --metadata title="%%~nf"
+        if errorlevel 1 (
+            echo   FAILED: pandoc could not convert %%~nf.md
+            set "PANDOC_FAILED=1"
+        )
+    )
+    if defined PANDOC_FAILED (
+        echo.
+        echo FAILED: one or more help pages did not convert. See the lines above.
+        exit /b 1
     )
 ) else (
     if not defined ALLOW_FALLBACK (
@@ -88,17 +101,21 @@ if %ERRORLEVEL% equ 0 (
 REM ---------------------------------------------------------------------------
 REM Compile CHM.
 REM
-REM hhc.exe returns 1 on success and 0 on failure (yes, really), so its exit
-REM code is useless and this script has always checked for the file instead.
-REM That check had a hole: a CHM left over from a PREVIOUS build satisfies
-REM `if exist` perfectly, so a compile that failed outright still printed
-REM SUCCESS and left the stale file in place. Now that install.bat refuses to
-REM package a stale CHM (#556/#543), a false SUCCESS here would put a fresh
-REM stamp on stale help, which is worse than no check at all.
+REM The previous CHM is moved aside before hhc runs, so that afterwards "the
+REM file is there" can only mean "hhc just wrote it" and not "a stale file was
+REM left over". On failure the old one is put back, because destroying working
+REM help to prove a point helps nobody.
 REM
-REM So the previous CHM is moved aside before hhc runs. Afterwards, "the file
-REM is there" can only mean "hhc just wrote it". On failure the old one is put
-REM back, because destroying working help to prove a point helps nobody.
+REM But "hhc wrote a file" is NOT "hhc succeeded" (#830). Measured 2026-10-26:
+REM a page missing from [FILES] (HHC5003) and a contents entry pointing at a
+REM missing page (HHC5013) both print an error AND write a complete CHM. The
+REM file test alone passed both, and the stamp then certified errored help as
+REM current. So hhc's output is captured and the build fails on either sign:
+REM   - an "HHCnnnn: Error" line in its output;
+REM   - exit code 0. The code is inverted, not useless as this comment used to
+REM     say: 1 is a clean compile, 0 means an error was printed.
+REM hhc checks no links, anchors or index targets at all; a dead index entry
+REM prints nothing and exits 1. Those checks belong to the build, not to hhc.
 REM ---------------------------------------------------------------------------
 if exist "%HELPDIR%JJFlexRadio.chm.prev" del /q "%HELPDIR%JJFlexRadio.chm.prev"
 if exist "%HELPDIR%JJFlexRadio.chm" move /y "%HELPDIR%JJFlexRadio.chm" "%HELPDIR%JJFlexRadio.chm.prev" >nul
@@ -106,11 +123,31 @@ if exist "%HELPDIR%JJFlexRadio.chm.stamp" del /q "%HELPDIR%JJFlexRadio.chm.stamp
 
 echo.
 echo Compiling CHM...
-"!HHC!" "%HELPDIR%jjflex-help.hhp"
+set "HHC_LOG=%TEMP%\jjflex-hhc-%RANDOM%%RANDOM%.log"
+"!HHC!" "%HELPDIR%jjflex-help.hhp" > "!HHC_LOG!" 2>&1
+set "HHC_EXIT=!ERRORLEVEL!"
+type "!HHC_LOG!"
+set "HHC_FAILED="
+set "HHC_WHY="
+findstr /R /C:"HHC[0-9][0-9]*: *Error" "!HHC_LOG!" >nul 2>&1 && (
+    set "HHC_FAILED=1"
+    set "HHC_WHY=hhc.exe printed an error - see the HHC lines above."
+)
+if "!HHC_EXIT!"=="0" if not defined HHC_FAILED (
+    set "HHC_FAILED=1"
+    set "HHC_WHY=hhc.exe exited 0, which it does only after an error."
+)
+if not exist "%HELPDIR%JJFlexRadio.chm" if not defined HHC_FAILED (
+    set "HHC_FAILED=1"
+    set "HHC_WHY=hhc.exe produced no output file."
+)
+del /q "!HHC_LOG!" >nul 2>&1
 
-if not exist "%HELPDIR%JJFlexRadio.chm" (
+if defined HHC_FAILED (
     echo.
-    echo FAILED: CHM compilation failed - hhc.exe produced no output file.
+    echo FAILED: CHM compilation failed - !HHC_WHY!
+    REM An errored compile still writes a CHM. Remove it so it cannot ship.
+    if exist "%HELPDIR%JJFlexRadio.chm" del /q "%HELPDIR%JJFlexRadio.chm"
     if exist "%HELPDIR%JJFlexRadio.chm.prev" (
         move /y "%HELPDIR%JJFlexRadio.chm.prev" "%HELPDIR%JJFlexRadio.chm" >nul
         echo         The previous CHM has been restored. It is now STALE and
