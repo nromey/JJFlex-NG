@@ -5,21 +5,25 @@ keywords:
 
 # JJ Key Commands
 
-The JJ key — `Ctrl+J`, J for JJ — gives you quick access to DSP toggles, audio controls, meter controls, status readouts, and other frequently used features of JJ Flexible Radio Access without having to memorise dozens of hotkeys. You press `Ctrl+J` and then a second key. The set of commands it opens up is the JJ key layer.
+Press `Ctrl+J`, then a second key, to reach frequently used commands in JJ Flexible Radio Access. This JJ key sequence gives you access to DSP switches, audio and meter controls, status readouts, and other features without a separate shortcut to memorise for each one. The commands available after `Ctrl+J` form the JJ key layer. The J stands for JJ.
 
-The second key follows a grammar, and the grammar is the point: you work out a chord instead of memorising it. Four rules cover nearly everything. A plain letter opens a layer — a set of keys about one thing, like the filter or your audio, with arrows to adjust and Escape to put things back. Shift plus a letter jumps to that slice, from anywhere, even from inside a layer: `Shift+C` is slice C and never anything else. Ctrl plus a letter switches on or off the thing whose initial it is — `Ctrl+G` is the test tone, `Ctrl+T` meter tones, `Ctrl+E` the alert sounds, `Ctrl+D` a detailed capture. Alt plus a letter does something that is neither a layer nor a switch — `Alt+V` speaks the version, `Alt+K` is the mic check, `Alt+M` opens the memories. Inside any layer, `H` reads that layer's keys and the slash key opens the JJ key explorer. If you knew the old map: the noise switches moved into the noise layer in this release, so `B` for the blanker is `N` then `B` now, and the one-shots moved one modifier over, so `K` is `Alt+K`, and so on. Press an old one-shot key and the layer names the new chord; press an old noise key and it names the nearest chord it still has, which may not be the one you wanted — `N` then `H` is the surer road to a noise switch. One switch has not found its place yet, and it is listed last, with the reason.
+You can work out most JJ key chords from four patterns. A plain letter opens a layer of related controls, such as the filter or audio layer. Inside a layer, arrow keys make adjustments, and `Escape` puts changes back. `Shift` plus a letter jumps to that slice from anywhere, including another layer: `Shift+C` always selects slice C. `Ctrl` plus a letter usually switches something on or off, such as the test tone with `Ctrl+G`, meter tones with `Ctrl+T`, or alert sounds with `Ctrl+E`; `Ctrl+D` starts or stops a detailed capture. `Alt` plus a letter performs an action, such as speaking the version with `Alt+V`, checking your microphone with `Alt+K`, or opening memories with `Alt+M`. Within any layer, press `H` to read that layer's keys or slash to open the JJ key explorer.
+
+If you learned an earlier JJ key map, use `N`, then `B` for the noise blanker; the noise switches are now in the noise layer. The mic check is `Alt+K` rather than `K`, and other one-step actions have likewise moved to modified chords. An old one-step key announces its new chord. An old noise key may announce the nearest available chord, which might lead to a different control; press `N`, then `H` to hear the noise layer's keys. One switch has not yet moved into a layer and appears under "Still finding their layer" below.
 
 ## How It Works
 
-1. Press `Ctrl+J`. You will hear a rising "bink" tone — the JJ Command layer is now open.
+1. Press `Ctrl+J`. You will hear a rising "bink" tone when the JJ Command layer opens.
 2. Press one of the command keys listed below.
-3. A one-step command runs and the JJ key layer closes. If the key opens the audio, filter, or noise layer, that layer stays open until you press `Enter` to keep your changes, `Escape` to cancel them, or the JJ key to leave it.
+3. A one-step command runs, then the JJ key layer closes. If you open the audio, filter, or noise layer, it remains open until you press `Enter` to keep changes, `Escape` to cancel them, or the JJ key to leave the layer.
 
-If you change your mind, press `Escape`. You will hear a soft falling tone letting you know that the JJ Command layer has closed. The layer waits patiently until you press a key or cancel — there is no timer sneaking you out of it.
+If you change your mind, press `Escape` to close the JJ Command layer. You will hear a soft falling tone. While you remain in JJ Flexible, the layer waits until you choose a key or cancel it; it does not time out.
 
-The JJ key also works from another program. Press `Ctrl+Shift+J` while a contest logger or anything else has the keyboard, then the second key, and both are kept from that program — the same layer with a second door, so every command below works from outside except the ones that open a layer of their own, which need this window and say so. The key is a default you can change in Settings, under System-wide keys (the Tools menu item of the same name takes you there); the keyboard reference has the details. From another program the layer closes on its own after about ten seconds of waiting with nothing on screen, so a forgotten one cannot eat a keystroke you meant for your logger; inside this window it waits as long as you like, until you switch to another program, when it lets go quietly so the key you press on your way back does its ordinary job.
+You can also use JJ key commands while another program, such as a contest logger, has the keyboard. Press `Ctrl+Shift+J`, then the command key. JJ Flexible receives both keys, so the other program does not. Commands that open a layer of their own need the JJ Flexible window; they will tell you when they cannot open from another program. You can change the default system-wide key under **Settings > System-wide keys**, which you can also reach from the Tools menu. The keyboard reference explains that setting.
 
-<!-- LEADER-KEY-TABLE: every key line from here to the END marker is checked against KeyInventory.LeaderCommands by Radios.Tests/LeaderDocCoverageTests. Add a chord to the layer and this list fails until it has a line; delete a chord and a leftover line fails too. The wording is yours — only the set of keys is checked. The groups are the TIERS of the grammar (#515), in the same order as KeyInventory.LeaderCommands and KeyboardReference.md: layers, slices, toggles, actions, the ones still finding a layer, then help. Keep the three in step — it is one map read three ways.
+When you start the JJ key from another program, it closes after about ten seconds without a command, so it will not keep a key intended for that program. Inside JJ Flexible, it waits until you choose a command or cancel. If you switch to another program, the layer lets go quietly and your next key has its ordinary effect.
+
+<!-- LEADER-KEY-TABLE: every key line from here to the END marker is checked against KeyInventory.LeaderCommands by Radios.Tests/LeaderDocCoverageTests. Add a chord to the layer and this list fails until it has a line; delete a chord and a leftover line fails too. The wording is yours — only the set of keys is checked. The groups are the TIERS of the grammar, in the same order as KeyInventory.LeaderCommands and KeyboardReference.md: layers, slices, toggles, actions, the ones still finding a layer, then help. Keep the three in step — it is one map read three ways.
 
      ONE LINE PER CHORD, and the shape is load-bearing, not a style: a hyphen, a
      space, the chord in bold, a space, an em dash, a space, then the meaning.
@@ -35,101 +39,100 @@ The JJ key also works from another program. Press `Ctrl+Shift+J` while a contest
 
 ## Layers — a plain letter
 
-A plain letter after the JJ key opens a layer: a set of keys about one subject, where the arrows adjust, `H` lists the layer's own keys, Enter keeps what you changed and Escape puts it all back. Three layers exist today — audio, filter and noise — and `M` is spoken for: the mode layer is ruled and not yet built, so pressing `M` tells you where the memories went instead.
+After the JJ key, press a plain letter to open a layer of related controls. The arrow keys make adjustments, `H` lists that layer's keys, `Enter` keeps your changes, and `Escape` puts them back. The audio, filter, and noise layers are available. A mode layer is planned for `M`; until it exists, pressing `M` tells you how to reach memories.
 
-- **A** — Enter the audio layer — pick a level with one letter (`V` slice volume, `Ctrl+H` headphone, `O` PC output, `M` mic, `L` line out, `C` compander, `S` processor, `X` VOX gain, `D` VOX delay, `P` pan), ride Up and Down and place it at once with Home, End or `0`; flip a switch with one press (`Ctrl+M` mute, `Ctrl+P` PC audio on or off, `Ctrl+B` binaural, `Ctrl+C` compander on or off, `Ctrl+S` processor on or off). Escape reverts changes - all of them, not just the last - and Enter accepts. Plain `H` lists the layer’s keys. The full walk is on the Keyboard Reference page
-- **V** — The same audio layer, by the letter your fingers may already know from volume mode. A second door to one room, kept as a courtesy until `V` is wanted for a layer of its own
-- **Alt+P** — Enter the audio layer with pan already picked — Left and Right, or Up and Down, place the slice you're on in the stereo field, Shift moves by one, 0 centers, Home and End are hard left and hard right, Escape reverts changes, Enter accepts. Speaks the number every time, on a 0-to-100 scale. The one chord on Alt that opens a layer rather than doing something: pan lives in the audio layer now (`A`, then `P`), and this door stays open for the fingers that learned pan mode
-- **F** — Enter the filter layer — hold Left Shift for the low edge or Right Shift for the high edge, the arrows move it, Home and End send it straight to its limit, `T` and `R` switch between the transmit and receive filters, and `S` speaks it. Plain `H` lists the layer’s keys
-- **N** — Enter the noise layer — every key in it is a switch, and one press flips it and says which way it went: `A` auto notch, `B` noise blanker, `W` wideband blanker, `N` noise reduction, `R` the radio's neural NR, `S` the radio's spectral NR, `Ctrl+N` the NR filter, `P` the audio peak filter, and `Ctrl+R` and `Ctrl+S` the neural and spectral NR that run on your computer. Escape puts back every switch you flipped, Enter keeps them, plain `H` lists the layer's keys. The letters are provisional and the full walk is on the Keyboard Reference page
+- **A** — Open the audio layer. Choose a level with `V` for slice volume, `Ctrl+H` for headphones, `O` for PC output, `M` for microphone, `L` for line out, `C` for compander, `S` for processor, `X` for VOX gain, `D` for VOX delay, or `P` for pan. Use Up and Down to adjust it, or Home, End, or `0` to place it at once. Press `Ctrl+M` for mute, `Ctrl+P` for PC audio, `Ctrl+B` for binaural, `Ctrl+C` for compander, or `Ctrl+S` for processor to switch that feature. `Escape` reverts every change made in the layer; `Enter` keeps them. Press `H` to hear its keys, or read the full walk on the Keyboard Reference page.
+- **V** — Open the same audio layer. This chord remains available to anyone who learned `V` for volume mode, until `V` is needed for its own layer.
+- **Alt+P** — Open the audio layer with pan selected. Left and Right, or Up and Down, position the current slice in the stereo field; `Shift` changes the position by one, `0` centers it, and Home and End move it to the far left or right. You will hear the position on a scale from 0 to 100 after each move. `Escape` reverts changes and `Enter` keeps them. Pan also lives at `A`, then `P`; `Alt+P` remains for people who learned pan mode. It is the Alt chord that opens a layer instead of performing a one-step action.
+- **F** — Open the filter layer. Hold Left Shift to choose the low edge or Right Shift to choose the high edge, then use the arrows to move it. Home and End send the chosen edge to its limit. Press `T` or `R` to select the transmit or receive filter, `S` to hear its settings, or `H` to hear the layer's keys.
+- **N** — Open the noise layer. Each key switches a feature and announces its new state: `A` for auto notch, `B` for noise blanker, `W` for wideband blanker, `N` for noise reduction, `R` for the radio's neural NR, `S` for the radio's spectral NR, `Ctrl+N` for the NR filter, `P` for the audio peak filter, and `Ctrl+R` and `Ctrl+S` for the neural and spectral NR that run on your computer. `Escape` puts back every switch you changed, `Enter` keeps them, and `H` lists the layer's keys. These letters are provisional; the Keyboard Reference page has the full walk.
 
 ## Slices — Shift plus the letter
 
-- **Shift+A through Shift+H** — Jump straight to that slice from anywhere, even from inside a layer — the letter is the slice, all eight of them
+- **Shift+A through Shift+H** — Jump directly to the slice named by the letter, even when you are inside another layer. All eight slices have a chord.
 
 ## Toggles — Ctrl plus the initial
 
-Ctrl plus a letter switches something on or off, and the letter is the thing's own initial. Each one says which way it went.
+Press `Ctrl` plus a letter to switch the feature named by that letter on or off. Each command announces the new state.
 
-- **Ctrl+X** — Toggle full duplex for the whole radio; X for dupleX. The new state is announced after the radio reports it. The same control is in Home, Transmit and the Transmit menu.
-- **Ctrl+G** — Arm or disarm the TX test tone (replaces your microphone while transmitting)
-- **Ctrl+R** — Record the active slice, or stop recording it. This is the radio's own recorder, which keeps one recording per slice, up to the last two minutes
-- **Ctrl+P** — Play the active slice's recording, or stop it. If you are already transmitting, it plays over the air until you unkey; otherwise it plays locally. JJ Flexible pauses VOX or CW break-in for local playback and restores it when playback stops. Play never keys the radio
-- **Ctrl+Shift+R** — Record to file: record what the radio plays through this computer, or stop. The Shift form of Ctrl+R, because it is the other recorder
-- **Ctrl+Shift+P** — Play from computer: play your last recording on this computer, or stop. The Shift form of Ctrl+P
-- **Ctrl+T** — Toggle meter tones on or off
-- **Ctrl+E** — Toggle alert sounds (earcons) on or off — E for earcons. It was `Shift+T`
-- **Ctrl+Q** — Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all. Saved captures live under Tools, Signal captures
-- **Ctrl+S** — Switch the S-meter between S-units and dBm. One S-unit is 6 dB, which is a factor of four in power hiding inside a single reading, so dBm is what you want for "did that antenna change help?" and S-units are the comfortable everyday scale. The chord says which unit you landed on, and the choice sticks for that radio — so `Ctrl+S` on its own reads the meter in whichever one you're in, and says the unit either way. The same switch lives on the Radios tab in Settings, where you can see where it stands without pressing anything
-- **Ctrl+D** — Start or stop a detailed capture of what the app is doing. Works with no radio connected, and from inside any dialog. Stopping saves the capture as its own session in Saved Diagnostic Logs
+- **Ctrl+X** — Switch full duplex for the whole radio on or off. The X stands for dupleX. You will hear the new state after the radio reports it. This control is also on Home, in Transmit, and on the Transmit menu.
+- **Ctrl+G** — Arm or disarm the TX test tone, which replaces your microphone while you transmit.
+- **Ctrl+R** — Start or stop recording the active slice with the radio's recorder. It keeps one recording per slice, up to the last two minutes.
+- **Ctrl+P** — Start or stop playing the active slice's recording. If you are already transmitting, playback goes over the air until you unkey; otherwise, it plays locally. For local playback, JJ Flexible pauses VOX or CW break-in and restores it when playback stops. Playing a recording never keys the radio.
+- **Ctrl+Shift+R** — Start or stop recording to a file what the radio plays through this computer. This Shift form of `Ctrl+R` reaches the other recorder.
+- **Ctrl+Shift+P** — Start or stop playing the last recording made on this computer. This is the Shift form of `Ctrl+P`.
+- **Ctrl+T** — Switch meter tones on or off.
+- **Ctrl+E** — Switch alert sounds, also called earcons, on or off. The E stands for earcons; the earlier chord was `Shift+T`.
+- **Ctrl+Q** — Start or stop the QSO signal analyzer. It watches the S-meter so you can later hear what the signal did, including QSB. Find saved captures under **Tools > Signal captures**.
+- **Ctrl+S** — Switch the S-meter between S-units and dBm. One S-unit is 6 dB, a factor of four in power, so dBm can help you judge whether an antenna change helped while S-units offer the familiar everyday scale. You will hear the selected unit. The choice remains with that radio; pressing `Ctrl+S` by itself reads the meter in the current unit and names it. You can also see and change the unit on the Radios tab in Settings.
+- **Ctrl+D** — Start or stop a detailed capture of what JJ Flexible is doing, even without a connected radio or while you are in a dialog. When you stop, the capture becomes a separate session in Saved Diagnostic Logs.
 
 ## Actions — Alt plus the initial
 
-Alt plus a letter does something that is neither a layer nor a switch: speaks a reading, opens a list, sends something, captures something.
+Press `Alt` plus a letter for an action such as hearing a reading, opening a list, sending something, or making a capture. These commands do not open a layer or simply switch a feature.
 
-- **Alt+K** — Mic check — speak your mic-audio verdict and level, nothing else
-- **Alt+Q** — Capture a noise profile for PC Spectral NR — Q for "quiet." Press `Alt+Q` again while it runs to cancel. See the PC-Side Noise Reduction help page
-- **Alt+E** — Re-send the CW notifications you just heard — E for echo. Press it again to step back to an earlier one
-- **Alt+L** — Speak log statistics
-- **Alt+M** — Open the Flex memory list — M for memories. Plain `M` is reserved for the mode layer
-- **Alt+O** — Say what is still running and what it is costing — recording, captures, meter tones. O for "what's on"
-- **Alt+R** — Read the problems recorded this session — everything that has gone wrong since you started, in case you missed an announcement
-- **Alt+V** — Speak the version, the build type and the date this copy was built. The answer to "which build are you on?" without leaving what you are doing
-- **Alt+W** — Open a list of every window on your screen: the one that has the keyboard first, then JJ Flexible Radio's own windows, then everything else. Each row names the program that owns the window, says whether that program is still running and answering, and whether the window is a dialog blocking the rest of its program. W for Windows. Works with no radio connected, and from inside any dialog
-- **Alt+N** — Open the tracking notch filters. Auto Notch hunts a carrier for you; this is the one where you point at it yourself. Add drops a notch on your current receive frequency, and you set how wide and how deep it is. Set Keep to Yes and the radio holds that notch through band changes and power cycles, which is what you want for a birdie that lives in the same place forever. N for Notch, with Alt because it opens something rather than switching something
-- **Alt+F** — Open Recorded QSOs, the recordings you made with Record to file. Choose one to play from computer, play it here, trim it, save it as MP3 or another format, delete it or prune old ones. F for files, with Alt because it opens something. Works with no radio connected
+- **Alt+K** — Hear your microphone audio verdict and level, without another report.
+- **Alt+Q** — Capture a noise profile for PC Spectral NR. The Q stands for "quiet." Press `Alt+Q` again to cancel a capture in progress. See the PC-Side Noise Reduction help page.
+- **Alt+E** — Hear a CW notification again. The E stands for echo; press the chord again to step back to an earlier notification.
+- **Alt+L** — Hear your log statistics.
+- **Alt+M** — Open the Flex memory list. The M stands for memories; plain `M` is reserved for the mode layer.
+- **Alt+O** — Hear what is still running and what it is costing, including recording, captures, and meter tones. The O stands for "what's on."
+- **Alt+R** — Hear the problems recorded since you started this session, including any announcement you missed.
+- **Alt+V** — Hear the version, build type, and build date without leaving your current task.
+- **Alt+W** — Open a list of every window on your screen. The window with the keyboard comes first, followed by JJ Flexible Radio's windows and then other windows. Each row names the program that owns it, reports whether that program is running and responding, and says whether a dialog is blocking the rest of its program. The W stands for Windows. This command works without a radio and from inside any dialog.
+- **Alt+N** — Open the tracking notch filters. Auto Notch hunts for a carrier, while this control lets you place a notch yourself. Add puts it at your current receive frequency; you can set its width and depth. Set Keep to Yes to retain the notch through band changes and power cycles, as you might for a birdie that stays at one frequency. The N stands for Notch. Alt fits because this chord opens a control instead of switching a feature.
+- **Alt+F** — Open Recorded QSOs, which holds recordings you made with Record to file. Choose a recording to play from the computer, play it here, trim it, save it as MP3 or another format, delete it, or prune old recordings. The F stands for files. Alt fits because this chord opens a list; it works without a connected radio.
 
 ## Still finding their layer
 
-One switch is left here. Tuning speech debounce wants `Ctrl+D`, which is the detailed capture, and its home is a tuning layer that does not exist yet. Everything else that used to wait in this section has found its room — the noise family in the noise layer (`N`), the compander and the speech processor in the audio layer beside their levels (`A`, then `Ctrl+C` or `Ctrl+S`), and PC audio's switch with them (`A`, then `Ctrl+P`). Two Ctrl chords sit here on purpose, because they are not switches: `Ctrl+C` copies because `Ctrl+C` copies everywhere in Windows, and `Ctrl+F` is waiting on a decision about what the Alt tier should mean.
+Tuning speech debounce remains outside a layer. Its likely chord, `Ctrl+D`, is already used for detailed capture, and a tuning layer does not yet exist. The noise controls are in the noise layer (`N`); the compander and speech processor switches sit beside their levels in the audio layer (`A`, then `Ctrl+C` or `Ctrl+S`), along with PC audio (`A`, then `Ctrl+P`). Two other Ctrl chords remain here even though they are not switches. `Ctrl+C` copies, as it does elsewhere in Windows, and `Ctrl+F` awaits a decision about the Alt tier.
 
-- **D** — Toggle tuning speech debounce on or off
-- **Ctrl+C** — Copy the message the history walk is sitting on to the clipboard. Walk to the one you want first with `Ctrl+F4` (back) and `Ctrl+F5` (forward), or press it straight away to copy the most recent thing said. Works with no radio connected — the moment you most want to paste an error is usually just after the radio has gone away
-- **Ctrl+F** — Open the direct frequency-entry box
+- **D** — Switch tuning speech debounce on or off.
+- **Ctrl+C** — Copy the selected message in the history walk to the clipboard. Use `Ctrl+F4` to move back or `Ctrl+F5` to move forward first, or copy the most recent message right away. This works without a connected radio, including when you need to paste an error after the radio disconnects.
+- **Ctrl+F** — Open the direct frequency-entry box.
 
 ## Help
 
-- **H** — Open the list of JJ key commands, one per row, to read at your own pace
-- **/** — Open the JJ key explorer — every layer and its keys, at your own pace. The same key with Shift held, the question mark, does the same thing
-- **Escape** — Close the JJ key layer
+- **H** — Open the list of JJ key commands, with one command per row so you can read them at your own pace.
+- **/** — Open the JJ key explorer to browse every layer and its keys. Pressing the same key with Shift, the question mark, opens it too.
+- **Escape** — Close the JJ key layer.
 
 <!-- END LEADER-KEY-TABLE -->
 
 ## When the JJ layer doesn't know the key you pressed
 
-Press `Ctrl+J` and then something the layer has no command for, and you'll hear a low thunk. What comes after it depends on your speech verbosity (`Ctrl+Shift+V` cycles it). On Chatty, the thunk is followed by the whole lesson: "Unknown key. Press H for the list of JJ key commands, or slash for the JJ key explorer. Escape to cancel." On Terse, and on Off, the thunk is the whole answer — after a while you know what it means, and you know `H` is where the list lives, so the app stops telling you.
+If you press `Ctrl+J` followed by a key with no JJ command, you will hear a low thunk. What follows depends on your speech verbosity, which `Ctrl+Shift+V` cycles. On Chatty, you will also hear: "Unknown key. Press H for the list of JJ key commands, or slash for the JJ key explorer. Escape to cancel." On Terse and Off, the thunk is the entire response. Once you know the sound and where to find help with `H`, the extra words are unnecessary.
 
-<!-- DRAFT (#693): this paragraph describes Noel's ruled near-miss sentences; the surrounding prose is a draft for his review. -->
-A near miss is different, because there the layer knows which key you probably meant, and a thunk can tell you a key did nothing but never which key to press instead. `K` isn't assigned, and `Alt+K` is the mic check, so pressing `K` gets you, on Chatty: "You pressed K which isn't assigned. Pressing Alt+K launches Mic check if that was what you were looking for, otherwise use JJ H to hear keys you can use with the JJ key." On Terse it is the short form: "Alt+K launches Mic check, not K." On Off the thunk is still the whole answer. Either way it names the chord; it never runs it for you.
+A near miss gives you a more useful answer because the layer can suggest the chord you may have meant. For example, `K` has no command, but `Alt+K` runs the mic check. On Chatty, pressing `K` gives you this suggestion: "You pressed K which isn't assigned. Pressing Alt+K launches Mic check if that was what you were looking for, otherwise use JJ H to hear keys you can use with the JJ key." On Terse, you will hear: "Alt+K launches Mic check, not K." On Off, you will hear only the thunk. The suggestion names a chord but does not run it for you.
 
-Turning verbosity down never leaves you with nothing, though. If you've switched earcons off — all of them, or just the command tones — there's no thunk to hear, so the app speaks the short form instead at every level: "Unknown key. H for the list, Escape to cancel." A key you pressed always answers somehow. And the level only changes what the app *says*, never what it *does*: the three waiting keys below are the same on Terse as on Chatty.
+You will still get a response if you have turned off all earcons or just command tones. Without a thunk to hear, JJ Flexible speaks the short form at every verbosity level: "Unknown key. H for the list, Escape to cancel." Verbosity changes what you hear, not which keys work while the layer waits for you.
 
-Here's the part that matters, because it used to be a small lie. That sentence tells you to press `H` — and until now, by the time it finished saying so, the layer had already closed behind you. `H` did whatever `H` does wherever you happened to be standing. You were told to do the one thing that couldn't work.
+After an unknown key, the layer stays open for three possible keys: `H` opens the command list, slash opens the JJ key explorer, and `Escape` closes the layer. You can press one of them immediately after hearing the response. After a near miss, it also waits for the suggested chord. For example, press `Alt+K` after a suggested mic check without pressing `Ctrl+J` again.
 
-Now the layer waits. After an unknown key it stays open for exactly three keys: `H`, which opens the command list, the slash key, which opens the JJ key explorer, and `Escape`, which closes it. After a near miss it waits for those three and one more: the chord it just named, so pressing `Alt+K` straight away runs the mic check without pressing `Ctrl+J` again. That holds where you made the slip: inside this window, or in another program if you got there with the system-wide JJ key. A slip made in this window does not follow you to another program, and switching away lets go of it. Press any other key and the layer is already gone — that key does the ordinary thing it always does, nothing swallowed, nothing surprising.
+This works both inside JJ Flexible and when you entered through the system-wide JJ key in another program. A pending suggestion made inside JJ Flexible does not follow you into another program; switching away releases it. If you press any other key after the suggestion, the layer has already closed, so that key performs its ordinary action.
 
 ## Reading the list at your own pace
 
-`H` used to read you every command in the layer in one go — thirty-odd of them, most of a minute, and if the one you wanted went past, you started again from the top. Speech is the right medium for an answer you already know you want; it's the wrong one for looking for something. So `H` now opens a list instead. It says how many commands there are first, so you know what you're getting, then puts one command per row in a window you can arrow through: hear each one on its own, go back to the one you missed, type a letter to jump to that key, and press Escape when you're done. Inside the audio layer, `H` reads its ten targets: V, Ctrl+H, O, M, L, C, S, X, D, and P.
+Press `H` to open a list you can read at your own pace. JJ Flexible first announces the number of commands, then presents one command per row. Use the arrow keys to hear each one, move back to a command you missed, or type a letter to jump to a key that starts with it. Press `Escape` to close the list. In the audio layer, `H` presents its ten targets: V, Ctrl+H, O, M, L, C, S, X, D, and P.
 
-From the list, **Explore the JJ key** (`Alt+X`) opens the explorer: the whole layer as a tree. The top branches are the kinds of key — plain letters, Shift letters, Control letters, Alt letters, and help — and under a chord that opens a mode of its own, such as `V` for volume mode, sit the keys that only work once you're in it. Right arrow opens a branch, Left closes it, Enter does either, and a letter jumps to the next key that starts with it. It's the same table the list reads from, so the two can't disagree.
+From the list, choose **Explore the JJ key** with `Alt+X` to open the explorer. It presents the layer as a tree. Its top branches group plain letters, Shift letters, Control letters, Alt letters, and help. Under a chord that opens its own mode, such as `V` for volume mode, you will find the keys available in that mode. Right arrow opens a branch, Left arrow closes it, `Enter` does either, and typing a letter jumps to the next matching key. The explorer and list read the same command data, so their entries agree.
 
-Three keys, or four after a near miss, and no more, on purpose. A layer that keeps hold of your keyboard without saying so is a trap, and you can't see whether you're still in one. These all lead *out*: two to help, one to the door, and after a near miss the one chord the layer has just told you about. There's no way to get stuck, and the layer only ever lingers right after it has told you it's doing so — in words on Chatty, in words on Terse after a near miss, and otherwise with the thunk those words taught you.
+The layer waits for only those three keys, or four after a near miss, so it will not keep control of your keyboard unexpectedly. Two keys open help, one closes the layer, and the fourth runs the suggested chord. It waits only after giving you a response: words on Chatty, words after a near miss on Terse, or the thunk on the quieter settings.
 
-A note on how these keys get spoken. You'll notice the app says "slash" or "Shift slash" rather than "question mark" or a bare `?` character. That's deliberate. If your screen reader's punctuation level is set low, a lone `?` may not be spoken at all — so an instruction can quietly lose the very key it's naming. Naming the key also just describes what your hands do, which is the whole job of an instruction. You'll see the same wording anywhere the app asks you to press a punctuation key.
+JJ Flexible says "slash" or "Shift slash" rather than "question mark" or a bare `?` character. If your screen reader speaks little punctuation, it may omit a lone `?` and leave you without the key the instruction meant to name. The spoken name tells you what to press. JJ Flexible uses this wording for other punctuation keys too.
 
 ## Audio Feedback
 
-Every JJ key action has its own audio feedback:
+You will hear different feedback for these JJ key results:
 
-- **Feature toggled on** — a two-step rising tone (bonk-bink), then speech confirming the new state: for example, "On-Radio Neural NR on."
-- **Feature toggled off** — a two-step falling tone (bink-bonk), then speech: "On-Radio Neural NR off."
-- **Information spoken** — no earcon, just speech with the requested information.
-- **Invalid or unavailable key** — a dull buzz (the thunk), then speech: for example, "Audio Peak Filter is CW only" or "On-Radio Neural NR not available on this radio." Those reasons are about your radio and are always spoken. A key the layer simply doesn't know, or a wrong arrow inside the audio or filter layer, is different: on Chatty the thunk is followed by the lesson, on Terse the thunk is the answer. See "When the JJ layer doesn't know the key you pressed" above.
-- **Cancelled** — a soft descending tone.
+- **When a feature turns on,** you will hear a two-step rising tone (bonk-bink), then a spoken confirmation such as "On-Radio Neural NR on."
+- **When a feature turns off,** you will hear a two-step falling tone (bink-bonk), then a spoken confirmation such as "On-Radio Neural NR off."
+- **When you request information,** you will hear the answer without an earcon.
+- **When a key is invalid or unavailable,** you will hear a dull buzz, or thunk, followed by a reason such as "Audio Peak Filter is CW only" or "On-Radio Neural NR not available on this radio." Reasons concerning your radio are always spoken. For a key the layer does not know, or a wrong arrow in the audio or filter layer, Chatty adds an explanation after the thunk; on Terse the thunk is the answer. See "When the JJ layer doesn't know the key you pressed" above.
+- **When you cancel,** you will hear a soft descending tone.
 
 ## Why a JJ Key?
 
-If you use JAWS or NVDA, you already know the idea as layered keystrokes — press one key, then a second key that does the work. Instead of needing a unique modifier combination for every feature (which would quickly exhaust the available Ctrl, Alt, and Shift combinations), you press the JJ key and then a letter you can work out. The modifier says what kind of thing you want — nothing for a layer, Ctrl to switch something, Alt to do something — and the letter is the thing's initial: `N` then `B` for the Blanker inside the Noise layer, `Ctrl+G` for the test-tone Generator, `Alt+Q` for a quiet-band capture, `Alt+M` for Memories. You derive it rather than remember it.
+If you use JAWS or NVDA, the JJ key may feel familiar: you press one key to enter a layer, then another to act. A separate `Ctrl`, `Alt`, or `Shift` shortcut for every feature would use up many combinations. With the JJ key, the modifier usually tells you the kind of command and the letter suggests its name. A plain letter opens a layer, `Ctrl` usually switches a feature, and `Alt` performs an action. For example, press `N`, then `B` for the Blanker in the Noise layer, `Ctrl+G` for the test-tone Generator, `Alt+Q` for a quiet-band capture, or `Alt+M` for Memories. The pattern helps you work out a chord instead of memorising every one.
 
-**Tip:** Press `Ctrl+J`, then `H` for the list of JJ key commands, or the slash key for the explorer, at any time. You do not need to memorise this page.
+**Tip:** Press `Ctrl+J`, then `H` for the command list, or press slash for the explorer. You can look up a chord whenever you need it.
