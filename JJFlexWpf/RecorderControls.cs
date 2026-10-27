@@ -234,8 +234,11 @@ public static class RecorderControls
 
     /// <summary>
     /// Play the last computer recording, or the one chosen in the recordings
-    /// dialog, to the speakers; or stop it playing. Needs no radio. Refused
-    /// while transmitting, in ComputerRecorder.TogglePlaybackAsync, before the engine is asked.
+    /// dialog, to the speakers; or stop it playing. Needs no radio. While
+    /// transmitting it is a send to the air instead, routed before the engine
+    /// is asked, so ComputerRecorder.TogglePlaybackAsync's refusal while
+    /// transmitting stays as the engine's own guard and is no longer what this
+    /// door says.
     /// </summary>
     /// <remarks>
     /// <para>

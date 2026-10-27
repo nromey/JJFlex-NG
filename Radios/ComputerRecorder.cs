@@ -29,10 +29,13 @@ namespace Radios;
 /// did nothing. The subject is <see cref="Speech.SpeechSubject.ComputerRecorder"/>.
 /// </para>
 /// <para>
-/// <b>Playback never transmits.</b> Play from computer plays to the speakers.
-/// The controls refuse it while transmitting before the engine is asked
-/// (Noel, 2026-10-21 10:57: keyed, Play sending to air is phase 2), so an
-/// engine does not need its own transmit check, and must not key the radio.
+/// <b>Playback never transmits.</b> The ENGINE's Play plays to the speakers
+/// only. Sending a computer recording to the air is the controls' job, not
+/// the engine's: keyed, or under Don's box, the controls hand the file to the
+/// voice message's transmit-file send before the engine is asked (#835, Tape
+/// Deck phase 2; Noel, 2026-10-21 10:57). So an engine does not need its own
+/// transmit check, and must not key the radio. <see cref="ComputerRecorder.TogglePlaybackAsync"/>
+/// still refuses while transmitting, as the engine's own guard.
 /// </para>
 /// <para>
 /// <b>Threading.</b> The controls call from the UI thread and await. An engine
