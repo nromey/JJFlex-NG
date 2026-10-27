@@ -65,6 +65,31 @@ namespace Radios
         }
 
         /// <summary>
+        /// <see cref="Own(FlexBase, IVoiceMessageRig, string)"/>, unless a kill
+        /// has happened since the press (fix round 1, Codex's follow-up 4).
+        /// Null means a kill came between <paramref name="disarmGenerationAtPress"/>
+        /// (<see cref="TransmitKillSwitch.DisarmGeneration"/>, read at the press)
+        /// and now: the caller must not key, and nothing is left armed.
+        /// </summary>
+        /// <remarks>
+        /// The order closes the window. The switch is armed FIRST, then the
+        /// generation is read. A kill before that read moved the generation and
+        /// is caught here; a kill after it finds the switch armed, and
+        /// <see cref="TransmitKillSwitch.Request"/> latches the stop that makes
+        /// <see cref="TransmitKillSwitch.RaiseCarrier"/> refuse the key.
+        /// </remarks>
+        public static BoxSendOwnedRig? Own(FlexBase rig, IVoiceMessageRig source, string what,
+            long disarmGenerationAtPress)
+        {
+            var owned = Own(rig, source, what);
+            if (TransmitKillSwitch.DisarmGeneration == disarmGenerationAtPress) return owned;
+            owned.Dispose();
+            Tracing.TraceLine("BoxSendOwnedRig: a kill came while " + what + " was getting ready, so it does not key",
+                TraceLevel.Warning);
+            return null;
+        }
+
+        /// <summary>
         /// True when this send asked to key and the kill switch refused: a stop
         /// had already been asked for, or keying is held after a cut. Nothing
         /// was written to the radio.

@@ -233,6 +233,17 @@ namespace Radios
         /// </summary>
         public static long KillCount => Interlocked.Read(ref _killCount);
 
+        /// <summary>
+        /// How many times every transmit source has been disarmed by a kill
+        /// (<see cref="DisarmSources"/>, which every kill route calls). A send
+        /// that is still getting ready to key — Don's box waiting for the radio
+        /// to confirm VOX off (#835) — reads this at the press and refuses to
+        /// key if it has moved: a kill cancels every key after it, including
+        /// one not yet made.
+        /// </summary>
+        public static long DisarmGeneration => Interlocked.Read(ref _disarmGeneration);
+        private static long _disarmGeneration;
+
         /// <summary>What is currently armed, in words, or empty.</summary>
         public static string WhatIsArmed { get { lock (Gate) { return _what; } } }
 
@@ -464,6 +475,9 @@ namespace Radios
         /// </remarks>
         public static void DisarmSources(FlexBase rig)
         {
+            // First, and even with no rig: a send still getting ready to key
+            // (Don's box, #835) must find the kill when it next looks.
+            Interlocked.Increment(ref _disarmGeneration);
             if (rig == null) return;
             try { rig.CancelSlicePlayback(); }
             catch (Exception ex)

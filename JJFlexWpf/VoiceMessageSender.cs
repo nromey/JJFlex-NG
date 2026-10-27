@@ -350,6 +350,10 @@ internal static class VoiceMessageSender
         bool startsOnKey, double seconds, Action joinInstead)
     {
         _starting = info;
+        // A kill from here on cancels this send's key, whatever route it takes
+        // (fix round 1, Codex's follow-up 4). Escape invalidates _starting;
+        // a kill moves this generation, and BoxSendOwnedRig.Own refuses.
+        long disarmsAtPress = TransmitKillSwitch.DisarmGeneration;
         Tracing.TraceLine("VoiceMessageSender: box send of " + Name(info) + ": pausing VOX", TraceLevel.Info);
         FlexBase.LocalPlaybackVoxPause? pause;
         try { pause = await rig.PauseVoxForLocalPlaybackAsync(); }
@@ -386,6 +390,15 @@ internal static class VoiceMessageSender
             return;
         }
         _starting = null;
+        if (TransmitKillSwitch.DisarmGeneration != disarmsAtPress)
+        {
+            // A kill came while this send was getting ready: no key, and no
+            // joining whatever is on the air either.
+            Tracing.TraceLine("VoiceMessageSender: box send of " + Name(info) + " cancelled by a kill before it keyed",
+                TraceLevel.Warning);
+            pause.Dispose();
+            return;
+        }
 
         PttSafetyController? ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
         if (OperatorHolds(rig, ptt) || rig.Transmit)
@@ -424,7 +437,14 @@ internal static class VoiceMessageSender
         // The carrier this send keys is under the reflected-power CUT for its
         // whole life (fix round 1, Codex's blocker 1): armed on the transmit
         // kill switch before the key, keyed through it, disarmed in Settle.
-        info.Owned = BoxSendOwnedRig.Own(rig, sendRig, "the box send of " + Name(info));
+        info.Owned = BoxSendOwnedRig.Own(rig, sendRig, "the box send of " + Name(info), disarmsAtPress);
+        if (info.Owned == null)
+        {
+            // A kill came while this send was getting ready. Nothing keys.
+            pause.Dispose();
+            info.VoxPause = null;
+            return;
+        }
         var send = VoiceMessageSend.BeginKeyed(info.Owned, Name(info), Environment.TickCount64, options);
         Launch(rig, info, send, seconds, info.MonitorPath ?? "", "box");
     }
