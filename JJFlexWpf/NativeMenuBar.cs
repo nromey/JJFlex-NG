@@ -4243,9 +4243,35 @@ public class NativeMenuBar : IDisposable
             question: Radios.Lexicon.Get("settings.station_layout.disconnect_question",
                 ("profileName", profileName)),
             yesLabel: Radios.Lexicon.Get("settings.station_layout.disconnect_yes_label"),
-            noLabel: Radios.Lexicon.Get("settings.station_layout.disconnect_no_label"));
+            noLabel: Radios.Lexicon.Get("settings.station_layout.disconnect_no_label"),
+            // #759, ruled with the default-ON: a box to stop the question, and
+            // Settings is the way back. The help names the route, which is
+            // Notifications - not Radio, which is where both Noel and the
+            // orchestrator first assumed it lived.
+            stopAskingLabel: Radios.Lexicon.Get("settings.station_layout.disconnect_stop_asking_label"),
+            stopAskingHelp: Radios.Lexicon.Get("settings.station_layout.disconnect_stop_asking_help"));
 
-        if (confirm.ShowDialog() != true) return;
+        bool? answer = confirm.ShowDialog();
+
+        // Before the answer is acted on, so "stop asking" holds whichever
+        // button carried it, and before the disconnect, so a power-off save of
+        // the live config cannot write the old value back.
+        if (confirm.StopAskingChosen)
+        {
+            try
+            {
+                AudioOutputConfig.RecordStationSaveOfferTurnedOff(_window.CurrentAudioConfig,
+                    _window.OpenParms?.ConfigDirectory ?? Radios.RadioConfig.AppDataRoot);
+            }
+            catch (Exception ex)
+            {
+                // An offer must never be able to block a disconnect.
+                Tracing.TraceLine("OfferStationSaveBeforeDisconnect: could not record stop-asking: "
+                    + ex.Message, TraceLevel.Warning);
+            }
+        }
+
+        if (answer != true) return;
 
         var error = rig.SaveCurrentStationLayout();
         SpeakAfterMenuClose(

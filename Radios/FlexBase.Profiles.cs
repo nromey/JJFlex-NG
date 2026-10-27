@@ -3098,8 +3098,10 @@ namespace Radios
         // if you tune the radio or any radio, when you turn it off, it saves
         // stuff."
         //
-        // Both halves of that are right, which is why this is a SETTING and why
-        // it ships off. The expectation is real — every other radio remembers
+        // Both halves of that are right, which is why this is a SETTING. It
+        // shipped off until 2026-10-17, when Noel ruled it on (#759): the
+        // operator who most needs the question is the one who does not know the
+        // switch exists, and the gates below answer the dismissal worry. The expectation is real — every other radio remembers
         // what you did to it, and an operator who releases a slice and finds it
         // back tomorrow concludes the application is broken. But Sprint 32
         // Track H considered a disconnect prompt and deliberately shipped a
@@ -3132,32 +3134,72 @@ namespace Radios
         // asked. The answer is always the operator's.
 
         /// <summary>
-        /// Whether the operator has asked to be offered a station-layout save
-        /// when they disconnect. App-level, one knob for every radio and every
+        /// Whether the operator wants to be offered a station-layout save when
+        /// they disconnect. App-level, one knob for every radio and every
         /// connection, in the shape of the other cross-layer settings on this
-        /// class. Default false: the shipped behaviour stays Sprint 32's spoken
-        /// notification until somebody deliberately turns this on.
+        /// class.
         /// </summary>
-        public static bool OfferStationSaveOnDisconnect { get; set; }
+        /// <remarks>
+        /// DEFAULT ON, ruled by Noel 2026-10-17 (#759): "I think it should
+        /// default to on, user could click a checkbox to turn it off". It was
+        /// off until then, and his own radio lost two muted slices, a mode and a
+        /// frequency to exactly the disconnect it exists for. The gates below
+        /// still keep it from firing when nothing changed. The persisted value
+        /// is the configuration's, and existing files are brought forward by
+        /// AudioOutputConfig's one-time migration; this initializer only covers
+        /// the moments before any configuration is read.
+        /// </remarks>
+        public static bool OfferStationSaveOnDisconnect { get; set; } = true;
+
+        /// <summary>
+        /// Why the most recent <see cref="ShouldOfferStationLayoutSave"/> did
+        /// not offer, or null when it offered (or has not been asked). The same
+        /// words the trace line carries, kept so a test can read which gate
+        /// closed without capturing the trace.
+        /// </summary>
+        internal string? LastStationSaveOfferDecline { get; private set; }
 
         /// <summary>
         /// Whether to offer a station-layout save right now. Every condition
         /// must hold, and each one is a separate objection being answered.
         /// </summary>
+        /// <remarks>
+        /// <b>Every refusal traces which gate closed (#759).</b> Until then only
+        /// the ownership branch did, and it was the one that PASSED on the radio
+        /// where the prompt failed to appear - so the record could not say which
+        /// of the other four had closed it. A prompt whose whole job is to stop
+        /// a silent loss must not decline silently. One line per disconnect, at
+        /// Info.
+        /// </remarks>
         public bool ShouldOfferStationLayoutSave()
         {
+            LastStationSaveOfferDecline = null;
+
+            bool Decline(string why)
+            {
+                LastStationSaveOfferDecline = why;
+                Tracing.TraceLine("ShouldOfferStationLayoutSave:not offering, " + why, TraceLevel.Info);
+                return false;
+            }
+
             // The operator asked for the question.
-            if (!OfferStationSaveOnDisconnect) return false;
+            if (!OfferStationSaveOnDisconnect)
+                return Decline("the offer is switched off in Settings (Notifications, Saving Your Setup to the Radio)");
 
             // Something to ask ABOUT. An offer on a session where the operator
             // never touched the slice set or a radio-persisted setting is the
             // reflexive-dismissal trap, and this is the line that keeps it shut.
-            if (!OperatorChangedStationThisSession) return false;
+            if (!OperatorChangedStationThisSession)
+                return Decline("nothing on the station changed this session");
 
             // Saveable at all: connected, sole operator, a profile loaded to
             // save into. Carries the MultiFlex refusal, so the offer cannot
-            // become the trap it exists to avoid.
-            if (StationLayoutSaveBlocker() != null) return false;
+            // become the trap it exists to avoid. The blocker's own sentence
+            // names which of its reasons it was - including roster Unknown,
+            // the deliberate fail-safe that otherwise looks exactly like a bug.
+            string? blocker = StationLayoutSaveBlocker();
+            if (blocker != null)
+                return Decline("the save is blocked: " + blocker);
 
             // Ownership. Until #777 this was the ONLY ownership gate on the
             // layout save, on the reasoning that a proactive prompt is a write
@@ -3169,16 +3211,11 @@ namespace Radios
             // any other answer. Kept as the second lock on a door that should
             // already be shut, with its trace.
             var radio = theRadio;
-            if (radio == null) return false;
+            if (radio == null) return Decline("no radio");
             if (RadioConfig.OwnershipOf(radio.Serial) != RadioOwnership.Mine)
-            {
-                Tracing.TraceLine(
-                    "ShouldOfferStationLayoutSave:not offering, radio "
-                    + radio.Serial + " is not declared as the operator's",
-                    TraceLevel.Info);
-                return false;
-            }
+                return Decline("radio " + radio.Serial + " is not declared as the operator's");
 
+            Tracing.TraceLine("ShouldOfferStationLayoutSave:offering", TraceLevel.Info);
             return true;
         }
 

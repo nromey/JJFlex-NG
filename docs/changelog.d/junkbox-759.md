@@ -1,0 +1,1 @@
+When you disconnect after changing your station, JJ Flexible now offers to save it to the radio, for everyone, including those who already have it installed. Tick "Don't ask me this again" in that question to stop it; the setting on the Notifications tab in Settings brings it back.

@@ -1084,6 +1084,11 @@ namespace Radios.Tests
                 // written by Noel at the 2026-10-21 fold (Fold 6).
                 "settings.profile.save_not_sent",
                 "settings.station_layout.save_not_sent",
+                // Junkbox #759: the disconnect question's stop-asking box and
+                // its F1 text. TextOnly: a control's own label and help, never
+                // spoken on the application's own account. DRAFT PROSE.
+                "settings.station_layout.disconnect_stop_asking_label",
+                "settings.station_layout.disconnect_stop_asking_help",
                 // #456: new listenback control labels, dialog body/status prose,
                 // and fragments. TextOnly describes these persistent UI values;
                 // the dialog echoes its status value through its existing speech
