@@ -4826,6 +4826,7 @@ public partial class MainWindow : UserControl
                 + $"diversityGate='{rig.DiversityGateMessage}', "
                 + $"features: {rig.BuildLicenseFeatureInventoryTrace()}",
                 TraceLevel.Info);
+            rig.ProbeNoiseCommandReplies(); // PROBE BRANCH ONLY, #746
         }
 
         Tracing.TraceLine(
