@@ -408,14 +408,15 @@ internal static class VoiceMessageSender
         info.VoxPause = pause;
         var options = new KeyedSendOptions
         {
-            // Push to talk and the lock, through the controller, which then
-            // owns the unkey and every timeout on it. Deliberately NOT the
-            // radio's hardware PTT source: nobody has read what the radio
-            // reports as the source of a transmission this app keyed, and a
-            // misread here would release the send's unkey with no owner left
-            // to drop the carrier. A foot switch held through the send's own
-            // unkey keeps the radio keyed by itself, so it loses nothing.
-            OperatorKeyed = () => Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke()?.IsTransmitting == true,
+            // Any push to talk takes over (Noel, 15:26): the keyboard's and
+            // the lock through the controller, which then owns the unkey, and
+            // a hardware line, read from the radio's interlock source only
+            // after the send's own software key has been seen, so the send's
+            // own MOX can never read as the operator (fix round 1, Codex's
+            // blocker 2). After a hardware takeover the send withdraws its
+            // own software key; the line holds the carrier.
+            TakenBy = BoxSendTakeover.For(rig,
+                () => Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke()?.IsTransmitting == true).Check,
             StartSourceWhenKeyed = startsOnKey,
             SourceFailed = info.Slice == null ? null : () => info.Slice.Failed,
             Keyed = () => StartMonitor(info),

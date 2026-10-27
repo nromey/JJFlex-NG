@@ -112,6 +112,17 @@ namespace Radios
         public Func<bool>? OperatorKeyed { get; init; }
 
         /// <summary>
+        /// Who, if anyone, has taken the transmitter, read on every tick of a
+        /// box send: the host's <see cref="BoxSendTakeover.Check"/>.
+        /// <see cref="BoxTakeover.Controller"/> is the same takeover as
+        /// <see cref="OperatorKeyed"/>; <see cref="BoxTakeover.Hardware"/> is a
+        /// hardware PTT line, after which the send also withdraws its own
+        /// software key, because the line holds the carrier and nobody else
+        /// would ever drop the software one.
+        /// </summary>
+        public Func<BoxTakeover>? TakenBy { get; init; }
+
+        /// <summary>
         /// The recording can only start once the radio is transmitting: the
         /// radio's own slice playback, which plays to the speakers when started
         /// unkeyed and to the air when started keyed
@@ -279,6 +290,13 @@ namespace Radios
         /// gives the transmitter up if the operator keys it themselves.
         /// </summary>
         public bool Boxed => _box != null;
+
+        /// <summary>
+        /// True when a hardware PTT line took a box send over: the recording
+        /// stopped and the send withdrew its own software key, leaving the
+        /// carrier on the operator's line (<see cref="BoxTakeover.Hardware"/>).
+        /// </summary>
+        public bool ReleasedToHardware { get; private set; }
 
         private VoiceMessageSend(IVoiceMessageRig rig, string label, long nowMs, bool weKeyed, bool viaVox,
             KeyedSendOptions? box = null)
@@ -471,8 +489,21 @@ namespace Radios
             bool operatorKeyed;
             try { operatorKeyed = box.OperatorKeyed?.Invoke() == true; }
             catch { operatorKeyed = false; }
-            if (operatorKeyed)
+            BoxTakeover by;
+            try { by = box.TakenBy?.Invoke() ?? BoxTakeover.None; }
+            catch { by = BoxTakeover.None; }
+            if (operatorKeyed || by == BoxTakeover.Controller)
             {
+                Finish(VoiceMessageOutcome.TakenOver);
+                return;
+            }
+            if (by == BoxTakeover.Hardware)
+            {
+                // The operator's hardware line holds the carrier now, and a
+                // software unkey cannot drop a hardware-keyed transmitter. The
+                // send's own software key, left standing, would keep the radio
+                // keyed after they let go, with nobody left to drop it.
+                ReleasedToHardware = true;
                 Finish(VoiceMessageOutcome.TakenOver);
                 return;
             }
@@ -566,7 +597,7 @@ namespace Radios
             // operator is holding it, and dropping it under their thumb is the
             // one thing a box send must never do (Noel, 2026-10-27 15:26).
             if (WeKeyed && outcome != VoiceMessageOutcome.Interrupted
-                        && outcome != VoiceMessageOutcome.TakenOver)
+                        && (outcome != VoiceMessageOutcome.TakenOver || ReleasedToHardware))
                 _rig.Transmit = false;
         }
     }
