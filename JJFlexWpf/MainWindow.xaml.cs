@@ -147,6 +147,9 @@ public partial class MainWindow : UserControl
         // of the values they read are set later, during startup.
         Dialogs.AudioWorkshopDialog.OpenAudioDevices = () => AudioSetupCallback?.Invoke();
         Dialogs.AudioWorkshopDialog.AudioDevicesPath = () => AudioDevicesFilePath;
+        // #835: where Check your audio finds the radio when a door has none
+        // to hand (the Workshop opened from Settings carries no radio).
+        Dialogs.CheckYourAudioDialog.RigSource = () => RigControl;
         // Sprint 33 Track I: the recorder records the microphone the operator
         // already chose. Pointing it at the same setting the rest of the audio
         // path reads is what stops "which microphone am I recording" from
@@ -3379,6 +3382,7 @@ public partial class MainWindow : UserControl
 
         SetupBoxes();
         if (RigControl != null) Dialogs.AudioWorkshopDialog.NotifyRigReady(RigControl);
+        if (RigControl != null) Dialogs.CheckYourAudioDialog.NotifyRigReady(RigControl);
 
         // Wire memory dialog delegate
         if (RigControl != null)
@@ -5704,6 +5708,9 @@ public partial class MainWindow : UserControl
         // the workshop singleton outlives the radio, and its 2 Hz tick raced
         // this teardown nulling theRadio (2026-08-07 app-close crash).
         Dialogs.AudioWorkshopDialog.NotifyRigGone();
+        // And Check your audio (#835), which outlives the radio the same way
+        // and runs its own poll.
+        Dialogs.CheckYourAudioDialog.NotifyRigGone();
 
         // Detach screen fields panel (Sprint 14)
         FieldsPanel.Detach();

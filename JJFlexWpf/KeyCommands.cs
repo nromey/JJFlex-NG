@@ -472,9 +472,10 @@ public class KeyCommands
                 { Keywords = new[] { "alarm", "alarms", "temperature", "pa", "patemp", "voltage", "volts", "supply",
                                      "threshold", "warning", "warn", "meter", "monitor", "hot", "overheat", "baseline" },
                   ShortActionLabel = "open operator alarms" },
-            // Audio Check: "check my transmit audio" — opens the workshop and
-            // keys through the PTT safety controller with the safety line
-            // first. Command Finder only, no key binding (QB Track G).
+            // Audio Check: "check my transmit audio" — opens Check your audio
+            // (the Audio Workshop until #835) and starts the method shown,
+            // keying through the PTT safety controller. Command Finder only, no
+            // key binding (QB Track G).
             new(CommandValues.StartAudioCheck, KeyTypes.Command, StartAudioCheckHandler,
                 "Check my transmit audio (Audio Check session)", "Audio Check", false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "audio", "check", "monitor", "hear", "myself", "transmit", "tx", "test" }, ShortActionLabel = "start audio check" },
@@ -1278,7 +1279,18 @@ public class KeyCommands
     {
         var rig = _context.GetRigControl();
         var mw = _context.GetMainWindow();
-        mw?.Dispatcher.Invoke(() => Dialogs.AudioWorkshopDialog.ShowOrFocusAndStartCheck(rig));
+        mw?.Dispatcher.Invoke(() => Dialogs.CheckYourAudioDialog.ShowOrFocusAndStartCheck(rig));
+    }
+
+    /// <summary>
+    /// Ctrl+J, Alt+C (#835): open Check your audio. Opens only; a check starts
+    /// from inside the window, with Start or Ctrl+Enter.
+    /// </summary>
+    private void OpenCheckYourAudioHandler()
+    {
+        var rig = _context.GetRigControl();
+        var mw = _context.GetMainWindow();
+        mw?.Dispatcher.Invoke(() => Dialogs.CheckYourAudioDialog.ShowOrFocus(rig));
     }
 
     /// <summary>
@@ -1936,9 +1948,10 @@ public class KeyCommands
             + "or warning, and the Hotkey Editor can bind it; no default chord, because the JJ key "
             + "letter for alarms is Noel's to allocate."),
         [CommandValues.StartAudioCheck] = new(UnboundReason.CommandFinderOnly,
-            "Starts the Audio Check. Ctrl+Enter does it from inside the Audio Workshop, which "
-            + "is where you are when you want it; a global chord that keys the transmitter "
-            + "from anywhere is not something to hand out by default."),
+            "Starts the Audio Check. Ctrl+Enter does it from inside Check your audio, which "
+            + "is where you are when you want it, and Ctrl+J, Alt+C opens that window without "
+            + "starting anything; a global chord that keys the transmitter from anywhere is "
+            + "not something to hand out by default."),
         [CommandValues.GatherDebug] = new(UnboundReason.CommandFinderOnly,
             "Collects a debug snapshot. Settings, Diagnostics is the fuller route now — it "
             + "records sessions and builds problem-report bundles — so this stays available "
@@ -4329,6 +4342,19 @@ public class KeyCommands
             // example; see the Ctrl+F arm above. Works with no radio.
             case Keys.F | Keys.Alt:
                 OpenRecordedQsosHandler();
+                break;
+
+            // #835: C for Check — Check your audio, every way of hearing how
+            // you sound. Ruled by Noel 2026-10-27 14:59 ("yep that's exactly
+            // what I was thinking"). Opening a window is an action, so the Alt
+            // tier, beside Alt+M's memories and Alt+W's window list (#515).
+            // IT OPENS THE WINDOW AND NEVER STARTS THE CHECK (13:57): a chord
+            // that keys the transmitter from anywhere is not something to hand
+            // out by default, which is why StartAudioCheck stays unbound.
+            // Works with no radio: the window says so, and its sources and
+            // levels are reachable regardless.
+            case Keys.C | Keys.Alt:
+                OpenCheckYourAudioHandler();
                 break;
 
             // The two help doors every layer has (#514, #519): H lists this

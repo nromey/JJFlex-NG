@@ -129,7 +129,7 @@ namespace Radios.Tests
             new Known(Rules.DuplicateProse, "no radio is connected, so the radio could not be asked", "#256",
                       "Radios/ChainChecks/RxChainFacts.cs and TxChainFacts.cs"),
             new Known(Rules.DuplicateProse, "This device follows your Windows default microphone. Rig", "#256",
-                      "JJFlexWpf/Dialogs/AudioDevicesDialog.xaml.cs and AudioWorkshopDialog.TxAudio.cs"),
+                      "JJFlexWpf/Dialogs/AudioDevicesDialog.xaml.cs and TransmitGainControls.cs (the Workshop's TxAudio.cs until #835)"),
             // Sprint 36 Track F. Both of these are ONE defect wearing two hats:
             // a leader command's description is written once as a registry
             // KeyTableEntry (Hotkey Editor, Command Finder) and again as a

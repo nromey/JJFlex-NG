@@ -1132,6 +1132,9 @@ public class NativeMenuBar : IDisposable
                 case "audio-workshop":
                     AddWired(parent, label, MenuAudioWorkshop, enabled);
                     break;
+                case "check-your-audio":
+                    AddWired(parent, label, () => Dialogs.CheckYourAudioDialog.ShowOrFocus(Rig), enabled);
+                    break;
                 default:
                     // A layout row nobody wired. Say so rather than dropping it:
                     // a silently missing row moves every position after it, which

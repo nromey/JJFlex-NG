@@ -612,22 +612,24 @@ public sealed class DialogTransmitKeysTests : IDisposable
         // the probe key is push to talk, because Shift+Space in a dialog is
         // now refused whether or not a check is running and would show nothing.
         AssertTheDeskIsSafe(); WireDoor();
-        var workshopType = typeof(JJFlexWpf.Dialogs.AudioWorkshopDialog);
+        // The session lives in Check your audio since #835; the guard and the
+        // tracked pointer moved with it.
+        var workshopType = typeof(JJFlexWpf.Dialogs.CheckYourAudioDialog);
         var first = RuntimeHelpers.GetUninitializedObject(workshopType);
         var second = RuntimeHelpers.GetUninitializedObject(workshopType);
         var sessionType = workshopType.GetNestedType("AudioCheckSession", BindingFlags.NonPublic);
-        Assert.True(sessionType != null, "AudioWorkshopDialog.AudioCheckSession is missing");
+        Assert.True(sessionType != null, "CheckYourAudioDialog.AudioCheckSession is missing");
         var session = RuntimeHelpers.GetUninitializedObject(sessionType!);
         var activeField = sessionType!.GetField("<Active>k__BackingField", Any);
         Assert.True(activeField != null, "AudioCheckSession.Active backing field is missing");
         activeField!.SetValue(session, true);
         var sessionField = workshopType.GetField("_session", Any);
-        Assert.True(sessionField != null, "AudioWorkshopDialog._session is missing");
+        Assert.True(sessionField != null, "CheckYourAudioDialog._session is missing");
         sessionField!.SetValue(first, session);
         var instance = workshopType.GetField("_instance", BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.True(instance != null, "AudioWorkshopDialog._instance is missing");
+        Assert.True(instance != null, "CheckYourAudioDialog._instance is missing");
         var guard = workshopType.GetProperty("AnAudioCheckIsActive", BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.True(guard != null, "AudioWorkshopDialog.AnAudioCheckIsActive is missing");
+        Assert.True(guard != null, "CheckYourAudioDialog.AnAudioCheckIsActive is missing");
         var before = instance!.GetValue(null);
         try
         {

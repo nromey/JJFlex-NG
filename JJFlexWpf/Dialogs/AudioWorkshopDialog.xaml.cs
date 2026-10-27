@@ -24,48 +24,31 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     // Singleton instance for non-modal Show()
     private static AudioWorkshopDialog? _instance;
 
-    // ── Audio Check session (QB Track G, 2026-08-07) ──
+    // ── Shell hooks (QB Track G, 2026-08-07) ──
 
     /// <summary>
     /// Live path to the PTT safety controller. Set by MainWindow when the
     /// controller is created; resolved per use because the controller is
     /// recreated on operator switch and nulled at power-off. EVERY keying
-    /// path in this dialog rides the controller — the warning ladder, the
-    /// license lockout, and the 15-minute hard kill all apply unchanged.
-    /// Never set rig.Transmit directly from here.
+    /// path rides the controller — the warning ladder, the license lockout,
+    /// and the 15-minute hard kill all apply unchanged. Never set
+    /// rig.Transmit directly. Read by Check your audio, the Fixer and the
+    /// voice-message sender as well as here, which is why it stayed put when
+    /// the check moved out (#835).
     /// </summary>
     public static Func<PttSafetyController?>? PttControllerSource { get; set; }
 
-    private AudioCheckSession? _session;
-
     /// <summary>
-    /// Is an Audio Check session active right now, in ANY phase, including
-    /// the post-unkey wait for playback? While it is, the session owns the
-    /// transmitter: the dialog transmit door (#778c, <see cref="DialogTransmitKeys"/>)
-    /// refuses push to talk and the lock, and leaves Escape to this dialog's
-    /// own two-stage handler. Read-only; the session itself is untouched.
+    /// Is an Audio Check active? The check lives in Check your audio since
+    /// #835; this forwards there, so the dialog transmit door's wiring in
+    /// MainWindow (<c>DialogTransmitKeys.SessionOwnsTransmitter</c>) did not
+    /// have to move with it.
     /// </summary>
-    internal static bool AnAudioCheckIsActive => _instance?._session?.Active == true;
-    private TextBox? _micReadingBox;
-    private Button? _startCheckButton;
-    private CycleFieldControl? _listenMethodControl;
-    private CycleFieldControl? _checkPowerControl;
-    private ValueFieldControl? _checkWattsControl;
-    private Button? _playTakeButton;
-    private Button? _loopbackButton;
-    private TextBlock? _loopbackInfo;
+    internal static bool AnAudioCheckIsActive => CheckYourAudioDialog.AnAudioCheckIsActive;
+
     private CycleFieldControl? _micSourceControl;
     private GroupBox? _monitorHeader;
 
-    /// <summary>
-    /// The content panel of the section most recently opened by
-    /// <see cref="AddSectionHeader"/>. Every control added while building a
-    /// tab goes here rather than straight onto the tab's outer panel, which
-    /// is what puts it inside a real group in the accessibility tree.
-    /// Build order is strictly sequential, so this is always the section
-    /// currently being filled.
-    /// </summary>
-    private StackPanel? _section;
 
     // ── Test tone (Audio Track C) ──
 
@@ -100,20 +83,12 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
     private TextBox? _deviceReadingBox;
 
-    private CheckBox? _toneCheck;
-    private CycleFieldControl? _tonePresetControl;
-    private ValueFieldControl? _toneFreqControl;
-    private ValueFieldControl? _toneLevelControl;
-    private CheckBox? _toneMonitorCheck;
-    private TextBlock? _toneInfo;
-    private ContinuousToneSampleProvider? _toneMonitorProvider;
-    private bool _toneMonitorSounding;
-    private bool _toneOutsideWarned; // edge trigger: filter moved out from under an armed tone
-    private static readonly int[] TonePresetHz = { 440, 700, 1000 }; // index 3 = Custom
-
-    // Per-radio preferences (serial-keyed store). Loaded on SetRig.
-    private RadioConfig? _radioCfg;
-    private string _radioCfgSerial = "";
+    /// <summary>
+    /// Mic Gain and the Windows input level, in the Microphone section. The same
+    /// implementation Check your audio hosts for its adjust-while-listening loop,
+    /// bound to the same two settings (#835).
+    /// </summary>
+    private readonly TransmitGainControls _gain;
 
 
     // Preset callbacks (wired from outside).
@@ -188,6 +163,8 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         // with no edit to this file.
         _categories = CategoryNavigator.Attach(this, MainTabs, CategoryListBox);
 
+        _gain = new TransmitGainControls(Dispatcher, () => _rig, () => _polling,
+            () => AudioDevicesPath?.Invoke());
         BuildTxAudioTab();
         ApplyTxAudioTabOrder();
         BuildLiveMetersTab();
@@ -211,32 +188,15 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
         Closed += (s, e) =>
         {
-            _workshopClosing = true;
-            // A session must never outlive its dialog: unkey (through the
-            // controller), restore every changed state, stop playback.
-            CancelCheckStart();
-            _session?.ForceEnd("Audio check ended");
-            _session = null;
-            // The test tone must never outlive its dialog either — closing
-            // the workshop restores the microphone (the tone is armed only
-            // while the workshop is open, and arming is never persisted).
-            DisarmTone(speak: false);
-            // Sprint 33 Track I: the same rule for the reference recording. An
-            // armed reference that outlived its dialog would replace the
-            // microphone at the next key-down with nothing on screen saying so.
-            // DetachReferenceAudio also drops the recorder's event
-            // subscriptions, which would otherwise go on relabelling a button
-            // that no longer exists.
-            DisarmReference(speak: false);
-            DetachReferenceAudio();
-            // And local take playback (#455): the player is static and would
-            // otherwise keep sounding, and keep calling back into a button that
-            // no longer exists, after the window is gone.
-            DetachTakePlayback();
+            // The check, the test tone, the reference recording and take
+            // playback lived here until #835 and each had its teardown in this
+            // handler; they live in Check your audio now, whose own Closed
+            // handler carries them. What is left here is the Workshop's own.
+            CloseBenchTools();
             _meterTimer.Stop();
             // The Core Audio endpoint and its volume callback must not
             // outlive the dialog that subscribed them.
-            ReleasePcLevel();
+            _gain.Release();
             // Nor must the meter-inventory subscription: the inventory lives as
             // long as the rig, so a closed dialog left subscribed is a closed
             // dialog kept alive by the radio.
@@ -246,52 +206,26 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     }
 
     /// <summary>
-    /// Two-stage Escape while an Audio Check is transmitting: the first press
-    /// unkeys ("Transmit off") and STAYS in the dialog; the second press
-    /// closes it. Escape never leaves you transmitting — this extends the
-    /// house Escape rule rather than bending it. Class handler runs before
-    /// JJFlexDialog's instance handler, so we can consume the first press.
-    ///
     /// Workshop-local document keys (Noel, 2026-08-11): Ctrl+S saves a
     /// preset, Ctrl+O loads one — standard document verbs, learnable
     /// because universal. Ctrl+S also fixes a live defect: Save Preset
     /// used to answer to its Alt+S button mnemonic, which (WPF access keys
     /// match with Shift held) shadowed the GLOBAL Alt+Shift+S Speak
     /// Transmit Status chord in the one dialog where an operator most
-    /// needs to query their audio. Ctrl+Enter starts or stops the Audio
-    /// Check from anywhere in the dialog, so the adjust-and-hear loop
-    /// never requires hunting the button. All three are LOCAL to this
-    /// dialog — none is a global binding — and each requires exactly the
-    /// Ctrl modifier so chords like Ctrl+Shift+S pass through untouched.
+    /// needs to query their audio. Both are LOCAL to this dialog — neither
+    /// is a global binding — and each requires exactly the Ctrl modifier so
+    /// chords like Ctrl+Shift+S pass through untouched.
+    ///
+    /// <para>Ctrl+Enter started and stopped the Audio Check here, and Escape
+    /// had a first stage that unkeyed it, until #835 moved the check into its
+    /// own window. Both went with it: Check your audio has them now, and
+    /// nothing in this window transmits any more.</para>
     /// </summary>
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
-        if (e.Key == Key.Escape && !_checkStarts.IsBusy && _session?.Active != true)
-            StopWorkshopPlayback();
-        if (e.Key == Key.Escape && _checkStarts.IsBusy)
-        {
-            if (_checkStarts.IsCancelled)
-            {
-                // A cancelled start keeps admission closed during rollback,
-                // but its rollback no longer holds this window open.
-                Close();
-            }
-            else
-            {
-                CancelCheckStart();
-                // DRAFT PROSE (#787): awaiting Noel.
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.start_cancelled_escape"), VerbosityLevel.Terse);
-            }
-            e.Handled = true;
-            return;
-        }
-        if (e.Key == Key.Escape && _session?.Active == true)
-        {
-            _session.StopCheck();
-            StopWorkshopPlayback();
-            e.Handled = true;
-            return;
-        }
+        // A detuned render playing from Diagnostics stops with Escape before
+        // the window closes, as take playback always has.
+        if (e.Key == Key.Escape && RecordingPlayer.IsPlaying) RecordingPlayer.Stop();
         // F6 / Shift+F6 — move between sections. The Windows convention for
         // crossing panes within a window, and the answer to a gap that has
         // been open since the sections were built.
@@ -325,15 +259,6 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                     return;
                 case Key.O:
                     LoadPreset_Click(this, new RoutedEventArgs());
-                    e.Handled = true;
-                    return;
-                case Key.Enter:
-                    if (_session?.Active == true)
-                    {
-                        ToggleAudioCheck();
-                        StopWorkshopPlayback();
-                    }
-                    else if (!StopWorkshopPlayback()) ToggleAudioCheck();
                     e.Handled = true;
                     return;
             }
@@ -387,48 +312,24 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     }
 
     /// <summary>
-    /// Explicit tab order across the three transmit categories (Threads Track,
-    /// 2026-08-12): Start Audio Check first, the live mic reading second, Mic
-    /// Gain third, then every remaining control in build order. A running
-    /// check is an adjust-and-listen loop between exactly those three stops:
-    /// forward tab does things, backward tab inspects what just happened.
-    ///
-    /// Mic Gain used to sit VISUALLY in the Microphone section and join this
-    /// cluster only in the ring. When TX Audio split into three categories on
-    /// 2026-08-25 that stopped being possible — Tab does not cross a category
-    /// — so the gain moved to Hear Yourself and now sits beside the reading in
-    /// both senses. The ring and the layout finally agree.
-    ///
-    /// Noel also asked about Ctrl+Tab section navigation. Deliberately NOT
-    /// added: Ctrl+Tab moves between CATEGORIES in this window, and
-    /// overloading it for section movement inside one would collide with that.
-    /// Sections move on F6 / Shift+F6. (Ctrl+Tab used to be the WPF
-    /// TabControl's own default behaviour; since Sprint 32 Track G it is
-    /// handled explicitly by CategoryNavigator, which also moves focus to the
-    /// category list so the arrival is announced. Same key, same meaning, no
-    /// longer inherited.)
+    /// Explicit tab order across the two transmit categories, in the order an
+    /// operator walks them: what this computer does, then what the radio does.
     /// </summary>
+    /// <remarks>
+    /// This carried an "express lane" until #835 — Start Audio Check, the live
+    /// mic reading and Mic Gain numbered first, so a running check was three
+    /// adjacent stops. The check and its reading moved to Check your audio,
+    /// which keeps that loop in its own layout, and Mic Gain came back to the
+    /// Microphone section here, where it lived before 2026-08-25.
+    ///
+    /// <para>Sections move on F6 / Shift+F6, never on Ctrl+Tab, which moves
+    /// between CATEGORIES in this window (CategoryNavigator).</para>
+    /// </remarks>
     private void ApplyTxAudioTabOrder()
     {
         int idx = 1;
-        if (_startCheckButton != null) KeyboardNavigation.SetTabIndex(_startCheckButton, idx++);
-        if (_micReadingBox != null) KeyboardNavigation.SetTabIndex(_micReadingBox, idx++);
-        if (_micGainControl != null) KeyboardNavigation.SetTabIndex(_micGainControl, idx++);
-        // The PC-source stand-ins take the very next slots. Only one of the
-        // two gain controls is ever visible — Mic Gain for the jack, the
-        // Windows input level for PC audio — so whichever applies sits third
-        // in the ring: the express lane follows the gain that actually works,
-        // not a particular control (Track PC Gain, 2026-08-13).
-        if (_pcLevelControl != null) KeyboardNavigation.SetTabIndex(_pcLevelControl, idx++);
-        if (_pcLevelNote != null) KeyboardNavigation.SetTabIndex(_pcLevelNote, idx++);
-        // One panel until 2026-08-25, three now. Every one gets numbered, in
-        // the order an operator walks them: what this computer does, what the
-        // radio does, then listening to the result. Numbering only the first
-        // would leave the other two on declaration order, which is where the
-        // express lane above would quietly stop mattering.
         ApplyTabOrderWithin(ThisComputerContent, ref idx);
         ApplyTabOrderWithin(TransmitSettingsContent, ref idx);
-        ApplyTabOrderWithin(HearYourselfContent, ref idx);
     }
 
     /// <summary>
@@ -439,8 +340,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// sections were flat headers in a single panel. Now that a section is a
     /// GroupBox holding its own panel, a one-level walk would hand a single
     /// index to an entire section and leave every control inside it
-    /// unnumbered — the express lane would survive and the rest of the ring
-    /// would fall back to declaration order.
+    /// unnumbered.
     /// </remarks>
     private void ApplyTabOrderWithin(Panel panel, ref int idx)
     {
@@ -460,9 +360,6 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 continue;
             }
 
-            if (ReferenceEquals(el, _startCheckButton) || ReferenceEquals(el, _micReadingBox)
-                || ReferenceEquals(el, _micGainControl) || ReferenceEquals(el, _pcLevelControl)
-                || ReferenceEquals(el, _pcLevelNote)) continue;
             KeyboardNavigation.SetTabIndex(el, idx++);
         }
     }
@@ -552,6 +449,14 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     }
 
     /// <summary>
+    /// The Workshop's door to Check your audio, which was its Hear Yourself
+    /// category until #835 (ruled by Noel 2026-10-27 13:57: "one surface with
+    /// several doors"). It opens the window; it never starts a check.
+    /// </summary>
+    private void CheckYourAudio_Click(object sender, RoutedEventArgs e) =>
+        CheckYourAudioDialog.ShowOrFocus(_rig);
+
+    /// <summary>
     /// Enable or disable the RADIO-side controls to match connection state.
     ///
     /// With no radio these toggles did nothing but say so unconvincingly:
@@ -585,46 +490,14 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// so a control added to a radio-side section later inherits the rule
     /// instead of quietly missing it. Disabling the GroupBox cascades to every
     /// child without touching each child's own IsEnabled, so state a section
-    /// manages for its own reasons (the loopback button's model gate, the
-    /// tone's passband gate) survives untouched and reappears on connect.
+    /// manages for its own reasons survives untouched and reappears on connect.
     /// </summary>
-    private void UpdateRadioControlAvailability()
-    {
-        bool live = _rig != null;
-
-        foreach (var element in _radioOnlyElements)
-        {
-            element.IsEnabled = live;
-        }
-    }
-
-    /// <summary>
-    /// Everything that cannot act without a radio: whole sections enrolled by
-    /// <see cref="AddRadioSection"/>, plus the individual controls in sections
-    /// that are genuinely mixed (the Microphone section holds the radio's mic
-    /// source, gain, boost and bias alongside the Windows input level, which
-    /// is the PC's own and valid offline).
-    /// </summary>
-    private readonly List<UIElement> _radioOnlyElements = new();
+    private void UpdateRadioControlAvailability() => _sections.SetRadioAvailable(_rig != null);
 
     public void SetRig(FlexBase? rig)
     {
         var oldRig = _rig;
-        if (!ReferenceEquals(oldRig, rig))
-        {
-            CancelCheckStart();
-            if (_iqRun != null) _ = FinishIqAsync("connection-changed");
-            if (oldRig != null && rig != null)
-            {
-                _session?.ForceEnd("Radio changed, audio check ended");
-                _session = null;
-            }
-            _iqRecoveryReader = null;
-            _lastIqDirectory = null;
-            if (_takeStatus != null) _takeStatus.Text = Lexicon.Get(rig == null ? "audio.no_radio_connected" : "audio.iq.idle");
-        }
-        if (oldRig != null && !ReferenceEquals(oldRig, rig))
-            _ = oldRig.StopSliceRecorderOwnedByAsync(this);
+        if (!ReferenceEquals(oldRig, rig)) BenchToolsRigChanging(rig);
         _rig = rig;
         UpdateRadioControlAvailability();
         if (rig != null)
@@ -633,16 +506,9 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // this session has the answer in hand (Track F: presets were
             // shipping without the EQ because nothing ever asked for it).
             rig.RequestTxEqualizer();
-            LoadPerRadioPrefs();
             // The store is operator-scoped, but a rig change is also when an
             // operator switch lands here — cheap to re-read either way.
             RefreshMicProfileOptions();
-            LoadToneSettings();
-            // Reflect the new rig's actual tone state (a fresh rig is never
-            // armed — arming does not survive a radio switch by design).
-            SetToneCheckSilently(rig.TxToneEngaged);
-            UpdateToneStatus(speakIfNewlyOutside: false);
-            UpdateLoopbackAvailability();
             PollTxAudio();
             // A different rig's last readings must not sit in the meter boxes
             // until the first poll of the new one — now that the boxes are
@@ -654,27 +520,10 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         }
         else
         {
-            // Radio gone: end any live session (nothing to restore on a dead
-            // radio — the session skips rig writes when the rig is null).
-            CancelCheckStart();
-            _session?.ForceEnd("Radio disconnected, audio check ended");
-            _session = null;
-            // And release the test tone (the generator died with the rig, but
-            // the static key-down hook and local monitor are ours to clear).
-            DisarmTone(speak: false, rig: oldRig);
-            SetToneCheckSilently(false);
-            // And the reference player, for the same reason: the player died
-            // with the rig, but the arm box is ours and must not go on
-            // claiming a recording is armed against a radio that is gone.
-            DisarmReference(speak: false, rig: oldRig);
-            // Clear a stale loopback arrangement flag on the departing rig so
-            // a reconnect on the same FlexBase can arrange again. Writes are
-            // internally guarded when the underlying radio is gone.
-            if (oldRig != null && oldRig.LoopbackArranged)
-                _ = oldRig.EndLoopbackArrangementAsync();
+            // The check, the tone and the reference were torn down here until
+            // #835; Check your audio follows the radio itself now.
             _meterTimer.Stop();
             // The poll is dead now — leave the readings honest, not stale.
-            UpdateMicReading();
             ResetMeterReadings("no radio connected");
             // A warning about a radio that is gone is a warning about nothing.
             UpdateSilentTxNote();
@@ -684,102 +533,11 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         // Both branches, because a departing radio's meter list is exactly as
         // wrong to leave on screen as a departing radio's readings.
         BindMeterInventory(rig);
-        UpdateIqAvailability();
+        UpdateBenchToolsAvailability();
     }
 
-    public static void NotifyRigReady(FlexBase rig)
-    {
-        var inst = _instance;
-        if (inst == null || !inst.IsLoaded) return;
-        if (inst.Dispatcher.CheckAccess()) inst.SetRig(rig);
-        else inst.Dispatcher.BeginInvoke(() => inst.SetRig(rig));
-    }
-
-    /// <summary>
-    /// Command Finder path for "check my transmit audio": open (or focus) the
-    /// workshop and start an Audio Check session immediately.
-    /// </summary>
-    public static void ShowOrFocusAndStartCheck(FlexBase? rig)
-    {
-        // BY NAME, not index 0. Until 2026-08-25 the Audio Check lived on the
-        // first category, so opening at index 0 and starting a check put the
-        // operator where the check was. The three-way split moved it to Hear
-        // Yourself, and index 0 is now This Computer — so this would have
-        // started a check the operator could not see the controls for, which
-        // for a keyed transmit is worse than merely wrong.
-        ShowOrFocus(rig, "Hear Yourself");
-        _instance?.ToggleAudioCheck();
-    }
-
-    /// <summary>
-    /// Load per-radio Audio Check preferences (listen method, power mode and
-    /// watts, and since round 14 the "compare with my last take" tick) from
-    /// the serial-keyed RadioConfig store and reflect them in the controls.
-    /// </summary>
-    private void LoadPerRadioPrefs()
-    {
-        if (_rig == null) return;
-        string serial = _rig.SelectedRadioSerial;
-        if (string.IsNullOrEmpty(serial)) return;
-        if (_radioCfg != null && _radioCfgSerial == serial) return;
-
-        _radioCfg = RadioConfig.LoadForRadio(serial);
-        _radioCfgSerial = serial;
-
-        if (_listenMethodControl != null)
-        {
-            _listenMethodControl.SuppressEvents = true;
-            _listenMethodControl.SelectedIndex = (int)_radioCfg.AudioCheckListenMethod;
-            _listenMethodControl.SuppressEvents = false;
-            SyncPlayTakeLabel();
-        }
-        if (_checkPowerControl != null)
-        {
-            _checkPowerControl.SuppressEvents = true;
-            _checkPowerControl.SelectedIndex = (int)_radioCfg.AudioCheckPowerMode;
-            _checkPowerControl.SuppressEvents = false;
-        }
-        if (_checkWattsControl != null)
-        {
-            _checkWattsControl.SuppressEvents = true;
-            _checkWattsControl.Value = Math.Clamp(_radioCfg.AudioCheckLowPowerWatts, 1, 100);
-            _checkWattsControl.SuppressEvents = false;
-        }
-        if (_iqAutoCompare != null)
-        {
-            // A CheckBox has no SuppressEvents; _polling is how every other
-            // checkbox in this dialog is set without its handler saving the
-            // value straight back (SetToneCheckSilently does the same).
-            _polling = true;
-            try { _iqAutoCompare.IsChecked = _radioCfg.AudioCheckCompareWithLastTake; }
-            finally { _polling = false; }
-        }
-        UpdateCheckWattsVisibility();
-    }
-
-    private void SavePerRadioPrefs()
-    {
-        if (_radioCfg == null || string.IsNullOrEmpty(_radioCfgSerial)) return;
-        var method = _listenMethodControl == null ? (AudioCheckListenMethods?)null
-            : (AudioCheckListenMethods)_listenMethodControl.SelectedIndex;
-        var power = _checkPowerControl == null ? (AudioCheckPowerModes?)null
-            : (AudioCheckPowerModes)_checkPowerControl.SelectedIndex;
-        var watts = _checkWattsControl?.Value;
-        bool? compare = _iqAutoCompare?.IsChecked == null ? null : _iqAutoCompare.IsChecked == true;
-        RadioConfig.RecordAudioCheckPrefs(_radioCfgSerial, method, power, watts, compare);
-    }
-
-    /// <summary>
-    /// The watts field only exists while Low power is the selected check
-    /// mode — a collapsed control is out of the tab order (house rule for
-    /// controls that currently do nothing).
-    /// </summary>
-    private void UpdateCheckWattsVisibility()
-    {
-        if (_checkWattsControl == null) return;
-        bool lowPower = _checkPowerControl?.SelectedIndex == (int)AudioCheckPowerModes.LowPower;
-        _checkWattsControl.Visibility = lowPower ? Visibility.Visible : Visibility.Collapsed;
-    }
+    public static void NotifyRigReady(FlexBase rig) =>
+        DialogSections.PostRigChange(_instance, w => w.SetRig(rig), onlyIfLoaded: true);
 
     /// <summary>
     /// Radio teardown notification. The workshop is a non-modal singleton that
@@ -789,15 +547,8 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// during app close). MainWindow's power-off path calls this; safe from
     /// any thread, no-op when the dialog isn't open.
     /// </summary>
-    public static void NotifyRigGone()
-    {
-        var inst = _instance;
-        if (inst == null) return;
-        if (inst.Dispatcher.CheckAccess())
-            inst.SetRig(null);
-        else
-            inst.Dispatcher.BeginInvoke(() => inst.SetRig(null));
-    }
+    public static void NotifyRigGone() =>
+        DialogSections.PostRigChange(_instance, w => w.SetRig(null), onlyIfLoaded: false);
 
     public void FocusTab(int tabIndex)
     {

@@ -25,7 +25,7 @@ public sealed class AudioCheckStartRaceTests
     [InlineData("off-air-excludes-ordinary", 1)]
     public async Task A_delayed_start_cannot_key_after_stop(string scenario, int expectedKeys)
     {
-        var source = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs", "AudioWorkshopDialog.AudioCheck.cs"));
+        var source = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.Check.cs"));
         var tree = CSharpSyntaxTree.ParseText(source).GetRoot();
         string Method(string name) => tree.DescendantNodes().OfType<MethodDeclarationSyntax>()
             .Single(m => m.Identifier.Text == name).ToFullString();
@@ -33,7 +33,7 @@ public sealed class AudioCheckStartRaceTests
         foreach (var name in new[] { "StartLoopbackCheckAsync", "StartAudioCheckSessionAsync", "StartAsync", "StopCheck" })
             host = host.Replace("/*" + name + "*/", Method(name));
         var offAir = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(IntegrationPassTree.Root,
-            "JJFlexWpf", "Dialogs", "AudioWorkshopDialog.Listenback.cs"))).GetRoot().DescendantNodes()
+            "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.OffAir.cs"))).GetRoot().DescendantNodes()
             .OfType<MethodDeclarationSyntax>().Single(m => m.Identifier.Text == "StartOffAirAsync").ToFullString();
         host = host.Replace("/*StartOffAirAsync*/", offAir);
         var refs = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
@@ -58,7 +58,8 @@ public sealed class AudioCheckStartRaceTests
     public void Escape_close_rig_change_and_disconnect_revoke_a_pending_start()
     {
         var root = IntegrationPassTree.Root;
-        var dialog = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root, "JJFlexWpf", "Dialogs", "AudioWorkshopDialog.xaml.cs"))).GetRoot();
+        // Check your audio's shell since #835, when the check left the Audio Workshop.
+        var dialog = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root, "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.cs"))).GetRoot();
         var escape = dialog.DescendantNodes().OfType<MethodDeclarationSyntax>().Single(m => m.Identifier.Text == "OnPreviewKeyDown");
         var pendingEscape = escape.DescendantNodes().OfType<IfStatementSyntax>()
             .Single(x => x.Condition.ToString().Contains("Key.Escape") && x.Condition.ToString().Contains("&& _checkStarts.IsBusy"));

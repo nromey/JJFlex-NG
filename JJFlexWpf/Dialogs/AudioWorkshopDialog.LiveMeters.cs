@@ -83,33 +83,9 @@ public partial class AudioWorkshopDialog
     {
         if (_rig == null) return;
 
-        // Test tone housekeeping runs on EVERY tick regardless of tab: the
-        // arm checkbox must follow the engine (Ctrl+J, Ctrl+G can change it from
-        // outside this dialog), the local monitor must track actual
-        // transmit state, and the passband warning must fire if the TX
-        // filter moves out from under an armed tone — the operator may be
-        // on any tab (or in another window) when that happens, and it must
-        // not fail quietly.
-        SyncToneArmUi();
-        SyncToneMonitor();
-        UpdateToneStatus(speakIfNewlyOutside: _rig.TxToneEngaged);
-
-        // Reference audio housekeeping, on every tick and every tab for the
-        // same reason: a reference pass ends when the recording runs out, not
-        // when the operator does anything, and an operator who is not looking
-        // at this tab still needs to hear that their microphone came back.
-        SyncReferenceUi();
-
-        // Play last take relabels itself while the RADIO is playing its own
-        // record buffer (#455). The local half follows the player's own event,
-        // which also covers the no-radio case this tick returns before reaching.
-        SyncPlayTakeLabel();
-        SyncSliceRecorderUi();
-
-        // The mic reading refreshes on every tick regardless of tab so a
-        // review command always reads fresh the moment the operator lands
-        // on it.
-        UpdateMicReading();
+        // The test tone, reference recording, take playback and mic reading
+        // housekeeping ran here on every tick until #835; it runs in Check
+        // your audio's own poll now, which owns those controls.
 
         // Both of these asked SelectedIndex == 1 and == 0 until 2026-08-25,
         // which was correct right up until the meter merge removed a category.
@@ -119,15 +95,14 @@ public partial class AudioWorkshopDialog
         if (MetersTab.IsSelected)
             PollMeters();
 
-        // TX Audio was one category until 2026-08-25 and is now three. The
-        // radio-side values this refreshes are spread across all of them —
-        // the mic source and processing in Transmit Settings, the gain and the
-        // live reading in Hear Yourself, the device readout in This Computer
-        // — so the poll runs while ANY of the three is showing. Testing only
-        // one would leave the other two frozen, which reads as steady rather
-        // than as stopped.
-        if (ThisComputerTab.IsSelected || TransmitSettingsTab.IsSelected
-            || HearYourselfTab.IsSelected)
+        // TX Audio was one category until 2026-08-25, then three, and since
+        // #835 two (Hear Yourself became Check your audio). The radio-side
+        // values this refreshes are spread across both — the mic source, gain
+        // and processing in Transmit Settings, the device readout in This
+        // Computer — so the poll runs while EITHER is showing. Testing only
+        // one would leave the other frozen, which reads as steady rather than
+        // as stopped.
+        if (ThisComputerTab.IsSelected || TransmitSettingsTab.IsSelected)
             PollTxAudio();
 
         // The inventory catches up here when it is showing and a change arrived
@@ -209,43 +184,6 @@ public partial class AudioWorkshopDialog
         SetMeterText(_ampAlcBox, $"Amp ALC: {state}");
         SetMeterText(_paTempBox, $"PA Temperature: {state}");
         SetMeterText(_voltsBox, $"Supply Voltage: {state}");
-    }
-
-    /// <summary>
-    /// Refresh the read-only mic reading edit. Text only — the accessible
-    /// name was set once at build time and live-region notifications are
-    /// deliberately absent, so a value moving twice a second never floods
-    /// NVDA; the operator's review command reads the fresh text on demand.
-    /// Live recent-peak while transmitting (it follows a level back down),
-    /// the whole-transmit peak after unkey, honest wording before any
-    /// transmit. Mirrors the Home expander's verdict field (Track A).
-    /// </summary>
-    private void UpdateMicReading()
-    {
-        if (_micReadingBox == null) return;
-        var rig = _rig;
-        string text;
-        if (rig == null)
-        {
-            text = "Mic audio: no radio connected";
-        }
-        else
-        {
-            float recent = rig.ScMicRecentDb;
-            float max = rig.ScMicMaxDb;
-            if (rig.Transmit && recent > -140f)
-                text = MicAudioReport.Compose(rig, "Mic audio now:", recent, live: true);
-            else if (max > -140f)
-                text = MicAudioReport.Compose(rig, "Mic audio last transmit:", max, live: false);
-            else
-                text = "Mic audio: transmit to measure";
-            if (!rig.Transmit && _lastAudioCheckSource != null)
-                text += Environment.NewLine + "Source: " + _lastAudioCheckSource;
-        }
-        // Assign only on change so an unchanged reading doesn't reset the
-        // review cursor twice a second.
-        if (_micReadingBox.Text != text)
-            _micReadingBox.Text = text;
     }
 
     #endregion

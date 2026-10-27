@@ -5,7 +5,8 @@ using Radios;
 namespace JJFlexWpf.Dialogs;
 
 /// <summary>
-/// Audio Workshop, Hear Yourself: getting the radio ready to carry something
+/// Check your audio (the Audio Workshop's Hear Yourself page until #835):
+/// getting the radio ready to carry something
 /// this computer is sending in place of the microphone — the test tone, or a
 /// reference recording (task #458).
 /// </summary>
@@ -45,7 +46,7 @@ namespace JJFlexWpf.Dialogs;
 /// this dialog has been fixed for twice already.
 /// </para>
 /// </remarks>
-public partial class AudioWorkshopDialog
+public partial class CheckYourAudioDialog
 {
     #region Injection path (task #458)
 

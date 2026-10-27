@@ -81,6 +81,9 @@ namespace JJFlexWpf
             { "ScreenFieldsReceiver", "pages/Receiver/FiltersAndDsp.htm" },
             { "ScreenFieldsAntenna", "pages/Receiver/FiltersAndDsp.htm" },
             { "AudioWorkshop", "pages/AudioWorkshop/AudioWorkshop.htm" },
+            // #835: Check your audio is described on the Audio Workshop's page
+            // until the help rework gives it a page of its own.
+            { "CheckYourAudio", "pages/AudioWorkshop/AudioWorkshop.htm" },
             { "EarconExplorer", "pages/Sounds/EarconExplorer.htm" },
             { "MeterTones", "pages/Sounds/MeterTones.htm" },
             { "LogPanel", "pages/Logging/Logging.htm" },
