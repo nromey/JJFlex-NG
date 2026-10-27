@@ -679,11 +679,36 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
-    /// Build ScreenFields DSP submenu (shared between Classic and Modern DSP menus).
+    /// Build the DSP submenu, which lives on the top-level Audio menu (#836)
+    /// and acts on the active slice.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Built whether or not a radio is connected.</b> It used to return
+    /// empty with no radio, which was invisible while the submenu sat inside
+    /// the Slice menu's own "if (Rig != null)". On the Audio menu it would be
+    /// an empty submenu, and the Audio menu's rule is that its shape never
+    /// depends on connection state (#214, <see cref="Radios.AudioMenuLayout"/>).
+    /// </para>
+    /// <para>
+    /// So the rows are the same in both states, and a row that needs the radio
+    /// is greyed and carries " - needs a radio" in its own label when there is
+    /// none, through <see cref="Radios.AudioMenuLayout.MarkNeedsRadio"/>: the
+    /// Audio menu's existing treatment, not a new one. Rows whose work happens
+    /// on this computer stay live (PC noise reduction's switches, the Noise
+    /// Profiles dialog and its folder, meter tones); the PC switches already
+    /// speak their own refusal when the computer's audio pipeline is not up.
+    /// The submenus keep their rows and their first letters in both states.
+    /// </para>
+    /// <para>
+    /// Every handler keeps its own no-radio guard (ToggleDSP, AdjustValue and
+    /// the lambdas below), for the reason BuildAudioItems gives.
+    /// </para>
+    /// </remarks>
     private void BuildDSPItems(IntPtr parent)
     {
-        if (Rig == null) return;
+        bool radio = Rig != null;
+        string R(string text) => Radios.AudioMenuLayout.MarkNeedsRadio(text, radio);
 
         // === Noise Reduction submenu ===
         var nrSub = AddSubmenu(parent, "Noise Reduction");
@@ -714,51 +739,51 @@ public class NativeMenuBar : IDisposable
         // provisional until Noel walks them; when they change, they change
         // here too.
         {
-            AddChecked(nrSub, NrItemLabel("On-Radio Neural NR (RNN)\tCtrl+J, N, R",
-                    Radios.RadioCapability.NoiseReductionNeural), () =>
+            AddChecked(nrSub, R(NrItemLabel("On-Radio Neural NR (RNN)\tCtrl+J, N, R",
+                    Radios.RadioCapability.NoiseReductionNeural)), () =>
                 ToggleDSP("On-Radio Neural NR", () => Rig.NeuralNoiseReduction, v => Rig.NeuralNoiseReduction = v,
                     Radios.RadioCapability.NoiseReductionNeural),
-                () => Rig?.NeuralNoiseReduction == FlexBase.OffOnValues.on);
-            AddChecked(nrSub, NrItemLabel("On-Radio Spectral NR (NRS)\tCtrl+J, N, S",
-                    Radios.RadioCapability.NoiseReductionSpectral), () =>
+                () => Rig?.NeuralNoiseReduction == FlexBase.OffOnValues.on, radio);
+            AddChecked(nrSub, R(NrItemLabel("On-Radio Spectral NR (NRS)\tCtrl+J, N, S",
+                    Radios.RadioCapability.NoiseReductionSpectral)), () =>
                 ToggleDSP("On-Radio Spectral NR", () => Rig.SpectralNoiseReduction, v => Rig.SpectralNoiseReduction = v,
                     Radios.RadioCapability.NoiseReductionSpectral),
-                () => Rig?.SpectralNoiseReduction == FlexBase.OffOnValues.on);
-            AddChecked(nrSub, NrItemLabel("NR Filter (NRF)\tCtrl+J, N, Ctrl+N",
-                    Radios.RadioCapability.NoiseReductionFilter), () =>
+                () => Rig?.SpectralNoiseReduction == FlexBase.OffOnValues.on, radio);
+            AddChecked(nrSub, R(NrItemLabel("NR Filter (NRF)\tCtrl+J, N, Ctrl+N",
+                    Radios.RadioCapability.NoiseReductionFilter)), () =>
                 ToggleDSP("NR Filter", () => Rig.NoiseReductionFilter, v => Rig.NoiseReductionFilter = v,
                     Radios.RadioCapability.NoiseReductionFilter),
-                () => Rig?.NoiseReductionFilter == FlexBase.OffOnValues.on);
+                () => Rig?.NoiseReductionFilter == FlexBase.OffOnValues.on, radio);
         }
         // Legacy NR is available on every radio, licensed or not: an
         // unlicensed 8600 accepted it and applied it (measured 2026-10-27,
         // #746), so it passes no capability and needs no gate.
-        AddChecked(nrSub, "Legacy NR", () =>
+        AddChecked(nrSub, R("Legacy NR"), () =>
             ToggleDSP("Legacy NR", () => Rig.NoiseReductionLegacy, v => Rig.NoiseReductionLegacy = v),
-            () => Rig?.NoiseReductionLegacy == FlexBase.OffOnValues.on);
+            () => Rig?.NoiseReductionLegacy == FlexBase.OffOnValues.on, radio);
         // QB Track I menu parity — the level under the toggle (matches the
         // ScreenFields NR Level field that appears when Legacy NR is on).
-        AddWired(nrSub, "NR Level Up", () =>
-            AdjustValue("NR Level", () => Rig.NoiseReductionLegacyLevel, v => Rig.NoiseReductionLegacyLevel = v, 1, 1, 15));
-        AddWired(nrSub, "NR Level Down", () =>
-            AdjustValue("NR Level", () => Rig.NoiseReductionLegacyLevel, v => Rig.NoiseReductionLegacyLevel = v, -1, 1, 15));
+        AddWired(nrSub, R("NR Level Up"), () =>
+            AdjustValue("NR Level", () => Rig.NoiseReductionLegacyLevel, v => Rig.NoiseReductionLegacyLevel = v, 1, 1, 15), radio);
+        AddWired(nrSub, R("NR Level Down"), () =>
+            AdjustValue("NR Level", () => Rig.NoiseReductionLegacyLevel, v => Rig.NoiseReductionLegacyLevel = v, -1, 1, 15), radio);
 
         // === Noise Blankers submenu ===
         var nbSub = AddSubmenu(parent, "Noise Blankers");
-        AddChecked(nbSub, "Noise Blanker (NB)\tCtrl+J, N, B", () =>
+        AddChecked(nbSub, R("Noise Blanker (NB)\tCtrl+J, N, B"), () =>
             ToggleDSP("Noise Blanker", () => Rig.NoiseBlanker, v => Rig.NoiseBlanker = v),
-            () => Rig?.NoiseBlanker == FlexBase.OffOnValues.on);
-        AddWired(nbSub, "NB Level Up", () =>
-            AdjustValue("NB Level", () => Rig.NoiseBlankerLevel, v => Rig.NoiseBlankerLevel = v, 5, 1, 100));
-        AddWired(nbSub, "NB Level Down", () =>
-            AdjustValue("NB Level", () => Rig.NoiseBlankerLevel, v => Rig.NoiseBlankerLevel = v, -5, 1, 100));
-        AddChecked(nbSub, "Wideband NB (WNB)\tCtrl+J, N, W", () =>
+            () => Rig?.NoiseBlanker == FlexBase.OffOnValues.on, radio);
+        AddWired(nbSub, R("NB Level Up"), () =>
+            AdjustValue("NB Level", () => Rig.NoiseBlankerLevel, v => Rig.NoiseBlankerLevel = v, 5, 1, 100), radio);
+        AddWired(nbSub, R("NB Level Down"), () =>
+            AdjustValue("NB Level", () => Rig.NoiseBlankerLevel, v => Rig.NoiseBlankerLevel = v, -5, 1, 100), radio);
+        AddChecked(nbSub, R("Wideband NB (WNB)\tCtrl+J, N, W"), () =>
             ToggleDSP("Wideband NB", () => Rig.WidebandNoiseBlanker, v => Rig.WidebandNoiseBlanker = v),
-            () => Rig?.WidebandNoiseBlanker == FlexBase.OffOnValues.on);
-        AddWired(nbSub, "WNB Level Up", () =>
-            AdjustValue("WNB Level", () => Rig.WidebandNoiseBlankerLevel, v => Rig.WidebandNoiseBlankerLevel = v, 5, 1, 100));
-        AddWired(nbSub, "WNB Level Down", () =>
-            AdjustValue("WNB Level", () => Rig.WidebandNoiseBlankerLevel, v => Rig.WidebandNoiseBlankerLevel = v, -5, 1, 100));
+            () => Rig?.WidebandNoiseBlanker == FlexBase.OffOnValues.on, radio);
+        AddWired(nbSub, R("WNB Level Up"), () =>
+            AdjustValue("WNB Level", () => Rig.WidebandNoiseBlankerLevel, v => Rig.WidebandNoiseBlankerLevel = v, 5, 1, 100), radio);
+        AddWired(nbSub, R("WNB Level Down"), () =>
+            AdjustValue("WNB Level", () => Rig.WidebandNoiseBlankerLevel, v => Rig.WidebandNoiseBlankerLevel = v, -5, 1, 100), radio);
 
         // === PC-side noise reduction (runs on the computer, ALL radios) ===
         // QB Track I menu parity — these existed only as ScreenFields
@@ -798,7 +823,7 @@ public class NativeMenuBar : IDisposable
         // room. The capture start is deferred past the menu close so its
         // spoken countdown isn't trampled by NVDA's menu-dismiss chatter
         // (same reasoning as SpeakAfterMenuClose's 500 ms).
-        AddWired(pcSub, "Capture Noise Profile\tCtrl+J, Alt+Q", () =>
+        AddWired(pcSub, R("Capture Noise Profile\tCtrl+J, Alt+Q"), () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             var p = _window.FieldsPanel?.AudioPipeline;
@@ -811,7 +836,7 @@ public class NativeMenuBar : IDisposable
                 NoiseCaptureNarrator.Start(rig, p,
                     _window.CurrentAudioConfig?.SpectralSubSampleDuration ?? 3);
             });
-        });
+        }, radio);
         AddWired(pcSub, "Noise Profiles...", () =>
         {
             new Dialogs.NoiseProfilesDialog(Rig, _window.FieldsPanel?.AudioPipeline,
@@ -831,16 +856,16 @@ public class NativeMenuBar : IDisposable
         // unlicensed 8600 refused anft with its licence code), so the ladder
         // answers before the speech. Legacy Auto-Notch is NOT: the same radio
         // accepted lms_anf and applied it, so it passes no capability.
-        AddChecked(anfSub, "FFT Auto-Notch\tCtrl+J, N, A", () =>
+        AddChecked(anfSub, R("FFT Auto-Notch\tCtrl+J, N, A"), () =>
             ToggleDSP("FFT Auto-Notch", () => Rig.AutoNotchFFT, v => Rig.AutoNotchFFT = v,
                 Radios.RadioCapability.AutoNotchFft),
-            () => Rig?.AutoNotchFFT == FlexBase.OffOnValues.on);
-        AddChecked(anfSub, "Legacy Auto-Notch", () =>
+            () => Rig?.AutoNotchFFT == FlexBase.OffOnValues.on, radio);
+        AddChecked(anfSub, R("Legacy Auto-Notch"), () =>
             ToggleDSP("Legacy Auto-Notch", () => Rig.AutoNotchLegacy, v => Rig.AutoNotchLegacy = v),
-            () => Rig?.AutoNotchLegacy == FlexBase.OffOnValues.on);
+            () => Rig?.AutoNotchLegacy == FlexBase.OffOnValues.on, radio);
 
         // === Audio Peak Filter (CW only) ===
-        AddChecked(parent, "Audio Peak Filter (APF)\tCtrl+J, N, P", () =>
+        AddChecked(parent, R("Audio Peak Filter (APF)\tCtrl+J, N, P"), () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             string? mode = Rig.Mode;
@@ -850,7 +875,7 @@ public class NativeMenuBar : IDisposable
                 return;
             }
             ToggleDSP("Audio Peak Filter", () => Rig.APF, v => Rig.APF = v);
-        }, () => Rig?.APF == FlexBase.OffOnValues.on);
+        }, () => Rig?.APF == FlexBase.OffOnValues.on, radio);
 
         AddSep(parent);
 
@@ -1055,8 +1080,10 @@ public class NativeMenuBar : IDisposable
 
     /// <summary>
     /// Build the Audio menu's items, in the one order they ever appear. Shared
-    /// by the Classic top-level Audio menu and the Modern Slice, Audio submenu,
-    /// so both get the same shape from the same place.
+    /// by the top-level Audio menu and the Slice, Audio submenu, so both get
+    /// the same shape from the same place; <paramref name="host"/> says which
+    /// is being built, and the only difference it makes is the top-level-only
+    /// rows (the DSP submenu, #836).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -1076,11 +1103,13 @@ public class NativeMenuBar : IDisposable
     /// is exactly the assumption that stops being true.
     /// </para>
     /// </remarks>
-    private void BuildAudioItems(IntPtr parent)
+    private void BuildAudioItems(IntPtr parent, Radios.AudioMenuHost host)
     {
         bool connected = Rig != null;
 
-        foreach (var entry in Radios.AudioMenuLayout.Entries)
+        // The host decides which rows; connection state never does. Only the
+        // top-level menu carries the DSP submenu (#836).
+        foreach (var entry in Radios.AudioMenuLayout.EntriesFor(host))
         {
             if (entry.Kind == Radios.AudioMenuEntryKind.Separator)
             {
@@ -1138,6 +1167,12 @@ public class NativeMenuBar : IDisposable
                     break;
                 case "audio-workshop":
                     AddWired(parent, label, MenuAudioWorkshop, enabled);
+                    break;
+                case "dsp":
+                    // #836: the DSP submenu's one home. It acts on the active
+                    // slice; with no radio its rows stay present and the ones
+                    // that need a radio say so (see BuildDSPItems).
+                    BuildDSPItems(AddSubmenu(parent, label));
                     break;
                 default:
                     // A layout row nobody wired. Say so rather than dropping it:
@@ -2341,8 +2376,10 @@ public class NativeMenuBar : IDisposable
             // Every row, including Audio Workshop, comes from AudioMenuLayout.
             // This used to append the workshop itself, as did the Classic Audio
             // menu below — the same row wired in two places, which is a second
-            // copy of the menu's order living outside the menu's order.
-            BuildAudioItems(audioSub);
+            // copy of the menu's order living outside the menu's order. The
+            // DSP submenu is the layout's one top-level-only row, so it is not
+            // built here (#836).
+            BuildAudioItems(audioSub, Radios.AudioMenuHost.SliceAudioSubmenu);
 
             // The radio's per-slice recorder (#787). Slice record and play
             // live under Slice (Noel, 2026-10-21 11:01); record to file and
@@ -2402,9 +2439,10 @@ public class NativeMenuBar : IDisposable
             var rxSub = AddSubmenu(slice, "Receiver");
             BuildReceiverItems(rxSub);
 
-            // DSP
-            var dspSub = AddSubmenu(slice, "DSP");
-            BuildDSPItems(dspSub);
+            // DSP is NOT here any more (#836). It moved to the top-level Audio
+            // menu, acting on the active slice; Noel, 2026-10-27: "This should
+            // not be in slice." Per-slice DSP inside each slice's submenu
+            // comes with #586. DspOnAudioMenuTests refuses it coming back.
 
             // Antenna — RX/TX select, ATU (always), Diversity (always).
             // QB Track I: mnemonic N ("Audio" owns first-letter A), so
@@ -2512,8 +2550,10 @@ public class NativeMenuBar : IDisposable
         var audio = AddPopup(bar, "Audi&o");
         // Same rows, same order, same shape whether a radio is connected or
         // not — see AudioMenuLayout. Parity with the Slice, Audio submenu is
-        // now structural rather than something each caller has to remember.
-        BuildAudioItems(audio);
+        // now structural rather than something each caller has to remember;
+        // the one deliberate difference is the DSP submenu, which only this
+        // menu carries (#836).
+        BuildAudioItems(audio, Radios.AudioMenuHost.AudioMenu);
 
         // === Tools ===
         var tools = AddPopup(bar, "&Tools");

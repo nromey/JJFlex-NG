@@ -1,0 +1,1 @@
+Heads up: the DSP menu has moved. Noise reduction, the noise blankers, PC noise reduction, auto notch, the audio peak filter and meter tones now live under Audio, DSP, and are no longer on the Slice menu; they still work on your active slice, and the menu is there before you connect, telling you which items need a radio.

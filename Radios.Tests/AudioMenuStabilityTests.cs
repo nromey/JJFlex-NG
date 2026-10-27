@@ -267,11 +267,13 @@ namespace Radios.Tests
             // does not trip it.
             string method = MethodBody(
                 Source(Path.Combine("JJFlexWpf", "NativeMenuBar.cs")),
-                "private void BuildAudioItems(IntPtr parent)");
+                "private void BuildAudioItems(IntPtr parent, Radios.AudioMenuHost host)");
 
             Assert.DoesNotContain("if (Rig != null)", method);
             Assert.DoesNotContain("if (Rig == null)", method);
-            Assert.Contains("AudioMenuLayout.Entries", method);
+            // EntriesFor, not Entries: the HOST picks the rows (#836), and
+            // connection state still picks none of them.
+            Assert.Contains("AudioMenuLayout.EntriesFor(host)", method);
         }
 
         [Fact]

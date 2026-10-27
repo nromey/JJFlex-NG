@@ -17,7 +17,7 @@ namespace JJFlexWpf.Dialogs;
 /// load, save under a name, clear, and an Open Profiles Folder action so
 /// ordinary file tools (and sharing with a friend) stay possible.
 ///
-/// Opened from Slice menu > DSP > PC Noise Reduction > Noise Profiles, and
+/// Opened from Audio menu > DSP > PC Noise Reduction > Noise Profiles, and
 /// from the DSP field group's Noise Profiles button. Escape closes (house
 /// rule via JJFlexDialog); every change applies and persists immediately —
 /// there is no OK/Cancel because the pipeline is live and already saved.
