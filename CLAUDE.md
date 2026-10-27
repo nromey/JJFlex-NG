@@ -1542,7 +1542,10 @@ Audit checklist:
    nothing, which reads as "no key bindings changed" and silently skips the
    audit. Six memory entries carried the same wrong name; all corrected.
 
-2. **Update `docs/help/md/keyboard-reference.md`.** Every new binding gets a line in the appropriate scope section (Global / Radio / Logging / Home / Home Region sub-sections). Every removed binding gets its line deleted. Every remapped binding has its meaning updated.
+2. **Update the keyboard reference, which is a FOLDER now: `docs/help/md/KeyboardReference/`.** Every new binding gets a line in the appropriate scope section (Global / Radio / Logging / Home / Home Region sub-sections). Every removed binding gets its line deleted. Every remapped binding has its meaning updated.
+   - Today the scopes still sit on one page, `docs/help/md/KeyboardReference/KeyboardReference.md`, and the JJ key's chord list sits on `docs/help/md/KeyboardReference/JJKey.md` as well — `LeaderDocCoverageTests` holds the two copies to the inventory and to each other.
+   - The folder is being split into one page per scope and one per JJ key layer (#826). `docs/help/outline.md` names every page in the folder, which ones exist and which are still planned; once a scope has its own page, its lines go THERE, not on the hub.
+   - **The page names changed on 2026-10-27** (`keyboard-reference.md` and `leader-key.md` are gone). A grep for either old name returns nothing, which reads as "no help to update" and silently skips this step — the same trap as `KeyCommands.vb` above.
 
 3. **Update Command Finder search keywords.** The Command Finder (`Ctrl+/`) must return the new command when searched by name, synonym, or action verb. Check the registration metadata for the affected commands.
 
@@ -1586,7 +1589,7 @@ Audit checklist:
 
 When to skip the audit: sprints that don't touch key bindings (pure UI tweaks, under-the-hood refactors, build-system changes). If in doubt, grep the diff — "did any file named `KeyCommands` or `KeyBinding*` change?" is a fast answer.
 
-Future automation (not blocking — deferred): a build-time pass that introspects the KeyCommands registry, emits a canonical manifest, and fails the build if `keyboard-reference.md` is out of sync. Sprint 29+ candidate if the manual audit proves reliable.
+Future automation (not blocking — deferred): a build-time pass that introspects the KeyCommands registry, emits a canonical manifest, and fails the build if the `KeyboardReference/` pages are out of sync. Sprint 29+ candidate if the manual audit proves reliable.
 
 ---
 
