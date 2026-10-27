@@ -1,0 +1,79 @@
+---
+keywords:
+  - getting started
+---
+
+# Getting Started
+
+This guide walks you through installing JJ Flexible Radio Access and connecting to your FlexRadio for the first time.
+
+## System Requirements
+
+- Windows 10 or later (64-bit recommended, 32-bit supported)
+- The .NET 10 runtime (the installer will prompt you to install it if you don't already have it)
+- A FlexRadio FLEX-6000, FLEX-8000 series, or Flex Aurora  transceiver
+- Your radio and computer on the same local network, or a SmartLink account which is attached to a physical radio for remote operation
+
+## Installation
+
+1. Run the installer. It's named for the version you downloaded — `Setup JJFlex_4.2.0_x64.exe` for 64-bit Windows, or `Setup JJFlex_4.2.0_x86.exe` for 32-bit systems.
+2. Follow the prompts. The default install location is fine for most people.
+3. Launch JJ Flexible Radio Access from the Start menu or the desktop shortcut. When the application starts up, you'll hear "Welcome to JJ Flexible Radio Access" spoken.
+
+## First Connection (Local Network)
+
+When your Flex radio is on the same network as your computer:
+
+1. Turn on your radio and wait for it to finish booting up. This can take a while.
+2. Launch JJ Flexible Radio Access. The application automatically discovers Flex radios on your local network.
+3. You should hear your radio announced. If more than one radio is found, use the arrow keys to select the one you want.
+4. Press Enter to connect — or press the **Auto-Connect** button, which connects to the first available radio automatically. This is handy if you only have one radio on the network.
+
+That's it. If you've got a local radio on the network, remember that you don't need a SmartLink account for local connections, but feel free to sign up for one should you wish to be able to connect to your radio remotely..
+
+## First Connection (Remote / SmartLink)
+
+For remote operation through the internet:
+
+1. You need a SmartLink account from FlexRadio Systems. If you don't already have one, set it up at flexradio.com first, or use the sign-up link that appears on the SmartLink sign-in page within JJ Flexible Radio Access.
+2. From the **Radio** menu, choose **Connect to Radio**. The Select Radio dialog opens, and JJ Flexible Radio Access starts announcing any radios it discovers on your local network.
+3. If your remote radio is already in the list from an earlier session, just select it and press `Enter` — JJ Flexible Radio signs in to SmartLink and connects, announcing each step. To browse your account's radios first instead, press `Shift+F10` on the radio list and choose **Show Remote Radios**; the sign-in dialog asks for your SmartLink email and password.
+4. After you sign in, your remote radios appear in the same radio list alongside (or in place of) the local ones.
+5. Use the arrow keys to select the radio you want, then press the **Connect** button (or `Alt+N`, or `Enter`) to start the connection.
+
+**Tip:** If a radio should always be reached through SmartLink — it lives at another operator's station, say — set its Connection path (`Alt+P`) to "SmartLink first." Connect then goes straight there every time instead of checking your local network first.
+
+**Tip:** If you run into trouble with SmartLink, check the SmartLink and Remote Troubleshooting page for help.
+
+## Radio On But Silent? Connect First
+
+If you are coming from a conventional transceiver, this is the one thing worth
+knowing before anything else. A Flex produces no audio at all — not at its
+headphone jack, not at its line out, not at its front panel speaker — until a
+client program connects to it. Powering the radio on and plugging in
+headphones will get you silence, and nothing is wrong. Connect first, then
+listen.
+
+If you are still not hearing anything after you connect, see **Audio
+Troubleshooting**, or open Settings, go to the Audio tab, and press **Why is
+my radio silent?** — it checks the usual causes and tells you what it finds.
+
+## What Happens After You Connect
+
+Once you're connected, the application automatically speaks a full status summary which comes from your radio's connection. You'll hear something like: "Connected to FLEX-6600, local network. Listening on 14.225 megahertz, Upper Side Band, 20 meters, slice A." That tells you everything you need to know to start operating right away.
+
+You're in Modern tuning mode by default, which gives you a streamlined keyboard-driven interface and the ability to tune in very fine steps or more coarse ones.
+
+Here are the first things you might want to try:
+
+- Press `F2` to hear the current frequency spoken and to focus the JJ Flexible Home.
+- Use the up and down arrow keys to tune.
+- Press `Alt+M` to cycle through modes (Upper Side Band, Lower Side Band, CW, AM, and so on).
+- Press `F3` through `F9` to jump to different bands.
+- Press `Ctrl+/` to open the Command Finder, where you can search for any keyboard command by name.
+
+## Next Steps
+
+- **Screen Reader Setup** — Fine-tune NVDA or JAWS for JJ Flexible Radio Access.
+- **Keyboard Reference** — Learn all the hotkeys.
+- **Operating Modes** — Understand Classic tuning mode and Modern tuning mode.

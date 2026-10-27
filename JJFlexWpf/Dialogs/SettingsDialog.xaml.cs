@@ -1219,42 +1219,24 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
-        /// Sprint 27 Track D / Phase D.3 — open the help doc that best
-        /// matches the current (status, report, mode) state via the user's
-        /// default markdown viewer (System.Diagnostics.Process.Start with
-        /// UseShellExecute so Windows picks the handler). Falls back to
-        /// diagnostics.md when the resolver returns null (e.g., session is
+        /// Sprint 27 Track D / Phase D.3 — open the help page that best
+        /// matches the current (status, report, mode) state. Falls back to
+        /// Network Diagnostics when the resolver returns null (e.g., session is
         /// Connected but the user wants to look things up anyway).
+        ///
+        /// Since the 2026-10-27 help rework (#826, ruled yes by Noel) the page
+        /// opens in the help through <see cref="HelpLauncher"/>, like every F1
+        /// page, instead of as a loose Markdown file in whatever program Windows
+        /// associates with .md. A loose file would now open with the page's YAML
+        /// keyword block read aloud first, and it was a second copy to ship.
+        /// HelpLauncher speaks its own failures; on success the help window takes
+        /// focus and is what the screen reader reads, as for F1.
         /// </summary>
         private void NetworkHelpButton_Click(object sender, RoutedEventArgs e)
         {
-            string fileName = _rig?.CurrentHelpDocFileName ?? "networking-diagnostics.md";
-            string path = System.IO.Path.Combine(AppContext.BaseDirectory, "help", fileName);
-            if (!System.IO.File.Exists(path))
-            {
-                NetworkDiagnosticResultText.Text =
-                    Lexicon.Get("settings.network.help_file_missing", ("path", path));
-                ScreenReaderOutput.Speak(Lexicon.Get("settings.network.help_file_missing_spoken"),
-                    VerbosityLevel.Terse, interrupt: true);
-                return;
-            }
-            try
-            {
-                var psi = new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true };
-                System.Diagnostics.Process.Start(psi);
-                NetworkDiagnosticResultText.Text =
-                    Lexicon.Get("settings.network.help_opened", ("fileName", fileName));
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("settings.network.help_opened_spoken", ("fileName", fileName)),
-                    VerbosityLevel.Terse, interrupt: true);
-            }
-            catch (Exception ex)
-            {
-                NetworkDiagnosticResultText.Text =
-                    Lexicon.Get("settings.network.help_open_failed", ("message", ex.Message));
-                ScreenReaderOutput.Speak(Lexicon.Get("settings.network.help_open_failed_spoken"),
-                    VerbosityLevel.Terse, interrupt: true);
-            }
+            string key = _rig?.CurrentHelpDocFileName
+                ?? Radios.SmartLink.SessionStatusMessages.HelpKeyNetworkDiagnostics;
+            HelpLauncher.ShowHelp(key);
         }
 
         /// <summary>

@@ -1,0 +1,41 @@
+---
+keywords:
+  - connection
+---
+
+# Connection Troubleshooting
+
+If JJ Flexible Radio Access cannot find or connect to your radio, here are some things to check.
+
+## Radio Not Found on the Local Network
+
+1. **Is the radio powered on?** The radio takes a minute or so to boot up after it is powered on. Give it time to finish before you expect it to appear.
+2. **Are you on the same network?** Your computer and your radio must be on the same local network (the same subnet). If you are on Wi-Fi and the radio is plugged into Ethernet, make sure both devices are on the same network segment — not just the same physical room.
+3. **Is Windows Firewall blocking the discovery?** Windows Firewall can block JJ Flexible Radio Access's discovery traffic. The first time you run the application, Windows should prompt you to allow it. If you accidentally blocked it, go into Windows Firewall settings and add an exception for JJ Flexible Radio Access.
+4. **Do you have multiple network adapters?** If your computer has multiple network connections active at the same time (Wi-Fi and Ethernet, or a VPN plus your normal adapter), the discovery traffic may go out the wrong interface. Try disabling the other network adapters temporarily to see if that helps.
+
+## The Connection Drops After You Connect
+
+If you connect successfully but then lose the connection partway through a session:
+
+1. **Check your network stability.** Wi-Fi can be unreliable for sustained radio control — it introduces jitter and occasional dropouts. A wired Ethernet connection is almost always more reliable.
+2. **Check the radio's firmware.** Make sure your radio is running the latest firmware release from FlexRadio.
+3. **Check for other clients.** If another instance of SmartSDR or JJ Flexible Radio Access is already connected to the same radio, you may be hitting the radio's MultiFlex client limit.
+
+## SmartLink Issues
+
+For SmartLink (remote) connection problems specifically, see the SmartLink and Remote Operation help page for targeted troubleshooting steps.
+
+## The Picker Learns How You Actually Connect
+
+The radio picker pays attention to which way your connections succeed. Once a radio has connected the same way — local or remote — three times in a row, the picker starts suggesting that path for it. It's a suggestion only: it prefills, it never overrides, and a connection path you've chosen explicitly always wins. If the suggestion is ever wrong, just pick the path you want; your explicit choice takes over from there.
+
+## Capture the Problem While It Happens
+
+When a connection misbehaves, the most useful thing you can send me is a detailed capture of the attempt. Press `Ctrl+J`, then `Ctrl+D` — from anywhere, radio or no radio — reproduce the failing connect, then press `Ctrl+J`, `Ctrl+D` again to stop. The capture saves as its own session, ready to export. The full story of the diagnostic log, captures, and problem report bundles is on the Diagnostic Log help page, and the controls live under Settings on the Diagnostics tab.
+
+## General Tips
+
+- JJ Flexible Radio Access does not require a SmartLink account for local network connections. If you are on the same network as the radio, it should just work — no account needed.
+- Press `Ctrl+Shift+S` at any time to hear the current connection status spoken.
+- A diagnostic log is being kept all the time by default (see the Diagnostic Log help page), so even a problem you didn't capture usually left a record worth exporting.

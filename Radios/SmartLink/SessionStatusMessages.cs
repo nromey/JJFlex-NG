@@ -106,13 +106,24 @@ namespace Radios.SmartLink
             return string.IsNullOrEmpty(overlay) ? baseLine : $"{baseLine}. {overlay}";
         }
 
+        /// <summary>Help key for the Network Diagnostics page.</summary>
+        public const string HelpKeyNetworkDiagnostics = "NetworkDiagnostics";
+
+        /// <summary>Help key for the Manual Port Forwarding page.</summary>
+        public const string HelpKeyManualPortForwarding = "NetworkManualPortForwarding";
+
+        /// <summary>Help key for the UPnP page.</summary>
+        public const string HelpKeyUpnp = "NetworkUpnp";
+
         /// <summary>
-        /// Sprint 27 Track D — map a (status, report, mode) triple to the
-        /// filename of the help doc that best explains the current state.
-        /// Filenames carry the flat-convention prefix the help tree uses
-        /// ("networking-tier1-manual-port.md" etc.); callers prepend
-        /// <c>help\</c> and the app base directory. Returns null when no
-        /// help doc is applicable (e.g. status is Connected).
+        /// Sprint 27 Track D — map a (status, report, mode) triple to the help
+        /// page that best explains the current state. Returns a help KEY, one of
+        /// the three constants above, which <c>JJFlexWpf.HelpLauncher.ShowHelp</c>
+        /// opens in the help like any F1 page. Until the 2026-10-27 help rework
+        /// (#826) it returned a Markdown filename that the Settings Network tab
+        /// opened loose from a help folder beside the exe; those copies no longer
+        /// ship. Returns null when no help page is applicable (e.g. status is
+        /// Connected).
         /// </summary>
         public static string? HelpDocFor(
             SessionStatus status,
@@ -121,17 +132,17 @@ namespace Radios.SmartLink
         {
             if (status == SessionStatus.Connected || status == SessionStatus.Connecting) return null;
 
-            if (report != null && !report.ProbeCompleted) return "networking-diagnostics.md";
+            if (report != null && !report.ProbeCompleted) return HelpKeyNetworkDiagnostics;
 
             if (mode == SmartLinkConnectionMode.AutomaticHolePunch && report?.NatSupportsHolePunch == false)
-                return "networking-tier1-manual-port.md";
+                return HelpKeyManualPortForwarding;
 
             if (mode >= SmartLinkConnectionMode.ManualPlusUpnp && report?.UpnpTcpReachable == false)
-                return "networking-tier2-upnp.md";
+                return HelpKeyUpnp;
 
-            if (report?.ManualForwardTcpReachable == false) return "networking-tier1-manual-port.md";
+            if (report?.ManualForwardTcpReachable == false) return HelpKeyManualPortForwarding;
 
-            return "networking-diagnostics.md";
+            return HelpKeyNetworkDiagnostics;
         }
 
         private static string ResolveDisconnectOverlay(

@@ -16,9 +16,12 @@ namespace JJFlexWpf
     /// worse than saying nothing. So a model we have not verified returns null here,
     /// and callers hide the button rather than offering a stub.
     ///
-    /// The documents live in <c>docs/help/md/</c> and are embedded from there, so the
-    /// same file feeds both the CHM help build and this dialog. Editing the markdown
-    /// updates both; there is no second copy to keep in sync.
+    /// The documents live in <c>docs/help/md/KnowYourRadio/</c> and are embedded from
+    /// there, so the same file feeds both the help build and this dialog. Editing the
+    /// markdown updates both; there is no second copy to keep in sync. Each opens with
+    /// the help's YAML keyword block, which <see cref="HelpMarkdown"/> removes before
+    /// showing it, and none may link another page: a link inside this dialog goes
+    /// nowhere (Radios.Tests checks both).
     ///
     /// Deliberately not covered:
     /// - Aurora (AU-510, AU-520). Built on the 8400 and 8600, but its panel has not
@@ -38,13 +41,13 @@ namespace JJFlexWpf
         /// </summary>
         private static readonly (string Match, string Resource, string Title)[] Guides =
         {
-            ("6300", "know-your-radio-6300.md", "Know Your Radio: FLEX-6300"),
-            ("6400", "know-your-radio-6400-6600.md", "Know Your Radio: FLEX-6400 and FLEX-6600"),
-            ("6500", "know-your-radio-6500.md", "Know Your Radio: FLEX-6500"),
-            ("6600", "know-your-radio-6400-6600.md", "Know Your Radio: FLEX-6400 and FLEX-6600"),
-            ("6700", "know-your-radio-6700.md", "Know Your Radio: FLEX-6700"),
-            ("8400", "know-your-radio-8400-8600.md", "Know Your Radio: FLEX-8400 and FLEX-8600"),
-            ("8600", "know-your-radio-8400-8600.md", "Know Your Radio: FLEX-8400 and FLEX-8600"),
+            ("6300", "Flex6300.md", "Know Your Radio: FLEX-6300"),
+            ("6400", "Flex6400And6600.md", "Know Your Radio: FLEX-6400 and FLEX-6600"),
+            ("6500", "Flex6500.md", "Know Your Radio: FLEX-6500"),
+            ("6600", "Flex6400And6600.md", "Know Your Radio: FLEX-6400 and FLEX-6600"),
+            ("6700", "Flex6700.md", "Know Your Radio: FLEX-6700"),
+            ("8400", "Flex8400And8600.md", "Know Your Radio: FLEX-8400 and FLEX-8600"),
+            ("8600", "Flex8400And8600.md", "Know Your Radio: FLEX-8400 and FLEX-8600"),
         };
 
         private static readonly Dictionary<string, string> Cache = new(StringComparer.Ordinal);

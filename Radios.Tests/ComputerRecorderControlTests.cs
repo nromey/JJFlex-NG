@@ -143,7 +143,7 @@ public sealed class ComputerRecorderControlTests : IDisposable
     [Fact]
     public void Playback_help_describes_automatic_vox_pause_without_promising_a_queued_play()
     {
-        string help = System.IO.File.ReadAllText(System.IO.Path.Combine(IntegrationPassTree.Root, "docs", "help", "md", "leader-key.md"));
+        string help = HelpPages.Read("JJKey.md");
         var line = System.Linq.Enumerable.Single(help.Split('\n'), l => l.StartsWith("- **Ctrl+P**"));
         Assert.Contains("already transmitting", line);
         Assert.Contains("pauses VOX", line);

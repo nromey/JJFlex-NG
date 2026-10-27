@@ -34,15 +34,27 @@ nondeterminism.
 
 Every file the compiled help is built FROM:
 
-  - docs\help\md\*.md, except whats-new.md
-  - docs\CHANGELOG.md, which IS whats-new.md (build-help.bat copies it in, so
+  - every page under docs\help\md\, in every folder, keyed by its path
+    relative to md\ (md/AudioWorkshop/ListenBack.md), except md\WhatsNew.md
+  - docs\CHANGELOG.md, which IS WhatsNew.md (the build copies it in, so
     hashing the copy would report "fresh" for a changelog edit that has not been
     imported yet)
-  - jjflex-help.hhp, toc.hhc, index.hhk, style.css
+  - outline.md, help-links.lua and help-generate.ps1: the outline decides which
+    pages exist and what the Contents shows, the filter writes every link, and
+    the generator writes the page wrappers, the Contents, the Index and the
+    project file. Change any of them and the CHM changes.
+  - style.css
 
-Deliberately NOT hashed: build-help.bat and convert-md.ps1. A comment-only edit
-to a script would demand a help rebuild, and a guard that cries wolf is a guard
-people route around.
+Not hashed: jjflex-help.hhp, toc.hhc and index.hhk, which the build generates
+from the files above (#826), so hashing them would only hash the same thing
+twice; and build-help.bat and build-help.ps1, which run the build but decide
+nothing about its content. A comment-only edit to them would demand a help
+rebuild, and a guard that cries wolf is a guard people route around.
+
+The page walk is RECURSIVE. Until 2026-10-27 it read md\*.md only, which went
+blind to every page the day the pages moved into folders; the positive control
+for that is in the #826 framework report: edit one page inside a folder, run
+Check, and it says STALE.
 
 ## Modes
 
@@ -115,17 +127,21 @@ function Get-HelpSourceFiles {
   $files = New-Object System.Collections.Generic.List[object]
 
   if (Test-Path -LiteralPath $mdDir) {
-    Get-ChildItem -LiteralPath $mdDir -Filter '*.md' -File |
-      Where-Object { $_.Name -ne 'whats-new.md' } |
-      Sort-Object Name |
-      ForEach-Object { $files.Add([pscustomobject]@{ Key = 'md/' + $_.Name; Path = $_.FullName }) }
+    $mdRoot = (Resolve-Path -LiteralPath $mdDir).Path.TrimEnd('\')
+    Get-ChildItem -LiteralPath $mdRoot -Filter '*.md' -File -Recurse |
+      ForEach-Object {
+        $rel = $_.FullName.Substring($mdRoot.Length + 1).Replace('\', '/')
+        [pscustomobject]@{ Key = 'md/' + $rel; Path = $_.FullName; Rel = $rel }
+      } |
+      Where-Object { $_.Rel -ne 'WhatsNew.md' } |
+      ForEach-Object { $files.Add([pscustomobject]@{ Key = $_.Key; Path = $_.Path }) }
   }
 
   if (Test-Path -LiteralPath $changelog) {
     $files.Add([pscustomobject]@{ Key = 'CHANGELOG.md'; Path = $changelog })
   }
 
-  foreach ($n in @('jjflex-help.hhp', 'toc.hhc', 'index.hhk', 'style.css')) {
+  foreach ($n in @('outline.md', 'help-links.lua', 'help-generate.ps1', 'style.css')) {
     $p = Join-Path $helpDir $n
     if (Test-Path -LiteralPath $p) {
       $files.Add([pscustomobject]@{ Key = $n; Path = $p })

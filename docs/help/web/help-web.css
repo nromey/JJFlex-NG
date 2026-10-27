@@ -1,0 +1,50 @@
+/* help-web.css -- the HTML help's own additions to style.css: the block at
+   the top of every page. */
+
+.help-top {
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+}
+
+/* The skip link stays out of sight until it has focus, then shows plainly,
+   so a sighted keyboard user sees where Tab went. */
+.skip-link {
+    position: absolute;
+    left: -10000px;
+    top: auto;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+}
+.skip-link:focus {
+    position: static;
+    width: auto;
+    height: auto;
+    display: inline-block;
+    padding: 4px 8px;
+    background: #ffffcc;
+    border: 2px solid #0066cc;
+}
+
+.help-search {
+    display: inline-block;
+    margin: 4px 16px 4px 0;
+}
+.help-search input[type="search"] {
+    font-size: 14px;
+    padding: 2px 4px;
+}
+
+.help-links a {
+    margin-right: 16px;
+}
+
+.help-results p {
+    margin: 2px 0 10px 0;
+}
+
+main:focus,
+h1:focus, h2:focus, h3:focus, h4:focus, h5:focus, h6:focus {
+    outline: 2px dotted #0066cc;
+}

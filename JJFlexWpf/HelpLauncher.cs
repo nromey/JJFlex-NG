@@ -68,39 +68,51 @@ namespace JJFlexWpf
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
+        // Every value names a page in its outline folder (#826): the build writes
+        // pages/<Folder>/<Page>.htm from docs/help/md/<Folder>/<Page>.md. A
+        // Radios.Tests check reads this map from source and fails on a page that
+        // does not exist or that docs/help/outline.md does not list as written.
         private static readonly Dictionary<string, string> ContextMap = new(StringComparer.OrdinalIgnoreCase)
         {
-            { "FreqDisplay", "pages/tuning-frequency.htm" },
-            { "ScreenFieldsDSP", "pages/filters-dsp.htm" },
-            { "ScreenFieldsTX", "pages/ptt-transmission.htm" },
-            { "ScreenFieldsAudio", "pages/audio-workshop.htm" },
-            { "ScreenFieldsReceiver", "pages/filters-dsp.htm" },
-            { "ScreenFieldsAntenna", "pages/filters-dsp.htm" },
-            { "AudioWorkshop", "pages/audio-workshop.htm" },
-            { "EarconExplorer", "pages/earcon-explorer.htm" },
-            { "MeterTones", "pages/meter-tones.htm" },
-            { "LogPanel", "pages/logging.htm" },
-            { "SettingsDialog", "pages/settings-profiles.htm" },
-            // "CommandFinder" used to point at keyboard-reference.htm because
+            { "FreqDisplay", "pages/JJFlexibleHome/TuningAndFrequency.htm" },
+            { "ScreenFieldsDSP", "pages/Receiver/FiltersAndDsp.htm" },
+            { "ScreenFieldsTX", "pages/Transmit/PttAndTransmission.htm" },
+            { "ScreenFieldsAudio", "pages/AudioWorkshop/AudioWorkshop.htm" },
+            { "ScreenFieldsReceiver", "pages/Receiver/FiltersAndDsp.htm" },
+            { "ScreenFieldsAntenna", "pages/Receiver/FiltersAndDsp.htm" },
+            { "AudioWorkshop", "pages/AudioWorkshop/AudioWorkshop.htm" },
+            { "EarconExplorer", "pages/Sounds/EarconExplorer.htm" },
+            { "MeterTones", "pages/Sounds/MeterTones.htm" },
+            { "LogPanel", "pages/Logging/Logging.htm" },
+            { "SettingsDialog", "pages/Settings/Settings.htm" },
+            // "CommandFinder" used to point at the keyboard reference because
             // the Help > Keyboard Reference menu item borrowed the key — which
             // left the Command Finder dialog itself with no F1 page (#40).
             // Each has its own key now.
-            { "CommandFinder", "pages/command-finder.htm" },
-            { "KeyboardReference", "pages/keyboard-reference.htm" },
-            { "LeaderKey", "pages/leader-key.htm" },
-            { "WelcomeDialog", "pages/getting-started.htm" },
-            { "ConnectDialog", "pages/connection-troubleshooting.htm" },
-            { "WhatsNew", "pages/whats-new.htm" },
-            { "KnowYourRadio", "pages/know-your-radio.htm" },
+            { "CommandFinder", "pages/KeyboardReference/CommandFinder.htm" },
+            { "KeyboardReference", "pages/KeyboardReference/KeyboardReference.htm" },
+            { "LeaderKey", "pages/KeyboardReference/JJKey.htm" },
+            { "WelcomeDialog", "pages/GettingStarted/GettingStarted.htm" },
+            { "ConnectDialog", "pages/Troubleshooting/ConnectionTroubleshooting.htm" },
+            { "WhatsNew", "pages/WhatsNew.htm" },
+            { "KnowYourRadio", "pages/KnowYourRadio/KnowYourRadio.htm" },
             // Sprint 30 Track E: the no-radio Home page and the Diagnostics
             // tab each get a real F1 destination.
-            { "RescueHome", "pages/home-no-radio.htm" },
-            { "DiagnosticLog", "pages/diagnostic-log.htm" },
+            { "RescueHome", "pages/JJFlexibleHome/HomeWithoutARadio.htm" },
+            { "DiagnosticLog", "pages/Troubleshooting/DiagnosticLog.htm" },
             // Sprint 48 Track B (#307): the system-wide keys are documented
-            // on the keyboard reference, in their own section.
-            { "SystemWideKeys", "pages/keyboard-reference.htm" },
+            // on the keyboard reference, in their own section, until the
+            // reference is split and they get their own page (#826).
+            { "SystemWideKeys", "pages/KeyboardReference/KeyboardReference.htm" },
             // Tape Deck track 4 (#787): the recordings dialog's own page.
-            { "RecordedQsos", "pages/recorded-qsos.htm" },
+            { "RecordedQsos", "pages/Audio/RecordedQsos.htm" },
+            // The Settings Network tab's Help button (#826, open item 6, ruled
+            // yes 2026-10-27): the three networking pages open in the help like
+            // every other page, rather than as loose Markdown files beside the
+            // exe. SessionStatusMessages.HelpDocFor returns one of these keys.
+            { "NetworkDiagnostics", "pages/Networking/NetworkDiagnostics.htm" },
+            { "NetworkManualPortForwarding", "pages/Networking/ManualPortForwarding.htm" },
+            { "NetworkUpnp", "pages/Networking/Upnp.htm" },
         };
 
         /// <summary>True once the install has been handed to the hook thread.</summary>

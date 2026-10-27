@@ -42,6 +42,10 @@
 *.ico      binary
 *.pdf      binary
 
+# Vendored JavaScript kept byte for byte as published (its README records the
+# npm integrity hash), so no line-ending conversion on checkout.
+docs/help/web/minisearch/minisearch-*.js -text
+
 ###############################################################################
 # Set default behavior for command prompt diff.
 #

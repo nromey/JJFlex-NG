@@ -10,11 +10,17 @@ namespace JJFlexWpf
     /// Renders the help markdown subset to HTML (for <see cref="Dialogs.HtmlInfoDialog"/>)
     /// and to plain text (for the fallback path when WebView2 is unavailable).
     ///
-    /// The subset deliberately matches <c>docs/help/convert-md.ps1</c>, which builds
-    /// the CHM from the same .md files. One document authored once therefore reaches
-    /// the user two ways — F1 help and the in-app dialog — without a second copy to
-    /// keep in sync. Anything this renderer cannot express is something the CHM
-    /// build would render differently, which is exactly the divergence to avoid.
+    /// The help build itself converts pages with pandoc (<c>docs/help/build-help.ps1</c>,
+    /// #826); pandoc is the authority on how a page renders, and this is a small
+    /// subset of it for the pages the app shows in its own dialog. One document
+    /// authored once therefore reaches the user two ways — F1 help and the in-app
+    /// dialog — without a second copy to keep in sync. Anything this renderer cannot
+    /// express is something the help build would render differently, which is
+    /// exactly the divergence to avoid.
+    ///
+    /// Every help page opens with a YAML keyword block for the build's index. Both
+    /// entry points remove it first (<see cref="Radios.HelpFrontMatter"/>), or the
+    /// operator would hear the keywords before the page's first heading.
     ///
     /// Tables are the one deliberate omission: they are banned in screen-reader
     /// facing material, so a table here means the source document needs fixing.
@@ -70,7 +76,7 @@ h1:focus, h2:focus, body:focus {{ outline: none; }}
 </style>
 </head>
 <body>
-{RenderBody(markdown)}
+{RenderBody(Radios.HelpFrontMatter.Strip(markdown))}
 </body>
 </html>";
         }
@@ -82,6 +88,7 @@ h1:focus, h2:focus, body:focus {{ outline: none; }}
         /// </summary>
         public static string ToPlainText(string markdown)
         {
+            markdown = Radios.HelpFrontMatter.Strip(markdown);
             var sb = new StringBuilder();
             bool lastWasBlank = true;
 
