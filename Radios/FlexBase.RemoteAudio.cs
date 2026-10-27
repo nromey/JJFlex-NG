@@ -1750,6 +1750,7 @@ namespace Radios
         /// </remarks>
         public void TxFileStart()
         {
+            if (RefusedForCheckTeardown("a recording")) return;   // #835, see FlexBase.CheckRestore.cs
             Tracing.TraceLine("TxFileStart: \"" + txFilePlayer.ContentName + "\", "
                 + txFilePlayer.ContentSeconds.ToString("F1") + " s at "
                 + txFilePlayer.ContentSampleRate + " Hz", TraceLevel.Info);
@@ -1789,6 +1790,7 @@ namespace Radios
         /// </remarks>
         public void TxFileStartForVox()
         {
+            if (RefusedForCheckTeardown("a recording for VOX")) return;   // #835, see FlexBase.CheckRestore.cs
             Tracing.TraceLine("TxFileStartForVox: \"" + txFilePlayer.ContentName + "\", "
                 + txFilePlayer.ContentSeconds.ToString("F1") + " s at "
                 + txFilePlayer.ContentSampleRate + " Hz — reaching the radio while receiving so VOX can key on it",

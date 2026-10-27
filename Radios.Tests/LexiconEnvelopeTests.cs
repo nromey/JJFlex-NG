@@ -1850,6 +1850,8 @@ namespace Radios.Tests
                 // transmitting, and the refusal while a teardown holds admission.
                 "audio.check.teardown_withheld",
                 "audio.check.teardown_refuses",
+                // Track A fix round 4: an IQ take refused while a teardown holds admission.
+                "audio.iq.reason.teardown-in-progress",
             };
 
             Assert.Equal(3140, unclassified);

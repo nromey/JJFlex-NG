@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using JJTrace;
 
 namespace Radios;
 
@@ -114,6 +115,54 @@ public partial class FlexBase
         // same radio; a radio being closed is disposed straight after).
         run.TrySetResult(result);
         lock (_checkTeardownGate) if (_checkTeardownHolders == 0) _checkTeardown = null;
+    }
+
+    // ── The admission boundary (#835, fix round 4) ──────────────────────
+    //
+    // While TeardownInProgress, nothing APP-INITIATED may key this radio or
+    // start a transmit-side resource, whichever door it came through. The
+    // refusal lives HERE, at the chokepoints every such door ends at, not in
+    // the doors: round 3 refused only in the PTT controller's PttDown and
+    // ToggleLock, and voice messages (Transmit, TxFileStartForVox), tune
+    // (TxTune), CW (SendCW, and the queued senders) and the IQ bench starts
+    // (StartListenbackAsync) walked straight past it.
+    //
+    // THE CHOKEPOINTS: Transmit going true (and again when its queued write
+    // runs), TxTune going true (likewise), SendCW (both forms, and the queued
+    // CW senders at their run), TxFileStart, TxFileStartForVox, and
+    // StartListenbackAsync. An UNKEY is never refused: Transmit false and
+    // TxTune false always pass.
+    //
+    // ANY NEW SEND MUST END AT ONE OF THESE. A sender that keys the radio some
+    // other way (a new FlexLib property, a raw command) has to add the same
+    // refusal at its own write, or it reopens the hole this closes. Upper
+    // doors keep their own refusals where they have better words to say
+    // (PttSafetyController, Check your audio's Start); this one also speaks,
+    // throttled, so a door with no refusal of its own is not silent.
+
+    private long _lastTeardownRefusalSpokenMs;
+
+    /// <summary>True, traced and spoken, when a teardown holds admission and <paramref name="what"/> would start a transmission or a resource.</summary>
+    internal bool RefusedForCheckTeardown(string what)
+    {
+        if (!TeardownInProgress) return false;
+        Tracing.TraceLine("Refused during an Audio Check teardown: " + what, System.Diagnostics.TraceLevel.Warning);
+        long now = Environment.TickCount64;
+        if (now - System.Threading.Interlocked.Read(ref _lastTeardownRefusalSpokenMs) > 1500)
+        {
+            System.Threading.Interlocked.Exchange(ref _lastTeardownRefusalSpokenMs, now);
+            // DRAFT PROSE (#835): awaiting Noel.
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.teardown_refuses"), VerbosityLevel.Critical, interrupt: true);
+        }
+        return true;
+    }
+
+    /// <summary>The same question at a queued write's run, traced and not spoken: it was asked for before the teardown began.</summary>
+    internal bool TeardownHeldSilently(string what)
+    {
+        if (!TeardownInProgress) return false;
+        Tracing.TraceLine("Held at its run during an Audio Check teardown: " + what, System.Diagnostics.TraceLevel.Warning);
+        return true;
     }
 
     /// <summary>The radio is going: whatever was not put back is abandoned, and said so in the trace.</summary>

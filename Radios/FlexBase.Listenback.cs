@@ -180,6 +180,8 @@ public partial class FlexBase
 
     public async Task<ListenbackRun> StartListenbackAsync(ListenbackOptions options, CancellationToken cancellation)
     {
+        // #835: no IQ take starts while an Audio Check teardown holds admission.
+        if (TeardownInProgress) throw new InvalidOperationException("teardown-in-progress");
         if (!await _iqLease.WaitAsync(0, cancellation).ConfigureAwait(false)) throw new InvalidOperationException("take-already-running");
         Radio radio = theRadio;
         var connection = radio?.CurrentCommandConnection;

@@ -857,6 +857,7 @@ namespace Radios
         {
             if (theRadio == null) return;
             if (CwKeyingHeldSilently()) return;   // #571: a character already queued when the cut landed goes nowhere
+            if (TeardownHeldSilently("CW typing")) return;   // #835: nor one queued before an Audio Check teardown
             // send only if in transmit mode or VOX is on
             if (!Transmit & (Vox == OffOnValues.off)) return;
 
@@ -872,6 +873,7 @@ namespace Radios
         {
             if ((theRadio == null) | string.IsNullOrEmpty(str)) return;
             if (CwKeyingHeldSilently()) return;   // #571: a message already queued when the cut landed goes nowhere
+            if (TeardownHeldSilently("a CW message")) return;   // #835: nor one queued before an Audio Check teardown
             // send only if in transmit mode or VOX is on
             if (!Transmit & (Vox == OffOnValues.off)) return;
 

@@ -7994,9 +7994,17 @@ namespace Radios
             }
             set
             {
+                // #835: a key-up is refused while an Audio Check teardown holds
+                // admission, here and again when the queued write runs; an
+                // unkey never is. See FlexBase.CheckRestore.cs for the boundary.
+                if (value && RefusedForCheckTeardown("transmit")) return;
                 if (!value) CancelSlicePlayback();
                 if (value && TxReferenceArmed) txFilePlayer.RestartOnNextBuffer();
-                q.Enqueue((FunctionDel)(() => { theRadio.Mox = value; }), "Mox");
+                q.Enqueue((FunctionDel)(() =>
+                {
+                    if (value && TeardownHeldSilently("transmit")) return;
+                    theRadio.Mox = value;
+                }), "Mox");
             }
         }
 
@@ -8007,7 +8015,16 @@ namespace Radios
         public bool TxTune
         {
             get => theRadio.TXTune;
-            set { q.Enqueue((FunctionDel)(() => { theRadio.TXTune = value; }), "TXTune"); }
+            set
+            {
+                // #835: as Transmit above; turning tune off is never refused.
+                if (value && RefusedForCheckTeardown("tune")) return;
+                q.Enqueue((FunctionDel)(() =>
+                {
+                    if (value && TeardownHeldSilently("tune")) return;
+                    theRadio.TXTune = value;
+                }), "TXTune");
+            }
         }
 
         /// <summary>
@@ -12351,6 +12368,7 @@ namespace Radios
             // break-in may still be on in a mode the cut did not pause. The
             // hook speaks the refusal; nothing is buffered or queued.
             if (CwKeyingRefused("a CW message")) return false;
+            if (RefusedForCheckTeardown("a CW message")) return false;   // #835
             lock (cwBuffer)
             {
                 if (CWBuffering)
@@ -12368,6 +12386,7 @@ namespace Radios
         public bool SendCW(char c)
         {
             if (CwKeyingRefused("CW typing")) return false;   // #571, as the string form above
+            if (RefusedForCheckTeardown("CW typing")) return false;   // #835
             if (CWBuffering)
             {
                 cwBuffer.Text += c;
