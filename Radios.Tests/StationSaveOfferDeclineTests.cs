@@ -83,6 +83,13 @@ namespace Radios.Tests
             Assert.Single(Regex.Matches(body, @"return\s+false\s*;"));
             Assert.True(Regex.Matches(body, @"return Decline\(").Count >= 5,
                 "every gate in ShouldOfferStationLayoutSave declines through Decline(), which traces");
+
+            // And Decline does trace: without this line every gate above
+            // would close in silence again while the counts stayed green.
+            int decline = body.IndexOf("bool Decline(string why)", StringComparison.Ordinal);
+            Assert.True(decline >= 0);
+            string helper = body.Substring(decline, body.IndexOf("return false", decline, StringComparison.Ordinal) - decline);
+            Assert.Contains("Tracing.TraceLine(\"ShouldOfferStationLayoutSave:not offering, \" + why", helper);
         }
 
         /// <summary>
