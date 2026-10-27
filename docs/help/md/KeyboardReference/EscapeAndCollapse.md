@@ -1,31 +1,33 @@
 ---
-keywords: []
+keywords:
+  - collapse Home groups
+  - Escape
 ---
 
 # Escape and Collapse
 
-The Escape key is your "back out" key in JJ Flexible Radio Access. It behaves differently depending on what you are doing and on whether you press it once or twice.
+The Escape key is your "back out" key in JJ Flexible Radio Access. On Home it closes field groups, but a transmission, a JJ key layer, or an adjustment you are making may need Escape first.
 
 ## Single Escape
 
-Press `Escape` once while focus is inside an expanded field group (DSP, Audio, Receiver, Transmission, or Antenna). The group collapses, focus moves to the group's header, and you will hear a short descending chirp confirming the collapse.
+Press `Escape` once while focus is inside an expanded field group (DSP, Audio, Receiver, Transmission, or Antenna). That group collapses, focus moves to its header, and you will hear a short descending chirp confirming the collapse.
 
-If you are not inside an expanded group — for example, you are already in the JJ Flexible Home — a single Escape simply returns focus to the JJ Flexible Home, the same destination that `F2` takes you to.
+If focus is on the JJ Flexible Home rather than inside a group, one press closes every open group. If no group is open, Escape returns focus to Home.
 
 ## Double Escape (Collapse All)
 
-Press `Escape` twice in quick succession. All open field groups collapse at once, focus returns to the JJ Flexible Home, and you will hear the "two-tone descent" earcon — a higher tone followed by a lower one — signalling "everything is closed, you are back at Home."
+Press `Escape` twice in quick succession while working inside an expanded group. All open field groups collapse at once, focus returns to the JJ Flexible Home, and you will hear the "two-tone descent" earcon — a higher tone followed by a lower one — signalling "everything is closed, you are back at Home."
 
 "Quickly" in this context is controlled by your Double-Tap Tolerance setting (see the Double-Tap Tolerance help topic). The default tolerance is 500 milliseconds between presses.
 
 ## Why Escape Works This Way
 
-Escape as a "back out" key works at two scales inside JJ Flexible Radio Access:
+For Home's field groups, Escape works at two scales:
 
-- A single Escape backs you out of the current group — a local scope.
-- Two Escapes in quick succession back you out of everything — a global scope.
+- A single Escape closes the group you are in. From Home, it closes every open group.
+- Two Escapes in quick succession from inside a group close every open group and return focus to Home.
 
-The same key carries the same underlying meaning, applied at two different levels of reach. You learn the rule once, and it applies everywhere in the application.
+Escape can have another job before it closes a group. If a voice message or a push-to-talk transmission is running, Escape stops that transmission first. If you are adjusting a filter edge or the RIT or XIT scale, it cancels that adjustment first. In a JJ key layer, Escape cancels the layer; in an ordinary dialog, it closes the dialog. A running Audio Check or transmit test uses the first press to stop its transmission and keeps its window open.
 
 ## Re-expanding a Collapsed Group
 

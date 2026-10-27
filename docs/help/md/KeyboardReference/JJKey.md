@@ -13,7 +13,7 @@ The second key follows a grammar, and the grammar is the point: you work out a c
 
 1. Press `Ctrl+J`. You will hear a rising "bink" tone — the JJ Command layer is now open.
 2. Press one of the command keys listed below.
-3. The action executes, and the layer closes automatically.
+3. A one-step command runs and the JJ key layer closes. If the key opens the audio, filter, or noise layer, that layer stays open until you press `Enter` to keep your changes, `Escape` to cancel them, or the JJ key to leave it.
 
 If you change your mind, press `Escape`. You will hear a soft falling tone letting you know that the JJ Command layer has closed. The layer waits patiently until you press a key or cancel — there is no timer sneaking you out of it.
 
@@ -110,7 +110,7 @@ Now the layer waits. After an unknown key it stays open for exactly three keys: 
 
 ## Reading the list at your own pace
 
-`H` used to read you every command in the layer in one go — thirty-odd of them, most of a minute, and if the one you wanted went past, you started again from the top. Speech is the right medium for an answer you already know you want; it's the wrong one for looking for something. So `H` now opens a list instead. It says how many commands there are first, so you know what you're getting, then puts one command per row in a window you can arrow through: hear each one on its own, go back to the one you missed, type a letter to jump to that key, and press Escape when you're done. A short layer stays spoken — volume mode's six targets are one sentence, and a window would just be in the way.
+`H` used to read you every command in the layer in one go — thirty-odd of them, most of a minute, and if the one you wanted went past, you started again from the top. Speech is the right medium for an answer you already know you want; it's the wrong one for looking for something. So `H` now opens a list instead. It says how many commands there are first, so you know what you're getting, then puts one command per row in a window you can arrow through: hear each one on its own, go back to the one you missed, type a letter to jump to that key, and press Escape when you're done. Inside the audio layer, `H` reads its ten targets: V, Ctrl+H, O, M, L, C, S, X, D, and P.
 
 From the list, **Explore the JJ key** (`Alt+X`) opens the explorer: the whole layer as a tree. The top branches are the kinds of key — plain letters, Shift letters, Control letters, Alt letters, and help — and under a chord that opens a mode of its own, such as `V` for volume mode, sit the keys that only work once you're in it. Right arrow opens a branch, Left closes it, Enter does either, and a letter jumps to the next key that starts with it. It's the same table the list reads from, so the two can't disagree.
 

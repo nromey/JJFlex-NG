@@ -2,6 +2,8 @@
 keywords:
   - hotkeys
   - keyboard shortcuts
+  - S meter field
+  - offset field
 ---
 
 # Keyboard Reference
@@ -10,11 +12,11 @@ Welcome to your one-stop reference for every keyboard shortcut in JJ Flexible Ra
 
 Almost every shortcut below can be changed. Open Tools, then Hotkey Editor, pick a command, and press the new key you want — the app tells you about any conflict and asks before taking a key away from another command. While it waits for the new key, `Escape` cancels, `Tab` and `Shift+Tab` stop waiting and move on as they always do, and `Enter` is refused, because Enter, Tab and Escape can never be assigned. You land on the list of commands; `Shift+Tab` from there reaches Arrange by and Category, and `Tab` goes straight to Change Key and the other buttons. Help → Key Assignments opens the same list for browsing. Commands listed as having no key can be given one there too.
 
-JJ Flexible Radio Access has three operating scopes: some keys work everywhere (Global), some only work when you're controlling the radio (Radio scope, which includes both Classic and Modern tuning modes), and some only work when you're in the logging pane (Logging scope).
+JJ Flexible Radio Access has three operating scopes: some keys work anywhere inside the application, including its dialogs; some work only while you are controlling the radio (Radio scope, including Classic and Modern tuning); and some work only in Logging mode. A separate set of keys works even while another program has the keyboard.
 
-## Global Hotkeys
+## Keys That Work Anywhere in JJ Flexible
 
-These keys work no matter where you are in the application — and "no matter where" now honestly includes dialogs. For a long while a Global key pressed inside a dialog quietly did nothing, or worse, landed on a dialog button that happened to share the keystroke (Alt+Shift+S inside the Audio Workshop used to save a preset instead of speaking your transmit status). That's fixed: press a Global key anywhere and its real command answers. A dialog's own keys still come first, so nothing a dialog needs is taken away from it.
+These keys work anywhere inside JJ Flexible, including in dialogs. For a long while one of these keys pressed inside a dialog quietly did nothing, or worse, landed on a dialog button that happened to share the keystroke (Alt+Shift+S inside the Audio Workshop used to save a preset instead of speaking your transmit status). That's fixed: press one of these keys anywhere in the application and its command answers. A dialog's own keys still come first, so nothing a dialog needs is taken away from it. For keys that work while another program has the keyboard, see "Keys that work from any program" below.
 
 - **F1** — Open this help file
 - **Ctrl+F1** — Explain the control you are sitting on — the longer story its short name leaves out, plus whatever the note beneath it currently says. If there's nothing extra, it says so honestly
@@ -91,7 +93,7 @@ Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it
 - **Ctrl+X** — Toggle full duplex for the whole radio. The new state is announced when the radio reports it. Home, Transmit and the Transmit menu show the same control. If the radio has not reported full duplex, the control says so.
 - **Ctrl+G** — Arm or disarm the TX test tone (it replaces your microphone while transmitting)
 - **Ctrl+R** — Record the active slice, or stop recording it — the radio's own recorder keeps one recording per slice, up to the last two minutes
-- **Ctrl+P** — Play the active slice's recording through your speakers, or stop it — never on the air, and not while you are transmitting
+- **Ctrl+P** — Play the active slice's recording, or stop it. During a transmission, playback goes over the air until you unkey; otherwise it plays through your speakers. Play does not key the radio itself
 - **Ctrl+Shift+R** — Record to file: record what the radio plays through this computer, or stop — the Shift form of Ctrl+R, the other recorder
 - **Ctrl+Shift+P** — Play from computer: play your last recording on this computer, or stop — the Shift form of Ctrl+P
 - **Ctrl+T** — Toggle meter tones on/off
@@ -321,7 +323,7 @@ fifteen minutes, and closing the app asks about it on the way out.
 Every capture saves itself when you stop it. The full report — peak, trough,
 average, swing, fade rhythm and depth, trend, how long you transmitted, and
 exactly how each number was measured — lives under Tools, then Signal
-captures, where you can read it, rename it (a capture named "Don on 40
+captures, where you can read it, rename it (a capture named "Weak signal on 40
 meters" beats "the one from 9:14" a week later), export it as a web page or
 plain text to send to someone, or delete it. Anything the capture could NOT
 determine says so in as many words: a ten-second capture doesn't guess at a
@@ -509,6 +511,10 @@ The Mode field sits after the S Meter, in both Classic and Modern tuning, and sh
 
 These go through the same list as Alt+M and Alt+Shift+M, so you hear the new mode the same way.
 
+## JJ Flexible Home — S Meter Field Keys
+
+On the S Meter field, press **Space** to hear the current signal reading. While transmitting, Space speaks forward power instead. The reading uses the S-units or dBm you selected for this radio; `Ctrl+J`, then `Ctrl+S` switches between them.
+
 ## JJ Flexible Home — Squelch and Squelch Level Field Keys
 
 On the Squelch field, Space, Up, Down, or Q all toggle squelch on and off. On the Squelch Level field:
@@ -575,9 +581,13 @@ Press S to see the whole list and set both at once. Those are the same values Se
 
 Press Ctrl+F1 on the Frequency field for the live picture: it confirms Modern mode is active, speaks your actual coarse and fine step values, reads this key map, and names the key that switches to Classic tuning.
 
+## JJ Flexible Home — Offset Field Keys
+
+On the Offset field, **Space**, **Up**, and **Down** each cycle the direction through off, plus, and minus. Press **Plus** or **Minus** to set that direction directly.
+
 ## JJ Flexible Home — RIT and XIT Field Keys
 
-When focused on the RIT or XIT field, the digits 1, 2, 3, and 4 enter a quick scale-adjust mode for offset tuning. This is the Don-driven workflow for chasing a drifting correspondent without having to navigate through decade fields:
+When focused on the RIT or XIT field, the digits 1, 2, 3, and 4 enter a quick scale-adjust mode for offset tuning. It lets you follow a drifting correspondent without having to navigate through decade fields:
 
 - **1** — Enter scale-adjust mode at 1 Hz
 - **2** — Enter scale-adjust mode at 10 Hz
@@ -633,7 +643,7 @@ Two rows on the Audio menu start with "Audio", which is one row too many for a s
 
 ## Audio Workshop
 
-These keys are active anywhere inside the Audio Workshop window (`Ctrl+Shift+W` opens it). They are workshop-local accelerators, not global hotkeys.
+These keys are active anywhere inside the Audio Workshop window (`Ctrl+Shift+W` opens it). They are workshop-only accelerators; they do not work from other JJ Flexible windows or other programs.
 
 - **Ctrl+Enter** — Start the Audio Check, or stop the one that's running
 - **Ctrl+S** — Save an audio preset
@@ -641,11 +651,13 @@ These keys are active anywhere inside the Audio Workshop window (`Ctrl+Shift+W` 
 - **Alt+E** — Export a preset to a file you can share
 - **Alt+I** — Import a preset from a file (it joins your saved presets — nothing changes on the radio until you load it)
 - **Alt+R** — Reset the TX audio chain to defaults
+- **F6 / Shift+F6** — Move between the sections in the current category and hear each section's name. The keys wrap at both ends and skip hidden sections
+- **Ctrl+Tab / Ctrl+Shift+Tab** — Move between workshop categories. Use F6 to move among the sections within the selected category
 - **Escape** — While an Audio Check or Loopback Check is running, stop it and stay in the workshop; press again after it ends to close. Stopping unkeys the radio
 
 Inside the Load Preset picker, the `Delete` key (or the Delete button) deletes the preset you're on — it asks before doing anything, and deleting never touches the radio.
 
-A note for anyone whose fingers learned the old way: Save Preset used to respond to its `Alt+S` button mnemonic, which also swallowed `Alt+Shift+S` — the global Speak Transmit Status key — while the workshop was focused. That mnemonic is gone; `Ctrl+S` is the Save key now, and the transmit status query is no longer blocked by the workshop.
+A note for anyone whose fingers learned the old way: Save Preset used to respond to its `Alt+S` button mnemonic, which also swallowed `Alt+Shift+S` — the Speak Transmit Status key that works anywhere inside JJ Flexible — while the workshop was focused. That mnemonic is gone; `Ctrl+S` is the Save key now, and the transmit status query is no longer blocked by the workshop.
 
 ## Transmit tests
 
@@ -659,16 +671,14 @@ Escape reaches the transmitter even while a test is mid-measurement and the wind
 
 ## Scanning
 
-Scanning commands mostly live in the Command Finder these days — only stopping and resuming have keys out of the box (you can give the others keys in the Hotkey Editor):
+Scanning commands mostly live in the Command Finder these days. Stopping a scan has a key out of the box; you can give the others keys in the Hotkey Editor:
 
 - **Ctrl+Z** — Stop scan
-- **Ctrl+Shift+F2** — Resume scan
 
 Start scan, saved scan, and memory scan have no default keys — find them in the Command Finder (`Ctrl+/`), or bind your own keys in Tools → Hotkey Editor.
 
 ## DX and Spotting
 
-- **Alt+Shift+X** — Open DX Cluster
 - **Ctrl+Alt+R** — Open Reverse Beacon Network
 
 ## Messages
@@ -681,19 +691,19 @@ Recordings come from your recordings folder, the same one the Audio Workshop rec
 
 ## Logging Mode
 
-When you're in the logging pane, these keys help you fill in QSO details quickly. Some keys that do something different in Radio mode (like Alt+C and Alt+D) switch to logging functions here.
+Press `Ctrl+Shift+L` to enter Logging mode, and press it again to leave. The keys below work in Logging mode, whether or not focus is in the logging pane. The field keys open the full log entry form at the named field. Some keys that do something different in Radio mode (like Alt+C and Alt+D) switch to logging functions here.
 
-- **Alt+C** — Jump to Call field
-- **Alt+T** — Jump to His RST field
-- **Alt+R** — Jump to My RST field
-- **Alt+N** — Jump to Name/Handle field
-- **Alt+Q** — Jump to QTH field
-- **Alt+S** — Jump to State field
-- **Alt+G** — Jump to Grid field
-- **Alt+E** — Jump to Comments field
+- **Alt+C** — Open the full log entry form at the Call field
+- **Alt+T** — Open the full log entry form at the His RST field
+- **Alt+R** — Open the full log entry form at the My RST field
+- **Alt+N** — Open the full log entry form at the Name/Handle field
+- **Alt+Q** — Open the full log entry form at the QTH field
+- **Alt+S** — Open the full log entry form at the State field
+- **Alt+G** — Open the full log entry form at the Grid field
+- **Alt+E** — Open the full log entry form at the Comments field
 - **Alt+D** — Set date/time to now
 - **Ctrl+W** — Save/finalize QSO
-- **Ctrl+N** — New log entry
+- **Ctrl+N** — Open a new entry in the full log entry form
 - **Ctrl+Shift+F** — Search log
 - **F6** — Switch between log panes
 - **Ctrl+Shift+N** — Log characteristics dialog
@@ -723,7 +733,7 @@ The ScreenFields panel has five expandable categories you can toggle open and cl
 
 ## Radio Selector
 
-These keys are active in the Select Radio dialog — the window that opens at startup and whenever you connect to a radio. They are dialog accelerators, not global hotkeys: they work only while the selector is open.
+These keys are active in the Select Radio dialog — the window that opens at startup and whenever you connect to a radio. They are dialog accelerators: they work only while the selector is open.
 
 - **Enter** — Connect to the selected radio along its preferred connection path, announcing the account for a SmartLink connect. If the path needs SmartLink and this session has not looked yet, one Enter signs in, finds the radio, and connects — no second press. On a radio that uses a different SmartLink account, it switches to that account and refreshes the list
 - **F2** — Speak which halves of the list have loaded — local and remote — and how many radios are online right now
@@ -773,12 +783,11 @@ you may not need to bind anything: show memories (`Ctrl+J`, `Alt+M`), log
 statistics (`Ctrl+J`, `Alt+L`), toggle meter tones (`Ctrl+J`, `Ctrl+T`), PC audio on/off
 (`Ctrl+J`, `A`, then `Ctrl+P`, inside the audio layer), echo recent CW (`Ctrl+J`, `Alt+E`), and speak the version and
 build (`Ctrl+J`, `Alt+V`). Speak TX filter width used to be `Ctrl+J`, `F`; that
-letter is the filter layer's door now and the readout lives inside the layer —
-until it lands, the Radio menu's TX Filter submenu has a Read TX Filter item.
+letter is the filter layer's door now. Press `T`, then `S` inside that layer to
+hear the transmit filter, or use Read TX Filter in the Radio menu, under Transmit, then TX Filter.
 
-**Live somewhere better than a key.** Audio devices, ATU memories, reboot
-radio, and transmit controls all open something, and the menu that opens them
-is the place you already go. Reboot is deliberately kept off a chord: it
+**Live somewhere better than a key.** Audio devices, ATU memories, and reboot
+radio open from menus. Transmit controls open from the Command Finder. Reboot is deliberately kept off a chord: it
 interrupts everyone on a MultiFlex radio, and the confirmation naming the other
 stations connected is the point of the slower route. Operator alarms — the
 dialog where you set a line on PA temperature or supply voltage and get a
@@ -787,8 +796,8 @@ Finder finds it by "alarm", "temperature", "voltage" or "warning". It has no
 default key; if you check your alarms often, give it one in Tools → Hotkey
 Editor.
 
-**Waiting in the Command Finder on purpose.** Start scan, saved scan, switch S
-meter units, collect debug info, start audio check, and undelivered details.
+**Waiting in the Command Finder on purpose.** Start scan, saved scan,
+collect debug info, start audio check, and undelivered details.
 Most of these are either rare, or better reached where you already are — the
 Audio Check has `Ctrl+Enter` inside the Audio Workshop, which is where you are
 when you want it. Undelivered details is the odd one out: it is new, and it has
@@ -812,17 +821,7 @@ that another command was quietly eating first. Rather than leave a key listed
 that never worked, they have none — and the `F` key on the Frequency field
 speaks the frequency, which was the working route all along.
 
-The remaining log field jumps — log file name, log mode, log rig, log antenna —are filled in from the log form, where Tab reaches them.
-
-## Audio Workshop
-
-- **F6** moves to the next section — This Computer, Microphone, Processing, TX Filter, TX Monitor, Test Tone, Audio Check — and says which one you landed in. **Shift+F6** goes back. It wraps at both ends, and skips any section that is hidden, so on PC audio you will not be sent to controls that are not there.
-- **Ctrl+Tab** moves to the next category, **Ctrl+Shift+Tab** to the previous one, from anywhere in the window. F6 then moves between the sections inside whichever category you are on. See "Moving between categories" below.
-- **Ctrl+Enter** starts or stops the Audio Check from anywhere in the dialog.
-  It is a toggle, so the same chord stops it — which matters because a running
-  check parks focus on Mic Gain, two stops from the button.
-- **Ctrl+S** saves a preset, **Ctrl+O** loads one.
-- **Escape** stops a running Audio Check before it closes the window.
+The remaining log fields — log file name, log mode, log rig, and log antenna — are in the full log entry form, where Tab reaches them.
 
 ## Audio Devices dialog
 
@@ -845,7 +844,7 @@ These work only while the Audio Devices window is open.
 
 ## Trace Archive Browser
 
-These keys are active when focus is on the row list inside the Archive Browser tab of the Tracing dialog (Help → Tracing → Archive Browser).
+These keys are active when focus is on the row list in Saved Diagnostic Logs. Open Tools, then Diagnostic Log, then Saved Diagnostic Logs to reach the archive list.
 
 - **Enter** — Open the selected trace in your default text viewer
 - **Ctrl+C** — Copy the selected trace's full file path to the clipboard
