@@ -539,7 +539,7 @@ namespace Radios
             if (sighting == null || !sighting.StillCurrent())
             {
                 Tracing.TraceLine(
-                    $"occupancy[bank]: {serial} banked from {sighting?.Origin ?? "no list"}, which is no longer that session's current knowledge — not delivered (#619)",
+                    $"occupancy[bank]: {serial} banked from {sighting?.Origin ?? "no list"}, which is no longer that session's current knowledge — not delivered",
                     TraceLevel.Info);
                 return false;
             }
@@ -679,7 +679,7 @@ namespace Radios
                     // not network truth. Say so, because the connect walk
                     // reads this answer to decide whether a local leg exists.
                     Tracing.TraceLine(
-                        $"RadioAvailability({serial}): no list entry but LAN discovery evidence is {Environment.TickCount64 - seen} ms old — reporting lan=true (#402)",
+                        $"RadioAvailability({serial}): no list entry but LAN discovery evidence is {Environment.TickCount64 - seen} ms old — reporting lan=true",
                         TraceLevel.Info);
                     lan = true;
                 }
@@ -1622,7 +1622,7 @@ namespace Radios
             {
                 case RadioRemovalKind.SelfInitiated:
                     Tracing.TraceLine(
-                        $"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) released by our own disconnect — FlexLib lifecycle removal, NOT a discovery loss; roster keeps the row (#402)",
+                        $"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) released by our own disconnect — FlexLib lifecycle removal, NOT a discovery loss; roster keeps the row",
                         TraceLevel.Info);
                     // THE CONNECTION LIFETIME IS DELIBERATELY NOT TOUCHED HERE.
                     //
@@ -1645,7 +1645,7 @@ namespace Radios
                     break;
                 case RadioRemovalKind.ConnectionLostOurRadio:
                     Tracing.TraceLine(
-                        $"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) retired after its connection dropped — the radio may still be on the air; discovery will say (#402)",
+                        $"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) retired after its connection dropped — the radio may still be on the air; discovery will say",
                         TraceLevel.Info);
                     // ROSTER BOOKKEEPING ONLY. THE ARCHIVE DOES NOT LIVE HERE ANY
                     // MORE, and it must not come back.
@@ -1754,7 +1754,7 @@ namespace Radios
                 var rd = BuildRigData(r, recorded ? from : (WanListProvenance?)null);
                 if (!recorded) rd.HeldWithoutAList = true;
                 Tracing.TraceLine(
-                    $"ReplayDiscoveredRadios: {r.Serial} is a held SmartLink row from {rd.Origin} — replayed with that list, so the picker asks whether it is still current (#619)",
+                    $"ReplayDiscoveredRadios: {r.Serial} is a held SmartLink row from {rd.Origin} — replayed with that list, so the picker asks whether it is still current",
                     TraceLevel.Info);
                 RaiseRadioFound(null, rd);
             }
@@ -3816,7 +3816,7 @@ namespace Radios
                     {
                         _stationMismatchTraced = true;
                         Tracing.TraceLine(
-                            $"start: radio reports our station as '{client.Station}' but we are waiting for '{Callouts.StationName}' — a rename happened somewhere and the wait cannot succeed (#402)",
+                            $"start: radio reports our station as '{client.Station}' but we are waiting for '{Callouts.StationName}' — a rename happened somewhere and the wait cannot succeed",
                             TraceLevel.Error);
                     }
                     Thread.Sleep(interval);
@@ -4511,7 +4511,7 @@ namespace Radios
                 {
                     Tracing.TraceLine("FlexBase finalizer: exception contained on the GC thread. "
                         + "Unhandled here it would have ended the process with no window, no "
-                        + "speech and no attribution (#423). " + ex, TraceLevel.Error);
+                        + "speech and no attribution. " + ex, TraceLevel.Error);
                 }
                 catch { /* the report must never become the fault */ }
             }
@@ -5743,7 +5743,7 @@ namespace Radios
                             {
                                 if (c.Station == Callouts.StationName)
                                     Tracing.TraceLine(
-                                        $"guiClientAdded: ignoring fabricated record (handle {c.ClientHandle}, no client_id) holding station '{c.Station}' — stale list data, not a live duplicate (#402)",
+                                        $"guiClientAdded: ignoring fabricated record (handle {c.ClientHandle}, no client_id) holding station '{c.Station}' — stale list data, not a live duplicate",
                                         TraceLevel.Warning);
                                 continue;
                             }
@@ -5895,7 +5895,7 @@ namespace Radios
                             // applied) and the reply sat unread behind a
                             // wedged receive loop. From this vantage the two
                             // are indistinguishable; say so.
-                            Tracing.TraceLine($"requestStationName('{name}'): no reply was READ within 10s — either the radio stayed silent, or the reply arrived and our receive path never delivered it; the two look identical from here (#402)", TraceLevel.Error);
+                            Tracing.TraceLine($"requestStationName('{name}'): no reply was READ within 10s — either the radio stayed silent, or the reply arrived and our receive path never delivered it; the two look identical from here", TraceLevel.Error);
                             return;
                         }
                         var info = await reply.ConfigureAwait(false);
@@ -5903,7 +5903,7 @@ namespace Radios
                     }
                     catch (Exception ex)
                     {
-                        Tracing.TraceLine($"requestStationName('{name}'): radio REFUSED — {ex.Message} (#402)", TraceLevel.Error);
+                        Tracing.TraceLine($"requestStationName('{name}'): radio REFUSED — {ex.Message}", TraceLevel.Error);
                     }
                 });
             }
@@ -6029,7 +6029,7 @@ namespace Radios
             if (!RadioHasConfirmedClient(handle))
             {
                 Tracing.TraceLine(
-                    $"DisconnectGuiClient: refused for handle {handle} — the radio has not reported this client connected on this connection; only a list or a broadcast has (#634)",
+                    $"DisconnectGuiClient: refused for handle {handle} — the radio has not reported this client connected on this connection; only a list or a broadcast has",
                     TraceLevel.Info);
                 return false;
             }

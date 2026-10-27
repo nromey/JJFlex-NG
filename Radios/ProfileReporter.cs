@@ -1333,7 +1333,7 @@ namespace Radios
                     "ProfileReporter: comparison pass skipped — "
                     + (rig.ChangeNothingActive
                         ? "change nothing is on for this radio"
-                        : "this radio has not been opted in to profile loading (#414/#450)"),
+                        : "this radio has not been opted in to profile loading"),
                     TraceLevel.Warning);
             }
             else

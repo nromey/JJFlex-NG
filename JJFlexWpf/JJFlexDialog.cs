@@ -469,7 +469,7 @@ namespace JJFlexWpf
                     case Radios.StrandedFocusSentinel.Verdict.ReactivateOverBlackHole:
                         JJTrace.Tracing.TraceLine(
                             $"JJFlexDialog: keyboard focus is stranded (no window taking input) "
-                            + $"while '{Title}' sits open - reactivating it (#395 sentinel)",
+                            + $"while '{Title}' sits open - reactivating it (sentinel)",
                             System.Diagnostics.TraceLevel.Warning);
                         Reactivate(own);
                         break;
@@ -497,7 +497,7 @@ namespace JJFlexWpf
                                 $"JJFlexDialog: '{thief.ProcessName}' (class {thief.ClassName}, "
                                 + $"'{thief.Title}') keeps taking the foreground from '{Title}' and "
                                 + $"the operator has not touched anything since the last reclaim - "
-                                + $"{tail} (#529 watchdog, "
+                                + $"{tail} (watchdog, "
                                 + $"cap {Radios.StrandedFocusSentinel.MaxReclaimsPerIdleStretch})",
                                 System.Diagnostics.TraceLevel.Warning);
                         }
@@ -533,7 +533,7 @@ namespace JJFlexWpf
                 $"JJFlexDialog: the foreground was TAKEN from '{Title}' by pid {thief.ProcessId} "
                 + $"'{thief.ProcessName}' (class {thief.ClassName}, title '{thief.Title}') - "
                 + $"operator idle {idleMs / 1000}s, we last held it {heldAgoMs / 1000}s ago, "
-                + $"our modal is up - reclaiming and announcing (#529 watchdog)",
+                + $"our modal is up - reclaiming and announcing (watchdog)",
                 System.Diagnostics.TraceLevel.Warning);
 
             Radios.DesktopWindowCensus.NoteTheft(
@@ -579,7 +579,7 @@ namespace JJFlexWpf
                 + $"our modal is up - every condition for a reclaim was met and the keyboard "
                 + $"would have been taken back here, but the operator has 'Take the keyboard "
                 + $"back' switched off in Settings, Accessibility, so nothing was taken and "
-                + $"nothing was announced (#529 watchdog, disabled by preference)",
+                + $"nothing was announced (watchdog, disabled by preference)",
                 System.Diagnostics.TraceLevel.Info);
 
             // Recorded in the census either way, with Reclaimed: false so the

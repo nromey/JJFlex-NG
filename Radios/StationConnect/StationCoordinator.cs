@@ -187,7 +187,7 @@ namespace Radios.StationConnect
                 result.Route = GlobalRoute.MissingOwnedGlobal;
                 result.PendingCreateName = load.ProfileName;
                 Trace("the wanted global '" + load.ProfileName + "' is absent from the radio's reported inventory; "
-                      + "sending no load for it and claiming no restoration (#578)");
+                      + "sending no load for it and claiming no restoration");
                 return FreshStationRoute(result, phase, StationOutcome.FreshStationConfirmed,
                     "missing owned global '" + load.ProfileName + "'");
             }
@@ -247,7 +247,7 @@ namespace Radios.StationConnect
             if (f.Intent == ProfileGuestIntent.UseMyTransmitAudio) return "the intent is transmit audio only; no global stewardship";
             if (f.Intent != ProfileGuestIntent.LoadMineAndPutBack) return "the profile intent could not be read";
             if (f.Ownership != RadioOwnership.Mine)
-                return "this connection is not the declared owner's; only the owner's connection restores a station (ruled 2026-09-21, #590)";
+                return "this connection is not the declared owner's; only the owner's connection restores a station (ruled 2026-09-21)";
             if (string.IsNullOrWhiteSpace(f.WantedGlobal)) return "no global profile is wanted for this radio";
             return null;
         }
@@ -392,7 +392,7 @@ namespace Radios.StationConnect
             Trace("global load '" + name + "' SENT (not loaded). Waiting for completion evidence under policy: " + _policies.LoadCompletion.Name);
             if (flexLibAnswerMayBeOutstandingAtSend)
                 Trace(FlexLibAskOpenAtSend + " was still unanswered when the load was sent; any global list after the send "
-                    + "may be its answer, so this load cannot be confirmed and ends Unconfirmed at the station phase's bound (#639, ruled 2026-10-20)");
+                    + "may be its answer, so this load cannot be confirmed and ends Unconfirmed at the station phase's bound (ruled 2026-10-20)");
 
             // ── Sent, not Loaded ──
             while (true)

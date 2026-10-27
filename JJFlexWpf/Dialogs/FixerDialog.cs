@@ -989,6 +989,8 @@ document.addEventListener('keydown', function (e) {
             list.Append(JsonEncode(id));
         }
 
+        // The script's focusable check below is #449. The citation lives here, not in the
+        // script's own comment, because the script is a string the app ships.
         return @"
 (function () {
     var want = [" + list + @"];
@@ -998,7 +1000,7 @@ document.addEventListener('keydown', function (e) {
     }
     if (!target) target = document.querySelector('h1') || document.body;
     if (!target) return;
-    // ONLY make it script-focusable if it is not ALREADY focusable (#449).
+    // ONLY make it script-focusable if it is not ALREADY focusable.
     // This helper was written for HEADINGS, which need tabindex=-1 to take
     // script focus. Its targets also include the Run button - and a <button>
     // is focusable already, so setting tabindex=-1 on one REMOVES IT FROM THE

@@ -91,6 +91,6 @@ namespace Radios.Speech
         public static string TraceLine =>
             "ScreenReaderOutput: no speech backend - alarm earcon sounded and the no-speech "
             + "dialog raised, because the failure that removes the operator's channel cannot "
-            + "be reported through that channel (#321).";
+            + "be reported through that channel.";
     }
 }

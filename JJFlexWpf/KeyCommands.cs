@@ -1934,7 +1934,7 @@ public class KeyCommands
         [CommandValues.OpenOperatorAlarms] = new(UnboundReason.MenuOrDialog,
             "Tools menu, Operator alarms. Command Finder finds it by alarm, temperature, voltage "
             + "or warning, and the Hotkey Editor can bind it; no default chord, because the JJ key "
-            + "letter for alarms is Noel's to allocate (#518)."),
+            + "letter for alarms is Noel's to allocate."),
         [CommandValues.StartAudioCheck] = new(UnboundReason.CommandFinderOnly,
             "Starts the Audio Check. Ctrl+Enter does it from inside the Audio Workshop, which "
             + "is where you are when you want it; a global chord that keys the transmitter "
@@ -2425,7 +2425,7 @@ public class KeyCommands
             {
                 if (Write())
                     Tracing.TraceLine("KeyCommands: repaired key map persisted — the file on disk"
-                        + " is healed and the repair will not need to run again (#209).",
+                        + " is healed and the repair will not need to run again.",
                         System.Diagnostics.TraceLevel.Error);
             }
         }
@@ -6772,7 +6772,7 @@ public class KeyCommands
                     _context.Trace(
                         $"UNANNOTATED UNBOUND COMMAND: {d.Id} has no default key and no entry "
                         + "in _unboundNotes. Say why it has no key — 'menu-only on purpose' and "
-                        + "'nobody ever assigned one' need opposite treatment (task #130).");
+                        + "'nobody ever assigned one' need opposite treatment.");
                     clean = false;
                 }
             }

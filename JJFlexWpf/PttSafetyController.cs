@@ -820,7 +820,7 @@ namespace JJFlexWpf
                     + " a human letting go. The screen reader is almost certainly synthesising"
                     + " key-down/key-up pairs rather than passing a held key through (JAWS does"
                     + " this; NVDA does not). Transmit is keying and unkeying while the operator"
-                    + " holds the key. See task #216. Further occurrences counted, not logged.",
+                    + " holds the key. Further occurrences counted, not logged.",
                     TraceLevel.Error);
             }
         }

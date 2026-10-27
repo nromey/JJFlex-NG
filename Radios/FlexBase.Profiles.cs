@@ -91,8 +91,7 @@ namespace Radios
             if (lst == null)
             {
                 Tracing.TraceLine("GetDefaultProfiles: no profile list — Callouts.Profiles is "
-                    + "null, which is not the same as empty. Reporting no default profiles "
-                    + "(#423).", TraceLevel.Warning);
+                    + "null, which is not the same as empty. Reporting no default profiles.", TraceLevel.Warning);
                 return rv;
             }
 
@@ -302,7 +301,7 @@ namespace Radios
                 // round four. If the name has gone when it does run, the
                 // delegate still refuses, sends nothing and speaks.
                 Tracing.TraceLine("SelectProfile: '" + prof.Name + "' had not run within " + SelectDispatchWaitMs
-                    + " ms; reported as queued. Whose radio it is is asked again when it runs (#777)", TraceLevel.Warning);
+                    + " ms; reported as queued. Whose radio it is is asked again when it runs", TraceLevel.Warning);
                 return GuardedOutcome.Done;
             }
             return refusedAtDispatch ? GuardedOutcome.Refused : GuardedOutcome.Done;
@@ -1086,7 +1085,7 @@ namespace Radios
             if (commandDone) return GuardedOutcome.Done;
             Tracing.TraceLine("SaveProfile: the save of '" + p.Name + "' "
                 + (commandRefused ? "was refused by the transport" : "did not go out within 3000 ms")
-                + "; reported as a failure, not a success (#777)", TraceLevel.Error);
+                + "; reported as a failure, not a success", TraceLevel.Error);
             return GuardedOutcome.Failed;
         }
 
@@ -1581,8 +1580,8 @@ namespace Radios
             RadioConfig.RecordProfileIntent(serial, pre.Value);
             Tracing.TraceLine(
                 "ProfileStewardship: this radio is marked yours and has a connection history, "
-                + "so its profile question was pre-answered '" + pre.Value + "' rather than asked "
-                + "(#495). Change it under Profiles on This Radio in the Radio menu.",
+                + "so its profile question was pre-answered '" + pre.Value + "' rather than asked. "
+                + "Change it under Profiles on This Radio in the Radio menu.",
                 TraceLevel.Info);
             return true;
         }
@@ -3005,7 +3004,7 @@ namespace Radios
             LastGlobalProfileWriteRefusal = sentence;
             Tracing.TraceLine(
                 "Ownership: refused " + Lexicon.Get(actionKey) + " for '" + profileName + "' on radio "
-                + radio.Serial + " — " + refusal + " (#777)", TraceLevel.Warning);
+                + radio.Serial + " — " + refusal, TraceLevel.Warning);
             if (!SuppressSpeech)
             {
                 ScreenReaderOutput.Speak(

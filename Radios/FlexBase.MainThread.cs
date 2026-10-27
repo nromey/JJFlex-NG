@@ -360,7 +360,7 @@ namespace Radios
             // and is told why is better off than one transmitting into a
             // receive antenna nobody chose.
             Tracing.TraceLine("setupFromScratch:TXAnt is empty and the slice reports no TX"
-                + " antenna list; leaving it unset rather than guessing (#205)", TraceLevel.Error);
+                + " antenna list; leaving it unset rather than guessing", TraceLevel.Error);
         }
 
         private bool setupFromScratch()
@@ -453,7 +453,7 @@ namespace Radios
                     Tracing.TraceLine("setupFromScratch:leaving transmit power as the radio has it"
                         + " — RFPower " + theRadio.RFPower
                         + ", TunePower " + theRadio.TunePower
-                        + " (this used to be forced to 100 unconditionally, #205)",
+                        + " (this used to be forced to 100 unconditionally)",
                         TraceLevel.Info);
                     // The four survivors of #205's cleanup, and the audit's
                     // most instructive site (1.4): the paragraph above this

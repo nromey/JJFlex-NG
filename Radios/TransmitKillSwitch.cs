@@ -358,7 +358,7 @@ namespace Radios
             {
                 _lastRaiseRefusal = held;
                 Tracing.TraceLine("TransmitKillSwitch: refused to raise the " + carrier
-                    + " carrier — keying is held after a reflected-power cut (#571). Nothing was transmitted.",
+                    + " carrier — keying is held after a reflected-power cut. Nothing was transmitted.",
                     TraceLevel.Warning);
                 return false;
             }
@@ -931,7 +931,7 @@ namespace Radios
             Action<ReflectedCutNotice> hook = ReflectedCutHappened;
             if (hook == null)
             {
-                Tracing.TraceLine("TransmitKillSwitch: reflected-power cut with no hold subscriber — nothing holds keying (#571)",
+                Tracing.TraceLine("TransmitKillSwitch: reflected-power cut with no hold subscriber — nothing holds keying",
                                   TraceLevel.Warning);
                 return;
             }

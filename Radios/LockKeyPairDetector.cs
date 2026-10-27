@@ -70,7 +70,7 @@ namespace Radios
             {
                 Tracing.TraceLine("LockKey: key-up arrived " + held + " ms after key-down — too fast to be a human"
                     + " letting go. The screen reader may be synthesising down/up pairs for Shift+Space,"
-                    + " which no measurement has shown on this key (#800). Nothing was changed: the"
+                    + " which no measurement has shown on this key. Nothing was changed: the"
                     + " press toggled the lock once, as any press does. Further occurrences counted, not logged.",
                     TraceLevel.Error);
             }

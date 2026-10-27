@@ -541,7 +541,7 @@ namespace Radios.Speech
                 $"Prism: no controller reader would initialise after 5 attempts ({reason}) - "
                 + "staying on the current channel until the next availability change. "
                 + "Speech is still going to a reader that may have gone; the delivery "
-                + "check on every utterance (#277) will say so if it has.",
+                + "check on every utterance will say so if it has.",
                 TraceLevel.Warning);
         }
 

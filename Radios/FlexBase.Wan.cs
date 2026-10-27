@@ -295,7 +295,7 @@ namespace Radios
                     if (!ListStillCurrent(provenance))
                     {
                         Tracing.TraceLine(
-                            $"presenceIntakeDispatch: list from {e.AccountId ?? "?"} ({provenance}) is no longer that session's current knowledge — the WAN bank is not refreshed from it (#619)",
+                            $"presenceIntakeDispatch: list from {e.AccountId ?? "?"} ({provenance}) is no longer that session's current knowledge — the WAN bank is not refreshed from it",
                             TraceLevel.Info);
                         return;
                     }
@@ -579,7 +579,7 @@ namespace Radios
                 if (!ListStillCurrent(provenance))
                 {
                     Tracing.TraceLine(
-                        $"wanRadioListReceivedHandler: {arrival} list of {lst.Count} radio(s) for {accountId} from {provenance} is no longer that session's current knowledge — a newer connection has been dialed, or that one has been closed, has died, or the session is going away — so it is not consumed (#619)",
+                        $"wanRadioListReceivedHandler: {arrival} list of {lst.Count} radio(s) for {accountId} from {provenance} is no longer that session's current knowledge — a newer connection has been dialed, or that one has been closed, has died, or the session is going away — so it is not consumed",
                         TraceLevel.Info);
                     return false;
                 }
@@ -615,7 +615,7 @@ namespace Radios
                     wanListReceived = latchBefore;
                     _serverListThisCall = serverListBefore;
                     Tracing.TraceLine(
-                        $"wanRadioListReceivedHandler: {arrival} list of {lst.Count} radio(s) for {accountId} from {provenance} stopped being that session's current knowledge while it was being taken — a dial, a disconnect or the transport's death landed between the check and the latch — so the latch is put back as it was and nothing else is written (#619)",
+                        $"wanRadioListReceivedHandler: {arrival} list of {lst.Count} radio(s) for {accountId} from {provenance} stopped being that session's current knowledge while it was being taken — a dial, a disconnect or the transport's death landed between the check and the latch — so the latch is put back as it was and nothing else is written",
                         TraceLevel.Info);
                     return false;
                 }
@@ -702,7 +702,7 @@ namespace Radios
                     if (oldRadio == null && liveRadio != null
                         && string.Equals(liveRadio.Serial, r.Serial, StringComparison.OrdinalIgnoreCase))
                     {
-                        Tracing.TraceLine($"wanRadioListReceivedHandler: {r.Serial} is the connected radio but was absent from myRadioList — adopting it so list pushes merge into the live object (#402)", TraceLevel.Info);
+                        Tracing.TraceLine($"wanRadioListReceivedHandler: {r.Serial} is the connected radio but was absent from myRadioList — adopting it so list pushes merge into the live object", TraceLevel.Info);
                         myRadioList.Add(liveRadio);
                         oldRadio = liveRadio;
                     }
@@ -813,7 +813,7 @@ namespace Radios
                     Tracing.TraceLine(
                         $"UpdateRadioDiscoveryFields: {oldRadio.Serial} is the connected radio, brokered through "
                         + (binding.AccountId == null ? "an unproven account" : "'" + binding.AccountId + "'")
-                        + $"; a list from '{accountId}' does not write its client roster (#634)",
+                        + $"; a list from '{accountId}' does not write its client roster",
                         TraceLevel.Info);
                     return;
                 }
@@ -1901,7 +1901,7 @@ namespace Radios
                     if (!snapshot.ArrivedOnTheLiveConnection)
                     {
                         Tracing.TraceLine(
-                            $"ConnectToSmartLink: not replaying {held.AccountId}'s held list ({cached.Count} radio(s)) — it arrived on an earlier connection and the live one has not sent its own yet (#619){at()}",
+                            $"ConnectToSmartLink: not replaying {held.AccountId}'s held list ({cached.Count} radio(s)) — it arrived on an earlier connection and the live one has not sent its own yet{at()}",
                             TraceLevel.Info);
                         continue;
                     }
@@ -1988,7 +1988,7 @@ namespace Radios
             if (!snapshot.ArrivedOnTheLiveConnection)
             {
                 Tracing.TraceLine(
-                    $"ConnectToSmartLink: {rows} cached WAN radio(s) for {accountEmail} were taken before the live connection listed this account — waiting for its list rather than answering from them (#619)"
+                    $"ConnectToSmartLink: {rows} cached WAN radio(s) for {accountEmail} were taken before the live connection listed this account — waiting for its list rather than answering from them"
                     + (sw == null ? "" : $" ({sw.ElapsedMilliseconds}ms)"),
                     TraceLevel.Info);
                 return false;
@@ -2003,7 +2003,7 @@ namespace Radios
             if (WanRowsCameFrom(accountEmail, snapshot)) return true;
 
             Tracing.TraceLine(
-                $"ConnectToSmartLink: {rows} cached WAN radio(s) for {accountEmail} did not come from the live connection's list (session {snapshot.SessionId} connection {snapshot.ConnectionGeneration}) — this rig was not the intake when it arrived; waiting for the list rather than answering from them (#619)"
+                $"ConnectToSmartLink: {rows} cached WAN radio(s) for {accountEmail} did not come from the live connection's list (session {snapshot.SessionId} connection {snapshot.ConnectionGeneration}) — this rig was not the intake when it arrived; waiting for the list rather than answering from them"
                 + (sw == null ? "" : $" ({sw.ElapsedMilliseconds}ms)"),
                 TraceLevel.Info);
             return false;
