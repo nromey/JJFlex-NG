@@ -1,3 +1,8 @@
+---
+keywords:
+  - callbook
+---
+
 # Callbook Lookup
 
 JJ Flexible Radio Access can look up callsigns in online callbook databases to automatically fill in contact details — a station's name, QTH, and grid square — so you do not have to type them in yourself.

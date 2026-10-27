@@ -1,3 +1,10 @@
+---
+keywords:
+  - JAWS
+  - NVDA
+  - screen reader
+---
+
 # Screen Reader Setup
 
 JJ Flexible Radio Access is designed to work with both NVDA and JAWS. Here is how to get the best experience from each.

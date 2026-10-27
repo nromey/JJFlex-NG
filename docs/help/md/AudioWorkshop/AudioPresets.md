@@ -1,3 +1,8 @@
+---
+keywords:
+  - audio presets
+---
+
 # Audio Presets
 
 An audio preset is a snapshot of your transmit audio chain — everything the Audio Workshop can shape about how you sound going out. Save the way you sound for ragchews under one name and the way you punch through a pileup under another, and switching between them becomes two keystrokes instead of resetting eight controls by hand.

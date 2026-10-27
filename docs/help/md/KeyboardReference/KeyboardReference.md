@@ -1,3 +1,9 @@
+---
+keywords:
+  - hotkeys
+  - keyboard shortcuts
+---
+
 # Keyboard Reference
 
 Welcome to your one-stop reference for every keyboard shortcut in JJ Flexible Radio Access. You can also press `Ctrl+/` at any time to open the Command Finder, which lets you search for commands by name. And here's the newest trick: while you're in the JJ Flexible Home, press `?` on any field and the app speaks the keys that work right there.
@@ -52,7 +58,7 @@ Press `Ctrl+J` and then release it to enter the JJ key layer. You'll hear a risi
 
 The second key follows a grammar, and the grammar is the point: you work out a chord instead of memorising it. Four rules cover nearly everything. A plain letter opens a layer — a set of keys about one thing, like the filter or your audio, with arrows to adjust and Escape to put things back. Shift plus a letter jumps to that slice, from anywhere, even from inside a layer: `Shift+C` is slice C and never anything else. Ctrl plus a letter switches on or off the thing whose initial it is — `Ctrl+G` is the test tone, `Ctrl+T` meter tones, `Ctrl+E` the alert sounds, `Ctrl+D` a detailed capture. Alt plus a letter does something that is neither a layer nor a switch — `Alt+V` speaks the version, `Alt+K` is the mic check, `Alt+M` opens the memories. Inside any layer, `H` reads that layer's keys and the slash key opens the JJ key explorer. If you knew the old map: the noise switches moved into the noise layer in this release, so `B` for the blanker is `N` then `B` now, and the one-shots moved one modifier over, so `K` is `Alt+K`, and so on. Press an old one-shot key and the layer names the new chord; press an old noise key and it names the nearest chord it still has, which may not be the one you wanted — `N` then `H` is the surer road to a noise switch. The one switch that has not found its place yet is listed last, with the reason.
 
-<!-- LEADER-KEY-TABLE: every key line from here to the END marker is checked against KeyInventory.LeaderCommands by Radios.Tests/LeaderDocCoverageTests. Add a chord to the layer and this list fails until it has a line; delete a chord and a leftover line fails too. The wording is yours — only the set of keys is checked. The groups below are the tiers of the grammar (#515) — layers, slices, toggles, actions, the ones still finding a layer, then help — in the same order as KeyInventory.LeaderCommands and leader-key.md: it is one map read three ways, so it should be the same walk three times.
+<!-- LEADER-KEY-TABLE: every key line from here to the END marker is checked against KeyInventory.LeaderCommands by Radios.Tests/LeaderDocCoverageTests. Add a chord to the layer and this list fails until it has a line; delete a chord and a leftover line fails too. The wording is yours — only the set of keys is checked. The groups below are the tiers of the grammar (#515) — layers, slices, toggles, actions, the ones still finding a layer, then help — in the same order as KeyInventory.LeaderCommands and JJKey.md: it is one map read three ways, so it should be the same walk three times.
 
      ONE LINE PER CHORD, and the shape is load-bearing, not a style: a hyphen, a
      space, the chord in bold, a space, an em dash, a space, then the meaning.

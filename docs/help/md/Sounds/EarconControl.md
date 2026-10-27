@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # Earcon Control
 
 "Earcons" are the short alert sounds that JJ Flexible Radio Access plays for events such as a dialog opening, a feature toggling, transmit starting, or a connection landing. They are useful, but they are also audio — and sometimes you just want them quiet without digging into the Settings dialog.

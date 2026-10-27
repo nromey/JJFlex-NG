@@ -1,3 +1,9 @@
+---
+keywords:
+  - logging
+  - QSO
+---
+
 # Quick Log and QSO Grid
 
 JJ Flexible Radio Access includes a built-in logging system for recording your QSOs (contacts).

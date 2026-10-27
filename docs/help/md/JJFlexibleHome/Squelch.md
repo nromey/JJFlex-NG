@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # Squelch in Home
 
 Squelch mutes your receiver when the signal falls below a threshold you set, so you don't hear static when noone is transmitting. JJ Flexible Radio Access makes squelch directly controllable from the JJ Flexible Home — you don't have to expand the Receiver field group to adjust it during a QSO.

@@ -1,4 +1,9 @@
-﻿# Audio Workshop
+﻿---
+keywords:
+  - audio workshop
+---
+
+# Audio Workshop
 
 The Audio Workshop is where you shape how you sound on the air and, newly released,  where you can *hear* how you sound to others on the air. We're not saying that an old fashioned radio check won't ever be useful, but this new feature, found in the "hear yourself" tab in the audio workshop let's you hear how you sound as you adjust settings.
 

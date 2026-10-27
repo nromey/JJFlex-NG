@@ -1,3 +1,9 @@
+---
+keywords:
+  - about dialog
+  - version info
+---
+
 # About Dialog
 
 The About dialog shows you version information, system details, diagnostic data, and credits for JJ Flexible Radio Access.

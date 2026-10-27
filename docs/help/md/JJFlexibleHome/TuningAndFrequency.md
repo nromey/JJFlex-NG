@@ -1,3 +1,10 @@
+---
+keywords:
+  - frequency
+  - tuning
+  - tuning debounce
+---
+
 # Tuning and Frequency
 
 ## Hearing the Current Frequency

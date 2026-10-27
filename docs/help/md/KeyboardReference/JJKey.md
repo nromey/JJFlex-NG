@@ -1,3 +1,8 @@
+---
+keywords:
+  - JJ key
+---
+
 # JJ Key Commands
 
 The JJ key — `Ctrl+J`, J for JJ — gives you quick access to DSP toggles, audio controls, meter controls, status readouts, and other frequently used features of JJ Flexible Radio Access without having to memorise dozens of hotkeys. You press `Ctrl+J` and then a second key. The set of commands it opens up is the JJ key layer.
@@ -14,7 +19,7 @@ If you change your mind, press `Escape`. You will hear a soft falling tone letti
 
 The JJ key also works from another program. Press `Ctrl+Shift+J` while a contest logger or anything else has the keyboard, then the second key, and both are kept from that program — the same layer with a second door, so every command below works from outside except the ones that open a layer of their own, which need this window and say so. The key is a default you can change in Settings, under System-wide keys (the Tools menu item of the same name takes you there); the keyboard reference has the details. From another program the layer closes on its own after about ten seconds of waiting with nothing on screen, so a forgotten one cannot eat a keystroke you meant for your logger; inside this window it waits as long as you like, until you switch to another program, when it lets go quietly so the key you press on your way back does its ordinary job.
 
-<!-- LEADER-KEY-TABLE: every key line from here to the END marker is checked against KeyInventory.LeaderCommands by Radios.Tests/LeaderDocCoverageTests. Add a chord to the layer and this list fails until it has a line; delete a chord and a leftover line fails too. The wording is yours — only the set of keys is checked. The groups are the TIERS of the grammar (#515), in the same order as KeyInventory.LeaderCommands and keyboard-reference.md: layers, slices, toggles, actions, the ones still finding a layer, then help. Keep the three in step — it is one map read three ways.
+<!-- LEADER-KEY-TABLE: every key line from here to the END marker is checked against KeyInventory.LeaderCommands by Radios.Tests/LeaderDocCoverageTests. Add a chord to the layer and this list fails until it has a line; delete a chord and a leftover line fails too. The wording is yours — only the set of keys is checked. The groups are the TIERS of the grammar (#515), in the same order as KeyInventory.LeaderCommands and KeyboardReference.md: layers, slices, toggles, actions, the ones still finding a layer, then help. Keep the three in step — it is one map read three ways.
 
      ONE LINE PER CHORD, and the shape is load-bearing, not a style: a hyphen, a
      space, the chord in bold, a space, an em dash, a space, then the meaning.

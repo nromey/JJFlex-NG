@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # Network Diagnostics
 
 Under **Settings > Network > Test network**, JJ Flexible Radio Access runs a probe against Flex's SmartLink servers to tell you what your network actually looks like from outside. This is useful when something is not working and you need to figure out why, and it is also useful when you want to confirm things are working before you hit the road.

@@ -1,3 +1,11 @@
+---
+keywords:
+  - dBFS
+  - loudness
+  - LUFS
+  - noise floor
+---
+
 # Why your audio has two numbers
 
 **Draft — Claude's wording, awaiting Noel's human pass.**

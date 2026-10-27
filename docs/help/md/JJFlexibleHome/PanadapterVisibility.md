@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # Panadapter Visibility
 
 The panadapter is the spectrum and waterfall display — the visual view of what is on the band. It is primarily useful for sighted operators (or for sighted helpers looking over your shoulder). If you do not need the visual view, you can hide it.

@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # Filter Presets
 
 Filter widths on every mode are preset to reasonable defaults out of the box — but "reasonable" depends on what you do on the air. A DXer chasing weak CW signals wants a narrower set of CW presets than a ragchewer who lives in 600 Hz of passband. You can edit the filter presets per operator, and your changes survive across application restarts.

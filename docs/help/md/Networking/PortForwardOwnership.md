@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # Port Forwarding Safety — Ownership Gate
 
 When you change the SmartLink port forwarding settings, the changes are written to the radio itself — not to your local JJ Flexible Radio Access install. Those settings persist on the radio and affect every client that connects to it, including the radio's owner.

@@ -1,3 +1,8 @@
+---
+keywords:
+  - getting started
+---
+
 # Getting Started
 
 This guide walks you through installing JJ Flexible Radio Access and connecting to your FlexRadio for the first time.

@@ -1,3 +1,8 @@
+---
+keywords:
+  - command finder
+---
+
 # Command Finder
 
 The Command Finder is a searchable list of every keyboard command in JJ Flexible Radio Access. It is the fastest way to discover commands you did not know existed, and to remind yourself of a shortcut you have forgotten.

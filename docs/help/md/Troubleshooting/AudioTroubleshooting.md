@@ -1,3 +1,12 @@
+---
+keywords:
+  - audio troubleshooting
+  - microphone
+  - microphone check
+  - microphone privacy
+  - sound devices
+---
+
 # Audio Troubleshooting
 
 Silence is the hardest thing to diagnose by ear, because the evidence is

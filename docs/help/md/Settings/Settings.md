@@ -1,3 +1,8 @@
+---
+keywords:
+  - settings
+---
+
 # Settings and Profiles
 
 JJ Flexible Radio Access has a Settings dialog that lets you customise the application to fit your operating style.

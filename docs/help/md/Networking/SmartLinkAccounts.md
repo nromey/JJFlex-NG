@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # SmartLink Accounts
 
 JJ Flexible Radio Access can remember more than one SmartLink account. If you have a club radio and a home radio on separate Flex accounts, or if you help a friend and occasionally log into their account, you do not have to sign out and sign in every time. Save each account once, and then pick which one to use when you connect.

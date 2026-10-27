@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # Escape and Collapse
 
 The Escape key is your "back out" key in JJ Flexible Radio Access. It behaves differently depending on what you are doing and on whether you press it once or twice.

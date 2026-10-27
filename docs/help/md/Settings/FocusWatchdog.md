@@ -1,3 +1,10 @@
+---
+keywords:
+  - keyboard stops answering
+  - keyboard taken by another program
+  - window comes to the front
+---
+
 # When Another Program Takes Your Keyboard
 
 Windows lets any program take the keyboard away from the one you are in, once you have been idle for a few minutes. It does not ask, and it does not tell you. If you can see the screen you notice the new window and click back; if you cannot, the window you were in simply stops answering, your screen reader has nothing to say, and there is no way to tell that apart from a crash.

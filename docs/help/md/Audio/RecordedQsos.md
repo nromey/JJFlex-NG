@@ -1,3 +1,12 @@
+---
+keywords:
+  - recorded QSOs
+  - recordings, computer
+  - trim a recording
+  - save a recording as MP3
+  - prune recordings
+---
+
 # Recorded QSOs
 
 Record to file saves what your radio plays through this computer as a recording, filed by year and month. Recorded QSOs is where those recordings live: you can listen to one, step through it, trim it, save it as an MP3 or another kind of file, move it to the Recycle Bin, or clear out old ones.

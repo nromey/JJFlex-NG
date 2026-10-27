@@ -1,3 +1,8 @@
+---
+keywords:
+  - earcons
+---
+
 # Earcon Explorer
 
 Earcons are the short tones JJ Flexible Radio Access plays to confirm actions and report state changes. They are quick on purpose — a tone lands in a fraction of the time a spoken sentence takes, so you learn what happened without waiting to be told.

@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # SmartLink Networking — The Three Tiers
 
 JJ Flexible Radio Access offers three networking "tiers" for reaching your Flex radio over SmartLink from outside your home network. The tiers are cumulative — Tier 2 includes everything Tier 1 does, and Tier 3 includes everything Tier 1 and Tier 2 do. You pick the tier you want under **Settings > Network**, and each tier is designed for a different set of user needs.

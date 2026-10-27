@@ -1,3 +1,9 @@
+---
+keywords:
+  - meter tones
+  - meters panel
+---
+
 # Meter Tones and the Meters Panel
 
 Meter tones give you audio feedback for signal strength, power output, SWR, ALC, and other readings — no need to look at a visual meter. The Meters Panel lets you configure exactly what you hear and how.

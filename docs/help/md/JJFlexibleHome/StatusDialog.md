@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # Status Dialog
 
 `Ctrl+Alt+S` opens a live Status dialog — every piece of radio state you would want to know at a glance, organised into navigable categories, and refreshing in real time while the dialog is open. The Status dialog is a different tool from `Ctrl+Shift+S` (Speak Status), and each is useful in different moments.

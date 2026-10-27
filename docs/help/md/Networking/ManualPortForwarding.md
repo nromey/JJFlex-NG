@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # Tier 1 — Manual Port Forwarding
 
 This is the recommended default for SmartLink access to your radio from outside your home network. You pick an external port, set two forwarding rules on your router, and JJ Flexible Radio Access tells the radio to advertise that external port to SmartLink. That is all there is to it on the JJ Flexible Radio Access side — the rest is one trip to your router's admin page.

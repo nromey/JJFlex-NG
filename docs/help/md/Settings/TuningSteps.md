@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # Tuning Steps
 
 Tuning-knob step sizes are configurable. You can pick the size of one click of the Up/Down arrow on the Frequency field, separately for coarse tuning and fine tuning. The settings are per operator, saved to disk, and they survive application restarts.

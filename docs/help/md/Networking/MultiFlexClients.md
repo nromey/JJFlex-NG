@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # MultiFlex Clients
 
 On Flex radios that support MultiFlex, more than one operator can be connected to the same radio at the same time. This is excellent for clubs, shared shacks, and coaching situations — and it is useful to know exactly who is connected, and what they are doing.

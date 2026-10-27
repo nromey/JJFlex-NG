@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # CW Send and Receive Text Boxes
 
 JJ Flexible Radio Access has two text boxes for CW operation:

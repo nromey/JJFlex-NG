@@ -1,3 +1,8 @@
+---
+keywords:
+  - no radio connected
+---
+
 # Home Without a Radio
 
 When JJ Flexible Radio Access starts and no radio is connected — the radio's powered down, you're away from the shack, or you just closed the picker to look around — Home becomes a short, honest page instead of a wall of controls that couldn't do anything. The window title says so too: it ends with "no radio connected", so the very first thing your screen reader announces tells you where you stand.

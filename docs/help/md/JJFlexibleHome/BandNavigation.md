@@ -1,3 +1,8 @@
+---
+keywords:
+  - band jumping
+---
+
 # Band Navigation
 
 JJ Flexible Radio Access makes it easy to jump between amateur bands without having to spin the tuning dial through megahertz of spectrum every time.

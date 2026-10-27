@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # PC-Side Noise Reduction
 
 Every Flex radio has noise reduction built into the radio's own firmware. JJ Flexible Radio Access adds a second layer of noise reduction that runs on your computer, separately from the radio. Both layers are useful, they are not the same thing, and knowing which one to reach for makes a real difference.

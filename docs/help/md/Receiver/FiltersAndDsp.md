@@ -1,3 +1,11 @@
+---
+keywords:
+  - DSP
+  - filters
+  - noise blanker
+  - noise reduction
+---
+
 # Filters and DSP
 
 Your Flex radio has a lot of DSP (Digital Signal Processing) horsepower built in, and JJ Flexible Radio Access gives you keyboard control over all of it.

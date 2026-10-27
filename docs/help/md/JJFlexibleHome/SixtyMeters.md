@@ -1,3 +1,9 @@
+---
+keywords:
+  - 60 meters
+  - channelization
+---
+
 # 60 Meter Operation
 
 The 60 meter band (5 MHz) is a special case on the amateur bands. In the US, it is not a continuous band the way 40 meters or 20 meters are — it is a set of specific channelised frequencies, plus a digital segment, each with its own power and mode restrictions. JJ Flexible Radio Access handles all of this for you.

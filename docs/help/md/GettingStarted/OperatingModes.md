@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # Operating Modes
 
 JJ Flexible Radio Access has two tuning modes: Modern tuning mode and Classic tuning mode. You can switch between them under **Tools > Settings**. Everything else in the application — the menus, the Home fields, the DSP features, the audio controls, the logging pane — is shared across both tuning modes. The name carries the word "tuning" because that is the only thing that changes when you switch.

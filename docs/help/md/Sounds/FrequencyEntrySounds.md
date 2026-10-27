@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # Frequency Entry Sounds
 
 When you type digits into the frequency field, JJ Flexible Radio Access plays a short sound for each keystroke. The sound confirms that the digit registered without you having to wait for the screen reader to catch up, and it gives the whole experience a tactile feel — less "typing into the void," more like a keypad with real feedback.

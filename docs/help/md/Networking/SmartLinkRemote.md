@@ -1,3 +1,8 @@
+---
+keywords:
+  - SmartLink
+---
+
 # SmartLink and Remote Operation
 
 SmartLink lets you control your Flex radio over the internet from anywhere. JJ Flexible Radio Access supports SmartLink through a secure browser-based sign-in flow.

@@ -1,3 +1,8 @@
+---
+keywords:
+  - connection
+---
+
 # Connection Troubleshooting
 
 If JJ Flexible Radio Access cannot find or connect to your radio, here are some things to check.

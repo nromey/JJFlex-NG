@@ -1,3 +1,8 @@
+---
+keywords:
+  - TX sculpting
+---
+
 # TX Bandwidth Sculpting
 
 TX bandwidth sculpting lets you shape the sound of your transmitted audio by adjusting the low-frequency and high-frequency edges of the TX filter. This gives you control over how your signal sounds to other stations.

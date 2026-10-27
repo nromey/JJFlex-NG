@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # Double-Tap Tolerance
 
 Double-Tap Tolerance is a timing setting that controls how quickly you need to press a key twice for JJ Flexible Radio Access to recognise it as a double-tap. It currently affects two behaviours:

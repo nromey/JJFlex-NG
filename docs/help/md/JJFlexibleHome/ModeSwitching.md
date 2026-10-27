@@ -1,3 +1,9 @@
+---
+keywords:
+  - CW
+  - modes
+---
+
 # Mode Switching
 
 JJ Flexible Radio Access supports all the standard ham radio modes. Here's how to change modes within the application.

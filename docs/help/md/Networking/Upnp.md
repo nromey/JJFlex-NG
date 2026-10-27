@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # Tier 2 — UPnP (Optional)
 
 UPnP stands for Universal Plug-and-Play. It is a protocol that lets programs on your network ask your router to open ports automatically, without you having to log into the router's admin page. Convenient — and also widely disabled in security-conscious environments, for reasons this page gets into.

@@ -1,3 +1,15 @@
+---
+keywords:
+  - connectors
+  - front panel
+  - jacks
+  - key jack
+  - microphone jack
+  - ports
+  - PTT jack
+  - rear panel
+---
+
 # Know Your Radio
 
 There are a lot of ports on the back of a Flex, and the manual that came with yours describes them with photographs. These pages are the same information written to be read rather than looked at: what is on each panel, what shape each connector is, and how to find the one you want by touch.
@@ -6,11 +18,11 @@ Each page was written from FlexRadio's own hardware reference manual for that ra
 
 ## Pick your radio
 
-- [FLEX-6300](know-your-radio-6300.htm)
-- [FLEX-6400 and FLEX-6600](know-your-radio-6400-6600.htm), including the 6400M and 6600M
-- [FLEX-6500](know-your-radio-6500.htm)
-- [FLEX-6700](know-your-radio-6700.htm), including the 6700R
-- [FLEX-8400 and FLEX-8600](know-your-radio-8400-8600.htm), including the 8400M and 8600M
+- [FLEX-6300](Flex6300.md)
+- [FLEX-6400 and FLEX-6600](Flex6400And6600.md), including the 6400M and 6600M
+- [FLEX-6500](Flex6500.md)
+- [FLEX-6700](Flex6700.md), including the 6700R
+- [FLEX-8400 and FLEX-8600](Flex8400And8600.md), including the 8400M and 8600M
 
 If you are connected to a radio, you do not have to pick: any dialog that asks you to go and touch the radio — registering with SmartLink, sending firmware — carries a button reading "Where are the jacks on my radio?", and that button opens the page for the radio you are actually connected to.
 

@@ -1,3 +1,8 @@
+---
+keywords:
+  - slices
+---
+
 # Slice Management
 
 FlexRadio slices are like independent receivers — each one has its own frequency, mode, filters, and audio. If you have used a radio with dual VFOs, you can think of slices as VFOs on steroids. Depending on your radio model, you can have anywhere from 2 to 8 slices active at once.

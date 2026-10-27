@@ -1,3 +1,7 @@
+---
+keywords: []
+---
+
 # CW Notifications
 
 JJ Flexible Radio Access sends you short bursts of Morse for certain application events — connecting, disconnecting, and changes to your slices. It's a quiet parallel channel alongside the speech output, using the Morse your brain already knows how to filter in and out of attention.

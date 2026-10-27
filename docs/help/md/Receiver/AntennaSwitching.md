@@ -1,3 +1,8 @@
+---
+keywords:
+  - antenna switching
+---
+
 # Antenna Switching
 
 JJ Flexible Radio Access lets you select which antenna your radio uses for receive and for transmit. If you have multiple antennas connected to your radio, you can switch between them without leaving the keyboard.

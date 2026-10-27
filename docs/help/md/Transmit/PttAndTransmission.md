@@ -1,3 +1,11 @@
+---
+keywords:
+  - ATU tune
+  - PTT
+  - transmission
+  - tune carrier
+---
+
 # PTT and Transmission
 
 JJ Flexible Radio Access includes safety features designed to help you stay in control of your transmitter.
