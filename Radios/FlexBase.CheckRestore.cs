@@ -73,6 +73,13 @@ public partial class FlexBase
         lock (_checkTeardownGate)
         {
             if (_checkTeardown != null) return _checkTeardown;
+            // Every disconnect comes through here (fix round 4, must-fix). With
+            // no start in flight and nothing to put back there is nothing to
+            // wait for: no drain, no wait, and so nothing for the caller to
+            // say. A drain on a queue already stopped would otherwise fail and
+            // tell the operator a check that never ran was not put back.
+            if (_checkRestorations?.HasWork != true)
+                return Task.FromResult(new AudioCheckTeardownResult(true, "nothing-to-restore"));
             var run = new TaskCompletionSource<AudioCheckTeardownResult>(TaskCreationOptions.RunContinuationsAsynchronously);
             _checkTeardown = run.Task;
             _ = RunSettleAsync(bound, run);

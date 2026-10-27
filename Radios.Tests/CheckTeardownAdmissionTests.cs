@@ -122,6 +122,46 @@ public sealed class CheckTeardownAdmissionTests : IDisposable
     }
 
     [Fact]
+    public async Task With_no_check_and_nothing_to_put_back_a_teardown_neither_drains_nor_waits()
+    {
+        // Codex round 4, must-fix: every disconnect runs this teardown. With no
+        // check running and nothing in the owner it still queued a drain marker
+        // and waited on it, and on a queue already stopped the drain failed and
+        // the operator heard that the check could not be confirmed put back,
+        // on a disconnect that never ran a check at all.
+        using var c = new RadioCase();
+        int queued = c.F.Rig.q.Count;
+        c.F.Rig.BeginCheckTeardown();
+        var settle = c.F.Rig.SettleChecksForTeardownAsync(TimeSpan.FromSeconds(5));
+        Assert.True(settle.IsCompleted, "nothing to wait for, so nothing is waited for");
+        Assert.True((await settle).Completed);
+        Assert.Equal(queued, c.F.Rig.q.Count);          // no drain marker
+        c.F.Rig.EndCheckTeardown();
+        Assert.False(c.F.Rig.TeardownInProgress);
+
+        // The same on a radio whose queue has already stopped.
+        c.F.Rig.q.MainLoop = false;
+        c.F.Rig.BeginCheckTeardown();
+        Assert.True((await c.F.Rig.SettleChecksForTeardownAsync(TimeSpan.FromSeconds(5))).Completed);
+        c.F.Rig.EndCheckTeardown();
+
+        // Positive control: with one change in the owner the teardown does wait
+        // for it and drains past it.
+        c.F.Rig.q.MainLoop = true;
+        var release = new TaskCompletionSource<bool>();
+        c.F.Rig.CheckRestorations.Register("power", () => release.Task);
+        c.F.Rig.BeginCheckTeardown();
+        var busy = c.F.Rig.SettleChecksForTeardownAsync(TimeSpan.FromSeconds(5));
+        await Task.Delay(100);
+        Assert.False(busy.IsCompleted);
+        release.SetResult(true);
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!busy.IsCompleted && DateTime.UtcNow < deadline) { RunQueue(c); await Task.Delay(20); }
+        Assert.True((await busy).Completed);
+        c.F.Rig.EndCheckTeardown();
+    }
+
+    [Fact]
     public async Task An_IQ_take_is_not_started_during_a_teardown()
     {
         using var c = new RadioCase();
