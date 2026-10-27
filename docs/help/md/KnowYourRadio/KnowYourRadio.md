@@ -24,7 +24,7 @@ Each page was written from FlexRadio's own hardware reference manual for that ra
 - [FLEX-6700](Flex6700.md), including the 6700R
 - [FLEX-8400 and FLEX-8600](Flex8400And8600.md), including the 8400M and 8600M
 
-If you are connected to a radio, you do not have to pick: any dialog that asks you to go and touch the radio — registering with SmartLink, sending firmware — carries a button reading "Where are the jacks on my radio?", and that button opens the page for the radio you are actually connected to.
+If you are connected to a radio that has a guide here, three confirmations in Settings, Radio Setup also offer a "Where are the jacks on my radio?" button. You will find it when registering with SmartLink, unregistering from SmartLink, or sending firmware. The button opens the guide for the radio you are connected to.
 
 ## The one thing worth knowing before you start
 

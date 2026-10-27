@@ -44,8 +44,6 @@ $script:MainContentId = 'jjf-main-help'
 # so it is removed the day the page is fixed.
 # ---------------------------------------------------------------------------
 $script:AnchorExceptions = @{
-  'KeyboardReference/KeyboardReference.md#audio-workshop-1' =
-    'two "Audio Workshop" sections on one page (#466); they merge into one when the page is split'
 }
 
 # ---------------------------------------------------------------------------

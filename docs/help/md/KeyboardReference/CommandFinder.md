@@ -1,6 +1,7 @@
 ---
 keywords:
   - command finder
+  - show all commands
 ---
 
 # Command Finder
@@ -10,15 +11,18 @@ The Command Finder is a searchable list of every keyboard command in JJ Flexible
 ## Opening Command Finder
 
 Press `Ctrl+/` from anywhere in the application to open the Command Finder dialog.
+Focus starts in the search box, so you can type the command you want right away.
 
 ## How It Works
 
-The Command Finder dialog has two controls at the top:
+The Command Finder dialog has three controls at the top:
 
 1. **Category filter** — a combo box that lets you narrow the list to a specific category, such as Tuning, DSP, Audio, or Slices. Select "All" to see every command across every category.
 2. **Search box** — type a word or phrase to filter the list further within the currently selected category. For example, selecting the DSP category and typing "noise" shows just the noise-related DSP commands.
+3. **Show all commands** — check this box to include commands from other operating modes. Without it, the list shows commands that work in your current mode. Choosing "All" in the category filter does not change that mode filter.
 
 Below those controls is the command list itself. Each entry shows the keyboard shortcut and a short description of what the command does.
+Press `Enter` from the search box to run the first result, or select a result and press `Enter` to run that command.
 
 ## Tips
 
