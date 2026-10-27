@@ -106,7 +106,7 @@ internal static class RadioFreeGuard
 
         string serial = raw.Trim();
 
-        // Flex serials look like 0621-1104-6601-1425: dash-separated groups of
+        // Flex serials are dash-separated groups of
         // letters and digits. The shape check is deliberately permissive - the
         // REAL check is that discovery finds this exact serial - but a value
         // like "1" or "yes" is a reflex, not a declaration, and refusing it
@@ -148,7 +148,7 @@ internal static class RadioFreeGuard
             + "run, like this:\r\n"
             + "  set " + DeclarationVariable + " to your radio's serial number, "
             + "then run this program again from the same terminal.\r\n"
-            + "In PowerShell: $env:" + DeclarationVariable + " = \"0621-1104-6601-1425\" "
+            + "In PowerShell: $env:" + DeclarationVariable + " = \"1234-5678-9012-3456\" "
             + "(with your real serial).\r\n"
             + "Never set that variable in a script or a profile. It is a "
             + "statement by a human, about this radio, for this run.",
@@ -157,7 +157,7 @@ internal static class RadioFreeGuard
             "The declaration in " + DeclarationVariable + " was '" + f.DeclaredValue
             + "', which does not look like a radio serial number. Expected the "
             + "dash-separated serial from the radio itself, like "
-            + "0621-1104-6601-1425. The variable must name the exact radio being "
+            + "1234-5678-9012-3456. The variable must name the exact radio being "
             + "offered - that is what keeps this harness off a radio that "
             + "belongs to somebody else.",
 

@@ -39,8 +39,8 @@ namespace Radios
     ///
     /// <para><b>The naming ladder (#391's Settings half).</b> Until 2026-08-30
     /// every row without a display name was a bare sixteen-digit serial, and
-    /// the operator was left disambiguating "1315-4176-6300-7236" from
-    /// "2116-5319-6300-6334" by ear, mid-list, right before doing something
+    /// the operator was left telling one 6300's sixteen-digit serial from
+    /// another's by ear, mid-list, right before doing something
     /// consequential to somebody else's station. Every row now leads with
     /// something a person recognises — name, else model — and the serial rides
     /// along in parentheses where it is available without being the identity.
@@ -215,7 +215,7 @@ namespace Radios
 
         /// <summary>
         /// The model a serial carries in its own third group ("FLEX-6300" from
-        /// 1315-4176-<b>6300</b>-7236), or empty when the group is not one we
+        /// a serial whose third group is <b>6300</b>), or empty when the group is not one we
         /// know. Every Flex serial this project has held follows the
         /// convention; refusing to guess for unknown groups is what keeps an
         /// Aurora — whose group three we have never seen — from being labelled

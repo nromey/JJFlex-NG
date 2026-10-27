@@ -1986,9 +1986,9 @@ namespace Radios
         //
         // THE SHAPE, grounded rather than guessed. Every per-radio profile on
         // the operator's machine on 2026-08-26 — three real radios plus two
-        // deliberate test fixtures — is four groups of four digits:
+        // deliberate test fixtures — is four groups of four digits: two
+        // 6300s and an 8600, and the fixtures
         //
-        //     1315-4176-6300-7236   2116-5319-6300-6334   4925-1213-8600-6245
         //     0123-4567-8600-0002   0123-4567-8600-9001
         //
         // and the third group is the model in every one. FlexLib itself
@@ -2007,7 +2007,7 @@ namespace Radios
 
         /// <summary>
         /// Whether a string has the shape of a FlexRadio serial: four
-        /// dash-separated groups of four digits, e.g. <c>4925-1213-8600-6245</c>.
+        /// dash-separated groups of four digits.
         /// SHAPE ONLY — it says nothing about whether such a radio exists.
         /// </summary>
         public static bool IsWellFormedRadioId(string? radioId)

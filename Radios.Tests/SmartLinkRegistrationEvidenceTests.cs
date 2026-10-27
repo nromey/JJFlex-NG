@@ -31,7 +31,7 @@ namespace Radios.Tests
     /// </summary>
     public sealed class SmartLinkRegistrationEvidenceTests
     {
-        private const string Serial = "4925-1213-8600-6245";
+        private const string Serial = "1234-5678-9012-3456";
         private const string Mine = "operator@example.com";
         private const string Other = "friend@example.com";
 
@@ -579,7 +579,7 @@ namespace Radios.Tests
         }
 
         private const string Account = "friend@example.com";
-        private const string Listed = "4925-1213-8600-6245";
+        private const string Listed = "1234-5678-9012-3456";
 
         /// <summary>
         /// Connect, hear a list carrying <see cref="Listed"/>, then lose the

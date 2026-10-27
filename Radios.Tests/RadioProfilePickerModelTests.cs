@@ -38,9 +38,9 @@ namespace Radios.Tests
         // that is also hidden from the connect roster, a directory with no
         // config.xml, an operator folder that has no business in the radio
         // store but is really there, and a stray empty nested "radios".
-        private const string Own8600 = "4925-1213-8600-6245";
-        private const string Testers6300 = "1315-4176-6300-7236";
-        private const string Borrowed6300 = "2116-5319-6300-6334";
+        private const string Own8600 = "1234-5678-8600-3456";
+        private const string Shack6300 = "1234-5678-6300-4567";
+        private const string Borrowed6300 = "1234-5678-6300-5678";
         private const string Fixture8600 = "0123-4567-8600-0002";
 
         private void WriteTheOperatorsStore()
@@ -57,7 +57,7 @@ namespace Radios.Tests
                 Nickname = "6300inshack",
                 Model = "FLEX-6300",
                 LastSeenUtc = new DateTime(2026, 8, 29, 23, 0, 0, DateTimeKind.Utc),
-            }.Save(_dir, Testers6300));
+            }.Save(_dir, Shack6300));
 
             Assert.True(new RadioConfig
             {
@@ -98,7 +98,7 @@ namespace Radios.Tests
             var entries = RadioProfilePickerModel.Build(_dir, connectedSerial: null);
 
             Assert.Equal(4, entries.Count);
-            foreach (var id in new[] { Own8600, Testers6300, Borrowed6300, Fixture8600 })
+            foreach (var id in new[] { Own8600, Shack6300, Borrowed6300, Fixture8600 })
             {
                 Assert.Single(entries, e => e.Id == id);
             }
@@ -153,7 +153,7 @@ namespace Radios.Tests
             var named = new[]
             {
                 (Id: Own8600, Name: "K5NER"),
-                (Id: Testers6300, Name: "6300inshack"),
+                (Id: Shack6300, Name: "6300inshack"),
                 (Id: Borrowed6300, Name: "MargaretGaffney"),
             };
             foreach (var (id, name) in named)
@@ -170,11 +170,11 @@ namespace Radios.Tests
             WriteTheOperatorsStore();
 
             var row = RadioProfilePickerModel.Build(_dir, connectedSerial: null)
-                .Single(e => e.Id == Testers6300);
+                .Single(e => e.Id == Shack6300);
 
             Assert.StartsWith("6300inshack", row.Label, StringComparison.Ordinal);
             Assert.Contains("FLEX-6300", row.Label, StringComparison.Ordinal);
-            Assert.Contains(Testers6300, row.Label, StringComparison.Ordinal);
+            Assert.Contains(Shack6300, row.Label, StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -215,7 +215,7 @@ namespace Radios.Tests
         [Fact]
         public void ModelFromSerialKnowsTheFleetAndRefusesTheRest()
         {
-            Assert.Equal("FLEX-6300", RadioProfilePickerModel.ModelFromSerial(Testers6300));
+            Assert.Equal("FLEX-6300", RadioProfilePickerModel.ModelFromSerial(Shack6300));
             Assert.Equal("FLEX-8600", RadioProfilePickerModel.ModelFromSerial(Own8600));
             Assert.Equal("", RadioProfilePickerModel.ModelFromSerial("1234-5678-9999-0001"));
             Assert.Equal("", RadioProfilePickerModel.ModelFromSerial("not-a-serial"));
@@ -285,7 +285,7 @@ namespace Radios.Tests
             var ids = RadioProfilePickerModel.Build(_dir, connectedSerial: null)
                 .Select(e => e.Id).ToList();
 
-            Assert.Equal(new[] { Own8600, Testers6300, Borrowed6300, Fixture8600 }, ids);
+            Assert.Equal(new[] { Own8600, Shack6300, Borrowed6300, Fixture8600 }, ids);
         }
 
         [Fact]
@@ -341,10 +341,10 @@ namespace Radios.Tests
         {
             WriteTheOperatorsStore();
 
-            var named = RadioConfig.Load(_dir, Testers6300);
+            var named = RadioConfig.Load(_dir, Shack6300);
             string spokenNamed = RadioProfilePickerModel.SpokenNameFor(named);
             Assert.StartsWith("6300inshack", spokenNamed, StringComparison.Ordinal);
-            Assert.DoesNotContain(Testers6300, spokenNamed, StringComparison.Ordinal);
+            Assert.DoesNotContain(Shack6300, spokenNamed, StringComparison.Ordinal);
 
             var unnamed = RadioConfig.Load(_dir, Fixture8600);
             string spokenUnnamed = RadioProfilePickerModel.SpokenNameFor(unnamed);

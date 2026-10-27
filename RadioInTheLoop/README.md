@@ -2,7 +2,7 @@
 
 How to run it, in one breath: open PowerShell in the repo root, set the
 variable `JJFLEX_RADIO_IN_THE_LOOP` to your radio's serial number - for
-example `$env:JJFLEX_RADIO_IN_THE_LOOP = "0621-1104-6601-1425"` - then run
+example `$env:JJFLEX_RADIO_IN_THE_LOOP = "1234-5678-9012-3456"` - then run
 `dotnet run --project RadioInTheLoop -c Debug -p:Platform=x64`. It will find
 your radio, check nobody is on it, connect to it twice as a GUI client named
 JJHarness without changing any of its settings, disconnect, verify it left no

@@ -110,13 +110,13 @@ namespace Radios.Tests
             // A leg run a minute later, after an open failed, must ask for the
             // same radio at the same bandwidth. Nothing else survives that
             // long — not the dialog, not the local variables, not the radio.
-            var walk = ConnectWalk.Build("4925-1213-8600-6245", lowBW: true,
+            var walk = ConnectWalk.Build("1234-5678-9012-3456", lowBW: true,
                 ConnectPathKind.SmartLink, new[] { ConnectPathKind.Local }, forced: false);
 
-            Assert.Equal("4925-1213-8600-6245", walk.Serial);
+            Assert.Equal("1234-5678-9012-3456", walk.Serial);
             Assert.True(walk.LowBW);
             walk.MoveNext();
-            Assert.Equal("4925-1213-8600-6245", walk.Serial);
+            Assert.Equal("1234-5678-9012-3456", walk.Serial);
             Assert.True(walk.LowBW);
         }
 
