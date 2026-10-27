@@ -122,6 +122,16 @@ namespace Radios.Tests
             Assert.True(subscribe >= 0 && ask > subscribe, "subscribe to the radio's report before asking it, so a receive that lands in between is not missed");
         }
 
+        [Fact]
+        public void The_shell_tells_the_dialog_door_which_window_runs_the_check()
+        {
+            // Fix round 2: the door's behaviour is JJFlexWpf.Tests'
+            // DialogTransmitKeysTests; this pins that production wires it.
+            string main = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "MainWindow.xaml.cs"));
+            Assert.Contains("DialogTransmitKeys.WindowHandlesCheckEscape = w => w is Dialogs.CheckYourAudioDialog;", main);
+            Assert.Contains("DialogTransmitKeys.CheckEscapeElsewhere = Dialogs.CheckYourAudioDialog.StopTransmittingCheckFromElsewhere;", main);
+        }
+
         private static string Body(string source, string signature)
         {
             int at = source.IndexOf(signature, StringComparison.Ordinal);

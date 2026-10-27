@@ -326,6 +326,10 @@ public partial class MainWindow : UserControl
         DialogTransmitKeys.EscapeUnkey = HandleDialogEscapeUnkey;
         DialogTransmitKeys.ReleaseNow = HandleDialogHoldLost;
         DialogTransmitKeys.SessionOwnsTransmitter = () => Dialogs.AudioWorkshopDialog.AnAudioCheckIsActive;
+        // #835, fix round 2: only Check your audio handles the check's own
+        // Escape; anywhere else, Escape while it transmits stops it.
+        DialogTransmitKeys.WindowHandlesCheckEscape = w => w is Dialogs.CheckYourAudioDialog;
+        DialogTransmitKeys.CheckEscapeElsewhere = Dialogs.CheckYourAudioDialog.StopTransmittingCheckFromElsewhere;
         try
         {
             var systemWide = Radios.SystemWideKeysConfig.Load(Radios.RadioConfig.AppDataRoot);

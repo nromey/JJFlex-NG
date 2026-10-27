@@ -92,6 +92,22 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     /// </summary>
     internal static bool AnAudioCheckIsActive => _instance?._session?.Active == true;
 
+    /// <summary>
+    /// Escape was pressed in another window while a check runs (#835, fix
+    /// round 2). If the check is transmitting, stop it, which unkeys and
+    /// restores through the session, and return true so that window stays
+    /// open. Once the check has unkeyed, Escape there is that window's own.
+    /// Closing the Workshop by its close button or Alt+F4 still leaves a
+    /// check here running: this window is independent.
+    /// </summary>
+    internal static bool StopTransmittingCheckFromElsewhere()
+    {
+        var session = _instance?._session;
+        if (session?.Active != true || !session.EscapeStopsTransmit) return false;
+        session.StopCheck();
+        return true;
+    }
+
     /// <summary>True while a check is starting or running, so another window's take (the Workshop's diagnostic take) can refuse rather than race it.</summary>
     internal static bool ACheckIsStartingOrActive =>
         _instance != null && (_instance._checkStarts.IsBusy || _instance._session?.Active == true);

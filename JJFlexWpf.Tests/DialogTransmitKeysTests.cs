@@ -107,7 +107,8 @@ public sealed class DialogTransmitKeysTests : IDisposable
     {
         DialogTransmitKeys.HoldWindowLost("test teardown");
         if (_controller.IsTransmitting) _controller.EscapeUnlock();
-        foreach (var name in new[] { "PttEdge", "HoldInFlight", "EscapeUnkey", "ReleaseNow", "SessionOwnsTransmitter" })
+        foreach (var name in new[] { "PttEdge", "HoldInFlight", "EscapeUnkey", "ReleaseNow", "SessionOwnsTransmitter",
+                                     "WindowHandlesCheckEscape", "CheckEscapeElsewhere" })
             typeof(DialogTransmitKeys).GetProperty(name, BindingFlags.Static | BindingFlags.NonPublic)?.SetValue(null, null);
         ((System.Windows.Threading.DispatcherTimer?)typeof(MainWindow).GetField("_pttDeferTimer", Any)?.GetValue(_main))?.Stop();
         ScreenReaderOutput.CurrentVerbosity = _verbosityBefore;
@@ -171,6 +172,7 @@ public sealed class DialogTransmitKeysTests : IDisposable
     {
         public event EventHandler? Deactivated;
         public event EventHandler? Closed;
+        public bool HandlesAudioCheckEscape { get; set; }
         public void LoseFocus() => Deactivated?.Invoke(this, EventArgs.Empty);
         public void Close() => Closed?.Invoke(this, EventArgs.Empty);
     }
@@ -486,12 +488,13 @@ public sealed class DialogTransmitKeysTests : IDisposable
     }
 
     [Fact]
-    public void Escape_is_left_to_the_audio_workshop_while_an_audio_check_is_active()
+    public void Escape_is_left_to_the_check_window_while_an_audio_check_is_active()
     {
-        // The workshop's two-stage Escape keeps its first stage: the door
-        // declines, so AudioWorkshopDialog.OnPreviewKeyDown sees the key.
+        // The check's two-stage Escape keeps its first stage: in the window
+        // that runs it (Check your audio since #835), the door declines, so
+        // that window's OnPreviewKeyDown sees the key.
         AssertTheDeskIsSafe(); WireDoor();
-        var w = new FakeWindow();
+        var w = new FakeWindow { HandlesAudioCheckEscape = true };
         LockFromTheSystemWideKey();
         Assert.Equal(Locked, _controller.State);
         _sessionActive = true;
@@ -593,6 +596,33 @@ public sealed class DialogTransmitKeysTests : IDisposable
         string said = SpokenAfter(() => Assert.True(Down(w, Keys.Space | Keys.Shift)));
         Assert.Equal("You can't use the transmit lock here.", said);
         Assert.Equal(Idle, _controller.State);
+    }
+
+    [Fact]
+    public void Escape_in_another_window_while_the_check_transmits_stops_the_check_and_stays()
+    {
+        // Fix round 2, Codex blocker 3. The door declined Escape whenever any
+        // check was active, assuming the receiving window handled it; only
+        // Check your audio does. So Escape in the Audio Workshop closed the
+        // Workshop and left the other window's check keyed.
+        AssertTheDeskIsSafe(); WireDoor();
+        int stopped = 0;
+        bool checkTransmitting = true;
+        Door("CheckEscapeElsewhere", (Func<bool>)(() => { if (!checkTransmitting) return false; stopped++; return true; }));
+        _sessionActive = true;
+        var workshop = new FakeWindow { HandlesAudioCheckEscape = false };
+        Assert.True(Down(workshop, Keys.Escape));       // consumed: the Workshop stays open
+        Assert.Equal(1, stopped);
+        Assert.Equal(0, _escapes);                     // the check's own stop, not the plain unkey
+
+        // The check window itself is still left to handle its own Escape.
+        Assert.False(Down(new FakeWindow { HandlesAudioCheckEscape = true }, Keys.Escape));
+        Assert.Equal(1, stopped);
+
+        // Once the check has unkeyed, Escape elsewhere is that window's own
+        // again: the Workshop closes, and the check finishes by itself.
+        checkTransmitting = false;
+        Assert.False(Down(workshop, Keys.Escape));
     }
 
     [Fact]
