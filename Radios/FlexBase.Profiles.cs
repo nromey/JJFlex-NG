@@ -3117,10 +3117,8 @@ namespace Radios
         // if you tune the radio or any radio, when you turn it off, it saves
         // stuff."
         //
-        // Both halves of that are right, which is why this is a SETTING. It
-        // shipped off until 2026-10-17, when Noel ruled it on (#759): the
-        // operator who most needs the question is the one who does not know the
-        // switch exists, and the gates below answer the dismissal worry. The expectation is real — every other radio remembers
+        // Both halves of that are right, which is why this is a SETTING and why
+        // it ships off. The expectation is real — every other radio remembers
         // what you did to it, and an operator who releases a slice and finds it
         // back tomorrow concludes the application is broken. But Sprint 32
         // Track H considered a disconnect prompt and deliberately shipped a
@@ -3153,22 +3151,21 @@ namespace Radios
         // asked. The answer is always the operator's.
 
         /// <summary>
-        /// Whether the operator wants to be offered a station-layout save when
-        /// they disconnect. App-level, one knob for every radio and every
+        /// Whether the operator has asked to be offered a station-layout save
+        /// when they disconnect. App-level, one knob for every radio and every
         /// connection, in the shape of the other cross-layer settings on this
-        /// class.
+        /// class. Default false: the shipped behaviour stays Sprint 32's spoken
+        /// notification until somebody deliberately turns this on.
         /// </summary>
         /// <remarks>
-        /// DEFAULT ON, ruled by Noel 2026-10-17 (#759): "I think it should
-        /// default to on, user could click a checkbox to turn it off". It was
-        /// off until then, and his own radio lost two muted slices, a mode and a
-        /// frequency to exactly the disconnect it exists for. The gates below
-        /// still keep it from firing when nothing changed. The persisted value
-        /// is the configuration's, and existing files are brought forward by
-        /// AudioOutputConfig's one-time migration; this initializer only covers
-        /// the moments before any configuration is read.
+        /// Off because of #499: its settled design saves the station
+        /// automatically, and this question is the fallback for an operator who
+        /// turns that save off. On by default it would ask nearly every
+        /// session, since OperatorChangedStationThisSession is true whenever a
+        /// ham has tuned around. A default-on was built and backed out on
+        /// 2026-10-27 (#759); the decline traces it brought stay.
         /// </remarks>
-        public static bool OfferStationSaveOnDisconnect { get; set; } = true;
+        public static bool OfferStationSaveOnDisconnect { get; set; }
 
         /// <summary>
         /// Why the most recent <see cref="ShouldOfferStationLayoutSave"/> did

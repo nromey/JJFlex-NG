@@ -10,7 +10,7 @@ namespace Radios.Tests
 {
     /// <summary>
     /// #759: the disconnect offer to save the station says which gate closed
-    /// whenever it declines, and it is on by default.
+    /// whenever it declines, and it is off by default.
     /// </summary>
     /// <remarks>
     /// Until #759 four of the five declined branches were silent, and the one
@@ -24,15 +24,25 @@ namespace Radios.Tests
     [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class StationSaveOfferDeclineTests
     {
+        /// <summary>
+        /// Off until the operator turns it on: the question is the fallback for
+        /// #499's automatic save, and a default-on question asks nearly every
+        /// session. A default-on was built in round one and backed out.
+        /// </summary>
         [Fact]
-        public void The_offer_defaults_on_before_any_configuration_is_read()
+        public void The_offer_defaults_off_before_any_configuration_is_read()
         {
-            // The static's own initializer, read through a fresh default rather
-            // than the live static another test may have set.
+            // The static's own declaration, read from source rather than from
+            // the live static another test may have set. No initializer at
+            // all, so it is the CLR's false; any "= true" is the default-on
+            // coming back.
             var property = typeof(FlexBase).GetProperty(nameof(FlexBase.OfferStationSaveOnDisconnect))!;
             Assert.True(property.GetMethod!.IsStatic);
             string source = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "Radios/FlexBase.Profiles.cs"));
-            Assert.Contains("public static bool OfferStationSaveOnDisconnect { get; set; } = true;", source);
+            var declaration = Regex.Match(source,
+                @"public static bool OfferStationSaveOnDisconnect \{ get; set; \}[^\r\n]*");
+            Assert.True(declaration.Success, "the static's declaration is where this test expects it");
+            Assert.Equal("public static bool OfferStationSaveOnDisconnect { get; set; }", declaration.Value.TrimEnd());
         }
 
         [Fact]

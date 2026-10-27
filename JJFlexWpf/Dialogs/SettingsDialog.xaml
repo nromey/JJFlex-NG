@@ -1776,15 +1776,19 @@
 
                     <Separator Margin="0,4,0,8"/>
 
-                    <!-- Sprint 33 Track K (#117, #59). Off by default until
-                         2026-10-17, when Noel ruled it ON (#759): the operator
-                         who most needs the question is the one who does not
-                         know this switch exists. The disconnect question itself
-                         carries a "don't ask me again" box that turns this off,
-                         and this is the way back. It offers; it never saves on
-                         its own. The help text has to carry the shared-state warning
-                         because a global profile belongs to the radio, not to
-                         the person who happened to disconnect last. -->
+                    <!-- Sprint 33 Track K (#117, #59). Off by default, and that
+                         is the whole design: what every operator gets is the
+                         spoken "this will not survive disconnect" notice, and
+                         this switch is for the operator who wants the radio-like
+                         behaviour and says so. It stays off because of #499,
+                         whose automatic save this question is the fallback for;
+                         on by default it would ask nearly every session. The
+                         disconnect question carries a "don't ask me again" box
+                         (#759) that turns this off, and this is the way back.
+                         It offers; it never saves on its own. The help text has
+                         to carry the shared-state warning because a global
+                         profile belongs to the radio, not to the person who
+                         happened to disconnect last. -->
                     <GroupBox Header="Saving Your Setup to the Radio" Margin="0,4,0,8"
                               AutomationProperties.Name="Saving Your Setup to the Radio">
                         <StackPanel Margin="4">

@@ -4244,10 +4244,12 @@ public class NativeMenuBar : IDisposable
                 ("profileName", profileName)),
             yesLabel: Radios.Lexicon.Get("settings.station_layout.disconnect_yes_label"),
             noLabel: Radios.Lexicon.Get("settings.station_layout.disconnect_no_label"),
-            // #759, ruled with the default-ON: a box to stop the question, and
-            // Settings is the way back. The help names the route, which is
-            // Notifications - not Radio, which is where both Noel and the
-            // orchestrator first assumed it lived.
+            // #759: a box to stop the question, and Settings is the way back.
+            // The question is off by default (it is #499's fallback), so only
+            // an operator who turned it on sees this, and may want it off again
+            // from here. The help names the route, which is Notifications - not
+            // Radio, which is where both Noel and the orchestrator first
+            // assumed it lived.
             stopAskingLabel: Radios.Lexicon.Get("settings.station_layout.disconnect_stop_asking_label"),
             stopAskingHelp: Radios.Lexicon.Get("settings.station_layout.disconnect_stop_asking_help"));
 

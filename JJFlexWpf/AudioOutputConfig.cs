@@ -244,36 +244,34 @@ namespace JJFlexWpf
         /// when the operator disconnects, having changed the slice set during
         /// the session.
         ///
-        /// <para>DEFAULT ON, ruled by Noel 2026-10-17 (#759). It shipped off
-        /// from Sprint 33, on the grounds that a prompt firing on every
-        /// disconnect gets dismissed reflexively; the gates in
-        /// FlexBase.ShouldOfferStationLayoutSave answer that by keeping it quiet
-        /// when nothing changed, when another operator is connected, or on a
-        /// radio the operator has not marked as theirs. What overturned the
-        /// default is that the operator who most needs the question is the one
-        /// who does not know the switch exists.</para>
+        /// <para>DEFAULT FALSE, deliberately, and it is the one setting here
+        /// whose default is an argument rather than a taste. A global profile
+        /// is STATION state — one per radio, shared by every client that
+        /// connects — so what gets saved is never just "my slices". Sprint 32
+        /// weighed a disconnect prompt and shipped a spoken notice instead, on
+        /// the grounds that a prompt firing on every disconnect gets dismissed
+        /// reflexively. That notice stays the shipped behaviour for everyone;
+        /// this switch adds the question for the operator who asks for it, and
+        /// the gates in FlexBase.ShouldOfferStationLayoutSave keep it from
+        /// firing when nothing changed, when another operator is connected, or
+        /// on a radio the operator has not marked as theirs.</para>
         ///
-        /// <para><b>THE INITIALIZER ALONE CHANGES NOTHING FOR AN EXISTING
-        /// INSTALL.</b> Every audioConfig.xml written before #759 already holds
-        /// this as <c>false</c> - the serializer writes an unset bool - and the
-        /// file beats the initializer. Nothing in such a file says whether that
-        /// false was a choice. <see cref="StationSaveOfferVersion"/> is what
-        /// does, and <see cref="MigrateStationSaveOffer"/> turns the offer on
-        /// once for any file below version 1. A false saved after that IS the
-        /// operator's choice and stays.</para>
+        /// <para><b>It stays off because of #499, not in spite of it.</b> #499's
+        /// settled design saves the station automatically, and this question
+        /// becomes the fallback for an operator who turns that save off. On by
+        /// default, the question would ask nearly every session, because
+        /// OperatorChangedStationThisSession is true whenever a ham has tuned
+        /// around or nudged a filter. A default-on with a one-time migration
+        /// was built and backed out on 2026-10-27 (#759); a file that build
+        /// wrote carries a StationSaveOfferVersion element, which the
+        /// serializer now ignores, so whatever value that build left stands
+        /// until the operator changes it.</para>
+        ///
+        /// <para>Absent from an older audioConfig.xml this deserialises to
+        /// false, which is exactly the behaviour that file was written
+        /// under.</para>
         /// </summary>
-        public bool OfferStationSaveOnDisconnect { get; set; } = true;
-
-        /// <summary>
-        /// Which generation of the station-save offer's default this file was
-        /// written under. Absent, and so 0, in every file from before #759,
-        /// where <see cref="OfferStationSaveOnDisconnect"/> is the old default
-        /// rather than anybody's decision. 1: the value is the operator's.
-        /// Deliberately NO initializer: an initializer of 1 would stamp an old
-        /// file as current the moment it was read, and the migration would
-        /// never run. Do not bump it by hand.
-        /// </summary>
-        public int StationSaveOfferVersion { get; set; }
+        public bool OfferStationSaveOnDisconnect { get; set; }
 
         /// <summary>
         /// The operator ticked "don't ask me again" on the disconnect question:
@@ -288,34 +286,8 @@ namespace JJFlexWpf
             Radios.FlexBase.OfferStationSaveOnDisconnect = false;
             var config = live ?? Load(configDir);
             config.OfferStationSaveOnDisconnect = false;
-            config.StationSaveOfferVersion = CurrentStationSaveOfferVersion;
             config.Save(configDir);
             Trace.WriteLine("AudioOutputConfig: the operator turned off the offer to save the station on disconnect (#759)");
-        }
-
-        /// <summary>The <see cref="StationSaveOfferVersion"/> this build writes.</summary>
-        internal const int CurrentStationSaveOfferVersion = 1;
-
-        /// <summary>
-        /// Bring a file written before #759 onto the ruled default: offer ON,
-        /// once. Idempotent; a file already at the current version is left
-        /// exactly as it is, which is what keeps an operator's later "off"
-        /// from being undone on the next launch. Returns true when it changed
-        /// the offer.
-        /// </summary>
-        internal static bool MigrateStationSaveOffer(AudioOutputConfig config)
-        {
-            if (config.StationSaveOfferVersion >= CurrentStationSaveOfferVersion) return false;
-
-            bool changed = !config.OfferStationSaveOnDisconnect;
-            config.OfferStationSaveOnDisconnect = true;
-            config.StationSaveOfferVersion = CurrentStationSaveOfferVersion;
-            if (changed)
-            {
-                Trace.WriteLine("AudioOutputConfig: the offer to save the station on disconnect is now ON - "
-                    + "the default changed (#759) and this file recorded no choice");
-            }
-            return changed;
         }
 
         /// <summary>Whether braille status line is enabled.</summary>
@@ -573,11 +545,7 @@ namespace JJFlexWpf
                 // so that the heal-forward path — which copies a legacy file to
                 // the canonical location — writes the migrated shape rather
                 // than immortalising the old one.
-                if (loaded != null)
-                {
-                    MeterConfigMigration.Migrate(loaded);
-                    MigrateStationSaveOffer(loaded);
-                }
+                if (loaded != null) MeterConfigMigration.Migrate(loaded);
                 return loaded;
             }
             catch (Exception ex)
@@ -604,7 +572,6 @@ namespace JJFlexWpf
             // already, and this call is what catches the default-construction
             // paths below.
             MeterConfigMigration.Migrate(config);
-            MigrateStationSaveOffer(config);
             return config;
         }
 
