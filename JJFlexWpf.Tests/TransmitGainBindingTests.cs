@@ -35,6 +35,40 @@ namespace JJFlexWpf.Tests;
 public sealed class TransmitGainBindingTests
 {
     [Fact]
+    public void A_notice_that_arrives_after_Dispose_does_nothing()
+    {
+        // Fix round 2, Codex follow-up 4: a notice already posted to another
+        // dispatcher, or a direct call on a disposed origin, could rebind a
+        // Windows endpoint for a window that had closed.
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var closed = new TransmitGainControls(Dispatcher.CurrentDispatcher, () => null, () => false, () => null);
+                closed.Dispose();
+                closed.DeviceSelectionMayHaveChanged();
+                TransmitGainControls.MicrophoneChoiceMayHaveChanged(closed);
+                Assert.Equal(0, closed.DeviceChangesSeen);
+
+                // Positive control: a live one does count the same notice.
+                var live = new TransmitGainControls(Dispatcher.CurrentDispatcher, () => null, () => false, () => null);
+                try
+                {
+                    live.DeviceSelectionMayHaveChanged();
+                    Assert.Equal(1, live.DeviceChangesSeen);
+                }
+                finally { live.Dispose(); }
+            }
+            catch (Exception ex) { failure = ex; }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(10)), "The binding thread did not finish.");
+        if (failure != null) throw failure;
+    }
+
+    [Fact]
     public void A_microphone_change_in_one_window_reaches_the_other_windows_binding()
     {
         Exception? failure = null;

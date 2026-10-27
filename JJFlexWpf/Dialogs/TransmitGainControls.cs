@@ -203,6 +203,10 @@ internal sealed class TransmitGainControls
     /// </summary>
     public void DeviceSelectionMayHaveChanged()
     {
+        // A notice already on its way when the window closed (one posted to
+        // another dispatcher, or a call on a disposed origin) must not rebind
+        // an endpoint nothing will ever release (fix round 2).
+        if (_disposed) return;
         DeviceChangesSeen++;
         if (PcSourceActive) BindPcLevel();
     }
@@ -244,9 +248,13 @@ internal sealed class TransmitGainControls
     /// </summary>
     public void Dispose()
     {
+        _disposed = true;
         lock (Live) Live.Remove(this);
         Release();
     }
+
+    /// <summary>Set by <see cref="Dispose"/>; every callback that could bind an endpoint checks it first.</summary>
+    private bool _disposed;
 
     /// <summary>
     /// Bind the Windows input level to the computer's chosen microphone, or show
@@ -254,6 +262,7 @@ internal sealed class TransmitGainControls
     /// </summary>
     private void BindPcLevel()
     {
+        if (_disposed) return;
         Release();
         _boundFileStamp = DeviceFileStamp();
 
@@ -358,7 +367,7 @@ internal sealed class TransmitGainControls
         _dispatcher.BeginInvoke(new Action(() =>
         {
             var level = _pcMicLevel;
-            if (level == null) return;
+            if (_disposed || level == null) return;
             try
             {
                 PcLevel.SuppressEvents = true;
