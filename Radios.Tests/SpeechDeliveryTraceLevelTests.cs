@@ -43,8 +43,13 @@ namespace Radios.Tests
         {
             // The counting calls sit beside the lines they count, so a new
             // speak or drop path that copies one copies the other.
+            // Three direct NoteSaid calls: the unpaced speak, the pump's
+            // plain-path re-send, and braille-and-speech Output. A paced
+            // ticket is counted once, at its outcome.
             string output = Read("Radios/ScreenReaderOutput.cs");
-            Assert.Equal(2, Count(output, "SpeechTally.Shared.NoteSaid()"));
+            Assert.Equal(3, Count(output, "SpeechTally.Shared.NoteSaid()"));
+            Assert.Equal(1, Count(output, "if (ticket == 0) Speech.SpeechTally.Shared.NoteSaid()"));
+            Assert.Equal(1, Count(output, "SpeechTally.Shared.NoteOutcome(outcome)"));
             Assert.Equal(1, Count(output, "SpeechTally.Shared.NoteRefused()"));
             Assert.Equal(2, Count(Read("Radios/Speech/SpeechArbiter.cs"), "SpeechTally.Shared.NoteDropped()"));
             Assert.Contains("SpeechTally.Shared.Write(\"shutdown\")", output);
@@ -65,15 +70,48 @@ namespace Radios.Tests
             ms = (long)SpeechTally.Interval.TotalMilliseconds;
             tally.NoteSaid();
             Assert.Single(lines);
-            Assert.Equal(SpeechTally.Format(new DateTime(2026, 10, 27, 12, 0, 0), 2, 1, 0, "every 10 minutes"), lines[0]);
+            Assert.Equal(SpeechTally.Format(new DateTime(2026, 10, 27, 12, 0, 0), 2, 0, 1, 0, "every 10 minutes"), lines[0]);
 
             tally.NoteRefused();
             tally.Write("disconnect");                 // a quiet tail is never lost
             Assert.Equal(2, lines.Count);
-            Assert.EndsWith("0 said, 0 dropped by the arbiter, 1 refused by the reader (disconnect)", lines[1]);
+            Assert.EndsWith("0 said, 0 cut before a word, 0 salvages dropped by the arbiter, 1 refused by the reader (disconnect)", lines[1]);
 
             tally.Write("shutdown");                   // nothing counted since: no line
             Assert.Equal(2, lines.Count);
+        }
+
+        [Fact]
+        public void A_paced_utterance_counts_once_at_its_outcome_never_at_the_queue()
+        {
+            Assert.Equal(SpeechTally.PacedCount.Said, SpeechTally.Classify(SpeechOutcome.Completed(3, 3, 900)));
+            Assert.Equal(SpeechTally.PacedCount.Said, SpeechTally.Classify(SpeechOutcome.Cancelled(1, 3, byUs: false, 300)));
+            Assert.Equal(SpeechTally.PacedCount.Unheard, SpeechTally.Classify(SpeechOutcome.Cancelled(0, 3, byUs: true, 0)));
+            Assert.Equal(SpeechTally.PacedCount.Said, SpeechTally.Classify(SpeechOutcome.Unknown(SpeechUnknownReason.Timeout, null, 5000)));
+            Assert.Equal(SpeechTally.PacedCount.Said, SpeechTally.Classify(SpeechOutcome.Unknown(SpeechUnknownReason.Escaped, null, 5000)));
+            // Counted by the delivery check (refused) or the plain path (re-sent).
+            Assert.Equal(SpeechTally.PacedCount.CountedElsewhere, SpeechTally.Classify(SpeechOutcome.Unknown(SpeechUnknownReason.Refused, null, 0)));
+            Assert.Equal(SpeechTally.PacedCount.CountedElsewhere, SpeechTally.Classify(SpeechOutcome.Unknown(SpeechUnknownReason.ChannelAbsent, null, 0)));
+            Assert.Equal(SpeechTally.PacedCount.CountedElsewhere, SpeechTally.Classify(SpeechOutcome.Unknown(SpeechUnknownReason.InvalidSsml, null, 0)));
+            Assert.Equal(SpeechTally.PacedCount.CountedElsewhere, SpeechTally.Classify(SpeechOutcome.Unknown(SpeechUnknownReason.Other, null, 0)));
+
+            // The defect the check found: a refused sentence was counted as
+            // said at the queue and as refused at the outcome.
+            var lines = new List<string>();
+            var tally = new SpeechTally(() => 0, () => new DateTime(2026, 10, 27, 12, 0, 0), lines.Add);
+            tally.NoteOutcome(SpeechOutcome.Unknown(SpeechUnknownReason.Refused, null, 0));
+            tally.NoteRefused();
+            tally.NoteOutcome(SpeechOutcome.Cancelled(0, 3, byUs: true, 0));
+            tally.Write("disconnect");
+            Assert.EndsWith("0 said, 1 cut before a word, 0 salvages dropped by the arbiter, 1 refused by the reader (disconnect)", lines[0]);
+        }
+
+        [Fact]
+        public void A_writer_that_throws_does_not_reach_the_caller()
+        {
+            var tally = new SpeechTally(() => 0, () => DateTime.Now, _ => throw new InvalidOperationException("trace closed"));
+            tally.NoteSaid();
+            tally.Write("disconnect");
         }
 
         private static string Read(string relative) =>

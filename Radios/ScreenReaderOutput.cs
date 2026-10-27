@@ -374,6 +374,9 @@ namespace Radios
             {
                 delivery = Speech.SpeechDelivery.Failed($"backend speak threw on the delivery thread: {ex.Message}");
             }
+            // The pump's re-sends through the plain path are counted here,
+            // and SpeechTally.Classify leaves their outcome uncounted (#506).
+            if (delivery.Delivered) Speech.SpeechTally.Shared.NoteSaid();
             NoteDelivery(delivery, message);
             return delivery;
         }
@@ -395,6 +398,7 @@ namespace Radios
             {
                 Tracing.TraceLine($"ScreenReaderOutput: OnOutcome threw for #{ticket}: {ex.Message}", TraceLevel.Warning);
             }
+            Speech.SpeechTally.Shared.NoteOutcome(outcome);
 
             if (outcome.Kind == Speech.SpeechOutcomeKind.Unknown
                 && outcome.UnknownReason == Speech.SpeechUnknownReason.Refused)
@@ -745,8 +749,10 @@ namespace Radios
                             // every sentence spoken; the ordinary log gets
                             // SpeechTally's counts instead, because a log that
                             // wrote every sentence all day grows fast (Noel,
-                            // 2026-10-27).
-                            Speech.SpeechTally.Shared.NoteSaid();
+                            // 2026-10-27). A paced ticket is counted at its
+                            // outcome instead (OnPacedOutcome), because the
+                            // pump can still withdraw it or the reader refuse it.
+                            if (ticket == 0) Speech.SpeechTally.Shared.NoteSaid();
                             Tracing.TraceLine(
                                 $"ScreenReaderOutput: Spoke '{message}' via "
                                 + $"{_screenReaderName ?? "no named reader"} (interrupt={interrupt}"
