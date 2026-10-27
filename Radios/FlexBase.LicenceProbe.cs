@@ -17,24 +17,38 @@ namespace Radios
     {
         public void ProbeNoiseCommandReplies()
         {
-            Slice slice = theRadio?.ActiveSlice;
-            if (slice == null)
+            // The licence verdict lands before any slice exists, so wait for one.
+            Task.Run(async () =>
             {
-                Tracing.TraceLine("LicenceProbe: no active slice, nothing sent", TraceLevel.Info);
-                return;
-            }
+                for (int i = 0; i < 120 && theRadio?.ActiveSlice == null; i++)
+                    await Task.Delay(500).ConfigureAwait(false);
+                await Task.Delay(3000).ConfigureAwait(false);
+                Slice s = theRadio?.ActiveSlice;
+                if (s == null)
+                {
+                    Tracing.TraceLine("LicenceProbe: no active slice after 60 s, nothing sent", TraceLevel.Info);
+                    return;
+                }
+                await RunProbe(s).ConfigureAwait(false);
+            });
+        }
 
+        private async Task RunProbe(Slice slice)
+        {
             var items = new (string Key, Func<bool> Read)[]
             {
-                ("anft", () => slice.ANFTOn),
-                ("anfl", () => slice.ANFLOn),
-                ("nrl", () => slice.NRLOn),
-                ("nrs", () => slice.NRSOn),
-                ("nrf", () => slice.NRFOn),
-                ("rnn", () => slice.RNNOn),
+                // Command names, not status names: the radio answers "Bad
+                // field" to a status name. Taken from FlexLib's own setters.
+                ("anft", () => slice.ANFTOn),        // FFT auto-notch
+                ("lms_anf", () => slice.ANFLOn),     // Legacy auto-notch (ANFL)
+                ("lms_nr", () => slice.NRLOn),       // Legacy NR (NRL)
+                ("anf", () => slice.ANFOn),          // classic ANF: should be OK
+                ("nr", () => slice.NROn),            // classic NR: should be OK
+                ("speex_nr", () => slice.NRSOn),     // control: expected refused
+                ("nrf", () => slice.NRFOn),          // control: expected refused
+                ("rnnoise", () => slice.RNNOn),      // control: expected refused
             };
 
-            Task.Run(async () =>
             {
                 Tracing.TraceLine(
                     $"LicenceProbe: start, slice {slice.Index}, licence noise_reduction "
@@ -56,7 +70,7 @@ namespace Radios
                     Tracing.TraceLine($"LicenceProbe: {key} status after =0 is {(read() ? "ON" : "off")}", TraceLevel.Info);
                 }
                 Tracing.TraceLine("LicenceProbe: done", TraceLevel.Info);
-            });
+            }
         }
 
         private void ProbeSend(int index, string key, int value)
