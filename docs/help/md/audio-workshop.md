@@ -1,12 +1,12 @@
 ﻿# Audio Workshop
 
-The Audio Workshop is where you shape how you sound on the air and — new — where you *hear* it. One window holds your whole transmit audio chain, live meters, and the Audio Check session that keys the rig, lets you adjust while you talk, and plays you back to yourself. Adjust and hear, one surface.
+The Audio Workshop is where you shape how you sound on the air and, newly released,  where you can *hear* how you sound to others on the air. We're not saying that an old fashioned radio check won't ever be useful, but this new feature, found in the "hear yourself" tab in the audio workshop let's you hear how you sound as you adjust settings.
 
-It does not choose which sound device your audio goes to. That lives in Settings, on the Audio tab, under **Audio Devices** — or on the Audio menu under the same name. If you are chasing silence rather than shaping a signal, start at **Audio Troubleshooting** instead.
+Audio workshop can help you adjust and monitor the radio's transmit audio chain, edit, monitor, and adjust live meters, and functions which allow you to check your audio settings and diagnose any problems, and hear how you sound to others.
 
 ## Opening the Audio Workshop
 
-Press `Ctrl+Shift+W` from anywhere in the application. You can also find it in the Command Finder (`Ctrl+/`) by searching for "workshop". The window is non-modal, so you can leave it open while you operate.
+Press `Ctrl+Shift+W` from anywhere in the application to open the audio workshop module. You can also find it in the Command Finder (`Ctrl+/`) by searching for "workshop". The window is non-modal, so you can leave it open while you operate.
 
 ### No radio? Still useful
 
