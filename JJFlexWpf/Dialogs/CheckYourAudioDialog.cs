@@ -195,6 +195,40 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     /// before Disconnect nulls the radio (the 2026-08-07 app-close crash the
     /// Workshop met). Safe from any thread; a no-op when the window is closed.
     /// </summary>
+    /// <summary>
+    /// The shell is about to tear the radio down on purpose (a disconnect, or
+    /// the app closing): end any check NOW, while the rig and its transport are
+    /// still up, so its restoration is sent to a radio that can still hear it.
+    /// Called from <c>MainWindow.UnwireRadioEvents</c>, which <c>CloseTheRadio</c>
+    /// runs before it disposes the rig. Also disarms the tone and the
+    /// reference, whose arm may have moved the radio's transmit input.
+    /// </summary>
+    /// <remarks>
+    /// An UNEXPECTED loss never comes through here: by the time
+    /// <see cref="NotifyRigGone"/> runs the connection is dead, the session's
+    /// restore writes reach nothing, and nothing records them for the next
+    /// connect. Only an off-air take keeps a recovery record (the listen-back
+    /// recovery store), offered back at the next connect.
+    /// </remarks>
+    public static void EndCheckBeforeTeardown()
+    {
+        var inst = _instance;
+        if (inst == null) return;
+        void End()
+        {
+            inst.CancelCheckStart();
+            inst._session?.ForceEnd("Radio disconnected, audio check ended");
+            inst._session = null;
+            inst.DisarmTone(speak: false);
+            inst.DisarmReference(speak: false);
+        }
+        if (inst.Dispatcher.CheckAccess()) End();
+        // Synchronously, so it is done before the caller disposes the rig;
+        // bounded, so a busy UI thread cannot hold the teardown forever.
+        else inst.Dispatcher.Invoke(End, System.Windows.Threading.DispatcherPriority.Send,
+            System.Threading.CancellationToken.None, TimeSpan.FromSeconds(2));
+    }
+
     public static void NotifyRigGone() =>
         DialogSections.PostRigChange(_instance, w => w.SetRig(null), onlyIfLoaded: false);
 
@@ -307,9 +341,14 @@ public partial class CheckYourAudioDialog : JJFlexDialog
         {
             CancelCheckStart();
             if (_iqRun != null) _ = FinishIqAsync("connection-changed");
-            if (oldRig != null && rig != null)
+            // BEFORE _rig changes, on a disconnect as well as a switch (fix
+            // round 1): the session's End reaches back through this window to
+            // take a Loopback arrangement down, and that needs the old radio.
+            // This required an arriving radio until then, so a disconnect ended
+            // the session only after _rig was null.
+            if (oldRig != null)
             {
-                _session?.ForceEnd("Radio changed, audio check ended");
+                _session?.ForceEnd(rig == null ? "Radio disconnected, audio check ended" : "Radio changed, audio check ended");
                 _session = null;
             }
             _iqRecoveryReader = null;
@@ -336,11 +375,9 @@ public partial class CheckYourAudioDialog : JJFlexDialog
         }
         else
         {
-            // Radio gone: end any live session (nothing to restore on a dead
-            // radio — the session skips rig writes when the rig is null).
+            // Radio gone. Any session was ended above, while _rig was still
+            // the radio it changed.
             CancelCheckStart();
-            _session?.ForceEnd("Radio disconnected, audio check ended");
-            _session = null;
             DisarmTone(speak: false, rig: oldRig);
             SetToneCheckSilently(false);
             DisarmReference(speak: false, rig: oldRig);

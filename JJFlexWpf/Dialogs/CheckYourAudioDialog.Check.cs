@@ -1007,7 +1007,17 @@ public partial class CheckYourAudioDialog
         public bool EscapeStopsTransmit =>
             Active && (_ptt.IsTransmitting || Rig?.Transmit == true);
 
-        private FlexBase? Rig => _owner._rig;
+        /// <summary>
+        /// The radio this check changed, held for the life of the session, so
+        /// its restoration reaches THAT radio even after the window has let go
+        /// of it (fix round 1). Until then the session read the window's
+        /// current radio, which <c>SetRig(null)</c> had already cleared, and the
+        /// restore was skipped on every disconnect.
+        /// </summary>
+        private readonly FlexBase _changedRig;
+
+        /// <summary>The session's radio while the window still has it; null once the window has moved on, which the watcher reads as the radio gone.</summary>
+        private FlexBase? Rig => ReferenceEquals(_owner._rig, _changedRig) ? _changedRig : null;
 
         public AudioCheckSession(CheckYourAudioDialog owner, FlexBase rig,
             PttSafetyController ptt, AudioCheckListenMethods method,
@@ -1015,6 +1025,7 @@ public partial class CheckYourAudioDialog
             bool loopback = false)
         {
             _owner = owner;
+            _changedRig = rig;
             _ptt = ptt;
             _method = method;
             _powerMode = powerMode;
@@ -1200,7 +1211,8 @@ public partial class CheckYourAudioDialog
                 return;
             }
 
-            var rig = Rig;
+            // The radio this check changed, whether or not the window still has
+            // it: a disconnect is exactly when the restore matters most.
             if (_phase == Phase.Keyed)
             {
                 if (_ptt.IsTransmitting)
@@ -1209,19 +1221,16 @@ public partial class CheckYourAudioDialog
                     _ptt.EscapeUnlock();
                 }
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.check.transmit_off"), VerbosityLevel.Critical);
-                if (rig != null && Records)
-                    _ = RecorderControls.ReportStopFailureAsync(rig.StopSliceRecordAsync(_recorderTarget));
-            }
-            if (rig != null)
-            {
-                RestoreChangedState(rig, speak: false);
-                // Only the take THIS check started is stopped; a playback
-                // started from Home or a menu on another slice is left alone.
-                // The Loopback method's listening slice is still arranged here,
-                // so this reaches it; the arrangement comes down after End.
                 if (Records)
-                    _ = RecorderControls.ReportStopFailureAsync(rig.StopSlicePlayAsync(_recorderTarget));
+                    _ = RecorderControls.ReportStopFailureAsync(_changedRig.StopSliceRecordAsync(_recorderTarget));
             }
+            RestoreChangedState(_changedRig, speak: false);
+            // Only the take THIS check started is stopped; a playback started
+            // from Home or a menu on another slice is left alone. The Loopback
+            // method's listening slice is still arranged here, so this reaches
+            // it; the arrangement comes down after End.
+            if (Records)
+                _ = RecorderControls.ReportStopFailureAsync(_changedRig.StopSlicePlayAsync(_recorderTarget));
             End(reason);
         }
 
