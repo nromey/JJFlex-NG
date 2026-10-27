@@ -94,6 +94,55 @@ public sealed class CheckTeardownAdmissionTests : IDisposable
         Assert.True(Sent(c, "tune") > afterOff);
     }
 
+    private static void TunerType(RadioCase c, FlexBase.FlexTunerTypes type) =>
+        typeof(FlexBase).GetField("_FlexTunerType", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(c.F.Rig, type);
+
+    [Theory]
+    [InlineData("manual", "transmit tune 1")]
+    [InlineData("auto", "atu start")]
+    public void The_antenna_tuner_is_not_started_during_a_teardown(string type, string command)
+    {
+        // Codex round 5, blocker 1: FlexTunerOn queued theRadio.TXTune and
+        // ATUTuneStart directly, past the guarded setters; the menu, Ctrl+T and
+        // the antenna-tune button reach it.
+        using var c = new RadioCase();
+        TunerType(c, type == "manual" ? FlexBase.FlexTunerTypes.manual : FlexBase.FlexTunerTypes.auto);
+        int before = Sent(c, command);
+        c.F.Rig.BeginCheckTeardown();
+        c.F.Rig.FlexTunerOn = true;
+        RunQueue(c);
+        Assert.Equal(before, Sent(c, command));
+        Assert.False(c.F.Rig.FlexTunerOn);
+        c.F.Rig.EndCheckTeardown();
+        // Positive control: once the teardown is over the same press starts it.
+        c.F.Rig.FlexTunerOn = true;
+        RunQueue(c);
+        Assert.True(Sent(c, command) > before);
+    }
+
+    [Fact]
+    public void A_tuner_start_queued_before_the_teardown_does_not_go_out_during_it()
+    {
+        using var c = new RadioCase();
+        TunerType(c, FlexBase.FlexTunerTypes.auto);
+        c.F.Rig.FlexTunerOn = true;           // queued, not yet run
+        c.F.Rig.BeginCheckTeardown();
+        RunQueue(c);
+        Assert.Equal(0, Sent(c, "atu start"));
+        Assert.Equal(0, Sent(c, "xmit 1"));
+        c.F.Rig.EndCheckTeardown();
+    }
+
+    [Fact]
+    public void A_test_tone_is_not_armed_during_a_teardown()
+    {
+        using var c = new RadioCase();
+        c.F.Rig.BeginCheckTeardown();
+        Assert.False(c.F.Rig.TxToneStart());
+        Assert.False(c.F.Rig.TxToneEngaged);
+        c.F.Rig.EndCheckTeardown();
+    }
+
     [Fact]
     public void CW_is_refused_during_a_teardown()
     {

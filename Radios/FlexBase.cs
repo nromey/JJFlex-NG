@@ -9393,6 +9393,10 @@ namespace Radios
                 Tracing.TraceLine("FlexTunerOn:" + value.ToString() + ' ' +
                     _FlexTunerOn.ToString() + ' ' + _FlexTunerType.ToString(), TraceLevel.Info);
                 if (value == _FlexTunerOn) return;
+                // #835: the tuner STARTS a carrier, so it is refused during an
+                // Audio Check teardown, here and again when its queued write
+                // runs. Turning it off is never refused.
+                if (value && RefusedForCheckTeardown("antenna tuner")) return;
                 switch (_FlexTunerType)
                 {
                     case FlexTunerTypes.manual:
@@ -9412,7 +9416,15 @@ namespace Radios
                                 RaiseFlexAntTuneStartStop(new FlexAntTunerArg
                                     (FlexTunerType, stat, highSWR));
                             }
-                            q.Enqueue((FunctionDel)(() => { theRadio.TXTune = value; }), "TXTune");
+                            q.Enqueue((FunctionDel)(() =>
+                            {
+                                if (value && TeardownHeldSilently("antenna tuner"))
+                                {
+                                    _FlexTunerOn = false;
+                                    return;
+                                }
+                                theRadio.TXTune = value;
+                            }), "TXTune");
                         }
                         break;
                     case FlexTunerTypes.auto:
@@ -9421,7 +9433,15 @@ namespace Radios
                             q.Enqueue((FunctionDel)(() => { Transmit = value; }), "Transmit");
                             if (value)
                             {
-                                q.Enqueue((FunctionDel)(() => { theRadio.ATUTuneStart(); }), "ATUTuneStart");
+                                q.Enqueue((FunctionDel)(() =>
+                                {
+                                    if (TeardownHeldSilently("automatic tuner start"))
+                                    {
+                                        _FlexTunerOn = false;
+                                        return;
+                                    }
+                                    theRadio.ATUTuneStart();
+                                }), "ATUTuneStart");
                             }
                         }
                         break;

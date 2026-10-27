@@ -1503,6 +1503,8 @@ namespace Radios
         /// </summary>
         public bool TxToneStart()
         {
+            // #835: no transmit source is armed during an Audio Check teardown.
+            if (RefusedForCheckTeardown("test tone")) return false;
             lock (_voxPauseGate)
             {
                 if (txToneGen.Engaged) return true;
@@ -1518,6 +1520,7 @@ namespace Radios
         /// <summary>Wait for the radio to confirm VOX off before a tone can reach its transmit input.</summary>
         public async Task<bool> TxToneStartAsync()
         {
+            if (RefusedForCheckTeardown("test tone")) return false;
             Flex.Smoothlake.FlexLib.Radio radio;
             VoxPauseOwner.Lease lease;
             lock (_voxPauseGate)

@@ -172,10 +172,20 @@ public partial class FlexBase
     // (StartListenbackAsync) walked straight past it.
     //
     // THE CHOKEPOINTS: Transmit going true (and again when its queued write
-    // runs), TxTune going true (likewise), SendCW (both forms, and the queued
-    // CW senders at their run), TxFileStart, TxFileStartForVox, and
-    // StartListenbackAsync. An UNKEY is never refused: Transmit false and
-    // TxTune false always pass.
+    // runs), TxTune going true (likewise), FlexTunerOn going true (and its
+    // queued TXTune and ATUTuneStart writes at their run), SendCW (both forms,
+    // and the queued CW senders at their run), TxFileStart, TxFileStartForVox,
+    // TxToneStart and TxToneStartAsync, and StartListenbackAsync. An UNKEY is
+    // never refused: Transmit false, TxTune false, FlexTunerOn false and the
+    // tuner bypass always pass.
+    //
+    // SWEPT in fix round 5 for raw writes that bypass these: every
+    // theRadio.Mox, theRadio.TXTune and ATUTuneStart write in FlexBase, every
+    // cwx.Send, the transmit-file and tone starts, and raw command strings
+    // that key (xmit, transmit tune, atu start, cwx). The only raw ones were
+    // the Transmit and TxTune setters themselves (guarded) and FlexTunerOn's
+    // two queued writes (now guarded). TransmitKillSwitch.RaiseCarrier, used
+    // by the Fixer, goes through the Transmit and TxTune setters.
     //
     // ANY NEW SEND MUST END AT ONE OF THESE. A sender that keys the radio some
     // other way (a new FlexLib property, a raw command) has to add the same
