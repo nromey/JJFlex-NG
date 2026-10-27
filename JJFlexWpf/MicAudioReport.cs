@@ -17,7 +17,7 @@ namespace JJFlexWpf;
 /// to hear, and a comfortable loudness can hide the odd consonant slamming
 /// into the ceiling. The short version, and the framing everything here hangs
 /// off: <b>peak tells you whether you are safe; loudness tells you whether you
-/// will be heard.</b> help/md/audio-two-numbers.md is the authority on that
+/// will be heard.</b> help/md/Audio/AudioTwoNumbers.md is the authority on that
 /// explanation and on the vocabulary here; this file must stay consistent with
 /// it rather than paraphrase it.
 ///

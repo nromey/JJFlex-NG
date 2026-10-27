@@ -20,7 +20,8 @@ namespace JJFlexWpf;
 ///   4. Command Finder informational rows (formerly hand-built in
 ///      ApplicationEvents.vb)
 ///   5. The generated key manifest (KeyManifest) reconciled against
-///      docs/help/md/keyboard-reference.md
+///      docs/help/md/KeyboardReference/ (KeyboardReference.md today; one
+///      page per scope once it is split, #826)
 ///   6. Ctrl+F1 context help on the Home fields (#184) — FrequencyContextRows
 ///      and SpeakTextFor, composed live by MainWindow's help provider
 ///
@@ -1153,7 +1154,7 @@ public static class KeyInventory
     //  Audio Workshop local keys (Threads Track, 2026-08-12). These are
     //  dialog-local accelerators handled in AudioWorkshopDialog's
     //  OnPreviewKeyDown — not registry bindings, not global chords. The
-    //  keyboard-reference.md "Audio Workshop" section documents them; this
+    //  KeyboardReference.md "Audio Workshop" section documents them; this
     //  registration closes the keyboard audit the Workshop track could not
     //  finish because it did not own this file.
     // ────────────────────────────────────────────────────────────────

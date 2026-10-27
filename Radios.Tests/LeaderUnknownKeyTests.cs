@@ -318,7 +318,7 @@ namespace Radios.Tests
             // The behaviour is only discoverable if the help says so — an
             // operator at Terse who hears a thunk and nothing else must be
             // able to read why. Drift here is the project's dominant defect.
-            string page = Source("docs/help/md/leader-key.md");
+            string page = HelpPages.Read("JJKey.md");
             Assert.Contains("Terse", page);
             Assert.Contains("H for the list, Escape to cancel", page);
             Assert.Contains("earcons", page, StringComparison.OrdinalIgnoreCase);

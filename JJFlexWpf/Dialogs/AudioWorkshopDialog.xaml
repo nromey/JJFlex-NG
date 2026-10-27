@@ -24,7 +24,7 @@
                  query their audio (Noel, field use 2026-08-11). WPF access
                  keys match with Shift held, so any NEW mnemonic letter here
                  must first be checked against the global Alt+Shift chords
-                 (keyboard-reference.md is the roster). Import's Alt+I was
+                 (KeyboardReference.md is the roster). Import's Alt+I was
                  checked 2026-08-12: no Alt+Shift+I chord exists anywhere. -->
             <Button x:Name="LoadPresetButton" Content="_Load Preset" Margin="0,0,4,0" Padding="8,4"
                     AutomationProperties.Name="Load Preset"

@@ -3247,7 +3247,7 @@ namespace JJFlexWpf.Dialogs
                 // Name is a LABEL, not documentation. This used to carry a
                 // 29-word paragraph, which a screen reader reads in full on
                 // every single focus — before it ever says "combo box". The
-                // explanation it held is already in keyboard-reference.md under
+                // explanation it held is already in KeyboardReference.md under
                 // Alt+P, nearly word for word, and that reaches the operator
                 // through F1 when they ask for it rather than every time they
                 // arrow past. Cost of a Name is paid on every visit; value is

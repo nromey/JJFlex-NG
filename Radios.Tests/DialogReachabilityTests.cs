@@ -103,7 +103,7 @@ namespace Radios.Tests
                 "WPF replacement; the WinForms original is still live as a VB default form "
                 + "instance — `Welcome.ShowDialog` at globals.vb:1987, which is why a `new` "
                 + "search finds nothing. HelpLauncher already maps \"WelcomeDialog\" to "
-                + "pages/getting-started.htm, so the F1 route was built expecting this one.",
+                + "pages/GettingStarted/GettingStarted.htm, so the F1 route was built expecting this one.",
                 "Welcome.vb"),
 
             // ── Both halves dead. #482 ruled Import Log, Export Log and LOTW

@@ -2374,11 +2374,12 @@ namespace Radios
             Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.MostRecentNetworkReport;
 
         /// <summary>
-        /// Sprint 27 Track D. Filename (bare, no path) of the help doc most
-        /// relevant to the current session status + last network report +
-        /// account mode. Null when no help doc applies (e.g., session is
-        /// Connected and working fine). Callers prepend
-        /// <c>help\networking\</c> and the app base directory.
+        /// Sprint 27 Track D. The help key (for <c>HelpLauncher.ShowHelp</c>) of
+        /// the help page most relevant to the current session status + last
+        /// network report + account mode. Null when no help page applies (e.g.,
+        /// session is Connected and working fine). Despite its name this is a
+        /// key, not a filename, since the 2026-10-27 help rework (#826); the
+        /// name is kept so a parallel branch using it still compiles.
         /// </summary>
         public string? CurrentHelpDocFileName
         {

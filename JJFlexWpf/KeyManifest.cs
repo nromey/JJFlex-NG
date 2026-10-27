@@ -18,12 +18,12 @@ namespace JJFlexWpf;
 /// and produces one flat row model that drives:
 ///   - the Keys dialog's list content
 ///   - the "Export Key List" markdown file
-///   - manual reconciliation against docs/help/md/keyboard-reference.md
+///   - manual reconciliation against docs/help/md/KeyboardReference/
 ///
 /// That last line is no longer wholly manual for the LEADER layer. Sprint 36
 /// Track F (#265) added Radios.Tests/LeaderDocCoverageTests, which reads the
 /// same LeaderCommands table this generator reads and fails the build when
-/// keyboard-reference.md or leader-key.md is missing a chord — or carries a row
+/// KeyboardReference.md or JJKey.md is missing a chord — or carries a row
 /// for one that no longer exists. The rest of the key surface is still checked
 /// by hand.
 ///
@@ -153,7 +153,7 @@ public static class KeyManifest
     /// <summary>
     /// Render the manifest as markdown, grouped: bound commands by scope,
     /// unbound commands, then fixed keys by context. This is the artifact
-    /// the keyboard audit diffs against keyboard-reference.md.
+    /// the keyboard audit diffs against the KeyboardReference/ help pages.
     /// </summary>
     public static string ToMarkdown(List<Row> rows)
     {

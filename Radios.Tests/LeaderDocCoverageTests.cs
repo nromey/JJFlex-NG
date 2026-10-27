@@ -17,8 +17,9 @@ namespace Radios.Tests
     /// <b>Why this exists.</b> <c>KeyInventory.LeaderCommands</c> is already the
     /// single definition behind five consumers: the Keys dialog, the Command
     /// Finder rows, the exported key list, the key manifest, and the spoken
-    /// Ctrl+J, H help. Beside it, <c>keyboard-reference.md</c> and
-    /// <c>leader-key.md</c> each carry a SECOND and THIRD hand-typed copy of the
+    /// Ctrl+J, H help. Beside it, <c>KeyboardReference.md</c> and
+    /// <c>JJKey.md</c> (until 2026-10-27 <c>keyboard-reference.md</c> and
+    /// <c>leader-key.md</c>) each carry a SECOND and THIRD hand-typed copy of the
     /// same table, and on 2026-08-26 all three disagreed: the reference had no
     /// row for Ctrl+J, Ctrl+R, which had shipped since Sprint 31, and
     /// leader-key.md was missing Ctrl+D, Ctrl+R and E.
@@ -79,8 +80,12 @@ namespace Radios.Tests
     /// </remarks>
     public class LeaderDocCoverageTests
     {
-        private const string ReferencePage = "docs/help/md/keyboard-reference.md";
-        private const string LeaderPage = "docs/help/md/leader-key.md";
+        // Bare page names, found through HelpPages wherever the outline puts
+        // them (#826): a later move between folders cannot break this class.
+        // Both pages keep their copy of the chord list until the keyboard
+        // reference is split; then this shrinks to JJKey.md alone (plan 4.11).
+        private const string ReferencePage = "KeyboardReference.md";
+        private const string LeaderPage = "JJKey.md";
 
         private const string RegionStart = "<!-- LEADER-KEY-TABLE";
         private const string RegionEnd = "<!-- END LEADER-KEY-TABLE";
@@ -271,7 +276,7 @@ Some prose inside the region, which is allowed and must not be read.
             // purpose: the convention is about the whole document, and the
             // reader above cannot see a table row at all, so inside the region
             // this is the ONLY thing that can report one.
-            string text = File.ReadAllText(Path.Combine(LeaderSourceScan.RepoRoot(), page));
+            string text = HelpPages.Read(page);
             var tableLines = TableLines(text);
 
             Assert.True(tableLines.Count == 0,
@@ -336,7 +341,7 @@ Some prose inside the region, which is allowed and must not be read.
             var exclusions = LeaderSourceScan.RealInventoryEntries()
                 .SelectMany(e => e.Excluded).Distinct().ToList();
 
-            string text = File.ReadAllText(Path.Combine(LeaderSourceScan.RepoRoot(), page));
+            string text = HelpPages.Read(page);
             var chords = new HashSet<Keys>();
 
             foreach (string entry in KeyEntries(text))

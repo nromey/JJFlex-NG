@@ -306,7 +306,7 @@ namespace Radios.Tests
 
         /// <summary>
         /// Every inventory row of the two Frequency maps must be visible in
-        /// its keyboard-reference.md section. The Modern map has drifted from
+        /// its KeyboardReference.md section. The Modern map has drifted from
         /// its spoken copy once already (#274, the deleted 'C' key taught for
         /// five sprints); context help now composes from the inventory at
         /// runtime, and this pin makes the remaining hand-written rendering —
@@ -318,7 +318,7 @@ namespace Radios.Tests
         public void The_keyboard_reference_shows_every_row_of_the_live_map(
             string context, string heading)
         {
-            string doc = ReadSource(Path.Combine("docs", "help", "md", "keyboard-reference.md"));
+            string doc = HelpPages.Read("KeyboardReference.md");
             int start = doc.IndexOf(heading, StringComparison.Ordinal);
             Assert.True(start >= 0, "section heading not found: " + heading);
             int end = doc.IndexOf("\n## ", start + heading.Length, StringComparison.Ordinal);
@@ -329,7 +329,7 @@ namespace Radios.Tests
                 Assert.True(
                     ContainsAnyFragment(section, description),
                     $"the doc section for {context} does not mention the action of '{key}' " +
-                    $"(\"{description}\") — update keyboard-reference.md or the inventory, " +
+                    $"(\"{description}\") — update KeyboardReference.md or the inventory, " +
                     "whichever is now wrong");
                 foreach (string token in key.Split('/', StringSplitOptions.TrimEntries))
                 {

@@ -90,26 +90,13 @@
        runtime's own copy with an older one - which is what NU1510 reports.
        Removed 2026-08-17. Do not re-add without checking NU1510 first. -->
 
-  <!-- Sprint 27 Track E + post-audit cleanup: networking help docs live in
-       docs\help\md\ alongside the rest of the flat help source tree (so the
-       CHM pipeline picks them up — convert-md.ps1 only scans that directory
-       flat). They're also bundled as standalone markdown at help\<name>.md
-       in the exe output directory so the Settings > Network Help button
-       can open them directly without needing the CHM viewer. -->
-  <ItemGroup>
-    <ContentWithTargetPath Include="docs\help\md\networking-tier1-manual-port.md">
-      <TargetPath>help\networking-tier1-manual-port.md</TargetPath>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </ContentWithTargetPath>
-    <ContentWithTargetPath Include="docs\help\md\networking-tier2-upnp.md">
-      <TargetPath>help\networking-tier2-upnp.md</TargetPath>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </ContentWithTargetPath>
-    <ContentWithTargetPath Include="docs\help\md\networking-diagnostics.md">
-      <TargetPath>help\networking-diagnostics.md</TargetPath>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </ContentWithTargetPath>
-  </ItemGroup>
+  <!-- The three networking help pages used to be copied here as loose
+       Markdown at help\<name>.md beside the exe, for the Settings Network
+       tab's Help button to open in the default .md viewer (Sprint 27 Track E).
+       Removed 2026-10-27 (#826, ruled yes by Noel): that button now opens the
+       page in the help through HelpLauncher, like every F1 page, so there is
+       one renderer and no second copy to ship. -->
+
 
   <ItemGroup>
     <Import Include="Microsoft.VisualBasic" />
