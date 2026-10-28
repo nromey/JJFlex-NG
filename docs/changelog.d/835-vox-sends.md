@@ -1,0 +1,1 @@
+Play from computer now sends your recording over the air when you press it while transmitting, and you hear it as it goes. If you work VOX, a new box, Sends key the radio when VOX is on, lets a voice message or a played recording key the radio itself and go out whole, without VOX dropping out in its pauses.

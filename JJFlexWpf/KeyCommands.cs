@@ -619,13 +619,13 @@ public class KeyCommands
                 "Start or stop the radio's recorder on the active slice", "Record Active Slice", false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "record", "recording", "recorder", "slice", "active", "capture", "tape", "save", "listen", "back", "buddy", "radio", "f11" }, ShortActionLabel = "record active slice" },
             new(CommandValues.PlayActiveSlice, KeyTypes.Command, PlayActiveSliceHandler,
-                "Start or stop playing the active slice's recording through your speakers", "Play Active Slice", false, FunctionGroups.Audio, KeyScope.Radio)
+                "Start or stop playing the active slice's recording — through your speakers, or on the air while you transmit", "Play Active Slice", false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "play", "playback", "replay", "recording", "recorder", "slice", "active", "listen", "back", "hear", "radio", "f11" }, ShortActionLabel = "play active slice" },
             new(CommandValues.RecordToFile, KeyTypes.Command, RecordToFileHandler,
                 "Start or stop recording the radio's audio to a file on this computer", "Record to File", false, FunctionGroups.Audio, KeyScope.Global)
                 { Keywords = new[] { "record", "recording", "file", "computer", "save", "conversation", "qso", "capture", "tape", "audio", "f11", "alt" }, ShortActionLabel = "record to file" },
             new(CommandValues.PlayFromComputer, KeyTypes.Command, PlayFromComputerHandler,
-                "Start or stop playing your last computer recording through your speakers", "Play from Computer", false, FunctionGroups.Audio, KeyScope.Global)
+                "Start or stop playing your last computer recording — through your speakers, or on the air while you transmit", "Play from Computer", false, FunctionGroups.Audio, KeyScope.Global)
                 { Keywords = new[] { "play", "playback", "replay", "recording", "file", "computer", "last", "listen", "back", "audio", "f11", "ctrl", "alt" }, ShortActionLabel = "play from computer" },
             // Tape Deck track 4: the recordings dialog, where those recordings
             // are listed, previewed, trimmed, saved as other formats, deleted
@@ -638,6 +638,17 @@ public class KeyCommands
                                      "manage", "play", "preview", "trim", "cut", "edit", "save", "as", "export", "convert",
                                      "mp3", "flac", "wav", "opus", "m4a", "delete", "prune", "clean", "recycle", "tape", "f11" },
                   ShortActionLabel = "open recorded QSOs" },
+            // Check your audio Track B (#835): the VOX send box. With it on and VOX
+            // on, a voice message or a played recording keys the radio itself
+            // and hands back to VOX. Home's Transmission group and Settings,
+            // PTT, carry the same box; every door goes through
+            // VoxSendBoxControl. No JJ key chord until Noel allocates one.
+            new(CommandValues.ToggleVoxSendBox, KeyTypes.Command, ToggleVoxSendBoxHandler,
+                "Turn on or off whether sends key the radio when VOX is on",
+                "Sends key the radio with VOX", false, FunctionGroups.Audio, KeyScope.Global)
+                { Keywords = new[] { "vox", "send", "sends", "key", "keys", "keying", "ptt", "push", "talk", "transmit",
+                                     "play", "recording", "message", "voice", "air", "dropout", "clip", "box" },
+                  ShortActionLabel = "toggle sends key the radio with VOX" },
 
             // ── Former hard-wired meta-commands (QB Track H, 2026-08-07) ──
             // These lived as hard-wired chords in MainWindow_PreviewKeyDown,
@@ -1385,6 +1396,9 @@ public class KeyCommands
     private void PlayFromComputerHandler() =>
         _ = RecorderControls.ToggleComputerPlayAsync(_context.GetRigControl());
 
+    /// <summary>The VOX send box (#835): the one door the other doors share.</summary>
+    private void ToggleVoxSendBoxHandler() => VoxSendBoxControl.Toggle();
+
     /// <summary>
     /// The recordings dialog (#787, Tape Deck track 4). Opens with no radio:
     /// the recordings are on this computer.
@@ -1947,6 +1961,14 @@ public class KeyCommands
             "Tools menu, Operator alarms. Command Finder finds it by alarm, temperature, voltage "
             + "or warning, and the Hotkey Editor can bind it; no default chord, because the JJ key "
             + "letter for alarms is Noel's to allocate."),
+        // Check your audio Track B (#835). Home's Transmission group and
+        // Settings, PTT, carry the box; this command is what the Command
+        // Finder runs and the Hotkey Editor can bind. Its JJ key chord is
+        // Noel's to allocate (the track proposed one in an ASK).
+        [CommandValues.ToggleVoxSendBox] = new(UnboundReason.MenuOrDialog,
+            "Home's Transmission group, after VOX gain and delay, and Settings, PTT. Command Finder "
+            + "finds it by VOX, send, key or play, and the Hotkey Editor can bind it; no default chord "
+            + "yet, because the JJ key letter is Noel's to allocate."),
         [CommandValues.StartAudioCheck] = new(UnboundReason.CommandFinderOnly,
             "Starts the Audio Check. Ctrl+Enter does it from inside Check your audio, which "
             + "is where you are when you want it, and Ctrl+J, Alt+C opens that window without "
@@ -2143,6 +2165,7 @@ public class KeyCommands
         new(Keys.W | Keys.Control | Keys.Shift, CommandValues.OpenAudioWorkshop, KeyScope.Global),
         new(Keys.None, CommandValues.OpenOperatorAlarms, KeyScope.Global), // unbound: MenuOrDialog — Tools menu, Operator alarms
         new(Keys.None, CommandValues.StartAudioCheck, KeyScope.Radio), // unbound: CommandFinderOnly
+        new(Keys.None, CommandValues.ToggleVoxSendBox, KeyScope.Global), // unbound: MenuOrDialog — Home's Transmission group and Settings, PTT
         new(Keys.T | Keys.Control | Keys.Shift, CommandValues.TuneToggle, KeyScope.Radio),
         new(Keys.T | Keys.Control, CommandValues.ATUTune, KeyScope.Radio),
         new(Keys.M | Keys.Control, CommandValues.ToggleMeters, KeyScope.Global),

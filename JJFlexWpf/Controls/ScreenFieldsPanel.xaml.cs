@@ -130,6 +130,7 @@ public partial class ScreenFieldsPanel : UserControl
     private CheckBox _voxCheck = null!;
     private ValueFieldControl _voxGainControl = null!;
     private ValueFieldControl _voxDelayControl = null!;
+    private CheckBox _voxSendBoxCheck = null!;
     private ValueFieldControl _tunePowerControl = null!;
     private ValueFieldControl _micGainControl = null!;
     private CheckBox _micBoostCheck = null!;
@@ -1038,6 +1039,18 @@ public partial class ScreenFieldsPanel : UserControl
         _voxDelayControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.VoxDelay = v; };
         TxContent.Children.Add(_voxDelayControl);
 
+        // The VOX send box (#835), straight after gain and delay (Noel, 2026-10-27
+        // 15:36: "to the right of the delay and gain"), and NOT beside the VOX
+        // checkbox (15:32). An operator preference, not a radio setting: it is
+        // saved with the operator's audio settings, so it is not ToggleRig.
+        // PollTX collapses it in CW with gain and delay, since it only acts
+        // with VOX. DRAFT PROSE (#835): awaiting Noel
+        _voxSendBoxCheck = MakeToggle(Lexicon.Get("audio.send.box_label"));
+        JJFlexHelp.SetText(_voxSendBoxCheck, Lexicon.Get("audio.send.box_help"));
+        _voxSendBoxCheck.Checked += (s, e) => { if (!_polling) VoxSendBoxControl.Set(true, announce: true); };
+        _voxSendBoxCheck.Unchecked += (s, e) => { if (!_polling) VoxSendBoxControl.Set(false, announce: true); };
+        TxContent.Children.Add(_voxSendBoxCheck);
+
         _tunePowerControl = MakeValue(Lexicon.Get("audio.fields.tune_power"), 0, 100, 1);
         _tunePowerControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.TunePower = v; };
         TxContent.Children.Add(_tunePowerControl);
@@ -1722,6 +1735,8 @@ public partial class ScreenFieldsPanel : UserControl
         var voxSettingsVisibility = txIsCW ? Visibility.Collapsed : Visibility.Visible;
         _voxGainControl.Visibility = voxSettingsVisibility;
         _voxDelayControl.Visibility = voxSettingsVisibility;
+        _voxSendBoxCheck.Visibility = voxSettingsVisibility;
+        _voxSendBoxCheck.IsChecked = VoxSendBox.Ticked;
         if (!txIsCW)
         {
             _voxGainControl.Value = _rig.VoxGain;

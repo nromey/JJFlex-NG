@@ -143,7 +143,9 @@ namespace Radios.Tests
                 Assert.Equal(name, Enum.GetName(type, (CommandValues)value));
             }
 
-            // 132 as of 2026-10-24 (#787, Tape Deck track 4), which appended
+            // 133 as of 2026-10-27 (#835, Check your audio Track B), which
+            // appended ToggleVoxSendBox = 131 — the VOX send box, unbound by default.
+            // Was 132 as of 2026-10-24 (#787, Tape Deck track 4), which appended
             // OpenRecordedQsos = 130, the recordings dialog, on Ctrl+Alt+Shift+F11
             // and Ctrl+J, Alt+F. Was 131 as of 2026-10-22 (#787, Tape Deck track 2), which appended
             // RecordActiveSlice = 126, PlayActiveSlice = 127, RecordToFile =
@@ -165,7 +167,7 @@ namespace Radios.Tests
             // build chord (#269). Bump this deliberately when a command is
             // added; a test that counts is how an accidental renumbering gets
             // noticed.
-            Assert.Equal(132, names.Length);
+            Assert.Equal(133, names.Length);
         }
     }
 }

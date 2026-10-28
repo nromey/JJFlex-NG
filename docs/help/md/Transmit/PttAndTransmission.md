@@ -31,6 +31,20 @@ The same two numbers are in the audio layer as well — `Ctrl+J`, `A`, then `X` 
 
 Your radio remembers these settings, so once they are set they stay set across sessions and across this and any other software on the same radio.
 
+## Sending recordings with VOX on
+
+A voice message key, or Play on a recording while you are transmitting, sends that recording over the air. If you work VOX, though, you are never transmitting unless you are talking, so Play only ever plays to your speakers; and if VOX keys a recording instead, it can drop out in the recording's pauses and clip its first word.
+
+That is what **Sends key the radio when VOX is on** is for. You will find it in Home's Transmission group right after VOX gain and VOX delay, and in Settings on the PTT tab. It is off until you turn it on, and it stays the way you leave it. With it checked and VOX on, any send keys the radio by itself: a voice message, the active slice's recording, or a computer recording from Play from computer. The whole recording goes out, the radio unkeys, and then VOX comes back on. JJ Flexible holds VOX off until the radio has unkeyed and the last of the recording has left the transmit path, so the tail of the recording cannot key you up again. When VOX comes back on, some radios key for a fraction of a second on their own; that is the radio, it is brief, and nothing is sent.
+
+You hear the recording while it goes out. A voice message or a computer recording plays on this computer as it is sent, and the radio lets you hear its own slice recording as it plays it.
+
+- If you are already transmitting with push to talk or the transmit lock when you send, the recording goes out on your transmission and you keep the key.
+- If VOX is still holding the radio up on your last words, the send lets it drop and then keys the radio itself, so the recording does not ride on VOX.
+- Press push to talk or the lock while a send is going out and you take over: the recording stops, your microphone comes back, and you are still transmitting until you let go.
+- Escape stops a send. So does pressing the same message key, or Play, again.
+- With the box unchecked, or VOX off, nothing changes: VOX keys a voice message, and Play plays to your speakers until you key the radio yourself.
+
 ## TX Status
 
 Press `Alt+Shift+S` to hear the current TX status spoken. This tells you whether you are transmitting, what your power level is, and other TX-related information in a single short announcement.

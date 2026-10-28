@@ -93,9 +93,9 @@ Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it
 - **Ctrl+X** — Toggle full duplex for the whole radio. The new state is announced when the radio reports it. Home, Transmit and the Transmit menu show the same control. If the radio has not reported full duplex, the control says so.
 - **Ctrl+G** — Arm or disarm the TX test tone (it replaces your microphone while transmitting)
 - **Ctrl+R** — Record the active slice, or stop recording it — the radio's own recorder keeps one recording per slice, up to the last two minutes
-- **Ctrl+P** — Play the active slice's recording, or stop it. During a transmission, playback goes over the air until you unkey; otherwise it plays through your speakers. Play does not key the radio itself
+- **Ctrl+P** — Play the active slice's recording, or stop it. During a transmission, playback goes over the air until you unkey; otherwise it plays through your speakers. Play does not key the radio itself, unless VOX is on and **Sends key the radio when VOX is on** is checked: then it keys the radio, sends the whole recording, and hands back to VOX
 - **Ctrl+Shift+R** — Record to file: record what the radio plays through this computer, or stop — the Shift form of Ctrl+R, the other recorder
-- **Ctrl+Shift+P** — Play from computer: play your last recording on this computer, or stop — the Shift form of Ctrl+P
+- **Ctrl+Shift+P** — Play from computer: play your last recording on this computer, or stop — the Shift form of Ctrl+P. While you are transmitting it sends the recording over the air, and with VOX on and **Sends key the radio when VOX is on** checked it keys the radio itself
 - **Ctrl+T** — Toggle meter tones on/off
 - **Ctrl+E** — Toggle alert sounds (earcons) on/off — E for earcons; it was `Shift+T`
 - **Ctrl+Q** — Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all (see "QSO signal analyzer" below)
@@ -867,8 +867,9 @@ These keys are active when focus is on the row list in Saved Diagnostic Logs. Op
 
 - On each slice's **Record** field, **Space** or **Enter** starts or stops recording that slice. The next field plays its recording with **Space** or **Enter**, and shows the length when known. Press again to stop playback.
 - **Ctrl+Tab / Ctrl+Shift+Tab** includes the Home slice strip as well as the field-group headers.
-- **Ctrl+J, Ctrl+R** records the active slice; **Ctrl+J, Ctrl+P** plays it. Play pressed during your transmission sends the recording over the air until you unkey; otherwise it plays locally. JJ Flexible pauses VOX or CW break-in for local playback and restores it when playback stops. Play never keys or selects a transmit slice.
-- **Ctrl+J, Ctrl+Shift+R** records to a computer file; **Ctrl+J, Ctrl+Shift+P** plays the selected or last computer recording locally. Computer playback to air is not available yet.
+- **Ctrl+J, Ctrl+R** records the active slice; **Ctrl+J, Ctrl+P** plays it. Play pressed during your transmission sends the recording over the air until you unkey; otherwise it plays locally. JJ Flexible pauses VOX or CW break-in for local playback and restores it when playback stops. Play never selects a transmit slice, and it never keys the radio unless VOX is on and **Sends key the radio when VOX is on** is checked.
+- **Ctrl+J, Ctrl+Shift+R** records to a computer file; **Ctrl+J, Ctrl+Shift+P** plays the selected or last computer recording. Unkeyed it plays on your speakers; pressed during your transmission it sends the recording over the air, you hear it as it goes, and your microphone comes back when it ends. Press it again to stop.
+- With VOX on and **Sends key the radio when VOX is on** checked, either Play keys the radio itself, sends the whole recording so VOX cannot drop out in its pauses, unkeys, and hands back to VOX. Pressing push to talk while it goes out stops the recording and leaves you transmitting. See Push to Talk and Transmission for the whole story.
 - **F11** records the active slice; **Ctrl+F11** plays it. **Alt+F11** records to a file; **Ctrl+Alt+F11** plays from the computer. These are flat keys for the same four JJ key commands above.
 - **Ctrl+Alt+Shift+F11** opens Recorded QSOs, the list of your computer recordings. **Ctrl+J, Alt+F** opens it too. Computer playback pauses VOX or CW break-in while it plays, the same as slice playback.
 
