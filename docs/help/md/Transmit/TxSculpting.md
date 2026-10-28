@@ -10,30 +10,30 @@ keywords:
 
 # TX Audio Sculpting
 
-Use transmit (TX) audio sculpting to shape the sound of your transmitted voice. JJ Flexible Radio Access offers tools to reduce room noise before it reaches the radio, then shape your voice with the TX filter, transmit equalizer, speech processor and compander.
+Use transmit (TX) audio sculpting to shape the sound of your transmitted voice. JJ Flexible Radio Access offers tools to reduce room noise before it reaches the radio, then shape your voice with the TX filter, transmit equalizer, speech processor and compander. All these tools help to sculpt different parts of the transmit audio path to support other operating techniques and tasks.
 
 ## Choosing Where to Start
 
 Every voice is different, and band conditions can change during a contact. Sculpting your audio may help you reach rare DX, make more contest contacts, or simply be heard. Use the tools together to suit your voice and the conditions:
 
 - Start with PC Cleanup if room noise is reaching the computer's microphone.
-- Set the TX filter edges to choose the range of frequencies in your signal. A wider signal takes up more spectrum but may sound fuller; a narrower signal fits into a crowded contest band.
+- Set TX filter edges to choose the range of frequencies in your signal. A wider signal takes up more spectrum but may sound fuller; a narrower signal fits into a crowded contest band.
 - Use the transmit equalizer to raise or lower particular frequency ranges in your voice.
-- Use the speech processor and compander to make your voice carry through difficult conditions.
+- Use the speech processor and compander to help voice transmissions carry through difficult or crowded band conditions.
 
 ## Cleaning Up the Room
 
-PC Cleanup reduces noise before the computer sends your microphone audio to the radio. It acts only on the computer's microphone, never on a microphone plugged into the radio itself, and it steps aside in CW and digital modes.
+PC Noise Cleanup reduces noise before the computer sends microphone audio to the radio. It acts only on the computer's microphone, never on a microphone plugged into the radio itself, and it does not work in CW and digital modes.
 
-Press `Ctrl+Shift+W` to open the [Audio Workshop](AudioWorkshop.md), then choose **This Computer** and find **PC Cleanup**. Its noise reduction and gate prepare the audio that the radio's own processing will shape.
+Press `Ctrl+Shift+W` to open the [Audio Workshop](AudioWorkshop.md), the hub for all things audio in JJ Flexible Radio Access. Then choose **This Computer** and find **PC Cleanup**. Its noise reduction and gate prepare the audio that the radio's own processing will shape.
 
 ### Transmit Noise Reduction
 
-Turn on **Noise Reduction** to reduce room sounds such as a fan or air conditioner while you speak. Adjust its strength to remove noise without removing your voice. Set **Listen to cleanup** to **What was removed**; if you hear your own words in the removed audio, lower the strength.
+Turn on **Noise Reduction** to reduce room sounds such as fan noise, air conditioner sounds, or other quiet noise that is commonly heard in the shack. Adjust its strength to remove noise without removing your voice. Set **Listen to cleanup** to **What was removed**; if you hear your own words in the removed audio, lower the strength.
 
 ### Noise Gate
 
-Turn on **Noise Gate** when room noise is distracting between words. The gate lowers the microphone level during pauses without cutting it to silence. Its threshold follows the room's measured noise floor. The margin, attack, hold, release and depth controls adjust when it opens and how it fades down.
+Turn on JJ Flexible Radio Access's **Noise Gate** when noise reduction may not be appropriate. Sometimes, noise reduction algorithms can introduce digital artifacts in transmission audio. If the chosen noise reduction algorithm introduces artifacts (your voice may sound watery or synthetic), try turning the noise reduction gain and strength down, or use the noise gate so that the noise reduction algorithms do not have to work as hard. A noise gate, if adjusted properly, only injects the voice into the transmission chain if the voice level exceeds the gate's level. In other words, the gate lowers the microphone level during pauses making silence truly silent. Its threshold follows the room's measured noise floor. The margin, attack, hold, release and depth controls adjust when it opens and how it fades down.
 
 ## Shaping Your Voice
 
@@ -52,7 +52,7 @@ Use these keys to adjust the TX filter edges without opening a dialog:
 - Press `Ctrl+Alt+[` to lower the TX filter's high edge.
 - Press `Ctrl+Alt+]` to raise the TX filter's high edge.
 
-Each press moves the selected edge by one step. JJ Flexible will speak the new value. The step size depends on the current filter width:
+Each press moves the selected edge by one adaptive step. JJ Flexible will speak the new value. The step size depends on the current filter width:
 
 - Below 200 hertz, each step is 10 hertz.
 - From 200 to below 500 hertz, each step is 25 hertz.
@@ -71,7 +71,7 @@ To set the edges in the Audio Workshop, press `Ctrl+Shift+W` and choose **Transm
 - **TX Filter Low** sets the lowest frequency passed by the TX filter, typically 100 to 300 hertz.
 - **TX Filter High** sets the highest frequency passed by the TX filter, typically 2,700 to 3,000 hertz.
 
-#### Hearing Your Current TX Filter Settings
+#### Hearing filter values
 
 Open the Radio menu, then **Transmit**, **TX Filter**, and **Read TX Filter**. The announcement gives the low and high edges. For example: "TX filter 100 to 2900."
 
@@ -88,20 +88,19 @@ The filter edges and calculated bandwidth are also displayed in the Audio Worksh
 
 ### Shaping Your Voice with the Transmit Equalizer
 
-The filter edges set the limits of your signal's audio range. The transmit equalizer raises or lowers particular frequency ranges to change the balance of your voice.
-
+The filter edges set the limits of your signal's audio range and actual signal width. The transmit equalizer raises or lowers particular frequency ranges to change the balance of your voice.
 Open the Transmission section of [JJ Flexible Home](JJFlexibleHome.md) and press **Transmit Equalizer**. It has no key of its own yet.
 
 - The **Equalizer** switch turns the equalizer on or off.
-- The equalizer has nine bands. Press the up or down arrow on a band, or type a level and press Enter. JJ Flexible will speak the new level.
-- Each change goes to the radio as you make it, so a station listening to your transmission hears the change immediately.
-- **Restore** returns every band and the Equalizer switch to their settings when the window opened.
-- **Clear** sets every band flat.
-- **Finished** keeps your changes. **Cancel** or Escape leaves the equalizer as you found it.
+- The graphic equalizer has nine bands. Press the up or down arrow on a band, or type a level and press Enter to change the level of each equalizer band. JJ Flexible will speak the new level.
+- Each change is sent to the radio automatically as you make it, so a station listening to your transmission will hear the changes you make to your sculpted signal immediately.
+- If you make a change you cannot reverse, press the **Restore** button to return every band and the Equalizer switch to the settings that were present prior to entering the equalizer window.
+- **Clear** sets every equalizer band to "flat".
+- **Finished** keeps your changes. **Cancel** or Escape leaves the equalizer as you found it. Please note that restore performs the same action, but leaves the equalizer open so that it can be re-adjusted.
 
 ### Speech Processor
 
-The speech processor raises your average power to help your voice survive noise at the other end of a contact. In the Audio Workshop's **Transmit Settings** category, turn on **Speech Processor**, then choose **Processor Mode**: **Normal** for everyday contacts, **DX** for difficult conditions, or **DX+** for more punch with a more processed sound. Increase the processing only as far as conditions demand. These controls are also on the Radio menu's **Transmit** submenu.
+The speech processor raises average transmit power to help a voice survive noise and band congestion at the other end of a contact. In the Audio Workshop's **Transmit Settings** category, turn on **Speech Processor**, then choose **Processor Mode**: **Normal** for everyday contacts, **DX** for difficult conditions, or **DX+** for more punch with a more processed sound. Increase the processing only as far as conditions demand. These controls are also on the Radio menu's **Transmit** submenu.
 
 ### Compander
 
@@ -111,4 +110,5 @@ The compander evens out loud and soft syllables, raising average power without r
 
 Ask a friend on the air for a signal report while you adjust your audio. What sounds good through your headphones may sound quite different on the air. An honest report from an on-air listener is the best way to judge the result.
 
-When a friend is not available, open the Audio Workshop and press **Check your audio**. This window offers ways to hear what the radio will send over the antenna without a full-power transmission. Except for the microphone test, the radio does key: depending on the method, it uses low power, the transverter port, or a dummy load.
+When a friend is not available or conditions may not raise a contact to use as a radio check, open the Audio Workshop and press **Check your audio**. This window offers ways to hear what the radio will send over the antenna without a full-power transmission. Except for the microphone test, the radio does key: depending on the selected method, it uses low power, the transverter port, or a dummy load using specialized methods to allow the ham radio operator to hear how they sound. Ultimately, a radio check and using audio check in tandem can help to dial in your audio to the sweet spot when it comes to transmit audio sculpting.
+

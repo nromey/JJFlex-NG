@@ -6,9 +6,9 @@ keywords:
 
 # Escape and Collapse
 
-Use `Escape` to close field groups on JJ Flexible Home or to back out of an action in JJ Flexible Radio Access. If you are transmitting, using a JJ key layer, or making an adjustment, Escape may stop or cancel that action before it closes a group.
+Use `Escape` to close field groups on JJ Flexible's Home area, or cancel an unwanted action. If you are transmitting, using a JJ key layer, or making an adjustment, Escape may stop or cancel that action before it closes a group.
 
-## Single Escape
+## Pressing Escape once
 
 Press `Escape` once while focus is inside an expanded field group, such as digital signal processing (DSP), Audio, Receiver, Transmission, or Antenna. The group will collapse, and focus will return to its header. You will hear a short descending chirp confirming the collapse.
 
@@ -16,24 +16,24 @@ If focus is on JJ Flexible Home rather than inside a group, one press closes eve
 
 ## Double Escape (Collapse All)
 
-Press `Escape` twice in quick succession while working inside an expanded group to close all open field groups. Focus will return to JJ Flexible Home, and you will hear a higher tone followed by a lower one. This two-tone descent confirms that all groups are closed and you are back at Home.
+Press `Escape` twice in quick succession while working inside an expanded group to close all open field groups. Focus will return to JJ Flexible Home, and you will hear a higher tone followed by a lower one. This two-tone descent confirms that all groups are closed and Home has focus.
 
-The **Double-Tap Tolerance** setting controls how close together the two presses must be. The default is 500 milliseconds between presses. See the Double-Tap Tolerance help topic for details.
+Use the **Double-Tap Tolerance** setting to control how close together the two presses must be to perform the close all action. The default is 500 milliseconds between presses. See [Double-Tap Tolerance](DoubleTapTolerance.md) for details.
 
 ## Why Escape Works This Way
 
-Escape lets you close either the group you are using or all of Home's open groups:
+Escape lets you close either the active group or all of Home's open groups:
 
 - Press `Escape` once inside a group to close that group. From Home, a single press closes every open group.
 - Press `Escape` twice in quick succession inside a group to close every open group and return focus to Home.
 
-Escape can have another job before it closes a group. If a voice message or a push-to-talk transmission is running, Escape stops that transmission first. If you are adjusting a filter edge or the RIT or XIT scale, it cancels that adjustment first.
+Escape can have another job before it closes a group. If a voice message or a push-to-talk transmission is being sent, Escape stops that transmission immediately. If you are adjusting a filter edge or the RIT or XIT scale, it cancels that adjustment first.
 
 In a JJ key layer, Escape cancels the layer. In an ordinary dialog, it closes the dialog. A running Audio Check or transmit test uses the first press to stop its transmission and keeps its window open.
 
 ## Re-expanding a Collapsed Group
 
-After you close a group with Escape, focus is on the group's header. Press `Space` to expand it again. You will hear an ascending chirp, the expand earcon. It mirrors the collapse chirp, sweeping up instead of down.
+After closing a group with Escape, focus is on the group's header. Press `Space` to expand it again. You will hear an ascending chirp, the expand earcon. It mirrors the collapse chirp, sweeping up instead of down.
 
 ## What You Will Hear
 
@@ -49,6 +49,6 @@ If the two presses need to be closer together or farther apart, adjust **Double-
 
 ## Related Topics
 
-- JJ Flexible Home
-- Double-Tap Tolerance
-- Keyboard Reference
+- [JJ Flexible Home](JJFlexibleHome.md)
+- [Double-Tap Tolerance](DoubleTapTolerance.md)
+- [Keyboard Reference](KeyboardReference.md)
