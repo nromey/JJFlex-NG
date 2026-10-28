@@ -249,16 +249,21 @@ public static class RecorderControls
     /// 14:54). Either way the operator hears it on this computer as it goes
     /// (15:22). Unkeyed with the box unticked, Play listens, as it always has.
     /// </para>
-    /// <para>Pressed again while the send is going out, Play stops it.</para>
+    /// <para>
+    /// Pressed again while the send is going out, Play PAUSES it, unkeying only
+    /// what the send keyed and holding its place; pressed once more it carries
+    /// on from there (Noel, 2026-10-27 20:51: <i>"That's how you pause
+    /// normally"</i>). Escape ends it. At ten minutes the send pauses by itself
+    /// so the operator can identify (20:48, 20:50).
+    /// </para>
     /// </remarks>
     public static async Task<RecorderOutcome> ToggleComputerPlayAsync(FlexBase? rig,
         Action<RecorderOutcome>? speak = null)
     {
-        if (VoiceMessageSender.InFlight)
-        {
-            VoiceMessageSender.Stop();
+        // A send in hand answers first (#835, 20:51): a computer recording
+        // going out pauses, a paused one carries on, any other send stops.
+        if (VoiceMessageSender.AnswerPlayFromComputer())
             return HandedToSend(SpeechSubject.ComputerRecorder);
-        }
         bool starting = !ComputerRecorder.Current.IsPlaying;
         if (starting && rig != null)
         {

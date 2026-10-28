@@ -1831,6 +1831,33 @@ namespace Radios.Tests
                 "audio.send.no_computer_recording",
                 "audio.send.not_yet_transmitting",
                 "audio.send.command_help",
+                // Check your audio Track B, round 2 (#835): the long-send warning,
+                // the ten-minute pause, and Play pausing and carrying on a send;
+                // and the loader refusing a file rather than shortening it.
+                // Draft prose, awaiting Noel.
+                "audio.send.file_too_long",
+                "audio.send.long_title",
+                "audio.send.long_message",
+                "audio.send.long_pause_play",
+                "audio.send.long_pause_message",
+                "audio.send.long_id",
+                "audio.send.long_question",
+                "audio.send.long_yes",
+                "audio.send.long_no",
+                "audio.send.cancelled",
+                "audio.send.nothing_keys_now",
+                "audio.send.resume_play",
+                "audio.send.resume_message",
+                "audio.send.paused_unkeyed",
+                "audio.send.paused_mic",
+                "audio.send.paused_id_unkeyed",
+                "audio.send.paused_id_mic",
+                "audio.send.resuming",
+                "audio.send.resume_needs_key",
+                "audio.send.resume_refused",
+                "audio.send.resume_refused_ended",
+                "audio.send.stopped_paused",
+                "audio.send.paused_disconnected",
             };
 
             Assert.Equal(3140, unclassified);

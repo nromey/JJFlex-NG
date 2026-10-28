@@ -200,8 +200,16 @@ public static class RecordingPlayer
     /// SmartLink the radio's transmit monitor arrives late; this copy does not
     /// depend on it.
     /// </summary>
-    internal static bool PlayAlongsideSend(string path) =>
-        PlayWithMixer(path, null, null, false, EarconPlayer.AddRecordingPlayback, quiet: true);
+    /// <param name="path">The recording going to the air.</param>
+    /// <param name="startSeconds">
+    /// Where the air copy starts in it: zero, or the held place for a send
+    /// carrying on after a pause (#835). The local copy is started fresh from
+    /// the air's place each time rather than paused and resumed, so it can
+    /// never drift away from what is actually going out.
+    /// </param>
+    internal static bool PlayAlongsideSend(string path, double startSeconds = 0) =>
+        PlayWithMixer(path, null, null, false, EarconPlayer.AddRecordingPlayback, startSeconds: startSeconds,
+            quiet: true);
 
     /// <summary>True while the playback running is a send's own copy (<see cref="PlayAlongsideSend"/>).</summary>
     internal static bool PlayingAlongsideSend
