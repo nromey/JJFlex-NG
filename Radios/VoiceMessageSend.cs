@@ -37,6 +37,17 @@ namespace Radios
         void FileStop();
 
         /// <summary>
+        /// How far the loaded recording has played since it was last started,
+        /// in seconds (#835, the ten-minute pause). The send pauses when this
+        /// reaches <see cref="VoiceMessageSend.PauseAfterSeconds"/>, and a
+        /// paused send carries on from here. A rig that cannot say where its
+        /// playback is reports zero: it never pauses by itself, and the
+        /// run-long guard still ends it within ten minutes and a few seconds
+        /// (<see cref="VoiceMessageSend.SegmentContentBudget"/>).
+        /// </summary>
+        double FilePlayedSeconds => 0;
+
+        /// <summary>
         /// True when the radio's VOX is on for the transmit slice's mode. The
         /// rig-side source is mode-dependent (<c>SimpleVOXEnable</c> in voice
         /// modes, <c>CWBreakIn</c> in CW); a voice send is refused in CW
@@ -57,6 +68,7 @@ namespace Radios
         public void FileStart() => _rig.TxFileStart();
         public void FileStartForVox() => _rig.TxFileStartForVox();
         public void FileStop() => _rig.TxFileStop();
+        public double FilePlayedSeconds => _rig.TxFilePlayer.PlayedSeconds;
         public bool VoxOn => _rig.Vox == FlexBase.OffOnValues.on;
     }
 
@@ -90,6 +102,18 @@ namespace Radios
         /// because it keyed.
         /// </summary>
         SourceStopped,
+        /// <summary>
+        /// The send stopped at a place it can carry on from (#835; Noel,
+        /// 2026-10-27 20:50: <i>"it's got to unkey so you can ID, play keys it
+        /// and stop stops it"</i>): at the ten-minute mark
+        /// (<see cref="VoiceMessageSend.PausedForId"/>), or because the
+        /// operator pressed Play. The microphone is back, and the radio was
+        /// unkeyed if this send keyed it, exactly as for
+        /// <see cref="Stopped"/>. It is not the end of the whole send: the
+        /// host holds the place (<see cref="VoiceMessageSend.PausedAtSeconds"/>,
+        /// <see cref="SendSession"/>).
+        /// </summary>
+        Paused,
     }
 
     /// <summary>
@@ -249,6 +273,45 @@ namespace Radios
         /// </summary>
         public const int SourceStartWaitMs = 5000;
 
+        /// <summary>
+        /// A send that has sent this much of its recording since it keyed, or
+        /// since it last carried on, pauses (#835; Noel, 2026-10-27 20:48:
+        /// <i>"In the U.S. you need to identify every 10 minutes, I'd set it to
+        /// 600 seconds"</i>). Counted on the recording, not the wall clock, so
+        /// time spent paused never counts and each piece that goes out is
+        /// exactly ten minutes of the recording; the radio is keyed for that
+        /// and the moment it took to key, well under a second.
+        /// </summary>
+        public const int PauseAfterSeconds = 600;
+
+        /// <summary>
+        /// A send with no more than this left at the ten-minute mark finishes
+        /// instead of pausing, so nobody is asked to press Play for the last
+        /// syllable.
+        /// </summary>
+        public const double PauseEndMarginSeconds = 1.0;
+
+        /// <summary>
+        /// A send whose recording runs longer than this asks first, before
+        /// anything keys (#835; Noel, 2026-10-27 20:48: <i>"I would warn the
+        /// user if it's longer than 180 seconds"</i>).
+        /// </summary>
+        public const int WarnAboveSeconds = 180;
+
+        /// <summary>
+        /// True when a send of this length, going this way, must ask before it
+        /// keys. Rounded to the whole second the operator is told, so a
+        /// recording announced as "3 minutes" never warns and one announced as
+        /// "3 minutes 1 second" always does. A send that joins a transmission
+        /// the operator is already holding keys nothing, so it does not ask:
+        /// the warning is the one asked "before keying" (20:48), and a dialog
+        /// taking the foreground under an operator's held push to talk is a
+        /// hazard of its own.
+        /// </summary>
+        public static bool NeedsLengthWarning(double seconds, SendRoute route) =>
+            route != SendRoute.JoinTransmission
+            && Math.Round(seconds, MidpointRounding.AwayFromZero) > WarnAboveSeconds;
+
         private readonly IVoiceMessageRig _rig;
         private readonly long _startedMs;
         private bool _sawTransmit;
@@ -291,6 +354,32 @@ namespace Radios
         /// carrier on the operator's line (<see cref="BoxTakeover.Hardware"/>).
         /// </summary>
         public bool ReleasedToHardware { get; private set; }
+
+        /// <summary>
+        /// Where in this send's recording it paused, in seconds from where it
+        /// started (<see cref="IVoiceMessageRig.FilePlayedSeconds"/> at the
+        /// pause). Meaningful only when <see cref="Outcome"/> is
+        /// <see cref="VoiceMessageOutcome.Paused"/>.
+        /// </summary>
+        public double PausedAtSeconds { get; private set; }
+
+        /// <summary>
+        /// True when the send paused itself at the ten-minute mark; false when
+        /// the operator paused it with Play.
+        /// </summary>
+        public bool PausedForId { get; private set; }
+
+        /// <summary>
+        /// The most of a recording one send can play before it either ends or
+        /// pauses: the whole recording, or ten minutes and the end margin,
+        /// whichever is less. The run-long watchdog allows this plus its grace,
+        /// so it can never mistake a pause for a stuck send (a pause comes
+        /// first, at ten minutes of recording), and a genuinely stuck send is
+        /// still caught, now within ten minutes and a few seconds rather than
+        /// after the whole recording's length.
+        /// </summary>
+        public static double SegmentContentBudget(double fileSeconds) =>
+            Math.Min(fileSeconds, PauseAfterSeconds + PauseEndMarginSeconds);
 
         private VoiceMessageSend(IVoiceMessageRig rig, string label, long nowMs, bool weKeyed, bool viaVox,
             KeyedSendOptions? box = null)
@@ -428,7 +517,13 @@ namespace Radios
                 return;
             }
 
-            long allowedMs = (long)(_rig.FileSeconds * 1000.0) + KeyUpWaitMs + RunLongGraceMs;
+            if (PauseIsDue())
+            {
+                PauseHere(forId: true);
+                return;
+            }
+
+            long allowedMs = (long)(SegmentContentBudget(_rig.FileSeconds) * 1000.0) + KeyUpWaitMs + RunLongGraceMs;
             if (nowMs - _startedMs > allowedMs)
                 Finish(VoiceMessageOutcome.RanLong);
         }
@@ -468,7 +563,13 @@ namespace Radios
                 return;
             }
 
-            long allowedMs = (long)(_rig.FileSeconds * 1000.0) + VoxKeyWaitMs + RunLongGraceMs;
+            if (PauseIsDue())
+            {
+                PauseHere(forId: true);
+                return;
+            }
+
+            long allowedMs = (long)(SegmentContentBudget(_rig.FileSeconds) * 1000.0) + VoxKeyWaitMs + RunLongGraceMs;
             if (nowMs - _startedMs > allowedMs)
                 Finish(VoiceMessageOutcome.RanLong);
         }
@@ -568,13 +669,53 @@ namespace Radios
                 return;
             }
 
-            long allowedMs = (long)(_rig.FileSeconds * 1000.0) + RunLongGraceMs;
+            if (PauseIsDue())
+            {
+                PauseHere(forId: true);
+                return;
+            }
+
+            long allowedMs = (long)(SegmentContentBudget(_rig.FileSeconds) * 1000.0) + RunLongGraceMs;
             if (nowMs - _sourcePlayingSinceMs > allowedMs)
                 Finish(VoiceMessageOutcome.RanLong);
         }
 
+        /// <summary>
+        /// Ten minutes of the recording have gone out since this send began,
+        /// and more than the end margin is left (#835, 20:48).
+        /// </summary>
+        private bool PauseIsDue()
+        {
+            double played;
+            try { played = _rig.FilePlayedSeconds; }
+            catch { return false; }
+            return played >= PauseAfterSeconds && _rig.FileSeconds - played > PauseEndMarginSeconds;
+        }
+
+        private void PauseHere(bool forId)
+        {
+            if (Finished) return;
+            // Read the place BEFORE the recording is released: the release
+            // ramp reads ten milliseconds further, and carrying on from the
+            // asked-for place repeats those faded milliseconds rather than
+            // skipping them.
+            try { PausedAtSeconds = Math.Max(0, _rig.FilePlayedSeconds); }
+            catch { PausedAtSeconds = 0; }
+            PausedForId = forId;
+            Finish(VoiceMessageOutcome.Paused);
+        }
+
         /// <summary>The operator asked for it to stop. Idempotent.</summary>
         public void Stop() => Finish(VoiceMessageOutcome.Stopped);
+
+        /// <summary>
+        /// The operator pressed Play while it was going out (#835; Noel,
+        /// 2026-10-27 20:51: <i>"That's how you pause normally"</i>): stop at a
+        /// place the host can carry on from. The microphone comes back, and
+        /// the radio is unkeyed if this send keyed it, as for
+        /// <see cref="Stop"/>. Idempotent.
+        /// </summary>
+        public void Pause() => PauseHere(forId: false);
 
         private void Finish(VoiceMessageOutcome outcome)
         {
@@ -584,6 +725,9 @@ namespace Radios
             // and before the key is touched: a release that waited on the
             // unkey would be a release that could be skipped by a throw.
             _rig.FileStop();
+            // Paused unkeys exactly as Stopped does: only what this send keyed
+            // (#835: a send riding the operator's own key never unkeys under
+            // them; it gives the microphone back so they can identify).
             // Interrupted: someone else already decided the key. TakenOver: the
             // operator is holding it, and dropping it under their thumb is the
             // one thing a box send must never do (Noel, 2026-10-27 15:26).
