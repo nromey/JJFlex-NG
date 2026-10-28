@@ -237,9 +237,9 @@ Planned: Transmit/PowerAndTuner.md
 Planned: Transmit/TxControls.md
 > NEW. The Transmit controls dialog, from the Command Finder only.
 
-## TX Bandwidth Sculpting
+## TX Audio Sculpting
 Transmit/TxSculpting.md
-> MOVED. Shaping the transmit filter. One moved chord (#532).
+> Cleanup, TX filter edges, equalizer, speech processor and compander; choosing tools and checking the result.
 
 ## CW Send and Receive Text Boxes
 Transmit/CwTextBoxes.md

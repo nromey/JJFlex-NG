@@ -1,21 +1,49 @@
 ---
 keywords:
   - TX sculpting
+  - equalizer
+  - speech processor
+  - compander
+  - noise gate
+  - transmit noise reduction
 ---
 
-# TX Bandwidth Sculpting
+# TX Audio Sculpting
 
-Use transmit (TX) bandwidth sculpting to shape the sound of your transmitted audio. Adjusting the low-frequency and high-frequency edges of the TX filter changes how your signal sounds to other stations.
+Use transmit (TX) audio sculpting to shape the sound of your transmitted voice. JJ Flexible Radio Access offers tools to reduce room noise before it reaches the radio, then shape your voice with the TX filter, transmit equalizer, speech processor and compander.
 
-## Why Sculpt Your TX Audio?
+## Choosing Where to Start
 
-Every voice is different, and band conditions can change during a contact. You can adjust the filter to suit your voice and the conditions:
+Every voice is different, and band conditions can change during a contact. Sculpting your audio may help you reach rare DX, make more contest contacts, or simply be heard. Use the tools together to suit your voice and the conditions:
 
-- Widen the bandwidth for natural-sounding ragchew audio.
-- Narrow the bandwidth to improve readability in noisy conditions or during contests.
-- Shift the low and high edges to emphasise or cut particular frequency ranges in your voice.
+- Start with PC Cleanup if room noise is reaching the computer's microphone.
+- Set the TX filter edges to choose the range of frequencies in your signal. A wider signal takes up more spectrum but may sound fuller; a narrower signal fits into a crowded contest band.
+- Use the transmit equalizer to raise or lower particular frequency ranges in your voice.
+- Use the speech processor and compander to make your voice carry through difficult conditions.
 
-## Adjusting TX Bandwidth from the Keyboard
+## Cleaning Up the Room
+
+PC Cleanup reduces noise before the computer sends your microphone audio to the radio. It acts only on the computer's microphone, never on a microphone plugged into the radio itself, and it steps aside in CW and digital modes.
+
+Press `Ctrl+Shift+W` to open the [Audio Workshop](AudioWorkshop.md), then choose **This Computer** and find **PC Cleanup**. Its noise reduction and gate prepare the audio that the radio's own processing will shape.
+
+### Transmit Noise Reduction
+
+Turn on **Noise Reduction** to reduce room sounds such as a fan or air conditioner while you speak. Adjust its strength to remove noise without removing your voice. Set **Listen to cleanup** to **What was removed**; if you hear your own words in the removed audio, lower the strength.
+
+### Noise Gate
+
+Turn on **Noise Gate** when room noise is distracting between words. The gate lowers the microphone level during pauses without cutting it to silence. Its threshold follows the room's measured noise floor. The margin, attack, hold, release and depth controls adjust when it opens and how it fades down.
+
+## Shaping Your Voice
+
+The radio's TX filter, equalizer, speech processor and compander work on the audio the radio receives. Start with the filter edges and equalizer to shape your tone, then adjust the processing to suit the contact.
+
+### Setting the TX Filter Edges
+
+The low edge sets the lowest audio frequency passed by the TX filter; the high edge sets the highest. Widen the range for natural-sounding ragchew audio, or narrow it to improve readability in noisy conditions or during contests. Use the filter and equalizer together to suit your voice and avoid noise.
+
+#### Adjusting TX Bandwidth from the Keyboard
 
 Use these keys to adjust the TX filter edges without opening a dialog:
 
@@ -24,30 +52,63 @@ Use these keys to adjust the TX filter edges without opening a dialog:
 - Press `Ctrl+Alt+[` to lower the TX filter's high edge.
 - Press `Ctrl+Alt+]` to raise the TX filter's high edge.
 
-Each press moves the selected edge by one step. JJ Flexible Radio Access will speak the new value.
+Each press moves the selected edge by one step. JJ Flexible will speak the new value. The step size depends on the current filter width:
 
-The step size depends on the current filter width. An ordinary transmit filter uses steps of 50 hertz. The steps become finer as the filter narrows and coarser beyond 3.5 kilohertz. Holding a key does not increase the rate of adjustment. Use the announced value to place the edge, because listening to the audio will not tell you when it has reached 2,800 hertz.
+- Below 200 hertz, each step is 10 hertz.
+- From 200 to below 500 hertz, each step is 25 hertz.
+- From 500 to below 3,500 hertz, each step is 50 hertz.
+- From 3,500 to below 5,000 hertz, each step is 100 hertz.
+- At 5,000 hertz or wider, each step is 200 hertz.
+
+An ordinary SSB transmit filter uses steps of 50 hertz. The steps become finer as the filter narrows and coarser from 3.5 kilohertz onward. A narrow CW filter gets fine steps because of its width, rather than because CW is selected. Holding a key does not increase the rate of adjustment. Use the announced value to place the edge, because listening to the audio will not tell you when it has reached 2,800 hertz.
+
+TX bandwidth will change if you change mode. CW and narrow digital signals do not need the wide audio range used for voice. If an audio frequency falls outside the adjusted transmit band, that part of the signal will not be heard.
 
 The Radio menu's TX Filter submenu and the filter layer use the same step size. The edge moves by the same amount whichever method you use.
 
-You can also press `Ctrl+Shift+W` to open the Audio Workshop and use its TX sculpting controls:
+To set the edges in the Audio Workshop, press `Ctrl+Shift+W` and choose **Transmit Settings**:
 
-- The **Low edge** sets the lowest frequency passed by the TX filter, typically 100 to 300 hertz.
-- The **High edge** sets the highest frequency passed by the TX filter, typically 2,700 to 3,000 hertz.
+- **TX Filter Low** sets the lowest frequency passed by the TX filter, typically 100 to 300 hertz.
+- **TX Filter High** sets the highest frequency passed by the TX filter, typically 2,700 to 3,000 hertz.
 
-## Hearing Your Current TX Filter Settings
+#### Hearing Your Current TX Filter Settings
 
-To hear the current settings, open the Radio menu, then Transmit, then TX Filter, then Read TX Filter. The announcement gives the low edge, the high edge, and the calculated bandwidth between them.
+Open the Radio menu, then **Transmit**, **TX Filter**, and **Read TX Filter**. The announcement gives the low and high edges. For example: "TX filter 100 to 2900."
 
-You can also press `Ctrl+J`, then `F` to open the filter layer. Press `T` to select the TX filter, then `S` to hear its settings.
+Press `Ctrl+J`, then `F` to open the filter layer. Press `T` to select the TX filter, then `S` to hear its settings. This report includes the calculated bandwidth. With the same edges, it says: "TX filter 100 to 2900, 2.8 kilohertz."
 
-For example, you might hear: "TX filter 100 to 2900, 2.8 kilohertz."
+The filter edges and calculated bandwidth are also displayed in the Audio Workshop's **Transmit Settings** category for reference.
 
-## Typical Settings
+#### Typical TX Filter Settings
 
 - For **standard SSB**, use 100 to 2,800 hertz, giving a bandwidth of 2.7 kilohertz.
 - For a **wide ragchew** setting, use 50 to 3,050 hertz, giving a bandwidth of 3.0 kilohertz.
 - For a **narrow or contest** setting, use 200 to 2,600 hertz, giving a bandwidth of 2.4 kilohertz.
 - For a **long-distance (DX) pileup**, use 300 to 2,700 hertz, giving a bandwidth of 2.4 kilohertz. Cutting the low end reduces rumble in crowded pileups.
 
-**Tip:** Ask a friend on the air for a signal report while you adjust the filter. What sounds good through your headphones may sound quite different on the air. An honest report from an on-air listener is the best way to judge the result.
+### Shaping Your Voice with the Transmit Equalizer
+
+The filter edges set the limits of your signal's audio range. The transmit equalizer raises or lowers particular frequency ranges to change the balance of your voice.
+
+Open the Transmission section of [JJ Flexible Home](JJFlexibleHome.md) and press **Transmit Equalizer**. It has no key of its own yet.
+
+- The **Equalizer** switch turns the equalizer on or off.
+- The equalizer has nine bands. Press the up or down arrow on a band, or type a level and press Enter. JJ Flexible will speak the new level.
+- Each change goes to the radio as you make it, so a station listening to your transmission hears the change immediately.
+- **Restore** returns every band and the Equalizer switch to their settings when the window opened.
+- **Clear** sets every band flat.
+- **Finished** keeps your changes. **Cancel** or Escape leaves the equalizer as you found it.
+
+### Speech Processor
+
+The speech processor raises your average power to help your voice survive noise at the other end of a contact. In the Audio Workshop's **Transmit Settings** category, turn on **Speech Processor**, then choose **Processor Mode**: **Normal** for everyday contacts, **DX** for difficult conditions, or **DX+** for more punch with a more processed sound. Increase the processing only as far as conditions demand. These controls are also on the Radio menu's **Transmit** submenu.
+
+### Compander
+
+The compander evens out loud and soft syllables, raising average power without raising the peaks. Use it when quieter parts of your speech need to carry more evenly. In the Audio Workshop's **Transmit Settings** category, turn on **Compander** and adjust **Compander Level** from 0 to 100. Higher levels flatten the differences in your voice more strongly. The Radio menu's **Transmit** submenu also offers **Compander**, **Compander Level Up**, and **Compander Level Down**.
+
+## Checking the Result
+
+Ask a friend on the air for a signal report while you adjust your audio. What sounds good through your headphones may sound quite different on the air. An honest report from an on-air listener is the best way to judge the result.
+
+When a friend is not available, open the Audio Workshop and press **Check your audio**. This window offers ways to hear what the radio will send over the antenna without a full-power transmission. Except for the microphone test, the radio does key: depending on the method, it uses low power, the transverter port, or a dummy load.
