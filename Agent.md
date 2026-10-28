@@ -9,6 +9,36 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-10-27 — THE HELP FRAMEWORK LANDS, CODEX CHECKS AND REWRITES THE HELP, DISCLOSURE CLEANUP MERGES, AND TWO BRANCHES WAIT FOR THE BENCH
+
+**Main went from `e3a0a41c` to `0f6b540b` (17 commits) plus this seal, pushed.** Three other windows worked in parallel today; their branches are unmerged and listed below.
+
+**The help rework (#826, #834), on main:**
+- The outline and the ten open questions were answered early (`planning/agile/help-outline.md`). #834 ruled: the help becomes HTML pages with JavaScript search and index, an in-app window first and the browser as fallback; the CHM goes once the window exists. Every page opens with "Skip to main help", a search box, and links to the contents and the index.
+- #830 fixed (`3ca483e9`): the help build fails when the help compiler or pandoc reports an error.
+- The framework track merged (`66150702`): pages moved whole into the outline's folders, and one self-checking build writes both the CHM and the HTML help.
+- Codex accuracy pass, batch 1 (Sol, read-only): found every planted known error unprompted; findings checked against the code by Claude and ruled by Noel. Codex fix run, batch 1: six pages corrected (`933ee29c`), one menu path fixed by Claude.
+- **Style sample:** Noel ruled that Codex writes the help copy and his edits become the template. Sol 6.0 rewrote four pages but its sandbox could not build the tests and it dropped a pinned phrase (kept as a record on `help/style-sample`). **Noel moved the Codex default to `gpt-6.1-sol`** (`521891a7`), and Sol 6.1 rewrote the four pages (`help/style-sol61`, `1b5b73ce`); Terra 6.1 rewrote TX Sculpting alone for comparison (`help/style-terra`, `bd90981e`). Claude checked every key, quoted phrase and number on all five: none lost or added. Noel's first verdict: better than Claude's. Copies are in `planning/for-noel/help-samples/` for his edit.
+- From Noel's first listen: NVDA read the page header's Contents and Index links as one line; they are now a list (`0f6b540b`). His style note: cut "you can".
+
+**Disclosure cleanup (#468, #826), merged `44cbe31a`:** task numbers out of every string the app ships, with a test (`TaskNumbersStayOutOfShippedTextTests`) that refuses one in any C#/VB string literal, Lexicon value or XAML/resx text; Noel's addresses out of the public tree; every real radio serial replaced with `1234-5678-9012-3456` or words. Full Radios.Tests on the merge: 5,528/5,529, the one failure the known flaky #601, green alone three times.
+
+**CLAUDE.md:** several Codex runs may go at once (`67a2b167`); the Codex default is `gpt-6.1-sol` (`521891a7`). There is no Astra 6.1.
+
+**Unmerged, waiting for Noel's bench tomorrow, not pushed:**
+- **Check your audio (#835)**, `checkaudio/integration` at `3d771427` (worktrees `jjflex-cya-a`, `jjflex-cya-b`, `jjflex-cya-int`): Track A, the Check your audio window, six Codex rounds ending BENCH IT; Track B, sending recordings to air through one host, Codex round 3 FIX FIRST on two questions for Noel. Radios.Tests 5,718/5,718; the desk-safe WPF filter plus `TransmitGainBindingTests` and `SendPieceLoaderTests` 362/362 (both windowless; add them to the filter at the merge). Bench sheet: `planning/for-noel/2026-10-27-check-your-audio-bench.md`. **Held from the push:** one commit message on Track B names a tester; Noel decides whether to reword it before the branches go public. The dev mirror backs them up tonight.
+- **Junk box batch 2026-10-27**, `junkbox/2026-10-27-batch` at `2b0c4bed` (worktree `jjflex-jb1027`): #744, #746, #759, #763, #506, #655 built; #568, #641, #779 not built (premise false or needs a trace); four rounds of repair after per-fix Codex checks; bench sheet `planning/for-noel/2026-10-27-junkbox-bench-rounds-2-3.md`. **At its merge, strip any task number from new shipped strings,** or `TaskNumbersStayOutOfShippedTextTests` fails.
+
+**Seal checks:** no dependency advisories; memory drift flags nothing written today; the Codex instruction tests pass (5) and Codex loads `AGENTS.md`; open-tasks summary regenerated (441 open). NVDA logs archived; neither was at speech level, so they hold no transcript. No nightly promote: no debug build was made today, and the one new build (check your audio) has never been on a radio.
+
+**Memory index:** 14.9 KB, still over the 12 KB seal threshold. The long lines are reflex rules; trim them in a deliberate pass, not at a seal. Current State line brought up to date.
+
+**Carried over:** Noel's edit of the five sample pages, then the style guide from his edits; the remaining accuracy batches; the help-window prototype; Agent.md's move to JJFlex-private (#468 a); the finished help worktrees (`jjflex-accuracy`, `jjflex-helpfix`, `jjflex-disclose`, `jjflex-help`, `jjflex-helpstyle`) to remove after copying their TRACK-INSTRUCTIONS. Freight Fate still holds 16 unpushed commits on `feat/career-1.9`, and rigmeter 13, which has no remote; pushing Freight Fate is Noel's call.
+
+### Rigmeter snapshot — end of 2026-10-27
+
+Main only, since midnight: 17 commits, 154 files, +5,948 / −1,300 (net +4,648). By type: JavaScript +2,136 (help search), C# +1,303 / −269 (disclosure test and string edits), PowerShell +1,048 (help build), Markdown +923 / −103, and the CHM project files shrinking as the build generates them. About 88,000 authored words, 9.8 hours read aloud. **Not counted, because unmerged:** check your audio, 97 files, +11,704 / −3,430; the junk box batch, 34 files, +2,017 / −127. Snapshot `historical/stats/2026-10-27-0f6b540b.json`.
+
 ## END-OF-DAY SEAL — 2026-10-26 — A PLANNING DAY: THE HELP SYSTEM REWORK IS PLANNED, RULED AND RESEARCHED, AND THE OUTLINE WAITS ON NOEL
 
 **No code changed today.** Main is still at `e3a0a41c` (the 2026-10-25 seal); no commits on any branch or worktree. All of today's work is in JJFlex-private (the register, plans, research reports) and the memory tree.
