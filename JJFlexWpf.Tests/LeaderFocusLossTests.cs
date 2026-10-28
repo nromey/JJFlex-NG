@@ -18,7 +18,9 @@ namespace JJFlexWpf.Tests;
 /// from <c>SetHelpArmed(true, ...)</c>, so it can only see a layer the hook was
 /// TOLD about. The path Codex traced starts inside the window: Ctrl+J, K, a
 /// move to a logger, then Alt+K there and, later, a key back here. This drives
-/// that path from its first key.
+/// that path from its first key, on O and Alt+O since #835 bound Ctrl+K (Noel,
+/// 2026-10-27 20:49): a bare K now names Ctrl+K, the VOX send box, rather than
+/// Alt+K. O is still a letter whose only chord is on the Alt tier.
 /// </para>
 /// <para>
 /// <b>Desk safety</b>, as <see cref="ValueLayerRoutingTests"/> establishes it:
@@ -27,8 +29,8 @@ namespace JJFlexWpf.Tests;
 /// the context's main window is null), and H and the slash key are never
 /// pressed, because they open a surface. <see cref="QuietRun"/> diverts every
 /// earcon and utterance, and the first assertion refuses to go on if it did
-/// not take. No rig at all: Alt+K, the mic check, answers "needs a radio",
-/// which is the observable this test reads.
+/// not take. No rig at all: Alt+O says what is still running, read from the
+/// same register the test reads, which is the observable here.
 /// </para>
 /// </remarks>
 public sealed class LeaderFocusLossTests : IDisposable
@@ -65,25 +67,28 @@ public sealed class LeaderFocusLossTests : IDisposable
         return first == marker ? null : first;
     }
 
-    private static void NearMissOnK(KeyCommands commands)
+    private static void NearMissOnO(KeyCommands commands)
     {
         Assert.True(commands.DoCommand(Keys.J | Keys.Control, fromDialog: false));
         Assert.True(commands.LeaderWaitingForSecondKey);
-        commands.DoCommand(Keys.K, fromDialog: false);
-        Assert.True(commands.LeaderHelpArmed, "Ctrl+J then K is a near miss; the layer must wait for Alt+K");
-        Assert.Equal(Keys.K | Keys.Alt, commands.LeaderNearMissChordHonoured);
+        commands.DoCommand(Keys.O, fromDialog: false);
+        Assert.True(commands.LeaderHelpArmed, "Ctrl+J then O is a near miss; the layer must wait for Alt+O");
+        Assert.Equal(Keys.O | Keys.Alt, commands.LeaderNearMissChordHonoured);
     }
+
+    /// <summary>What Alt+O says, read from the same register it reads.</summary>
+    private static string RunningSentence() => RunningCostRegister.DescribeForSpeech();
 
     [Fact]
     public void Positive_control_while_still_in_the_window_the_named_chord_runs()
     {
-        // Without this, the tests below could pass because Alt+K never
-        // reaches the mic check at all, rather than because the layer let go.
+        // Without this, the tests below could pass because Alt+O never
+        // reaches its sentence at all, rather than because the layer let go.
         var commands = NewCommands();
-        NearMissOnK(commands);
+        NearMissOnO(commands);
 
-        string? said = SpokenAfter(() => Assert.True(commands.DoCommand(Keys.K | Keys.Alt, fromDialog: false)));
-        Assert.Equal(Lexicon.Get("connect.command_needs_radio"), said);
+        string? said = SpokenAfter(() => Assert.True(commands.DoCommand(Keys.O | Keys.Alt, fromDialog: false)));
+        Assert.Equal(RunningSentence(), said);
         Assert.False(commands.LeaderHelpArmed);
     }
 
@@ -91,22 +96,22 @@ public sealed class LeaderFocusLossTests : IDisposable
     public void An_in_window_near_miss_is_not_handed_to_the_system_wide_hook()
     {
         // The deliberate half of the choice: a slip made in this window must
-        // not have the hook claim Alt+K (or H, or Escape) from the logger the
+        // not have the hook claim Alt+O (or H, or Escape) from the logger the
         // operator moves to. The promise "from another program too" is made
         // for a near miss reached through the system-wide JJ key, which
         // relays itself.
         var commands = NewCommands();
         Assert.False(SystemWideKeys.HookIsWaiting, "precondition: nothing has armed the hook");
-        NearMissOnK(commands);
+        NearMissOnO(commands);
         Assert.False(SystemWideKeys.HookIsWaiting,
-            "an in-window near miss reached the hook, so Alt+K typed in another program would be swallowed");
+            "an in-window near miss reached the hook, so Alt+O typed in another program would be swallowed");
     }
 
     [Fact]
     public void After_focus_leaves_for_another_program_the_near_miss_no_longer_claims_its_chord()
     {
         var commands = NewCommands();
-        NearMissOnK(commands);
+        NearMissOnO(commands);
 
         // The shell's WM_ACTIVATEAPP: another program took the foreground.
         commands.ReleaseOneShotWaits("test: another program took the foreground");
@@ -114,17 +119,17 @@ public sealed class LeaderFocusLossTests : IDisposable
         Assert.False(commands.LeaderHelpArmed);
         Assert.Equal(Keys.None, commands.LeaderNearMissChordHonoured);
 
-        // Back in the window, Alt+K is an ordinary key again: the mic check
-        // does not run behind a layer the operator left minutes ago.
-        string? said = SpokenAfter(() => commands.DoCommand(Keys.K | Keys.Alt, fromDialog: false));
-        Assert.NotEqual(Lexicon.Get("connect.command_needs_radio"), said);
+        // Back in the window, Alt+O is an ordinary key again: the running
+        // report does not come from a layer the operator left minutes ago.
+        string? said = SpokenAfter(() => commands.DoCommand(Keys.O | Keys.Alt, fromDialog: false));
+        Assert.NotEqual(RunningSentence(), said);
     }
 
     [Fact]
     public void After_focus_leaves_Escape_back_in_the_window_is_not_a_layer_cancel()
     {
         var commands = NewCommands();
-        NearMissOnK(commands);
+        NearMissOnO(commands);
         commands.ReleaseOneShotWaits("test: another program took the foreground");
 
         string? said = SpokenAfter(() => commands.DoCommand(Keys.Escape, fromDialog: false));
