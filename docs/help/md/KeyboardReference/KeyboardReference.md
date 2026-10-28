@@ -115,6 +115,7 @@ Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it
 - **Alt+W** — Open a list of every window on your screen — the one with the keyboard first, then this program's own windows, then the rest — with the program that owns each and whether it is still running (see "What is on my screen" below)
 - **Alt+N** — Open the tracking notch filters, where you place a notch yourself instead of letting Auto Notch hunt for one (see "Tracking notch filters" below)
 - **Alt+F** — Open Recorded QSOs, your computer recordings — F for files. Play one, trim it, save it as another format, delete it or prune old ones (see "Recorded QSOs" below)
+- **Alt+C** — Open Check your audio — C for Check. It opens the window and never starts a check by itself (see "Check your audio" below)
 
 ### Still finding their layer
 
@@ -639,13 +640,12 @@ The Audio menu's **PC Audio Levels** and **On-Radio Levels** items each open a d
 
 The previous `Alt+Page Up`, `Alt+Shift+Page Up`, and `Shift+Page Up` shortcuts (and their `Page Down` counterparts) no longer adjust audio. The slots are reserved on purpose so a future feature can claim them deliberately.
 
-Two rows on the Audio menu start with "Audio", which is one row too many for a single letter to sort out. So Audio Workshop now has a mnemonic of its own: with the Audio menu open, `A` goes to **Audio Devices** and `W` goes to **Audio Workshop**. Nothing is renamed, and `Ctrl+Shift+W` still opens the workshop from anywhere without visiting the menu at all.
+Two rows on the Audio menu start with "Audio", which is one row too many for a single letter to sort out. So Audio Workshop now has a mnemonic of its own: with the Audio menu open, `A` goes to **Audio Devices** and `W` goes to **Audio Workshop**. Nothing is renamed, and `Ctrl+Shift+W` still opens the workshop from anywhere without visiting the menu at all. **Check Your Audio** sits right after it, and `C` reaches it, since nothing else on the menu starts with C.
 
 ## Audio Workshop
 
 These keys are active anywhere inside the Audio Workshop window (`Ctrl+Shift+W` opens it). They are workshop-only accelerators; they do not work from other JJ Flexible windows or other programs.
 
-- **Ctrl+Enter** — Start the Audio Check, or stop the one that's running
 - **Ctrl+S** — Save an audio preset
 - **Ctrl+O** — Load an audio preset
 - **Alt+E** — Export a preset to a file you can share
@@ -653,11 +653,22 @@ These keys are active anywhere inside the Audio Workshop window (`Ctrl+Shift+W` 
 - **Alt+R** — Reset the TX audio chain to defaults
 - **F6 / Shift+F6** — Move between the sections in the current category and hear each section's name. The keys wrap at both ends and skip hidden sections
 - **Ctrl+Tab / Ctrl+Shift+Tab** — Move between workshop categories. Use F6 to move among the sections within the selected category
-- **Escape** — While an Audio Check or Loopback Check is running, stop it and stay in the workshop; press again after it ends to close. Stopping unkeys the radio
+
+The Audio Check used to live here, on the Hear Yourself category, with `Ctrl+Enter` to start it and a two-press Escape. It has a window of its own now, Check your audio, and those keys went with it. The **Check your audio** button at the end of the workshop's toolbar opens it.
 
 Inside the Load Preset picker, the `Delete` key (or the Delete button) deletes the preset you're on — it asks before doing anything, and deleting never touches the radio.
 
 A note for anyone whose fingers learned the old way: Save Preset used to respond to its `Alt+S` button mnemonic, which also swallowed `Alt+Shift+S` — the Speak Transmit Status key that works anywhere inside JJ Flexible — while the workshop was focused. That mnemonic is gone; `Ctrl+S` is the Save key now, and the transmit status query is no longer blocked by the workshop.
+
+## Check your audio
+
+These keys work anywhere inside the Check your audio window (`Ctrl+J`, then `Alt+C` opens it, and so do the Audio menu and the button in the Audio Workshop). They do not work from other windows.
+
+- **Ctrl+Enter** — Start the check with the method shown, or stop the one that's running
+- **Escape** — While a check is transmitting, the first press unkeys and stays in the window; press again to close. Escape never leaves you transmitting
+- **F6 / Shift+F6** — Move between the sections of the window and hear each section's name. The keys wrap at both ends and skip hidden sections
+
+Focus lands on the method when the window opens, and `Shift+Tab` from there reaches the Start button.
 
 ## Transmit tests
 
@@ -799,8 +810,8 @@ Editor.
 **Waiting in the Command Finder on purpose.** Start scan, saved scan,
 collect debug info, start audio check, and undelivered details.
 Most of these are either rare, or better reached where you already are — the
-Audio Check has `Ctrl+Enter` inside the Audio Workshop, which is where you are
-when you want it. Undelivered details is the odd one out: it is new, and it has
+Audio Check has `Ctrl+Enter` inside Check your audio, which is where you are
+when you want it, and `Ctrl+J`, `Alt+C` opens that window from anywhere. Undelivered details is the odd one out: it is new, and it has
 no key yet because which chord it deserves is still being decided rather than
 because it does not want one. It opens the list of things the radio told you
 that did not land — a warning that got cut off, something that arrived while

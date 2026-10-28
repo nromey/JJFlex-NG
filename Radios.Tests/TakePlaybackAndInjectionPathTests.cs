@@ -5,8 +5,9 @@ using Xunit;
 namespace Radios.Tests
 {
     /// <summary>
-    /// Two rules about the Audio Workshop's Hear Yourself category, both of
-    /// them about a control describing something other than what it does.
+    /// Two rules about Check your audio (the Audio Workshop's Hear Yourself
+    /// category until #835), both of them about a control describing something
+    /// other than what it does.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -36,9 +37,18 @@ namespace Radios.Tests
     /// </remarks>
     public sealed class TakePlaybackAndInjectionPathTests
     {
+        // The partials moved with the page into Check your audio in #835: the
+        // check is CheckYourAudioDialog.Check.cs, and the take-playback rules
+        // both windows share are ListenbackTakes.cs.
         private static string Workshop(string suffix) => Path.Combine(
             IntegrationPassTree.Root, "JJFlexWpf", "Dialogs",
-            "AudioWorkshopDialog." + suffix + ".cs");
+            suffix switch
+            {
+                "AudioCheck" => "CheckYourAudioDialog.Check.cs",
+                "Listenback" => "ListenbackTakes.cs",
+                "OffAir" => "CheckYourAudioDialog.OffAir.cs",
+                _ => "CheckYourAudioDialog." + suffix + ".cs",
+            });
 
         private static string ReadWorkshop(string suffix)
         {
@@ -93,14 +103,19 @@ namespace Radios.Tests
                 "private (SliceRecorderTarget? Target, DateTime? MadeUtc) NewestRadioTake()");
             Assert.Contains("SliceHasRecording", radioChoice, StringComparison.Ordinal);
             Assert.Contains("SelectTakeForPlayback()", body, StringComparison.Ordinal);
-            Assert.Contains("if (method == AudioCheckListenMethods.Monitor)", selection, StringComparison.Ordinal);
+            // #835: "Monitor" became "every method that makes no take" (Test
+            // your microphone, Monitor, Loopback), asked of one rule.
+            Assert.Contains("if (!AudioCheckMethods.MakesTake(method))", selection, StringComparison.Ordinal);
             Assert.Contains("NewestRadioTake()", selection, StringComparison.Ordinal);
-            Assert.Contains("NewestIqDirectory()", selection, StringComparison.Ordinal);
+            Assert.Contains("ListenbackTakes.NewestDirectory()", selection, StringComparison.Ordinal);
             Assert.DoesNotContain("RecordingStore.Newest", selection, StringComparison.Ordinal);
             Assert.Contains("TakePlaybackSelector.Choose(method", selection, StringComparison.Ordinal);
             string label = MethodBody(ReadWorkshop("AudioCheck"), "private void SyncPlayTakeLabel()");
             Assert.Contains("Visibility.Collapsed", label, StringComparison.Ordinal);
-            Assert.Contains("IsTabStop = available", label, StringComparison.Ordinal);
+            // Collapsed is out of the tab order; since #835 the button is also
+            // hidden until a take exists to play.
+            Assert.Contains("AudioCheckMethods.MakesTake(SelectedMethod)", label, StringComparison.Ordinal);
+            Assert.Contains("selected.Choice != TakePlaybackChoice.None", label, StringComparison.Ordinal);
             Assert.Contains("selected.Method == AudioCheckListenMethods.OffAir", body, StringComparison.Ordinal);
             Assert.Contains("selected.Method == AudioCheckListenMethods.RecordPlayback", body, StringComparison.Ordinal);
             Assert.Contains("SayNoTake(\"off-air\")", body, StringComparison.Ordinal);
@@ -114,7 +129,7 @@ namespace Radios.Tests
             string manual = MethodBody(check, "private async Task PlayRadioTakeAsync(");
             string automatic = MethodBody(check, "private void TickPostUnkey(FlexBase rig)");
             string iq = MethodBody(ReadWorkshop("Listenback"),
-                "private async Task<bool> PlayTakeAfterClickAsync(");
+                "internal static async Task<bool> PlayAfterClickAsync(");
             string controls = File.ReadAllText(Path.Combine(IntegrationPassTree.Root,
                 "JJFlexWpf", "RecorderControls.cs"));
             string slice = MethodBody(controls, "public static async Task<RecorderOutcome> ToggleSlicePlayAsync(");
@@ -171,12 +186,14 @@ namespace Radios.Tests
         {
             string source = ReadWorkshop("AudioCheck");
             string label = MethodBody(source, "private void SyncPlayTakeLabel()");
-            Assert.Contains("SelectTakeForPlayback().MadeUtc", label, StringComparison.Ordinal);
+            Assert.Contains("selected.MadeUtc", label, StringComparison.Ordinal);
+            Assert.Contains("var selected = SelectTakeForPlayback();", label, StringComparison.Ordinal);
             Assert.Contains("AutomationProperties.SetName(_playTakeButton, label)", label, StringComparison.Ordinal);
             Assert.Contains("_playTakeButton.Content = label", label, StringComparison.Ordinal);
             Assert.Contains("_playTakeButton.GotFocus +=", source, StringComparison.Ordinal);
             Assert.DoesNotContain("WaitForOldTakeDateAsync", source, StringComparison.Ordinal);
             Assert.DoesNotContain("WaitForOldTakeDateAsync", ReadWorkshop("Listenback"), StringComparison.Ordinal);
+            Assert.DoesNotContain("WaitForOldTakeDateAsync", ReadWorkshop("OffAir"), StringComparison.Ordinal);
         }
 
         // ── #458 ────────────────────────────────────────────────────────────
@@ -233,8 +250,7 @@ namespace Radios.Tests
         [Fact]
         public void ThePathHelperNeverBranchesOnTheRefusalWording()
         {
-            string path = Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs",
-                "AudioWorkshopDialog.InjectionPath.cs");
+            string path = Workshop("InjectionPath");
             Assert.True(File.Exists(path),
                 "The injection-path helper is gone, so the two arms have no shared answer about "
                 + "the transmit path and task #458's tab trip is free to come back.");
@@ -261,9 +277,7 @@ namespace Radios.Tests
         [Fact]
         public void ArmingDoesNotTurnPcAudioOnByItself()
         {
-            string path = Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs",
-                "AudioWorkshopDialog.InjectionPath.cs");
-            Assert.DoesNotContain("PCAudio = true", File.ReadAllText(path), StringComparison.Ordinal);
+            Assert.DoesNotContain("PCAudio = true", ReadWorkshop("InjectionPath"), StringComparison.Ordinal);
         }
 
         /// <summary>

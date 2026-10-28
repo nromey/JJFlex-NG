@@ -147,6 +147,9 @@ public partial class MainWindow : UserControl
         // of the values they read are set later, during startup.
         Dialogs.AudioWorkshopDialog.OpenAudioDevices = () => AudioSetupCallback?.Invoke();
         Dialogs.AudioWorkshopDialog.AudioDevicesPath = () => AudioDevicesFilePath;
+        // #835: where Check your audio finds the radio when a door has none
+        // to hand (the Workshop opened from Settings carries no radio).
+        Dialogs.CheckYourAudioDialog.RigSource = () => RigControl;
         // Sprint 33 Track I: the recorder records the microphone the operator
         // already chose. Pointing it at the same setting the rest of the audio
         // path reads is what stops "which microphone am I recording" from
@@ -323,6 +326,10 @@ public partial class MainWindow : UserControl
         DialogTransmitKeys.EscapeUnkey = HandleDialogEscapeUnkey;
         DialogTransmitKeys.ReleaseNow = HandleDialogHoldLost;
         DialogTransmitKeys.SessionOwnsTransmitter = () => Dialogs.AudioWorkshopDialog.AnAudioCheckIsActive;
+        // #835, fix round 2: only Check your audio handles the check's own
+        // Escape; anywhere else, Escape while it transmits stops it.
+        DialogTransmitKeys.WindowHandlesCheckEscape = w => w is Dialogs.CheckYourAudioDialog;
+        DialogTransmitKeys.CheckEscapeElsewhere = Dialogs.CheckYourAudioDialog.StopTransmittingCheckFromElsewhere;
         try
         {
             var systemWide = Radios.SystemWideKeysConfig.Load(Radios.RadioConfig.AppDataRoot);
@@ -3379,6 +3386,7 @@ public partial class MainWindow : UserControl
 
         SetupBoxes();
         if (RigControl != null) Dialogs.AudioWorkshopDialog.NotifyRigReady(RigControl);
+        if (RigControl != null) Dialogs.CheckYourAudioDialog.NotifyRigReady(RigControl);
 
         // Wire memory dialog delegate
         if (RigControl != null)
@@ -3851,6 +3859,11 @@ public partial class MainWindow : UserControl
         // outlive the radio with VOX still off. The hold ends here and the VOX
         // restore is written immediately, not queued.
         _pttController?.ReleaseRigForTeardown("radio events unwired");
+
+        // Then any check in Check your audio (#835), for the same reason: its
+        // restoration (power, dummy load, monitor, the Loopback arrangement)
+        // has to reach the radio before CloseTheRadio disposes it.
+        Dialogs.CheckYourAudioDialog.EndCheckBeforeTeardown(RigControl);
 
         PollTimerEnabled = false;
         _radioPowerOn = false;
@@ -5704,6 +5717,9 @@ public partial class MainWindow : UserControl
         // the workshop singleton outlives the radio, and its 2 Hz tick raced
         // this teardown nulling theRadio (2026-08-07 app-close crash).
         Dialogs.AudioWorkshopDialog.NotifyRigGone();
+        // And Check your audio (#835), which outlives the radio the same way
+        // and runs its own poll.
+        Dialogs.CheckYourAudioDialog.NotifyRigGone();
 
         // Detach screen fields panel (Sprint 14)
         FieldsPanel.Detach();

@@ -5,7 +5,8 @@ using Radios;
 namespace JJFlexWpf.Dialogs;
 
 /// <summary>
-/// Audio Workshop, Hear Yourself: getting the radio ready to carry something
+/// Check your audio (the Audio Workshop's Hear Yourself page until #835):
+/// getting the radio ready to carry something
 /// this computer is sending in place of the microphone — the test tone, or a
 /// reference recording (task #458).
 /// </summary>
@@ -45,7 +46,7 @@ namespace JJFlexWpf.Dialogs;
 /// this dialog has been fixed for twice already.
 /// </para>
 /// </remarks>
-public partial class AudioWorkshopDialog
+public partial class CheckYourAudioDialog
 {
     #region Injection path (task #458)
 
@@ -217,8 +218,10 @@ public partial class AudioWorkshopDialog
         if (!string.Equals(rig.MicSource, PcMicSource, StringComparison.OrdinalIgnoreCase))
             return false;
 
-        using (rig.AppInitiatedSettingChanges())
-            rig.MicSource = had;
+        // Through the radio's restore owner (#835, fix round 5): a teardown
+        // that disarms an idle tone or reference then waits for this write
+        // instead of disposing the radio with it still queued.
+        rig.RestoreTransmitInputAfterInjection(had);
         note = Lexicon.Get("audio.inject.source_restored", ("source", had));
         return true;
     }

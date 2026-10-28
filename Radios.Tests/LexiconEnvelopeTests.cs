@@ -1808,6 +1808,50 @@ namespace Radios.Tests
                 "audio.qsos.delete_help",
                 "audio.qsos.prune_help",
                 "audio.qsos.close_help",
+                // #835, Check your audio (Track A): the five ruled method
+                // names, the method's help and status line, the one-sentence
+                // reasons a method is missing, Off the air's readings in the
+                // reading box, the tone's refusal while the reference is armed,
+                // and the Workshop's bench-tools lines. TextOnly on the #456
+                // reasoning above: control labels and status values the dialog
+                // shows, echoed through its existing speech path where it
+                // speaks at all. Draft wording awaits Noel.
+                "audio.check.method.mic_test",
+                "audio.check.method.monitor",
+                "audio.check.method.record",
+                "audio.check.method.off_air",
+                "audio.check.method.loopback",
+                "audio.check.method_help",
+                "audio.check.method_status_label",
+                "audio.check.status.mic_test",
+                "audio.check.status.monitor",
+                "audio.check.status.record",
+                "audio.check.status.off_air",
+                "audio.check.status.loopback",
+                "audio.check.missing.smartlink",
+                "audio.check.missing.one_receiver",
+                "audio.check.missing.no_transverter",
+                "audio.check.offair_this_take",
+                "audio.check.offair_last_take",
+                "audio.check.offair_measures",
+                "audio.check.offair_no_take",
+                "audio.check.offair_unavailable",
+                "audio.check.offair_sent_heard",
+                "audio.tone.reference_already_armed",
+                "audio.diagnostics.bench_idle",
+                "audio.diagnostics.bench_smartlink",
+                // Track A fix round 2: the sentence for Escape when the radio
+                // is keyed by something other than this app.
+                "audio.check.escape_radio_still_transmitting",
+                // Track A fix round 2: a teardown that could not be confirmed
+                // before the radio went.
+                "audio.check.teardown_unconfirmed",
+                // Track A fix round 3: restores withheld because the radio kept
+                // transmitting, and the refusal while a teardown holds admission.
+                "audio.check.teardown_withheld",
+                "audio.check.teardown_refuses",
+                // Track A fix round 4: an IQ take refused while a teardown holds admission.
+                "audio.iq.reason.teardown-in-progress",
             };
 
             Assert.Equal(3140, unclassified);

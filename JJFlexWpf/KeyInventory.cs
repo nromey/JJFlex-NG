@@ -696,6 +696,14 @@ public static class KeyInventory
             new[] { "recorded", "recordings", "recording", "qso", "qsos", "files", "file", "list", "trim",
                     "save", "export", "mp3", "delete", "prune", "computer", "leader" },
             "Global", "Audio"),
+        // #835: C for Check, ruled by Noel 2026-10-27 14:59. Opening a window
+        // is an action. It opens Check your audio and never starts the check
+        // (13:57). Keywords are the words an operator hunting "how do I sound"
+        // would try, including the method names' own words.
+        new("Leader", "JJ key", "Ctrl+J, Alt+C", "Check your audio: test your microphone, hear yourself, or record and play back. Opening it never keys the radio",
+            new[] { "check", "audio", "hear", "myself", "yourself", "sound", "microphone", "mic", "test",
+                    "monitor", "record", "playback", "loopback", "off-air", "verdict", "level", "leader" },
+            "Global", "Audio"),
 
         // ── Not yet in the grammar — each with the reason, and a home ──
         // A toggle whose Ctrl initial is spoken for cannot derive a chord,
@@ -1160,9 +1168,6 @@ public static class KeyInventory
     // ────────────────────────────────────────────────────────────────
     private static readonly FixedKeyEntry[] AudioWorkshopKeys =
     {
-        new("AudioWorkshop", "Audio Workshop", "Ctrl+Enter", "Start the Audio Check, or stop the one that's running",
-            new[] { "audio", "check", "start", "stop", "transmit", "mic", "microphone",
-                    "hear", "test", "workshop", "levels" }, "Global", "Audio"),
         new("AudioWorkshop", "Audio Workshop", "Ctrl+S", "Save an audio preset (your TX audio chain settings)",
             new[] { "save", "preset", "profile", "audio", "chain", "settings", "workshop" }, "Global", "Audio"),
         new("AudioWorkshop", "Audio Workshop", "Ctrl+O", "Load an audio preset",
@@ -1175,8 +1180,6 @@ public static class KeyInventory
             new[] { "reset", "default", "audio", "chain", "transmit", "workshop" }, "Global", "Audio"),
         new("AudioWorkshop", "Load Audio Preset picker", "Delete", "Delete the selected preset (asks first)",
             new[] { "delete", "remove", "preset", "audio", "workshop" }, "Global", "Audio"),
-        new("AudioWorkshop", "Audio Workshop", "Escape", "While a check is transmitting: first press unkeys and stays, second press closes. Escape never leaves you transmitting",
-            new[] { "escape", "stop", "unkey", "transmit", "close", "workshop" }, "Global", "Audio"),
         // F6 has moved between the Workshop's SECTIONS since 2026-08-13 and was
         // never registered here, so it appeared in neither the Keys dialog nor
         // the exported key list — a working key nobody could discover. Closed
@@ -1191,6 +1194,24 @@ public static class KeyInventory
             new[] { "section", "next", "move", "navigate", "group", "jump", "workshop" }, "Global", "Audio"),
         new("AudioWorkshop", "Audio Workshop", "Shift+F6", "Move to the previous section within this category",
             new[] { "section", "previous", "back", "move", "navigate", "group", "workshop" }, "Global", "Audio"),
+    };
+
+    // ────────────────────────────────────────────────────────────────
+    //  Check your audio local keys (#835). The Audio Check's Ctrl+Enter and
+    //  two-stage Escape moved here from the Audio Workshop with the check
+    //  itself. Dialog-local, handled in CheckYourAudioDialog.OnPreviewKeyDown.
+    // ────────────────────────────────────────────────────────────────
+    private static readonly FixedKeyEntry[] CheckYourAudioKeys =
+    {
+        new("CheckYourAudio", "Check your audio", "Ctrl+Enter", "Start the check with the method shown, or stop the one that's running",
+            new[] { "audio", "check", "start", "stop", "transmit", "mic", "microphone",
+                    "hear", "test", "levels" }, "Global", "Audio"),
+        new("CheckYourAudio", "Check your audio", "Escape", "While a check is transmitting: first press unkeys and stays, second press closes. Escape never leaves you transmitting",
+            new[] { "escape", "stop", "unkey", "transmit", "close", "check" }, "Global", "Audio"),
+        new("CheckYourAudio", "Check your audio", "F6", "Move to the next section of the window, and say which one",
+            new[] { "section", "next", "move", "navigate", "group", "jump", "check" }, "Global", "Audio"),
+        new("CheckYourAudio", "Check your audio", "Shift+F6", "Move to the previous section of the window",
+            new[] { "section", "previous", "back", "move", "navigate", "group", "check" }, "Global", "Audio"),
     };
 
     // ────────────────────────────────────────────────────────────────
@@ -1430,6 +1451,7 @@ public static class KeyInventory
         foreach (var e in FilterLayerCommands) yield return e;
         foreach (var e in NoiseLayerCommands) yield return e;
         foreach (var e in AudioWorkshopKeys) yield return e;
+        foreach (var e in CheckYourAudioKeys) yield return e;
         foreach (var e in CategoryNavigationKeys) yield return e;
         foreach (var e in OtherKeys) yield return e;
         foreach (var e in SystemWideKeyRows) yield return e;

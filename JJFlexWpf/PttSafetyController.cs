@@ -756,8 +756,23 @@ namespace JJFlexWpf
             return _getRadioPowerOn() && _getRigControl() != null;
         }
 
+        /// <summary>
+        /// The radio is being torn down and is putting an Audio Check's changes
+        /// back (#835, fix round 3): nothing new keys until that has finished.
+        /// Only ever refuses a press that would START a transmission; an unkey
+        /// is never refused. Said, not silent.
+        /// </summary>
+        private bool RefusedForTeardown()
+        {
+            if (_getRigControl()?.TeardownInProgress != true) return false;
+            // DRAFT PROSE (#835): awaiting Noel.
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.teardown_refuses"), VerbosityLevel.Critical, interrupt: true);
+            return true;
+        }
+
         /// <summary>Admission for a recording joining an existing transmission; never requests keying.</summary>
         public bool AllowsRecorderPlayback(FlexBase rig) => ReferenceEquals(_getRigControl(), rig) &&
+            _getRigControl()?.TeardownInProgress != true &&
             CanTransmit() && !RefuseIfHeldAfterCut("slice playback") &&
             (CanTransmitHereCheck?.Invoke() ?? true);
 
@@ -860,6 +875,7 @@ namespace JJFlexWpf
         public void PttDown()
         {
             if (!CanTransmit()) return;
+            if (State == PttState.Idle && RefusedForTeardown()) return;
 
             // The hold after a reflected-power cut (#571): a press that would
             // start a transmission does not, and says why. Only from Idle —
@@ -921,6 +937,7 @@ namespace JJFlexWpf
         public void ToggleLock()
         {
             if (!CanTransmit() && State == PttState.Idle) return;
+            if (State == PttState.Idle && RefusedForTeardown()) return;
 
             // The hold after a reflected-power cut (#571): from Idle this press
             // would key, so it is refused and repeats why the transmission was

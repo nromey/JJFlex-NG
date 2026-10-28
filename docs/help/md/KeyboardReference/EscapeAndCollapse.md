@@ -27,7 +27,7 @@ For Home's field groups, Escape works at two scales:
 - A single Escape closes the group you are in. From Home, it closes every open group.
 - Two Escapes in quick succession from inside a group close every open group and return focus to Home.
 
-Escape can have another job before it closes a group. If a voice message or a push-to-talk transmission is running, Escape stops that transmission first. If you are adjusting a filter edge or the RIT or XIT scale, it cancels that adjustment first. In a JJ key layer, Escape cancels the layer; in an ordinary dialog, it closes the dialog. A running Audio Check or transmit test uses the first press to stop its transmission and keeps its window open.
+Escape can have another job before it closes a group. If a voice message or a push-to-talk transmission is running, Escape stops that transmission first. If you are adjusting a filter edge or the RIT or XIT scale, it cancels that adjustment first. In a JJ key layer, Escape cancels the layer; in an ordinary dialog, it closes the dialog. A running check in Check your audio, or a transmit test, uses the first press to stop its transmission and keeps its window open.
 
 ## Re-expanding a Collapsed Group
 

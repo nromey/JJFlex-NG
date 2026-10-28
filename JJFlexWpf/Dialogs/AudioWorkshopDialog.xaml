@@ -46,6 +46,16 @@
                     AutomationProperties.Name="Reset"
                     AutomationProperties.AcceleratorKey="Alt+R"
                     Click="Reset_Click"/>
+            <!-- #835: the door to Check your audio, which was this window's
+                 Hear Yourself category. No access key on purpose: WPF matches
+                 an access key with Shift held too, and every new mnemonic here
+                 would first have to be cleared against the global Alt+Shift
+                 chords (see Save Preset above). The JJ key's Alt+C opens the
+                 same window from anywhere. -->
+            <Button x:Name="CheckYourAudioButton" Content="Check your audio" Margin="0,0,4,0" Padding="8,4"
+                    AutomationProperties.Name="Check your audio"
+                    AutomationProperties.AcceleratorKey="Ctrl+J, Alt+C"
+                    Click="CheckYourAudio_Click"/>
         </StackPanel>
 
         <!-- The category list (task #134). Built by CategoryNavigator from
@@ -111,16 +121,12 @@
                 </ScrollViewer>
             </TabItem>
 
-            <!-- Putting a signal through all of it and listening to the
-                 result: a known tone, a known recording, or your own voice
-                 played back to you. These are how you TUNE the two categories
-                 above — the Fixer is where you go when something is broken. -->
-            <TabItem x:Name="HearYourselfTab" Header="Hear Yourself"
-                     AutomationProperties.Name="Hear Yourself">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
-                    <StackPanel x:Name="HearYourselfContent" Margin="8" />
-                </ScrollViewer>
-            </TabItem>
+            <!-- Hear Yourself was the third category until #835 (2026-10-27):
+                 a known tone, a known recording, or your own voice played back.
+                 It is its own window now, Check your audio, because checking is
+                 a different moment from adjusting; the button at the end of the
+                 toolbar above opens it. One surface with several doors, never
+                 two copies. -->
 
             <!-- Meters. Two categories until 2026-08-25 — "Live Meters" (eight
                  hand-picked readings) and "Meter Inventory" (all hundred-odd the

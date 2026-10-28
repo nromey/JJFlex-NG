@@ -15,14 +15,18 @@ public class Host
     private Control _iqRate, _iqHearSelfDuringTake, _takeStatus;
     private Watcher _iqWatch = new();
     private void IqFailure(Exception ex) { }
+    private void TrackOffAirRun(FlexBase rig, FakeRun run) { }
+    private void ReleaseOffAirRun(FlexBase rig) { }
+    private static IDisposable TrackStart(FlexBase rig, string name) => new Empty();
     /*StartOffAirAsync*/
     private FlexBase _rig = new();
     private string _lastAudioCheckSource;
     private AudioCheckSession _session;
     private Control _micGainControl;
+    private void FocusGain() { }
     private PttSafetyController ptt = new();
     private Func<PttSafetyController> PttControllerSource => () => ptt;
-    private void IqStatus(string s, bool b=false, string subject=null) { }
+    private void IqStatus(string s, bool b=false, string subject=null, bool speak=true) { }
     private void SetLoopbackButtonLabel(bool stopping) { }
     private void SetStartButtonLabel(string s) { }
     private string BuildToneAnnouncement() => null;
@@ -82,10 +86,13 @@ public class Host
         private Phase _phase;
         private Watcher _watcher = new();
         public bool Active;
+        private bool Records => _method == AudioCheckListenMethods.RecordPlayback || _method == AudioCheckListenMethods.Loopback;
         public AudioCheckSession(Host owner, FlexBase rig, PttSafetyController ptt, AudioCheckListenMethods method,
             AudioCheckPowerModes powerMode, int lowPowerWatts, bool loopback = false)
         { _owner=owner; _ptt=ptt; _method=method; _powerMode=powerMode; _lowPowerWatts=lowPowerWatts; _loopback=loopback; }
         private void RestoreChangedState(FlexBase rig, bool speak) { }
+        private void RestoreWhenReceiving(FlexBase rig) { }
+        private void Remember(FlexBase rig, string name, Action restore) { }
         private static string FormatMHz(double f) => f.ToString();
         private static string SourceFriendlyName(string s) => s;
         private void HandleUnkey(bool external) { _ptt.EscapeUnlock(); Active=false; _owner.OnSessionEnded(); }
@@ -104,10 +111,11 @@ public class FlexBase
     public string OffAirListenbackRefusalReason => "";
     public object CaptureListenbackRecoveryReader() => null;
     public Task<FakeRun> StartListenbackAsync(ListenbackOptions options, CancellationToken token) => OffAir.Task;
-    public bool LoopbackArranged, Transmit, DummyLoadMode, RemoteRig, LoopbackDriveManaged;
+    public bool LoopbackArranged, Transmit, DummyLoadMode, RemoteRig, LoopbackDriveManaged, TeardownInProgress;
     private int _power=20;
     public Action PowerChanged;
     public int XmitPower { get => _power; set { _power=value; PowerChanged?.Invoke(); } }
+    public int TunePower;
     public double TXFrequency;
     public string MicSource;
     public bool TxToneEngaged, TxFilePlaying;
@@ -130,7 +138,7 @@ public record ListenbackOptions(int Rate, bool OffAir, bool HearSelfDuringOffAir
 public static class EarconPlayer { public static void FeatureOnTone() { } }
 public class PttSafetyController { public bool IsTransmitting; public int Keys; public int? SessionTimeoutOverrideSeconds; public bool AudioCheckNarration; public int? PlannedStopSeconds;
     public void ToggleLock() { Keys++; IsTransmitting=true; } public void EscapeUnlock() { IsTransmitting=false; } }
-public enum AudioCheckListenMethods { Monitor, RecordPlayback, OffAir }
+public enum AudioCheckListenMethods { Monitor, RecordPlayback, OffAir, MicTest, Loopback }
 public enum AudioCheckPowerModes { DummyLoad, LowPower }
 public enum VerbosityLevel { Terse, Critical }
 public static class Lexicon { public static string Get(string s, params (string, object)[] args) => s; }

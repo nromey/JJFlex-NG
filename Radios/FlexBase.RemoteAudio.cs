@@ -1503,6 +1503,8 @@ namespace Radios
         /// </summary>
         public bool TxToneStart()
         {
+            // #835: no transmit source is armed during an Audio Check teardown.
+            if (RefusedForCheckTeardown("test tone")) return false;
             lock (_voxPauseGate)
             {
                 if (txToneGen.Engaged) return true;
@@ -1518,6 +1520,7 @@ namespace Radios
         /// <summary>Wait for the radio to confirm VOX off before a tone can reach its transmit input.</summary>
         public async Task<bool> TxToneStartAsync()
         {
+            if (RefusedForCheckTeardown("test tone")) return false;
             Flex.Smoothlake.FlexLib.Radio radio;
             VoxPauseOwner.Lease lease;
             lock (_voxPauseGate)
@@ -1750,6 +1753,7 @@ namespace Radios
         /// </remarks>
         public void TxFileStart()
         {
+            if (RefusedForCheckTeardown("a recording")) return;   // #835, see FlexBase.CheckRestore.cs
             Tracing.TraceLine("TxFileStart: \"" + txFilePlayer.ContentName + "\", "
                 + txFilePlayer.ContentSeconds.ToString("F1") + " s at "
                 + txFilePlayer.ContentSampleRate + " Hz", TraceLevel.Info);
@@ -1789,6 +1793,7 @@ namespace Radios
         /// </remarks>
         public void TxFileStartForVox()
         {
+            if (RefusedForCheckTeardown("a recording for VOX")) return;   // #835, see FlexBase.CheckRestore.cs
             Tracing.TraceLine("TxFileStartForVox: \"" + txFilePlayer.ContentName + "\", "
                 + txFilePlayer.ContentSeconds.ToString("F1") + " s at "
                 + txFilePlayer.ContentSampleRate + " Hz — reaching the radio while receiving so VOX can key on it",

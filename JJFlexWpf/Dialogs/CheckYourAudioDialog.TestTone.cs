@@ -12,16 +12,26 @@ using Radios;
 namespace JJFlexWpf.Dialogs;
 
 /// <summary>
-/// Audio Workshop, TX Audio tab: the test tone section — a steady tone
-/// sent in place of the microphone, its passband check, and the local
-/// monitor of it.
+/// Check your audio: the test tone section — a steady tone sent in place of
+/// the microphone, its passband check, and the local monitor of it.
 ///
-/// Split out of AudioWorkshopDialog.xaml.cs in Sprint 32 Track A, with no
-/// change to any member.
+/// Split out of AudioWorkshopDialog.xaml.cs in Sprint 32 Track A; moved with
+/// the Hear Yourself page into Check your audio in #835.
 /// </summary>
-public partial class AudioWorkshopDialog
+public partial class CheckYourAudioDialog
 {
     #region Test Tone Section (Audio Track C)
+
+    private CheckBox? _toneCheck;
+    private CycleFieldControl? _tonePresetControl;
+    private ValueFieldControl? _toneFreqControl;
+    private ValueFieldControl? _toneLevelControl;
+    private CheckBox? _toneMonitorCheck;
+    private TextBlock? _toneInfo;
+    private ContinuousToneSampleProvider? _toneMonitorProvider;
+    private bool _toneMonitorSounding;
+    private bool _toneOutsideWarned; // edge trigger: filter moved out from under an armed tone
+    private static readonly int[] TonePresetHz = { 440, 700, 1000 }; // index 3 = Custom
 
     /// <summary>
     /// The built-in TX test tone: a known tone at a known level that REPLACES
@@ -36,7 +46,7 @@ public partial class AudioWorkshopDialog
     /// </summary>
     private void BuildTestToneSection()
     {
-        AddRadioSection(HearYourselfContent, "Test Tone");
+        _sections.OpenRadio(CheckContent, "Test Tone");
 
         _toneCheck = MakeToggle("Test tone instead of microphone");
         _toneCheck.Checked += (s, e) => ToneArmChanged(true);
@@ -44,7 +54,7 @@ public partial class AudioWorkshopDialog
         JJFlexHelp.SetText(_toneCheck,
             "The tone replaces your microphone while you transmit. Its level is set in Tone level. "
             + "Clear this box or press Ctrl+J, Ctrl+G to disarm it. VOX is turned off while the tone is armed.");
-        AddToSection(HearYourselfContent, _toneCheck);
+        _sections.Add(CheckContent, _toneCheck);
 
         _tonePresetControl = MakeCycle("Tone frequency", new[]
         {
@@ -59,7 +69,7 @@ public partial class AudioWorkshopDialog
             UpdateToneControlsVisibility(); // the custom field follows the preset
             ToneParamsChanged(speakPassband: true);
         };
-        AddToSection(HearYourselfContent, _tonePresetControl);
+        _sections.Add(CheckContent, _tonePresetControl);
 
         _toneFreqControl = new ValueFieldControl();
         _toneFreqControl.Setup("Custom frequency", 50, 10000, 10, 440, 0, "hertz");
@@ -69,7 +79,7 @@ public partial class AudioWorkshopDialog
             if (_polling) return;
             ToneParamsChanged(speakPassband: true);
         };
-        AddToSection(HearYourselfContent, _toneFreqControl);
+        _sections.Add(CheckContent, _toneFreqControl);
 
         _toneLevelControl = new ValueFieldControl();
         _toneLevelControl.Setup("Tone level", -40, 0, 1, -10, 0, "dBFS");
@@ -78,13 +88,13 @@ public partial class AudioWorkshopDialog
             if (_polling) return;
             ToneParamsChanged(speakPassband: false);
         };
-        AddToSection(HearYourselfContent, _toneLevelControl);
+        _sections.Add(CheckContent, _toneLevelControl);
 
         _toneMonitorCheck = MakeToggle("Hear the tone while it transmits");
         _toneMonitorCheck.IsChecked = true;
         _toneMonitorCheck.Checked += (s, e) => ToneMonitorChanged(true);
         _toneMonitorCheck.Unchecked += (s, e) => ToneMonitorChanged(false);
-        AddToSection(HearYourselfContent, _toneMonitorCheck);
+        _sections.Add(CheckContent, _toneMonitorCheck);
 
         _toneInfo = new TextBlock
         {
@@ -95,7 +105,7 @@ public partial class AudioWorkshopDialog
         };
         AutomationProperties.SetName(_toneInfo, "Test tone passband status");
         AutomationProperties.SetLiveSetting(_toneInfo, AutomationLiveSetting.Polite);
-        AddToSection(HearYourselfContent, _toneInfo);
+        _sections.Add(CheckContent, _toneInfo);
 
         // The tone starts off, so its controls start hidden (round 14).
         UpdateToneControlsVisibility();
@@ -362,6 +372,20 @@ public partial class AudioWorkshopDialog
         {
             SetToneCheckSilently(false);
             ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical, interrupt: true);
+            return;
+        }
+        // Never two sources at once (#835). The reference has always refused
+        // while the tone was armed; until #835 the tone did not return the
+        // favour, so both could be armed together with nothing on screen
+        // saying which one would reach the transmitter.
+        if (rig.TxFilePlaying || rig.TxReferenceArmed || _refArmCheck?.IsChecked == true)
+        {
+            SetToneCheckSilently(false);
+            EarconPlayer.Warning2Beep();
+            // DRAFT PROSE (#835): awaiting Noel.
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.tone.not_armed",
+                    ("reason", Lexicon.Get("audio.tone.reference_already_armed"))),
+                VerbosityLevel.Critical, interrupt: true);
             return;
         }
         // #458: the transmit input is set HERE if it is the only thing in the

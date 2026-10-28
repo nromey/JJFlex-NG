@@ -4358,6 +4358,10 @@ namespace Radios
         {
             Tracing.TraceLine("FlexBase.Dispose:" + disposing.ToString(), TraceLevel.Info);
 
+            // #835: an Audio Check restore still waiting on this radio can no
+            // longer happen; the owner says so in the trace and stops polling.
+            DisposeCheckRestorations();
+
             // FIRST, and outside the disposed guard. A rig being torn down must
             // stop consuming presence pushes even if the teardown below throws
             // half way, and even if Dispose is somehow reached twice — a dead
@@ -7990,9 +7994,17 @@ namespace Radios
             }
             set
             {
+                // #835: a key-up is refused while an Audio Check teardown holds
+                // admission, here and again when the queued write runs; an
+                // unkey never is. See FlexBase.CheckRestore.cs for the boundary.
+                if (value && RefusedForCheckTeardown("transmit")) return;
                 if (!value) CancelSlicePlayback();
                 if (value && TxReferenceArmed) txFilePlayer.RestartOnNextBuffer();
-                q.Enqueue((FunctionDel)(() => { theRadio.Mox = value; }), "Mox");
+                q.Enqueue((FunctionDel)(() =>
+                {
+                    if (value && TeardownHeldSilently("transmit")) return;
+                    theRadio.Mox = value;
+                }), "Mox");
             }
         }
 
@@ -8003,7 +8015,16 @@ namespace Radios
         public bool TxTune
         {
             get => theRadio.TXTune;
-            set { q.Enqueue((FunctionDel)(() => { theRadio.TXTune = value; }), "TXTune"); }
+            set
+            {
+                // #835: as Transmit above; turning tune off is never refused.
+                if (value && RefusedForCheckTeardown("tune")) return;
+                q.Enqueue((FunctionDel)(() =>
+                {
+                    if (value && TeardownHeldSilently("tune")) return;
+                    theRadio.TXTune = value;
+                }), "TXTune");
+            }
         }
 
         /// <summary>
@@ -9372,6 +9393,10 @@ namespace Radios
                 Tracing.TraceLine("FlexTunerOn:" + value.ToString() + ' ' +
                     _FlexTunerOn.ToString() + ' ' + _FlexTunerType.ToString(), TraceLevel.Info);
                 if (value == _FlexTunerOn) return;
+                // #835: the tuner STARTS a carrier, so it is refused during an
+                // Audio Check teardown, here and again when its queued write
+                // runs. Turning it off is never refused.
+                if (value && RefusedForCheckTeardown("antenna tuner")) return;
                 switch (_FlexTunerType)
                 {
                     case FlexTunerTypes.manual:
@@ -9391,7 +9416,15 @@ namespace Radios
                                 RaiseFlexAntTuneStartStop(new FlexAntTunerArg
                                     (FlexTunerType, stat, highSWR));
                             }
-                            q.Enqueue((FunctionDel)(() => { theRadio.TXTune = value; }), "TXTune");
+                            q.Enqueue((FunctionDel)(() =>
+                            {
+                                if (value && TeardownHeldSilently("antenna tuner"))
+                                {
+                                    _FlexTunerOn = false;
+                                    return;
+                                }
+                                theRadio.TXTune = value;
+                            }), "TXTune");
                         }
                         break;
                     case FlexTunerTypes.auto:
@@ -9400,7 +9433,15 @@ namespace Radios
                             q.Enqueue((FunctionDel)(() => { Transmit = value; }), "Transmit");
                             if (value)
                             {
-                                q.Enqueue((FunctionDel)(() => { theRadio.ATUTuneStart(); }), "ATUTuneStart");
+                                q.Enqueue((FunctionDel)(() =>
+                                {
+                                    if (TeardownHeldSilently("automatic tuner start"))
+                                    {
+                                        _FlexTunerOn = false;
+                                        return;
+                                    }
+                                    theRadio.ATUTuneStart();
+                                }), "ATUTuneStart");
                             }
                         }
                         break;
@@ -11186,6 +11227,14 @@ namespace Radios
             if (_loopbackArranged) return true;
             if (System.Threading.Volatile.Read(ref _lbArrangementEnding) != 0) return false;
             if (System.Threading.Interlocked.Exchange(ref _lbArrangementStarting, 1) != 0) return false;
+            // #835, fix round 4: a teardown that begins while this is changing
+            // the radio waits for it, rollback included, before it reads the
+            // restore owner; and this stops at its next step once it sees one.
+            using var startTracking = CheckRestorations.TrackStart("loopback arrangement");
+            void UnlessTearingDown()
+            {
+                if (TeardownInProgress) throw new InvalidOperationException("teardown-in-progress");
+            }
             _lbSetupFailure = null;
             bool setupChanged = false;
             Radio arrangementRadio = null;
@@ -11193,6 +11242,11 @@ namespace Radios
             try
             {
             if (theRadio == null || !HasActiveSlice || !LoopbackSupported) return false;
+            if (TeardownInProgress)
+            {
+                Tracing.TraceLine("StartLoopbackArrangement: refused during an Audio Check teardown", TraceLevel.Warning);
+                return false;
+            }
             if (theRadio.SliceList.Count >= TotalMaxSlices)
             {
                 Tracing.TraceLine("StartLoopbackArrangement: no free slice slot", TraceLevel.Warning);
@@ -11255,6 +11309,7 @@ namespace Radios
                 _lbSavedMutes = null;
                 return false;
             }
+            UnlessTearingDown();
             if (confirmedPriorFullDuplex.HasValue)
             {
                 // Off-air takes restore by raw reply. Cache-sensitive setters
@@ -11301,6 +11356,7 @@ namespace Radios
                     saved.Slice, $"slice set {saved.Slice.Index} audio_mute=1", "mute setup").ConfigureAwait(false))
                     throw new InvalidOperationException("slice-mute-setup-unconfirmed");
             }
+            UnlessTearingDown();
 
             // NewSlice's queued creation waits for the owned pan and slice.
             // Do not report readiness until configuration and gain have replies.
@@ -11329,6 +11385,7 @@ namespace Radios
                     ears = resources.Slice;
                 }
             }).ConfigureAwait(false);
+            UnlessTearingDown();
             if (!await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection, ears,
                 $"slice set {ears.Index} rxant={earsAntenna}", "ears antenna setup").ConfigureAwait(false))
                 throw new InvalidOperationException("loopback-ears-setting-refused");
@@ -11463,110 +11520,241 @@ namespace Radios
         /// remove the ears slice. Returns a short status suitable for speech
         /// ("" when everything restored cleanly).
         /// </summary>
-        public async Task<string> EndLoopbackArrangementAsync()
+        /// <remarks>
+        /// <para>
+        /// <b>Every step goes through <see cref="CheckRestorations"/> (#835, fix
+        /// round 3).</b> They are registered here, synchronously, before this
+        /// method first awaits, in the order they always ran: the listening
+        /// slice's recorder, the return from and removal of the listening slice,
+        /// the slice mutes, the transmit antenna, power, monitor, full duplex and
+        /// transverter drive. The owner runs each only while the radio reports
+        /// receive, asked again before each one. Until then this restored the
+        /// antenna and the operator's power with no such question, so a hardware
+        /// PTT line still holding the radio keyed got full power on the prior
+        /// antenna the moment the arrangement came down.
+        /// </para>
+        /// <para>
+        /// Because the steps belong to the radio's owner, they still run, and a
+        /// teardown still waits for them, after the session that began them and
+        /// the window that showed it have gone. This method's own task completes
+        /// when they have; while the radio keeps transmitting, it does not.
+        /// </para>
+        /// </remarks>
+        public Task<string> EndLoopbackArrangementAsync()
         {
             if (System.Threading.Interlocked.Exchange(ref _lbArrangementEnding, 1) != 0)
-                return "Loopback restoration is still running. ";
-            try
+                return Task.FromResult("Loopback restoration is still running. ");
+            if (!_loopbackArranged)
             {
-            if (!_loopbackArranged) return "";
-            // The listening slice must stop its own buffer before removal.
-            bool recorderStopped = await StopSliceRecorderAsync(SliceRecorderTarget.LoopbackEars).ConfigureAwait(false);
-            _loopbackArranged = false;
+                System.Threading.Volatile.Write(ref _lbArrangementEnding, 0);
+                return Task.FromResult("");
+            }
 
-            string trouble = recorderStopped ? "" : "The listening slice recorder stop was not confirmed. ";
-            if (theRadio != null && ReferenceEquals(theRadio, _lbArrangementRadio) &&
-                ReferenceEquals(theRadio.CurrentCommandConnection, _lbArrangementConnection))
+            // What this arrangement saved, held here: the last step forgets the
+            // fields, and a later arrangement must not be restored by this one.
+            var resources = _lbResources;
+            var savedMutes = _lbSavedMutes;
+            var savedActive = _lbSavedActive;
+            var arrangementRadio = _lbArrangementRadio;
+            var arrangementConnection = _lbArrangementConnection;
+            string savedTxAnt = _lbSavedTxAnt;
+            int savedPower = _lbSavedPower;
+            bool savedMonitor = _lbSavedMonitor;
+            bool savedFdx = _lbSavedFdx;
+            var driveBand = _lbDriveBand;
+            double savedDriveDbm = _lbSavedDriveDbm;
+
+            var trouble = new System.Text.StringBuilder();
+            void Trouble(string text) { lock (trouble) trouble.Append(text); }
+            // Asked by each step at its own run: the same radio, on the same
+            // connection, that this arrangement was made on.
+            bool Same() => theRadio != null && ReferenceEquals(theRadio, arrangementRadio) &&
+                ReferenceEquals(theRadio.CurrentCommandConnection, arrangementConnection);
+
+            var owner = CheckRestorations;
+            var steps = new List<CheckRestorations.Entry>
             {
-                // Retain this arrangement's objects even when End arrives
-                // before its queued creation/configuration has completed.
-                var resources = _lbResources;
-                var arrangementRadio = theRadio;
-                // An operator who moved to the listening slice during the check
-                // (Noel did, to find its mute) would otherwise keep it: the
-                // removal refuses the active slice. Go back to where the check
-                // started, silently, so the removal can proceed.
-                if (resources?.Slice != null && ReferenceEquals(resources.Slice, VFOToSlice(RXVFO)) &&
-                    !ReferenceEquals(resources.Slice, SliceForTransmitSetting()))
-                    await ReturnFromListeningSliceAsync(arrangementRadio, _lbArrangementConnection,
-                        resources.Slice, _lbSavedActive).ConfigureAwait(false);
-                if (resources?.Slice != null &&
-                    (ReferenceEquals(resources.Slice, VFOToSlice(RXVFO)) ||
-                     ReferenceEquals(resources.Slice, SliceForTransmitSetting())))
-                    trouble = "The listening slice is your active slice, so it was kept. ";
-                bool reservedRemoval = resources != null && (resources.Slice == null ||
-                    (!ReferenceEquals(resources.Slice, VFOToSlice(RXVFO)) && !ReferenceEquals(resources.Slice, SliceForTransmitSetting())));
-                if (reservedRemoval) System.Threading.Interlocked.Increment(ref _pendingRemovals);
-                q.Enqueue((FunctionDel)(() =>
+                // Every step reports whether it really put its part back (fix
+                // round 4): a refusal, an unconfirmed reply or a changed
+                // connection is a failure the owner carries, not a normal return.
+                owner.Register("loopback: listening slice recorder", async () =>
                 {
-                    try
+                    // The listening slice must stop its own buffer before removal.
+                    bool recorderStopped = await StopSliceRecorderAsync(SliceRecorderTarget.LoopbackEars).ConfigureAwait(false);
+                    _loopbackArranged = false;
+                    if (!recorderStopped) Trouble("The listening slice recorder stop was not confirmed. ");
+                    if (!Same()) Trouble("The radio connection changed before restoration could be confirmed. ");
+                    return recorderStopped && Same();
+                }),
+                // The return to, and removal of, the listening slice, then each
+                // mute on its own: separate entries, so the radio is asked
+                // again between them (fix round 4).
+                owner.Register("loopback: return from the listening slice", async () =>
+                {
+                    if (!Same()) return false;
+                    // An operator who moved to the listening slice during the check
+                    // (Noel did, to find its mute) would otherwise keep it: the
+                    // removal refuses the active slice. Go back to where the check
+                    // started, silently, so the removal can proceed.
+                    if (resources?.Slice != null && ReferenceEquals(resources.Slice, VFOToSlice(RXVFO)) &&
+                        !ReferenceEquals(resources.Slice, SliceForTransmitSetting()))
+                        await ReturnFromListeningSliceAsync(arrangementRadio, arrangementConnection,
+                            resources.Slice, savedActive).ConfigureAwait(false);
+                    return true;
+                }),
+                owner.Register("loopback: listening slice removal", async () =>
+                {
+                    if (!Same()) return false;
+                    bool kept = false;
+                    if (resources?.Slice != null &&
+                        (ReferenceEquals(resources.Slice, VFOToSlice(RXVFO)) ||
+                         ReferenceEquals(resources.Slice, SliceForTransmitSetting())))
                     {
-                        if (!ReferenceEquals(theRadio, arrangementRadio) || resources == null) return;
-                        lock (mySlices)
-                        {
-                            mySliceRemoved = false;
-                            if (!resources.Release(mySlices, arrangementRadio.PanadapterList,
-                                VFOToSlice(RXVFO), SliceForTransmitSetting())) return;
-                        }
-                        if (!FlexBase.@await(() => mySliceRemoved, 3000))
-                            Tracing.TraceLine("Loopback ears removal: radio confirmation timed out", TraceLevel.Error);
+                        Trouble("The listening slice is your active slice, so it was kept. ");
+                        kept = true;
                     }
-                    finally { if (reservedRemoval) System.Threading.Interlocked.Decrement(ref _pendingRemovals); }
-                }), "LoopbackEarsRemove");
-                if (_lbSavedMutes != null)
-                {
-                    foreach (var saved in _lbSavedMutes)
+                    bool reservedRemoval = resources != null && (resources.Slice == null ||
+                        (!ReferenceEquals(resources.Slice, VFOToSlice(RXVFO)) && !ReferenceEquals(resources.Slice, SliceForTransmitSetting())));
+                    if (reservedRemoval) System.Threading.Interlocked.Increment(ref _pendingRemovals);
+                    // The removal reports back (fix round 5): a refused release,
+                    // a changed connection or a radio that never confirms the
+                    // slice gone is a failure the owner carries, not a trace.
+                    var removed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    q.Enqueue((FunctionDel)(() =>
                     {
+                        bool ok = false;
                         try
                         {
-                            if (!await LoopbackSliceCommandAsync(arrangementRadio, _lbArrangementConnection,
-                                saved.Slice, $"slice set {saved.Slice.Index} audio_mute={(saved.Muted ? 1 : 0)}", "mute restore").ConfigureAwait(false))
-                                trouble += $"Slice {saved.Slice.Index} mute restoration was not confirmed. ";
-                            // The reply alone left FlexLib's Slice.Mute stale on the
-                            // bench, and the station layout and the next check both
-                            // read it. A fresh report corrects the cache and proves
-                            // the restore.
-                            else if (await ReadSliceMuteAsync(arrangementRadio, _lbArrangementConnection,
-                                saved.Slice).ConfigureAwait(false) is bool read && read != saved.Muted)
-                                trouble += $"Slice {saved.Slice.Index} mute restoration was not confirmed. ";
+                            if (!ReferenceEquals(theRadio, arrangementRadio) || resources == null) return;
+                            bool hadSlice;
+                            lock (mySlices)
+                            {
+                                mySliceRemoved = false;
+                                hadSlice = resources.Slice != null && mySlices.Contains(resources.Slice);
+                                if (!resources.Release(mySlices, arrangementRadio.PanadapterList,
+                                    VFOToSlice(RXVFO), SliceForTransmitSetting())) return;
+                            }
+                            if (hadSlice && !FlexBase.@await(() => mySliceRemoved, 3000))
+                            {
+                                Tracing.TraceLine("Loopback ears removal: radio confirmation timed out", TraceLevel.Error);
+                                return;
+                            }
+                            ok = true;
                         }
-                        catch (Exception ex)
+                        finally
                         {
-                            Tracing.TraceLine("Loopback mute restore: " + ex.Message, TraceLevel.Error);
-                            trouble += $"Slice {saved.Slice.Index} mute restoration was not confirmed. ";
+                            if (reservedRemoval) System.Threading.Interlocked.Decrement(ref _pendingRemovals);
+                            removed.TrySetResult(ok);
                         }
+                    }), "LoopbackEarsRemove");
+                    bool gone;
+                    try { gone = await removed.Task.WaitAsync(ListenbackQueueWait + TimeSpan.FromSeconds(3)).ConfigureAwait(false); }
+                    catch (TimeoutException) { gone = false; }
+                    if (kept) return false;
+                    if (!gone) Trouble("The listening slice removal was not confirmed. ");
+                    return gone;
+                }),
+            };
+            // Each saved mute is its own entry, registered here so the FIFO
+            // order stays the one the steps were written in.
+            foreach (var saved in savedMutes ?? new List<(Slice Slice, bool Muted)>())
+            {
+                steps.Add(owner.Register($"loopback: slice {saved.Slice.Index} mute", async () =>
+                {
+                    if (!Same()) return false;
+                    try
+                    {
+                        if (!await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection,
+                            saved.Slice, $"slice set {saved.Slice.Index} audio_mute={(saved.Muted ? 1 : 0)}", "mute restore").ConfigureAwait(false))
+                        {
+                            Trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
+                            return false;
+                        }
+                        // The reply alone left FlexLib's Slice.Mute stale on the
+                        // bench, and the station layout and the next check both
+                        // read it. A fresh report corrects the cache and proves
+                        // the restore.
+                        // A readback that never came (null) is unconfirmed too
+                        // (fix round 5): the fresh report is the proof.
+                        if (await ReadSliceMuteAsync(arrangementRadio, arrangementConnection,
+                            saved.Slice).ConfigureAwait(false) is not bool read || read != saved.Muted)
+                        {
+                            Trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
+                            return false;
+                        }
+                        return true;
                     }
-                }
-                TXAntennaName = _lbSavedTxAnt;
-                XmitPower = _lbSavedPower;
-                Monitor = _lbSavedMonitor ? OffOnValues.on : OffOnValues.off;
-                try
-                {
-                    if (!await SetFullDuplexConfirmedAsync(_lbSavedFdx, arrangementRadio,
-                        _lbArrangementConnection, note => Tracing.TraceLine("Loopback full duplex restore: " + note, TraceLevel.Info)).ConfigureAwait(false))
-                        trouble += "Full duplex restoration was not confirmed. ";
-                }
-                catch (Exception ex)
-                {
-                    Tracing.TraceLine("Loopback full duplex restore: " + ex.Message, TraceLevel.Error);
-                    trouble += "Full duplex restoration was not confirmed. ";
-                }
-                if (_lbDriveBand != null)
-                {
-                    var band = _lbDriveBand;
-                    double dbm = _lbSavedDriveDbm;
-                    q.Enqueue((FunctionDel)(() => { band.MaxPower = dbm; }), "LoopbackDriveRestore");
-                }
+                    catch (Exception ex)
+                    {
+                        Tracing.TraceLine("Loopback mute restore: " + ex.Message, TraceLevel.Error);
+                        Trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
+                        return false;
+                    }
+                }));
             }
-            else trouble += "The radio connection changed before restoration could be confirmed. ";
-            _lbResources = null;
-            _lbSavedMutes = null;
-            _lbSavedActive = null;
-            _lbDriveBand = null;
-            _lbArrangementRadio = null;
-            _lbArrangementConnection = null;
-            Tracing.TraceLine("Loopback arrangement ended: " + (trouble == "" ? "clean" : trouble), TraceLevel.Info);
-            return trouble;
+            steps.AddRange(new[]
+            {
+                owner.Register("loopback: transmit antenna", () =>
+                {
+                    if (!Same()) return Task.FromResult(false);
+                    TXAntennaName = savedTxAnt;
+                    return Task.FromResult(true);
+                }),
+                owner.Register("loopback: power", () => Same()
+                    ? RestoreWritesAtReceiveAsync("loopback power", () => XmitPower = savedPower)
+                    : Task.FromResult(RestoreOutcome.Failed)),
+                owner.Register("loopback: monitor", () => Same()
+                    ? RestoreWritesAtReceiveAsync("loopback monitor", () => Monitor = savedMonitor ? OffOnValues.on : OffOnValues.off)
+                    : Task.FromResult(RestoreOutcome.Failed)),
+                owner.Register("loopback: full duplex", async () =>
+                {
+                    if (!Same()) return false;
+                    try
+                    {
+                        if (await SetFullDuplexConfirmedAsync(savedFdx, arrangementRadio,
+                            arrangementConnection, note => Tracing.TraceLine("Loopback full duplex restore: " + note, TraceLevel.Info)).ConfigureAwait(false))
+                            return true;
+                        Trouble("Full duplex restoration was not confirmed. ");
+                    }
+                    catch (Exception ex)
+                    {
+                        Tracing.TraceLine("Loopback full duplex restore: " + ex.Message, TraceLevel.Error);
+                        Trouble("Full duplex restoration was not confirmed. ");
+                    }
+                    return false;
+                }),
+                owner.Register("loopback: transverter drive", () =>
+                {
+                    if (driveBand == null) return Task.FromResult(RestoreOutcome.Done);
+                    if (!Same()) return Task.FromResult(RestoreOutcome.Failed);
+                    var band = driveBand;
+                    double dbm = savedDriveDbm;
+                    return RestoreWritesAtReceiveAsync("loopback transverter drive",
+                        () => q.Enqueue((FunctionDel)(() => { band.MaxPower = dbm; }), "LoopbackDriveRestore"));
+                }),
+                owner.Register("loopback: forget the arrangement", () =>
+                {
+                    if (ReferenceEquals(_lbResources, resources)) _lbResources = null;
+                    if (ReferenceEquals(_lbSavedMutes, savedMutes)) _lbSavedMutes = null;
+                    if (ReferenceEquals(_lbSavedActive, savedActive)) _lbSavedActive = null;
+                    if (ReferenceEquals(_lbDriveBand, driveBand)) _lbDriveBand = null;
+                    if (ReferenceEquals(_lbArrangementRadio, arrangementRadio)) _lbArrangementRadio = null;
+                    if (ReferenceEquals(_lbArrangementConnection, arrangementConnection)) _lbArrangementConnection = null;
+                }),
+            });
+            return FinishLoopbackEndAsync(steps, trouble);
+        }
+
+        private async Task<string> FinishLoopbackEndAsync(List<CheckRestorations.Entry> steps, System.Text.StringBuilder trouble)
+        {
+            try
+            {
+                var results = await Task.WhenAll(steps.Select(st => st.Task)).ConfigureAwait(false);
+                if (results.Any(r => !r)) lock (trouble) trouble.Append("Some loopback settings could not be restored; details are in the trace. ");
+                string text;
+                lock (trouble) text = trouble.ToString();
+                Tracing.TraceLine("Loopback arrangement ended: " + (text == "" ? "clean" : text), TraceLevel.Info);
+                return text;
             }
             finally { System.Threading.Volatile.Write(ref _lbArrangementEnding, 0); }
         }
@@ -12284,6 +12472,7 @@ namespace Radios
             // break-in may still be on in a mode the cut did not pause. The
             // hook speaks the refusal; nothing is buffered or queued.
             if (CwKeyingRefused("a CW message")) return false;
+            if (RefusedForCheckTeardown("a CW message")) return false;   // #835
             lock (cwBuffer)
             {
                 if (CWBuffering)
@@ -12301,6 +12490,7 @@ namespace Radios
         public bool SendCW(char c)
         {
             if (CwKeyingRefused("CW typing")) return false;   // #571, as the string form above
+            if (RefusedForCheckTeardown("CW typing")) return false;   // #835
             if (CWBuffering)
             {
                 cwBuffer.Text += c;

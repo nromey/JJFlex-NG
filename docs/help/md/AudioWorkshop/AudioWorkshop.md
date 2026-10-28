@@ -5,7 +5,7 @@ keywords:
 
 # Audio Workshop
 
-The Audio Workshop is where you shape how you sound on the air and, newly released,  where you can *hear* how you sound to others on the air. We're not saying that an old fashioned radio check won't ever be useful, but this new feature, found in the "hear yourself" tab in the audio workshop let's you hear how you sound as you adjust settings.
+The Audio Workshop is where you shape how you sound on the air. Hearing how you sound has a window of its own, **Check your audio**, described further down this page. We're not saying that an old fashioned radio check won't ever be useful, but Check your audio lets you hear yourself as you adjust settings, and the button at the end of the workshop's toolbar opens it.
 
 Audio workshop can help you adjust and monitor the radio's transmit audio chain, edit, monitor, and adjust live meters, and functions which allow you to check your audio settings and diagnose any problems, and hear how you sound to others.
 
@@ -17,62 +17,30 @@ Press `Ctrl+Shift+W` from anywhere in the application to open the audio workshop
 
 The Workshop opens happily with no radio connected — it is on the no-radio Home page's own short menu for exactly that reason. The microphone check and everything in the This Computer section work fully offline, so you can prove a headset before you ever connect. The radio-side controls — mic gain, boost, bias, the compander, processor, filters, and monitor — disable themselves and step out of the tab order until a radio arrives, so nothing in here will claim to have changed a rig that was not listening.
 
-When the workshop opens, focus is already on **Start Audio Check** — if you're set up, or you've just loaded a preset, Enter starts a test with zero navigation. One `Tab` forward from that button is the live mic reading, and one more is Mic Gain — the three stops a running check actually uses, sitting together on purpose (more below).
+When the workshop opens, you land on the list of categories down the left, which tells you where you are.
 
 ### Workshop keys
 
 These work anywhere inside the workshop window, and only there:
 
-- `Ctrl+Enter` — start the Audio Check, or stop the one running, without hunting for the button.
 - `Ctrl+S` — save a preset. `Ctrl+O` — load one. The universal document keys, doing the universal document things.
 - `Alt+E` — export a preset to a file. `Alt+I` — import one from a file. `Alt+R` — reset the transmit chain to defaults.
-- `Escape` — stop a running check and stay in the workshop. After the check ends, press it again to close. Stopping unkeys the radio.
 
-## Transmit audio: three categories, not one
+The check's own keys, `Ctrl+Enter` and the two-press Escape, live in Check your audio now.
 
-Your transmit audio used to live on a single category called TX Audio, ten sections deep. It's now three, because it was really three subjects sharing one name:
+## Transmit audio: two categories, and a window of its own
+
+Your transmit audio used to live on a single category called TX Audio, ten sections deep. It was really three subjects sharing one name, so it became three categories, and now the third has moved out into its own window:
 
 **This Computer** is what your PC does to your voice before the radio hears any of it — which microphone you're using, everything that microphone needs (your mic profiles), and what gets cleaned out of the room before it goes anywhere.
 
 **Transmit Settings** is what the radio does with it after that — which input it's listening to, how it shapes and band-limits you, and how you hear yourself.
 
-**Hear Yourself** is putting a signal through all of it and listening to the result: a known tone, a known recording, or your own voice played back. Your mic gain lives here too, right next to the reading it changes, because setting a gain without hearing the result isn't really setting it.
+**Check your audio**, which was the Hear Yourself category, is putting a signal through all of it and listening to the result: a known tone, a known recording, or your own voice played back. It is its own window because checking is a different moment from adjusting. Your mic gain is in both places, because setting a gain without hearing the result isn't really setting it; it is the same setting in each, so a change in one shows in the other.
 
 If something is *broken* rather than needing adjustment, that's JJ Flexible Fix, not here. This is the bench; that's the diagnosis.
 
-Everything in all three speaks as you change it, and the standard value keys work everywhere: Up / Down to nudge, Shift + Up / Down for fine steps, Page Up / Page Down for bigger jumps, Home / End for the ends of the range.
-
-### Audio Check — hear yourself
-
-At the top of the tab. Press **Start Audio Check** (or `Ctrl+Enter`) and the radio keys up through the same safety system as regular transmit — the timeout warnings, the license check, and the hard kill all stay on duty. The first thing you hear is the safety line: which kind of check this is, the frequency, where your transmit audio is coming from, and the reminder that Escape stops. Then focus lands on Mic Gain, with the live reading one `Shift+Tab` back and the Stop button one more — and the rest of the sculpting chain (boost, compander, processor, filter) further down the same tab while you talk.
-
-**The live mic reading** sits just after the Start button — a read-only text field showing your level and the verdict, like "Mic audio now: just right, peak minus 11 dBFS." It updates continuously while you transmit (and holds your last transmission's peak after you unkey), but it never speaks on its own: sit on it and use your screen reader's read-current-control command whenever you want the number. That's the whole design — the reading is always fresh, and *you* decide when to hear it. During a check, the reading is one `Shift+Tab` back from Mic Gain, and the Stop button one more — start, reading, and gain are neighbors, so the adjust-and-listen loop never leaves three keys.
-
-- **Listen method** picks how you hear yourself, remembered per radio:
-  - **Monitor** — instant. The radio's TX monitor feeds your own voice back while you talk. Fine on a local connection; over remote the monitor arrives late enough to trip up your speech, which is why the session recommends the next one.
-  - **Record and play back** — talk first, listen after. The radio records your transmission (it captures the full processing chain — compander, processor, filters, all of it) and plays it back to you automatically the moment you unkey. No talking and listening at once, ever. The buffer holds about two minutes and keeps the most recent material; two takes fit, so you can tweak a setting and compare.
-- **Transmit power during checks** decides whether a check makes RF, remembered per radio:
-  - **Dummy load, no RF** — the default. The check keys the radio with transmit and tune power at zero watts. Nothing goes on the air, and nothing needs to: every meter the check reads — mic audio, ALC, the verdict — measures your audio *before* the power amplifier, so the reading is identical at zero watts and at a hundred. The safety line says "Audio check, dummy load, no RF" so you always know this is that kind of check.
-  - **Low power** — for the different question, "is RF actually leaving my radio?" Pick the wattage yourself, right down to 1 watt. It's a cap: if your power is already below the number, the check leaves it alone, and it never raises power. The safety line names the actual power, "Audio check, transmitting at 1 watt."
-  - If you've engaged Dummy Load Mode yourself from the Transmit menu, the check respects it either way — it will never raise power behind a dummy load's back, and it leaves your dummy load exactly as you set it.
-- **Play last take** appears with Record and play back or Off the air. It plays that method's take, or stops a playback in progress. The button is hidden with Monitor.
-- **Escape stops a running check** and leaves you in the workshop with your settings. Stopping unkeys the radio. After the check ends, another press closes the window.
-- The session ends itself — and puts back everything it changed — on every exit: the Stop button, Escape, the transmit timeout, closing the window, or the radio going away.
-
-One honest warning worth knowing: if your hand mic keys the radio through a hardware line (the front-panel jack or the rear RCA connector), software cannot unkey it. If that ever happens the workshop tells you plainly, names the keying source, and keeps warning until the line releases.
-
-### Test Tone — transmit without a microphone
-
-Right below the Audio Check. Arm **Test tone instead of microphone** and a clean, steady tone takes your microphone's place in the PC audio transmit path. Your mic is fully muted while the tone runs — replaced, not mixed — so nothing from the room rides along. The tone travels the exact same path your voice does, which is the point: it is a known signal at a known level, perfect for checking that transmit audio works at all, for watching the meters react, or for hearing what your processing chain does to a pure input.
-
-- **The pitch is yours.** The default is 440 hertz — the standard reference tone — but hearing varies, and a test tone you cannot hear tells you nothing. Pick **440 hertz reference**, **700 hertz CW tone**, or **1000 hertz standard test**, or choose **Custom frequency** and type any value in hertz. Your choice is remembered across sessions, and it follows you rather than the radio — it is about your ears, not your rig.
-- **Tone level** is in dBFS, from minus 40 up to 0. The default of minus 10 lands in the "Good" range on the mic audio verdict. Turn it down to rehearse the "Quiet" and "Faint" coaching, or up to hear "Hot" and then "Clipping" — the tone is also how you learn what the coaching sounds like.
-- **Hear the tone while it transmits** plays the tone through your alert sound device whenever it is actually going out, so you can confirm by ear that the check is running. Turn it off if you would rather work in silence — both are fine answers, so the switch is yours. The local tone is a presence indicator at a comfortable fixed volume; it does not change with the transmit level.
-- **Arming is deliberate and temporary.** The tone only replaces your mic while the workshop is open, and it never survives closing the window, switching radios, or restarting the app. Whenever the tone is armed, every key-down — the Audio Check, push-to-talk, transmit lock, all of them — announces that the tone is going out instead of your microphone. You will never accidentally call CQ with a sine wave.
-
-**The transmit filter warning, and why it will not stay quiet.** An SSB transmit filter typically passes roughly 100 to 2900 hertz. If you move the tone to a pitch you hear well and that pitch sits outside your filter, the radio transmits *nothing* — silently — while everything else looks like a working test. That is exactly the kind of quiet lie this workshop exists to end, so JJ Flexible Radio Access lets you set any frequency you like but warns you out loud the moment you set one outside the filter, again if you arm the tone there, at every key-down while it stays outside, and even if you move the filter out from under an armed tone later. The status line under the controls always says where the tone sits relative to your filter, and the TX filter controls are a few fields down in this same tab if you would rather widen the filter than move the tone.
-
-The tone rides the PC audio path, so it needs PC audio on and the radio's transmit input set to PC — if either is off, arming tells you exactly what to change instead of pretending to work. And in CW mode the PC transmit audio path does not run at all, so the tone waits for a voice mode.
+Everything in both categories speaks as you change it, and the standard value keys work everywhere: Up / Down to nudge, Shift + Up / Down for fine steps, Page Up / Page Down for bigger jumps, Home / End for the ends of the range.
 
 ### Microphone Setups — one name for everything a mic needs
 
@@ -105,7 +73,7 @@ A line under the level names the exact Windows device being adjusted. If JJ Flex
 
 ### Moving around
 
-The three transmit categories are a walk-through, running outward from your computer to the radio to the air. This Computer holds the audio devices, your microphone setups, and PC cleanup. Transmit Settings holds the microphone the radio listens to, processing, the TX filter, and the TX monitor. Hear Yourself holds the test tone, the reference recording, the audio check, and your mic gain.
+The two transmit categories are a walk-through, running outward from your computer to the radio. This Computer holds the audio devices, your microphone setups, and PC cleanup. Transmit Settings holds the microphone the radio listens to and its gain, processing, the TX filter, and the TX monitor. Check your audio takes it from there to the air.
 
 Press **F6** to jump to the next section and **Shift+F6** to go back. Each jump
 names the section you arrived in, wraps around at the ends, and skips any
@@ -121,19 +89,64 @@ The Workshop is divided into categories, listed down the left-hand side of the w
 
 Mic gain, mic boost, mic bias, the compander and its level, the speech processor and its mode, and the TX filter edges with a live width readout. The TX Monitor section holds the monitor toggle, level, and pan; in phone modes its header names the mode you're in so you know which monitor family you're adjusting.
 
-### Loopback Check — for radios with two receivers
+## Check your audio
 
-On radios with two receive chains and transverter ports (the 6600, 6700, and 8600 families), the **Loopback Check** button transmits at one watt into one transverter port while a second slice listens on another transverter receive input. The check temporarily mutes the other receive slices and sets the listening slice's RF gain to 32. When you stop, it restores the saved mute and radio settings and removes the extra slice. If the radio does not list another transverter receive input, the check says so before transmitting.
+Check your audio is every way of checking how you sound, in one window. Open it with `Ctrl+J`, then `Alt+C`, from anywhere; from the Audio menu; or with the **Check your audio** button in the Audio Workshop. Opening it never keys the radio. Focus lands on the method, `Shift+Tab` from there reaches **Start Audio Check**, and `Ctrl+Enter` starts or stops a check from anywhere in the window. `F6` and `Shift+F6` move between its sections.
 
-Be clear about what this is: your signal arrives at that receiver enormously strong, so what you hear is your audio — present, processed, recognizably you — through an overloaded front end. It proves your audio chain and your transmitter work end to end ("is my radio actually transmitting" and "check my audio" are the same button), but it is not a faithful recording-studio listen. For ground truth on how you sound on the air, nothing beats a real receiver on a real antenna — a WebSDR or KiwiSDR tuned to your frequency is the gold standard.
+Every check keys the radio through the same safety system as ordinary transmit: the timeout warnings, the license check, and the hard kill all stay on duty. When a check starts, focus moves to your gain, and the live reading is the very next `Tab`.
 
-Also worth knowing: one watt into a transverter port with antennas connected can still leak a little RF. It should not put a meaningful signal on the air, but it is a transmission — identify if your regulations require it.
+### The methods
 
-On radios that can't do this, the workshop says why instead of hiding the fact.
+The method decides how you hear yourself. Each name says what you hear and whether anything goes out. Only the methods your radio and your connection can do are offered, and the line under the method says what Start will do and, if a method is missing, why.
+
+- **Test your microphone, nothing goes on the air** — keys the radio at zero power into the dummy load, whatever the check power says, measures your microphone while you talk, and puts the verdict in the reading box. Nothing is played back. It keys on purpose: the level that matters is the one going into the transmit chain.
+- **Hear yourself live while you talk** — the radio's transmit monitor feeds your own voice back while you talk. Fine on a local connection; over SmartLink the monitor arrives late enough to trip up your speech.
+- **Record yourself, then hear it played back** — talk first, listen after. The radio records your transmission, with the full processing chain on it, and plays it back the moment you stop. The radio keeps the last two minutes. This is the one you start on over SmartLink.
+- **Hear what you transmitted, received off the air** — on local and VPN connections to radios with two receivers and a transverter port. The radio transmits at one watt, listens to its own signal through its second transverter port, and plays the take back after you stop. Its options, the IQ rate and whether to hear yourself during the take, appear only while it is chosen, and its measurements join the reading box: loudness, peak, punch, brightness, splatter, and how what you sent compares with what came back.
+- **Hear your real signal, looped back through the transverter port** — on local connections to the same radios. It sends one watt through one transverter port to a listening receiver on another, records what that receiver hears, and plays it back after you stop. Your signal arrives at that receiver enormously strong, so what you hear is your audio, present and processed, through an overloaded front end: it proves your audio chain and your transmitter work end to end, but it is not a faithful on-air listen. A WebSDR or KiwiSDR tuned to your frequency is still the gold standard. One watt into a transverter port with antennas connected can still leak a little RF, so identify if your regulations require it.
+
+Your method is remembered per radio. The same radio reached over SmartLink starts on Record yourself if the method you chose locally is not offered there, without forgetting your local choice.
+
+### Test tone and reference recording
+
+These replace your microphone with a known signal while you transmit, and only one of them can be armed at a time.
+
+**Test tone instead of microphone** sends a clean, steady tone in place of your mic, muted rather than mixed, along the exact path your voice takes. The pitch is yours: 440, 700 or 1000 hertz, or a custom frequency, remembered across sessions because it is about your ears rather than your rig. Tone level is in dBFS, from minus 40 up to 0; the default of minus 10 lands in the "Good" range. **Hear the tone while it transmits** plays it through your alert sound device whenever it is actually going out. The tone's controls appear only while it is armed. Arming never transmits by itself and never survives closing the window, switching radios or restarting, and while it is armed every key-down announces that the tone is going out instead of your microphone.
+
+An SSB transmit filter typically passes roughly 100 to 2900 hertz. A tone outside it transmits nothing, silently, so JJ Flexible Radio warns you out loud the moment you set one there, when you arm it, at every key-down, and if the filter moves out from under an armed tone.
+
+**Reference audio** sends a known recording instead: the shipped JJ Flexible reference voice, or a take you record yourself with **Record a reference take**. It is the honest way to answer "did that change help?", because a tone does not respond to a compressor and you never say it the same way twice. It arms the same way the tone does and transmits only when you key.
+
+Both ride the PC audio path, so they need PC audio on and the radio's transmit input set to PC. If the input is the only thing in the way, arming switches it for you and puts it back when you disarm.
+
+### Check power
+
+**Transmit power during checks** is shown for the two methods that obey it, Hear yourself live and Record yourself, and is remembered per radio.
+
+- **Dummy load, no RF** — the default. Every meter the check reads measures your audio before the power amplifier, so the reading is the same at zero watts as at a hundred.
+- **Low power** — for "is RF actually leaving my radio?" Pick the wattage, down to 1 watt. It is a cap: it only ever lowers your power, and it never overrides a dummy load you set yourself.
+
+### Levels and the reading
+
+**Mic Gain**, or the **Windows input level** when your computer is the transmit source, sits right before the reading, and it is the same setting as in the Audio Workshop. The **Mic audio reading** is a read-only field with your level and the verdict. It updates continuously while you transmit and holds your last transmission's peak after you unkey, but it never speaks on its own: use your screen reader's read-current-control command whenever you want it.
+
+### Results
+
+Results appear only once there is a take. **Play last take** plays the slice recording with Record yourself, or the off-air take with Hear what you transmitted, and stops a playback in progress. With an off-air take you also get **Play what I sent** and **Tell me how my sound changed compared to my last take**, which compares each new take with the one before it this session. **Review unrestored take settings** appears only when a take left radio settings the radio never confirmed putting back.
+
+### Escape, and what a check puts back
+
+While a check is transmitting, the first Escape unkeys and stays; the second closes the window. Escape never leaves you transmitting. Every check puts back everything it changed, power, monitor, the listening slice and full duplex, on every way out: Stop, Escape, the transmit timeout, closing the window, or the radio going away.
+
+One honest warning worth knowing: if your hand mic keys the radio through a hardware line, software cannot unkey it. If that happens the window tells you plainly and keeps warning until the line releases.
+
+### Bench tools
+
+The receive-only diagnostic take, the ten-second IQ capacity check and the two "Prove it is real" detune buttons prove that the take machinery works, rather than check how you sound, so they live on the Audio Workshop's **Diagnostics** category, under **Bench tools**. They are not offered over SmartLink, which does not carry IQ.
 
 ### Command Finder
 
-"Check my transmit audio" in the Command Finder (`Ctrl+/`) opens the workshop and starts an Audio Check in one step. Search for "audio", "check", "hear", or "myself".
+"Check my transmit audio" in the Command Finder (`Ctrl+/`) opens Check your audio and starts a check with the method shown, in one step. Search for "audio", "check", "hear", or "myself".
 
 ### While we're talking transmit
 

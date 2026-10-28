@@ -317,17 +317,30 @@ public sealed class ListenbackRoundThreeTests : IDisposable
         var root = new DirectoryInfo(AppContext.BaseDirectory);
         while (root != null && !File.Exists(Path.Combine(root.FullName, "JJFlexRadio.sln"))) root = root.Parent;
         Assert.NotNull(root);
-        string workshop = File.ReadAllText(Path.Combine(root!.FullName, "JJFlexWpf/Dialogs/AudioWorkshopDialog.Listenback.cs"));
+        // #835 split the listen-back between two windows: the off-air take in
+        // Check your audio, the diagnostic take in the Workshop's bench tools,
+        // and the delivery rule they share in ListenbackTakes. The guarantees
+        // are the same and are asked of each host.
+        string offAir = File.ReadAllText(Path.Combine(root!.FullName, "JJFlexWpf/Dialogs/CheckYourAudioDialog.OffAir.cs"));
+        string bench = File.ReadAllText(Path.Combine(root.FullName, "JJFlexWpf/Dialogs/AudioWorkshopDialog.BenchTools.cs"));
+        string shared = File.ReadAllText(Path.Combine(root.FullName, "JJFlexWpf/Dialogs/ListenbackTakes.cs"));
         string prompt = File.ReadAllText(Path.Combine(root.FullName, "JJFlexWpf/Dialogs/ListenbackRecoveryPrompt.cs"));
-        Assert.Contains("if (failure) PostClosedIqStatus(text, true)", workshop);
-        Assert.DoesNotContain("AnnounceClosedRecovery(false)", workshop);
-        int stopped = workshop.IndexOf("await _iqRun.StopAsync(\"cancelled\")", StringComparison.Ordinal);
-        int announced = workshop.IndexOf("AnnounceClosedRecovery(_iqRun.Restored)", stopped, StringComparison.Ordinal);
-        int returned = workshop.IndexOf("_iqRun = null; return;", stopped, StringComparison.Ordinal);
+        Assert.Contains("if (failure) PostClosedIqStatus(text, true)", offAir);
+        Assert.Contains("if (failure) PostClosedBenchStatus(text, true)", bench);
+        Assert.DoesNotContain("AnnounceClosedRecovery(false)", offAir);
+        Assert.DoesNotContain("AnnounceClosedBenchRecovery(false)", bench);
+        int stopped = bench.IndexOf("await _benchRun.StopAsync(\"cancelled\")", StringComparison.Ordinal);
+        int announced = bench.IndexOf("AnnounceClosedBenchRecovery(_benchRun.Restored)", stopped, StringComparison.Ordinal);
+        int returned = bench.IndexOf("_benchRun = null; return;", stopped, StringComparison.Ordinal);
+        Assert.True(stopped >= 0, "the diagnostic take's cancelled stop is gone");
         Assert.InRange(announced, stopped + 1, returned - 1);
-        int post = workshop.IndexOf("Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle", StringComparison.Ordinal);
-        Assert.True(workshop.IndexOf("ForCurrentRecord(readRecovery?.Invoke()", StringComparison.Ordinal) > post);
-        Assert.Contains("await ListenbackRecoveryPrompt.ReviewAsync(_rig)", workshop);
+        int post = shared.IndexOf("dispatcher.BeginInvoke(DispatcherPriority.ContextIdle", StringComparison.Ordinal);
+        Assert.True(post >= 0, "the shared close notice no longer defers to ContextIdle");
+        Assert.True(shared.IndexOf("ForCurrentRecord(readRecovery?.Invoke()", StringComparison.Ordinal) > post);
+        Assert.Contains("ListenbackTakes.PostClosedNotice(", offAir);
+        Assert.Contains("ListenbackTakes.PostClosedNotice(", bench);
+        Assert.Contains("await ListenbackRecoveryPrompt.ReviewAsync(_rig)", offAir);
+        Assert.Contains("await ListenbackRecoveryPrompt.ReviewAsync(_rig)", bench);
         Assert.Contains("await ReviewAsync(rig)", prompt);
         Assert.Equal(1, prompt.Split("ListenbackRecoveryAcknowledgement.Offer(").Length - 1);
     }

@@ -33,10 +33,10 @@ public sealed class EngineLatencyTests
     public void SubHalfDbLevelIsSpokenAsTheSameLevelInEveryComparison(double level)
     {
         var difference = new AudioDifference(true, "overall-average", LevelDb: level);
-        Assert.Contains("same level", AudioWorkshopDialog.DifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("same level", AudioWorkshopDialog.ReferenceDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("same level", AudioWorkshopDialog.AverageDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("same level", AudioWorkshopDialog.AutoComparisonSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("same level", ListenbackTakes.DifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("same level", ListenbackTakes.ReferenceDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("same level", ListenbackTakes.AverageDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("same level", ListenbackTakes.AutoComparisonSentence(difference), StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
@@ -45,10 +45,10 @@ public sealed class EngineLatencyTests
     public void HalfDbLevelKeepsItsDirectionInEveryComparison(double level, string word)
     {
         var difference = new AudioDifference(true, "overall-average", LevelDb: level);
-        Assert.Contains($"{word} by 0.5 dB", AudioWorkshopDialog.DifferenceSentence(difference));
-        Assert.Contains($"{word} by 0.5 dB", AudioWorkshopDialog.ReferenceDifferenceSentence(difference));
-        Assert.Contains($"{word} by 0.5 dB", AudioWorkshopDialog.AverageDifferenceSentence(difference));
-        Assert.Contains($"{word} by 0.5 dB", AudioWorkshopDialog.AutoComparisonSentence(difference));
+        Assert.Contains($"{word} by 0.5 dB", ListenbackTakes.DifferenceSentence(difference));
+        Assert.Contains($"{word} by 0.5 dB", ListenbackTakes.ReferenceDifferenceSentence(difference));
+        Assert.Contains($"{word} by 0.5 dB", ListenbackTakes.AverageDifferenceSentence(difference));
+        Assert.Contains($"{word} by 0.5 dB", ListenbackTakes.AutoComparisonSentence(difference));
     }
 
     [Theory]
@@ -59,10 +59,10 @@ public sealed class EngineLatencyTests
     public void TiltUsesTheSameAudibleThresholdInEveryComparison(double tilt, string phrase)
     {
         var difference = new AudioDifference(true, "overall-average", TiltDb: tilt);
-        Assert.Contains(phrase, AudioWorkshopDialog.DifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(phrase, AudioWorkshopDialog.ReferenceDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(phrase, AudioWorkshopDialog.AverageDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(phrase, AudioWorkshopDialog.AutoComparisonSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(phrase, ListenbackTakes.DifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(phrase, ListenbackTakes.ReferenceDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(phrase, ListenbackTakes.AverageDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(phrase, ListenbackTakes.AutoComparisonSentence(difference), StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
@@ -73,8 +73,8 @@ public sealed class EngineLatencyTests
     public void CrestUsesTheSameAudibleThreshold(double crest, string phrase)
     {
         var difference = new AudioDifference(true, "aligned-spans", CrestDb: crest);
-        Assert.Contains(phrase, AudioWorkshopDialog.DifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(phrase, AudioWorkshopDialog.ReferenceDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(phrase, ListenbackTakes.DifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(phrase, ListenbackTakes.ReferenceDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
@@ -85,8 +85,8 @@ public sealed class EngineLatencyTests
     public void StopbandUsesTheSameAudibleThreshold(double stopband, string phrase)
     {
         var difference = new AudioDifference(true, "aligned-spans", StopbandDb: stopband);
-        Assert.Contains(phrase, AudioWorkshopDialog.DifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(phrase, AudioWorkshopDialog.ReferenceDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(phrase, ListenbackTakes.DifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(phrase, ListenbackTakes.ReferenceDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -101,10 +101,10 @@ public sealed class EngineLatencyTests
                     foreach (double stopband in new[] { -0.5, 0, 0.5 })
                     {
                         var difference = new AudioDifference(true, "aligned-spans", level, tilt, crest, stopband);
-                        foreach (string sentence in new[] { AudioWorkshopDialog.DifferenceSentence(difference),
-                            AudioWorkshopDialog.ReferenceDifferenceSentence(difference),
-                            AudioWorkshopDialog.AverageDifferenceSentence(difference),
-                            AudioWorkshopDialog.AutoComparisonSentence(difference) })
+                        foreach (string sentence in new[] { ListenbackTakes.DifferenceSentence(difference),
+                            ListenbackTakes.ReferenceDifferenceSentence(difference),
+                            ListenbackTakes.AverageDifferenceSentence(difference),
+                            ListenbackTakes.AutoComparisonSentence(difference) })
                         {
                             Assert.EndsWith(".", sentence);
                             Assert.False(Regex.IsMatch(sentence, @"\.\s+[a-z]"), sentence);
@@ -127,8 +127,8 @@ public sealed class EngineLatencyTests
                     foreach (double stopband in new[] { -0.5, 0, 0.5 })
                     {
                         var difference = new AudioDifference(true, "aligned-spans", level, tilt, crest, stopband);
-                        string reference = AudioWorkshopDialog.ReferenceDifferenceSentence(difference);
-                        string previous = AudioWorkshopDialog.DifferenceSentence(difference);
+                        string reference = ListenbackTakes.ReferenceDifferenceSentence(difference);
+                        string previous = ListenbackTakes.DifferenceSentence(difference);
                         Assert.Contains("received audio", reference, StringComparison.OrdinalIgnoreCase);
                         Assert.Contains("what was sent", reference, StringComparison.OrdinalIgnoreCase);
                         Assert.DoesNotContain("last take", reference, StringComparison.OrdinalIgnoreCase);

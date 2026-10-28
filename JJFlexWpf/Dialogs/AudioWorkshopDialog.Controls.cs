@@ -24,91 +24,41 @@ public partial class AudioWorkshopDialog
     #region Control Factories
 
     /// <summary>
-    /// Open a section. Returns the GroupBox so a caller can retitle it later;
-    /// everything added afterwards goes into <see cref="_section"/>, the panel
-    /// created inside it.
+    /// Open a section; everything added afterwards goes into it. Returns the
+    /// GroupBox so a caller can retitle it later.
     /// </summary>
-    /// <remarks>
-    /// These were bold TextBlocks until 2026-08-13. That LOOKED like a section
-    /// and was not one. A named TextBlock is not a UIA group and not a
-    /// heading, so tabbing between controls never announced crossing from one
-    /// section into the next, and NVDA's H key had nothing to jump to. Noel,
-    /// testing 4.1.16.829: "I'm not hearing any group / I'm not able to get
-    /// from group to group."
-    ///
-    /// <para>
-    /// That made the walk-through ordering built the day before invisible to
-    /// the only audience it exists for. The sections were correctly SEQUENCED
-    /// and their boundaries were not perceivable, which is the whole feature —
-    /// a walk-through you cannot feel yourself moving through is just a list.
-    /// </para>
-    ///
-    /// <para>
-    /// A GroupBox is announced on entry and exit while simply tabbing, which
-    /// is how the dialog is actually crossed. HeadingLevel restores H /
-    /// Shift+H jumping on top of that, for an operator who knows where they
-    /// are going.
-    /// </para>
-    /// </remarks>
-    private GroupBox AddSectionHeader(StackPanel parent, string text)
-    {
-        var panel = new StackPanel { Margin = new Thickness(6, 2, 2, 2) };
-        var group = new GroupBox
-        {
-            Header = text,
-            Margin = new Thickness(0, 8, 0, 4),
-            Content = panel
-        };
-        AutomationProperties.SetName(group, text);
-        AutomationProperties.SetHeadingLevel(group, AutomationHeadingLevel.Level2);
-        parent.Children.Add(group);
-        _section = panel;
-        return group;
-    }
+    private GroupBox AddSectionHeader(StackPanel parent, string text) => _sections.Open(parent, text);
+
+    /// <summary>Add a control to the section currently being built (see <see cref="DialogSections.Add"/>).</summary>
+    private void AddToSection(StackPanel fallback, UIElement child) => _sections.Add(fallback, child);
 
     /// <summary>
-    /// Add a control to the section currently being built. Falls back to the
-    /// tab's outer panel if no section has been opened — a control that
-    /// escapes its group is a layout bug, but a control that vanishes is a
-    /// missing feature, and the second is worse.
+    /// Open a section whose every control needs a radio: it disables, and drops
+    /// out of the tab order with everything inside it, whenever no rig is
+    /// attached. Enrolling the SECTION rather than each control is the point —
+    /// five checkboxes were once enumerated and the four value controls beside
+    /// them were not.
     /// </summary>
-    private void AddToSection(StackPanel fallback, UIElement child)
-    {
-        (_section ?? fallback).Children.Add(child);
-    }
+    private GroupBox AddRadioSection(StackPanel parent, string text) => _sections.OpenRadio(parent, text);
 
     /// <summary>
-    /// Open a section whose every control needs a radio. Identical to
-    /// <see cref="AddSectionHeader"/> except that the GroupBox enrols in
-    /// <see cref="_radioOnlyElements"/>, so it disables — and drops out of the
-    /// tab order with everything inside it — whenever no rig is attached.
-    ///
-    /// <para>Enrolling the SECTION rather than each control is the whole
-    /// point: a control added to one of these sections a year from now is
-    /// covered on the day it is written, with nobody remembering to add it to
-    /// a list. That is the failure this replaces — five checkboxes were
-    /// enumerated and the four value controls beside them were not.</para>
+    /// A control that needs a radio, in a section that also holds PC-side
+    /// controls. Only for genuinely mixed sections.
     /// </summary>
-    private GroupBox AddRadioSection(StackPanel parent, string text)
-    {
-        var group = AddSectionHeader(parent, text);
-        _radioOnlyElements.Add(group);
-        return group;
-    }
+    private void AddRadioControl(StackPanel fallback, UIElement child) => _sections.AddRadio(fallback, child);
 
     /// <summary>
-    /// Add a control that needs a radio to a section that also holds PC-side
-    /// controls. Only for genuinely mixed sections — anywhere the whole
-    /// section is radio-side, use <see cref="AddRadioSection"/> instead so
-    /// later additions are covered automatically.
+    /// The sections, the section being filled, and the radio-only register —
+    /// shared with Check your audio as one implementation since #835
+    /// (<see cref="DialogSections"/>, which keeps the history of why sections
+    /// are GroupBoxes and why sections enrol rather than controls).
     /// </summary>
-    private void AddRadioControl(StackPanel fallback, UIElement child)
-    {
-        AddToSection(fallback, child);
-        _radioOnlyElements.Add(child);
-    }
+    private readonly DialogSections _sections = new();
 
-    private static CheckBox MakeToggle(string label)
+    /// <summary>The panel of the section being built, for builders that add directly.</summary>
+    private StackPanel? _section => _sections.Current;
+
+    internal static CheckBox MakeToggle(string label)
     {
         var cb = new CheckBox
         {
@@ -127,7 +77,7 @@ public partial class AudioWorkshopDialog
         return ctl;
     }
 
-    private static CycleFieldControl MakeCycle(string label, string[] options)
+    internal static CycleFieldControl MakeCycle(string label, string[] options)
     {
         var ctl = new CycleFieldControl();
         ctl.Setup(label, options);

@@ -107,7 +107,8 @@ public sealed class DialogTransmitKeysTests : IDisposable
     {
         DialogTransmitKeys.HoldWindowLost("test teardown");
         if (_controller.IsTransmitting) _controller.EscapeUnlock();
-        foreach (var name in new[] { "PttEdge", "HoldInFlight", "EscapeUnkey", "ReleaseNow", "SessionOwnsTransmitter" })
+        foreach (var name in new[] { "PttEdge", "HoldInFlight", "EscapeUnkey", "ReleaseNow", "SessionOwnsTransmitter",
+                                     "WindowHandlesCheckEscape", "CheckEscapeElsewhere" })
             typeof(DialogTransmitKeys).GetProperty(name, BindingFlags.Static | BindingFlags.NonPublic)?.SetValue(null, null);
         ((System.Windows.Threading.DispatcherTimer?)typeof(MainWindow).GetField("_pttDeferTimer", Any)?.GetValue(_main))?.Stop();
         ScreenReaderOutput.CurrentVerbosity = _verbosityBefore;
@@ -171,6 +172,7 @@ public sealed class DialogTransmitKeysTests : IDisposable
     {
         public event EventHandler? Deactivated;
         public event EventHandler? Closed;
+        public bool HandlesAudioCheckEscape { get; set; }
         public void LoseFocus() => Deactivated?.Invoke(this, EventArgs.Empty);
         public void Close() => Closed?.Invoke(this, EventArgs.Empty);
     }
@@ -254,6 +256,34 @@ public sealed class DialogTransmitKeysTests : IDisposable
         Assert.Null(DialogTransmitKeys.HoldWindow);
         Assert.Equal(1, _downs);
         Assert.Equal(1, _ups);
+    }
+
+    [Fact]
+    public void Ctrl_space_in_a_dialog_keys_nothing_while_a_teardown_holds_admission()
+    {
+        // #835, fix round 3 (Codex round-3 blocker 1). A disconnect waits for an
+        // Audio Check's restores with the dispatcher pumping; until this round
+        // Ctrl+Space in a dialog could key the still-powered controller during
+        // that wait, behind the teardown's own queue barrier.
+        AssertTheDeskIsSafe(); WireDoor();
+        var w = new FakeWindow();
+        _rig.BeginCheckTeardown();
+        try
+        {
+            Down(w, Keys.Space | Keys.Control);
+            Assert.Equal(Idle, _controller.State);
+            Thread.Sleep(PttHoldFilter.ImplausibleReleaseMs + 20);
+            DialogTransmitKeys.KeyUp(Keys.Space | Keys.Control);
+            Assert.Equal(Idle, _controller.State);
+        }
+        finally { _rig.EndCheckTeardown(); }
+
+        // Positive control: the same press keys once the teardown is done.
+        Assert.True(Down(w, Keys.Space | Keys.Control));
+        Assert.Equal(Hold, _controller.State);
+        Thread.Sleep(PttHoldFilter.ImplausibleReleaseMs + 20);
+        Assert.True(DialogTransmitKeys.KeyUp(Keys.Space | Keys.Control));
+        Assert.Equal(Idle, _controller.State);
     }
 
     [Fact]
@@ -486,12 +516,13 @@ public sealed class DialogTransmitKeysTests : IDisposable
     }
 
     [Fact]
-    public void Escape_is_left_to_the_audio_workshop_while_an_audio_check_is_active()
+    public void Escape_is_left_to_the_check_window_while_an_audio_check_is_active()
     {
-        // The workshop's two-stage Escape keeps its first stage: the door
-        // declines, so AudioWorkshopDialog.OnPreviewKeyDown sees the key.
+        // The check's two-stage Escape keeps its first stage: in the window
+        // that runs it (Check your audio since #835), the door declines, so
+        // that window's OnPreviewKeyDown sees the key.
         AssertTheDeskIsSafe(); WireDoor();
-        var w = new FakeWindow();
+        var w = new FakeWindow { HandlesAudioCheckEscape = true };
         LockFromTheSystemWideKey();
         Assert.Equal(Locked, _controller.State);
         _sessionActive = true;
@@ -596,6 +627,33 @@ public sealed class DialogTransmitKeysTests : IDisposable
     }
 
     [Fact]
+    public void Escape_in_another_window_while_the_check_transmits_stops_the_check_and_stays()
+    {
+        // Fix round 2, Codex blocker 3. The door declined Escape whenever any
+        // check was active, assuming the receiving window handled it; only
+        // Check your audio does. So Escape in the Audio Workshop closed the
+        // Workshop and left the other window's check keyed.
+        AssertTheDeskIsSafe(); WireDoor();
+        int stopped = 0;
+        bool checkTransmitting = true;
+        Door("CheckEscapeElsewhere", (Func<bool>)(() => { if (!checkTransmitting) return false; stopped++; return true; }));
+        _sessionActive = true;
+        var workshop = new FakeWindow { HandlesAudioCheckEscape = false };
+        Assert.True(Down(workshop, Keys.Escape));       // consumed: the Workshop stays open
+        Assert.Equal(1, stopped);
+        Assert.Equal(0, _escapes);                     // the check's own stop, not the plain unkey
+
+        // The check window itself is still left to handle its own Escape.
+        Assert.False(Down(new FakeWindow { HandlesAudioCheckEscape = true }, Keys.Escape));
+        Assert.Equal(1, stopped);
+
+        // Once the check has unkeyed, Escape elsewhere is that window's own
+        // again: the Workshop closes, and the check finishes by itself.
+        checkTransmitting = false;
+        Assert.False(Down(workshop, Keys.Escape));
+    }
+
+    [Fact]
     public void A_second_workshops_close_leaves_the_first_sessions_guard_standing()
     {
         // Repair round two, Codex B3. Settings constructs a second
@@ -612,22 +670,24 @@ public sealed class DialogTransmitKeysTests : IDisposable
         // the probe key is push to talk, because Shift+Space in a dialog is
         // now refused whether or not a check is running and would show nothing.
         AssertTheDeskIsSafe(); WireDoor();
-        var workshopType = typeof(JJFlexWpf.Dialogs.AudioWorkshopDialog);
+        // The session lives in Check your audio since #835; the guard and the
+        // tracked pointer moved with it.
+        var workshopType = typeof(JJFlexWpf.Dialogs.CheckYourAudioDialog);
         var first = RuntimeHelpers.GetUninitializedObject(workshopType);
         var second = RuntimeHelpers.GetUninitializedObject(workshopType);
         var sessionType = workshopType.GetNestedType("AudioCheckSession", BindingFlags.NonPublic);
-        Assert.True(sessionType != null, "AudioWorkshopDialog.AudioCheckSession is missing");
+        Assert.True(sessionType != null, "CheckYourAudioDialog.AudioCheckSession is missing");
         var session = RuntimeHelpers.GetUninitializedObject(sessionType!);
         var activeField = sessionType!.GetField("<Active>k__BackingField", Any);
         Assert.True(activeField != null, "AudioCheckSession.Active backing field is missing");
         activeField!.SetValue(session, true);
         var sessionField = workshopType.GetField("_session", Any);
-        Assert.True(sessionField != null, "AudioWorkshopDialog._session is missing");
+        Assert.True(sessionField != null, "CheckYourAudioDialog._session is missing");
         sessionField!.SetValue(first, session);
         var instance = workshopType.GetField("_instance", BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.True(instance != null, "AudioWorkshopDialog._instance is missing");
+        Assert.True(instance != null, "CheckYourAudioDialog._instance is missing");
         var guard = workshopType.GetProperty("AnAudioCheckIsActive", BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.True(guard != null, "AudioWorkshopDialog.AnAudioCheckIsActive is missing");
+        Assert.True(guard != null, "CheckYourAudioDialog.AnAudioCheckIsActive is missing");
         var before = instance!.GetValue(null);
         try
         {

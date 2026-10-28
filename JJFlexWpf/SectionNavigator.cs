@@ -46,10 +46,13 @@ internal static class SectionNavigator
     }
 
     /// <summary>The visible sections of the selected tab, in order.</summary>
-    internal static List<GroupBox> Sections(TabControl tabs)
+    internal static List<GroupBox> Sections(TabControl tabs) =>
+        TabPanel(tabs) is Panel panel ? Sections(panel) : new List<GroupBox>();
+
+    /// <summary>The visible sections directly in <paramref name="panel"/>, in order. For a window with no tabs (Check your audio, #835).</summary>
+    internal static List<GroupBox> Sections(Panel panel)
     {
         var found = new List<GroupBox>();
-        if (TabPanel(tabs) is not Panel panel) return found;
         foreach (object child in panel.Children)
             if (child is GroupBox g && g.Visibility == Visibility.Visible)
                 found.Add(g);
@@ -76,9 +79,13 @@ internal static class SectionNavigator
     /// not reliably narrated, and landing somewhere without being told where is
     /// the failure this exists to end.
     /// </summary>
-    internal static void Move(TabControl tabs, bool forward)
+    internal static void Move(TabControl tabs, bool forward) => Move(Sections(tabs), forward);
+
+    /// <summary>F6 and Shift+F6 for a window with no tabs, over the sections directly in <paramref name="panel"/>.</summary>
+    internal static void Move(Panel panel, bool forward) => Move(Sections(panel), forward);
+
+    private static void Move(List<GroupBox> sections, bool forward)
     {
-        var sections = Sections(tabs);
         if (sections.Count == 0) return;
         int current = -1;
         for (int i = 0; i < sections.Count; i++)

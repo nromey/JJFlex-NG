@@ -180,6 +180,11 @@ public partial class FlexBase
 
     public async Task<ListenbackRun> StartListenbackAsync(ListenbackOptions options, CancellationToken cancellation)
     {
+        // #835: no IQ take starts while an Audio Check teardown holds admission.
+        if (TeardownInProgress) throw new InvalidOperationException("teardown-in-progress");
+        // A teardown that begins while this is setting up waits for it to
+        // finish, its own rollback included (fix round 4).
+        using var startTracking = CheckRestorations.TrackStart("IQ take start");
         if (!await _iqLease.WaitAsync(0, cancellation).ConfigureAwait(false)) throw new InvalidOperationException("take-already-running");
         Radio radio = theRadio;
         var connection = radio?.CurrentCommandConnection;
@@ -589,7 +594,17 @@ public partial class FlexBase
             finally
             {
                 if (ownedLoopback != null && ReferenceEquals(_lbResources, ownedLoopback)) { _loopbackArranged = false; _lbResources = null; _lbDriveBand = null; }
-                if (snapshot != null && SameConnection()) await RestoreListenbackSnapshotAsync(snapshot, true, identities).ConfigureAwait(false);
+                if (snapshot != null)
+                {
+                    // The rollback's own answer reaches the restore owner (fix
+                    // round 5): a start whose rollback failed leaves a failure a
+                    // later teardown must report, not a joined attempt that
+                    // reads as success.
+                    bool restored = false;
+                    try { restored = SameConnection() && await RestoreListenbackSnapshotAsync(snapshot, true, identities).ConfigureAwait(false); }
+                    catch (Exception rollback) { JJTrace.Tracing.TraceLine("StartListenbackAsync rollback: " + rollback, System.Diagnostics.TraceLevel.Error); }
+                    if (!restored) CheckRestorations.RecordFailure("IQ take start rollback");
+                }
             }
             throw;
         }
