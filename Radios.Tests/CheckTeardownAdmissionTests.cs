@@ -232,6 +232,26 @@ public sealed class CheckTeardownAdmissionTests : IDisposable
     }
 
     [Fact]
+    public async Task An_idle_arms_transmit_input_restore_is_waited_for_by_the_teardown()
+    {
+        // Codex round 5, blocker 3: an armed tone or reference that moved the
+        // transmit input to this computer queued its restore on disarm with no
+        // owner entry, so with nothing else owed the teardown skipped its
+        // drain and the write could be stranded when the command loop stopped.
+        using var c = new RadioCase();
+        c.F.Rig.BeginCheckTeardown();
+        // The window's teardown disarms the idle tone, which puts the input back.
+        c.F.Rig.RestoreTransmitInputAfterInjection("MIC");
+        var settle = c.F.Rig.SettleChecksForTeardownAsync(TimeSpan.FromSeconds(5));
+        Assert.False(settle.IsCompleted, "the restore is owed, so the teardown waits for it");
+        var deadline = DateTime.UtcNow.AddSeconds(6);
+        while (!settle.IsCompleted && DateTime.UtcNow < deadline) { RunQueue(c); await Task.Delay(20); }
+        Assert.True((await settle).Completed);
+        Assert.Equal(1, Sent(c, "mic input MIC"));
+        c.F.Rig.EndCheckTeardown();
+    }
+
+    [Fact]
     public async Task An_IQ_take_is_not_started_during_a_teardown()
     {
         using var c = new RadioCase();

@@ -158,6 +158,19 @@ public partial class FlexBase
         return gate.Threw > 0 ? RestoreOutcome.Failed : RestoreOutcome.Done;
     }
 
+    /// <summary>
+    /// An armed test tone or reference moved the transmit input to this
+    /// computer; put it back through the restore owner (#835, fix round 5), so
+    /// a teardown waits for the write rather than letting it be stranded in a
+    /// command queue that is about to stop. Asked again at its run, like every
+    /// restore here.
+    /// </summary>
+    public CheckRestorations.Entry RestoreTransmitInputAfterInjection(string had) =>
+        CheckRestorations.Register("injected source: transmit input", () => RestoreWritesAtReceiveAsync("transmit input", () =>
+        {
+            using (AppInitiatedSettingChanges()) MicSource = had;
+        }));
+
     /// <summary>How long a set of restore writes may take to reach the radio.</summary>
     internal TimeSpan RestoreWriteWait { get; set; } = TimeSpan.FromSeconds(5);
 

@@ -218,8 +218,10 @@ public partial class CheckYourAudioDialog
         if (!string.Equals(rig.MicSource, PcMicSource, StringComparison.OrdinalIgnoreCase))
             return false;
 
-        using (rig.AppInitiatedSettingChanges())
-            rig.MicSource = had;
+        // Through the radio's restore owner (#835, fix round 5): a teardown
+        // that disarms an idle tone or reference then waits for this write
+        // instead of disposing the radio with it still queued.
+        rig.RestoreTransmitInputAfterInjection(had);
         note = Lexicon.Get("audio.inject.source_restored", ("source", had));
         return true;
     }
