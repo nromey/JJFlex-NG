@@ -399,7 +399,8 @@ public partial class CheckYourAudioDialog : JJFlexDialog
         }
         if (e.Key == Key.F1 && Keyboard.Modifiers == ModifierKeys.None)
         {
-            HelpLauncher.ShowHelp("CheckYourAudio");
+            // The help opens at the section of the method shown, wherever focus is.
+            HelpLauncher.ShowHelp(AudioCheckMethods.HelpContext(SelectedMethod));
             e.Handled = true;
             return;
         }
