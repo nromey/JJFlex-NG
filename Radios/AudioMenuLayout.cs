@@ -199,7 +199,7 @@ namespace Radios
                 AudioMenuEntryKind.Command, true, "Ctrl+J, V"),
 
             // #836: the DSP submenu - noise reduction, noise blankers, PC noise
-            // reduction, auto notch, the audio peak filter and meter tones. It
+            // reduction, auto notch and the audio peak filter. It
             // sat only under the Slice menu from Sprint 23, when the Operations
             // menu that used to hold it was deleted, and nobody noticed for
             // seven months. Noel, 2026-10-27: "This should not be in slice ...
@@ -213,12 +213,20 @@ namespace Radios
             //
             // Every item acts on the active slice, as it did under Slice. The
             // row itself needs no radio, because some of what is inside works
-            // without one (the PC noise reduction room, meter tones); the rows
-            // inside that do need one are greyed and say so in their own
+            // without one (PC noise reduction's switches and its folder); the
+            // rows inside that do need one are greyed and say so in their own
             // labels, through MarkNeedsRadio, exactly as the rows above do.
             // D is a first letter no other row on this menu claims.
             new("sep-dsp", "", AudioMenuEntryKind.Separator, false, topLevelOnly: true),
             new("dsp", "DSP", AudioMenuEntryKind.Submenu, false, topLevelOnly: true),
+
+            // Meter tones came along inside DSP in that move and get their own
+            // row instead (Noel, 2026-10-27 20:41: "I think it gets its own
+            // row"). They are not signal processing and do not act on a slice.
+            // Top-level only for the same reason as DSP: before #836 their one
+            // home was Slice, DSP, and a copy under Slice, Audio would be a
+            // second. Its M is shared with the two Mute rows at the top.
+            new("meter-tones", "Meter Tones", AudioMenuEntryKind.Submenu, false, topLevelOnly: true),
 
             new("sep-setup", "", AudioMenuEntryKind.Separator, false),
 

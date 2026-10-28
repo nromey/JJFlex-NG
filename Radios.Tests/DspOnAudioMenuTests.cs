@@ -55,22 +55,43 @@ namespace Radios.Tests
 
             Assert.DoesNotContain("dsp", ids);
             Assert.DoesNotContain("sep-dsp", ids);
+            Assert.DoesNotContain("meter-tones", ids);
         }
 
         [Fact]
-        public void The_two_menus_differ_by_the_DSP_rows_and_nothing_else()
+        public void Meter_tones_have_their_own_row_right_after_DSP_that_needs_no_radio()
+        {
+            // Noel, 2026-10-27 20:41: "I think it gets its own row." It came
+            // along inside DSP in the #836 move and is not signal processing.
+            var top = AudioMenuLayout.EntriesFor(AudioMenuHost.AudioMenu).ToList();
+            int dsp = top.FindIndex(e => e.Id == "dsp");
+            int meters = top.FindIndex(e => e.Id == "meter-tones");
+
+            Assert.True(meters >= 0, "no Meter Tones row on the Audio menu");
+            Assert.Equal(dsp + 1, meters);
+
+            var row = top[meters];
+            Assert.Equal(AudioMenuEntryKind.Submenu, row.Kind);
+            Assert.Equal("Meter Tones", row.Label);
+            Assert.False(row.NeedsRadio);
+            Assert.Equal(AudioMenuLayout.LabelFor(row, true), AudioMenuLayout.LabelFor(row, false));
+        }
+
+        [Fact]
+        public void The_two_menus_differ_by_the_DSP_and_meter_tone_rows_and_nothing_else()
         {
             // Parity between the top-level Audio menu and Slice, Audio stays
             // structural: the slice copy is the top-level list with the flagged
-            // rows taken out, in the same order. And the flag is on the DSP
-            // rows only, so nobody quietly takes another row off the Slice menu.
+            // rows taken out, in the same order. And the flag is on these rows
+            // only, so nobody quietly takes another row off the Slice menu.
             var top = AudioMenuLayout.EntriesFor(AudioMenuHost.AudioMenu).Select(e => e.Id).ToList();
             var slice = AudioMenuLayout.EntriesFor(AudioMenuHost.SliceAudioSubmenu).Select(e => e.Id).ToList();
+            var topOnly = new[] { "sep-dsp", "dsp", "meter-tones" };
 
-            Assert.Equal(top.Where(id => id != "dsp" && id != "sep-dsp").ToList(), slice);
+            Assert.Equal(top.Where(id => !topOnly.Contains(id)).ToList(), slice);
 
             var flagged = AudioMenuLayout.Entries.Where(e => e.TopLevelOnly).Select(e => e.Id).ToList();
-            Assert.Equal(new[] { "sep-dsp", "dsp" }, flagged);
+            Assert.Equal(topOnly, flagged);
 
             // The top-level menu is the whole layout, so the #214 tests that
             // walk Entries are walking the menu with the DSP row in it.
@@ -182,6 +203,27 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void The_meter_tone_items_are_built_in_exactly_one_place_their_own_row()
+        {
+            string src = MenuSource();
+
+            Assert.Equal(2, Count(src, "BuildMeterToneItems("));
+            string arm = Between(src, "case \"meter-tones\":", "break;");
+            Assert.Contains("BuildMeterToneItems(AddSubmenu(parent, label))", arm);
+
+            // And the DSP submenu no longer carries them.
+            string dsp = MethodBody(src, "private void BuildDSPItems(IntPtr parent)");
+            Assert.DoesNotContain("Meter Tones", dsp);
+            Assert.DoesNotContain("MeterToneEngine", dsp);
+
+            // Positive control: the moved rows are in the new method.
+            string meters = MethodBody(src, "private void BuildMeterToneItems(IntPtr parent)");
+            Assert.Contains("\"Meter Tones On/Off\\tCtrl+J, Ctrl+T\"", meters);
+            Assert.Contains("\"Meters Panel\\tCtrl+M\"", meters);
+            Assert.Contains("\"Peak Watcher\"", meters);
+        }
+
+        [Fact]
         public void The_DSP_submenu_is_built_with_no_radio_and_marks_what_needs_one()
         {
             string method = MethodBody(MenuSource(), "private void BuildDSPItems(IntPtr parent)");
@@ -192,7 +234,7 @@ namespace Radios.Tests
             Assert.Contains("Radios.AudioMenuLayout.MarkNeedsRadio(text, radio)", method);
 
             // Every row that can do nothing without the radio is marked. The
-            // PC-side rows and meter tones are deliberately not on this list.
+            // PC-side switches and the folder are deliberately not on this list.
             foreach (string label in new[]
                      {
                          "R(NrItemLabel(\"On-Radio Neural NR (RNN)",

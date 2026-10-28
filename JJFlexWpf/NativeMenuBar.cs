@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -695,9 +695,10 @@ public class NativeMenuBar : IDisposable
     /// is greyed and carries " - needs a radio" in its own label when there is
     /// none, through <see cref="Radios.AudioMenuLayout.MarkNeedsRadio"/>: the
     /// Audio menu's existing treatment, not a new one. Rows whose work happens
-    /// on this computer stay live (PC noise reduction's switches, the Noise
-    /// Profiles dialog and its folder, meter tones); the PC switches already
-    /// speak their own refusal when the computer's audio pipeline is not up.
+    /// on this computer stay live (PC noise reduction's two switches and the
+    /// Noise Profiles folder); the PC switches already speak their own refusal
+    /// when the computer's audio pipeline is not up. The Noise Profiles dialog
+    /// is marked, because its switches drive that pipeline too.
     /// The submenus keep their rows and their first letters in both states.
     /// </para>
     /// <para>
@@ -881,10 +882,20 @@ public class NativeMenuBar : IDisposable
             }
             ToggleDSP("Audio Peak Filter", () => Rig.APF, v => Rig.APF = v);
         }, () => Rig?.APF == FlexBase.OffOnValues.on, radio);
+    }
 
-        AddSep(parent);
-
-        // === Meter Tones ===
+    /// <summary>
+    /// The Meter Tones submenu, on its own row of the top-level Audio menu.
+    /// </summary>
+    /// <remarks>
+    /// It rode along inside DSP when #836 moved that submenu off the Slice
+    /// menu. Noel, 2026-10-27 20:41: "I think it gets its own row." Meter tones
+    /// are not signal processing and do not act on a slice. Its rows are the
+    /// ones it carried inside DSP, unchanged, and as there none is marked as
+    /// needing a radio.
+    /// </remarks>
+    private void BuildMeterToneItems(IntPtr parent)
+    {
         // These two were ONE item until Sprint 32 Track B, and the one item was
         // wrong twice over: it claimed Ctrl+Alt+M, which is bound to meter
         // tones on or off rather than to the panel it opened (this comment
@@ -1178,6 +1189,9 @@ public class NativeMenuBar : IDisposable
                     // slice; with no radio its rows stay present and the ones
                     // that need a radio say so (see BuildDSPItems).
                     BuildDSPItems(AddSubmenu(parent, label));
+                    break;
+                case "meter-tones":
+                    BuildMeterToneItems(AddSubmenu(parent, label));
                     break;
                 default:
                     // A layout row nobody wired. Say so rather than dropping it:
