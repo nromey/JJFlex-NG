@@ -36,8 +36,14 @@
     padding: 2px 4px;
 }
 
-.help-links a {
-    margin-right: 16px;
+.help-links ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.help-links li {
+    margin: 2px 0;
 }
 
 .help-results p {

@@ -514,7 +514,9 @@ $Body
 
 # Every HTML help page opens, in this order, with a skip link to the page's
 # content, a search box, and links to the Contents and the Index (Noel,
-# 2026-10-27, #834). The skip link's words are his.
+# 2026-10-27, #834). The skip link's words are his. The two links sit in a
+# list because NVDA's browse mode reads adjacent inline links as one line
+# ("Help navigation Contents Index"); a list item is a line of its own.
 function Get-WebTop([string] $Up) {
   return @"
 <header class="help-top">
@@ -525,8 +527,10 @@ function Get-WebTop([string] $Up) {
 <button type="submit">Search</button>
 </form>
 <nav class="help-links" aria-label="Help">
-<a href="${Up}Contents.htm">Contents</a>
-<a href="${Up}Index.htm">Index</a>
+<ul>
+<li><a href="${Up}Contents.htm">Contents</a></li>
+<li><a href="${Up}Index.htm">Index</a></li>
+</ul>
 </nav>
 </header>
 "@
