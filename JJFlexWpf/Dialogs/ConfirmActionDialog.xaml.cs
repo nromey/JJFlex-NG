@@ -80,7 +80,7 @@ namespace JJFlexWpf.Dialogs
             IReadOnlyList<string>? warnings = null,
             string question = "Continue?",
             string yesLabel = "_Yes",
-            string noLabel = "_No",
+            string? noLabel = null,
             string? radioModel = null,
             Radios.AdvisoryKey? suppressKey = null,
             bool enterConfirms = false,
@@ -124,7 +124,17 @@ namespace JJFlexWpf.Dialogs
             AutomationProperties.SetName(this, title);
             YesButton.Content = yesLabel;
             AutomationProperties.SetName(YesButton, yesLabel.Replace("_", ""));
-            NoButton.Content = noLabel;
+            // The No button's spoken name follows its label, as Yes's does. The
+            // XAML names it "No, cancel", which is right for the plain No and
+            // was wrong for every caller that relabels it: the disconnect
+            // question showed "Disconnect without saving" and was announced as
+            // "No, cancel", so the operator could not tell which button saved
+            // (bench, 2026-10-28). Left null, the plain No keeps its fuller name.
+            if (noLabel != null)
+            {
+                NoButton.Content = noLabel;
+                AutomationProperties.SetName(NoButton, noLabel.Replace("_", ""));
+            }
             _radioModel = radioModel;
             _suppressKey = suppressKey;
             if (suppressKey != null)
