@@ -124,6 +124,9 @@ namespace Radios
         public void FileStart() => _source.FileStart();
         public void FileStartForVox() => _source.FileStartForVox();
         public void FileStop() => _source.FileStop();
+        // Forwarded, never left to the interface's default of zero: a wrapper
+        // that reported zero would never pause at ten minutes (#835).
+        public double FilePlayedSeconds => _source.FilePlayedSeconds;
         public bool VoxOn => _source.VoxOn;
 
         /// <summary>Disarm. The send must have settled: the switch stops watching this carrier.</summary>

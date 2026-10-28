@@ -29,8 +29,10 @@ namespace JJFlexWpf;
 /// transmitter, and the message keys can arrive from more than one key
 /// table — the main window's and the WinForms log form's each have a
 /// <c>KeyCommands</c>. So the in-flight send is static: a message key
-/// pressed from the log form stops a send started from Home. A Play press
-/// while any send is going out stops it, as the same message key does.
+/// pressed from the log form stops a send started from Home. Play from
+/// computer pressed while a computer recording is going out pauses it, and
+/// pressed again carries it on (#835); a Play press on any other send stops
+/// it, as the same message key stops a message.
 /// </para>
 /// <para>
 /// <b>The VOX send box (#835).</b> With the box ticked and VOX on, every send
@@ -41,6 +43,18 @@ namespace JJFlexWpf;
 /// turns VOX on again only after the radio reports receive and the path has
 /// drained (Noel, 2026-10-27 15:29). The short self-key the radio gives when
 /// VOX is switched back on (#819) is accepted and not engineered around.
+/// </para>
+/// <para>
+/// <b>How long a send may key the radio (#835, round 2).</b> A send longer
+/// than three minutes asks first, before anything keys (Noel, 2026-10-27
+/// 20:48). At ten minutes of recording sent, the send PAUSES: it unkeys the
+/// radio if it keyed it, gives the microphone back, and holds its place, so
+/// the operator can identify; Play carries on from there and Escape ends it
+/// (20:50). Play pauses a running recording send and carries it on the same
+/// way (20:51). One send is a <see cref="SendSession"/> across pieces, each
+/// piece one <see cref="VoiceMessageSend"/> loaded from the held place
+/// (<see cref="TxAudioFile.TryLoadPieceInto"/>), so a recording of any length
+/// goes out whole, and none is shortened.
 /// </para>
 /// <para>
 /// <b>The refusals are the radio's own words.</b> The path check is
@@ -78,23 +92,55 @@ internal static class VoiceMessageSender
         public SliceSendRig? Slice;
         /// <summary>The box send's cut owner (the transmit kill switch's arm), disposed when it settles.</summary>
         public BoxSendOwnedRig? Owned;
+        /// <summary>The radio this send is for; a paused send ends if it disconnects.</summary>
+        public FlexBase? Rig;
+        /// <summary>The file the pieces are loaded from; null for the radio's slice recording.</summary>
+        public string? Path;
+        /// <summary>The send across its pieces and pauses (#835).</summary>
+        public SendSession Session = new(0);
+        /// <summary>The piece about to start carries on after a pause, so it says so rather than "Sending".</summary>
+        public bool Resuming;
     }
 
     private static SendInfo? _current;
 
+    /// <summary>
+    /// A send paused at a held place (#835): nothing keyed, nothing engaged,
+    /// waiting for Play, Escape, or the radio disconnecting.
+    /// </summary>
+    private static SendInfo? _paused;
+
+    /// <summary>
+    /// True while the long-send warning is on screen. A send door pressed in
+    /// that moment (the JJ key works from other programs) is ignored rather
+    /// than starting a second send under the question.
+    /// </summary>
+    private static bool _confirming;
+
     /// <summary>A box send waiting for the radio to confirm VOX off, or for VOX's tail to drop.</summary>
     private static SendInfo? _starting;
 
-    /// <summary>True while a send is going out, or a box send is getting ready to.</summary>
-    public static bool InFlight => _starting != null || (_send != null && !_send.Finished);
+    /// <summary>
+    /// True while a send is going out, a box send is getting ready to, or a
+    /// send is paused (#835): Escape ends any of them.
+    /// </summary>
+    public static bool InFlight => _starting != null || (_send != null && !_send.Finished) || _paused != null;
+
+    /// <summary>True while a send is paused at a held place, waiting for Play.</summary>
+    public static bool Paused => _paused != null;
 
     /// <summary>
-    /// True while the send going out, or getting ready, was started by a Play
-    /// door: a computer recording or a slice recording. A Play press then stops
-    /// it, as the same message key stops a message.
+    /// True while the send going out, getting ready, or paused, was started by
+    /// a Play door: a computer recording or a slice recording.
     /// </summary>
     public static bool InFlightFromPlay =>
-        InFlight && (_starting ?? _current)?.Kind is SendKind.ComputerRecording or SendKind.SliceRecording;
+        InFlight && Active?.Kind is SendKind.ComputerRecording or SendKind.SliceRecording;
+
+    /// <summary>The send in hand, whichever state it is in.</summary>
+    private static SendInfo? Active => _starting ?? (_send != null && !_send.Finished ? _current : null) ?? _paused;
+
+    private static SendSessionState? StateOf(SendInfo? info) =>
+        info == null ? null : ReferenceEquals(info, _paused) ? SendSessionState.Paused : SendSessionState.Running;
 
     /// <summary>The label of the message going out, or empty.</summary>
     public static string InFlightLabel => _send != null && !_send.Finished ? _send.Label : "";
@@ -140,16 +186,33 @@ internal static class VoiceMessageSender
         if (rig == null) throw new ArgumentNullException(nameof(rig));
         if (item == null) throw new ArgumentNullException(nameof(item));
         string label = item.Label ?? "";
-
-        if (InFlight)
+        if (_confirming)
         {
-            bool same = string.Equals((_starting ?? _current)?.Label, label, StringComparison.Ordinal)
-                        && (_starting ?? _current)?.Kind == SendKind.VoiceMessage;
-            Stop();
-            if (same) return;
+            Tracing.TraceLine("VoiceMessageSender: \"" + label + "\" ignored: the long-send question is open",
+                TraceLevel.Info);
+            return;
         }
 
-        var info = new SendInfo { Kind = SendKind.VoiceMessage, Label = label };
+        // The message key keeps #151's meaning while a message is going out:
+        // the same key stops it, another key stops it and starts its own. A
+        // message paused at ten minutes carries on on its own key (#835). Whether
+        // the message key should PAUSE a running message, the way Play pauses a
+        // recording, is not ruled; it is asked, and until then it stops.
+        SendInfo? active = Active;
+        bool same = active != null && active.Kind == SendKind.VoiceMessage
+                    && string.Equals(active.Label, label, StringComparison.Ordinal);
+        switch (SendSession.Answer(StateOf(active), same, pressPauses: false, canHoldPlace: true))
+        {
+            case SendPress.Resume:
+                ResumePaused();
+                return;
+            case SendPress.Stop:
+                Stop();
+                if (same) return;
+                break;
+        }
+
+        var info = new SendInfo { Kind = SendKind.VoiceMessage, Label = label, Rig = rig };
 
         // The licence-aware lockout PTT applies, applied here too: a key that
         // keys the radio must answer to the same rule as the key that keys it
@@ -193,28 +256,41 @@ internal static class VoiceMessageSender
             return;
         }
 
-        if (!TxAudioFile.TryLoadInto(rig, path, out TxAudioFile.Loaded? loaded, out string loadTrouble)
-            || loaded == null)
+        info.Path = path;
+        SendRoute route = RouteFor(rig);
+        if (!LengthAgreed(rig, info, route, out TxAudioFile.Loaded? loaded, out route)) return;
+        if (loaded == null)
         {
-            Refuse(info, loadTrouble);
-            return;
+            if (!TxAudioFile.TryLoadPieceInto(rig, path, 0, out loaded, out string loadTrouble) || loaded == null)
+            {
+                Refuse(info, loadTrouble);
+                return;
+            }
         }
+        info.Session = new SendSession(loaded.LengthSeconds);
+        StartVoiceMessagePiece(rig, info, loaded, route);
+    }
 
-        // The VOX send box (#835): with it ticked and VOX on, the message keys the
-        // radio itself rather than letting VOX key it. Unticked, #151's rule
-        // stands exactly as it was: VOX keys it, otherwise the key keys it.
-        if (RouteFor(rig) == SendRoute.Box)
+    /// <summary>
+    /// Start a voice message's piece: the first, or one carrying on after a
+    /// pause. The VOX send box (#835): with it ticked and VOX on, the message keys
+    /// the radio itself rather than letting VOX key it. Unticked, #151's rule
+    /// stands exactly as it was: VOX keys it, otherwise the key keys it.
+    /// </summary>
+    private static void StartVoiceMessagePiece(FlexBase rig, SendInfo info, TxAudioFile.Loaded loaded, SendRoute route)
+    {
+        if (route == SendRoute.Box)
         {
-            info.MonitorPath = path;
-            _ = BeginBoxAsync(rig, info, new FlexBaseVoiceMessageRig(rig), startsOnKey: false, loaded.Seconds,
+            info.MonitorPath = info.Path;
+            _ = BeginBoxAsync(rig, info, new FlexBaseVoiceMessageRig(rig), startsOnKey: false,
                 joinInstead: () => Launch(rig, info,
-                    VoiceMessageSend.Begin(new FlexBaseVoiceMessageRig(rig), label, Environment.TickCount64),
-                    loaded.Seconds, path, loaded.Describe()));
+                    VoiceMessageSend.Begin(new FlexBaseVoiceMessageRig(rig), info.Label, Environment.TickCount64),
+                    loaded.Path, loaded.Describe()));
             return;
         }
 
-        Launch(rig, info, VoiceMessageSend.Begin(new FlexBaseVoiceMessageRig(rig), label, Environment.TickCount64),
-            loaded.Seconds, path, loaded.Describe());
+        Launch(rig, info, VoiceMessageSend.Begin(new FlexBaseVoiceMessageRig(rig), info.Label, Environment.TickCount64),
+            loaded.Path, loaded.Describe());
     }
 
     /// <summary>
@@ -227,14 +303,17 @@ internal static class VoiceMessageSender
     public static void SendComputerRecording(FlexBase rig, string path, SendRoute route)
     {
         if (rig == null) throw new ArgumentNullException(nameof(rig));
+        if (_confirming) return;
         if (InFlight) { Stop(); return; }
 
         // DRAFT PROSE (#835): awaiting Noel
         var info = new SendInfo
         {
             Kind = SendKind.ComputerRecording,
-            What = Lexicon.Get("audio.send.what_computer", ("name", Path.GetFileNameWithoutExtension(path))),
+            What = Lexicon.Get("audio.send.what_computer", ("name", System.IO.Path.GetFileNameWithoutExtension(path))),
             MonitorPath = path,
+            Path = path,
+            Rig = rig,
         };
         PttSafetyController? ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
         if (!Admitted(rig, ptt, info, route)) return;
@@ -250,21 +329,139 @@ internal static class VoiceMessageSender
             Refuse(info, trouble);
             return;
         }
-        if (!TxAudioFile.TryLoadInto(rig, path, out TxAudioFile.Loaded? loaded, out string loadTrouble)
-            || loaded == null)
+        if (!LengthAgreed(rig, info, route, out TxAudioFile.Loaded? loaded, out route)) return;
+        if (route == SendRoute.AsBefore)
         {
-            Refuse(info, loadTrouble);
+            // The radio changed while the question was open: nobody is keying
+            // it and the box does not apply. Play never keys on its own.
+            Refuse(info, Lexicon.Get("audio.send.nothing_keys_now"));
             return;
         }
+        if (loaded == null)
+        {
+            if (!TxAudioFile.TryLoadPieceInto(rig, path, 0, out loaded, out string loadTrouble) || loaded == null)
+            {
+                Refuse(info, loadTrouble);
+                return;
+            }
+        }
+        info.Session = new SendSession(loaded.LengthSeconds);
+        StartComputerPiece(rig, info, loaded, route);
+    }
 
+    /// <summary>A computer recording's piece: the first, or one carrying on after a pause.</summary>
+    private static void StartComputerPiece(FlexBase rig, SendInfo info, TxAudioFile.Loaded loaded, SendRoute route)
+    {
         if (route == SendRoute.Box)
         {
-            _ = BeginBoxAsync(rig, info, new FlexBaseVoiceMessageRig(rig), startsOnKey: false, loaded.Seconds,
+            _ = BeginBoxAsync(rig, info, new FlexBaseVoiceMessageRig(rig), startsOnKey: false,
                 joinInstead: () => JoinWithFile(rig, info, loaded));
             return;
         }
         JoinWithFile(rig, info, loaded);
     }
+
+    /// <summary>
+    /// The long-send warning (#835; Noel, 2026-10-27 20:48: <i>"I would warn the
+    /// user if it's longer than 180 seconds and if they [click] ok, tell them
+    /// how to pause the transmission"</i>). Asked before anything keys, every
+    /// time a send over three minutes is pressed, and never for a send that
+    /// joins a transmission the operator is already holding. False when the
+    /// operator declined, or when the send could not go ahead; either way it
+    /// has said so, and nothing has keyed.
+    /// </summary>
+    /// <remarks>
+    /// The length comes from the file's header when it says, so a declined
+    /// send never touches the transmit player; a file that does not say is
+    /// loaded first, and <paramref name="loaded"/> carries it out. After a
+    /// "Send", the route is read again, because the radio may have changed
+    /// while the question was open, and the licence and the hold after a
+    /// reflected-power cut are asked again for the same reason.
+    /// </remarks>
+    private static bool LengthAgreed(FlexBase rig, SendInfo info, SendRoute route,
+        out TxAudioFile.Loaded? loaded, out SendRoute routeAfter)
+    {
+        loaded = null;
+        routeAfter = route;
+        string path = info.Path ?? "";
+        if (!TxAudioFile.TryMeasureSeconds(path, out double length))
+        {
+            if (!TxAudioFile.TryLoadPieceInto(rig, path, 0, out loaded, out string loadTrouble) || loaded == null)
+            {
+                Refuse(info, loadTrouble);
+                return false;
+            }
+            length = loaded.LengthSeconds;
+        }
+        if (!VoiceMessageSend.NeedsLengthWarning(length, route)) return true;
+
+        if (!ConfirmLongSend(info, length))
+        {
+            Tracing.TraceLine("VoiceMessageSender: " + Name(info) + " not sent: the operator declined the long-send warning",
+                TraceLevel.Info);
+            // DRAFT PROSE (#835): awaiting Noel
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.send.cancelled", ("what", Name(info))),
+                SpeechIntent.Interrupt, VerbosityLevel.Terse, subject: SpeechSubject.MessageKey);
+            return false;
+        }
+        if (InFlight)
+        {
+            // Something else started while the question was open. One send at a time.
+            Tracing.TraceLine("VoiceMessageSender: " + Name(info) + " not sent: another send began during the question",
+                TraceLevel.Info);
+            return false;
+        }
+        routeAfter = RouteFor(rig);
+        PttSafetyController? ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
+        if (!Admitted(rig, ptt, info, routeAfter == SendRoute.JoinTransmission ? routeAfter : SendRoute.Box))
+            return false;
+        return true;
+    }
+
+    /// <summary>
+    /// The question itself, on the existing confirmation dialog: its body is
+    /// one read-only text the operator can arrow through, Send is not the
+    /// default button, and Escape and Cancel both decline.
+    /// </summary>
+    private static bool ConfirmLongSend(SendInfo info, double length)
+    {
+        bool message = info.Kind == SendKind.VoiceMessage;
+        // DRAFT PROSE (#835): awaiting Noel
+        var lines = new System.Collections.Generic.List<string>
+        {
+            Lexicon.Get(message ? "audio.send.long_pause_message" : "audio.send.long_pause_play"),
+        };
+        if (length > VoiceMessageSend.PauseAfterSeconds + VoiceMessageSend.PauseEndMarginSeconds)
+            lines.Add(Lexicon.Get("audio.send.long_id", ("resume", ResumeWord(info))));
+        _confirming = true;
+        try
+        {
+            var dialog = new Dialogs.ConfirmActionDialog(
+                Lexicon.Get("audio.send.long_title"),
+                Lexicon.Get("audio.send.long_message", ("what", Name(info)),
+                    ("length", RecordingStore.DescribeLength(length))),
+                lines,
+                question: Lexicon.Get("audio.send.long_question"),
+                yesLabel: Lexicon.Get("audio.send.long_yes"),
+                noLabel: Lexicon.Get("audio.send.long_no"));
+            return dialog.ShowDialog() == true;
+        }
+        catch (Exception ex)
+        {
+            // A question that cannot be asked is a send that does not go.
+            Tracing.TraceLine("VoiceMessageSender: the long-send warning could not be shown: " + ex.Message,
+                TraceLevel.Warning);
+            return false;
+        }
+        finally
+        {
+            _confirming = false;
+        }
+    }
+
+    /// <summary>The key that carries a paused send on, in the operator's words.</summary>
+    private static string ResumeWord(SendInfo info) =>
+        Lexicon.Get(info.Kind == SendKind.VoiceMessage ? "audio.send.resume_message" : "audio.send.resume_play");
 
     /// <summary>
     /// Send the radio's own slice recording under the VOX send box (#835): key, then
@@ -275,6 +472,7 @@ internal static class VoiceMessageSender
     public static void SendSliceRecording(FlexBase rig, SliceRecorderTarget target)
     {
         if (rig == null) throw new ArgumentNullException(nameof(rig));
+        if (_confirming) return;
         if (InFlight) { Stop(); return; }
 
         string letter = rig.SliceRecorderLetter(target);
@@ -283,6 +481,7 @@ internal static class VoiceMessageSender
         {
             Kind = SendKind.SliceRecording,
             What = Lexicon.Get("audio.send.what_slice", ("letter", letter)),
+            Rig = rig,
         };
         PttSafetyController? ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
         if (!Admitted(rig, ptt, info, SendRoute.Box)) return;
@@ -294,8 +493,13 @@ internal static class VoiceMessageSender
 
         var slice = new SliceSendRig(rig, target);
         info.Slice = slice;
+        // The radio keeps at most two minutes (FlexBase.SliceRecordBufferSeconds,
+        // and SliceRecordingSeconds clamps what the radio reports to it), so a
+        // slice send never reaches the three-minute warning or the ten-minute
+        // pause, and its playback cannot hold a place: Play stops it.
         double seconds = rig.SliceRecordingSeconds(target) ?? FlexBase.SliceRecordBufferSeconds;
-        _ = BeginBoxAsync(rig, info, slice, startsOnKey: true, seconds,
+        info.Session = new SendSession(seconds);
+        _ = BeginBoxAsync(rig, info, slice, startsOnKey: true,
             joinInstead: () => _ = RecorderControls.StartSliceOnAirAsync(rig, target));
     }
 
@@ -332,11 +536,11 @@ internal static class VoiceMessageSender
         // tenth of a second or so of a key-down.
         if (!rig.Transmit)
         {
-            Refuse(info, Lexicon.Get("audio.send.not_yet_transmitting"));
+            RefuseOrHold(info, Lexicon.Get("audio.send.not_yet_transmitting"));
             return;
         }
         var send = VoiceMessageSend.Begin(new FlexBaseVoiceMessageRig(rig), info.What, Environment.TickCount64);
-        Launch(rig, info, send, loaded.Seconds, loaded.Path, loaded.Describe());
+        Launch(rig, info, send, loaded.Path, loaded.Describe());
         StartMonitor(info);
     }
 
@@ -347,7 +551,7 @@ internal static class VoiceMessageSender
     /// out of here before the send begins gives the pause back.
     /// </summary>
     private static async Task BeginBoxAsync(FlexBase rig, SendInfo info, IVoiceMessageRig sendRig,
-        bool startsOnKey, double seconds, Action joinInstead)
+        bool startsOnKey, Action joinInstead)
     {
         _starting = info;
         // A kill from here on cancels this send's key, whatever route it takes
@@ -372,7 +576,7 @@ internal static class VoiceMessageSender
         if (pause == null)
         {
             _starting = null;
-            Refuse(info, Lexicon.Get("audio.send.vox_unconfirmed"));
+            RefuseOrHold(info, Lexicon.Get("audio.send.vox_unconfirmed"));
             return;
         }
 
@@ -446,7 +650,7 @@ internal static class VoiceMessageSender
             return;
         }
         var send = VoiceMessageSend.BeginKeyed(info.Owned, Name(info), Environment.TickCount64, options);
-        Launch(rig, info, send, seconds, info.MonitorPath ?? "", "box");
+        Launch(rig, info, send, info.MonitorPath ?? "", "box");
     }
 
     // ── Hearing the send ────────────────────────────────────────────────
@@ -459,7 +663,7 @@ internal static class VoiceMessageSender
     private static void StartMonitor(SendInfo info)
     {
         if (info.MonitorPath == null || info.Monitoring) return;
-        info.Monitoring = RecordingPlayer.PlayAlongsideSend(info.MonitorPath);
+        info.Monitoring = RecordingPlayer.PlayAlongsideSend(info.MonitorPath, info.Session.HeldAtSeconds);
     }
 
     private static void StopMonitor(SendInfo? info)
@@ -475,12 +679,13 @@ internal static class VoiceMessageSender
 
     private static string Name(SendInfo info) => info.Kind == SendKind.VoiceMessage ? info.Label : info.What;
 
-    private static void Launch(FlexBase rig, SendInfo info, VoiceMessageSend send, double seconds,
-        string path, string describe)
+    private static void Launch(FlexBase rig, SendInfo info, VoiceMessageSend send, string path, string describe)
     {
         PttSafetyController? ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
         _send = send;
         _current = info;
+        _paused = null;
+        info.Session.Begin(send);
         // A box send's carrier is owned by the transmit kill switch, which
         // warns AND cuts (BoxSendOwnedRig); asking the controller to watch it
         // too would only say the reflected-power warning twice. An unboxed
@@ -495,27 +700,41 @@ internal static class VoiceMessageSender
         }
 
         Tracing.TraceLine("VoiceMessageSender: sending \"" + Name(info) + "\" from " + path
-            + " (" + describe + "), "
+            + " at " + info.Session.HeldAtSeconds.ToString("F1") + " s of " + info.Session.TotalSeconds.ToString("F1")
+            + " s, piece " + info.Session.Pieces + " (" + describe + "), "
             + (_send.Boxed ? "keying the radio with VOX paused (the box)"
                : _send.WeKeyed ? "keying the radio"
                : _send.ViaVox ? "letting VOX key the radio"
                : "radio already transmitting"),
             TraceLevel.Info);
 
-        string length = RecordingStore.DescribeLength(seconds);
+        string length = RecordingStore.DescribeLength(info.Session.TotalSeconds);
         // DRAFT PROSE (#835): awaiting Noel (the recording sentences; the message one is #151's)
-        ScreenReaderOutput.Speak(
-            info.Kind == SendKind.VoiceMessage
+        string line = info.Resuming
+            ? Lexicon.Get("audio.send.resuming", ("what", Name(info)),
+                ("position", RecordingStore.DescribeLength(info.Session.HeldAtSeconds)),
+                ("remaining", RecordingStore.DescribeLength(info.Session.RemainingSeconds)))
+            : info.Kind == SendKind.VoiceMessage
                 ? Lexicon.Get("settings.cw.voice_sending", ("label", info.Label), ("length", length))
-                : Lexicon.Get("audio.send.sending", ("what", info.What), ("length", length)),
-            SpeechIntent.Interrupt, VerbosityLevel.Terse,
+                : Lexicon.Get("audio.send.sending", ("what", info.What), ("length", length));
+        info.Resuming = false;
+        ScreenReaderOutput.Speak(line, SpeechIntent.Interrupt, VerbosityLevel.Terse,
             subject: SpeechSubject.MessageKey);
 
-        // Per dispatcher, not once: a DispatcherTimer belongs to the thread
-        // that made it, and a message key can arrive from the WinForms full
-        // log form, which FindLogEntry opens on an STA thread of its own.
-        // Starting a timer made on another thread throws, so a send started
-        // from a different dispatcher gets a timer of its own.
+        EnsureTimer();
+    }
+
+    /// <summary>
+    /// Start the send's timer on this thread. Per dispatcher, not once: a
+    /// DispatcherTimer belongs to the thread that made it, and a message key
+    /// can arrive from the WinForms full log form, which FindLogEntry opens on
+    /// an STA thread of its own. Starting a timer made on another thread
+    /// throws, so a send started from a different dispatcher gets a timer of
+    /// its own. It also runs while a send is paused, to end it if the radio
+    /// disconnects.
+    /// </summary>
+    private static void EnsureTimer()
+    {
         if (_timer == null || _timer.Dispatcher != Dispatcher.CurrentDispatcher)
         {
             StopTimer();
@@ -534,7 +753,10 @@ internal static class VoiceMessageSender
         else t.Dispatcher.BeginInvoke(new Action(t.Stop));
     }
 
-    /// <summary>Stop the send going out, or the box send getting ready. Idempotent.</summary>
+    /// <summary>
+    /// Stop the send going out, the box send getting ready, or the send that
+    /// is paused (Escape, and every door that ends a send). Idempotent.
+    /// </summary>
     public static void Stop()
     {
         SendInfo? starting = _starting;
@@ -542,8 +764,24 @@ internal static class VoiceMessageSender
         {
             // The box start owns its VOX pause until it sees this and gives it back.
             _starting = null;
+            starting.Session.Stop();
             Tracing.TraceLine("VoiceMessageSender: " + Name(starting) + " stopped before it keyed", TraceLevel.Info);
             Speak(starting, VoiceMessageOutcome.Stopped, trouble: false);
+            return;
+        }
+        SendInfo? paused = _paused;
+        if (paused != null)
+        {
+            // Nothing of a paused send is keyed or engaged: its VOX pause, its
+            // cut owner and its local copy were all given back at the pause.
+            _paused = null;
+            paused.Session.Stop();
+            StopTimer();
+            Tracing.TraceLine("VoiceMessageSender: " + Name(paused) + " stopped while paused at "
+                + paused.Session.HeldAtSeconds.ToString("F1") + " s", TraceLevel.Info);
+            // DRAFT PROSE (#835): awaiting Noel
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.send.stopped_paused", ("what", Name(paused))),
+                SpeechIntent.Interrupt, VerbosityLevel.Terse, subject: SpeechSubject.MessageKey);
             return;
         }
         VoiceMessageSend? send = _send;
@@ -552,12 +790,194 @@ internal static class VoiceMessageSender
         Settle();
     }
 
+    /// <summary>
+    /// Play from computer was pressed while a send is in hand (#835; Noel,
+    /// 2026-10-27 20:51: <i>"you stop play and pause the same way"</i>). A
+    /// computer recording going out pauses; a paused one carries on; any other
+    /// send stops, as before. True when the press was answered here; false
+    /// when no send is in hand and the door should do what it always did.
+    /// </summary>
+    internal static bool AnswerPlayFromComputer()
+    {
+        if (_confirming) return true;
+        SendInfo? active = Active;
+        bool same = active?.Kind == SendKind.ComputerRecording;
+        switch (SendSession.Answer(StateOf(active), same, pressPauses: true, canHoldPlace: true))
+        {
+            case SendPress.Pause: PauseRunning(); return true;
+            case SendPress.Resume: ResumePaused(); return true;
+            case SendPress.Stop: Stop(); return true;
+            default: return false;
+        }
+    }
+
+    /// <summary>
+    /// The operator pressed Play on the send going out: hold the place. A box
+    /// send still waiting for VOX to confirm off has sent nothing, and pauses
+    /// at the place it would have started from.
+    /// </summary>
+    private static void PauseRunning()
+    {
+        SendInfo? starting = _starting;
+        if (starting != null)
+        {
+            _starting = null;   // the box start sees this and gives its VOX pause back
+            starting.Session.PauseBeforeKeying();
+            _paused = starting;
+            EnsureTimer();
+            Tracing.TraceLine("VoiceMessageSender: " + Name(starting) + " paused before it keyed", TraceLevel.Info);
+            SpeakPaused(starting);
+            return;
+        }
+        VoiceMessageSend? send = _send;
+        if (send == null || send.Finished) return;
+        send.Pause();
+        Settle();
+    }
+
+    /// <summary>
+    /// Carry a paused send on from its held place (#835; Noel, 2026-10-27
+    /// 20:50: <i>"play keys it"</i>). The way is chosen as a fresh press
+    /// would choose it now: under the box, VOX is paused again and the send
+    /// keys exactly as a fresh box send does; with the operator holding the
+    /// transmitter it rides that; a voice message otherwise goes as #151 sends
+    /// one. A recording with nobody keying and the box not applying stays
+    /// paused and says to key first, because Play never keys on its own. Every
+    /// check a fresh press makes is made again.
+    /// </summary>
+    private static void ResumePaused()
+    {
+        SendInfo? info = _paused;
+        if (info == null) return;
+        FlexBase? rig = info.Rig;
+        if (rig == null || !rig.IsConnected)
+        {
+            EndPausedOnDisconnect(info);
+            return;
+        }
+
+        SendRoute route = RouteFor(rig);
+        ResumeWay way = SendSession.ResumeAs(info.Kind == SendKind.VoiceMessage, route);
+        if (way == ResumeWay.NeedsKey)
+        {
+            // DRAFT PROSE (#835): awaiting Noel
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.send.resume_needs_key", ("what", Name(info))),
+                SpeechIntent.Interrupt, VerbosityLevel.Critical, subject: SpeechSubject.MessageKey);
+            return;
+        }
+
+        PttSafetyController? ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
+        if (ptt?.CanTransmitHereCheck != null && !ptt.CanTransmitHereCheck())
+        {
+            RefuseOrHold(info, Lexicon.Get("audio.ptt.blocked_by_license"));
+            return;
+        }
+        // The hold after a reflected-power cut (#571), for a carrying-on that
+        // keys or lets VOX key. The controller speaks the refusal; the send
+        // stays paused.
+        if (way != ResumeWay.Join && ptt != null && ptt.RefuseIfHeldAfterCut("a send carrying on"))
+            return;
+        if (rig.TxToneEngaged)
+        {
+            RefuseOrHold(info, Lexicon.Get("audio.reference.tone_already_armed"));
+            return;
+        }
+        string trouble = rig.TxTonePathTrouble;
+        if (!string.IsNullOrEmpty(trouble))
+        {
+            RefuseOrHold(info, trouble);
+            return;
+        }
+
+        if (!TxAudioFile.TryLoadPieceInto(rig, info.Path ?? "", info.Session.HeldAtSeconds,
+                out TxAudioFile.Loaded? loaded, out string loadTrouble) || loaded == null)
+        {
+            // The file went away while paused: there is nothing to carry on with.
+            _paused = null;
+            info.Session.Stop();
+            StopTimer();
+            // DRAFT PROSE (#835): awaiting Noel
+            RefuseLine(Lexicon.Get("audio.send.resume_refused_ended", ("what", Name(info)), ("reason", loadTrouble)), info);
+            return;
+        }
+
+        _paused = null;
+        info.Resuming = true;
+        Tracing.TraceLine("VoiceMessageSender: " + Name(info) + " carrying on from "
+            + info.Session.HeldAtSeconds.ToString("F1") + " s, " + way, TraceLevel.Info);
+        if (info.Kind == SendKind.VoiceMessage)
+            StartVoiceMessagePiece(rig, info, loaded, route);
+        else
+            StartComputerPiece(rig, info, loaded, route);
+    }
+
+    /// <summary>
+    /// A send that could not go ahead. A send carrying on after a pause stays
+    /// paused, so the operator can try again; any other send is refused.
+    /// </summary>
+    private static void RefuseOrHold(SendInfo info, string reason)
+    {
+        if (info.Session.State == SendSessionState.Paused)
+        {
+            info.Resuming = false;
+            _paused = info;
+            EnsureTimer();
+            Tracing.TraceLine("VoiceMessageSender: " + Name(info) + " did not carry on, still paused: " + reason,
+                TraceLevel.Info);
+            EarconPlayer.Warning2Beep();
+            // DRAFT PROSE (#835): awaiting Noel
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.send.resume_refused", ("what", Name(info)), ("reason", reason)),
+                SpeechIntent.Interrupt, VerbosityLevel.Critical, subject: SpeechSubject.MessageKey);
+            return;
+        }
+        Refuse(info, reason);
+    }
+
+    /// <summary>The radio went away while a send was paused: the send ends (#835).</summary>
+    private static void EndPausedOnDisconnect(SendInfo info)
+    {
+        if (ReferenceEquals(_paused, info)) _paused = null;
+        info.Session.Stop();
+        StopTimer();
+        Tracing.TraceLine("VoiceMessageSender: " + Name(info) + " ended while paused: the radio disconnected",
+            TraceLevel.Info);
+        // DRAFT PROSE (#835): awaiting Noel
+        ScreenReaderOutput.Speak(Lexicon.Get("audio.send.paused_disconnected", ("what", Name(info))),
+            SpeechIntent.Queue, VerbosityLevel.Critical, subject: SpeechSubject.MessageKey);
+    }
+
+    /// <summary>
+    /// One sentence at a pause (#835): that it paused, whether the radio was
+    /// unkeyed or the microphone given back, and which keys carry on and stop.
+    /// The ten-minute pause comes unasked, so it is heard at every verbosity.
+    /// </summary>
+    private static void SpeakPaused(SendInfo info)
+    {
+        SendSession s = info.Session;
+        string key = s.PausedForId
+            ? (s.PausedPieceKeyed ? "audio.send.paused_id_unkeyed" : "audio.send.paused_id_mic")
+            : (s.PausedPieceKeyed ? "audio.send.paused_unkeyed" : "audio.send.paused_mic");
+        if (s.PausedForId && EarconPlayer.RecorderBeepsEnabled) EarconPlayer.ConfirmTone();
+        // DRAFT PROSE (#835): awaiting Noel
+        ScreenReaderOutput.Speak(Lexicon.Get(key, ("what", Name(info)), ("resume", ResumeWord(info))),
+            SpeechIntent.Interrupt, s.PausedForId ? VerbosityLevel.Critical : VerbosityLevel.Terse,
+            subject: SpeechSubject.MessageKey);
+    }
+
     private static void OnTick(object? sender, EventArgs e)
     {
         VoiceMessageSend? send = _send;
         if (send == null)
         {
-            StopTimer();
+            SendInfo? paused = _paused;
+            if (paused == null)
+            {
+                StopTimer();
+                return;
+            }
+            // A paused send never keys by itself; this only ends it if the
+            // radio it was going to has gone (#835: "Disconnect ends it").
+            if (paused.Rig == null || !paused.Rig.IsConnected) EndPausedOnDisconnect(paused);
             return;
         }
         if (!send.Finished) send.Tick(Environment.TickCount64);
@@ -585,6 +1005,7 @@ internal static class VoiceMessageSender
         // when THEY unkey, by the same rule.
         // Disarm the box send's cut owner. The send has already unkeyed.
         info?.Owned?.Dispose();
+        if (info != null) info.Owned = null;   // a piece carrying on arms a fresh one (#835)
         if (info?.VoxPause != null)
         {
             info.VoxPause.Dispose();
@@ -592,7 +1013,22 @@ internal static class VoiceMessageSender
         }
         if (send == null || info == null) return;
 
-        Tracing.TraceLine("VoiceMessageSender: \"" + Name(info) + "\" " + send.Outcome, TraceLevel.Info);
+        Tracing.TraceLine("VoiceMessageSender: \"" + Name(info) + "\" " + send.Outcome
+            + (send.Outcome == VoiceMessageOutcome.Paused
+                ? " at " + send.PausedAtSeconds.ToString("F1") + " s of the piece" + (send.PausedForId ? ", ten minutes sent" : "")
+                : ""), TraceLevel.Info);
+        if (info.Session.Settle() == SendSessionState.Paused)
+        {
+            // Everything the piece held has been given back above: the VOX
+            // pause (VOX comes on once the radio reports receive and the path
+            // has drained, so the operator can identify by voice), the cut
+            // owner, the controller's watch and the local copy. A paused send
+            // holds only its place.
+            _paused = info;
+            EnsureTimer();
+            SpeakPaused(info);
+            return;
+        }
         bool trouble = send.Outcome == VoiceMessageOutcome.RadioDidNotKey
                     || send.Outcome == VoiceMessageOutcome.VoxDidNotKey
                     || send.Outcome == VoiceMessageOutcome.RanLong

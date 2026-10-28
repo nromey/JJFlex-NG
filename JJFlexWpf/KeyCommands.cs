@@ -642,7 +642,8 @@ public class KeyCommands
             // on, a voice message or a played recording keys the radio itself
             // and hands back to VOX. Home's Transmission group and Settings,
             // PTT, carry the same box; every door goes through
-            // VoxSendBoxControl. No JJ key chord until Noel allocates one.
+            // VoxSendBoxControl. Its JJ key chord is Ctrl+K, K for key (Noel,
+            // 2026-10-27 20:49: "ctrl+k is fine").
             new(CommandValues.ToggleVoxSendBox, KeyTypes.Command, ToggleVoxSendBoxHandler,
                 "Turn on or off whether sends key the radio when VOX is on",
                 "Sends key the radio with VOX", false, FunctionGroups.Audio, KeyScope.Global)
@@ -1962,13 +1963,11 @@ public class KeyCommands
             + "or warning, and the Hotkey Editor can bind it; no default chord, because the JJ key "
             + "letter for alarms is Noel's to allocate."),
         // Check your audio Track B (#835). Home's Transmission group and
-        // Settings, PTT, carry the box; this command is what the Command
-        // Finder runs and the Hotkey Editor can bind. Its JJ key chord is
-        // Noel's to allocate (the track proposed one in an ASK).
-        [CommandValues.ToggleVoxSendBox] = new(UnboundReason.MenuOrDialog,
-            "Home's Transmission group, after VOX gain and delay, and Settings, PTT. Command Finder "
-            + "finds it by VOX, send, key or play, and the Hotkey Editor can bind it; no default chord "
-            + "yet, because the JJ key letter is Noel's to allocate."),
+        // Settings, PTT, carry the box too; the Command Finder runs this
+        // command and the Hotkey Editor can bind it a flat key.
+        [CommandValues.ToggleVoxSendBox] = new(UnboundReason.LeaderLayer,
+            "Ctrl+J, Ctrl+K turns on or off whether sends key the radio when VOX is on; K for key. "
+            + "The same box is in Home's Transmission group, after VOX gain and delay, and in Settings, PTT."),
         [CommandValues.StartAudioCheck] = new(UnboundReason.CommandFinderOnly,
             "Starts the Audio Check. Ctrl+Enter does it from inside Check your audio, which "
             + "is where you are when you want it, and Ctrl+J, Alt+C opens that window without "
@@ -2165,7 +2164,7 @@ public class KeyCommands
         new(Keys.W | Keys.Control | Keys.Shift, CommandValues.OpenAudioWorkshop, KeyScope.Global),
         new(Keys.None, CommandValues.OpenOperatorAlarms, KeyScope.Global), // unbound: MenuOrDialog — Tools menu, Operator alarms
         new(Keys.None, CommandValues.StartAudioCheck, KeyScope.Radio), // unbound: CommandFinderOnly
-        new(Keys.None, CommandValues.ToggleVoxSendBox, KeyScope.Global), // unbound: MenuOrDialog — Home's Transmission group and Settings, PTT
+        new(Keys.None, CommandValues.ToggleVoxSendBox, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, Ctrl+K
         new(Keys.T | Keys.Control | Keys.Shift, CommandValues.TuneToggle, KeyScope.Radio),
         new(Keys.T | Keys.Control, CommandValues.ATUTune, KeyScope.Radio),
         new(Keys.M | Keys.Control, CommandValues.ToggleMeters, KeyScope.Global),
@@ -4264,6 +4263,13 @@ public class KeyCommands
                 break;
             case Keys.P | Keys.Control | Keys.Shift:
                 PlayFromComputerHandler();
+                break;
+
+            // Ctrl+K = the VOX send box on or off (#835; Noel, 2026-10-27
+            // 20:49: "ctrl+k is fine"). K for key: with it on and VOX on, a
+            // send keys the radio itself. A toggle, so the Ctrl tier.
+            case Keys.K | Keys.Control:
+                ToggleVoxSendBoxHandler();
                 break;
 
             // Ctrl+T = meter tones on or off (Sprint 24 Phase 6). A toggle on

@@ -570,6 +570,14 @@ public static class KeyInventory
         new("Leader", "JJ key", "Ctrl+J, Ctrl+P", "Play the active slice's recording, or stop it — locally while receiving, on the air when already keyed, or keying the radio itself when VOX is on and sends key the radio",
             new[] { "play", "playback", "replay", "recording", "recorder", "slice", "active", "hear",
                     "listen", "back", "radio", "leader", "toggle" }, "Radio", "Slice"),
+        // Check your audio Track B (#835): the VOX send box, on its JJ key chord
+        // (Noel, 2026-10-27 20:49: "ctrl+k is fine"). K for key. Group
+        // "Audio", where the command is filed; Global, because the box is an
+        // operator preference that needs no radio to change.
+        // DRAFT PROSE (#835): awaiting Noel
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+K", "Sends key the radio with VOX, on or off — with it on and VOX on, a voice message or a played recording keys the radio itself, goes out whole, and hands back to VOX",
+            new[] { "vox", "send", "sends", "key", "keys", "keying", "box", "play", "recording", "message",
+                    "voice", "air", "transmit", "dropout", "leader", "toggle" }, "Global", "Audio"),
         new("Leader", "JJ key", "Ctrl+J, Ctrl+T", "Toggle meter tones",
             new[] { "meter", "tones", "leader", "toggle" }, "Global", "Audio"),
         // E for Earcons, the feature's own name; A for alert is Auto Notch.
