@@ -216,11 +216,50 @@ namespace Radios.Tests
             Assert.DoesNotContain("Meter Tones", dsp);
             Assert.DoesNotContain("MeterToneEngine", dsp);
 
-            // Positive control: the moved rows are in the new method.
+            // Positive control: all five moved rows are in the new method, in order.
             string meters = MethodBody(src, "private void BuildMeterToneItems(IntPtr parent)");
-            Assert.Contains("\"Meter Tones On/Off\\tCtrl+J, Ctrl+T\"", meters);
-            Assert.Contains("\"Meters Panel\\tCtrl+M\"", meters);
-            Assert.Contains("\"Peak Watcher\"", meters);
+            int at = -1;
+            foreach (string row in new[]
+                     {
+                         "\"Meter Tones On/Off\\tCtrl+J, Ctrl+T\"",
+                         "\"Meters Panel\\tCtrl+M\"",
+                         "\"Cycle Preset\"",
+                         "\"Speak Meters\"",
+                         "\"Peak Watcher\"",
+                     })
+            {
+                int next = meters.IndexOf(row, StringComparison.Ordinal);
+                Assert.True(next > at, "missing or out of order: " + row);
+                at = next;
+            }
+        }
+
+        [Fact]
+        public void The_meter_tone_items_sit_directly_in_the_row_the_layout_made()
+        {
+            // The layout row's own submenu is the parent. The first build of this
+            // round made a second "Meter Tones" submenu inside it, so every item
+            // sat under Audio, Meter Tones, Meter Tones (the Codex check of
+            // e93ff42b), and the one-home test above passed it.
+            string meters = MethodBody(MenuSource(), "private void BuildMeterToneItems(IntPtr parent)");
+
+            Assert.DoesNotContain("AddSubmenu(", meters);
+            Assert.Equal(5, Count(meters, "(parent, "));
+        }
+
+        [Fact]
+        public void The_meter_rows_that_read_the_radio_say_so_with_no_radio()
+        {
+            // Meters Panel and Speak Meters can only refuse with no radio; the
+            // switch, the presets and Peak Watcher are settings on this computer.
+            string meters = MethodBody(MenuSource(), "private void BuildMeterToneItems(IntPtr parent)");
+
+            Assert.Contains("Radios.AudioMenuLayout.MarkNeedsRadio(text, radio)", meters);
+            Assert.Contains("R(\"Meters Panel\\tCtrl+M\")", meters);
+            Assert.Contains("R(\"Speak Meters\")", meters);
+            Assert.DoesNotContain("R(\"Meter Tones On/Off", meters);
+            Assert.DoesNotContain("R(\"Cycle Preset\")", meters);
+            Assert.DoesNotContain("R(\"Peak Watcher\")", meters);
         }
 
         [Fact]

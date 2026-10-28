@@ -888,14 +888,30 @@ public class NativeMenuBar : IDisposable
     /// The Meter Tones submenu, on its own row of the top-level Audio menu.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// It rode along inside DSP when #836 moved that submenu off the Slice
     /// menu. Noel, 2026-10-27 20:41: "I think it gets its own row." Meter tones
-    /// are not signal processing and do not act on a slice. Its rows are the
-    /// ones it carried inside DSP, unchanged, and as there none is marked as
-    /// needing a radio.
+    /// are not signal processing and do not act on a slice.
+    /// </para>
+    /// <para>
+    /// <paramref name="parent"/> IS the Meter Tones submenu: the Audio menu's
+    /// layout row creates it, so the items go straight into it. Making another
+    /// submenu here put every item one level down, under Audio, Meter Tones,
+    /// Meter Tones (the Codex check of e93ff42b).
+    /// </para>
+    /// <para>
+    /// Meters Panel and Speak Meters read the radio's meters, and with no radio
+    /// they can only refuse, so they are greyed and marked like the Audio
+    /// menu's other radio rows. Their handlers keep their own refusals. The
+    /// switch, the presets and Peak Watcher are settings on this computer and
+    /// stay live.
+    /// </para>
     /// </remarks>
     private void BuildMeterToneItems(IntPtr parent)
     {
+        bool radio = Rig != null;
+        string R(string text) => Radios.AudioMenuLayout.MarkNeedsRadio(text, radio);
+
         // These two were ONE item until Sprint 32 Track B, and the one item was
         // wrong twice over: it claimed Ctrl+Alt+M, which is bound to meter
         // tones on or off rather than to the panel it opened (this comment
@@ -903,30 +919,29 @@ public class NativeMenuBar : IDisposable
         // showed a checkmark for the tone state while actually opening the
         // panel. Two items now, each doing and naming one thing. MenuShortcutAgreementTests holds every shortcut here to
         // the binding it names.
-        var meterSub = AddSubmenu(parent, "Meter Tones");
-        AddChecked(meterSub, "Meter Tones On/Off\tCtrl+J, Ctrl+T", () =>
+        AddChecked(parent, "Meter Tones On/Off\tCtrl+J, Ctrl+T", () =>
         {
             MeterToneEngine.ToggleEnabled();
         }, () => MeterToneEngine.Enabled);
 
-        AddWired(meterSub, "Meters Panel\tCtrl+M", () =>
+        AddWired(parent, R("Meters Panel\tCtrl+M"), () =>
         {
             _window.ToggleMetersPanel();
-        });
+        }, radio);
 
-        AddWired(meterSub, "Cycle Preset", () =>
+        AddWired(parent, "Cycle Preset", () =>
         {
             MeterToneEngine.CyclePreset();
             SpeakAfterMenuClose(Radios.Lexicon.Get("audio.meter.preset",
                 ("preset", MeterToneEngine.CurrentPreset)));
         });
 
-        AddWired(meterSub, "Speak Meters", () =>
+        AddWired(parent, R("Speak Meters"), () =>
         {
             MeterToneEngine.SpeakMeters();
-        });
+        }, radio);
 
-        AddChecked(meterSub, "Peak Watcher", () =>
+        AddChecked(parent, "Peak Watcher", () =>
         {
             MeterToneEngine.PeakWatcherEnabled = !MeterToneEngine.PeakWatcherEnabled;
             SpeakAfterMenuClose(MeterToneEngine.PeakWatcherEnabled
