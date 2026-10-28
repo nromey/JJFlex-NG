@@ -1,1 +1,2 @@
 - Check your audio is now its own window, opened with the JJ key then Alt+C, from the Audio menu, or from the Audio Workshop: test your microphone with nothing going on the air, hear yourself live, or record yourself and hear it back. It offers only what your radio and connection can do, so over SmartLink you no longer meet off-air take controls your radio cannot use.
+- In Check your audio, Ctrl+F1 on the method tells you what the method you've chosen does, and F1 opens the help right at that method.

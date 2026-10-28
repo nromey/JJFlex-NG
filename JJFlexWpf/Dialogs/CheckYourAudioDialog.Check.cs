@@ -93,7 +93,7 @@ public partial class CheckYourAudioDialog
                     Lexicon.Get("audio.check.remote_monitor_advice"),
                     VerbosityLevel.Terse);
         };
-        JJFlexHelp.SetText(_listenMethodControl, Lexicon.Get("audio.check.method_help"));
+        // Its Ctrl+F1 text follows the method shown: ApplyMethodLayout, below.
         _sections.Add(CheckContent, _listenMethodControl);
 
         // One status line that describes the chosen method, and says in one
@@ -283,6 +283,21 @@ public partial class CheckYourAudioDialog
         ApplyOffAirLayout(method);
         SyncPlayTakeLabel();
         UpdateMethodStatus();
+        UpdateMethodHelp(method);
+    }
+
+    /// <summary>
+    /// Ctrl+F1 on the method says what the control is and what the method
+    /// shown right now does (Noel 2026-10-28 00:15, ruled 00:20). Set here
+    /// because both the operator's arrow press and a silent change of the
+    /// offered methods come through this layout. JJFlexHelp.Text, never
+    /// AutomationProperties.HelpText: NVDA reads HelpText on every focus change
+    /// (#91), and the method must not get chattier on focus.
+    /// </summary>
+    private void UpdateMethodHelp(AudioCheckListenMethods method)
+    {
+        if (_listenMethodControl == null) return;
+        JJFlexHelp.SetText(_listenMethodControl, AudioCheckMethods.ContextHelp(method));
     }
 
     /// <summary>
@@ -302,14 +317,8 @@ public partial class CheckYourAudioDialog
         else if (SelectedMethod == AudioCheckListenMethods.OffAir && _offAirStatus.Length > 0) text = _offAirStatus;
         else
         {
-            text = Lexicon.Get(SelectedMethod switch
-            {
-                AudioCheckListenMethods.MicTest => "audio.check.status.mic_test",
-                AudioCheckListenMethods.RecordPlayback => "audio.check.status.record",
-                AudioCheckListenMethods.OffAir => "audio.check.status.off_air",
-                AudioCheckListenMethods.Loopback => "audio.check.status.loopback",
-                _ => "audio.check.status.monitor"
-            });
+            // The method's one description, which Ctrl+F1 and the help page say too.
+            text = AudioCheckMethods.Description(SelectedMethod);
             string missing = MissingMethodsSentence(rig);
             if (missing.Length > 0) text += " " + missing;
         }

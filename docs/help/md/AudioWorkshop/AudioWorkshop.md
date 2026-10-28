@@ -97,15 +97,39 @@ Every check keys the radio through the same safety system as ordinary transmit: 
 
 ### The methods
 
-The method decides how you hear yourself. Each name says what you hear and whether anything goes out. Only the methods your radio and your connection can do are offered, and the line under the method says what Start will do and, if a method is missing, why.
-
-- **Test your microphone, nothing goes on the air** — keys the radio at zero power into the dummy load, whatever the check power says, measures your microphone while you talk, and puts the verdict in the reading box. Nothing is played back. It keys on purpose: the level that matters is the one going into the transmit chain.
-- **Hear yourself live while you talk** — the radio's transmit monitor feeds your own voice back while you talk. Fine on a local connection; over SmartLink the monitor arrives late enough to trip up your speech.
-- **Record yourself, then hear it played back** — talk first, listen after. The radio records your transmission, with the full processing chain on it, and plays it back the moment you stop. The radio keeps the last two minutes. This is the one you start on over SmartLink.
-- **Hear what you transmitted, received off the air** — on local and VPN connections to radios with two receivers and a transverter port. The radio transmits at one watt, listens to its own signal through its second transverter port, and plays the take back after you stop. Its options, the IQ rate and whether to hear yourself during the take, appear only while it is chosen, and its measurements join the reading box: loudness, peak, punch, brightness, splatter, and how what you sent compares with what came back.
-- **Hear your real signal, looped back through the transverter port** — on local connections to the same radios. It sends one watt through one transverter port to a listening receiver on another, records what that receiver hears, and plays it back after you stop. Your signal arrives at that receiver enormously strong, so what you hear is your audio, present and processed, through an overloaded front end: it proves your audio chain and your transmitter work end to end, but it is not a faithful on-air listen. A WebSDR or KiwiSDR tuned to your frequency is still the gold standard. One watt into a transverter port with antennas connected can still leak a little RF, so identify if your regulations require it.
+The method decides how you hear yourself. Each name says what you hear and whether anything goes out. Only the methods your radio and your connection can do are offered, and the line under the method says what Start will do and, if a method is missing, why. `Ctrl+F1` on the method says the same about the method shown, and `F1` anywhere in the window opens this page at that method.
 
 Your method is remembered per radio. The same radio reached over SmartLink starts on Record yourself if the method you chose locally is not offered there, without forgetting your local choice.
+
+#### Test your microphone, nothing goes on the air {#check-audio-mic-test}
+
+Start keys the radio at zero power, whatever the check power says, so nothing goes on the air. Your microphone's verdict appears in the reading box, and nothing is played back.
+
+It keys on purpose: the level that matters is the one going into the transmit chain.
+
+#### Hear yourself live while you talk {#check-audio-monitor}
+
+Start keys the radio at your check power and turns on the transmit monitor, so you hear yourself as you talk. Your microphone's verdict appears in the reading box.
+
+Fine on a local connection; over SmartLink the monitor arrives late enough to trip up your speech.
+
+#### Record yourself, then hear it played back {#check-audio-record}
+
+Start keys the radio at your check power, and the radio records you. When you stop, it plays the recording back. It keeps the last two minutes. Your microphone's verdict appears in the reading box.
+
+Talk first, listen after. The recording carries the full processing chain. This is the one you start on over SmartLink.
+
+#### Hear what you transmitted, received off the air {#check-audio-off-air}
+
+Start makes an off-air take at one watt: the radio listens to its own signal through its second transverter port and plays it back after you stop. Your microphone's verdict and the take's measurements appear in the reading box. It needs a local or VPN connection, two receivers and a transverter port.
+
+Its options, the IQ rate and whether to hear yourself during the take, appear only while it is chosen. Its measurements are loudness, peak, punch, brightness, splatter, and how what you sent compares with what came back.
+
+#### Hear your real signal, looped back through the transverter port {#check-audio-loopback}
+
+Start sends one watt through the transverter port to a listening receiver, records what it hears, and plays it back after you stop. Your microphone's verdict appears in the reading box. It needs a local connection, two receivers and a transverter port.
+
+The listening receiver sits on another transverter port. Your signal arrives there enormously strong, so what you hear is your audio, present and processed, through an overloaded front end: it proves your audio chain and your transmitter work end to end, but it is not a faithful on-air listen. A WebSDR or KiwiSDR tuned to your frequency is still the gold standard. One watt into a transverter port with antennas connected can still leak a little RF, so identify if your regulations require it.
 
 ### Test tone and reference recording
 

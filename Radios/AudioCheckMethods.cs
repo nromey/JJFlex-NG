@@ -117,6 +117,65 @@ namespace Radios
         public static bool MakesTake(AudioCheckListenMethods method) =>
             method is AudioCheckListenMethods.RecordPlayback or AudioCheckListenMethods.OffAir;
 
+        // ── Explaining the method (Noel 2026-10-28 00:15, ruled 00:20) ──────────
+        // Ctrl+F1 on the method says what the control is and what the method
+        // shown right now does; F1 opens the help at that method's section.
+
+        /// <summary>
+        /// The lexicon key of the method's one description: what Start does,
+        /// what you hear, where the verdict appears, and what the method needs.
+        /// </summary>
+        /// <remarks>
+        /// ONE account per method. The status line under the method, the
+        /// Ctrl+F1 answer and the method's section on the help page all say
+        /// these words, and a test holds the help page to them verbatim, so the
+        /// three cannot drift apart. The keys keep their <c>status.</c> names
+        /// because the status line was their first reader.
+        /// </remarks>
+        // DRAFT PROSE (#835): awaiting Noel. The descriptions, in Radios/Lexicon/audio.json.
+        public static string DescriptionKey(AudioCheckListenMethods method) => method switch
+        {
+            AudioCheckListenMethods.MicTest => "audio.check.status.mic_test",
+            AudioCheckListenMethods.RecordPlayback => "audio.check.status.record",
+            AudioCheckListenMethods.OffAir => "audio.check.status.off_air",
+            AudioCheckListenMethods.Loopback => "audio.check.status.loopback",
+            _ => "audio.check.status.monitor"
+        };
+
+        /// <summary>The method's description, in its current words.</summary>
+        public static string Description(AudioCheckListenMethods method) => Lexicon.Get(DescriptionKey(method));
+
+        /// <summary>
+        /// What Ctrl+F1 on the method says: one sentence about the control, then
+        /// the description of the method shown.
+        /// </summary>
+        // DRAFT PROSE (#835): awaiting Noel. The control sentence is audio.check.method_help.
+        public static string ContextHelp(AudioCheckListenMethods method) =>
+            Lexicon.Get("audio.check.method_help") + " " + Description(method);
+
+        /// <summary>The help context the dialog's page is mapped under, with no method's section.</summary>
+        public const string HelpPageContext = "CheckYourAudio";
+
+        /// <summary>
+        /// The help context F1 asks for while <paramref name="method"/> is shown:
+        /// that method's section on the page. A method with no section opens the
+        /// page itself.
+        /// </summary>
+        /// <remarks>
+        /// Each is a plain page-plus-anchor entry in <c>HelpLauncher.ContextMap</c>,
+        /// so whatever launcher replaces the compiled help carries it over as it
+        /// stands.
+        /// </remarks>
+        public static string HelpContext(AudioCheckListenMethods method) => method switch
+        {
+            AudioCheckListenMethods.MicTest => "CheckYourAudioMicTest",
+            AudioCheckListenMethods.Monitor => "CheckYourAudioMonitor",
+            AudioCheckListenMethods.RecordPlayback => "CheckYourAudioRecord",
+            AudioCheckListenMethods.OffAir => "CheckYourAudioOffAir",
+            AudioCheckListenMethods.Loopback => "CheckYourAudioLoopback",
+            _ => HelpPageContext
+        };
+
         private static bool Contains(IReadOnlyList<AudioCheckListenMethods> list, AudioCheckListenMethods m)
         {
             for (int i = 0; i < list.Count; i++) if (list[i] == m) return true;
