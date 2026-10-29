@@ -81,7 +81,8 @@ namespace Radios
         /// slice and plays it back after you stop. Local only (15:32).</summary>
         Loopback = 4,
 
-        /// <summary>"Check this computer's microphone": listen to the PC
+        /// <summary>"Is Windows hearing my microphone? No radio involved" (renamed
+        /// 2026-10-29 00:45): listen to the PC
         /// microphone through Windows with the Audio Devices check's probe and
         /// words. No radio, nothing keyed; the first step of the escalation, and
         /// the only method offered with no radio connected (ruled by Noel

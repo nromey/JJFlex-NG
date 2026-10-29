@@ -179,6 +179,14 @@ public partial class CycleFieldControl : UserControl
     /// </summary>
     public Action<bool>? AtBoundary { get; set; }
 
+    /// <summary>
+    /// When true, a key that ARRIVES at the first or the last option also
+    /// tells <see cref="AtBoundary"/>, after the option has changed, so the end
+    /// is heard on the way in and not only on the press that cannot move
+    /// (#835, ruled by Noel 2026-10-29 01:17). Default false.
+    /// </summary>
+    public bool BoundaryOnArrival { get; set; }
+
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (HandleKey(e.Key)) e.Handled = true;
@@ -201,12 +209,12 @@ public partial class CycleFieldControl : UserControl
 
             case Key.Home when HomeEndJump:
                 if (_selectedIndex == 0) AtBoundary?.Invoke(true);
-                else SetIndex(0);
+                else { SetIndex(0); NoteArrival(); }
                 return true;
 
             case Key.End when HomeEndJump:
                 if (_selectedIndex == _options.Length - 1) AtBoundary?.Invoke(false);
-                else SetIndex(_options.Length - 1);
+                else { SetIndex(_options.Length - 1); NoteArrival(); }
                 return true;
         }
         return false;
@@ -227,6 +235,15 @@ public partial class CycleFieldControl : UserControl
             return;
         }
         SetIndex(target);
+        NoteArrival();
+    }
+
+    /// <summary>With <see cref="BoundaryOnArrival"/>, a key that has just landed on an end says so.</summary>
+    private void NoteArrival()
+    {
+        if (!BoundaryOnArrival || _options.Length < 2) return;
+        if (_selectedIndex == 0) AtBoundary?.Invoke(true);
+        else if (_selectedIndex == _options.Length - 1) AtBoundary?.Invoke(false);
     }
 
     private void CycleForward()

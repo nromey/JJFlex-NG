@@ -6,3 +6,6 @@
 - Both windows have a Close button you can tab to, Alt+C in the Audio Workshop opens Check your audio, and Home's Audio and Slice group has a Check your audio button right after your microphone's verdict.
 - An off-air take now plays back from when you keyed, so it no longer starts with seconds of hiss, and it is heard on whatever band you are on rather than sometimes coming back as static.
 - The Audio Workshop's Check Microphone button is gone; that check lives in Check your audio now.
+- The first method in Check your audio is now called "Is Windows hearing my microphone? No radio involved". It plays the recorder's tones when it starts and stops listening, and the method list plays its end sound as you arrive at the first or last method.
+- A send right after an off-air take no longer switches off a monitor you had on.
+- If a check cannot put your power and antenna back because the radio is still transmitting when you disconnect, it tells you again the next time you connect to that radio, and Loopback now says only what it really put back.

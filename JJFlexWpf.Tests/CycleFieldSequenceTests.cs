@@ -82,6 +82,49 @@ public sealed class CycleFieldSequenceTests
         });
     }
 
+    [Fact]
+    public void WithBoundaryOnArrivalTheEndIsHeardOnTheWayInAndAgainOnEachPressAtIt()
+    {
+        // Ruled by Noel 2026-10-29 01:17: "It should play when you get to the
+        // top most and bottom most items. Pressing up or down again plays the
+        // boundary noise only."
+        Run(() =>
+        {
+            var hits = new List<bool>();
+            var c = Sequence(0, hits);
+            c.BoundaryOnArrival = true;
+            c.HandleKey(Key.Down);                      // to the middle: nothing
+            Assert.Empty(hits);
+            c.HandleKey(Key.Down);                      // arriving at the last
+            Assert.Equal(2, c.SelectedIndex);
+            Assert.Equal(new[] { false }, hits);
+            c.HandleKey(Key.Down);                      // pressing again at the last: the sound alone
+            Assert.Equal(2, c.SelectedIndex);
+            Assert.Equal(new[] { false, false }, hits);
+            c.HandleKey(Key.Up);                        // back to the middle: nothing new
+            Assert.Equal(2, hits.Count);
+            c.HandleKey(Key.Up);                        // arriving at the first
+            Assert.Equal(new[] { false, false, true }, hits);
+            c.HandleKey(Key.End);                       // End arrives at the last
+            Assert.Equal(new[] { false, false, true, false }, hits);
+            c.HandleKey(Key.Home);                      // Home arrives at the first
+            Assert.Equal(new[] { false, false, true, false, true }, hits);
+        });
+    }
+
+    [Fact]
+    public void WithoutBoundaryOnArrivalArrivingAtAnEndIsSilentAsBefore()
+    {
+        Run(() =>
+        {
+            var hits = new List<bool>();
+            var c = Sequence(1, hits);
+            c.HandleKey(Key.Down);
+            c.HandleKey(Key.Home);
+            Assert.Empty(hits);                         // arrivals only; no press at an end
+        });
+    }
+
     private static CycleFieldControl Field(int index)
     {
         var c = new CycleFieldControl();

@@ -11563,14 +11563,26 @@ namespace Radios
         /// when they have; while the radio keeps transmitting, it does not.
         /// </para>
         /// </remarks>
-        public Task<string> EndLoopbackArrangementAsync()
+        public async Task<string> EndLoopbackArrangementAsync() =>
+            (await EndLoopbackArrangementWithOutcomeAsync().ConfigureAwait(false)).Trouble;
+
+        /// <summary>
+        /// <see cref="EndLoopbackArrangementAsync"/>, answering what was really
+        /// put back as well as the trouble text (#835, fix round 2026-10-29,
+        /// item 2): a Loopback that ended while the radio kept transmitting had
+        /// every restore abandoned with the radio, and the window still said
+        /// "Antenna, power, monitor and duplex settings restored." Its steps
+        /// are registered synchronously, before the first await, exactly as
+        /// before.
+        /// </summary>
+        public Task<LoopbackEndOutcome> EndLoopbackArrangementWithOutcomeAsync()
         {
             if (System.Threading.Interlocked.Exchange(ref _lbArrangementEnding, 1) != 0)
-                return Task.FromResult("Loopback restoration is still running. ");
+                return Task.FromResult(LoopbackEndOutcome.StillRunning("Loopback restoration is still running. "));
             if (!_loopbackArranged)
             {
                 System.Threading.Volatile.Write(ref _lbArrangementEnding, 0);
-                return Task.FromResult("");
+                return Task.FromResult(LoopbackEndOutcome.NothingArranged);
             }
 
             // What this arrangement saved, held here: the last step forgets the
@@ -11589,6 +11601,11 @@ namespace Radios
 
             var trouble = new System.Text.StringBuilder();
             void Trouble(string text) { lock (trouble) trouble.Append(text); }
+            // What the ending says beside its list of settings (item 2): the
+            // listening slice's own news. A setting's failure is said by the
+            // list, so it is not repeated here.
+            var notes = new System.Text.StringBuilder();
+            void Notice(string text) { Trouble(text); lock (notes) notes.Append(text); }
             // Asked by each step at its own run: the same radio, on the same
             // connection, that this arrangement was made on.
             bool Same() => theRadio != null && ReferenceEquals(theRadio, arrangementRadio) &&
@@ -11605,8 +11622,8 @@ namespace Radios
                     // The listening slice must stop its own buffer before removal.
                     bool recorderStopped = await StopSliceRecorderAsync(SliceRecorderTarget.LoopbackEars).ConfigureAwait(false);
                     _loopbackArranged = false;
-                    if (!recorderStopped) Trouble("The listening slice recorder stop was not confirmed. ");
-                    if (!Same()) Trouble("The radio connection changed before restoration could be confirmed. ");
+                    if (!recorderStopped) Notice("The listening slice recorder stop was not confirmed. ");
+                    if (!Same()) Notice("The radio connection changed before restoration could be confirmed. ");
                     return recorderStopped && Same();
                 }),
                 // The return to, and removal of, the listening slice, then each
@@ -11633,7 +11650,7 @@ namespace Radios
                         (ReferenceEquals(resources.Slice, VFOToSlice(RXVFO)) ||
                          ReferenceEquals(resources.Slice, SliceForTransmitSetting())))
                     {
-                        Trouble("The listening slice is your active slice, so it was kept. ");
+                        Notice("The listening slice is your active slice, so it was kept. ");
                         kept = true;
                     }
                     bool reservedRemoval = resources != null && (resources.Slice == null ||
@@ -11674,7 +11691,7 @@ namespace Radios
                     try { gone = await removed.Task.WaitAsync(ListenbackQueueWait + TimeSpan.FromSeconds(3)).ConfigureAwait(false); }
                     catch (TimeoutException) { gone = false; }
                     if (kept) return false;
-                    if (!gone) Trouble("The listening slice removal was not confirmed. ");
+                    if (!gone) Notice("The listening slice removal was not confirmed. ");
                     return gone;
                 }),
             };
@@ -11765,19 +11782,50 @@ namespace Radios
                     if (ReferenceEquals(_lbArrangementConnection, arrangementConnection)) _lbArrangementConnection = null;
                 }),
             });
-            return FinishLoopbackEndAsync(steps, trouble);
+            return FinishLoopbackEndAsync(steps, trouble, notes, driveBand != null);
         }
 
-        private async Task<string> FinishLoopbackEndAsync(List<CheckRestorations.Entry> steps, System.Text.StringBuilder trouble)
+        /// <summary>
+        /// Which part of the operator's station a Loopback ending step puts
+        /// back, by the name it was registered under, or null for the steps
+        /// that only concern the listening slice (item 2).
+        /// </summary>
+        internal static string LoopbackPartOf(string stepName) => stepName switch
+        {
+            "loopback: transmit antenna" => LoopbackEndOutcome.Antenna,
+            "loopback: power" => LoopbackEndOutcome.Power,
+            "loopback: monitor" => LoopbackEndOutcome.Monitor,
+            "loopback: full duplex" => LoopbackEndOutcome.Duplex,
+            "loopback: transverter drive" => LoopbackEndOutcome.Drive,
+            _ when stepName.StartsWith("loopback: slice ", StringComparison.Ordinal) &&
+                   stepName.EndsWith(" mute", StringComparison.Ordinal) => LoopbackEndOutcome.Mutes,
+            _ => null
+        };
+
+        private async Task<LoopbackEndOutcome> FinishLoopbackEndAsync(List<CheckRestorations.Entry> steps,
+            System.Text.StringBuilder trouble, System.Text.StringBuilder notes, bool hadDrive)
         {
             try
             {
                 var results = await Task.WhenAll(steps.Select(st => st.Task)).ConfigureAwait(false);
                 if (results.Any(r => !r)) lock (trouble) trouble.Append("Some loopback settings could not be restored; details are in the trace. ");
-                string text;
+                var restored = new List<string>();
+                var missing = new List<string>();
+                for (int i = 0; i < steps.Count; i++)
+                {
+                    string part = LoopbackPartOf(steps[i].Name);
+                    if (part == null || (part == LoopbackEndOutcome.Drive && !hadDrive)) continue;
+                    var list = results[i] ? restored : missing;
+                    if (!list.Contains(part)) list.Add(part);
+                }
+                // A part with any failed step (one slice's mute of two) was not put back.
+                restored.RemoveAll(missing.Contains);
+                string text, said;
                 lock (trouble) text = trouble.ToString();
-                Tracing.TraceLine("Loopback arrangement ended: " + (text == "" ? "clean" : text), TraceLevel.Info);
-                return text;
+                lock (notes) said = notes.ToString();
+                Tracing.TraceLine("Loopback arrangement ended: " + (text == "" ? "clean" : text)
+                    + " restored=[" + string.Join(",", restored) + "] not-restored=[" + string.Join(",", missing) + "]", TraceLevel.Info);
+                return new LoopbackEndOutcome(restored, missing, said.Trim(), text);
             }
             finally { System.Threading.Volatile.Write(ref _lbArrangementEnding, 0); }
         }

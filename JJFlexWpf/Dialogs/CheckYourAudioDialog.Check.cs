@@ -152,6 +152,10 @@ public partial class CheckYourAudioDialog
         _listenMethodControl.DownMovesForward = true;
         _listenMethodControl.HomeEndJump = true;
         _listenMethodControl.AtBoundary = atFirst => EarconPlayer.FilterBoundaryHitTone(isLowEdge: atFirst);
+        // And on ARRIVING at the first or last method, with its name, not only
+        // on the press after (ruled by Noel 2026-10-29 01:17: "It should play
+        // when you get to the top most and bottom most items").
+        _listenMethodControl.BoundaryOnArrival = true;
         // Before a radio is known, show the local default rather than the
         // first row; SetRig resolves the real choice.
         _listenMethodControl.SuppressEvents = true;
@@ -329,7 +333,7 @@ public partial class CheckYourAudioDialog
     internal static string MethodName(AudioCheckListenMethods method) => method switch
     {
         // Ruled by Noel 2026-10-27 13:51, 13:57 and 14:57.
-        // Ruled 2026-10-28 20:30; the name is draft prose.
+        // Ruled 2026-10-28 20:30; named by Noel 2026-10-29 00:45.
         AudioCheckListenMethods.ComputerMic => Lexicon.Get("audio.check.method.computer_mic"),
         AudioCheckListenMethods.MicTest => Lexicon.Get("audio.check.method.mic_test"),
         AudioCheckListenMethods.Monitor => Lexicon.Get("audio.check.method.monitor"),
@@ -852,10 +856,12 @@ public partial class CheckYourAudioDialog
         {
             try
             {
-                string trouble = await _rig.EndLoopbackArrangementAsync();
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("audio.check.loopback_ended") + " " + trouble,
-                    VerbosityLevel.Terse);
+                // Says only what was really put back (#835, 2026-10-29 item 2):
+                // after a disconnect while still transmitting, every restore was
+                // abandoned and this still said "settings restored".
+                var outcome = await _rig.EndLoopbackArrangementWithOutcomeAsync();
+                ScreenReaderOutput.Speak(outcome.Sentence(),
+                    outcome.NotRestored.Count == 0 ? VerbosityLevel.Terse : VerbosityLevel.Critical);
             }
             catch (Exception ex)
             {

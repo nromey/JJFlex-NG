@@ -500,7 +500,22 @@ namespace Radios
         {
             lock (_gate) { if (!string.IsNullOrEmpty(u.Subject)) _asserted.Add(u.Subject); }
             _emit(u);
+            var emitted = Emitted;
+            if (emitted == null) return;
+            foreach (Action<BriefingUtterance> listener in emitted.GetInvocationList())
+                try { listener(u); }
+                catch (Exception ex) { Tracing.TraceLine("ConnectBriefing: an Emitted listener threw: " + ex.Message, System.Diagnostics.TraceLevel.Error); }
         }
+
+        /// <summary>
+        /// Raised after an utterance has been handed to the speech channel,
+        /// whether at the settle or at once with no connect in flight. A
+        /// <see cref="Note"/> during a connect is only COLLECTED, and a radio
+        /// that goes away before the settle discards it; an emitter whose fact
+        /// must not be lost waits for this before it forgets the fact (#835,
+        /// Codex round 1 on the 2026-10-29 round, F1). Raised outside the lock.
+        /// </summary>
+        public event Action<BriefingUtterance>? Emitted;
 
         private static BriefingUtterance Utterance(string text, ConnectFact fact)
             => new(text, fact.Level, fact.Subject, fact.OriginFile, fact.OriginLine, fact.OriginMember);

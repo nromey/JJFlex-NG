@@ -764,11 +764,22 @@ public partial class FlexBase
                     }
                     if (!stillSafe()) { trace.Write("no-command", new { setting.Name, Reason = "identity-or-dependency-changed" }); reply.TrySetResult(false); return; }
                     trace.Write("sending", new { setting.Name, Command = setting.RestoreCommand });
+                    // #835, 2026-10-29 item 1: what FlexLib's cache held just
+                    // before this restore, so the reply can tell whether anything
+                    // else wrote the cache while the command was out.
+                    string cachedBefore = FlexLibRestoreCache.Read(radio, setting);
                     int sequence = radio.SendReplyCommand((sequence, code, text) =>
                     {
                         trace.Write("reply", new { setting.Name, Sequence = sequence, Code = code.ToString("X8"), Text = text });
                         if (code == 0 && setting.Name == "full-duplex")
                             AcceptFullDuplexReply(radio, connection, setting.Value == "1");
+                        // The radio accepted it but may never echo it to us: put
+                        // the value into FlexLib's cache, as the echo would have,
+                        // so the next send reads the monitor (and every other
+                        // restored setting) as it really is.
+                        if (code == 0 && setting.StatusKey != "" && Connected())
+                            trace.Write("cache", new { setting.Name,
+                                Note = FlexLibRestoreCache.Accept(radio, setting, cachedBefore) });
                         reply.TrySetResult(code == 0);
                     }, setting.RestoreCommand);
                     trace.Write("sent", new { setting.Name, Sequence = sequence, Command = setting.RestoreCommand });
