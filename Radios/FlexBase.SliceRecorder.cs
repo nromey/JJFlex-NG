@@ -297,7 +297,6 @@ public partial class FlexBase
         _sliceRecorderTapRadio = radio;
         lock (_sliceRecorders) _sliceRecordTimeLogged.Clear();
         AnnounceVoxPauseAfterReconnect(radio);
-        PutBackLostSendMonitor(radio);   // a monitor a send left on at the last disconnect (#835)
         // Slice.RecordTimeRaw is parsed from normal status by the JJFlex FlexLib
         // patch. Recorder observation never enables telnet tracing.
     }

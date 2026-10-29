@@ -42,14 +42,16 @@ namespace Radios
         internal bool MonitorOnForASend => _sendMonitor?.OnForASend == true;
 
         /// <summary>
-        /// The serial of a radio whose monitor a send turned on and could not
-        /// put back, because the connection went first; the next connect to it
-        /// puts it back (#835, Codex round 1, finding 3). Null when none.
+        /// Where a put-back owed across a disconnect is recorded (#835, Codex
+        /// rounds 1 and 2). On disk, per radio serial, under the settings root,
+        /// because the ordinary close and reopen disposes this FlexBase and
+        /// makes a new one. Tests point it at a folder of their own.
         /// </summary>
-        private string? _monitorPutBackPendingSerial;
+        internal SendMonitorPutBackStore MonitorPutBackStore =>
+            MonitorPutBackStoreOverride ?? new SendMonitorPutBackStore(RadioConfig.AppDataRoot);
 
-        /// <summary>For tests: the radio a lost monitor put-back is waiting for.</summary>
-        internal string? MonitorPutBackPendingSerial => Volatile.Read(ref _monitorPutBackPendingSerial);
+        /// <summary>For tests: a store in a folder of their own.</summary>
+        internal SendMonitorPutBackStore? MonitorPutBackStoreOverride { get; set; }
 
         /// <summary>
         /// What a send holds on the radio, ended on the disconnect path while
@@ -67,7 +69,9 @@ namespace Radios
             SendMonitorOwner? owner = _sendMonitor;
             if (radio == null || owner == null || !owner.TakeBackForDisconnect()) return;
             bool acknowledged = false;
-            using var answered = new ManualResetEventSlim();
+            // Not disposed: a reply arriving after the wait has given up may
+            // still set it, harmlessly.
+            var answered = new ManualResetEventSlim();
             string refusal = SendRadioCommandWithReply(radio, "transmit set mon=0", reply =>
             {
                 acknowledged = reply.Acknowledged;
@@ -82,36 +86,54 @@ namespace Radios
             Tracing.TraceLine("SendMonitor: the monitor's put-back before the disconnect was "
                 + (refusal ?? (acknowledged ? "late" : "not acknowledged")) + "; noted for the next connect",
                 TraceLevel.Warning);
-            Volatile.Write(ref _monitorPutBackPendingSerial, radio.Serial);
+            MonitorPutBackStore.Add(radio.Serial);
         }
 
         /// <summary>How long the disconnect waits for the radio to acknowledge the monitor's put-back.</summary>
         private const int MonitorPutBackWaitMs = 1000;
 
         /// <summary>
-        /// A connection to a radio whose monitor a send left on is up: put it
-        /// back off (#835, Codex round 1, finding 3). By the radio's own command
-        /// on the command queue, so it goes out in order with the connect's other
-        /// work; FlexLib's cached TXMonitor may not be reported yet, and its
-        /// setter skips a value it believes unchanged. Traced either way.
+        /// The command loop has started on a new connection, so the station is
+        /// established and its profile loaded: if a send left this radio's
+        /// monitor on at an earlier disconnect, put it back off now (#835, Codex
+        /// round 2). Called from the main thread right after
+        /// <c>q.MainLoop = true</c>, never earlier: work queued before the loop
+        /// runs is dropped, which is how round 1's version lost it.
         /// </summary>
-        private void PutBackLostSendMonitor(Radio? radio)
+        private void ApplyPendingMonitorPutBack()
         {
+            Radio? radio = theRadio;
             string? serial = radio?.Serial;
-            if (serial == null) return;
-            string? pending = Volatile.Read(ref _monitorPutBackPendingSerial);
-            if (!string.Equals(pending, serial, StringComparison.OrdinalIgnoreCase)) return;
-            Volatile.Write(ref _monitorPutBackPendingSerial, null);
-            Tracing.TraceLine("SendMonitor: a send left this radio's monitor on at the last disconnect; putting it back off",
+            if (radio == null || string.IsNullOrEmpty(serial)) return;
+            SendMonitorPutBackStore store = MonitorPutBackStore;
+            if (!store.Contains(serial)) return;
+            Tracing.TraceLine("SendMonitor: a send left this radio's monitor on at an earlier disconnect; putting it back off",
                 TraceLevel.Info);
             q.Enqueue((FunctionDel)(() =>
             {
-                if (!ReferenceEquals(theRadio, radio)) return;
-                string refused = SendRadioCommandWithReply(radio, "transmit set mon=0", reply =>
-                    Tracing.TraceLine("SendMonitor: monitor put-back after reconnect " + reply, TraceLevel.Info));
-                if (refused != null)
-                    Tracing.TraceLine("SendMonitor: monitor put-back after reconnect not sent: " + refused, TraceLevel.Warning);
+                if (ReferenceEquals(theRadio, radio)) PutBackMonitorNow(radio);
             }), "SendMonitorPutBack");
+        }
+
+        /// <summary>
+        /// Send the owed put-back, <c>transmit set mon=0</c>, by the radio's own
+        /// command (FlexLib's setter skips a value its cache believes unchanged),
+        /// and clear the record only when the radio acknowledges it. A refusal
+        /// or no answer leaves it for the next connect.
+        /// </summary>
+        internal void PutBackMonitorNow(Radio radio)
+        {
+            string? serial = radio?.Serial;
+            if (radio == null || string.IsNullOrEmpty(serial)) return;
+            SendMonitorPutBackStore store = MonitorPutBackStore;
+            string? refused = SendRadioCommandWithReply(radio, "transmit set mon=0", reply =>
+            {
+                Tracing.TraceLine("SendMonitor: monitor put-back for an earlier disconnect " + reply, TraceLevel.Info);
+                if (reply.Acknowledged) store.Remove(serial);
+            });
+            if (refused != null)
+                Tracing.TraceLine("SendMonitor: monitor put-back for an earlier disconnect not sent: " + refused
+                    + "; kept for the next connect", TraceLevel.Warning);
         }
 
         private sealed class SendMonitorPort : SendMonitorOwner.IPort
@@ -173,7 +195,7 @@ namespace Radios
 
             public void PutBackLost()
             {
-                if (_watchedSerial != null) Volatile.Write(ref _rig._monitorPutBackPendingSerial, _watchedSerial);
+                if (_watchedSerial != null) _rig.MonitorPutBackStore.Add(_watchedSerial);
             }
 
             private void OnRadioProperty(object? sender, PropertyChangedEventArgs e)

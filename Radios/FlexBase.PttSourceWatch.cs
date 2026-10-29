@@ -74,6 +74,11 @@ namespace Radios
         private int _pttWatchSeen;
         private int _pttWatchTrimFrom;
         private bool _pttWatchTrims;
+        // The one interlock line a lease left behind because it was the list's
+        // last line when the lease ended, and where it is: other topics may
+        // append after it before the next lease (#835, Codex round 2, finding 3).
+        private List<string>? _pttWatchKeptList;
+        private int _pttWatchKeptIndex = -1;
         private volatile string? _rawPttSource;
 
         /// <summary>
@@ -151,6 +156,16 @@ namespace Radios
                     // lease of ours (the topic was unselected since), so the
                     // newest, kept last time, may go too.
                     _pttWatchTrims = _pttWatchAddedTopic;
+                    // The line the last lease kept as "last", if other topics
+                    // have since appended after it, is no longer anyone's last
+                    // line: it goes now. If it is still last, the trim below
+                    // starts at it and takes it later.
+                    if (_pttWatchTrims && ReferenceEquals(output, _pttWatchKeptList)
+                        && _pttWatchKeptIndex >= 0 && _pttWatchKeptIndex < output.Count - 1
+                        && IsInterlockStatus(output[_pttWatchKeptIndex]))
+                        output.RemoveAt(_pttWatchKeptIndex);
+                    _pttWatchKeptList = null;
+                    _pttWatchKeptIndex = -1;
                     _pttWatchTrimFrom = Math.Max(0, output.Count - 1);
                     _pttWatchRadio = radio;
                 }
@@ -177,6 +192,11 @@ namespace Radios
                     lock (_pttWatchReadGate)
                     {
                         TrimLocked(output);
+                        if (_pttWatchTrims && output.Count > 0 && IsInterlockStatus(output[^1]))
+                        {
+                            _pttWatchKeptList = output;
+                            _pttWatchKeptIndex = output.Count - 1;
+                        }
                         _pttWatchRadio = null;
                         _pttWatchList = null;
                         _rawPttSource = null;

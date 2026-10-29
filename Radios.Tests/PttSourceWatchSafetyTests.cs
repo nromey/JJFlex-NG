@@ -164,11 +164,8 @@ namespace Radios.Tests
             int teardown = disconnect.IndexOf("CancelStationAttempt(", StringComparison.Ordinal);
             Assert.True(revoke >= 0 && revoke < teardown, "Disconnect must revoke while the link is still up");
 
-            // Finding 3: a monitor put-back lost to a dropped link is made at the
-            // next connect to the same radio, where the slice recorder attaches.
-            string slice = SendFixRoundTests.ReadSource("Radios/FlexBase.SliceRecorder.cs");
-            Assert.Contains("PutBackLostSendMonitor(radio);",
-                SendFixRoundTests.Body(slice, "internal void AttachSliceRecorderStatus(Radio radio)"));
+            // Finding 3: the disconnect path puts the monitor back itself; where
+            // a lost put-back is applied is pinned in SendHoldsRoundTwoTests.
             string monitor = SendFixRoundTests.ReadSource("Radios/FlexBase.SendMonitor.cs");
             string revokeHolds = SendFixRoundTests.Body(monitor, "internal void RevokeSendHoldsForDisconnect(string why)");
             Assert.Contains("RevokePttWatch(why);", revokeHolds);

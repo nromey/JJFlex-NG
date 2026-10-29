@@ -286,8 +286,27 @@ namespace Radios
                         CultureInfo.InvariantCulture, out code);
                     Tracing.TraceLine($"VOX write reply: sequence={_sequence} code={(parsed ? code.ToString("X8") : "invalid")} text={(parts.Length > 2 ? parts[2] : "")} command={_command}", TraceLevel.Info);
                     _result.TrySetResult(parsed && code == 0);
-                    Dispose();
+                    DisposeOffTheTraceThread();
                 }
+            }
+
+            /// <summary>
+            /// Let go from inside a trace notification (#835, Codex round 2 on
+            /// the Track B fix round). <c>Radio.ParseReply</c> raises the reply's
+            /// change while HOLDING the trace's sequence and output lists, and
+            /// this tap may be the last lease, whose release removes FlexLib
+            /// topics and so takes the TOPIC list. <c>Radio.SendCommand</c> takes
+            /// those in the other order, topics then sequences, so a release made
+            /// here could deadlock the receive thread against any traced command.
+            /// The subscription is dropped now (an event removal takes no lock)
+            /// and the tap is released on the thread pool, holding nothing.
+            /// </summary>
+            private void DisposeOffTheTraceThread()
+            {
+                if (_disposed) return;
+                _disposed = true;
+                _radio.PropertyChanged -= Changed;
+                System.Threading.ThreadPool.QueueUserWorkItem(_ => _traceLease.Dispose());
             }
 
             internal void FinishWrite()
