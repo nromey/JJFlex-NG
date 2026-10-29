@@ -1566,7 +1566,10 @@ namespace Radios.Tests
             // only EarconPlayer.On, which is the master switch and the category
             // switch. Nothing in EarconPlayer consults the speech verbosity.
             string source = ReadSource("JJFlexWpf/EarconPlayer.cs");
-            Assert.Contains("EarconsEnabled && _categoryEnabled[(int)category];", source);
+            // Since #810 the master switch reaches On through MasterHolds,
+            // which spares the Warnings family; still the sound switches only.
+            Assert.Contains("!MasterHolds(category) && _categoryEnabled[(int)category];", source);
+            Assert.Contains("!EarconsEnabled && category != EarconCategory.Warnings;", source);
             Assert.DoesNotContain("CurrentVerbosity", source);
             Assert.DoesNotContain("VerbosityLevel", source);
             Assert.Contains("public static void LeaderInvalidTone()", source);
