@@ -1,0 +1,1 @@
+With no log file set up, Logging mode now says so and offers to open a log you already have or create a new one, using the standard Windows file dialogs, instead of opening Log Characteristics on every field jump. If you cancel, it stops asking on each jump and simply tells you no log file is open; opening the full log form asks again.

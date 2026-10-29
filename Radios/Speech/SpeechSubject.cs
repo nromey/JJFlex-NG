@@ -598,5 +598,13 @@ namespace Radios.Speech
         /// unheard older one.
         /// </summary>
         public const string UnbuiltKey = "unbuilt-key";
+
+        /// <summary>
+        /// The contact log saying no log file is open after the operator
+        /// cancelled the open-or-create choice (#814). True until a log file is
+        /// chosen; a repeat on the next field jump says the same thing, so the
+        /// newer covers an unheard older one.
+        /// </summary>
+        public const string NoLogFile = "no-log-file";
     }
 }

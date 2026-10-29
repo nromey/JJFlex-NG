@@ -2557,6 +2557,17 @@ Module globals
                     End If
                     Return
                 End If
+                ' #814: the operator cancelled the no-log-file choice. Say why
+                ' here, before the main window hides for the log form, or the
+                ' sentence is lost in the window change; and do not put the
+                ' choice up again on a field jump.
+                If ContactLog IsNot Nothing AndAlso ContactLog.LogFileDeclined Then
+                    Tracing.TraceLine("BringUpLogForm: no log file, choice cancelled earlier; not asking on a field jump", TraceLevel.Info)
+                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.full_form.no_log_file"),
+                        Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
+                        subject:=Radios.Speech.SpeechSubject.NoLogFile)
+                    Return
+                End If
                 LogEntry.FieldID = adifTag
                 Dim saveVisible = WpfMainWindow.Visible
                 WpfMainWindow.Visible = False
@@ -3611,6 +3622,9 @@ Module globals
             Return
         End If
 
+        ' #814: opening the full form is an explicit log action, so a
+        ' cancelled no-log-file choice is offered again.
+        ContactLog.AskForLogFileAgain()
         LogEntry.FieldID = AdifTags.ADIF_Call
         LogEntry.FilePosition = -1
         Radios.ScreenReaderOutput.Speak(

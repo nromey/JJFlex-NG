@@ -1818,6 +1818,16 @@ namespace Radios.Tests
                 // under SpeechSubject.UnbuiltKey.
                 "connect.cluster.not_available",
                 "connect.scan.resume_none_paused",
+                // DRAFT PROSE (#814): the no-log-file choice and the two
+                // standard file dialogs that follow it.
+                "logging.no_log_file.body",
+                "logging.no_log_file.create_button",
+                "logging.no_log_file.create_title",
+                "logging.no_log_file.file_filter",
+                "logging.no_log_file.heading",
+                "logging.no_log_file.open_button",
+                "logging.no_log_file.open_title",
+                "logging.no_log_file.title",
             };
 
             Assert.Equal(3140, unclassified);
