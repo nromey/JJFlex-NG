@@ -1081,6 +1081,26 @@ public partial class CheckYourAudioDialog
             var rig = Rig;
             if (rig == null || !start.IsCurrent || _owner._iqClosing || _ptt.IsTransmitting || rig.Transmit) return false;
 
+            // The countdown (#835, Noel 21:35). The arrangement before this
+            // call (Loopback's, the off-air take's) ran while it counted, and
+            // reaching here confirms it: a slow one has held the last beat. The
+            // rest of the setup waits for the count to END, on purpose: a
+            // recorder armed now would record the whole count's worth of
+            // receiver noise ahead of the operator, and the dummy load and
+            // monitor below are instant. A count called off (Escape, Stop, the
+            // window closing) returns false with nothing here changed; the
+            // caller takes its arrangement down as it does for a refused key.
+            if (!await _owner.CountdownLetsKeyAsync()) return false;
+            if (!start.IsCurrent || _owner._iqClosing || !ReferenceEquals(rig, Rig)) return false;
+            if (_ptt.IsTransmitting || rig.Transmit)
+            {
+                // Keyed by something else while it counted: say so, rather than
+                // end a count on nothing.
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.already_transmitting"),
+                    VerbosityLevel.Critical, interrupt: true);
+                return false;
+            }
+
             // Loopback mode: the arrangement (FlexBase) already owns power
             // (1 W), monitor (off), antennas and full duplex — the session
             // must not double-manage them.
@@ -1180,18 +1200,6 @@ public partial class CheckYourAudioDialog
                     rig.Monitor = FlexBase.OffOnValues.on;
                     Remember(rig, "audio check: monitor", () => rig.Monitor = FlexBase.OffOnValues.off);
                 }
-            }
-
-            // The countdown (#835, Noel 21:35). Everything above ran while it
-            // counted; reaching here confirms the setup, and the key goes down
-            // only once the count has ended too. A count called off (Escape,
-            // Stop, the window closing) rolls back what the setup changed.
-            if (!await _owner.CountdownLetsKeyAsync())
-            {
-                RestoreWhenReceiving(rig);
-                if (Records && !recorderAlreadyRunning)
-                    await RecorderControls.ReportStopFailureAsync(rig.StopSliceRecordAsync(_recorderTarget));
-                return false;
             }
 
             // Key through the controller. Its own key-down announcement fires

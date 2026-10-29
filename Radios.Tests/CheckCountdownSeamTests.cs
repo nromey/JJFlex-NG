@@ -39,6 +39,9 @@ public sealed class CheckCountdownSeamTests
     [InlineData("countdown-cancelled", 0, 0)]
     // The count has ended but the recorder has not answered: nothing keys until it does.
     [InlineData("countdown-before-setup", 0, 1)]
+    // A recording check arms its recorder only once the count has ended, so the
+    // recording does not open on the whole count's worth of receiver noise.
+    [InlineData("countdown-records-after-count", 0, 1)]
     // Loopback: arranged during the count, keyed only at its end.
     [InlineData("countdown-loopback", 0, 1)]
     // Off the air: the take set up during the count, keyed only at its end.
