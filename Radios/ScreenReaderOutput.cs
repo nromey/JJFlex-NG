@@ -271,6 +271,16 @@ namespace Radios
         /// </summary>
         internal static long SafetyQuietGeneration => _arbiter.SafetyQuietGeneration;
 
+        private static Speech.CountdownSpeech? _countdownSpeech;
+
+        /// <summary>
+        /// The spoken countdown before a check keys (#835): its words, whether
+        /// any are still owed, and taking them back. See
+        /// <see cref="Speech.CountdownSpeech"/>.
+        /// </summary>
+        public static Speech.CountdownSpeech CountdownSpeech =>
+            _countdownSpeech ??= new Speech.CountdownSpeech(_arbiter);
+
         /// <summary>
         /// Test-only: drop the arbiter's transient state — pending coalesced
         /// values, the believed-pending ledger, per-key dedup — and anything

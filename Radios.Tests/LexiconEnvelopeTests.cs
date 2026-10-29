@@ -1930,6 +1930,8 @@ namespace Radios.Tests
                 "audio.countdown.lead_in_help",
                 "audio.countdown.sample_label",
                 "audio.countdown.sample_help",
+                // Codex round 1: a count whose words could not be delivered stops.
+                "audio.countdown.not_heard",
             };
 
             Assert.Equal(3140, unclassified);

@@ -104,11 +104,11 @@ internal static class FixerCountdown
     /// (sounds off, or sounds on and Chatty), made before it starts.
     /// </para>
     /// <para>
-    /// <b>Queued, not interrupting.</b> An interrupt would let each number cut
-    /// the one before it, and at a slow speech rate the lead-in itself. Each
-    /// is keyed to <see cref="Radios.Speech.SpeechSubject.CheckCountdown"/>
-    /// and carries the run's still-valid test, so a count that was called off
-    /// is not spoken on afterwards.
+    /// <b>Queued, not interrupting, and followed to delivery (Codex round 1).</b>
+    /// The words go through <see cref="Radios.ScreenReaderOutput.CountdownSpeech"/>:
+    /// additive on <see cref="Radios.Speech.SpeechSubject.CheckCountdown"/> so
+    /// no number retires another, asked after so the count waits for them, and
+    /// taken back out of the delivery queue when the count is called off.
     /// </para>
     /// </remarks>
     public sealed class Voice : Radios.ICountdownOutput
@@ -122,10 +122,13 @@ internal static class FixerCountdown
         public void Tone(Radios.CountdownBeat beat) => Beat(beat);
 
         /// <inheritdoc/>
-        public void Say(string text, Func<bool> stillValid)
-            => Radios.ScreenReaderOutput.Speak(text, Radios.Speech.SpeechIntent.Queue,
-                Radios.VerbosityLevel.Critical,
-                subject: Radios.Speech.SpeechSubject.CheckCountdown, stillValid: stillValid);
+        public void Say(string text) => Radios.ScreenReaderOutput.CountdownSpeech.Say(text);
+
+        /// <inheritdoc/>
+        public bool SpeechOwed => Radios.ScreenReaderOutput.CountdownSpeech.Owed;
+
+        /// <inheritdoc/>
+        public void WithdrawSpeech(string why) => Radios.ScreenReaderOutput.CountdownSpeech.Withdraw(why);
     }
 
     private static void Guarded(Action tone, string name)

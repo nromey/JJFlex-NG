@@ -12,13 +12,21 @@ namespace Radios
         /// <summary>Play one beat's tone. Never called for a beat that is not beeped.</summary>
         void Tone(CountdownBeat beat);
 
+        /// <summary>Queue one piece of the count for speech: the lead-in, or a number.</summary>
+        void Say(string text);
+
         /// <summary>
-        /// Speak one piece of the count: the lead-in, or a number.
-        /// <paramref name="stillValid"/> turns false once the countdown has
-        /// been cancelled, so a number the screen reader has not reached yet is
-        /// not spoken after the check has been called off.
+        /// True while a piece already given to <see cref="Say"/> has not yet
+        /// been started by the reader. The count waits on this before every
+        /// beat and before the key (Codex round 1, blocker 1).
         /// </summary>
-        void Say(string text, Func<bool> stillValid);
+        bool SpeechOwed { get; }
+
+        /// <summary>
+        /// Take back every piece not yet said. Called when the count is called
+        /// off, and when its words could not be delivered (blocker 2).
+        /// </summary>
+        void WithdrawSpeech(string why);
     }
 
     /// <summary>
@@ -49,6 +57,18 @@ namespace Radios
     /// rather than pulling the next one forward, and a late setup moves every
     /// beat after it, including the end.
     /// </para>
+    /// <para>
+    /// <b>And it follows its words, not only its clock (Codex round 1).</b> A
+    /// beat does not fall while a piece of the count already given to the
+    /// reader is still unsaid, and the count does not end, so nothing keys,
+    /// until its last number has been said. A busy reader therefore slows the
+    /// count instead of leaving its numbers behind; with sounds off those
+    /// numbers are the only warning. If the words are not delivered within
+    /// <see cref="SpeechCeilingMs"/>, a count that speaks its numbers stops and
+    /// does not key (<see cref="SpeechStalled"/>); a beeped count, whose pips
+    /// are the warning, drops its unsaid lead-in and counts on. Either way the
+    /// unsaid words are taken back, as they are when the count is called off.
+    /// </para>
     /// </remarks>
     public sealed class CountdownRun
     {
@@ -77,6 +97,15 @@ namespace Radios
 
         /// <summary>True once the countdown's long tone has sounded (or, unvoiced, been reached).</summary>
         public bool LandingReached { get; private set; }
+
+        /// <summary>True when the count stopped because its words were not delivered in time; nothing keys.</summary>
+        public bool SpeechStalled { get; private set; }
+
+        /// <summary>How long a piece of the count may stay unsaid before the count gives up on it.</summary>
+        public const int SpeechCeilingMs = 8000;
+
+        /// <summary>How often an unsaid piece is asked about while the count waits for it.</summary>
+        public const int SpeechPollMs = 25;
 
         /// <summary>Ends true when the count has run out with the setup confirmed; false when it was cancelled.</summary>
         public Task<bool> Completion => _completion;
@@ -135,6 +164,10 @@ namespace Radios
             if (_ended) return;
             _arranged.TrySetResult(false);
             try { _cancel.Cancel(); } catch (ObjectDisposedException) { }
+            // Its words go too (Codex round 1, blocker 2): a number still in
+            // the queue would otherwise be spoken after the check was called
+            // off, or into the next start.
+            Withdraw("the countdown being called off");
         }
 
         private async Task<bool> RunAsync()
@@ -150,6 +183,11 @@ namespace Radios
                 foreach (var beat in _plan.Beats)
                 {
                     await WaitUntil(origin + shift + beat.AtMs);
+                    // The piece before this beat must have been said first; a
+                    // late one moves this beat and every beat after it.
+                    if (!await WaitForWords()) return false;
+                    long behind = _nowMs() - (origin + shift + beat.AtMs);
+                    if (behind > 0) shift += behind;
 
                     if (beat.IsLanding)
                     {
@@ -174,6 +212,11 @@ namespace Radios
                 }
 
                 await WaitUntil(origin + shift + _plan.EndsAtMs);
+                // The last number must have been said before anything keys;
+                // if it was late, it still gets its beat.
+                long sayingFrom = _nowMs();
+                if (!await WaitForWords()) return false;
+                if (_nowMs() > sayingFrom) await WaitUntil(_nowMs() + CountdownSettings.BeatMs);
                 ok = !_cancel.IsCancellationRequested;
                 return ok;
             }
@@ -200,6 +243,63 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// Wait until every piece of the count given to the reader has been
+        /// started. True to carry on; false when the words could not be
+        /// delivered and the count must not key.
+        /// </summary>
+        private async Task<bool> WaitForWords()
+        {
+            long from = _nowMs();
+            while (Owed())
+            {
+                if (_nowMs() - from >= SpeechCeilingMs)
+                {
+                    Withdraw("the countdown's words not being delivered");
+                    if (_plan.Voicing == CountdownVoicing.Beeped)
+                    {
+                        // Only the lead-in is spoken in a beeped count, and the
+                        // pips are its warning: drop the words, keep counting.
+                        Tracing.TraceLine("Countdown: " + _what + " dropped its lead-in, unsaid after "
+                            + SpeechCeilingMs + " ms; the pips count on", TraceLevel.Warning);
+                        return true;
+                    }
+                    SpeechStalled = true;
+                    Tracing.TraceLine("Countdown: " + _what + " stopped: its words were not said within "
+                        + SpeechCeilingMs + " ms, so nothing keys", TraceLevel.Warning);
+                    return false;
+                }
+                await _delay(SpeechPollMs, _cancel.Token);
+                _cancel.Token.ThrowIfCancellationRequested();
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Whether words are still owed. A speech layer that throws reads as
+        /// OWED: with sounds off the words are the only warning, so a count
+        /// that cannot tell must wait, and in the end stop, rather than key.
+        /// </summary>
+        private bool Owed()
+        {
+            try { return _output.SpeechOwed; }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("Countdown: asking whether its words were said threw: " + ex.Message,
+                    TraceLevel.Warning);
+                return true;
+            }
+        }
+
+        private void Withdraw(string why)
+        {
+            try { _output.WithdrawSpeech(why); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("Countdown: taking its words back threw: " + ex.Message, TraceLevel.Warning);
+            }
+        }
+
         private async Task WaitUntil(long at)
         {
             long wait = at - _nowMs();
@@ -218,7 +318,7 @@ namespace Radios
 
         private void Say(string text)
         {
-            try { _output.Say(text, () => !_cancel.IsCancellationRequested); }
+            try { _output.Say(text); }
             catch (Exception ex)
             {
                 Tracing.TraceLine("Countdown: speech threw and was ignored: " + ex.Message, TraceLevel.Warning);

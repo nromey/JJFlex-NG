@@ -50,12 +50,27 @@ public partial class CheckYourAudioDialog
     private bool StartCountdownRunning => _startCountdown?.IsRunning == true;
 
     /// <summary>
-    /// The setup is confirmed: wait out what remains of the count. True means
-    /// key now; false means the count was called off and nothing may key.
-    /// True at once when the countdown is off.
+    /// The setup is confirmed: wait out what remains of the count, its spoken
+    /// numbers included. True means key now; false means the count was called
+    /// off, or its words could not be delivered, and nothing may key. True at
+    /// once when the countdown is off.
     /// </summary>
-    private Task<bool> CountdownLetsKeyAsync() =>
-        _startCountdown?.ReadyToKeyAsync() ?? Task.FromResult(true);
+    private async Task<bool> CountdownLetsKeyAsync()
+    {
+        var run = _startCountdown;
+        if (run == null) return true;
+        bool go = await run.ReadyToKeyAsync();
+        if (!go && run.SpeechStalled)
+        {
+            // The count's words never got out (Codex round 1, blocker 1), so it
+            // stopped rather than key behind a warning nobody heard. Say why,
+            // with a sound as well, since speech is what just failed.
+            // DRAFT PROSE (#835): awaiting Noel.
+            EarconPlayer.LeaderInvalidTone();
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.countdown.not_heard"), VerbosityLevel.Critical, interrupt: true);
+        }
+        return go;
+    }
 
     /// <summary>
     /// The start has finished, keyed or not. A count still playing (the start

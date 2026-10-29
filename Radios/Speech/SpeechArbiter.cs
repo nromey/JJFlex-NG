@@ -1182,6 +1182,44 @@ namespace Radios.Speech
         }
 
         /// <summary>
+        /// Whether something on <paramref name="subject"/> has been handed
+        /// over and NOT YET STARTED or finished: still in our pump, still
+        /// being said with no answer from the reader, or withdrawn before it
+        /// said a word. Added for the countdown before a check keys (#835,
+        /// Codex round 1): its spoken numbers are the only warning when sounds
+        /// are off, so the count paces itself on their delivery rather than on
+        /// the clock, and the key waits until the last of them is out.
+        /// </summary>
+        /// <remarks>
+        /// <para>Read-only: it neither prunes nor traces, so polling it costs
+        /// nothing and changes nothing.</para>
+        /// <para>A TRACKED entry is owed until the reader answers. An UNTRACKED
+        /// one (no completion channel) is owed until its estimated finish, the
+        /// same judgement the ledger's own pruning makes. A superseded entry is
+        /// not owed: it will never be said. One cut part-way, by us or by
+        /// something else, has STARTED, and for a one-word number that is
+        /// heard, so it is not owed either.</para>
+        /// <para>Speech the reader never accepted (no reader at all) never
+        /// enters the ledger, so it reads as not owed: there is nothing to
+        /// wait for.</para>
+        /// </remarks>
+        internal bool OwesUnstarted(string subject)
+        {
+            if (string.IsNullOrEmpty(subject)) return false;
+            lock (_lock)
+            {
+                var now = _clock.UtcNow;
+                return Owing(_believedQueued, subject, now) || Owing(_held, subject, now);
+            }
+
+            static bool Owing(List<BelievedQueued> entries, string subject, DateTime now) =>
+                entries.Exists(e => e.SupersededBy == null
+                    && string.Equals(e.Subject, subject, StringComparison.Ordinal)
+                    && (e.State == Owed.Pending || e.State == Owed.NeverStarted)
+                    && now < e.EstFinishUtc);
+        }
+
+        /// <summary>
         /// Lead, then settle.
         ///
         /// The FIRST value for a key speaks immediately, so a single deliberate

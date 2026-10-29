@@ -277,7 +277,7 @@ namespace Radios.Tests
             Assert.False(await clock.RunUntil(ready));
             Assert.DoesNotContain(output.Tones, t => t.Landing);
             Assert.False(run.IsRunning);
-            Assert.False(output.LastStillValid!(), "numbers queued before the cancel would still be spoken");
+            Assert.True(output.Withdrawn > 0, "numbers queued before the cancel would still be spoken");
         }
 
         [Fact]
@@ -416,17 +416,21 @@ namespace Radios.Tests
             public RecordingOutput(SteppedClock clock) => _clock = clock;
             public List<(long At, int Number, bool Landing)> Tones { get; } = new();
             public List<(long, string)> Said { get; } = new();
-            public Func<bool>? LastStillValid { get; private set; }
+            public int Withdrawn { get; private set; }
+
+            /// <summary>This output's reader says everything the moment it is given.</summary>
+            public bool SpeechOwed => false;
+
+            public void WithdrawSpeech(string why) => Withdrawn++;
 
             public void Tone(CountdownBeat beat)
             {
                 lock (Tones) Tones.Add((_clock.Now, beat.Number, beat.IsLanding));
             }
 
-            public void Say(string text, Func<bool> stillValid)
+            public void Say(string text)
             {
                 lock (Said) Said.Add((_clock.Now, text));
-                LastStillValid = stillValid;
             }
         }
     }

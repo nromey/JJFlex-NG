@@ -602,10 +602,13 @@ namespace Radios.Speech
         /// <summary>
         /// The spoken countdown before a check keys (#835): the lead-in and the
         /// numbers. Each is queued, not interrupting, so no number cuts the one
-        /// before it. A later number DOES cover an unheard earlier one: a "4"
-        /// salvaged after "3" had been said would count backwards. And all of
-        /// it is worthless once the countdown has been cancelled, which the
-        /// emitter says through its still-valid test.
+        /// before it, and ADDITIVE (Codex round 1): a number extends the count
+        /// rather than restating it, so a new one never retires, or pulls out
+        /// of the delivery queue, one not yet said. The count itself waits for
+        /// each to be said before the next, so none can be left behind. All of
+        /// it is withdrawn, through <see cref="ScreenReaderOutput.Supersede"/>
+        /// on this subject, when the count is called off. See
+        /// <see cref="CountdownSpeech"/>.
         /// </summary>
         public const string CheckCountdown = "check-countdown";
     }
