@@ -84,6 +84,23 @@ namespace Radios
         /// </summary>
         public static IReadOnlyList<int> PipHzPresets { get; } = new[] { 300, 500, 800, 1200 };
 
+        /// <summary>
+        /// The pip sounds, in the order the Countdown group offers them: the
+        /// six CW notification waveforms, by their stored ids (ruled by Noel
+        /// 2026-10-29 00:51, after hearing Hollow's pips). The spectra live in
+        /// <c>EarconVoices.CwWaveforms</c>; <c>CountdownWiringTests</c> holds
+        /// this list equal to theirs, so a sound cannot be offered here that
+        /// the earcons cannot play.
+        /// </summary>
+        public static IReadOnlyList<string> PipSounds { get; } = new[] { "Sine", "Square", "Sawtooth", "Reed", "Hollow", "Bell" };
+
+        /// <summary>
+        /// The default pip sound: Hollow, the sound the countdown has always
+        /// had. The ruling leaves the default to Noel once he has heard all
+        /// six; until he picks, it does not change.
+        /// </summary>
+        public const string DefaultPipSound = "Hollow";
+
         /// <summary>Whether Check your audio counts down before it keys. Default on.</summary>
         public bool Enabled { get; set; } = true;
 
@@ -102,6 +119,12 @@ namespace Radios
         /// </summary>
         public bool LeadIn { get; set; } = true;
 
+        /// <summary>
+        /// The sound of the pips and the long tone, one of <see cref="PipSounds"/>
+        /// by its id. The Fix tool's countdown uses it too.
+        /// </summary>
+        public string PipSound { get; set; } = DefaultPipSound;
+
         /// <summary>The long tone's frequency: one octave above the pip.</summary>
         [XmlIgnore]
         public int LandingHz => PipHz * 2;
@@ -118,6 +141,7 @@ namespace Radios
             PipHz = Math.Clamp(PipHz, MinPipHz, MaxPipHz),
             PipMs = Math.Clamp(PipMs, MinPipMs, MaxPipMs),
             LeadIn = LeadIn,
+            PipSound = KnownPipSound(PipSound),
         };
 
         /// <summary>A plain copy, for a dialog that edits before it commits.</summary>
@@ -128,7 +152,22 @@ namespace Radios
             PipHz = PipHz,
             PipMs = PipMs,
             LeadIn = LeadIn,
+            PipSound = PipSound,
         };
+
+        /// <summary>
+        /// A stored sound as one of <see cref="PipSounds"/>: the same sound in
+        /// any case is that sound, and anything else (a hand-edited file, a
+        /// name retired later) is the default. Never silence: a countdown that
+        /// makes no sound reads as a check that has not started.
+        /// </summary>
+        public static string KnownPipSound(string? id)
+        {
+            if (!string.IsNullOrWhiteSpace(id))
+                foreach (var known in PipSounds)
+                    if (string.Equals(known, id.Trim(), StringComparison.OrdinalIgnoreCase)) return known;
+            return DefaultPipSound;
+        }
 
         private static volatile CountdownSettings _current = new();
 

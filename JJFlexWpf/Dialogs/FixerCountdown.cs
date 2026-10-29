@@ -88,7 +88,7 @@ internal static class FixerCountdown
     /// through the same seam, so there is one countdown in the app.
     /// </summary>
     public static void Beat(Radios.CountdownBeat beat)
-        => Guarded(() => EarconPlayer.CountdownBeatTone(beat.Hz, beat.Ms, beat.IsLanding),
+        => Guarded(() => EarconPlayer.CountdownBeatTone(beat.Hz, beat.Ms, beat.IsLanding, beat.Sound),
                    beat.IsLanding ? "CountdownBeatTone landing" : "CountdownBeatTone count");
 
     /// <summary>

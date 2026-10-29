@@ -143,6 +143,7 @@ namespace JJFlexWpf
         /// </summary>
         private static readonly object _gate = new object();
         private static readonly SystemWideKeyDecider _decider = new SystemWideKeyDecider();
+        private static readonly BareControlGestures _bareGestures = new BareControlGestures();
         private static readonly SystemWidePttWatch _watch = new SystemWidePttWatch();
 
         /// <summary>
@@ -166,6 +167,25 @@ namespace JJFlexWpf
 
         /// <summary>True once the hook is actually installed (set on the hook thread).</summary>
         public static bool Installed => _hookHandle != IntPtr.Zero;
+
+        /// <summary>
+        /// True from the first moment the hook was installed, for the rest of
+        /// the process, through any fault or unhook. A window deciding a key
+        /// gesture by itself may do so only while this is false: once a hook
+        /// has run, it may have swallowed a key the window never saw (#835).
+        /// </summary>
+        public static bool EverInstalled => _everInstalled;
+        private static volatile bool _everInstalled;
+
+        /// <summary>
+        /// A bare Control (pressed and released with no other key, the hook's
+        /// swallowed keys included) was just released, anywhere (#835). Raised
+        /// on the UI dispatcher. Check your audio's countdown skip listens; it
+        /// decides for itself whether the press was in its window and during
+        /// its count. Decided here because only the hook sees every key edge in
+        /// order (see <see cref="BareControlGestures"/>).
+        /// </summary>
+        public static event Action<BareControlRelease>? BareControlReleased;
 
         // ── what the host wires. All run on the UI dispatcher. ───────────
 
@@ -337,6 +357,7 @@ namespace JJFlexWpf
                 }
                 else
                 {
+                    _everInstalled = true;
                     Tracing.TraceLine("SystemWideKeys: hook installed on the dedicated hook thread", TraceLevel.Info);
                 }
             }
@@ -373,6 +394,7 @@ namespace JJFlexWpf
             {
                 releasePtt = _decider.PttHeld;
                 _decider.Reset();
+                _bareGestures.Reset();
                 if (releasePtt)
                 {
                     _watch.HandOffHold(Environment.TickCount64);
@@ -420,10 +442,15 @@ namespace JJFlexWpf
                     (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0);
 
                 SystemWideDecision d;
+                BareControlRelease? bare;
                 long now = Environment.TickCount64;
                 lock (_gate)
                 {
                     d = _decider.Decide(data.vkCode, isDown, held);
+                    // Every edge, passed or swallowed, in the order it came: the
+                    // one place a bare Control can be told from a chord whose
+                    // letter this hook eats (#835, Codex round 2, B1).
+                    bare = _bareGestures.Observe(data.vkCode, isDown, now, (long)GetForegroundWindow());
                     switch (d.Action)
                     {
                         case SystemWideAction.PttDown:
@@ -482,6 +509,12 @@ namespace JJFlexWpf
                         break;
                 }
 
+                if (bare != null && BareControlReleased != null)
+                {
+                    var verdict = bare.Value;
+                    Post(() => BareControlReleased?.Invoke(verdict));
+                }
+
                 if (d.Swallow)
                     return (IntPtr)1;
             }
@@ -520,6 +553,7 @@ namespace JJFlexWpf
             {
                 releasePtt = _decider.PttHeld;
                 _decider.Reset();
+                _bareGestures.Reset();
                 if (releasePtt)
                 {
                     _watch.HandOffHold(Environment.TickCount64);

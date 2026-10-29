@@ -296,6 +296,258 @@ namespace Radios.Tests
             Assert.Equal(4000, clock.Now);
         }
 
+        // ── The pip sound (ruled 2026-10-29 00:51) ─────────────────────────
+
+        [Fact]
+        public void The_pip_sound_offers_the_six_CW_sounds_and_Hollow_stays_the_default()
+        {
+            Assert.Equal(new[] { "Sine", "Square", "Sawtooth", "Reed", "Hollow", "Bell" }, CountdownSettings.PipSounds);
+            Assert.Equal("Hollow", CountdownSettings.DefaultPipSound);
+            Assert.Equal("Hollow", new CountdownSettings().PipSound);
+        }
+
+        [Fact]
+        public void The_pip_sound_survives_a_save_and_load_and_an_unknown_one_falls_back_to_the_default()
+        {
+            Assert.Equal("Bell", RoundTrip(new CountdownSettings { PipSound = "Bell" }).PipSound);
+            Assert.Equal("Bell", new CountdownSettings { PipSound = "Bell" }.Clone().PipSound);
+
+            // A hand-edited file: the right sound in the wrong case is that sound;
+            // a sound that does not exist is the default, never silence.
+            Assert.Equal("Sawtooth", new CountdownSettings { PipSound = "sawTOOTH" }.Clamped().PipSound);
+            Assert.Equal("Hollow", new CountdownSettings { PipSound = "Kazoo" }.Clamped().PipSound);
+            Assert.Equal("Hollow", new CountdownSettings { PipSound = null! }.Clamped().PipSound);
+            var original = CountdownSettings.Current;
+            try
+            {
+                CountdownSettings.Current = new CountdownSettings { PipSound = "reed" };
+                Assert.Equal("Reed", CountdownSettings.Current.PipSound);
+            }
+            finally { CountdownSettings.Current = original; }
+        }
+
+        [Fact]
+        public void Every_beat_carries_the_chosen_sound_so_Play_sample_plays_what_is_on_screen()
+        {
+            // Play sample plays the settings as they stand on screen, uncommitted,
+            // so the sound must travel with the plan, not be read from the live set.
+            var plan = CountdownPlan.For(new CountdownSettings { PipSound = "Square" }, CountdownVoicing.Beeped);
+            Assert.All(plan.Beats, b => Assert.Equal("Square", b.Sound));
+            var sample = CheckCountdown.SamplePlan(new CountdownSettings { PipSound = "Bell" }, true, VerbosityLevel.Terse);
+            Assert.All(sample.Beats, b => Assert.Equal("Bell", b.Sound));
+        }
+
+        // ── Control skips the rest of the count (Noel 2026-10-29 01:05) ────
+
+        [Fact]
+        public async Task A_skip_with_the_setup_confirmed_keys_at_once_with_no_long_tone_and_no_more_words()
+        {
+            var clock = new SteppedClock();
+            var output = new RecordingOutput(clock);
+            var plan = Plan(seconds: 5);
+            var run = CountdownRun.Start(plan, output, "test", clock.NowMs, clock.Delay);
+            var ready = run.ReadyToKeyAsync();
+
+            // Two beats in: 5 and 4 have sounded.
+            while (output.Tones.Count < 2) Assert.True(clock.Step() || await Idle());
+            long skippedAt = clock.Now;
+            int withdrawnBefore = output.Withdrawn;
+
+            Assert.True(run.Skip());
+            Assert.True(await clock.RunUntil(ready), "a skipped count with its setup confirmed must key");
+            Assert.True(run.Skipped);
+            Assert.Equal(skippedAt, clock.Now);                    // at once, not at the count's end
+            Assert.True(clock.Now < plan.EndsAtMs);
+            Assert.DoesNotContain(output.Tones, t => t.Landing);   // the count is abandoned, not hurried
+            Assert.Equal(2, output.Tones.Count);
+            Assert.True(output.Withdrawn > withdrawnBefore, "numbers still queued would be spoken over the transmission");
+            Assert.False(run.IsRunning);
+        }
+
+        [Fact]
+        public async Task A_skip_before_the_setup_is_confirmed_keys_only_once_it_is()
+        {
+            // The safeguard Noel was told of at 01:05: on the off-air take and
+            // Loopback a skipped count never keys onto a half-built setup.
+            var clock = new SteppedClock();
+            var output = new RecordingOutput(clock);
+            var plan = Plan(seconds: 5);
+            var run = CountdownRun.Start(plan, output, "test", clock.NowMs, clock.Delay);
+
+            clock.Step();
+            Assert.True(run.Skip());
+            await clock.Drain();
+            Assert.False(run.Completion.IsCompleted, "a skip keyed before the setup was confirmed");
+            Assert.True(run.IsRunning);
+
+            clock.Advance(3000);
+            Assert.True(await clock.RunUntil(run.ReadyToKeyAsync()));
+            Assert.DoesNotContain(output.Tones, t => t.Landing);
+        }
+
+        [Fact]
+        public async Task A_cancel_after_a_skip_still_stops_everything()
+        {
+            var clock = new SteppedClock();
+            var output = new RecordingOutput(clock);
+            var run = CountdownRun.Start(Plan(seconds: 5), output, "test", clock.NowMs, clock.Delay);
+
+            clock.Step();
+            Assert.True(run.Skip());
+            await clock.Drain();
+            run.Cancel();
+            Assert.False(await clock.RunUntil(run.ReadyToKeyAsync()));
+        }
+
+        [Fact]
+        public async Task A_skip_after_a_cancel_or_after_the_end_changes_nothing()
+        {
+            var clock = new SteppedClock();
+            var output = new RecordingOutput(clock);
+            var cancelled = CountdownRun.Start(Plan(seconds: 5), output, "test", clock.NowMs, clock.Delay);
+            clock.Step();
+            cancelled.Cancel();
+            Assert.False(cancelled.Skip());
+            Assert.False(await clock.RunUntil(cancelled.ReadyToKeyAsync()));
+            Assert.False(cancelled.Skipped);
+
+            var ended = CountdownRun.Start(Plan(seconds: 2), output, "test", clock.NowMs, clock.Delay);
+            Assert.True(await clock.RunUntil(ended.ReadyToKeyAsync()));
+            Assert.False(ended.Skip());
+            Assert.False(ended.Skipped);
+        }
+
+        [Fact]
+        public async Task A_skip_is_not_held_back_by_words_the_reader_has_not_said()
+        {
+            // Control is also the reader's own silence key, so the number it
+            // cut will never be "finished". With sounds off those words are
+            // the only warning, and an ordinary count stops rather than key
+            // without them; but the operator who pressed Control has had his
+            // warning and asked to go.
+            var clock = new SteppedClock();
+            var output = new StuckOutput();
+            var plan = CountdownPlan.For(new CountdownSettings { Seconds = 5, LeadIn = false },
+                CountdownVoicing.Spoken, numberText: n => n.ToString());
+            var run = CountdownRun.Start(plan, output, "test", clock.NowMs, clock.Delay);
+            var ready = run.ReadyToKeyAsync();
+
+            clock.Step();
+            Assert.True(run.Skip());
+            Assert.True(await clock.RunUntil(ready));
+            Assert.False(run.SpeechStalled);
+        }
+
+        [Fact]
+        public async Task A_skip_landing_mid_question_is_a_skip_not_words_that_were_never_delivered()
+        {
+            // The skip takes the unsaid words back, which makes them read as
+            // failed. If it lands while the count is asking about them, the
+            // count must still treat it as a skip: not stop, not report its
+            // words undelivered.
+            var clock = new SteppedClock();
+            var output = new SkipMidQuestionOutput();
+            var plan = CountdownPlan.For(new CountdownSettings { Seconds = 5, LeadIn = false },
+                CountdownVoicing.Spoken, numberText: n => n.ToString());
+            var run = CountdownRun.Start(plan, output, "test", clock.NowMs, clock.Delay);
+            output.Run = run;
+            var ready = run.ReadyToKeyAsync();
+
+            clock.Step();
+            output.SkipOnNextQuestion = true;
+            Assert.True(await clock.RunUntil(ready));
+            Assert.True(run.Skipped);
+            Assert.False(run.SpeechStalled, "a skip was reported as words that never reached the reader");
+        }
+
+        [Fact]
+        public async Task A_skip_landing_while_the_count_asks_whether_a_number_has_started_is_a_skip_too()
+        {
+            // Codex round 1, F2: the same race at the other getter. The words
+            // have been unsaid for the whole ceiling, and the skip lands while
+            // the count asks "has it started?", the last question before it
+            // would give up on them.
+            var clock = new SteppedClock();
+            var output = new SkipAtCeilingOutput(clock);
+            var plan = CountdownPlan.For(new CountdownSettings { Seconds = 5, LeadIn = false },
+                CountdownVoicing.Spoken, numberText: n => n.ToString());
+            var run = CountdownRun.Start(plan, output, "test", clock.NowMs, clock.Delay);
+            output.Run = run;
+            Assert.True(await clock.RunUntil(run.ReadyToKeyAsync()));
+            Assert.True(run.Skipped);
+            Assert.False(run.SpeechStalled, "a skip was reported as words that were not said in time");
+        }
+
+        private static async Task<bool> Idle() { await Task.Delay(1); return true; }
+
+        /// <summary>A reader that never starts a number, and which presses skip when the count has waited the whole ceiling.</summary>
+        private sealed class SkipAtCeilingOutput : ICountdownOutput, ICountdownWords
+        {
+            private readonly SteppedClock _clock;
+            private long _firstAsked = -1;
+            private bool _done;
+            public CountdownRun? Run;
+            public SkipAtCeilingOutput(SteppedClock clock) => _clock = clock;
+            public void Tone(CountdownBeat beat) { }
+            public ICountdownWords Say(string text, bool onlyWarning) => this;
+            public void WithdrawSpeech(string why) { }
+            public bool Failed => false;
+            public bool Finished => false;
+            public bool Started
+            {
+                get
+                {
+                    if (_firstAsked < 0) _firstAsked = _clock.Now;
+                    if (!_done && _clock.Now - _firstAsked >= CountdownRun.SpeechCeilingMs)
+                    {
+                        _done = true;
+                        Run!.Skip();
+                    }
+                    return false;
+                }
+            }
+        }
+
+        /// <summary>A reader whose words never finish, and which presses skip while the count asks about them.</summary>
+        private sealed class SkipMidQuestionOutput : ICountdownOutput
+        {
+            public CountdownRun? Run;
+            public volatile bool SkipOnNextQuestion;
+            private volatile bool _withdrawn;
+            public void Tone(CountdownBeat beat) { }
+            public ICountdownWords Say(string text, bool onlyWarning) => new Words(this);
+            public void WithdrawSpeech(string why) => _withdrawn = true;
+            private sealed class Words : ICountdownWords
+            {
+                private readonly SkipMidQuestionOutput _o;
+                public Words(SkipMidQuestionOutput o) => _o = o;
+                public bool Failed
+                {
+                    get
+                    {
+                        if (_o.SkipOnNextQuestion) { _o.SkipOnNextQuestion = false; _o.Run!.Skip(); }
+                        return _o._withdrawn;
+                    }
+                }
+                public bool Started => true;
+                public bool Finished => false;
+            }
+        }
+
+        /// <summary>A reader that starts every piece and never finishes one.</summary>
+        private sealed class StuckOutput : ICountdownOutput
+        {
+            public void Tone(CountdownBeat beat) { }
+            public ICountdownWords Say(string text, bool onlyWarning) => new Stuck();
+            public void WithdrawSpeech(string why) { }
+            private sealed class Stuck : ICountdownWords
+            {
+                public bool Failed => false;
+                public bool Started => true;
+                public bool Finished => false;
+            }
+        }
+
         // ── The defaults live in two places; they must agree ───────────────
 
         [Fact]

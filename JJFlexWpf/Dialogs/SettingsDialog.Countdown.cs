@@ -18,7 +18,9 @@ namespace JJFlexWpf.Dialogs
     /// on or off; the length, 2 to 10 seconds; the pip's pitch, presets plus
     /// Custom the way Check your audio's test tone offers them, 200 to 2000
     /// hertz; the pip's length; the lead-in; and a Play sample button so a
-    /// choice is heard before it is kept.
+    /// choice is heard before it is kept. 2026-10-29: the pip's SOUND, one of
+    /// the six CW sounds (ruled 00:51), and the switch and pitch labels Noel
+    /// gave at 01:00 and 01:03.
     /// </para>
     /// <para>
     /// <b>Where it sits is Claude's choice, not a ruling:</b> the Audio tab,
@@ -45,6 +47,7 @@ namespace JJFlexWpf.Dialogs
         private ValueFieldControl? _countdownSecondsControl;
         private CycleFieldControl? _countdownPitchControl;
         private ValueFieldControl? _countdownCustomPitchControl;
+        private CycleFieldControl? _countdownSoundControl;
         private ValueFieldControl? _countdownPipMsControl;
         private CheckBox? _countdownLeadInCheck;
         private Button? _countdownSampleButton;
@@ -90,6 +93,15 @@ namespace JJFlexWpf.Dialogs
             JJFlexHelp.SetText(_countdownCustomPitchControl, Lexicon.Get("audio.countdown.pitch_help"));
             CountdownPanel.Children.Add(_countdownCustomPitchControl);
 
+            // The pip sound (ruled 2026-10-29 00:51): the six CW sounds, heard
+            // with Play sample. Not auditioned on every arrow press; the ruling
+            // names Play sample as the way to hear one.
+            _countdownSoundControl = new CycleFieldControl { Margin = new Thickness(0, 0, 0, 8) };
+            _countdownSoundControl.Setup(Lexicon.Get("audio.countdown.pip_sound_label"), SoundChoices(),
+                IndexOfSound(saved.PipSound));
+            JJFlexHelp.SetText(_countdownSoundControl, Lexicon.Get("audio.countdown.pip_sound_help"));
+            CountdownPanel.Children.Add(_countdownSoundControl);
+
             _countdownPipMsControl = new ValueFieldControl { Margin = new Thickness(0, 0, 0, 8) };
             _countdownPipMsControl.Setup(Lexicon.Get("audio.countdown.pip_ms_label"),
                 CountdownSettings.MinPipMs, CountdownSettings.MaxPipMs, 25, saved.PipMs, 0, "milliseconds");
@@ -134,6 +146,24 @@ namespace JJFlexWpf.Dialogs
                 .Append(Lexicon.Get("audio.countdown.pitch_custom"))
                 .ToArray();
 
+        /// <summary>The pip sounds by their CW names, the default marked.</summary>
+        private static string[] SoundChoices() =>
+            CountdownSettings.PipSounds
+                .Select(id => EarconVoices.ResolveCwWaveform(id).Label)
+                .Select((label, i) => CountdownSettings.PipSounds[i] == CountdownSettings.DefaultPipSound
+                    ? Lexicon.Get("audio.countdown.pip_sound_default", ("sound", label))
+                    : label)
+                .ToArray();
+
+        /// <summary>A sound's index in the choices; the default's when it is not one of them.</summary>
+        private static int IndexOfSound(string? id)
+        {
+            string known = CountdownSettings.KnownPipSound(id);
+            for (int i = 0; i < CountdownSettings.PipSounds.Count; i++)
+                if (CountdownSettings.PipSounds[i] == known) return i;
+            return 0;
+        }
+
         /// <summary>The preset's index for a pitch, or Custom's when it is not a preset.</summary>
         private static int IndexOfPreset(int hz)
         {
@@ -170,6 +200,8 @@ namespace JJFlexWpf.Dialogs
                 PipHz = hz,
                 PipMs = _countdownPipMsControl?.Value ?? CountdownSettings.DefaultPipMs,
                 LeadIn = _countdownLeadInCheck?.IsChecked == true,
+                PipSound = CountdownSettings.PipSounds[Math.Clamp(
+                    _countdownSoundControl?.SelectedIndex ?? IndexOfSound(null), 0, CountdownSettings.PipSounds.Count - 1)],
             }.Clamped();
         }
 
