@@ -296,6 +296,123 @@ namespace Radios.Tests
             Assert.Equal(4000, clock.Now);
         }
 
+        // ── Control skips the rest of the count (Noel 2026-10-29 01:05) ────
+
+        [Fact]
+        public async Task A_skip_with_the_setup_confirmed_keys_at_once_with_no_long_tone_and_no_more_words()
+        {
+            var clock = new SteppedClock();
+            var output = new RecordingOutput(clock);
+            var plan = Plan(seconds: 5);
+            var run = CountdownRun.Start(plan, output, "test", clock.NowMs, clock.Delay);
+            var ready = run.ReadyToKeyAsync();
+
+            // Two beats in: 5 and 4 have sounded.
+            while (output.Tones.Count < 2) Assert.True(clock.Step() || await Idle());
+            long skippedAt = clock.Now;
+            int withdrawnBefore = output.Withdrawn;
+
+            Assert.True(run.Skip());
+            Assert.True(await clock.RunUntil(ready), "a skipped count with its setup confirmed must key");
+            Assert.True(run.Skipped);
+            Assert.Equal(skippedAt, clock.Now);                    // at once, not at the count's end
+            Assert.True(clock.Now < plan.EndsAtMs);
+            Assert.DoesNotContain(output.Tones, t => t.Landing);   // the count is abandoned, not hurried
+            Assert.Equal(2, output.Tones.Count);
+            Assert.True(output.Withdrawn > withdrawnBefore, "numbers still queued would be spoken over the transmission");
+            Assert.False(run.IsRunning);
+        }
+
+        [Fact]
+        public async Task A_skip_before_the_setup_is_confirmed_keys_only_once_it_is()
+        {
+            // The safeguard Noel was told of at 01:05: on the off-air take and
+            // Loopback a skipped count never keys onto a half-built setup.
+            var clock = new SteppedClock();
+            var output = new RecordingOutput(clock);
+            var plan = Plan(seconds: 5);
+            var run = CountdownRun.Start(plan, output, "test", clock.NowMs, clock.Delay);
+
+            clock.Step();
+            Assert.True(run.Skip());
+            await clock.Drain();
+            Assert.False(run.Completion.IsCompleted, "a skip keyed before the setup was confirmed");
+            Assert.True(run.IsRunning);
+
+            clock.Advance(3000);
+            Assert.True(await clock.RunUntil(run.ReadyToKeyAsync()));
+            Assert.DoesNotContain(output.Tones, t => t.Landing);
+        }
+
+        [Fact]
+        public async Task A_cancel_after_a_skip_still_stops_everything()
+        {
+            var clock = new SteppedClock();
+            var output = new RecordingOutput(clock);
+            var run = CountdownRun.Start(Plan(seconds: 5), output, "test", clock.NowMs, clock.Delay);
+
+            clock.Step();
+            Assert.True(run.Skip());
+            await clock.Drain();
+            run.Cancel();
+            Assert.False(await clock.RunUntil(run.ReadyToKeyAsync()));
+        }
+
+        [Fact]
+        public async Task A_skip_after_a_cancel_or_after_the_end_changes_nothing()
+        {
+            var clock = new SteppedClock();
+            var output = new RecordingOutput(clock);
+            var cancelled = CountdownRun.Start(Plan(seconds: 5), output, "test", clock.NowMs, clock.Delay);
+            clock.Step();
+            cancelled.Cancel();
+            Assert.False(cancelled.Skip());
+            Assert.False(await clock.RunUntil(cancelled.ReadyToKeyAsync()));
+            Assert.False(cancelled.Skipped);
+
+            var ended = CountdownRun.Start(Plan(seconds: 2), output, "test", clock.NowMs, clock.Delay);
+            Assert.True(await clock.RunUntil(ended.ReadyToKeyAsync()));
+            Assert.False(ended.Skip());
+            Assert.False(ended.Skipped);
+        }
+
+        [Fact]
+        public async Task A_skip_is_not_held_back_by_words_the_reader_has_not_said()
+        {
+            // Control is also the reader's own silence key, so the number it
+            // cut will never be "finished". With sounds off those words are
+            // the only warning, and an ordinary count stops rather than key
+            // without them; but the operator who pressed Control has had his
+            // warning and asked to go.
+            var clock = new SteppedClock();
+            var output = new StuckOutput();
+            var plan = CountdownPlan.For(new CountdownSettings { Seconds = 5, LeadIn = false },
+                CountdownVoicing.Spoken, numberText: n => n.ToString());
+            var run = CountdownRun.Start(plan, output, "test", clock.NowMs, clock.Delay);
+            var ready = run.ReadyToKeyAsync();
+
+            clock.Step();
+            Assert.True(run.Skip());
+            Assert.True(await clock.RunUntil(ready));
+            Assert.False(run.SpeechStalled);
+        }
+
+        private static async Task<bool> Idle() { await Task.Delay(1); return true; }
+
+        /// <summary>A reader that starts every piece and never finishes one.</summary>
+        private sealed class StuckOutput : ICountdownOutput
+        {
+            public void Tone(CountdownBeat beat) { }
+            public ICountdownWords Say(string text, bool onlyWarning) => new Stuck();
+            public void WithdrawSpeech(string why) { }
+            private sealed class Stuck : ICountdownWords
+            {
+                public bool Failed => false;
+                public bool Started => true;
+                public bool Finished => false;
+            }
+        }
+
         // ── The defaults live in two places; they must agree ───────────────
 
         [Fact]

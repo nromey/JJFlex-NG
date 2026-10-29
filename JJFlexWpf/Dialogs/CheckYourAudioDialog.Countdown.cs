@@ -1,4 +1,7 @@
+using System;
 using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Input;
 using Radios;
 
 namespace JJFlexWpf.Dialogs;
@@ -21,6 +24,15 @@ namespace JJFlexWpf.Dialogs;
 /// beat rather than keying early (<see cref="CountdownRun"/>).
 /// </para>
 /// <para>
+/// <b>A bare Control skips the rest of the count</b> (Noel 2026-10-29 01:05:
+/// <i>"it aborts the count and transmits"</i>). Escape, Start and Ctrl+Enter
+/// still cancel without transmitting. The trigger is Control pressed and
+/// released ALONE (<see cref="BareControlPress"/>), because Ctrl+Enter, the
+/// cancel, begins with Control down. A skip still waits for the setup
+/// (<see cref="CountdownRun.Skip"/>), so the off-air take and Loopback never
+/// key onto a half-built arrangement.
+/// </para>
+/// <para>
 /// <b>Every method counts down</b>, the zero-power microphone test included;
 /// see <see cref="CheckCountdown"/> for why, and for the open question.
 /// </para>
@@ -37,6 +49,7 @@ public partial class CheckYourAudioDialog
     /// </summary>
     private void BeginStartCountdown(AudioCheckListenMethods method)
     {
+        HookCountdownSkipKeys();
         _startCountdown?.Cancel();
         var plan = CheckCountdown.PlanFor(method, CountdownSettings.Current,
             EarconPlayer.IsOn(EarconPlayer.EarconCategory.Transmit),
@@ -70,6 +83,61 @@ public partial class CheckYourAudioDialog
             ScreenReaderOutput.Speak(Lexicon.Get("audio.countdown.not_heard"), VerbosityLevel.Critical, interrupt: true);
         }
         return go;
+    }
+
+    /// <summary>Recognises the bare Control that skips the count.</summary>
+    private readonly BareControlPress _bareControl = new();
+
+    /// <summary>The count that was running when the Control now held went down; only that count is skipped by it.</summary>
+    private CountdownRun? _controlPressedDuring;
+
+    private bool _countdownSkipKeysHooked;
+
+    /// <summary>
+    /// Watch every key the window sees, handled or not, so a Control held as
+    /// part of Ctrl+Enter (which the window handles itself) is known to be a
+    /// chord. Hooked at the first count rather than in the constructor so this
+    /// seam stays in this file; a Control already held then is simply not seen,
+    /// which cannot fire a skip.
+    /// </summary>
+    private void HookCountdownSkipKeys()
+    {
+        if (_countdownSkipKeysHooked) return;
+        _countdownSkipKeysHooked = true;
+        AddHandler(PreviewKeyDownEvent, new KeyEventHandler(CountdownSkipKeyDown), handledEventsToo: true);
+        AddHandler(PreviewKeyUpEvent, new KeyEventHandler(CountdownSkipKeyUp), handledEventsToo: true);
+        Deactivated += (s, e) => { _bareControl.Reset(); _controlPressedDuring = null; };
+    }
+
+    private static bool IsControlKey(KeyEventArgs e)
+    {
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        return key == Key.LeftCtrl || key == Key.RightCtrl;
+    }
+
+    private void CountdownSkipKeyDown(object sender, KeyEventArgs e)
+    {
+        bool control = IsControlKey(e);
+        if (control && !e.IsRepeat && _controlPressedDuring == null)
+            _controlPressedDuring = StartCountdownRunning ? _startCountdown : null;
+        bool otherModifier = (Keyboard.Modifiers & (ModifierKeys.Shift | ModifierKeys.Alt | ModifierKeys.Windows)) != 0;
+        _bareControl.KeyDown(control, e.IsRepeat, otherModifier);
+    }
+
+    private void CountdownSkipKeyUp(object sender, KeyEventArgs e)
+    {
+        bool control = IsControlKey(e);
+        bool bare = _bareControl.KeyUp(control);
+        if (!control) return;
+        // Every Control release ends that press, a chord's included.
+        var pressedDuring = _controlPressedDuring;
+        _controlPressedDuring = null;
+        if (!bare) return;
+        // Only the count that was running when Control went down, and only
+        // while it is still running: a Control held from before the count
+        // began, or across its end, skips nothing.
+        if (pressedDuring == null || !ReferenceEquals(pressedDuring, _startCountdown) || !pressedDuring.IsRunning) return;
+        pressedDuring.Skip();
     }
 
     /// <summary>

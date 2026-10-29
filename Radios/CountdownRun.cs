@@ -117,6 +117,8 @@ namespace Radios
         private readonly Func<long> _nowMs;
         private readonly Func<int, CancellationToken, Task> _delay;
         private readonly CancellationTokenSource _cancel = new();
+        private readonly CancellationTokenSource _skip = new();
+        private readonly CancellationToken _waits;
         private readonly TaskCompletionSource<bool> _arranged =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private Task<bool> _completion = Task.FromResult(false);
@@ -137,6 +139,12 @@ namespace Radios
 
         /// <summary>True once the countdown's long tone has sounded (or, unvoiced, been reached).</summary>
         public bool LandingReached { get; private set; }
+
+        /// <summary>
+        /// True once <see cref="Skip"/> took effect: the operator ended the
+        /// count early to transmit at once.
+        /// </summary>
+        public bool Skipped => _skip.IsCancellationRequested;
 
         /// <summary>True when the count stopped because its words were not delivered in time; nothing keys.</summary>
         public bool SpeechStalled { get; private set; }
@@ -163,6 +171,9 @@ namespace Radios
             }
             _nowMs = nowMs;
             _delay = delay ?? ((ms, token) => Task.Delay(ms, token));
+            // Every wait in the count ends on a cancel OR a skip; what happens
+            // next is decided by which one it was.
+            _waits = CancellationTokenSource.CreateLinkedTokenSource(_cancel.Token, _skip.Token).Token;
         }
 
         /// <summary>Start a countdown. It plays at once; the caller sets up while it plays.</summary>
@@ -210,10 +221,85 @@ namespace Radios
             Withdraw("the countdown being called off");
         }
 
+        /// <summary>
+        /// The operator asked to transmit now (a bare Control, ruled by Noel
+        /// 2026-10-29 01:05): end the count where it is and let the check key
+        /// as soon as its setup is confirmed. True when it took effect; false
+        /// when the count had already ended, been cancelled or been skipped.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>The count is abandoned, not hurried.</b> No further pip, no long
+        /// tone, and every number not yet said is taken back, so the check's
+        /// own transmit sound and "Transmitting" are what follow. A number the
+        /// reader is already saying is not waited for: Control is the reader's
+        /// own silence key, so it has usually just been cut.
+        /// </para>
+        /// <para>
+        /// <b>It never keys onto a half-built setup.</b> The setup's
+        /// confirmation (<see cref="ReadyToKeyAsync"/>) is still awaited: on
+        /// the off-air take and Loopback a skip made while the arrangement is
+        /// going up keys only once it is confirmed. And a <see cref="Cancel"/>
+        /// after a skip still stops everything, so Escape keeps its meaning.
+        /// </para>
+        /// </remarks>
+        public bool Skip()
+        {
+            if (_ended || _cancel.IsCancellationRequested || _skip.IsCancellationRequested) return false;
+            bool arranged = _arranged.Task.IsCompleted;
+            Tracing.TraceLine("Countdown: " + _what + " skipped by the operator; "
+                + (arranged ? "the setup is confirmed, so the key may go down now"
+                            : "the key goes down once the setup is confirmed"), TraceLevel.Info);
+            try { _skip.Cancel(); } catch (ObjectDisposedException) { }
+            Withdraw("the countdown being skipped");
+            return true;
+        }
+
         private async Task<bool> RunAsync()
         {
             bool ok = false;
             try
+            {
+                try { ok = await CountAsync(); }
+                catch (OperationCanceledException) when (Skipped && !IsCancelled) { ok = false; }
+                // A skip wins over anything the count was waiting on, its words
+                // included; a cancel wins over a skip.
+                if (!ok && Skipped && !IsCancelled) ok = await AfterSkipAsync();
+                return ok;
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+            catch (Exception ex)
+            {
+                // A countdown that faults must never let a check key early, and
+                // must never take the check down with it: it ends, false, and
+                // the start path rolls back as it would for a cancel.
+                Tracing.TraceLine("Countdown: " + _what + " faulted and ended without keying: " + ex.Message,
+                    TraceLevel.Warning);
+                return false;
+            }
+            finally
+            {
+                _ended = true;
+                Tracing.TraceLine(ok
+                    ? "Countdown: " + _what + (Skipped ? " was skipped" : " ended") + "; the key may go down"
+                    : "Countdown: " + _what + " stopped before it ended; nothing keys from it",
+                    TraceLevel.Info);
+            }
+        }
+
+        /// <summary>After a skip: wait for the setup only, then key. A cancel still stops it.</summary>
+        private async Task<bool> AfterSkipAsync()
+        {
+            bool arranged = await _arranged.Task.WaitAsync(_cancel.Token);
+            return arranged && !_cancel.IsCancellationRequested;
+        }
+
+        /// <summary>The count itself. True when it ran out with the setup confirmed and nothing stopped it.</summary>
+        private async Task<bool> CountAsync()
+        {
             {
                 long origin = _nowMs();
                 long shift = 0;
@@ -236,8 +322,9 @@ namespace Radios
                     {
                         // The long tone waits for the setup: it means the radio
                         // is about to key, and it must not say so early.
-                        bool arranged = await _arranged.Task.WaitAsync(_cancel.Token);
+                        bool arranged = await _arranged.Task.WaitAsync(_waits);
                         if (!arranged || _cancel.IsCancellationRequested) return false;
+                        _waits.ThrowIfCancellationRequested();
                         long late = _nowMs() - (origin + shift + beat.AtMs);
                         if (late > 0)
                         {
@@ -250,6 +337,7 @@ namespace Radios
                     }
 
                     if (_cancel.IsCancellationRequested) return false;
+                    _waits.ThrowIfCancellationRequested();
                     if (beat.Spoken != null)
                     {
                         // The number first, and its pip only once the reader
@@ -259,6 +347,7 @@ namespace Radios
                         long startedLate = _nowMs() - (origin + shift + beat.AtMs);
                         if (startedLate > 0) shift += startedLate;
                     }
+                    _waits.ThrowIfCancellationRequested();
                     if (beat.Beeped) Tone(beat);
                 }
 
@@ -268,29 +357,7 @@ namespace Radios
                 long sayingFrom = _nowMs();
                 if (!await WaitFor(said, finished: true)) return false;
                 if (_nowMs() > sayingFrom) await WaitUntil(_nowMs() + CountdownSettings.BeatMs);
-                ok = !_cancel.IsCancellationRequested;
-                return ok;
-            }
-            catch (OperationCanceledException)
-            {
-                return false;
-            }
-            catch (Exception ex)
-            {
-                // A countdown that faults must never let a check key early, and
-                // must never take the check down with it: it ends, false, and
-                // the start path rolls back as it would for a cancel.
-                Tracing.TraceLine("Countdown: " + _what + " faulted and ended without keying: " + ex.Message,
-                    TraceLevel.Warning);
-                return false;
-            }
-            finally
-            {
-                _ended = true;
-                Tracing.TraceLine(ok
-                    ? "Countdown: " + _what + " ended; the key may go down"
-                    : "Countdown: " + _what + " stopped before it ended; nothing keys from it",
-                    TraceLevel.Info);
+                return !_cancel.IsCancellationRequested && !_skip.IsCancellationRequested;
             }
         }
 
@@ -334,8 +401,8 @@ namespace Radios
                         + ", so nothing keys", TraceLevel.Warning);
                     return false;
                 }
-                await _delay(SpeechPollMs, _cancel.Token);
-                _cancel.Token.ThrowIfCancellationRequested();
+                await _delay(SpeechPollMs, _waits);
+                _waits.ThrowIfCancellationRequested();
             }
         }
 
@@ -367,8 +434,8 @@ namespace Radios
         private async Task WaitUntil(long at)
         {
             long wait = at - _nowMs();
-            if (wait > 0) await _delay((int)Math.Min(wait, int.MaxValue), _cancel.Token);
-            _cancel.Token.ThrowIfCancellationRequested();
+            if (wait > 0) await _delay((int)Math.Min(wait, int.MaxValue), _waits);
+            _waits.ThrowIfCancellationRequested();
         }
 
         private void Tone(CountdownBeat beat)
