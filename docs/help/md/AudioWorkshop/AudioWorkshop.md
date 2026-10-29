@@ -95,6 +95,14 @@ Check your audio is every way of checking how you sound, in one window. Open it 
 
 Every check keys the radio through the same safety system as ordinary transmit: the timeout warnings, the license check, and the hard kill all stay on duty. When a check starts, focus moves to your gain, and the live reading is the very next `Tab`.
 
+### The countdown before it keys
+
+Before a check keys the radio, it counts you in: a pip a second, then a long tone an octave higher on the last beat, and then the usual transmit tone. While it counts, the check is setting itself up, so the radio keys as soon as both are done; if the setup takes longer than the count, the last beat waits for it. Escape during the count stops the check before anything keys.
+
+How you hear the count follows your sound and speech settings. With the transmit alert sounds off, the count is spoken: "5, 4, 3, 2, 1, transmitting." With them on and verbosity at Chatty, each number is spoken on its pip. With them on at Terse, you hear the pips alone. The count can open by naming the check, for example "Starting the microphone test in", then the numbers.
+
+All of it lives in Settings, on the Audio tab, in the **Countdown** group: turn it off, set its length from 2 to 10 seconds (5 to start with), pick the pip's pitch from the list or a custom one from 200 to 2000 hertz, set how long each pip lasts, and choose whether it names the check. **Play sample** plays it the way you've set it before you keep it. The Fix tool counts down before its tests at the same length, pitch and pip length.
+
 ### The methods
 
 The method decides how you hear yourself. Each name says what you hear and whether anything goes out. Only the methods your radio and your connection can do are offered, and the line under the method says what Start will do and, if a method is missing, why. `Ctrl+F1` on the method says the same about the method shown, and `F1` anywhere in the window opens this page at that method.

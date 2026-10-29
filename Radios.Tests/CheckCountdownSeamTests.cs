@@ -59,7 +59,8 @@ public sealed class CheckCountdownSeamTests
             "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.OffAir.cs"))).GetRoot().DescendantNodes()
             .OfType<MethodDeclarationSyntax>().Single(m => m.Identifier.Text == "StartOffAirAsync").ToString();
         int begin = offAir.IndexOf("BeginStartCountdown(", StringComparison.Ordinal);
-        int preparing = offAir.IndexOf("Lexicon.Get(\"audio.iq.preparing\")", StringComparison.Ordinal);
+        // The first status the take shows is its preparing line.
+        int preparing = offAir.IndexOf("IqStatus(Lexicon" + ".Get(", StringComparison.Ordinal); // split so the lexicon scanner does not read a key here
         Assert.True(begin > 0 && preparing > begin, "the count must begin before the preparing status is decided");
         string call = offAir.Substring(preparing, offAir.IndexOf(';', preparing) - preparing);
         Assert.Contains("speak: !StartCountdownRunning", call);
