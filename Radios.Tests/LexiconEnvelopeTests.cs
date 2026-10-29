@@ -1893,6 +1893,10 @@ namespace Radios.Tests
                 "audio.check.could_not_start",
                 "audio.check.no_recording_available",
                 "audio.check.radio_did_not_key",
+                // Track A, fix round 2026-10-28: the Check your audio button in
+                // Home's Audio and Slice expander (Noel's request, 19:52).
+                "audio.fields.check_your_audio",
+                "audio.fields.check_your_audio_help",
             };
 
             Assert.Equal(3135, unclassified);   // Track A 2026-10-28: the Workshop's removed Check Microphone button took its two sentences with it, and three failure sentences that now name the Fix tool were classified

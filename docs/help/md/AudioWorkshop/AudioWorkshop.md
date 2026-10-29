@@ -94,7 +94,7 @@ Mic gain, mic boost, mic bias, the compander and its level, the speech processor
 
 ## Check your audio
 
-Check your audio is every way of checking how you sound, in one window. Open it with `Ctrl+J`, then `Alt+C`, from anywhere; from the Audio menu; or with the **Check your audio** button in the Audio Workshop. Opening it never keys the radio. Focus lands on the method, `Shift+Tab` from there reaches **Start Audio Check**, and `Ctrl+Enter` starts or stops a check from anywhere in the window. `F6` and `Shift+F6` move between its sections.
+Check your audio is every way of checking how you sound, in one window. Open it with `Ctrl+J`, then `Alt+C`, from anywhere; from the Audio menu; with the **Check your audio** button in the Audio Workshop (or `Alt+C` there); or with the **Check your audio** button in Home's Audio and Slice group, right after your microphone's verdict. Opening it never keys the radio. Focus lands on the method, `Shift+Tab` from there reaches **Start Audio Check**, and `Ctrl+Enter` starts or stops a check from anywhere in the window. `F6` and `Shift+F6` move between its sections.
 
 The **Close** button at the end of the window closes it the way its title bar does, which stops a running check and puts back what it changed.
 

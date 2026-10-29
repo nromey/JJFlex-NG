@@ -1327,5 +1327,7 @@
   "audio.fix_tool.label": {"text": "Fix tool", "delivery": null},
   "audio.fix_tool.help": {"text": "Something wrong with your audio? Use this button to help you figure out what's wrong.", "delivery": null},
   "audio.fix_tool.pointer": {"text": "The Fix tool button in this window can help you find what is wrong.", "delivery": null},
-  "audio.fix_tool.wait_for_check": {"text": "Stop the check first. The Fix tool runs tests of its own, and they key the radio.", "delivery": null}
+  "audio.fix_tool.wait_for_check": {"text": "Stop the check first. The Fix tool runs tests of its own, and they key the radio.", "delivery": null},
+  "audio.fields.check_your_audio": {"text": "Check your audio", "delivery": null},
+  "audio.fields.check_your_audio_help": {"text": "Opens Check your audio, every way of checking how you sound, from this computer's microphone to the air. Opening it starts nothing. Control+J, then Alt+C opens it from anywhere.", "delivery": null}
 }

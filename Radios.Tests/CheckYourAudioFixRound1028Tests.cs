@@ -238,5 +238,20 @@ namespace Radios.Tests
             Assert.Equal("Something wrong with your audio? Use this button to help you figure out what's wrong.",
                 Lexicon.Get("audio.fix_tool.help"));
         }
+
+        // ── Item 13: the Check your audio button in Home's Audio and Slice expander ──
+
+        [Fact]
+        public void Homes_audio_expander_has_Check_your_audio_straight_after_the_mic_verdict_by_the_same_route()
+        {
+            string panel = Source("JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs");
+            int verdict = panel.IndexOf("AudioContent.Children.Add(_micVerdictDisplay);", StringComparison.Ordinal);
+            int button = panel.IndexOf("AudioContent.Children.Add(checkYourAudio);", StringComparison.Ordinal);
+            int recorder = panel.IndexOf("BuildComputerRecorderControls();", verdict, StringComparison.Ordinal);
+            Assert.True(verdict >= 0 && button > verdict && recorder > button, "the verdict, then the button, then the recorder");
+            Assert.Contains("checkYourAudio.Click += (s, e) => Dialogs.CheckYourAudioDialog.ShowOrFocus(_rig);", panel);
+            Assert.DoesNotContain("ShowOrFocusAndStartCheck(_rig)", panel);   // opening it never starts a check
+            Assert.Contains("JJFlexHelp.SetText(checkYourAudio,", panel);
+        }
     }
 }

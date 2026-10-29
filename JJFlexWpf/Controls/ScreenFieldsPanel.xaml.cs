@@ -757,6 +757,26 @@ public partial class ScreenFieldsPanel : UserControl
         };
         AudioContent.Children.Add(_micVerdictDisplay);
 
+        // Check your audio, straight after the verdict it explains (Noel
+        // 2026-10-28 19:52: "Recommend adding check your audio to the audio
+        // expander as well for completeness"; the placement is Claude's
+        // proposal). It opens the same window by the same route as the JJ
+        // key's Alt+C and the Audio menu: one window, several doors, and
+        // opening it never starts a check.
+        var checkYourAudio = new Button
+        {
+            Content = Lexicon.Get("audio.fields.check_your_audio"),
+            Margin = new Thickness(0, 2, 0, 2),
+            Padding = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left
+        };
+        System.Windows.Automation.AutomationProperties.SetName(
+            checkYourAudio, Lexicon.Get("audio.fields.check_your_audio"));
+        // DRAFT PROSE (#835): awaiting Noel.
+        JJFlexHelp.SetText(checkYourAudio, Lexicon.Get("audio.fields.check_your_audio_help"));
+        checkYourAudio.Click += (s, e) => Dialogs.CheckYourAudioDialog.ShowOrFocus(_rig);
+        AudioContent.Children.Add(checkYourAudio);
+
         // Record to file and play from computer (#787), with the rest of
         // what this computer does with the radio's audio.
         BuildComputerRecorderControls();
