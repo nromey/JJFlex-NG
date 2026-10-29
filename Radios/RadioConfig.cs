@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -286,8 +287,14 @@ namespace Radios
 
         /// <summary>Connection strategy for this radio. Auto (default) follows
         /// the radio-reported flags each connect.</summary>
-        public RadioConnectionPreference ConnectionPreference { get; set; }
-            = RadioConnectionPreference.Auto;
+        [XmlIgnore]
+        public RadioConnectionPreference ConnectionPreference { get => _connectionPreference.Value; set => _connectionPreference.Value = value; }
+
+        /// <summary>The saved text of <see cref="ConnectionPreference"/>, read tolerantly (#847).</summary>
+        [XmlElement("ConnectionPreference")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public string ConnectionPreferenceXml { get => _connectionPreference.Text; set => _connectionPreference.Text = value; }
+        private readonly TolerantXmlEnum<RadioConnectionPreference> _connectionPreference = new(nameof(ConnectionPreference), RadioConnectionPreference.Auto);
 
         /// <summary>
         /// The operator's ordered chain of connection paths to try for this
@@ -301,7 +308,19 @@ namespace Radios
         /// networks, which is the point: the chain is the operator's intent,
         /// where <c>LastSeenRemote</c> is merely history.
         /// </summary>
-        public List<ConnectPathKind> PathChain { get; set; } = new();
+        [XmlIgnore]
+        public List<ConnectPathKind> PathChain { get => _pathChain.Values; set => _pathChain.Values = value ?? new(); }
+
+        /// <summary>The saved text of <see cref="PathChain"/>, read tolerantly
+        /// (#847): a path kind a newer build added (Connect is reserved) is kept
+        /// for that build instead of failing the whole file. An array, because
+        /// XmlSerializer assigns an array through its setter but fills a list
+        /// in place through its getter.</summary>
+        [XmlArray("PathChain")]
+        [XmlArrayItem("ConnectPathKind")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public string[] PathChainXml { get => _pathChain.Texts; set => _pathChain.Texts = value; }
+        private readonly TolerantXmlEnumList<ConnectPathKind> _pathChain = new(nameof(PathChain));
 
         /// <summary>Fixed client hole-punch port for this radio. 0 (default)
         /// means pick a fresh random port per connect, which is the recommended
@@ -358,8 +377,14 @@ namespace Radios
         /// each connection to this radio (Track C). Default LeaveAlone: a
         /// config written before this shipped changes nothing.
         /// </summary>
-        public RemOnOnConnectModes RemOnOnConnect { get; set; }
-            = RemOnOnConnectModes.LeaveAlone;
+        [XmlIgnore]
+        public RemOnOnConnectModes RemOnOnConnect { get => _remOnOnConnect.Value; set => _remOnOnConnect.Value = value; }
+
+        /// <summary>The saved text of <see cref="RemOnOnConnect"/>, read tolerantly (#847).</summary>
+        [XmlElement("RemOnOnConnect")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public string RemOnOnConnectXml { get => _remOnOnConnect.Text; set => _remOnOnConnect.Text = value; }
+        private readonly TolerantXmlEnum<RemOnOnConnectModes> _remOnOnConnect = new(nameof(RemOnOnConnect), RemOnOnConnectModes.LeaveAlone);
 
         /// <summary>
         /// Whether the operator wants this radio reachable from away (Sprint
@@ -372,8 +397,14 @@ namespace Radios
         /// nothing about SmartLink registration is raised for this radio
         /// again, on any connect, on any run.</para>
         /// </summary>
-        public SmartLinkIntents SmartLinkIntent { get; set; }
-            = SmartLinkIntents.Undecided;
+        [XmlIgnore]
+        public SmartLinkIntents SmartLinkIntent { get => _smartLinkIntent.Value; set => _smartLinkIntent.Value = value; }
+
+        /// <summary>The saved text of <see cref="SmartLinkIntent"/>, read tolerantly (#847).</summary>
+        [XmlElement("SmartLinkIntent")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public string SmartLinkIntentXml { get => _smartLinkIntent.Text; set => _smartLinkIntent.Text = value; }
+        private readonly TolerantXmlEnum<SmartLinkIntents> _smartLinkIntent = new(nameof(SmartLinkIntent), SmartLinkIntents.Undecided);
 
         // ---------------------------------------------------------------
         // Roster display metadata (queue-burn Track E, 2026-08-07).
@@ -454,8 +485,14 @@ namespace Radios
         /// situation (a remote rig wants record-and-play, a local one is fine
         /// on monitor). Conservative default: Monitor.
         /// </summary>
-        public AudioCheckListenMethods AudioCheckListenMethod { get; set; }
-            = AudioCheckListenMethods.Monitor;
+        [XmlIgnore]
+        public AudioCheckListenMethods AudioCheckListenMethod { get => _audioCheckListenMethod.Value; set => _audioCheckListenMethod.Value = value; }
+
+        /// <summary>The saved text of <see cref="AudioCheckListenMethod"/>, read tolerantly (#847).</summary>
+        [XmlElement("AudioCheckListenMethod")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public string AudioCheckListenMethodXml { get => _audioCheckListenMethod.Text; set => _audioCheckListenMethod.Text = value; }
+        private readonly TolerantXmlEnum<AudioCheckListenMethods> _audioCheckListenMethod = new(nameof(AudioCheckListenMethod), AudioCheckListenMethods.Monitor);
 
         /// <summary>App-made slice take times. A time is usable only while the radio
         /// reports the same recorded duration; another client can replace a take.</summary>
@@ -501,8 +538,14 @@ namespace Radios
         /// Low power exists for the separate, deliberate act of confirming
         /// RF actually leaves the radio.
         /// </summary>
-        public AudioCheckPowerModes AudioCheckPowerMode { get; set; }
-            = AudioCheckPowerModes.DummyLoad;
+        [XmlIgnore]
+        public AudioCheckPowerModes AudioCheckPowerMode { get => _audioCheckPowerMode.Value; set => _audioCheckPowerMode.Value = value; }
+
+        /// <summary>The saved text of <see cref="AudioCheckPowerMode"/>, read tolerantly (#847).</summary>
+        [XmlElement("AudioCheckPowerMode")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public string AudioCheckPowerModeXml { get => _audioCheckPowerMode.Text; set => _audioCheckPowerMode.Text = value; }
+        private readonly TolerantXmlEnum<AudioCheckPowerModes> _audioCheckPowerMode = new(nameof(AudioCheckPowerMode), AudioCheckPowerModes.DummyLoad);
 
         /// <summary>
         /// The power cap, in watts, used when <see cref="AudioCheckPowerMode"/>
@@ -543,8 +586,14 @@ namespace Radios
         /// RememberLast; connect-time application announces what it did
         /// rather than silently flipping a switch.
         /// </summary>
-        public PcAudioOnConnectModes PcAudioOnConnect { get; set; }
-            = PcAudioOnConnectModes.RememberLast;
+        [XmlIgnore]
+        public PcAudioOnConnectModes PcAudioOnConnect { get => _pcAudioOnConnect.Value; set => _pcAudioOnConnect.Value = value; }
+
+        /// <summary>The saved text of <see cref="PcAudioOnConnect"/>, read tolerantly (#847).</summary>
+        [XmlElement("PcAudioOnConnect")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public string PcAudioOnConnectXml { get => _pcAudioOnConnect.Text; set => _pcAudioOnConnect.Text = value; }
+        private readonly TolerantXmlEnum<PcAudioOnConnectModes> _pcAudioOnConnect = new(nameof(PcAudioOnConnect), PcAudioOnConnectModes.RememberLast);
 
         /// <summary>
         /// True once <see cref="PcAudioLastOn"/> has ever been recorded.
@@ -802,7 +851,14 @@ namespace Radios
         /// Whose radio this is, as the operator declared it. Default Unset —
         /// guest behaviour, and the state in which the question may be raised.
         /// </summary>
-        public RadioOwnership Ownership { get; set; } = RadioOwnership.Unset;
+        [XmlIgnore]
+        public RadioOwnership Ownership { get => _ownership.Value; set => _ownership.Value = value; }
+
+        /// <summary>The saved text of <see cref="Ownership"/>, read tolerantly (#847).</summary>
+        [XmlElement("Ownership")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public string OwnershipXml { get => _ownership.Text; set => _ownership.Text = value; }
+        private readonly TolerantXmlEnum<RadioOwnership> _ownership = new(nameof(Ownership), RadioOwnership.Unset);
 
         /// <summary>
         /// Whether JJ Flex may CREATE new state on this radio without stopping
@@ -929,7 +985,14 @@ namespace Radios
         /// first connect to a radio changes nothing, and the question is
         /// raised once.
         /// </summary>
-        public ProfileGuestIntent ProfileIntent { get; set; } = ProfileGuestIntent.NotAnswered;
+        [XmlIgnore]
+        public ProfileGuestIntent ProfileIntent { get => _profileIntent.Value; set => _profileIntent.Value = value; }
+
+        /// <summary>The saved text of <see cref="ProfileIntent"/>, read tolerantly (#847).</summary>
+        [XmlElement("ProfileIntent")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public string ProfileIntentXml { get => _profileIntent.Text; set => _profileIntent.Text = value; }
+        private readonly TolerantXmlEnum<ProfileGuestIntent> _profileIntent = new(nameof(ProfileIntent), ProfileGuestIntent.NotAnswered);
 
         /// <summary>The global profile to load on THIS radio. Empty means no
         /// per-radio choice; the operator's default list is used instead.</summary>
