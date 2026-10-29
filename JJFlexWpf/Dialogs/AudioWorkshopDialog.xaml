@@ -50,12 +50,27 @@
                  Hear Yourself category. No access key on purpose: WPF matches
                  an access key with Shift held too, and every new mnemonic here
                  would first have to be cleared against the global Alt+Shift
-                 chords (see Save Preset above). The JJ key's Alt+C opens the
-                 same window from anywhere. -->
+                 chords (see Save Preset above). Alt+C inside this window is
+                 handled in OnPreviewKeyDown instead, with Alt alone, so
+                 Alt+Shift+C passes through (Noel 2026-10-28 20:38); the JJ
+                 key's Alt+C opens the same window from anywhere. -->
             <Button x:Name="CheckYourAudioButton" Content="Check your audio" Margin="0,0,4,0" Padding="8,4"
                     AutomationProperties.Name="Check your audio"
-                    AutomationProperties.AcceleratorKey="Ctrl+J, Alt+C"
+                    AutomationProperties.AcceleratorKey="Alt+C"
                     Click="CheckYourAudio_Click"/>
+        </StackPanel>
+
+        <!-- A tabbable Close (#835, fix round 2026-10-28; Noel 20:36: "you can
+             not currently tab to something that closes"). It takes the title
+             bar's close route, not Escape's: closing the Workshop leaves a
+             check running in Check your audio alone (bench step 19). Docked
+             before the list and the categories so it spans the bottom, and
+             last in the tab ring. Not a cancel button: Escape keeps its own route. -->
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
+                    Margin="8,4" KeyboardNavigation.TabIndex="4">
+            <Button x:Name="CloseButton" Content="Close" Padding="16,4" MinWidth="80"
+                    AutomationProperties.Name="Close"
+                    Click="Close_Click"/>
         </StackPanel>
 
         <!-- The category list (task #134). Built by CategoryNavigator from

@@ -1902,9 +1902,54 @@ namespace Radios.Tests
                 "audio.send.resume_refused_ended",
                 "audio.send.stopped_paused",
                 "audio.send.paused_disconnected",
+                // Track A, fix round 2026-10-28: the one short sentence the
+                // "About this method" line shows per method (ruled 21:20), and
+                // how its accessible name joins the label to it.
+                "audio.check.about.mic_test",
+                "audio.check.about.monitor",
+                "audio.check.about.record",
+                "audio.check.about.off_air",
+                "audio.check.about.loopback",
+                "audio.check.about_named",
+                // Track A, fix round 2026-10-28: the new first method, checking
+                // this computer's microphone (ruled 20:30): its name, its
+                // description and short sentence, and the reading box before it runs.
+                "audio.check.method.computer_mic",
+                "audio.check.status.computer_mic",
+                "audio.check.about.computer_mic",
+                "audio.check.computer_mic.idle",
+                // Track A, fix round 2026-10-28: Ctrl+F1 for every control on
+                // the Workshop's Diagnostics page that had none (ruled 20:48:
+                // short labels, and Ctrl+F1 explains them).
+                "audio.diagnostics.help.diagnostic_take",
+                "audio.diagnostics.help.capacity",
+                "audio.diagnostics.help.detune_plus",
+                "audio.diagnostics.help.detune_minus",
+                "audio.diagnostics.help.recovery",
+                "audio.diagnostics.help.separate_pan",
+                "audio.diagnostics.help.full_duplex",
+                "audio.diagnostics.help.bench_status",
+                "audio.diagnostics.help.rx_result",
+                "audio.diagnostics.help.tx_result",
+                "audio.diagnostics.help.evidence",
+                "audio.diagnostics.help.bench_smartlink",
+                // Track A, fix round 2026-10-28: the Fix tool button in both
+                // windows (ruled 21:41 and 21:46), and the three failure
+                // sentences that now name it, classified as they changed.
+                "audio.fix_tool.label",
+                "audio.fix_tool.help",
+                "audio.fix_tool.pointer",
+                "audio.fix_tool.wait_for_check",
+                "audio.check.could_not_start",
+                "audio.check.no_recording_available",
+                "audio.check.radio_did_not_key",
+                // Track A, fix round 2026-10-28: the Check your audio button in
+                // Home's Audio and Slice expander (Noel's request, 19:52).
+                "audio.fields.check_your_audio",
+                "audio.fields.check_your_audio_help",
             };
 
-            Assert.Equal(3140, unclassified);
+            Assert.Equal(3135, unclassified);   // Track A 2026-10-28: the Workshop's removed Check Microphone button took its two sentences with it, and three failure sentences that now name the Fix tool were classified
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

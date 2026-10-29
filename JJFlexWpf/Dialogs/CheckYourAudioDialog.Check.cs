@@ -35,6 +35,73 @@ public partial class CheckYourAudioDialog
     private TextBox? _micReadingBox;
     private GroupBox? _resultsSection;
     private Button? _playTakeButton;
+    private Button? _closeButton;
+    private Button? _fixToolButton;
+
+    /// <summary>
+    /// Open the Fix tool, the way Tools, Fix, "Transmit problems..." does. Not
+    /// while a check is starting, running or making a take: the Fix tool runs
+    /// transmit tests of its own, and two owners of the transmitter is the
+    /// thing every refusal in this window exists to prevent. A computer
+    /// microphone check is stopped first, because the Fix tool opens the same
+    /// microphone for its own test.
+    /// </summary>
+    private void OpenFixTool()
+    {
+        if (!HandOffToFixTool("Check your audio")) return;
+        FixerDialog.Show(() => _rig ?? RigSource?.Invoke(), this);
+    }
+
+    /// <summary>What a Fix tool door may do, given what else is using the transmitter or the microphone.</summary>
+    internal enum FixToolHandoff
+    {
+        /// <summary>Nothing else is using either: open it.</summary>
+        Open,
+        /// <summary>The computer microphone check is listening: stop it (the Fix tool opens the same microphone), then open.</summary>
+        StopComputerMicThenOpen,
+        /// <summary>A check is starting or running, a take is running, or the Workshop's diagnostic take is: refuse, saying so.</summary>
+        RefuseCheckRunning,
+    }
+
+    /// <summary>
+    /// The ONE decision both Fix tool doors make (Codex round 1, follow-up 1).
+    /// Until this each door asked its own question: Check your audio's stopped
+    /// its computer check but did not see the Workshop's diagnostic take, and
+    /// the Workshop's saw the take but opened the Fix tool with the other
+    /// window's microphone check still holding the device.
+    /// </summary>
+    internal static FixToolHandoff DecideFixToolHandoff(bool checkStartingOrActive, bool takeRunning,
+        bool benchTakeRunning, bool computerMicListening)
+    {
+        if (checkStartingOrActive || takeRunning || benchTakeRunning) return FixToolHandoff.RefuseCheckRunning;
+        return computerMicListening ? FixToolHandoff.StopComputerMicThenOpen : FixToolHandoff.Open;
+    }
+
+    /// <summary>
+    /// Ask whether the Fix tool may open now, from either door, and do the
+    /// hand-off: refuse (spoken) while a check, a take or the Workshop's
+    /// diagnostic take runs; stop a listening computer microphone check. True
+    /// when the caller may open it. Call on the UI thread.
+    /// </summary>
+    /// <param name="door">The door asking, for the trace.</param>
+    internal static bool HandOffToFixTool(string door)
+    {
+        var inst = _instance;
+        var decision = DecideFixToolHandoff(
+            inst != null && (inst._checkStarts.IsBusy || inst._session?.Active == true),
+            inst != null && (inst._iqBusy || inst._iqRun != null),
+            AudioWorkshopDialog.ABenchTakeIsRunning,
+            inst?.ComputerMicCheckRunning == true);
+        JJTrace.Tracing.TraceLine("Fix tool from " + door + ": " + decision, System.Diagnostics.TraceLevel.Info);
+        if (decision == FixToolHandoff.RefuseCheckRunning)
+        {
+            // DRAFT PROSE (#835): awaiting Noel.
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.fix_tool.wait_for_check"), VerbosityLevel.Critical, interrupt: true);
+            return false;
+        }
+        if (decision == FixToolHandoff.StopComputerMicThenOpen) inst!.StopComputerMicCheck(speak: false);
+        return true;
+    }
 
     /// <summary>The methods in the cycle right now, in its order. Index into this, never cast a SelectedIndex to the enum.</summary>
     private List<AudioCheckListenMethods> _offered = new(AudioCheckMethods.Offered(false, false, "", false));
@@ -57,7 +124,10 @@ public partial class CheckYourAudioDialog
     private void BuildCheckDialog()
     {
         // DRAFT PROSE (#835): awaiting Noel — section names.
-        _sections.OpenRadio(CheckContent, "Start");
+        // Start and Method are NOT radio-only (fix round 2026-10-28): with no
+        // radio the window offers this computer's microphone check, which
+        // needs neither (ruled 20:34). A radio method refuses at Start, saying so.
+        _sections.Open(CheckContent, "Start");
         _startCheckButton = new Button
         {
             Content = "Start Audio Check",
@@ -71,12 +141,23 @@ public partial class CheckYourAudioDialog
         _startCheckButton.Click += (s, e) => ToggleAudioCheck();
         _sections.Add(CheckContent, _startCheckButton);
 
-        _sections.OpenRadio(CheckContent, "Method");
+        _sections.Open(CheckContent, "Method");
         _listenMethodControl = MakeCycle("Method", MethodNames(_offered));
+        // The methods are an escalation (ruled by Noel 2026-10-28 20:32 and
+        // 21:20): Down goes to the NEXT step and Up back, Home and End jump to
+        // the first and the last, and at either end the arrow stays put and
+        // the existing boundary sound plays. Only this field; the control's
+        // defaults, used by every other cycle field, are unchanged.
+        _listenMethodControl.Wraps = false;
+        _listenMethodControl.DownMovesForward = true;
+        _listenMethodControl.HomeEndJump = true;
+        _listenMethodControl.AtBoundary = atFirst => EarconPlayer.FilterBoundaryHitTone(isLowEdge: atFirst);
         // Before a radio is known, show the local default rather than the
         // first row; SetRig resolves the real choice.
         _listenMethodControl.SuppressEvents = true;
-        _listenMethodControl.SelectedIndex = _offered.IndexOf(AudioCheckMethods.DefaultFor(remote: false));
+        // With no radio the only offer is this computer's microphone, which is
+        // not the local default; never leave the cycle on no row at all.
+        _listenMethodControl.SelectedIndex = Math.Max(0, _offered.IndexOf(AudioCheckMethods.DefaultFor(remote: false)));
         _listenMethodControl.SuppressEvents = false;
         _listenMethodControl.SelectionChanged += (s, idx) =>
         {
@@ -195,6 +276,46 @@ public partial class CheckYourAudioDialog
 
         BuildOffAirResults();
 
+        // The Fix tool, for when a check fails spectacularly or the transmit
+        // path is broken (ruled by Noel 2026-10-28 21:41 and 21:46). It opens
+        // FixerDialog.Show the way Tools, Fix, "Transmit problems..." does. The
+        // label is short; Ctrl+F1 carries the explanation, in Noel's words. A
+        // failed check's sentence names this button.
+        _fixToolButton = new Button
+        {
+            Content = Lexicon.Get("audio.fix_tool.label"),
+            Padding = new Thickness(8, 4, 8, 4),
+            MinWidth = 120,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(2, 12, 2, 2)
+        };
+        AutomationProperties.SetName(_fixToolButton, Lexicon.Get("audio.fix_tool.label"));
+        // DRAFT PROSE (#835): awaiting Noel. His words, 21:46.
+        JJFlexHelp.SetText(_fixToolButton, Lexicon.Get("audio.fix_tool.help"));
+        _fixToolButton.Click += (s, e) => OpenFixTool();
+        CheckContent.Children.Add(_fixToolButton);
+
+        // A tabbable Close, last in the ring (#835, fix round 2026-10-28; Noel
+        // 20:36). It takes the title bar's route: closing this window, by any
+        // route, stops a running check and puts back what it changed. Not a
+        // cancel button, so Escape keeps its two-stage route. Outside every section,
+        // so F6 does not count it.
+        _closeButton = new Button
+        {
+            Content = "Close",
+            Padding = new Thickness(16, 4, 16, 4),
+            MinWidth = 80,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(2, 12, 2, 2)
+        };
+        AutomationProperties.SetName(_closeButton, "Close");
+        // DRAFT PROSE (#835): awaiting Noel.
+        JJFlexHelp.SetText(_closeButton,
+            "Closes Check your audio, the same as its title bar. A running check stops, and "
+            + "everything it changed on the radio is put back.");
+        _closeButton.Click += (s, e) => Close();
+        CheckContent.Children.Add(_closeButton);
+
         // Follow local playback so the button says what pressing it will do.
         RecordingPlayer.StateChanged += OnTakePlaybackStateChanged;
 
@@ -208,6 +329,8 @@ public partial class CheckYourAudioDialog
     internal static string MethodName(AudioCheckListenMethods method) => method switch
     {
         // Ruled by Noel 2026-10-27 13:51, 13:57 and 14:57.
+        // Ruled 2026-10-28 20:30; the name is draft prose.
+        AudioCheckListenMethods.ComputerMic => Lexicon.Get("audio.check.method.computer_mic"),
         AudioCheckListenMethods.MicTest => Lexicon.Get("audio.check.method.mic_test"),
         AudioCheckListenMethods.Monitor => Lexicon.Get("audio.check.method.monitor"),
         AudioCheckListenMethods.RecordPlayback => Lexicon.Get("audio.check.method.record"),
@@ -233,6 +356,16 @@ public partial class CheckYourAudioDialog
         // the cycle is rebuilt when it ends.
         if (_session?.Active == true || _checkStarts.IsBusy) return;
         _offered = new List<AudioCheckListenMethods>(offered);
+        // A computer microphone check that is listening keeps its method and
+        // keeps listening, whatever the radio does; but the OFFER still follows
+        // the radio (Codex round 1, follow-up 2): returning early here left
+        // every radio method on offer after a disconnect, with no radio.
+        // ComputerMic leads every offer, so it is always there to keep.
+        if (ComputerMicCheckRunning)
+        {
+            SetMethodSilently(AudioCheckListenMethods.ComputerMic);
+            return;
+        }
         // Every choice the operator makes is saved at once, so the saved
         // choice IS the operator's choice: resolving it again is what brings a
         // saved Off the air back once a late antenna list makes it offerable,
@@ -273,6 +406,8 @@ public partial class CheckYourAudioDialog
     private void ApplyMethodLayout()
     {
         var method = SelectedMethod;
+        // The computer microphone check runs only while its method is shown.
+        if (method != AudioCheckListenMethods.ComputerMic) StopComputerMicCheck(speak: false);
         if (_powerSection != null)
         {
             // Moving focus off a section about to collapse, before it collapses.
@@ -284,6 +419,7 @@ public partial class CheckYourAudioDialog
         SyncPlayTakeLabel();
         UpdateMethodStatus();
         UpdateMethodHelp(method);
+        UpdateMicReading();
     }
 
     /// <summary>
@@ -297,33 +433,45 @@ public partial class CheckYourAudioDialog
     private void UpdateMethodHelp(AudioCheckListenMethods method)
     {
         if (_listenMethodControl == null) return;
-        JJFlexHelp.SetText(_listenMethodControl, AudioCheckMethods.ContextHelp(method));
+        // The one sentence on why a method is missing moved here from the
+        // "About this method" line (fix round 2026-10-28): that line is now
+        // one short sentence (ruled 21:20), and Ctrl+F1 on the method is where
+        // the fuller account lives.
+        string missing = _rig == null ? "" : MissingMethodsSentence(_rig);
+        JJFlexHelp.SetText(_listenMethodControl,
+            AudioCheckMethods.ContextHelp(method) + (missing.Length > 0 ? " " + missing : ""));
     }
 
     /// <summary>
-    /// The one status line: what the chosen method does when you press Start,
-    /// and in one sentence why a method is missing. The old idle sentence
-    /// ("Off-air audio checks need two receivers and a transverter arrangement")
-    /// is gone; it is what made a one-receiver operator hear "takes".
+    /// The "About this method" line: ONE SHORT SENTENCE about the method shown
+    /// (ruled by Noel 2026-10-28 21:20). The full description, and the sentence
+    /// on why a method is missing, are Ctrl+F1's and the help's.
     /// </summary>
+    /// <remarks>
+    /// <b>The sentence rides in the accessible NAME as well as the text</b>
+    /// (fix round 2026-10-28, bench step 45). On focus NVDA spoke only "About
+    /// this method, edit, read only" and none of the text, though UIA's Value
+    /// and Text patterns both held it. The name is what NVDA always speaks on
+    /// focus, and it is the shape the Windows level note already uses
+    /// (<c>TransmitGainControls.SetPcLevelNoteText</c>). The name changes only
+    /// with the method, so nothing here speaks while it is read.
+    /// </remarks>
     private void UpdateMethodStatus()
     {
         if (_methodStatus == null) return;
         var rig = _rig;
         string text;
-        if (rig == null) text = Lexicon.Get("audio.no_radio_connected") + ".";
+        // This computer's microphone needs no radio, so its sentence comes first.
+        if (SelectedMethod == AudioCheckListenMethods.ComputerMic) text = AudioCheckMethods.About(SelectedMethod);
+        else if (rig == null) text = Lexicon.Get("audio.no_radio_connected") + ".";
         // An off-air take's own sentence (preparing, recording, its result)
         // takes the line while Off the air is chosen.
         else if (SelectedMethod == AudioCheckListenMethods.OffAir && _offAirStatus.Length > 0) text = _offAirStatus;
-        else
-        {
-            // The method's one description, which Ctrl+F1 and the help page say too.
-            text = AudioCheckMethods.Description(SelectedMethod);
-            string missing = MissingMethodsSentence(rig);
-            if (missing.Length > 0) text += " " + missing;
-        }
+        else text = AudioCheckMethods.About(SelectedMethod);
         if (_methodStatus.Text == text) return;
         _methodStatus.Text = text;
+        AutomationProperties.SetName(_methodStatus, Lexicon.Get("audio.check.about_named",
+            ("label", Lexicon.Get("audio.check.method_status_label")), ("about", text)));
     }
 
     /// <summary>One sentence for the methods this radio or connection leaves out, or empty when none is missing.</summary>
@@ -370,7 +518,9 @@ public partial class CheckYourAudioDialog
         var rig = _rig;
         _offered = new List<AudioCheckListenMethods>(AudioCheckMethods.Offered(true, rig.RemoteRig,
             rig.OffAirListenbackRefusalReason, rig.LoopbackSupported));
-        SetMethodSilently(ResolvedSavedMethod());
+        // A computer microphone check already listening keeps its method: a
+        // radio arriving does not stop it out from under the operator.
+        SetMethodSilently(ComputerMicCheckRunning ? AudioCheckListenMethods.ComputerMic : ResolvedSavedMethod());
 
         if (_checkPowerControl != null)
         {
@@ -574,6 +724,13 @@ public partial class CheckYourAudioDialog
         if (_session != null && _session.Active)
         {
             _session.StopCheck();
+            return;
+        }
+
+        // This computer's microphone: no radio, nothing keyed (ruled 20:30).
+        if (ComputerMicCheckRunning || SelectedMethod == AudioCheckListenMethods.ComputerMic)
+        {
+            ToggleComputerMicCheck();
             return;
         }
 
@@ -937,6 +1094,9 @@ public partial class CheckYourAudioDialog
     private void UpdateMicReading()
     {
         if (_micReadingBox == null) return;
+        // The computer microphone method's reading is its own words, not the
+        // radio's mic meter, which knows nothing about a check that keyed nothing.
+        if (ShowingComputerMicReading()) return;
         var rig = _rig;
         string text;
         if (rig == null)

@@ -20,7 +20,8 @@ namespace Radios
     /// radio cannot make.
     /// </para>
     /// <para>
-    /// <b>Over SmartLink only the first three are offered.</b> Off the air needs
+    /// <b>With no radio only this computer's microphone is offered</b> (ruled 2026-10-28
+    /// 20:34), and nothing is saved. <b>Over SmartLink only the first four are offered.</b> Off the air needs
     /// IQ, which SmartLink does not carry (13:39, and the 2026-10-22 08:08 "no IQ
     /// over SmartLink"). Loopback needs no IQ but is LOCAL ONLY until it has
     /// been benched remotely (ruled 15:32: "local only until we are able to
@@ -36,11 +37,15 @@ namespace Radios
     public static class AudioCheckMethods
     {
         /// <summary>
-        /// The order the methods are offered in: what you hear, from nothing to
-        /// the most involved. Not the enum order, which is fixed by saved files.
+        /// The order the methods are offered in: an ESCALATION, so arrowing down
+        /// goes one step further each time (ruled by Noel 2026-10-28 20:30): this
+        /// computer's microphone, the radio's microphone at zero power, hear
+        /// yourself live, record and play back, then the off-air take and
+        /// Loopback. Not the enum order, which is fixed by saved files.
         /// </summary>
         public static IReadOnlyList<AudioCheckListenMethods> DisplayOrder { get; } = new[]
         {
+            AudioCheckListenMethods.ComputerMic,
             AudioCheckListenMethods.MicTest,
             AudioCheckListenMethods.Monitor,
             AudioCheckListenMethods.RecordPlayback,
@@ -66,13 +71,14 @@ namespace Radios
         public static IReadOnlyList<AudioCheckListenMethods> Offered(bool connected, bool remote,
             string offAirRefusal, bool loopbackSupported)
         {
-            var offered = new List<AudioCheckListenMethods>
-            {
-                AudioCheckListenMethods.MicTest,
-                AudioCheckListenMethods.Monitor,
-                AudioCheckListenMethods.RecordPlayback,
-            };
-            if (!connected || remote) return offered;
+            // With no radio, only the computer's own microphone can be checked,
+            // and that is the window's whole offer (ruled 20:34).
+            var offered = new List<AudioCheckListenMethods> { AudioCheckListenMethods.ComputerMic };
+            if (!connected) return offered;
+            offered.Add(AudioCheckListenMethods.MicTest);
+            offered.Add(AudioCheckListenMethods.Monitor);
+            offered.Add(AudioCheckListenMethods.RecordPlayback);
+            if (remote) return offered;
             if (!IsLastingOffAirReason(offAirRefusal ?? "")) offered.Add(AudioCheckListenMethods.OffAir);
             if (loopbackSupported) offered.Add(AudioCheckListenMethods.Loopback);
             return offered;
@@ -113,6 +119,9 @@ namespace Radios
         public static bool UsesCheckPower(AudioCheckListenMethods method) =>
             method is AudioCheckListenMethods.Monitor or AudioCheckListenMethods.RecordPlayback;
 
+        /// <summary>True for every method that keys the radio; false only for checking this computer's microphone.</summary>
+        public static bool KeysTheRadio(AudioCheckListenMethods method) => method != AudioCheckListenMethods.ComputerMic;
+
         /// <summary>Methods that leave something to play afterwards.</summary>
         public static bool MakesTake(AudioCheckListenMethods method) =>
             method is AudioCheckListenMethods.RecordPlayback or AudioCheckListenMethods.OffAir;
@@ -135,6 +144,7 @@ namespace Radios
         // DRAFT PROSE (#835): awaiting Noel. The descriptions, in Radios/Lexicon/audio.json.
         public static string DescriptionKey(AudioCheckListenMethods method) => method switch
         {
+            AudioCheckListenMethods.ComputerMic => "audio.check.status.computer_mic",
             AudioCheckListenMethods.MicTest => "audio.check.status.mic_test",
             AudioCheckListenMethods.RecordPlayback => "audio.check.status.record",
             AudioCheckListenMethods.OffAir => "audio.check.status.off_air",
@@ -144,6 +154,25 @@ namespace Radios
 
         /// <summary>The method's description, in its current words.</summary>
         public static string Description(AudioCheckListenMethods method) => Lexicon.Get(DescriptionKey(method));
+
+        /// <summary>
+        /// The lexicon key of the ONE SHORT SENTENCE the "About this method" line
+        /// shows (ruled by Noel 2026-10-28 21:20, closing Codex round 7's blocker).
+        /// The full <see cref="Description"/> stays with Ctrl+F1 and the help.
+        /// </summary>
+        // DRAFT PROSE (#835): awaiting Noel. The sentences, in Radios/Lexicon/audio.json.
+        public static string AboutKey(AudioCheckListenMethods method) => method switch
+        {
+            AudioCheckListenMethods.ComputerMic => "audio.check.about.computer_mic",
+            AudioCheckListenMethods.MicTest => "audio.check.about.mic_test",
+            AudioCheckListenMethods.RecordPlayback => "audio.check.about.record",
+            AudioCheckListenMethods.OffAir => "audio.check.about.off_air",
+            AudioCheckListenMethods.Loopback => "audio.check.about.loopback",
+            _ => "audio.check.about.monitor"
+        };
+
+        /// <summary>The method's one short sentence, in its current words.</summary>
+        public static string About(AudioCheckListenMethods method) => Lexicon.Get(AboutKey(method));
 
         /// <summary>
         /// What Ctrl+F1 on the method says: one sentence about the control, then
@@ -168,6 +197,7 @@ namespace Radios
         /// </remarks>
         public static string HelpContext(AudioCheckListenMethods method) => method switch
         {
+            AudioCheckListenMethods.ComputerMic => "CheckYourAudioComputerMic",
             AudioCheckListenMethods.MicTest => "CheckYourAudioMicTest",
             AudioCheckListenMethods.Monitor => "CheckYourAudioMonitor",
             AudioCheckListenMethods.RecordPlayback => "CheckYourAudioRecord",

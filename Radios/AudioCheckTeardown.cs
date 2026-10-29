@@ -10,14 +10,16 @@ namespace Radios
     /// the radio kept reporting transmit; correct, and not a restore),
     /// <c>restore</c> (a restore did not finish in time), <c>faulted</c> (a
     /// restore failed), <c>queue</c> (the command queue did not run past them),
-    /// <c>failed</c> (the teardown itself threw).
+    /// <c>radio</c> (the radio did not answer after the writes, fix round
+    /// 2026-10-28), <c>failed</c> (the teardown itself threw).
     /// </param>
     public sealed record AudioCheckTeardownResult(bool Completed, string Stage);
 
     /// <summary>
     /// The wait a teardown makes before the radio goes (#835, fix rounds 2 and
     /// 3): every change any check made put back, then the command queue drained
-    /// past them, under one bound.
+    /// past them, then the radio's own answer after them (fix round
+    /// 2026-10-28), under one bound.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -37,7 +39,8 @@ namespace Radios
     {
         public static async Task<AudioCheckTeardownResult> RunAsync(
             Func<Task<bool>> settled, Func<bool> withheld,
-            Func<TimeSpan, Task<bool>> drain, TimeSpan bound)
+            Func<TimeSpan, Task<bool>> drain, TimeSpan bound,
+            Func<TimeSpan, Task<bool>>? confirm = null)
         {
             var deadline = DateTime.UtcNow + bound;
             TimeSpan Left() => deadline - DateTime.UtcNow;
@@ -57,7 +60,16 @@ namespace Radios
             bool drained;
             try { drained = remaining > TimeSpan.Zero && await drain(remaining).ConfigureAwait(false); }
             catch (Exception) { drained = false; }
-            return drained ? new(true, "") : new(false, "queue");
+            if (!drained) return new(false, "queue");
+
+            // The writes left our queue; that is not the radio having them.
+            // Completed only once the radio itself answers after them.
+            if (confirm == null) return new(true, "");
+            var last = Left();
+            bool confirmed;
+            try { confirmed = last > TimeSpan.Zero && await confirm(last).ConfigureAwait(false); }
+            catch (Exception) { confirmed = false; }
+            return confirmed ? new(true, "") : new(false, "radio");
         }
     }
 }

@@ -134,7 +134,7 @@ public partial class CheckYourAudioDialog : JJFlexDialog
         };
 
         _gain = new TransmitGainControls(Dispatcher, () => _rig, () => _polling,
-            () => AudioWorkshopDialog.AudioDevicesPath?.Invoke());
+            () => AudioWorkshopDialog.AudioDevicesPath?.Invoke(), host: "Check your audio");
 
         BuildCheckDialog();
         UpdateRadioControlAvailability();
@@ -151,6 +151,8 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             CancelCheckStart();
             _session?.ForceEnd("Audio check ended");
             _session = null;
+            // The computer microphone probe holds a capture device open.
+            StopComputerMicCheck(speak: false);
             // The test tone and the reference recording must never outlive
             // their window either: arming is never persisted, and an armed
             // source that outlived it would replace the microphone at the
@@ -356,6 +358,14 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     /// </remarks>
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
+        if (e.Key == Key.Escape && ComputerMicCheckRunning && _session?.Active != true)
+        {
+            // Nothing is transmitting: Escape stops the listening and stays, so
+            // the verdict is heard before anything closes. The next one closes.
+            StopComputerMicCheck(speak: true);
+            e.Handled = true;
+            return;
+        }
         if (e.Key == Key.Escape)
         {
             // The radio's own transmit report, not only the session's (fix round

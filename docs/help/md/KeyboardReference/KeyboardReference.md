@@ -652,8 +652,11 @@ These keys are active anywhere inside the Audio Workshop window (`Ctrl+Shift+W` 
 - **Alt+E** — Export a preset to a file you can share
 - **Alt+I** — Import a preset from a file (it joins your saved presets — nothing changes on the radio until you load it)
 - **Alt+R** — Reset the TX audio chain to defaults
+- **Alt+C** — Open Check your audio, the same window `Ctrl+J`, then `Alt+C` opens from anywhere
 - **F6 / Shift+F6** — Move between the sections in the current category and hear each section's name. The keys wrap at both ends and skip hidden sections
 - **Ctrl+Tab / Ctrl+Shift+Tab** — Move between workshop categories. Use F6 to move among the sections within the selected category
+
+The **Close** button, last in the tab order, closes the workshop the way its title bar does: a check running in Check your audio carries on.
 
 The Audio Check used to live here, on the Hear Yourself category, with `Ctrl+Enter` to start it and a two-press Escape. It has a window of its own now, Check your audio, and those keys went with it. The **Check your audio** button at the end of the workshop's toolbar opens it.
 
@@ -666,10 +669,13 @@ A note for anyone whose fingers learned the old way: Save Preset used to respond
 These keys work anywhere inside the Check your audio window (`Ctrl+J`, then `Alt+C` opens it, and so do the Audio menu and the button in the Audio Workshop). They do not work from other windows.
 
 - **Ctrl+Enter** — Start the check with the method shown, or stop the one that's running
-- **Escape** — While a check is transmitting, the first press unkeys and stays in the window; press again to close. Escape never leaves you transmitting
+- **Escape** — While a check is transmitting, the first press unkeys and stays in the window; press again to close. Escape never leaves you transmitting. While the check of this computer's microphone is listening, the first press stops it and you hear the verdict; press again to close
 - **F6 / Shift+F6** — Move between the sections of the window and hear each section's name. The keys wrap at both ends and skip hidden sections
 
-Focus lands on the method when the window opens, and `Shift+Tab` from there reaches the Start button.
+- **Down Arrow / Up Arrow** on the method — The next method, or the one before. The methods run in order from checking this computer's microphone to the most involved, and do not wrap: at either end the arrow stays put and you hear the boundary sound
+- **Home / End** on the method — The first method, or the last
+
+Focus lands on the method when the window opens, and `Shift+Tab` from there reaches the Start button. The **Close** button, last in the tab order, closes the window the way its title bar does, which stops a running check and puts back what it changed.
 
 ## Transmit tests
 

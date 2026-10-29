@@ -130,9 +130,9 @@ namespace Radios.Tests
         {
             string check = Dialog("CheckYourAudioDialog.Check");
             string build = Body(check, "private void BuildCheckDialog()");
-            int start = build.IndexOf("_sections.OpenRadio(CheckContent, \"Start\")", StringComparison.Ordinal);
+            int start = build.IndexOf("_sections.Open(CheckContent, \"Start\")", StringComparison.Ordinal);
             int button = build.IndexOf("_startCheckButton = new Button", StringComparison.Ordinal);
-            int method = build.IndexOf("_sections.OpenRadio(CheckContent, \"Method\")", StringComparison.Ordinal);
+            int method = build.IndexOf("_sections.Open(CheckContent, \"Method\")", StringComparison.Ordinal);
             Assert.True(start >= 0 && button > start && method > button, "Start, its button, then the Method section");
             Assert.Equal(1, build.Substring(start, method - start).Split("_sections.Add(").Length - 1);
             Assert.Contains("_listenMethodControl.Focus()",
@@ -289,7 +289,7 @@ namespace Radios.Tests
             // (Microphone setups and the Fixer also look an endpoint up, to apply
             // or read a level; that is a different job and not a second control.)
             var binders = Directory.GetFiles(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs"), "*.cs")
-                .Where(f => File.ReadAllText(f).Contains("private void BindPcLevel()"))
+                .Where(f => File.ReadAllText(f).Contains("private void BindPcLevel(string why)"))
                 .Select(Path.GetFileName).ToList();
             Assert.Equal(new[] { "TransmitGainControls.cs" }, binders);
 
@@ -300,9 +300,9 @@ namespace Radios.Tests
             // JJFlexWpf.Tests.TransmitGainBindingTests runs the first.
             Assert.Contains("TransmitGainControls.MicrophoneChoiceMayHaveChanged(_gain);", Dialog("AudioWorkshopDialog.TxAudio"));
             string gain = Dialog("TransmitGainControls");
-            Assert.Contains("if (pcSource && DeviceFileStamp() != _boundFileStamp) BindPcLevel();",
+            Assert.Contains("if (pcSource && DeviceFileStamp() != _boundFileStamp) BindPcLevel(\"the saved microphone file changed\");",
                 Body(gain, "public bool Poll(FlexBase rig, Action? fallbackFocus)"));
-            Assert.Contains("_boundFileStamp = DeviceFileStamp();", Body(gain, "private void BindPcLevel()"));
+            Assert.Contains("_boundFileStamp = DeviceFileStamp();", Body(gain, "private void BindPcLevel(string why)"));
         }
     }
 }

@@ -15,7 +15,7 @@ Press `Ctrl+Shift+W` from anywhere in the application to open the audio workshop
 
 ### No radio? Still useful
 
-The Workshop opens happily with no radio connected — it is on the no-radio Home page's own short menu for exactly that reason. The microphone check and everything in the This Computer section work fully offline, so you can prove a headset before you ever connect. The radio-side controls — mic gain, boost, bias, the compander, processor, filters, and monitor — disable themselves and step out of the tab order until a radio arrives, so nothing in here will claim to have changed a rig that was not listening.
+The Workshop opens happily with no radio connected — it is on the no-radio Home page's own short menu for exactly that reason. Everything in the This Computer section works fully offline, and so does Check your audio's first method, checking this computer's microphone, so you can prove a headset before you ever connect. The radio-side controls — mic gain, boost, bias, the compander, processor, filters, and monitor — disable themselves and step out of the tab order until a radio arrives, so nothing in here will claim to have changed a rig that was not listening.
 
 When the workshop opens, you land on the list of categories down the left, which tells you where you are.
 
@@ -25,6 +25,9 @@ These work anywhere inside the workshop window, and only there:
 
 - `Ctrl+S` — save a preset. `Ctrl+O` — load one. The universal document keys, doing the universal document things.
 - `Alt+E` — export a preset to a file. `Alt+I` — import one from a file. `Alt+R` — reset the transmit chain to defaults.
+- `Alt+C` — open Check your audio, the same as `Ctrl+J`, then `Alt+C` from anywhere.
+
+The **Close** button at the bottom closes the workshop the way its title bar does: a check running in Check your audio carries on.
 
 The check's own keys, `Ctrl+Enter` and the two-press Escape, live in Check your audio now.
 
@@ -91,15 +94,23 @@ Mic gain, mic boost, mic bias, the compander and its level, the speech processor
 
 ## Check your audio
 
-Check your audio is every way of checking how you sound, in one window. Open it with `Ctrl+J`, then `Alt+C`, from anywhere; from the Audio menu; or with the **Check your audio** button in the Audio Workshop. Opening it never keys the radio. Focus lands on the method, `Shift+Tab` from there reaches **Start Audio Check**, and `Ctrl+Enter` starts or stops a check from anywhere in the window. `F6` and `Shift+F6` move between its sections.
+Check your audio is every way of checking how you sound, in one window. Open it with `Ctrl+J`, then `Alt+C`, from anywhere; from the Audio menu; with the **Check your audio** button in the Audio Workshop (or `Alt+C` there); or with the **Check your audio** button in Home's Audio and Slice group, right after your microphone's verdict. Opening it never keys the radio. Focus lands on the method, `Shift+Tab` from there reaches **Start Audio Check**, and `Ctrl+Enter` starts or stops a check from anywhere in the window. `F6` and `Shift+F6` move between its sections.
 
-Every check keys the radio through the same safety system as ordinary transmit: the timeout warnings, the license check, and the hard kill all stay on duty. When a check starts, focus moves to your gain, and the live reading is the very next `Tab`.
+The **Close** button at the end of the window closes it the way its title bar does, which stops a running check and puts back what it changed.
+
+Every check except the first keys the radio through the same safety system as ordinary transmit: the timeout warnings, the license check, and the hard kill all stay on duty. When a check that keys starts, focus moves to your gain, and the live reading is the very next `Tab`.
 
 ### The methods
 
-The method decides how you hear yourself. Each name says what you hear and whether anything goes out. Only the methods your radio and your connection can do are offered, and the line under the method says what Start will do and, if a method is missing, why. `Ctrl+F1` on the method says the same about the method shown, and `F1` anywhere in the window opens this page at that method.
+The method decides how you hear yourself. Each name says what you hear and whether anything goes out. They run in order, each one a step further than the one before: `Down Arrow` takes you to the next, `Up Arrow` back, `Home` to the first and `End` to the last. Only the methods your radio and your connection can do are offered. **About this method**, the line under the method, says in one sentence what Start will do; `Ctrl+F1` on the method gives the whole account below, and says why a method is missing if one is, and `F1` anywhere in the window opens this page at that method.
 
 Your method is remembered per radio. The same radio reached over SmartLink starts on Record yourself if the method you chose locally is not offered there, without forgetting your local choice.
+
+#### Check this computer's microphone, no radio involved {#check-audio-computer-mic}
+
+Start listens to this computer's chosen microphone through Windows, with no radio involved and nothing keyed, and the reading box says what it hears while you talk. Press Start again to stop, and the reading box gives the verdict.
+
+It is the same check, in the same words, as the one in Audio Devices, so it answers "is Windows hearing my microphone?" before a radio is involved. With no radio connected it is the only method offered, and nothing is remembered. `Escape` while it listens stops it and gives you the verdict; the next `Escape` closes the window.
 
 #### Test your microphone, nothing goes on the air {#check-audio-mic-test}
 
@@ -156,7 +167,11 @@ Both ride the PC audio path, so they need PC audio on and the radio's transmit i
 
 ### Results
 
-Results appear only once there is a take. **Play last take** plays the slice recording with Record yourself, or the off-air take with Hear what you transmitted, and stops a playback in progress. With an off-air take you also get **Play what I sent** and **Tell me how my sound changed compared to my last take**, which compares each new take with the one before it this session. **Review unrestored take settings** appears only when a take left radio settings the radio never confirmed putting back.
+Results appear only once there is a take. **Play last take** plays the slice recording with Record yourself, or the off-air take with Hear what you transmitted, and stops a playback in progress. With an off-air take you also get **Play what I sent** and **Tell me how my sound changed compared to my last take**, which compares each new take with the one before it this session. **Review unrestored settings** appears only when a take left radio settings the radio never confirmed putting back.
+
+### The Fix tool
+
+When a check fails, or something about your transmit audio is plainly broken, the **Fix tool** button opens the Fix tool, the same as Tools, Fix, "Transmit problems...". It walks your audio setup, your microphone and the transmit path a stage at a time. A check that could not start, did not key, made no recording or heard nothing from your microphone says so and names the button. The same button sits at the top of the Audio Workshop's **Diagnostics** category. It waits while a check is running, because the Fix tool keys the radio for tests of its own.
 
 ### Escape, and what a check puts back
 
@@ -166,7 +181,7 @@ One honest warning worth knowing: if your hand mic keys the radio through a hard
 
 ### Bench tools
 
-The receive-only diagnostic take, the ten-second IQ capacity check and the two "Prove it is real" detune buttons prove that the take machinery works, rather than check how you sound, so they live on the Audio Workshop's **Diagnostics** category, under **Bench tools**. They are not offered over SmartLink, which does not carry IQ.
+**Diagnostic take** (receive-only), **Check IQ capacity** (ten seconds), and **Play 1 kHz higher** and **Play 1 kHz lower** (prove it is real) prove that the take machinery works, rather than check how you sound, so they live on the Audio Workshop's **Diagnostics** category, under **Bench tools**. They are not offered over SmartLink, which does not carry IQ.
 
 ### Command Finder
 
