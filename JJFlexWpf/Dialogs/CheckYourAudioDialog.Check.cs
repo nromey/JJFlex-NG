@@ -297,15 +297,29 @@ public partial class CheckYourAudioDialog
     private void UpdateMethodHelp(AudioCheckListenMethods method)
     {
         if (_listenMethodControl == null) return;
-        JJFlexHelp.SetText(_listenMethodControl, AudioCheckMethods.ContextHelp(method));
+        // The one sentence on why a method is missing moved here from the
+        // "About this method" line (fix round 2026-10-28): that line is now
+        // one short sentence (ruled 21:20), and Ctrl+F1 on the method is where
+        // the fuller account lives.
+        string missing = _rig == null ? "" : MissingMethodsSentence(_rig);
+        JJFlexHelp.SetText(_listenMethodControl,
+            AudioCheckMethods.ContextHelp(method) + (missing.Length > 0 ? " " + missing : ""));
     }
 
     /// <summary>
-    /// The one status line: what the chosen method does when you press Start,
-    /// and in one sentence why a method is missing. The old idle sentence
-    /// ("Off-air audio checks need two receivers and a transverter arrangement")
-    /// is gone; it is what made a one-receiver operator hear "takes".
+    /// The "About this method" line: ONE SHORT SENTENCE about the method shown
+    /// (ruled by Noel 2026-10-28 21:20). The full description, and the sentence
+    /// on why a method is missing, are Ctrl+F1's and the help's.
     /// </summary>
+    /// <remarks>
+    /// <b>The sentence rides in the accessible NAME as well as the text</b>
+    /// (fix round 2026-10-28, bench step 45). On focus NVDA spoke only "About
+    /// this method, edit, read only" and none of the text, though UIA's Value
+    /// and Text patterns both held it. The name is what NVDA always speaks on
+    /// focus, and it is the shape the Windows level note already uses
+    /// (<c>TransmitGainControls.SetPcLevelNoteText</c>). The name changes only
+    /// with the method, so nothing here speaks while it is read.
+    /// </remarks>
     private void UpdateMethodStatus()
     {
         if (_methodStatus == null) return;
@@ -315,15 +329,11 @@ public partial class CheckYourAudioDialog
         // An off-air take's own sentence (preparing, recording, its result)
         // takes the line while Off the air is chosen.
         else if (SelectedMethod == AudioCheckListenMethods.OffAir && _offAirStatus.Length > 0) text = _offAirStatus;
-        else
-        {
-            // The method's one description, which Ctrl+F1 and the help page say too.
-            text = AudioCheckMethods.Description(SelectedMethod);
-            string missing = MissingMethodsSentence(rig);
-            if (missing.Length > 0) text += " " + missing;
-        }
+        else text = AudioCheckMethods.About(SelectedMethod);
         if (_methodStatus.Text == text) return;
         _methodStatus.Text = text;
+        AutomationProperties.SetName(_methodStatus, Lexicon.Get("audio.check.about_named",
+            ("label", Lexicon.Get("audio.check.method_status_label")), ("about", text)));
     }
 
     /// <summary>One sentence for the methods this radio or connection leaves out, or empty when none is missing.</summary>

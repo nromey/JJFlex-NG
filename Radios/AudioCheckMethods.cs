@@ -146,6 +146,24 @@ namespace Radios
         public static string Description(AudioCheckListenMethods method) => Lexicon.Get(DescriptionKey(method));
 
         /// <summary>
+        /// The lexicon key of the ONE SHORT SENTENCE the "About this method" line
+        /// shows (ruled by Noel 2026-10-28 21:20, closing Codex round 7's blocker).
+        /// The full <see cref="Description"/> stays with Ctrl+F1 and the help.
+        /// </summary>
+        // DRAFT PROSE (#835): awaiting Noel. The sentences, in Radios/Lexicon/audio.json.
+        public static string AboutKey(AudioCheckListenMethods method) => method switch
+        {
+            AudioCheckListenMethods.MicTest => "audio.check.about.mic_test",
+            AudioCheckListenMethods.RecordPlayback => "audio.check.about.record",
+            AudioCheckListenMethods.OffAir => "audio.check.about.off_air",
+            AudioCheckListenMethods.Loopback => "audio.check.about.loopback",
+            _ => "audio.check.about.monitor"
+        };
+
+        /// <summary>The method's one short sentence, in its current words.</summary>
+        public static string About(AudioCheckListenMethods method) => Lexicon.Get(AboutKey(method));
+
+        /// <summary>
         /// What Ctrl+F1 on the method says: one sentence about the control, then
         /// the description of the method shown.
         /// </summary>

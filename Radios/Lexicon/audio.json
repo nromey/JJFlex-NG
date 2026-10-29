@@ -1303,5 +1303,11 @@
   "audio.check.teardown_unconfirmed": {"text": "The audio check could not confirm it put the radio back before disconnecting. When you reconnect, check transmit power, the transmit antenna, transverter drive, the monitor, full duplex and your slices.", "delivery": null},
   "audio.check.teardown_withheld": {"text": "The radio was still transmitting, so the audio check held back your power and antenna settings rather than put them back while it transmitted. When you reconnect, check transmit power, the transmit antenna, transverter drive, the monitor, full duplex and your slices.", "delivery": null},
   "audio.check.teardown_refuses": {"text": "Disconnecting from the radio. Nothing can start or transmit until that has finished.", "delivery": null},
-  "audio.iq.reason.teardown-in-progress": {"text": "the radio is disconnecting.", "delivery": null}
+  "audio.iq.reason.teardown-in-progress": {"text": "the radio is disconnecting.", "delivery": null},
+  "audio.check.about.mic_test": {"text": "Keys the radio at zero power and gives your microphone a verdict, with nothing on the air.", "delivery": null},
+  "audio.check.about.monitor": {"text": "Keys the radio at your check power so you hear yourself through the monitor as you talk.", "delivery": null},
+  "audio.check.about.record": {"text": "Keys the radio and records you, then plays the recording back when you stop.", "delivery": null},
+  "audio.check.about.off_air": {"text": "Makes a one-watt take received off the air and plays it back when you stop.", "delivery": null},
+  "audio.check.about.loopback": {"text": "Sends one watt through the transverter port to a second receiver and plays back what it heard.", "delivery": null},
+  "audio.check.about_named": {"text": "{label}: {about}", "delivery": null}
 }

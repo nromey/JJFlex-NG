@@ -1852,6 +1852,15 @@ namespace Radios.Tests
                 "audio.check.teardown_refuses",
                 // Track A fix round 4: an IQ take refused while a teardown holds admission.
                 "audio.iq.reason.teardown-in-progress",
+                // Track A, fix round 2026-10-28: the one short sentence the
+                // "About this method" line shows per method (ruled 21:20), and
+                // how its accessible name joins the label to it.
+                "audio.check.about.mic_test",
+                "audio.check.about.monitor",
+                "audio.check.about.record",
+                "audio.check.about.off_air",
+                "audio.check.about.loopback",
+                "audio.check.about_named",
             };
 
             Assert.Equal(3140, unclassified);

@@ -66,5 +66,35 @@ namespace Radios.Tests
             Assert.Contains("host: \"Check your audio\"", Dialog("CheckYourAudioDialog"));
             Assert.Contains("host: \"Audio Workshop\"", Dialog("AudioWorkshopDialog.xaml"));
         }
+
+        // ── Items 4 and 5: the "About this method" line ──
+
+        [Fact]
+        public void The_about_line_is_one_short_sentence_per_method_and_not_the_full_description()
+        {
+            var seen = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+            foreach (var m in AudioCheckMethods.DisplayOrder)
+            {
+                string about = AudioCheckMethods.About(m);
+                Assert.NotEqual(AudioCheckMethods.AboutKey(m), about);   // present in the lexicon
+                Assert.EndsWith(".", about);
+                Assert.DoesNotContain(". ", about, StringComparison.Ordinal);   // one sentence
+                Assert.True(about.Length < AudioCheckMethods.Description(m).Length, m + ": the short sentence is not shorter than the description");
+                Assert.True(seen.Add(about), m + " says the same as another method");
+            }
+        }
+
+        [Fact]
+        public void The_about_line_shows_the_short_sentence_and_carries_it_in_its_accessible_name()
+        {
+            string status = Body(Dialog("CheckYourAudioDialog.Check"), "private void UpdateMethodStatus()");
+            Assert.Contains("AudioCheckMethods.About(SelectedMethod)", status);
+            Assert.DoesNotContain("AudioCheckMethods.Description(", status);
+            Assert.DoesNotContain("MissingMethodsSentence", status);
+            Assert.Contains("AutomationProperties.SetName(_methodStatus", status);
+            // The missing-methods sentence moved to Ctrl+F1 on the method.
+            Assert.Contains("MissingMethodsSentence(_rig)",
+                Body(Dialog("CheckYourAudioDialog.Check"), "private void UpdateMethodHelp(AudioCheckListenMethods method)"));
+        }
     }
 }
