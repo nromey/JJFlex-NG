@@ -28,7 +28,7 @@ Some settings describe a radio that is not connected right now — a radio name,
 - **PTT** — transmit timeout and warning timing.
 - **Tuning** — tuning step defaults, band memory, and tuning speech debounce (see below).
 - **License** — license class, country selection, and transmit rule enforcement (see below).
-- **Audio** — the radio's own outputs, radio audio through this computer, alert sounds, meter tones, and the braille status line.
+- **Audio** — the radio's own outputs, radio audio through this computer, alert sounds, meter tones, the recorder, the countdown before a check keys, and the braille status line.
 - **Network** — SmartLink port forwarding, connection tiers, and network diagnostics.
 - **Radios** — per-radio settings remembered by serial number: how to reach each radio, its name, whether its S-meter reads in S-units or dBm, remote administration allowances, the REM ON power jack, and whether the radio is somewhere you can physically get to. Works with no radio connected — that is the point.
 - **Radio Setup** — the ordered checklist for bringing a new radio up, especially one that will live somewhere you cannot walk to.

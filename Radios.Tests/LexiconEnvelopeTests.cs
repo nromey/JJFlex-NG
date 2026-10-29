@@ -1947,6 +1947,36 @@ namespace Radios.Tests
                 // Home's Audio and Slice expander (Noel's request, 19:52).
                 "audio.fields.check_your_audio",
                 "audio.fields.check_your_audio_help",
+                // Check your audio Track C, fix round 2026-10-28 (#835): the one
+                // countdown, its spoken count and lead-in, and the Countdown group
+                // in Settings. Draft prose, awaiting Noel.
+                "audio.countdown.count",
+                "audio.countdown.lead_in",
+                "audio.countdown.method.mic_test",
+                "audio.countdown.method.monitor",
+                "audio.countdown.method.record",
+                "audio.countdown.method.off_air",
+                "audio.countdown.method.loopback",
+                "audio.countdown.method.other",
+                "audio.countdown.group",
+                "audio.countdown.enabled_label",
+                "audio.countdown.enabled_help",
+                "audio.countdown.seconds_label",
+                "audio.countdown.seconds_help",
+                "audio.countdown.pitch_label",
+                "audio.countdown.pitch_preset",
+                "audio.countdown.pitch_preset_default",
+                "audio.countdown.pitch_custom",
+                "audio.countdown.custom_pitch_label",
+                "audio.countdown.pitch_help",
+                "audio.countdown.pip_ms_label",
+                "audio.countdown.pip_ms_help",
+                "audio.countdown.lead_in_label",
+                "audio.countdown.lead_in_help",
+                "audio.countdown.sample_label",
+                "audio.countdown.sample_help",
+                // Codex round 1: a count whose words could not be delivered stops.
+                "audio.countdown.not_heard",
             };
 
             Assert.Equal(3135, unclassified);   // Track A 2026-10-28: the Workshop's removed Check Microphone button took its two sentences with it, and three failure sentences that now name the Fix tool were classified

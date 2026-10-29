@@ -975,8 +975,10 @@ namespace JJFlexWpf
         internal const int CountdownLandingMs = 700;
 
         /// <summary>
-        /// Build a countdown: three counting dits a beat apart, then a landing
-        /// on the fourth beat that names what is being counted down to.
+        /// Build a countdown: counting dits a beat apart, then a landing on the
+        /// last beat that names what is being counted down to. The live figure
+        /// takes its numbers from the operator's countdown settings (#835);
+        /// the scratchpad passes its own.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -1004,13 +1006,16 @@ namespace JJFlexWpf
         /// <param name="landingMs">How long the landing sounds.</param>
         /// <param name="intervalMs">The beat — start of one event to start of
         /// the next. The silence between events is this minus the step.</param>
+        /// <param name="counts">How many counting dits precede the landing.</param>
         internal static (int freq, int ms)[] CountdownSteps(
             bool transmit,
-            int countHz = CountdownCountHz,
-            int stepMs = CountdownStepMs,
-            int landingMs = CountdownLandingMs,
-            int intervalMs = CountdownIntervalMs)
+            int countHz,
+            int stepMs,
+            int landingMs,
+            int intervalMs = CountdownIntervalMs,
+            int counts = DefaultCountdownCounts)
         {
+            counts = Math.Max(counts, 1);
             countHz = Math.Max(countHz, 1);
             stepMs = Math.Max(stepMs, 1);
             landingMs = Math.Max(landingMs, 1);
@@ -1021,7 +1026,7 @@ namespace JJFlexWpf
             int gapMs = Math.Max(intervalMs - stepMs, 0);
 
             var steps = new List<(int freq, int ms)>(8);
-            for (int i = 0; i < CountdownCounts; i++)
+            for (int i = 0; i < counts; i++)
             {
                 steps.Add((countHz, stepMs));
                 // Every dit gets its beat, INCLUDING the third — the landing is
@@ -1052,9 +1057,36 @@ namespace JJFlexWpf
             return steps.ToArray();
         }
 
-        /// <summary>How many counting dits precede the landing. Three, and the
-        /// two Fixer waits below are written in terms of it.</summary>
-        internal const int CountdownCounts = 3;
+        /// <summary>
+        /// The countdown as the operator has set it (#835): the same figure,
+        /// with as many counting pips as the countdown's seconds less one, at
+        /// the operator's pip pitch and length, landing on the octave for twice
+        /// the pip. This is what the Fix tool's earcons play, so the Fix tool
+        /// and Check your audio count alike.
+        /// </summary>
+        internal static (int freq, int ms)[] CountdownSteps(bool transmit)
+        {
+            var s = Radios.CountdownSettings.Current;
+            return CountdownSteps(transmit, s.PipHz, s.PipMs, s.LandingMs, CountdownIntervalMs,
+                Radios.CountdownPlan.FixerCounts(s));
+        }
+
+        /// <summary>The counting dits before the landing in the countdown as it
+        /// was before its length became a setting: three. The scratchpad bench
+        /// still builds that figure.</summary>
+        internal const int DefaultCountdownCounts = 3;
+
+        /// <summary>
+        /// How many counting dits precede the landing: one fewer than the
+        /// operator's countdown seconds (#835), so five seconds is four pips
+        /// and the long tone. The two Fixer waits below are written in terms of
+        /// it. It was a constant 3 until the length became a setting.
+        /// </summary>
+        internal static int CountdownCounts => Radios.CountdownPlan.FixerCounts(Radios.CountdownSettings.Current);
+
+        /// <summary>When the landing begins, from the start of the countdown:
+        /// one beat per counting dit.</summary>
+        internal static int CountdownLandingAtMs => CountdownCounts * CountdownIntervalMs;
 
         /// <summary>
         /// How long a countdown lasts, end to end, at the shipping timings.
@@ -1082,8 +1114,13 @@ namespace JJFlexWpf
         /// </summary>
         /// <remarks>
         /// The whole count is unkeyed before this instant, and that is the
-        /// operator's abort window. It is two beats wide by construction, so it
-        /// grows and shrinks with the rhythm instead of having to be remembered.
+        /// operator's abort window. It is the countdown's seconds less two
+        /// beats wide by construction (three at the default of five), so it
+        /// grows and shrinks with the operator's length instead of having to be
+        /// remembered. At the shortest countdown, two seconds, it is ZERO: the
+        /// only counting dit is the first. The Fix tool then keys on the
+        /// landing instead (<c>FixerDialog.CountdownKeyUpMs</c>), late rather
+        /// than early.
         /// </remarks>
         internal static int CountdownLastDitAtMs => (CountdownCounts - 1) * CountdownIntervalMs;
 
@@ -1113,9 +1150,11 @@ namespace JJFlexWpf
         /// </para>
         /// </remarks>
         [Earcon("Countdown to record", EarconCategory.Transmit, Order = 4,
-            Description = "Three tones a second apart, then a higher one on the fourth beat. "
-                        + "Start talking on that last tone. Four seconds end to end, so there "
-                        + "is time to get ready rather than just time to be told.")]
+            // DRAFT PROSE (#835): awaiting Noel. The count's length, pitch and pip length are the Countdown settings now.
+            Description = "Tones a second apart, then the octave above them on the last beat. "
+                        + "Start talking on that last tone. How long it lasts, its pitch and "
+                        + "the length of each tone are yours to set in Settings, Countdown, so "
+                        + "there is time to get ready rather than just time to be told.")]
         public static void CountdownRecordTone()
         {
             if (!Gate(EarconCategory.Transmit)) return;
@@ -1182,13 +1221,38 @@ namespace JJFlexWpf
         /// </para>
         /// </remarks>
         [Earcon("Countdown to transmit", EarconCategory.Transmit, Order = 5,
-            Description = "Three tones a second apart, then the octave above them on the fourth "
-                        + "beat. That last tone means the radio is transmitting, and the two "
-                        + "seconds of counting before it are your window to stop it.")]
+            // DRAFT PROSE (#835): awaiting Noel.
+            Description = "Tones a second apart, then the octave above them on the last beat. "
+                        + "That last tone means the radio is transmitting, and the counting "
+                        + "before it is your window to stop it. Its length, pitch and tone "
+                        + "length are set in Settings, Countdown.")]
         public static void CountdownTransmitTone()
         {
             if (!Gate(EarconCategory.Transmit)) return;
             PlayVoicedDecaySequence(CountdownVoice, CountdownSteps(transmit: true), VolumeStrong);
+        }
+
+        /// <summary>
+        /// ONE beat of the countdown, for a count played a beat at a time:
+        /// Check your audio's, whose last beat waits for the check's setup
+        /// (#835, Noel 2026-10-28 21:35), and the Countdown settings' Play
+        /// sample. The same voice, pitch and decay as the figure above, so the
+        /// app has one countdown sound however it is paced.
+        /// </summary>
+        /// <remarks>
+        /// Gated and trimmed AS <see cref="CountdownTransmitTone"/>: it is that
+        /// sound, a note at a time, so the operator's transmit switch and any
+        /// level trim on the countdown govern it too, and the trace names it
+        /// the same with the beat in the detail.
+        /// </remarks>
+        /// <param name="hz">The beat's pitch: the pip, or the octave above for the landing.</param>
+        /// <param name="ms">The beat's length; it decays inside it.</param>
+        /// <param name="landing">True for the long tone on the last beat.</param>
+        internal static void CountdownBeatTone(int hz, int ms, bool landing)
+        {
+            if (!GateDetailed(EarconCategory.Transmit, landing ? "beat=landing" : "beat=count",
+                    nameof(CountdownTransmitTone))) return;
+            PlayVoicedDecaySequence(CountdownVoice, new[] { (hz, ms) }, VolumeStrong);
         }
 
         // ── The connect ladder ────────────────────────────────────────────

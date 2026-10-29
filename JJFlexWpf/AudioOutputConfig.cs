@@ -454,6 +454,16 @@ namespace JJFlexWpf
         /// </summary>
         public List<MeterDefinition> Meters { get; set; } = new();
 
+        /// <summary>
+        /// The one countdown (#835): on or off, its length, the pip's pitch and
+        /// length, and the lead-in. Saved app-wide, and made live through
+        /// <see cref="Radios.CountdownSettings.Current"/>, which clamps it, so a
+        /// hand-edited file cannot reach the sound or the keying out of range.
+        /// Absent from an older audioConfig.xml, which deserializes to the
+        /// ruled defaults: on, five seconds, 300 Hz, 300 ms, lead-in on.
+        /// </summary>
+        public Radios.CountdownSettings Countdown { get; set; } = new();
+
         private const string FileName = "audioConfig.xml";
 
         /// <summary>
@@ -732,6 +742,8 @@ namespace JJFlexWpf
             EarconPlayer.DialogTonesEnabled = EarconDialogTonesEnabled;
             RecorderControls.StatusSpeechEnabled = RecorderSpeechEnabled;
             Radios.VoxSendBox.Ticked = VoxSendKeysRadio;
+            // The one countdown (#835); the setter keeps a clamped copy.
+            Radios.CountdownSettings.Current = Countdown;
             // #147 — which set of voice definitions the earcons resolve
             // against. Applied before anything can make a sound, and clamped
             // rather than cast blind: a hand-edited config saying 7 should get
@@ -846,6 +858,7 @@ namespace JJFlexWpf
             EarconDialogTonesEnabled = EarconPlayer.DialogTonesEnabled;
             RecorderSpeechEnabled = RecorderControls.StatusSpeechEnabled;
             VoxSendKeysRadio = Radios.VoxSendBox.Ticked;
+            Countdown = Radios.CountdownSettings.Current.Clone();
             MasterVolume = EarconPlayer.MasterVolume;
             AlertVolume = EarconPlayer.AlertVolume;
             MasterEarconVolume = (int)(EarconPlayer.AlertVolume * 100);

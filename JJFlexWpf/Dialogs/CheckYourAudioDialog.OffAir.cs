@@ -304,7 +304,12 @@ public partial class CheckYourAudioDialog
         _iqBusy = true; _iqWasOffAir = true; _iqRecoveryReader = rig.CaptureListenbackRecoveryReader();
         _iqCancellation = new CancellationTokenSource();
         SetStartButtonLabel(Lexicon.Get("audio.iq.cancel_start"));
-        IqStatus(Lexicon.Get("audio.iq.preparing"), subject: "audio.iq.preparing");
+        // The take is set up while the count plays (#835, Noel 21:35), so the
+        // count speaks for it: "Preparing the take" is shown, not said, unless
+        // the operator has turned the countdown off.
+        BeginStartCountdown(AudioCheckListenMethods.OffAir);
+        IqStatus(Lexicon.Get("audio.iq.preparing"), subject: "audio.iq.preparing",
+            speak: !StartCountdownRunning);
         try
         {
             if (rig.OffAirListenbackRefusalReason is { Length: > 0 } refusal)
@@ -334,7 +339,7 @@ public partial class CheckYourAudioDialog
             _iqRun = null; _iqRunRig = null; _iqWasOffAir = false;
             SetStartButtonLabel("Start Audio Check"); if (ReferenceEquals(rig, _rig)) IqFailure(ex);
         }
-        finally { _iqBusy = false; _iqCancellation.Dispose(); _iqCancellation = null; }
+        finally { EndStartCountdown(); _iqBusy = false; _iqCancellation.Dispose(); _iqCancellation = null; }
     }
 
     /// <summary>

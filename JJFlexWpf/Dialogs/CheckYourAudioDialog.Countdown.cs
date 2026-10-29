@@ -1,0 +1,85 @@
+using System.Threading.Tasks;
+using Radios;
+
+namespace JJFlexWpf.Dialogs;
+
+/// <summary>
+/// Check your audio's countdown before it keys (#835, fix round 2026-10-28,
+/// Track C). The window's one seam with it: each start path begins the count
+/// as it begins setting up, and <c>AudioCheckSession.StartAsync</c> waits for
+/// it at the one place it keys.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Ruled by Noel 2026-10-28.</b> 21:32: a countdown before a method that
+/// keys, then the normal transmit tone or speech; spoken with sounds off,
+/// spoken and beeped with sounds on and Chatty. 21:35, for the off-air take
+/// and Loopback: <i>"you set up the take as you're counting down. If the
+/// countdown is too short, delay it a bit."</i> So "arrange, then key" became
+/// "arrange while counting, then key": the key goes down only when BOTH the
+/// count has ended and the setup is confirmed, and a slow setup holds the last
+/// beat rather than keying early (<see cref="CountdownRun"/>).
+/// </para>
+/// <para>
+/// <b>Every method counts down</b>, the zero-power microphone test included;
+/// see <see cref="CheckCountdown"/> for why, and for the open question.
+/// </para>
+/// </remarks>
+public partial class CheckYourAudioDialog
+{
+    /// <summary>The countdown of the start under way, or null when none is counting.</summary>
+    private CountdownRun? _startCountdown;
+
+    /// <summary>
+    /// Begin the count for a start that is about to set up. Nothing when the
+    /// operator has turned the countdown off. Called only after the start has
+    /// been admitted, so two never overlap.
+    /// </summary>
+    private void BeginStartCountdown(AudioCheckListenMethods method)
+    {
+        _startCountdown?.Cancel();
+        var plan = CheckCountdown.PlanFor(method, CountdownSettings.Current,
+            EarconPlayer.IsOn(EarconPlayer.EarconCategory.Transmit),
+            ScreenReaderOutput.CurrentVerbosity);
+        _startCountdown = plan == null
+            ? null
+            : CountdownRun.Start(plan, FixerCountdown.Voice.Instance, "Check your audio, " + method);
+    }
+
+    /// <summary>True while a start's countdown is playing.</summary>
+    private bool StartCountdownRunning => _startCountdown?.IsRunning == true;
+
+    /// <summary>
+    /// The setup is confirmed: wait out what remains of the count, its spoken
+    /// numbers included. True means key now; false means the count was called
+    /// off, or its words could not be delivered, and nothing may key. True at
+    /// once when the countdown is off.
+    /// </summary>
+    private async Task<bool> CountdownLetsKeyAsync()
+    {
+        var run = _startCountdown;
+        if (run == null) return true;
+        bool go = await run.ReadyToKeyAsync();
+        if (!go && run.SpeechStalled)
+        {
+            // The count's words never got out (Codex round 1, blocker 1), so it
+            // stopped rather than key behind a warning nobody heard. Say why,
+            // with a sound as well, since speech is what just failed.
+            // DRAFT PROSE (#835): awaiting Noel.
+            EarconPlayer.LeaderInvalidTone();
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.countdown.not_heard"), VerbosityLevel.Critical, interrupt: true);
+        }
+        return go;
+    }
+
+    /// <summary>
+    /// The start has finished, keyed or not. A count still playing (the start
+    /// failed or was refused) stops on the beat it had reached; one that ended
+    /// is left alone.
+    /// </summary>
+    private void EndStartCountdown()
+    {
+        _startCountdown?.Cancel();
+        _startCountdown = null;
+    }
+}

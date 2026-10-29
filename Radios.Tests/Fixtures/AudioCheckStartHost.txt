@@ -31,7 +31,15 @@ public class Host
     private void SetStartButtonLabel(string s) { }
     private string BuildToneAnnouncement() => null;
     private readonly AudioCheckStartGate _checkStarts = new();
-    private void CancelCheckStart() { _checkStarts.Cancel(); }
+    private void CancelCheckStart() { _checkStarts.Cancel(); Countdown?.TrySetResult(false); }
+    // The countdown seam (#835, Track C): null is a countdown turned off; a
+    // scenario that sets it holds the count open until it says.
+    public TaskCompletionSource<bool> Countdown;
+    public int CountdownsBegun, CountdownsEnded;
+    private void BeginStartCountdown(AudioCheckListenMethods method) { CountdownsBegun++; }
+    private bool StartCountdownRunning => Countdown != null && !Countdown.Task.IsCompleted;
+    private Task<bool> CountdownLetsKeyAsync() => Countdown?.Task ?? Task.FromResult(true);
+    private void EndStartCountdown() { CountdownsEnded++; Countdown?.TrySetResult(false); }
     private void OnSessionEnded() { CancelCheckStart(); }
     /*StartLoopbackCheckAsync*/
     /*StartAudioCheckSessionAsync*/
@@ -39,6 +47,68 @@ public class Host
     {
         RecorderControls.Spoken = 0;
         var h = new Host();
+        // The countdown seam (#835, Track C): [keys while the count still
+        // plays, keys at the end, 1 if a count was begun without being ended,
+        // stale recorder speech].
+        if (scenario is "countdown-holds-key" or "countdown-cancelled")
+        {
+            h.Countdown = new TaskCompletionSource<bool>();
+            var s = new AudioCheckSession(h, h._rig, h.ptt, AudioCheckListenMethods.Monitor, AudioCheckPowerModes.LowPower, 1);
+            var pending = h.StartAudioCheckSessionAsync(s);
+            await Task.Delay(20);
+            int whileCounting = h.ptt.Keys;
+            if (scenario == "countdown-cancelled") h.CancelCheckStart(); else h.Countdown.SetResult(true);
+            await pending;
+            return new[] { whileCounting, h.ptt.Keys, h.CountdownsBegun == h.CountdownsEnded ? 0 : 1, RecorderControls.Spoken };
+        }
+        if (scenario == "countdown-before-setup")
+        {
+            h.Countdown = new TaskCompletionSource<bool>();
+            h.Countdown.SetResult(true);
+            var s = new AudioCheckSession(h, h._rig, h.ptt, AudioCheckListenMethods.RecordPlayback, AudioCheckPowerModes.LowPower, 1);
+            var pending = h.StartAudioCheckSessionAsync(s);
+            await Task.Delay(20);
+            int whileSettingUp = h.ptt.Keys;
+            h._rig.Record.SetResult(new(true, "recorded", "slice"));
+            await pending;
+            return new[] { whileSettingUp, h.ptt.Keys, h.CountdownsBegun == h.CountdownsEnded ? 0 : 1, RecorderControls.Spoken };
+        }
+        if (scenario == "countdown-records-after-count")
+        {
+            // [recorder arms asked for while the count plays, keys at the end, ...]
+            h.Countdown = new TaskCompletionSource<bool>();
+            var s = new AudioCheckSession(h, h._rig, h.ptt, AudioCheckListenMethods.RecordPlayback, AudioCheckPowerModes.LowPower, 1);
+            var pending = h.StartAudioCheckSessionAsync(s);
+            await Task.Delay(20);
+            int armedWhileCounting = h._rig.RecordStarts;
+            h.Countdown.SetResult(true);
+            h._rig.Record.SetResult(new(true, "recorded", "slice"));
+            await pending;
+            return new[] { armedWhileCounting, h.ptt.Keys, h.CountdownsBegun == h.CountdownsEnded ? 0 : 1, RecorderControls.Spoken };
+        }
+        if (scenario == "countdown-loopback")
+        {
+            h.Countdown = new TaskCompletionSource<bool>();
+            var pending = h.StartLoopbackCheckAsync();
+            h._rig.Arrange.SetResult(true);
+            h._rig.Record.SetResult(new(true, "recorded", "slice"));
+            await Task.Delay(20);
+            int whileCounting = h.ptt.Keys;
+            h.Countdown.SetResult(true);
+            await pending;
+            return new[] { whileCounting, h.ptt.Keys, h.CountdownsBegun == h.CountdownsEnded ? 0 : 1, RecorderControls.Spoken };
+        }
+        if (scenario == "countdown-off-air")
+        {
+            h.Countdown = new TaskCompletionSource<bool>();
+            var pending = h.StartOffAirAsync(h.ptt);
+            h._rig.OffAir.SetResult(new FakeRun());
+            await Task.Delay(20);
+            int whileCounting = h.ptt.Keys;
+            h.Countdown.SetResult(true);
+            await pending;
+            return new[] { whileCounting, h.ptt.Keys, h.CountdownsBegun == h.CountdownsEnded ? 0 : 1, RecorderControls.Spoken };
+        }
         if (scenario is "cancel-off-air" or "off-air-excludes-ordinary")
         {
             var pending = h.StartOffAirAsync(h.ptt);
@@ -86,6 +156,7 @@ public class Host
         private Phase _phase;
         private Watcher _watcher = new();
         public bool Active;
+        public AudioCheckListenMethods Method => _method;
         private bool Records => _method == AudioCheckListenMethods.RecordPlayback || _method == AudioCheckListenMethods.Loopback;
         public AudioCheckSession(Host owner, FlexBase rig, PttSafetyController ptt, AudioCheckListenMethods method,
             AudioCheckPowerModes powerMode, int lowPowerWatts, bool loopback = false)
@@ -123,7 +194,8 @@ public class FlexBase
     public OffOnValues Monitor;
     public string LoopbackUnavailableReason => "";
     public string SliceRecorderLetter(SliceRecorderTarget t) => "A";
-    public Task<RecorderOutcome> StartSliceRecordAsync(SliceRecorderTarget t) => Record.Task;
+    public int RecordStarts;
+    public Task<RecorderOutcome> StartSliceRecordAsync(SliceRecorderTarget t) { RecordStarts++; return Record.Task; }
     public Task<RecorderOutcome> StopSliceRecordAsync(SliceRecorderTarget t) => Task.FromResult(new RecorderOutcome(true, "stopped", "slice"));
     public async Task<bool> StartLoopbackArrangementAsync() { LoopbackArranged = await Arrange.Task; return LoopbackArranged; }
     public Task<string> EndLoopbackArrangementAsync() { LoopbackArranged=false; return Task.FromResult(""); }

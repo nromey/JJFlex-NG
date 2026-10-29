@@ -271,6 +271,24 @@ namespace Radios
         /// </summary>
         internal static long SafetyQuietGeneration => _arbiter.SafetyQuietGeneration;
 
+        private static Speech.CountdownSpeech? _countdownSpeech;
+
+        /// <summary>
+        /// The spoken countdown before a check keys (#835): its words, whether
+        /// any are still owed, and taking them back. See
+        /// <see cref="Speech.CountdownSpeech"/>.
+        /// </summary>
+        public static Speech.CountdownSpeech CountdownSpeech =>
+            _countdownSpeech ??= new Speech.CountdownSpeech(_arbiter, PumpReachedFirstWord);
+
+        /// <summary>Whether the reader has reported the first word of a ticket (its first mark).</summary>
+        private static bool PumpReachedFirstWord(long ticket)
+        {
+            Speech.PacedSpeechDelivery? pump;
+            lock (_backendLock) { pump = _pump; }
+            return pump?.HasReachedFirstWord(ticket) == true;
+        }
+
         /// <summary>
         /// Test-only: drop the arbiter's transient state — pending coalesced
         /// values, the believed-pending ledger, per-key dedup — and anything
