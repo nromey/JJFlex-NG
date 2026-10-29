@@ -9,7 +9,8 @@ namespace Radios.Tests;
 /// read them with Marshal.PtrToStringAuto, which on Windows reads them as
 /// UTF-16 and returns garbage. Both readers in OpusWrapper.cs are covered:
 /// the version string (OpusEncoder.Version / OpusDecoder.Version) and
-/// opus_strerror (the message of every OpusException).
+/// opus_strerror (the message of an OpusException built from a native Opus
+/// status code; an exception thrown for any other reason carries its own).
 ///
 /// These load the real libopus.dll from runtimes\win-x64\native through the
 /// same once-only resolver as RecordedQsoOggTests, so they run on x64.
