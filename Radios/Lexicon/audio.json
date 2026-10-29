@@ -1402,5 +1402,16 @@
   "audio.send.message_taken_over_ptt": {"text": "{label} stopped.", "delivery": null},
   "audio.send.taken_over_ptt": {"text": "Stopped sending {what}.", "delivery": null},
   "audio.recorder.pause_play_from_computer_button": {"text": "Pause playing from computer", "delivery": null},
-  "audio.recorder.carry_on_play_from_computer_button": {"text": "Carry on playing from computer", "delivery": null}
+  "audio.recorder.carry_on_play_from_computer_button": {"text": "Carry on playing from computer", "delivery": null},
+  "audio.check.loopback_ended_partly_restored": {"text": "Loopback ended. It put back {restored}, but not {missing}. Details are in the trace.", "delivery": null},
+  "audio.check.loopback_ended_nothing_restored": {"text": "Loopback ended without putting back {missing}. Details are in the trace.", "delivery": null},
+  "audio.check.loopback_part.antenna": {"text": "the transmit antenna", "delivery": null},
+  "audio.check.loopback_part.power": {"text": "transmit power", "delivery": null},
+  "audio.check.loopback_part.monitor": {"text": "the monitor", "delivery": null},
+  "audio.check.loopback_part.duplex": {"text": "full duplex", "delivery": null},
+  "audio.check.loopback_part.drive": {"text": "transverter drive", "delivery": null},
+  "audio.check.loopback_part.mutes": {"text": "your slices' mutes", "delivery": null},
+  "audio.check.loopback_part.and": {"text": "and", "delivery": null},
+  "audio.check.teardown_withheld_reminder": {"text": "When this radio was last disconnected it was still transmitting, so the audio check did not put back your power and antenna settings. Check transmit power, the transmit antenna, transverter drive, the monitor, full duplex and your slices.", "delivery": null},
+  "audio.check.teardown_unconfirmed_reminder": {"text": "When this radio was last disconnected, the audio check could not confirm it had put the radio back. Check transmit power, the transmit antenna, transverter drive, the monitor, full duplex and your slices.", "delivery": null}
 }

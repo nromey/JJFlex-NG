@@ -131,6 +131,11 @@ namespace Radios
                 // profile load, and only now that the loop will run it.
                 ApplyPendingMonitorPutBack();
 
+                // An audio check that did not put this radio's power and
+                // antenna back at an earlier disconnect (it was still
+                // transmitting, or it could not confirm) (#835, 2026-10-29): say so again now.
+                AnnounceCheckRestoreReminder();
+
                 cwx = theRadio.GetCWX();
                 cwx.Delay = theRadio.CWDelay;
                 cwx.Speed = theRadio.CWSpeed;

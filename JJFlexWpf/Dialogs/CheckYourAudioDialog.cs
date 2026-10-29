@@ -291,14 +291,23 @@ public partial class CheckYourAudioDialog : JJFlexDialog
                 // Withheld because the radio kept transmitting is the correct
                 // outcome, and is said as itself, not as a restore.
                 // DRAFT PROSE (#835): awaiting Noel.
-                string key = result.Stage == "still-transmitting" ? "audio.check.teardown_withheld" : "audio.check.teardown_unconfirmed";
-                ScreenReaderOutput.Speak(Lexicon.Get(key), VerbosityLevel.Critical);
+                bool withheld = result.Stage == "still-transmitting";
+                string key = withheld ? "audio.check.teardown_withheld" : "audio.check.teardown_unconfirmed";
+                // #835, 2026-10-29 item 2: on the bench this was said and never
+                // heard; the disconnect's window changes flush the reader. It is
+                // queued under its own subject now, and kept for the next
+                // connect to this radio, which says it again.
+                rig.NoteCheckRestoreReminder(withheld ? FlexBase.CheckRestoreWithheld : FlexBase.CheckRestoreUnconfirmed);
+                ScreenReaderOutput.Speak(Lexicon.Get(key), Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
+                    subject: Radios.Speech.SpeechSubject.CheckSettingsNotRestored);
             }
         }
         catch (Exception ex)
         {
             JJTrace.Tracing.TraceLine("Check your audio teardown failed: " + ex, System.Diagnostics.TraceLevel.Error);
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.teardown_unconfirmed"), VerbosityLevel.Critical);
+            try { rig.NoteCheckRestoreReminder(FlexBase.CheckRestoreUnconfirmed); } catch { /* never block the disconnect */ }
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.teardown_unconfirmed"), Radios.Speech.SpeechIntent.Queue,
+                VerbosityLevel.Critical, subject: Radios.Speech.SpeechSubject.CheckSettingsNotRestored);
         }
         finally
         {

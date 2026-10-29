@@ -852,10 +852,12 @@ public partial class CheckYourAudioDialog
         {
             try
             {
-                string trouble = await _rig.EndLoopbackArrangementAsync();
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("audio.check.loopback_ended") + " " + trouble,
-                    VerbosityLevel.Terse);
+                // Says only what was really put back (#835, 2026-10-29 item 2):
+                // after a disconnect while still transmitting, every restore was
+                // abandoned and this still said "settings restored".
+                var outcome = await _rig.EndLoopbackArrangementWithOutcomeAsync();
+                ScreenReaderOutput.Speak(outcome.Sentence(),
+                    outcome.NotRestored.Count == 0 ? VerbosityLevel.Terse : VerbosityLevel.Critical);
             }
             catch (Exception ex)
             {

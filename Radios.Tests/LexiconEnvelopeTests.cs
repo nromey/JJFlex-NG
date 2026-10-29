@@ -1992,6 +1992,21 @@ namespace Radios.Tests
                 // Alt chord names both (ruled 2026-10-28 21:25). TextOnly on
                 // leader.near_miss's reasoning, beside which it sits. Draft prose.
                 "leader.near_miss_two",
+                // Check your audio Track A, fix round 2026-10-29 (#835): a Loopback
+                // ending names only what it put back, and a check that did not
+                // put the radio back at a disconnect says so again at the next
+                // connect. Draft prose, awaiting Noel.
+                "audio.check.loopback_ended_partly_restored",
+                "audio.check.loopback_ended_nothing_restored",
+                "audio.check.loopback_part.antenna",
+                "audio.check.loopback_part.power",
+                "audio.check.loopback_part.monitor",
+                "audio.check.loopback_part.duplex",
+                "audio.check.loopback_part.drive",
+                "audio.check.loopback_part.mutes",
+                "audio.check.loopback_part.and",
+                "audio.check.teardown_withheld_reminder",
+                "audio.check.teardown_unconfirmed_reminder",
             };
 
             Assert.Equal(3135, unclassified);   // Track A 2026-10-28: the Workshop's removed Check Microphone button took its two sentences with it, and three failure sentences that now name the Fix tool were classified

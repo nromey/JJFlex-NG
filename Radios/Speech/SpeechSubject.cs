@@ -611,5 +611,15 @@ namespace Radios.Speech
         /// <see cref="CountdownSpeech"/>.
         /// </summary>
         public const string CheckCountdown = "check-countdown";
+
+        /// <summary>
+        /// An audio check could not put the power and antenna settings back
+        /// because the radio was still transmitting when it was disconnected
+        /// (#835, 2026-10-29). Said at the disconnect, and again at the next
+        /// connect to that radio, because a window change at the disconnect can
+        /// flush it unheard. The newer saying covers an unheard older one, and
+        /// nothing else speaks to it.
+        /// </summary>
+        public const string CheckSettingsNotRestored = "check-settings-not-restored";
     }
 }
