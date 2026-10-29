@@ -1828,9 +1828,15 @@ namespace Radios.Tests
                 "logging.no_log_file.open_button",
                 "logging.no_log_file.open_title",
                 "logging.no_log_file.title",
+                // DRAFT PROSE (#810 repair, round two): reworded, because with
+                // alert sounds off the warnings still play. Leaves the legacy
+                // manifest for that reason.
+                "settings.sound.trim_master_off",
             };
 
-            Assert.Equal(3140, unclassified);
+            // 3,139, not 3,140: settings.sound.trim_master_off was reworded and
+            // classified in the #810 repair, so it left the frozen set.
+            Assert.Equal(3139, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,
