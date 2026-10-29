@@ -80,6 +80,8 @@ namespace JJFlexWpf.Dialogs
             // Lock UI for test run
             _testRunning = true;
             StartButton.Content = Lexicon.Get("connect.tester.stop_button");
+            // #840: renamed with its label, or it is announced "Start" while it stops.
+            System.Windows.Automation.AutomationProperties.SetName(StartButton, Lexicon.Get("connect.tester.stop_button").Replace("_", ""));
             CloseButton.IsEnabled = false;
             TestCountBox.IsEnabled = false;
             DelayBox.IsEnabled = false;
@@ -144,6 +146,7 @@ namespace JJFlexWpf.Dialogs
                         ("passed", summary.Passed), ("testCount", summary.TestCount),
                         ("failed", summary.Failed), ("mode", summary.Mode));
                     StartButton.Content = Lexicon.Get("connect.tester.start_button");
+                    System.Windows.Automation.AutomationProperties.SetName(StartButton, Lexicon.Get("connect.tester.start_button").Replace("_", ""));
                     StartButton.IsEnabled = true;
                     CloseButton.IsEnabled = true;
                     TestCountBox.IsEnabled = true;

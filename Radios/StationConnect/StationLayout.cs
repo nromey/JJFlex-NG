@@ -65,7 +65,9 @@ namespace Radios.StationConnect
             FreqHz = other.FreqHz;
             Mode = other.Mode ?? "";
             Letter = other.Letter ?? "";
-            Mute = other.Mute;
+            // The saved text, so a mute state a newer build wrote travels with
+            // the copy (#847).
+            MuteXml = other.MuteXml;
         }
 
         public long FreqHz { get; set; }
@@ -77,7 +79,14 @@ namespace Radios.StationConnect
         /// matched to a report (#762).</summary>
         public string Letter { get; set; } = "";
 
-        public SliceMuteState Mute { get; set; } = SliceMuteState.NotRecorded;
+        [System.Xml.Serialization.XmlIgnore]
+        public SliceMuteState Mute { get => _mute.Value; set => _mute.Value = value; }
+
+        /// <summary>The saved text of <see cref="Mute"/>, read tolerantly (#847).</summary>
+        [System.Xml.Serialization.XmlElement("Mute")]
+        [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+        public string MuteXml { get => _mute.Text; set => _mute.Text = value; }
+        private readonly TolerantXmlEnum<SliceMuteState> _mute = new(nameof(Mute), SliceMuteState.NotRecorded);
 
         /// <summary>
         /// Reads as the operator would say it. <b>Unmuted is stated rather

@@ -1998,7 +1998,6 @@ logging.export.overwrite_confirm	ea3a58f4d13c451d
 logging.export.overwrite_title	23d038d51304374e
 logging.find.none_found	e766b0ce184de978
 logging.find.none_found_title	0b0981297170606d
-logging.full_form.no_log_file	3a67174744ea53eb
 logging.full_form.opening	add69ff956e22072
 logging.import.failed	ea5f17a57ec88b46
 logging.import.failed_title	f1f14ba348face55
@@ -3004,7 +3003,6 @@ settings.sound.cw_pitch_from_setting	e868037aac07c1aa
 settings.sound.duck_depth_label	233180e347e2e2fa
 settings.sound.trim_family_off	68ee3f3411eb4e60
 settings.sound.trim_label	a7c840f462205121
-settings.sound.trim_master_off	7d071a79d6c4f217
 settings.sound.typing_mechanical_keyboard	590703ab5910a5e4
 settings.sound.typing_musical_notes	b5d1d9bbcbfa7b58
 settings.sound.typing_off	273e689aeb078500

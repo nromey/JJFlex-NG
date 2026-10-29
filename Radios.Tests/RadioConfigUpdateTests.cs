@@ -91,8 +91,8 @@ public sealed class RadioConfigUpdateTests : IDisposable
     {
         var held = RadioConfig.LoadForRadio(Serial);
         Assert.True(RadioConfig.Update(Serial, c => { c.Nickname = "intervening"; }));
-        Assert.True(RadioConfig.RecordAudioCheckPrefs(Serial,
-            AudioCheckListenMethods.RecordPlayback, AudioCheckPowerModes.LowPower, 17));
+        Assert.True(RadioConfig.RecordAudioCheckPref(Serial, AudioCheckPref.LowPowerWatts,
+            AudioCheckListenMethods.RecordPlayback, AudioCheckPowerModes.LowPower, 17, false));
         Assert.Equal("intervening", RadioConfig.LoadForRadio(Serial).Nickname);
         Assert.Equal(17, RadioConfig.LoadForRadio(Serial).AudioCheckLowPowerWatts);
         Assert.NotNull(held);

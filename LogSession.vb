@@ -309,11 +309,24 @@ Public Class LogSession
         End If
         Return Not err
     End Function
+    ''' <summary>
+    ''' Every field of a new log's header, one per LogClass.HeaderADIFTags entry.
+    ''' </summary>
+    ''' <remarks>
+    ''' #814 repair, found by the Codex check. Until round one a new log was
+    ''' always made through Log Characteristics, whose OK handler wrote every
+    ''' field itself, so the missing HDR_CallLookup default never showed. The
+    ''' no-log-file choice creates a log directly, and an empty lookup field
+    ''' made the full log form throw (setupForm compares it as a number). The
+    ''' values are what Log Characteristics gives a new log: the default form,
+    ''' no dup checking, serial 1, and no call lookup.
+    ''' </remarks>
     Private Sub setHeaderDefaults()
         setHeaderFieldText(AdifTags.HDR_LogHeaderVersion, LogClass.CurrentHeaderVersion)
         setHeaderFieldText(AdifTags.HDR_FormNAME, Logs.DefaultLogname)
-        setHeaderFieldText(AdifTags.HDR_DupCheck, LogDupChecking.DupTypes.none)
+        setHeaderFieldText(AdifTags.HDR_DupCheck, CStr(CInt(LogDupChecking.DupTypes.none)))
         setHeaderFieldText(AdifTags.HDR_StartingSerial, "1")
+        setHeaderFieldText(AdifTags.HDR_CallLookup, CStr(CInt(Logs.DefaultLookupChoice)))
     End Sub
 
     Private err As Boolean

@@ -1,0 +1,1 @@
+Warning sounds now play even when you turn alert sounds off. The warning alarm, the problem-recorded tone and the hard-kill tone are silenced only by their own checkbox, "Play warning sounds even when alert sounds are turned off", while the long-transmission beeps still go quiet with everything else.

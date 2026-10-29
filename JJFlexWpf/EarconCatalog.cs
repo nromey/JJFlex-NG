@@ -216,7 +216,9 @@ namespace JJFlexWpf
             EarconPlayer.EarconCategory.CommandsAndConfirmations =>
                 "JJ-layer tones, feature on and off, mute all, and confirmations.",
             EarconPlayer.EarconCategory.Warnings =>
-                "Something is wrong. The one family worth thinking twice about switching off.",
+                "These sounds tell you that something is wrong. Think twice before switching them off. "
+                + "They play even when alert sounds are turned off, and only their own checkbox in "
+                + "Settings silences them.",
             _ =>
                 "Calibration and bench sounds. These answer to the master earcon switch only, "
                 + "on purpose — they are not part of any family an operator would turn off.",

@@ -100,8 +100,8 @@ namespace Radios
     /// <para>
     /// <b>The rule this file makes hold: the Audio menu's shape does not depend
     /// on connection state.</b> Every entry is present in every state. A command
-    /// that needs a radio is greyed and says so in its own label when there is
-    /// no radio, which is the treatment this menu bar already gives commands
+    /// that needs a radio is greyed and says "connect a radio" in its own label
+    /// when there is no radio, which is the treatment this menu bar already gives commands
     /// that are not available (see <c>AddNotImplemented</c> / <c>AddStub</c>,
     /// Sprint 32 Track H) and it was chosen there for this exact reason: a
     /// sighted operator reads "unavailable" from a greyed row in passing, while
@@ -130,10 +130,14 @@ namespace Radios
     {
         /// <summary>
         /// Appended to a radio-gated entry's label when no radio is connected.
-        /// Reads as a reason rather than a status, in the same shape as the
-        /// menu bar's existing " - not yet implemented" and " - coming soon".
+        /// In the same shape as the menu bar's existing " - not yet implemented"
+        /// and " - coming soon", but it names the ACTION that makes the row
+        /// work rather than only the lack (#839). It read " - needs a radio"
+        /// until then; Noel on the bench, 2026-10-28: "it says 'needs a radio'
+        /// which is technically true, but probably should say 'connect a
+        /// radio'".
         /// </summary>
-        public const string NeedsRadioSuffix = " - needs a radio";
+        public const string ConnectRadioSuffix = " - connect a radio";
 
         /// <summary>
         /// Every row of the top-level Audio menu, in order, in every state. The
@@ -322,7 +326,7 @@ namespace Radios
 
         /// <summary>
         /// Menu text for a row that needs a radio: unchanged with one, and with
-        /// <see cref="NeedsRadioSuffix"/> inserted before the accelerator column
+        /// <see cref="ConnectRadioSuffix"/> inserted before the accelerator column
         /// without one.
         /// </summary>
         /// <remarks>
@@ -345,8 +349,8 @@ namespace Radios
 
             int tab = menuText.IndexOf('\t');
             return tab < 0
-                ? menuText + NeedsRadioSuffix
-                : menuText.Substring(0, tab) + NeedsRadioSuffix + menuText.Substring(tab);
+                ? menuText + ConnectRadioSuffix
+                : menuText.Substring(0, tab) + ConnectRadioSuffix + menuText.Substring(tab);
         }
     }
 }

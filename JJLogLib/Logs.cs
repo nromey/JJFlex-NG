@@ -187,7 +187,11 @@ namespace JJLogLib
         /// <param name="password">HamQTH password or null</param>
         public static void NewLog(string id,string password)
         {
-            Tracing.TraceLine("NewLog:" + id + ' ' + password, TraceLevel.Info);
+            // The password is never traced: the diagnostic log travels in a
+            // support bundle (#814, from the logger research). Whether one is
+            // set is enough to diagnose a lookup sign-in.
+            Tracing.TraceLine("NewLog:" + id + (string.IsNullOrEmpty(password) ? " (no password)" : " (password set)"),
+                TraceLevel.Info);
             Done(); // perform any cleanup for the prior log.
             persist = null;
             ShowStats = null;

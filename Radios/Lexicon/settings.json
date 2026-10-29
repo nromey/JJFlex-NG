@@ -972,7 +972,7 @@
   "settings.sound.duck_depth_label": "Dip depth",
   "settings.sound.trim_family_off": "That sound's family is switched off above, so it will not play.",
   "settings.sound.trim_label": "Loudness trim",
-  "settings.sound.trim_master_off": "Alert sounds are switched off, so nothing will play. The master switch is at the top of this tab.",
+  "settings.sound.trim_master_off": {"text": "Alert sounds are turned off, so this sound will not play. Only warning sounds play while alert sounds are off. To turn them back on, check Enable alert sounds at the top of this tab.", "delivery": null},
   "settings.sound.typing_mechanical_keyboard": "Mechanical keyboard",
   "settings.recorder.playback_level_unchanged": {"text": "Unchanged", "delivery": null},
   "settings.recorder.playback_level_lowered6": {"text": "Lowered 6 dB", "delivery": null},

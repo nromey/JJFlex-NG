@@ -1813,9 +1813,34 @@ namespace Radios.Tests
                 "audio.qsos.delete_help",
                 "audio.qsos.prune_help",
                 "audio.qsos.close_help",
+                // DRAFT PROSE (#829): two default keys whose function is not
+                // built say so instead of doing nothing in silence. Spoken
+                // under SpeechSubject.UnbuiltKey.
+                "connect.cluster.not_available",
+                "connect.scan.resume_none_paused",
+                // DRAFT PROSE (#814): the no-log-file choice and the two
+                // standard file dialogs that follow it.
+                "logging.no_log_file.body",
+                "logging.no_log_file.create_button",
+                "logging.no_log_file.create_title",
+                "logging.no_log_file.file_filter",
+                "logging.no_log_file.heading",
+                "logging.no_log_file.open_button",
+                "logging.no_log_file.open_title",
+                "logging.no_log_file.title",
+                // DRAFT PROSE (#810 repair, round two): reworded, because with
+                // alert sounds off the warnings still play. Leaves the legacy
+                // manifest for that reason.
+                "settings.sound.trim_master_off",
+                // Reworded by Noel 2026-10-29 (#814/#850 wording), so it is
+                // classified and leaves the legacy manifest.
+                "logging.full_form.no_log_file",
             };
 
-            Assert.Equal(3140, unclassified);
+            // 3,138, not 3,140: settings.sound.trim_master_off (the #810 repair)
+            // and logging.full_form.no_log_file (Noel's 2026-10-29 wording) were
+            // reworded and classified, so both left the frozen set.
+            Assert.Equal(3138, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

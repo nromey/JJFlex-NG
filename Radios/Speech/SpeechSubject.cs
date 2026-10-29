@@ -589,5 +589,22 @@ namespace Radios.Speech
         /// the newer stop covers an unheard older one.
         /// </summary>
         public const string SixtyMeterStop = "sixty-meter-stop";
+
+        /// <summary>
+        /// A default key whose function is not built yet saying so, rather
+        /// than doing nothing in silence (#829): the DX cluster key, and the
+        /// resume-scan key when no scan is paused. True until the next press of
+        /// such a key, which says the same kind of thing, so the newer covers an
+        /// unheard older one.
+        /// </summary>
+        public const string UnbuiltKey = "unbuilt-key";
+
+        /// <summary>
+        /// The contact log saying no log file is open after the operator
+        /// cancelled the open-or-create choice (#814). True until a log file is
+        /// chosen; a repeat on the next field jump says the same thing, so the
+        /// newer covers an unheard older one.
+        /// </summary>
+        public const string NoLogFile = "no-log-file";
     }
 }

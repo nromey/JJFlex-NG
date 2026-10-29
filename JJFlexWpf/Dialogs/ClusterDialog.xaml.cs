@@ -215,12 +215,17 @@ namespace JJFlexWpf.Dialogs
         {
             _beepMode = mode;
             BeepButton.Content = BeepText[(int)_beepMode];
+            // #840: the spoken name follows the label, or it keeps saying
+            // "Beep On" after the button shows another mode.
+            System.Windows.Automation.AutomationProperties.SetName(BeepButton, BeepText[(int)_beepMode]);
         }
 
         private void SetTrackMode(bool on)
         {
             _trackOn = on;
-            TrackButton.Content = on ? "Track last post Off" : "Track last post On";
+            string trackLabel = on ? "Track last post Off" : "Track last post On";
+            TrackButton.Content = trackLabel;
+            System.Windows.Automation.AutomationProperties.SetName(TrackButton, trackLabel);
         }
 
         private void BeepButton_Click(object sender, RoutedEventArgs e)

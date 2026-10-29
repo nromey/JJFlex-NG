@@ -14,11 +14,12 @@ namespace Radios.Tests;
 public class RecordedQsoOggTests
 {
     // One resolver per assembly per process: a second SetDllImportResolver
-    // throws, so every test here goes through this once-only helper.
+    // throws, so every test here goes through this once-only helper, and so
+    // does OpusStringMarshallingTests (#807).
     private static readonly object OpusGate = new();
     private static bool _opusSet;
 
-    private static void OpusLibraryReady()
+    internal static void OpusLibraryReady()
     {
         lock (OpusGate)
         {

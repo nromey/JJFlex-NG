@@ -32,6 +32,7 @@
   "connect.client.connected": "{who} connected",
   "connect.client.disconnected": "{who} disconnected",
   "connect.client.info_unavailable": "Client information isn't available yet. Other operators may still be connected using SmartSDR, JJ Flexible Radio Access, or another Flex client.",
+  "connect.cluster.not_available": {"text": "The DX cluster isn't available yet.", "delivery": null},
   "connect.client.may_have_left": "Heads up: {station} was reported earlier, but may have disconnected.",
   "connect.client.not_yet_confirmed": {
     "critical": "{station} unconfirmed.",
@@ -333,6 +334,7 @@
   "connect.row.unknown_model": "Unknown model",
   "connect.row.unnamed": "Unnamed",
   "connect.scan.caption": "Scan",
+  "connect.scan.resume_none_paused": {"text": "There is no paused scan to resume. Pausing a scan isn't available yet.", "delivery": null},
   "connect.scan.end_must_exceed_start": "The ending frequency must exceed the starting frequency.",
   "connect.scan.increment_range": "The increment must be in kHz, 0.01 through 999.99",
   "connect.scan.invalid_end": "Invalid ending frequency.",

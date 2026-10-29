@@ -123,6 +123,47 @@ namespace Radios.Tests.StationConnect
             Assert.True(rig.StewardshipSessionInitialisedForCurrentAttempt);
         }
 
+        // ── an intent a newer build saved (#847 repair, round two) ──
+
+        private string PathToConfig(string serial) => _scope.PathTo("radios", serial, "config.xml");
+
+        /// <summary>A known owned radio whose profile intent was saved by a newer build.</summary>
+        private (FlexBase rig, Radio radio, string serial) KnownOwnedRadioWithANewerBuildsIntent()
+        {
+            var known = KnownOwnedRadio();
+            Assert.True(RadioConfig.Update(known.serial, c => { c.ProfileIntentXml = "FromANewerBuild"; }));
+            Assert.Contains("<ProfileIntent>FromANewerBuild</ProfileIntent>",
+                System.IO.File.ReadAllText(PathToConfig(known.serial)), StringComparison.Ordinal);
+            // It reads as NotAnswered here, which is exactly why the migration would pre-answer it.
+            Assert.Equal(ProfileGuestIntent.NotAnswered, RadioConfig.ProfileIntentOf(known.serial));
+            return known;
+        }
+
+        [Fact]
+        public void An_intent_a_newer_build_saved_survives_the_pre_answer_migration()
+        {
+            var (rig, radio, serial) = KnownOwnedRadioWithANewerBuildsIntent();
+            rig.BeginStationAttempt(radio, "test");
+
+            rig.InitializeStewardshipSession();
+
+            Assert.Contains("<ProfileIntent>FromANewerBuild</ProfileIntent>",
+                System.IO.File.ReadAllText(PathToConfig(serial)), StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void An_intent_a_newer_build_saved_survives_under_the_hold_too()
+        {
+            var (rig, radio, serial) = KnownOwnedRadioWithANewerBuildsIntent();
+            rig.SetChangeNothingActive(true);
+            rig.BeginStationAttempt(radio, "test");
+
+            rig.InitializeStewardshipSession();
+
+            Assert.Contains("<ProfileIntent>FromANewerBuild</ProfileIntent>",
+                System.IO.File.ReadAllText(PathToConfig(serial)), StringComparison.Ordinal);
+        }
+
         // ── the pure rule, which the production entry must consult at the moment it persists ──
 
         [Fact]

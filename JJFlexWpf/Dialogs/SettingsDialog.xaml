@@ -1506,12 +1506,15 @@
                                       Content="Enable alert sounds (earcons)"
                                       Margin="0,0,0,8"
                                       AutomationProperties.Name="Enable alert sounds such as beeps and tones"
-                           local:JJFlexHelp.Text="The master switch for every alert sound the app makes. The JJ key quick mute, Control J then Control E, flips this same switch — and either way the choice is remembered next time you start. Meter tones and speech are separate and unaffected."/>
+                           local:JJFlexHelp.Text="When checked, alert sounds are played. The checkboxes below turn individual kinds of sound on or off. Press the JJ key and then Ctrl+E as a shortcut to toggle this setting from outside the Settings dialog. Either way, the app remembers your choice the next time you start it. Warning sounds are the exception: they play even when this is unchecked, and only their own checkbox below silences them. Meter tones and speech have their own settings, and this switch does not affect them."/>
 
                             <!-- Per-category switches (Sprint 30, #43) — the finer
                                  controls the earcon help page promised before they
                                  existed. Indented under the master switch they answer
-                                 to; the master off silences everything regardless. -->
+                                 to; the master off silences all of them except Warning
+                                 sounds, which answer only to their own switch (#810).
+                                 The Warning sounds label and help text are Noel's
+                                 (2026-10-29). -->
                             <StackPanel Margin="20,0,0,8">
                                 <CheckBox x:Name="EarconConnectionCheck"
                                           Content="Connection sounds" Margin="0,0,0,4"
@@ -1520,7 +1523,7 @@
                                 <CheckBox x:Name="EarconTransmitCheck"
                                           Content="Transmit sounds" Margin="0,0,0,4"
                                           AutomationProperties.Name="Transmit sounds"
-                           local:JJFlexHelp.Text="Transmit start and stop, the hard-kill warning, the tune carrier, and the antenna tuner's progress and verdict."/>
+                           local:JJFlexHelp.Text="When selected, this checkbox enables the function that plays transmission-related sound events from within JJ Flexible Radio Access. These sounds indicate the status of the transmitter and your transmission. For example, they play when you key and unkey the transmitter, warn you during a long transmission, mark the tune carrier turning on and off, report the antenna tuner's progress and result, and count you in and out while you are performing audio diagnostic functions. Unlike warning sounds, these go quiet when alert sounds are turned off."/>
                                 <CheckBox x:Name="EarconDialogsCheck"
                                           Content="Dialog and panel sounds" Margin="0,0,0,4"
                                           AutomationProperties.Name="Dialog and panel sounds"
@@ -1542,9 +1545,9 @@
                                           AutomationProperties.Name="Command and confirmation sounds"
                            local:JJFlexHelp.Text="The JJ key layer's tones, feature on and off beeps, mute-all, and confirmations. Worth keeping — without them the JJ key gives no sign it is listening."/>
                                 <CheckBox x:Name="EarconWarningsCheck"
-                                          Content="Warning sounds" Margin="0,0,0,4"
-                                          AutomationProperties.Name="Warning sounds"
-                           local:JJFlexHelp.Text="The warning alarm — a long 800 hertz tone with harmonics, deliberately unlike anything else the app plays — and the quieter two-note tone that says a problem was recorded. This is the one worth leaving on. Every other sound here answers a key you just pressed; these two fire when the app has something to tell you that you did not ask about, such as transmit audio that would not have gone out."/>
+                                          Content="Play warning sounds even when alert sounds are turned off" Margin="0,0,0,4"
+                                          AutomationProperties.Name="Play warning sounds even when alert sounds are turned off"
+                           local:JJFlexHelp.Text="When checked, the app plays its warning sounds even when alert sounds are turned off. They are a warning alarm, a unique tone the app uses only for warnings; a quieter two-note tone that says a problem was recorded; and the hard-kill tone when a transmission is cut off. Unchecking this is the only way to silence them. This one is worth leaving on. Every other sound here answers a key you just pressed, but these warn you about a problem you were not expecting, such as transmit audio that would not have gone out."/>
                             </StackPanel>
                         </StackPanel>
                     </GroupBox>

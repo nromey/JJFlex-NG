@@ -142,9 +142,9 @@ namespace Radios.Tests
             const string row = "Noise Blanker (NB)\tCtrl+J, N, B";
 
             Assert.Equal(row, AudioMenuLayout.MarkNeedsRadio(row, radioConnected: true));
-            Assert.Equal("Noise Blanker (NB)" + AudioMenuLayout.NeedsRadioSuffix + "\tCtrl+J, N, B",
+            Assert.Equal("Noise Blanker (NB)" + AudioMenuLayout.ConnectRadioSuffix + "\tCtrl+J, N, B",
                 AudioMenuLayout.MarkNeedsRadio(row, radioConnected: false));
-            Assert.Equal("Legacy NR" + AudioMenuLayout.NeedsRadioSuffix,
+            Assert.Equal("Legacy NR" + AudioMenuLayout.ConnectRadioSuffix,
                 AudioMenuLayout.MarkNeedsRadio("Legacy NR", radioConnected: false));
         }
 
@@ -154,11 +154,11 @@ namespace Radios.Tests
             // LabelFor now routes through MarkNeedsRadio. Pin the two shapes it
             // produced before, so the refactor cannot have moved a reason.
             var levels = AudioMenuLayout.Entries.Single(e => e.Id == "pc-audio-levels");
-            Assert.Equal("PC Audio Levels (this computer) - needs a radio\tCtrl+J, V",
+            Assert.Equal("PC Audio Levels (this computer) - connect a radio\tCtrl+J, V",
                 AudioMenuLayout.LabelFor(levels, radioConnected: false));
 
             var mute = AudioMenuLayout.Entries.Single(e => e.Id == "mute-slice");
-            Assert.Equal("Mute/Unmute Slice - needs a radio", AudioMenuLayout.LabelFor(mute, radioConnected: false));
+            Assert.Equal("Mute/Unmute Slice - connect a radio", AudioMenuLayout.LabelFor(mute, radioConnected: false));
             Assert.Equal("Mute/Unmute Slice", AudioMenuLayout.LabelFor(mute, radioConnected: true));
         }
 
@@ -292,13 +292,52 @@ namespace Radios.Tests
                          // Its switches drive the PC pipeline, which exists only
                          // while connected (the Codex check of 3fde5cfd).
                          "R(\"Noise Profiles...\")",
-                         "R(\"FFT Auto-Notch",
+                         "R(NrItemLabel(\"FFT Auto-Notch",
                          "R(\"Legacy Auto-Notch\")",
                          "R(\"Audio Peak Filter (APF)",
                      })
             {
                 Assert.Contains(label, method);
             }
+        }
+
+        /// <summary>
+        /// #838 defect 6: a row whose switch is capability-gated says so in its
+        /// own label, from the same check its handler asks. FFT Auto-Notch was
+        /// gated in its handler (#746) but read "FFT Auto-Notch, Ctrl+J N A:
+        /// Off" on an unlicensed radio, while the NR rows beside it said "needs
+        /// subscription". The class, not the instance: every ToggleDSP that
+        /// passes a capability sits in a row labelled through NrItemLabel with
+        /// that same capability.
+        /// </summary>
+        [Fact]
+        public void Every_gated_DSP_row_carries_its_capability_marker_in_its_label()
+        {
+            string method = MethodBody(MenuSource(), "private void BuildDSPItems(IntPtr parent)");
+            var gated = new System.Collections.Generic.List<string>();
+            for (int at = method.IndexOf("ToggleDSP(\"", StringComparison.Ordinal); at >= 0;
+                 at = method.IndexOf("ToggleDSP(\"", at + 1, StringComparison.Ordinal))
+            {
+                int end = method.IndexOf(");", at, StringComparison.Ordinal);
+                string call = method.Substring(at, end - at);
+                int cap = call.IndexOf("Radios.RadioCapability.", StringComparison.Ordinal);
+                if (cap < 0) continue;
+                string capability = new string(call.Substring(cap).TakeWhile(c => c == '.' || char.IsLetterOrDigit(c)).ToArray());
+
+                int row = method.LastIndexOf("AddChecked(", at, StringComparison.Ordinal);
+                Assert.True(row >= 0, "no row before " + call);
+                string label = method.Substring(row, at - row);
+                Assert.True(label.Contains("NrItemLabel(", StringComparison.Ordinal) && label.Contains(capability, StringComparison.Ordinal),
+                    "this gated row's label does not carry its capability marker: " + label.Trim());
+                gated.Add(capability);
+            }
+
+            // Positive control: the four gated switches the menu has today are
+            // all seen, so a scan that found nothing cannot pass.
+            Assert.Contains("Radios.RadioCapability.NoiseReductionNeural", gated);
+            Assert.Contains("Radios.RadioCapability.NoiseReductionSpectral", gated);
+            Assert.Contains("Radios.RadioCapability.NoiseReductionFilter", gated);
+            Assert.Contains("Radios.RadioCapability.AutoNotchFft", gated);
         }
 
         [Fact]

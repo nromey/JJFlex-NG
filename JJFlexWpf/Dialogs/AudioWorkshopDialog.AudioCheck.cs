@@ -160,7 +160,7 @@ public partial class AudioWorkshopDialog
         _listenMethodControl.SelectionChanged += (s, idx) =>
         {
             if (_polling) return;
-            SavePerRadioPrefs();
+            SavePerRadioPrefs(AudioCheckPref.ListenMethod);
             SyncPlayTakeLabel();
             // The control announces its own value through the accessibility
                 // tree; this adds only what the tree cannot carry.; add the remote
@@ -189,7 +189,7 @@ public partial class AudioWorkshopDialog
         {
             if (_polling) return;
             UpdateCheckWattsVisibility();
-            SavePerRadioPrefs();
+            SavePerRadioPrefs(AudioCheckPref.PowerMode);
         };
         AddToSection(HearYourselfContent, _checkPowerControl);
 
@@ -199,7 +199,7 @@ public partial class AudioWorkshopDialog
         _checkWattsControl.ValueChanged += (s, v) =>
         {
             if (_polling) return;
-            SavePerRadioPrefs();
+            SavePerRadioPrefs(AudioCheckPref.LowPowerWatts);
         };
         AddToSection(HearYourselfContent, _checkWattsControl);
 

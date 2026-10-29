@@ -638,7 +638,9 @@ public class NativeMenuBar : IDisposable
 
     /// <summary>
     /// A menu label with a textual marker when this radio cannot use the
-    /// capability behind it.
+    /// capability behind it. Every capability-gated row in the DSP submenu
+    /// goes through it: the three On-Radio NR rows and, since #838, FFT
+    /// Auto-Notch.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -692,7 +694,7 @@ public class NativeMenuBar : IDisposable
     /// </para>
     /// <para>
     /// So the rows are the same in both states, and a row that needs the radio
-    /// is greyed and carries " - needs a radio" in its own label when there is
+    /// is greyed and carries " - connect a radio" in its own label when there is
     /// none, through <see cref="Radios.AudioMenuLayout.MarkNeedsRadio"/>: the
     /// Audio menu's existing treatment, not a new one. Rows whose work happens
     /// on this computer stay live (PC noise reduction's two switches and the
@@ -862,7 +864,12 @@ public class NativeMenuBar : IDisposable
         // unlicensed 8600 refused anft with its licence code), so the ladder
         // answers before the speech. Legacy Auto-Notch is NOT: the same radio
         // accepted lms_anf and applied it, so it passes no capability.
-        AddChecked(anfSub, R("FFT Auto-Notch\tCtrl+J, N, A"), () =>
+        // Its label carries the same textual marker as the On-Radio NR rows,
+        // from the same capability check (#838 defect 6): until then it read
+        // "FFT Auto-Notch, Ctrl+J N A: Off" on an unlicensed radio, and the
+        // operator learned it was shut only by pressing it.
+        AddChecked(anfSub, R(NrItemLabel("FFT Auto-Notch\tCtrl+J, N, A",
+                Radios.RadioCapability.AutoNotchFft)), () =>
             ToggleDSP("FFT Auto-Notch", () => Rig.AutoNotchFFT, v => Rig.AutoNotchFFT = v,
                 Radios.RadioCapability.AutoNotchFft),
             () => Rig?.AutoNotchFFT == FlexBase.OffOnValues.on, radio);

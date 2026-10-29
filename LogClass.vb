@@ -145,13 +145,22 @@ Public Class LogClass
         If sessions = 0 Then
             If ((Name = vbNullString) OrElse (Not File.Exists(Name))) And _
                 (operater IsNot Nothing) Then
-                ' Get info for the log file now; wasn't provided earlier.
-                LogCharacteristics.theOp = operater
-                If LogCharacteristics.ShowDialog <> DialogResult.OK Then
+                ' #814: no log file. Say so and offer to open an existing log
+                ' or create a new one, then the standard Windows Open or Save
+                ' dialog - not Log Characteristics, which this used to open on
+                ' every attempt, so every Alt+letter field jump in Logging mode
+                ' put the same window up again. A cancel is remembered for this
+                ' file until an explicit log action (see AskForLogFileAgain).
+                Dim chosen As String = ChooseLogFile(operater)
+                If chosen Is Nothing Then
                     Return 0
-                Else
-                    Name = operater.LogFile
                 End If
+                If Operators IsNot Nothing Then
+                    Operators.UpdateLogfile(operater, chosen)
+                Else
+                    operater.LogFile = chosen
+                End If
+                Name = chosen
             End If
             ' Open the log.
             Try
@@ -173,6 +182,148 @@ Public Class LogClass
             cleanups.Add(cleanup)
         End If
         Return sessions
+    End Function
+
+    ' #814: whether to ask about a missing log file. One per log; see
+    ' Radios.LogFilePromptGate for the rule.
+    Private ReadOnly filePrompt As New Radios.LogFilePromptGate()
+
+    ''' <summary>
+    ''' True when the operator cancelled the no-log-file choice for this log and
+    ''' has not since taken an explicit log action, and the log is still
+    ''' missing. A caller about to hide the main window for the log form checks
+    ''' this first, so the sentence saying why is not lost in the window change.
+    ''' </summary>
+    Friend ReadOnly Property LogFileDeclined As Boolean
+        Get
+            Return filePrompt.IsDeclined(Name) AndAlso ((Name = vbNullString) OrElse (Not File.Exists(Name)))
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' An explicit log action (opening the full log form): the next attempt
+    ''' to open a missing log asks again. A field jump is not one.
+    ''' </summary>
+    Friend Sub AskForLogFileAgain()
+        filePrompt.AskAgain()
+    End Sub
+
+    ''' <summary>
+    ''' #814, ruled by Noel 2026-10-23: no log file was found, so say so and
+    ''' offer Open an existing log, Create a new one, or Cancel; then the
+    ''' standard Windows Open dialog, or a Save dialog for a new file.
+    ''' </summary>
+    ''' <returns>The chosen file's full path, or Nothing if the operator cancelled.</returns>
+    ''' <remarks>
+    ''' The choice is Windows' own task dialog: ConfirmActionDialog has two
+    ''' answers and Escape presses its No, so it cannot tell "create" from
+    ''' "cancel". Escape and the close box both cancel here. Every sentence is
+    ''' DRAFT PROSE in the logging lexicon.
+    ''' </remarks>
+    Private Function ChooseLogFile(operater As PersonalData.personal_v1) As String
+        If Not filePrompt.ShouldAsk(Name) Then
+            Tracing.TraceLine("LogClass open: no log file, and the choice was cancelled; not asking again until a log action", TraceLevel.Info)
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.full_form.no_log_file"),
+                Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Critical,
+                subject:=Radios.Speech.SpeechSubject.NoLogFile)
+            Return Nothing
+        End If
+
+        Dim openButton As New System.Windows.Forms.TaskDialogButton(Radios.Lexicon.Get("logging.no_log_file.open_button"))
+        Dim createButton As New System.Windows.Forms.TaskDialogButton(Radios.Lexicon.Get("logging.no_log_file.create_button"))
+        Dim page As New System.Windows.Forms.TaskDialogPage() With {
+            .Caption = Radios.Lexicon.Get("logging.no_log_file.title"),
+            .Heading = Radios.Lexicon.Get("logging.no_log_file.heading"),
+            .Text = Radios.Lexicon.Get("logging.no_log_file.body"),
+            .AllowCancel = True
+        }
+        page.Buttons.Add(openButton)
+        page.Buttons.Add(createButton)
+        page.Buttons.Add(System.Windows.Forms.TaskDialogButton.Cancel)
+        page.DefaultButton = openButton
+
+        Dim owner As System.Windows.Forms.IWin32Window = LogDialogOwner()
+        Dim answer As System.Windows.Forms.TaskDialogButton = If(owner Is Nothing,
+            System.Windows.Forms.TaskDialog.ShowDialog(page),
+            System.Windows.Forms.TaskDialog.ShowDialog(owner, page))
+        Dim chosen As String = Nothing
+        If answer Is openButton Then
+            Tracing.TraceLine("LogClass open: no log file; operator chose to open one", TraceLevel.Info)
+            chosen = AskForFile(operater, False)
+        ElseIf answer Is createButton Then
+            Tracing.TraceLine("LogClass open: no log file; operator chose to create one", TraceLevel.Info)
+            chosen = AskForFile(operater, True)
+        Else
+            Tracing.TraceLine("LogClass open: no log file; operator cancelled the choice", TraceLevel.Info)
+        End If
+
+        If chosen Is Nothing Then
+            filePrompt.Declined(Name)
+        Else
+            filePrompt.Chosen()
+        End If
+        Return chosen
+    End Function
+
+    ''' <summary>
+    ''' The window the no-log-file dialogs belong to (#850). Shown without an
+    ''' owner, each one's closing let Windows activate whatever program sat
+    ''' behind the app, and the screen reader announced that program before
+    ''' focus came back. Nothing when the shell cannot own a dialog from this
+    ''' thread; the dialogs then show unowned, as before.
+    ''' </summary>
+    Private Shared Function LogDialogOwner() As System.Windows.Forms.IWin32Window
+        Dim shell As ShellForm = AppShellForm
+        If shell Is Nothing OrElse shell.IsDisposed OrElse Not shell.IsHandleCreated OrElse shell.InvokeRequired Then
+            Return Nothing
+        End If
+        Return shell
+    End Function
+
+    ''' <summary>
+    ''' The standard Windows Open dialog for an existing log, or a Save dialog
+    ''' naming a new one. Nothing on cancel.
+    ''' </summary>
+    ''' <remarks>
+    ''' A new log is created by opening it: LogIO makes the file, and the first
+    ''' session writes its header with the defaults. Naming a file that
+    ''' already exists in the Save dialog opens that log rather than replacing
+    ''' it, so nothing already logged can be lost here.
+    ''' </remarks>
+    Private Function AskForFile(operater As PersonalData.personal_v1, createNew As Boolean) As String
+        Dim folder As String = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
+        If operater.LogFile <> vbNullString Then
+            Try
+                Dim parent = Directory.GetParent(operater.LogFile)
+                If parent IsNot Nothing AndAlso parent.Exists Then folder = parent.FullName
+            Catch ex As Exception
+                ' A malformed stored name: start in Documents.
+            End Try
+        End If
+        Dim dialog As System.Windows.Forms.FileDialog
+        If createNew Then
+            dialog = New System.Windows.Forms.SaveFileDialog() With {
+                .OverwritePrompt = False,
+                .FileName = "myLog.jrl",
+                .Title = Radios.Lexicon.Get("logging.no_log_file.create_title")
+            }
+        Else
+            dialog = New System.Windows.Forms.OpenFileDialog() With {
+                .CheckFileExists = True,
+                .Title = Radios.Lexicon.Get("logging.no_log_file.open_title")
+            }
+        End If
+        Using dialog
+            dialog.Filter = Radios.Lexicon.Get("logging.no_log_file.file_filter")
+            dialog.DefaultExt = "jrl"
+            dialog.AddExtension = True
+            dialog.CheckPathExists = True
+            dialog.InitialDirectory = folder
+            If dialog.ShowDialog(LogDialogOwner()) = System.Windows.Forms.DialogResult.OK Then
+                Return dialog.FileName
+            End If
+        End Using
+        Return Nothing
     End Function
 
     ''' <summary>

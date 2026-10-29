@@ -15,10 +15,12 @@ namespace POpusCodec
     /// opus_get_version_string() is the only honest answer to "which Opus is
     /// actually running?" — file properties show nothing.
     ///
-    /// Note: the internal Wrapper class has its own opus_get_version(), unused
-    /// anywhere, which marshals the result with PtrToStringAuto — on Windows
-    /// that reads the ANSI string as UTF-16 and returns garbage. This accessor
-    /// marshals correctly (PtrToStringAnsi) and is the one to call.
+    /// Note: the internal Wrapper class has its own opus_get_version(), which
+    /// fills OpusEncoder.Version and OpusDecoder.Version. It read the string
+    /// with PtrToStringAuto until #807, which on Windows reads the 8-bit
+    /// string as UTF-16 and returns garbage; it now uses PtrToStringAnsi, the
+    /// same as this accessor, so the two agree. This one needs no encoder or
+    /// decoder, so it stays the one to call.
     /// </summary>
     public static class OpusInfo
     {

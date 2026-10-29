@@ -2260,9 +2260,15 @@ Module globals
 
     ''' <summary>
     ''' Show DX cluster. Placeholder — cluster UI requires reimplementation after key migration.
+    ''' Until it is rebuilt (#828), the key says so rather than doing nothing in
+    ''' silence (#829): a documented key that is silent makes the operator doubt
+    ''' themselves, not the key.
     ''' </summary>
     Friend Sub ShowArCluster()
         Tracing.TraceLine("ShowArCluster: not yet reimplemented after key migration", TraceLevel.Warning)
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.cluster.not_available"),
+            Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
+            subject:=Radios.Speech.SpeechSubject.UnbuiltKey)
     End Sub
 
     ''' <summary>
@@ -2486,8 +2492,19 @@ Module globals
                 End If
             End Sub,
             .ResumeScan = Sub()
-                If (scanstate <> scans.none) AndAlso (Not ScanInProcess) AndAlso
-                   (RigControl IsNot Nothing) AndAlso (Not RigControl.Transmit) Then
+                ' A scan is paused when one is set up but its timer is stopped.
+                ' Only PauseScan (scan.vb) leaves it that way, and nothing calls
+                ' PauseScan today, so this key can never find a paused scan
+                ' (#829). Until pausing is built (#828) it says so, rather than
+                ' doing nothing in silence; a genuinely paused scan still
+                ' resumes exactly as before.
+                Dim scanIsPaused As Boolean = (scanstate <> scans.none) AndAlso (Not ScanInProcess)
+                If Not scanIsPaused Then
+                    Tracing.TraceLine("ResumeScan: no paused scan to resume", TraceLevel.Info)
+                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.scan.resume_none_paused"),
+                        Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
+                        subject:=Radios.Speech.SpeechSubject.UnbuiltKey)
+                ElseIf (RigControl IsNot Nothing) AndAlso (Not RigControl.Transmit) Then
                     scan.resumeScan()
                 End If
             End Sub,
@@ -2538,6 +2555,17 @@ Module globals
                         WpfMainWindow.LoggingLogPanel.NewEntry()
                         Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.log_entry.new_entry"), VerbosityLevel.Terse, True)
                     End If
+                    Return
+                End If
+                ' #814: the operator cancelled the no-log-file choice. Say why
+                ' here, before the main window hides for the log form, or the
+                ' sentence is lost in the window change; and do not put the
+                ' choice up again on a field jump.
+                If ContactLog IsNot Nothing AndAlso ContactLog.LogFileDeclined Then
+                    Tracing.TraceLine("BringUpLogForm: no log file, choice cancelled earlier; not asking on a field jump", TraceLevel.Info)
+                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.full_form.no_log_file"),
+                        Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
+                        subject:=Radios.Speech.SpeechSubject.NoLogFile)
                     Return
                 End If
                 LogEntry.FieldID = adifTag
@@ -3594,6 +3622,9 @@ Module globals
             Return
         End If
 
+        ' #814: opening the full form is an explicit log action, so a
+        ' cancelled no-log-file choice is offered again.
+        ContactLog.AskForLogFileAgain()
         LogEntry.FieldID = AdifTags.ADIF_Call
         LogEntry.FilePosition = -1
         Radios.ScreenReaderOutput.Speak(

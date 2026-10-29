@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -36,6 +37,18 @@ namespace Radios
     /// stable for saved configs; JJ Flexible Connect joins as a third member
     /// when it exists, without renumbering.
     /// </summary>
+    /// <summary>
+    /// Which Audio Check preference the operator edited, so only that one is
+    /// saved (<see cref="RadioConfig.RecordAudioCheckPref"/>).
+    /// </summary>
+    public enum AudioCheckPref
+    {
+        ListenMethod,
+        PowerMode,
+        LowPowerWatts,
+        CompareWithLastTake,
+    }
+
     public enum ConnectPathKind
     {
         /// <summary>The local network — VITA discovery and a direct TCP
@@ -286,8 +299,14 @@ namespace Radios
 
         /// <summary>Connection strategy for this radio. Auto (default) follows
         /// the radio-reported flags each connect.</summary>
-        public RadioConnectionPreference ConnectionPreference { get; set; }
-            = RadioConnectionPreference.Auto;
+        [XmlIgnore]
+        public RadioConnectionPreference ConnectionPreference { get => _connectionPreference.Value; set => _connectionPreference.Value = value; }
+
+        /// <summary>The saved text of <see cref="ConnectionPreference"/>, read tolerantly (#847).</summary>
+        [XmlElement("ConnectionPreference")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public string ConnectionPreferenceXml { get => _connectionPreference.Text; set => _connectionPreference.Text = value; }
+        private readonly TolerantXmlEnum<RadioConnectionPreference> _connectionPreference = new(nameof(ConnectionPreference), RadioConnectionPreference.Auto);
 
         /// <summary>
         /// The operator's ordered chain of connection paths to try for this
@@ -301,7 +320,19 @@ namespace Radios
         /// networks, which is the point: the chain is the operator's intent,
         /// where <c>LastSeenRemote</c> is merely history.
         /// </summary>
-        public List<ConnectPathKind> PathChain { get; set; } = new();
+        [XmlIgnore]
+        public List<ConnectPathKind> PathChain { get => _pathChain.Values; set => _pathChain.Values = value ?? new(); }
+
+        /// <summary>The saved text of <see cref="PathChain"/>, read tolerantly
+        /// (#847): a path kind a newer build added (Connect is reserved) is kept
+        /// for that build instead of failing the whole file. An array, because
+        /// XmlSerializer assigns an array through its setter but fills a list
+        /// in place through its getter.</summary>
+        [XmlArray("PathChain")]
+        [XmlArrayItem("ConnectPathKind")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public string[] PathChainXml { get => _pathChain.Texts; set => _pathChain.Texts = value; }
+        private readonly TolerantXmlEnumList<ConnectPathKind> _pathChain = new(nameof(PathChain));
 
         /// <summary>Fixed client hole-punch port for this radio. 0 (default)
         /// means pick a fresh random port per connect, which is the recommended
@@ -358,8 +389,14 @@ namespace Radios
         /// each connection to this radio (Track C). Default LeaveAlone: a
         /// config written before this shipped changes nothing.
         /// </summary>
-        public RemOnOnConnectModes RemOnOnConnect { get; set; }
-            = RemOnOnConnectModes.LeaveAlone;
+        [XmlIgnore]
+        public RemOnOnConnectModes RemOnOnConnect { get => _remOnOnConnect.Value; set => _remOnOnConnect.Value = value; }
+
+        /// <summary>The saved text of <see cref="RemOnOnConnect"/>, read tolerantly (#847).</summary>
+        [XmlElement("RemOnOnConnect")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public string RemOnOnConnectXml { get => _remOnOnConnect.Text; set => _remOnOnConnect.Text = value; }
+        private readonly TolerantXmlEnum<RemOnOnConnectModes> _remOnOnConnect = new(nameof(RemOnOnConnect), RemOnOnConnectModes.LeaveAlone);
 
         /// <summary>
         /// Whether the operator wants this radio reachable from away (Sprint
@@ -372,8 +409,14 @@ namespace Radios
         /// nothing about SmartLink registration is raised for this radio
         /// again, on any connect, on any run.</para>
         /// </summary>
-        public SmartLinkIntents SmartLinkIntent { get; set; }
-            = SmartLinkIntents.Undecided;
+        [XmlIgnore]
+        public SmartLinkIntents SmartLinkIntent { get => _smartLinkIntent.Value; set => _smartLinkIntent.Value = value; }
+
+        /// <summary>The saved text of <see cref="SmartLinkIntent"/>, read tolerantly (#847).</summary>
+        [XmlElement("SmartLinkIntent")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public string SmartLinkIntentXml { get => _smartLinkIntent.Text; set => _smartLinkIntent.Text = value; }
+        private readonly TolerantXmlEnum<SmartLinkIntents> _smartLinkIntent = new(nameof(SmartLinkIntent), SmartLinkIntents.Undecided);
 
         // ---------------------------------------------------------------
         // Roster display metadata (queue-burn Track E, 2026-08-07).
@@ -454,8 +497,14 @@ namespace Radios
         /// situation (a remote rig wants record-and-play, a local one is fine
         /// on monitor). Conservative default: Monitor.
         /// </summary>
-        public AudioCheckListenMethods AudioCheckListenMethod { get; set; }
-            = AudioCheckListenMethods.Monitor;
+        [XmlIgnore]
+        public AudioCheckListenMethods AudioCheckListenMethod { get => _audioCheckListenMethod.Value; set => _audioCheckListenMethod.Value = value; }
+
+        /// <summary>The saved text of <see cref="AudioCheckListenMethod"/>, read tolerantly (#847).</summary>
+        [XmlElement("AudioCheckListenMethod")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public string AudioCheckListenMethodXml { get => _audioCheckListenMethod.Text; set => _audioCheckListenMethod.Text = value; }
+        private readonly TolerantXmlEnum<AudioCheckListenMethods> _audioCheckListenMethod = new(nameof(AudioCheckListenMethod), AudioCheckListenMethods.Monitor);
 
         /// <summary>App-made slice take times. A time is usable only while the radio
         /// reports the same recorded duration; another client can replace a take.</summary>
@@ -501,8 +550,14 @@ namespace Radios
         /// Low power exists for the separate, deliberate act of confirming
         /// RF actually leaves the radio.
         /// </summary>
-        public AudioCheckPowerModes AudioCheckPowerMode { get; set; }
-            = AudioCheckPowerModes.DummyLoad;
+        [XmlIgnore]
+        public AudioCheckPowerModes AudioCheckPowerMode { get => _audioCheckPowerMode.Value; set => _audioCheckPowerMode.Value = value; }
+
+        /// <summary>The saved text of <see cref="AudioCheckPowerMode"/>, read tolerantly (#847).</summary>
+        [XmlElement("AudioCheckPowerMode")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public string AudioCheckPowerModeXml { get => _audioCheckPowerMode.Text; set => _audioCheckPowerMode.Text = value; }
+        private readonly TolerantXmlEnum<AudioCheckPowerModes> _audioCheckPowerMode = new(nameof(AudioCheckPowerMode), AudioCheckPowerModes.DummyLoad);
 
         /// <summary>
         /// The power cap, in watts, used when <see cref="AudioCheckPowerMode"/>
@@ -543,8 +598,14 @@ namespace Radios
         /// RememberLast; connect-time application announces what it did
         /// rather than silently flipping a switch.
         /// </summary>
-        public PcAudioOnConnectModes PcAudioOnConnect { get; set; }
-            = PcAudioOnConnectModes.RememberLast;
+        [XmlIgnore]
+        public PcAudioOnConnectModes PcAudioOnConnect { get => _pcAudioOnConnect.Value; set => _pcAudioOnConnect.Value = value; }
+
+        /// <summary>The saved text of <see cref="PcAudioOnConnect"/>, read tolerantly (#847).</summary>
+        [XmlElement("PcAudioOnConnect")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public string PcAudioOnConnectXml { get => _pcAudioOnConnect.Text; set => _pcAudioOnConnect.Text = value; }
+        private readonly TolerantXmlEnum<PcAudioOnConnectModes> _pcAudioOnConnect = new(nameof(PcAudioOnConnect), PcAudioOnConnectModes.RememberLast);
 
         /// <summary>
         /// True once <see cref="PcAudioLastOn"/> has ever been recorded.
@@ -595,7 +656,10 @@ namespace Radios
             });
         }
 
-        public static bool RecordAudioCheckPrefs(string radioId,
+        // Private since the #847 repair, round two: it assigns every value it
+        // is given, which is how the Workshop saved displayed fallbacks over
+        // real values. RecordAudioCheckPref is the entry point.
+        private static bool RecordAudioCheckPrefs(string radioId,
             AudioCheckListenMethods? method, AudioCheckPowerModes? power, int? watts,
             bool? compareWithLastTake = null)
         {
@@ -607,6 +671,32 @@ namespace Radios
                     cfg.AudioCheckCompareWithLastTake = compareWithLastTake.Value;
             });
         }
+
+        /// <summary>
+        /// Save the ONE Audio Check preference the operator just edited, from
+        /// the values the Audio Workshop is showing, and leave the others as
+        /// the file holds them.
+        /// </summary>
+        /// <remarks>
+        /// #847 repair, found by the Codex check. The Workshop used to pass
+        /// every displayed value on every change, so toggling only "Compare
+        /// with previous take" saved the DISPLAYED listen method over the one
+        /// in the file. When that file came from a newer build holding a
+        /// listen method this build does not know (Loopback), the Workshop
+        /// displays its fallback, Monitor, and the neighbouring change would
+        /// have overwritten Loopback with Monitor. An edit of the listen
+        /// method itself is a decision, and still replaces it.
+        /// </remarks>
+        public static bool RecordAudioCheckPref(string radioId, AudioCheckPref edited,
+            AudioCheckListenMethods shownMethod, AudioCheckPowerModes shownPower,
+            int shownWatts, bool shownCompare) => edited switch
+        {
+            AudioCheckPref.ListenMethod => RecordAudioCheckPrefs(radioId, shownMethod, null, null),
+            AudioCheckPref.PowerMode => RecordAudioCheckPrefs(radioId, null, shownPower, null),
+            AudioCheckPref.LowPowerWatts => RecordAudioCheckPrefs(radioId, null, null, shownWatts),
+            AudioCheckPref.CompareWithLastTake => RecordAudioCheckPrefs(radioId, null, null, null, shownCompare),
+            _ => throw new ArgumentOutOfRangeException(nameof(edited), edited, null),
+        };
 
         public static bool RecordPcAudioOnConnect(string radioId, PcAudioOnConnectModes mode) =>
             Update(radioId, cfg => { cfg.PcAudioOnConnect = mode; });
@@ -802,7 +892,14 @@ namespace Radios
         /// Whose radio this is, as the operator declared it. Default Unset —
         /// guest behaviour, and the state in which the question may be raised.
         /// </summary>
-        public RadioOwnership Ownership { get; set; } = RadioOwnership.Unset;
+        [XmlIgnore]
+        public RadioOwnership Ownership { get => _ownership.Value; set => _ownership.Value = value; }
+
+        /// <summary>The saved text of <see cref="Ownership"/>, read tolerantly (#847).</summary>
+        [XmlElement("Ownership")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public string OwnershipXml { get => _ownership.Text; set => _ownership.Text = value; }
+        private readonly TolerantXmlEnum<RadioOwnership> _ownership = new(nameof(Ownership), RadioOwnership.Unset);
 
         /// <summary>
         /// Whether JJ Flex may CREATE new state on this radio without stopping
@@ -929,7 +1026,23 @@ namespace Radios
         /// first connect to a radio changes nothing, and the question is
         /// raised once.
         /// </summary>
-        public ProfileGuestIntent ProfileIntent { get; set; } = ProfileGuestIntent.NotAnswered;
+        [XmlIgnore]
+        public ProfileGuestIntent ProfileIntent { get => _profileIntent.Value; set => _profileIntent.Value = value; }
+
+        /// <summary>The saved text of <see cref="ProfileIntent"/>, read tolerantly (#847).</summary>
+        [XmlElement("ProfileIntent")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public string ProfileIntentXml { get => _profileIntent.Text; set => _profileIntent.Text = value; }
+        private readonly TolerantXmlEnum<ProfileGuestIntent> _profileIntent = new(nameof(ProfileIntent), ProfileGuestIntent.NotAnswered);
+
+        /// <summary>
+        /// True when the saved profile intent is a value a newer build wrote,
+        /// which this build reads as <see cref="ProfileGuestIntent.NotAnswered"/>
+        /// but must not treat as unanswered: it IS an answer, just one this
+        /// build cannot read (#847 repair, round two).
+        /// </summary>
+        [XmlIgnore]
+        public bool ProfileIntentIsFromANewerBuild => _profileIntent.UnknownText != null;
 
         /// <summary>The global profile to load on THIS radio. Empty means no
         /// per-radio choice; the operator's default list is used instead.</summary>
@@ -1020,8 +1133,20 @@ namespace Radios
             if (string.IsNullOrEmpty(radioId)) return false;
             string value = presetName ?? "";
             return Update(radioId, cfg => {
-                var intent = string.IsNullOrWhiteSpace(value)
-                    ? cfg.ProfileIntent : ProfileGuestIntent.UseMyTransmitAudio;
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    // Clearing leaves the intent exactly as it is, by not
+                    // assigning it at all: assigning the value just read would
+                    // replace an intent a newer build saved with this build's
+                    // fallback (#847 repair, round two).
+                    if (cfg.LocalTransmitAudioProfile == value) return false;
+                    cfg.LocalTransmitAudioProfile = value;
+                    Tracing.TraceLine(
+                        $"RadioConfig: local transmit-audio profile for {radioId} cleared by the operator.",
+                        System.Diagnostics.TraceLevel.Info);
+                    return true;
+                }
+                var intent = ProfileGuestIntent.UseMyTransmitAudio;
                 if (cfg.LocalTransmitAudioProfile == value && cfg.ProfileIntent == intent) return false;
                 cfg.LocalTransmitAudioProfile = value;
                 cfg.ProfileIntent = intent;
@@ -1137,6 +1262,36 @@ namespace Radios
         /// not reach disk — callers should still honour the answer for this
         /// session, per <see cref="SaveForRadio"/>'s contract.
         /// </summary>
+        /// <summary>
+        /// The automatic pre-answer (<c>FlexBase.MigrateProfileIntentForKnownRadio</c>):
+        /// like <see cref="RecordProfileIntent"/>, but it never replaces an
+        /// intent a newer build saved. That build's answer reads here as
+        /// NotAnswered, and pre-answering it would overwrite an answer the
+        /// operator did give with one nobody gave (#847 repair, round two,
+        /// found by the Codex check). Checked inside the locked update, so the
+        /// file cannot change between the decision and the write.
+        /// </summary>
+        public static bool RecordPreAnsweredProfileIntent(string radioId, ProfileGuestIntent value)
+        {
+            if (string.IsNullOrEmpty(radioId)) return false;
+            bool written = false;
+            Update(radioId, cfg => {
+                if (cfg.ProfileIntentIsFromANewerBuild)
+                {
+                    Tracing.TraceLine(
+                        $"RadioConfig: profile intent for {radioId} was saved by a newer build; "
+                        + "not pre-answering over it.",
+                        System.Diagnostics.TraceLevel.Info);
+                    return false;
+                }
+                if (cfg.ProfileIntent == value) return false;
+                cfg.ProfileIntent = value;
+                written = true;
+                return true;
+            });
+            return written;
+        }
+
         public static bool RecordProfileIntent(string radioId, ProfileGuestIntent value)
         {
             if (string.IsNullOrEmpty(radioId)) return false;

@@ -1,0 +1,1 @@
+Moving between builds no longer makes JJ Flexible forget what it knows about your radio. When a newer build saved a setting this one does not recognise, this build used to ignore the whole radio's settings for that run and ask "Is this radio yours?" all over again; now only that one setting falls back to its default, and the newer value is kept for when you go back.

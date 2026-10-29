@@ -1832,7 +1832,9 @@ namespace JJFlexWpf.Dialogs
             // than as a spoken refusal on every arrow press; the Play button
             // gives the refusal its words on demand.
             if (_suppressTrimPreview || entry.IsContinuous) return;
-            if (!EarconPlayer.EarconsEnabled || !TrimEntryCategoryLive(entry)) return;
+            // #810: the same master rule the sounds follow, so a warning
+            // previews with alert sounds off.
+            if (EarconPlayer.MasterHolds(entry.Category) || !TrimEntryCategoryLive(entry)) return;
             entry.Play();
         }
 
@@ -1850,8 +1852,9 @@ namespace JJFlexWpf.Dialogs
             var entry = SelectedTrimEntry();
             if (entry == null) return;
 
-            // Never a dead button: say why instead of playing silence.
-            if (!EarconPlayer.EarconsEnabled)
+            // Never a dead button: say why instead of playing silence. A
+            // warning is not held by the master switch (#810), so it plays.
+            if (EarconPlayer.MasterHolds(entry.Category))
             {
                 ScreenReaderOutput.Speak(Lexicon.Get("settings.sound.trim_master_off"),
                     VerbosityLevel.Terse, true);
