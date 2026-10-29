@@ -53,8 +53,9 @@ public partial class CheckYourAudioDialog
         Devices.DeviceInfo? row = RecordingNarrator.ResolveMicrophone(out string trouble);
         if (row == null)
         {
-            ShowComputerMicReading(trouble);
-            ScreenReaderOutput.Speak(trouble, VerbosityLevel.Critical, interrupt: true);
+            string unresolved = trouble + " " + Lexicon.Get("audio.fix_tool.pointer");
+            ShowComputerMicReading(unresolved);
+            ScreenReaderOutput.Speak(unresolved, VerbosityLevel.Critical, interrupt: true);
             return;
         }
 
@@ -71,7 +72,8 @@ public partial class CheckYourAudioDialog
         {
             probe.Dispose();
             string couldNotStart = Lexicon.Get("audio.device.mic_check_could_not_start",
-                ("reason", blocked && why.Length > 0 ? why + " " + failure : failure));
+                ("reason", blocked && why.Length > 0 ? why + " " + failure : failure))
+                + " " + Lexicon.Get("audio.fix_tool.pointer");
             ShowComputerMicReading(couldNotStart);
             ScreenReaderOutput.Speak(couldNotStart, VerbosityLevel.Critical, interrupt: true);
             return;
@@ -107,6 +109,10 @@ public partial class CheckYourAudioDialog
         // No Windows level control sits beside this reading for the advice to
         // point at, so it points at Windows Sound settings.
         string summary = MicCheckWords.Final(final, levelHere: null);
+        // A check that heard nothing, or only the interface's own noise, is a
+        // failed check: its verdict names the Fix tool (ruled 21:41).
+        if (!final.AnySound || final.HoldPeakDb <= MicCheckWords.NoiseFloorDb)
+            summary += " " + Lexicon.Get("audio.fix_tool.pointer");
         JJTrace.Tracing.TraceLine("Check your audio: computer microphone check stopped: " + summary,
             System.Diagnostics.TraceLevel.Info);
         ShowComputerMicReading(summary);
@@ -123,7 +129,8 @@ public partial class CheckYourAudioDialog
         {
             string fault = r.FaultMessage;
             StopComputerMicCheck(speak: false);
-            string stopped = Lexicon.Get("audio.device.mic_check_stopped_faulted", ("reason", fault));
+            string stopped = Lexicon.Get("audio.device.mic_check_stopped_faulted", ("reason", fault))
+                + " " + Lexicon.Get("audio.fix_tool.pointer");
             ShowComputerMicReading(stopped);
             ScreenReaderOutput.Speak(stopped, VerbosityLevel.Critical, interrupt: true);
             return;

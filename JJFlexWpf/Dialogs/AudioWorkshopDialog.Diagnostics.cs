@@ -128,6 +128,23 @@ public partial class AudioWorkshopDialog
         // paragraph in a different tab, silently, with nothing failing.
         DiagnosticsContent.Children.Add(orient);
 
+        // The Fix tool, from here too (Noel 2026-10-28 21:43: "it should be
+        // linked to workshop somehow as well"; confirmed 21:46, both windows).
+        // Straight under the paragraph that names it, by the same route as
+        // Tools, Fix, "Transmit problems...". Short label; Ctrl+F1 explains.
+        var fixTool = new Button
+        {
+            Content = Lexicon.Get("audio.fix_tool.label"),
+            Padding = new Thickness(8, 4, 8, 4),
+            Margin = new Thickness(2, 0, 2, 10),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        AutomationProperties.SetName(fixTool, Lexicon.Get("audio.fix_tool.label"));
+        // DRAFT PROSE (#835): awaiting Noel. His words, 21:46.
+        JJFlexHelp.SetText(fixTool, Lexicon.Get("audio.fix_tool.help"));
+        fixTool.Click += (s, e) => OpenFixTool();
+        DiagnosticsContent.Children.Add(fixTool);
+
         AddSectionHeader(DiagnosticsContent, "Why is my radio silent");
 
         var rxIntro = new TextBlock
@@ -263,6 +280,24 @@ public partial class AudioWorkshopDialog
         // The inventory subscription must not outlive the window. Added as its
         // own handler rather than by editing the shell's Closed lambda.
         Closed += (s, e) => UnwatchInventory();
+    }
+
+    /// <summary>
+    /// Open the Fix tool from the Diagnostics page, the way Tools, Fix,
+    /// "Transmit problems..." does. Not while a check in Check your audio or
+    /// this page's diagnostic take is running: the Fix tool keys the radio for
+    /// tests of its own.
+    /// </summary>
+    private void OpenFixTool()
+    {
+        if (CheckYourAudioDialog.ACheckIsStartingOrActive || ABenchTakeIsRunning)
+        {
+            // DRAFT PROSE (#835): awaiting Noel.
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.fix_tool.wait_for_check"), VerbosityLevel.Critical, interrupt: true);
+            return;
+        }
+        Tracing.TraceLine("Audio Workshop: opening the Fix tool from Diagnostics", TraceLevel.Info);
+        FixerDialog.Show(() => _rig ?? CheckYourAudioDialog.RigSource?.Invoke(), this);
     }
 
     /// <summary>

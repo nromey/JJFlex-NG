@@ -52,7 +52,7 @@
   "audio.binaural.off": "Binaural off",
   "audio.binaural.on": "Binaural on",
   "audio.check.buffer_nearly_full": "Recording buffer nearly full; oldest audio will drop off.",
-  "audio.check.could_not_start": "Audio check could not start.",
+  "audio.check.could_not_start": {"text": "Audio check could not start. The Fix tool button in this window can help you find what is wrong.", "delivery": null},
   "audio.check.dummy_load_released": "Dummy load released, power back to {watts} watts.",
   "audio.check.elapsed_minutes": "Audio check, {minutes} minutes.",
   "audio.check.elapsed_one_minute": "Audio check, one minute.",
@@ -70,7 +70,7 @@
   "audio.check.mic_audio_was": "Your mic audio was",
   "audio.check.monitor_on": "Monitor on.",
   "audio.check.monitor_restored_off": "Monitor restored off.",
-  "audio.check.no_recording_available": "No recording available.",
+  "audio.check.no_recording_available": {"text": "No recording available. The Fix tool button in this window can help you find what is wrong.", "delivery": null},
   "audio.check.no_recording_yet": "No take yet. Your radio's record buffer is empty and there is nothing in your recordings folder. Record a reference take, or run an audio check with record and play back.",
   "audio.check.playback_stopped": "Playback stopped",
   "audio.check.playing_take": "Playing your take",
@@ -78,7 +78,7 @@
   "audio.check.playing_take_shortly": "Playing your take in a moment.",
   "audio.check.power_reduced_for_check": "Power reduced from {watts} watts for the check.",
   "audio.check.power_restored": "Power restored to {watts} watts.",
-  "audio.check.radio_did_not_key": "The radio did not key. Check interlocks and the mic source.",
+  "audio.check.radio_did_not_key": {"text": "The radio did not key. Check interlocks and the mic source, or use the Fix tool button in this window to find what is wrong.", "delivery": null},
   "audio.check.radio_disconnected": "Radio disconnected, audio check ended",
   "audio.check.recorder_already_running": "Recorder was already running; using it.",
   "audio.check.recording_plays_back": "Recording; your take plays back when you stop.",
@@ -1323,5 +1323,9 @@
   "audio.diagnostics.help.rx_result": {"text": "The receive audio test's answer, stamped with when it was taken. Test My Receive Audio fills it.", "delivery": null},
   "audio.diagnostics.help.tx_result": {"text": "The transmit chain test's answer: the first stage in the way, and what it could not see. Test My Transmit Chain fills it.", "delivery": null},
   "audio.diagnostics.help.evidence": {"text": "Every reading behind the transmit test's answer, ready to paste into an email to Flex support. Copy Evidence to the Clipboard copies it.", "delivery": null},
-  "audio.diagnostics.help.bench_smartlink": {"text": "The bench tools need IQ, which SmartLink does not carry, so they are offered only on a local or VPN connection.", "delivery": null}
+  "audio.diagnostics.help.bench_smartlink": {"text": "The bench tools need IQ, which SmartLink does not carry, so they are offered only on a local or VPN connection.", "delivery": null},
+  "audio.fix_tool.label": {"text": "Fix tool", "delivery": null},
+  "audio.fix_tool.help": {"text": "Something wrong with your audio? Use this button to help you figure out what's wrong.", "delivery": null},
+  "audio.fix_tool.pointer": {"text": "The Fix tool button in this window can help you find what is wrong.", "delivery": null},
+  "audio.fix_tool.wait_for_check": {"text": "Stop the check first. The Fix tool runs tests of its own, and they key the radio.", "delivery": null}
 }

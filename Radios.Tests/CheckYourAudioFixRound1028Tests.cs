@@ -194,5 +194,49 @@ namespace Radios.Tests
             Assert.DoesNotContain("SetHelpText(", bench);
             Assert.DoesNotContain("SetHelpText(", diag);
         }
+
+        // ── Item 12: the Fix tool button in both windows ──
+
+        [Fact]
+        public void Both_windows_open_the_Fix_tool_the_way_the_Tools_menu_does_and_wait_for_a_running_check()
+        {
+            Assert.Contains("Dialogs.FixerDialog.Show(() => Rig, System.Windows.Window.GetWindow(_window))",
+                Source("JJFlexWpf/NativeMenuBar.cs"));   // the route being matched
+
+            string check = Dialog("CheckYourAudioDialog.Check");
+            string open = Body(check, "private void OpenFixTool()");
+            Assert.Contains("FixerDialog.Show(", open);
+            Assert.Contains("audio.fix_tool.wait_for_check", open);
+            Assert.True(open.IndexOf("audio.fix_tool.wait_for_check", StringComparison.Ordinal)
+                < open.IndexOf("FixerDialog.Show(", StringComparison.Ordinal), "refuses before it opens");
+            Assert.Contains("JJFlexHelp.SetText(_fixToolButton,", check);
+            Assert.Contains("\"audio.fix_tool.help\"", check);
+
+            string diag = Dialog("AudioWorkshopDialog.Diagnostics");
+            string open2 = Body(diag, "private void OpenFixTool()");
+            Assert.Contains("FixerDialog.Show(", open2);
+            Assert.Contains("CheckYourAudioDialog.ACheckIsStartingOrActive", open2);
+            Assert.Contains("JJFlexHelp.SetText(fixTool,", diag);
+            Assert.Contains("\"audio.fix_tool.help\"", diag);
+            Assert.DoesNotContain("SetHelpText(fixTool", diag);
+        }
+
+        [Theory]
+        [InlineData("audio.check.could_not_start")]
+        [InlineData("audio.check.radio_did_not_key")]
+        [InlineData("audio.check.no_recording_available")]
+        [InlineData("audio.fix_tool.pointer")]
+        public void A_failed_checks_sentence_names_the_Fix_tool_button(string key)
+        {
+            Assert.Contains("Fix tool button", Lexicon.Get(key), StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void The_Fix_tool_label_is_short_and_its_Ctrl_F1_is_Noels_sentence()
+        {
+            Assert.Equal("Fix tool", Lexicon.Get("audio.fix_tool.label"));
+            Assert.Equal("Something wrong with your audio? Use this button to help you figure out what's wrong.",
+                Lexicon.Get("audio.fix_tool.help"));
+        }
     }
 }

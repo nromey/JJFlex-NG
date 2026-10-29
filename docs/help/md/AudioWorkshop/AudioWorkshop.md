@@ -169,6 +169,10 @@ Both ride the PC audio path, so they need PC audio on and the radio's transmit i
 
 Results appear only once there is a take. **Play last take** plays the slice recording with Record yourself, or the off-air take with Hear what you transmitted, and stops a playback in progress. With an off-air take you also get **Play what I sent** and **Tell me how my sound changed compared to my last take**, which compares each new take with the one before it this session. **Review unrestored settings** appears only when a take left radio settings the radio never confirmed putting back.
 
+### The Fix tool
+
+When a check fails, or something about your transmit audio is plainly broken, the **Fix tool** button opens the Fix tool, the same as Tools, Fix, "Transmit problems...". It walks your audio setup, your microphone and the transmit path a stage at a time. A check that could not start, did not key, made no recording or heard nothing from your microphone says so and names the button. The same button sits at the top of the Audio Workshop's **Diagnostics** category. It waits while a check is running, because the Fix tool keys the radio for tests of its own.
+
 ### Escape, and what a check puts back
 
 While a check is transmitting, the first Escape unkeys and stays; the second closes the window. Escape never leaves you transmitting. Every check puts back everything it changed, power, monitor, the listening slice and full duplex, on every way out: Stop, Escape, the transmit timeout, closing the window, or the radio going away.

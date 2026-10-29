@@ -1883,9 +1883,19 @@ namespace Radios.Tests
                 "audio.diagnostics.help.tx_result",
                 "audio.diagnostics.help.evidence",
                 "audio.diagnostics.help.bench_smartlink",
+                // Track A, fix round 2026-10-28: the Fix tool button in both
+                // windows (ruled 21:41 and 21:46), and the three failure
+                // sentences that now name it, classified as they changed.
+                "audio.fix_tool.label",
+                "audio.fix_tool.help",
+                "audio.fix_tool.pointer",
+                "audio.fix_tool.wait_for_check",
+                "audio.check.could_not_start",
+                "audio.check.no_recording_available",
+                "audio.check.radio_did_not_key",
             };
 
-            Assert.Equal(3138, unclassified);   // Track A 2026-10-28: the Workshop's removed Check Microphone button took its two sentences with it
+            Assert.Equal(3135, unclassified);   // Track A 2026-10-28: the Workshop's removed Check Microphone button took its two sentences with it, and three failure sentences that now name the Fix tool were classified
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

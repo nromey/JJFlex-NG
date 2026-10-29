@@ -36,6 +36,28 @@ public partial class CheckYourAudioDialog
     private GroupBox? _resultsSection;
     private Button? _playTakeButton;
     private Button? _closeButton;
+    private Button? _fixToolButton;
+
+    /// <summary>
+    /// Open the Fix tool, the way Tools, Fix, "Transmit problems..." does. Not
+    /// while a check is starting, running or making a take: the Fix tool runs
+    /// transmit tests of its own, and two owners of the transmitter is the
+    /// thing every refusal in this window exists to prevent. A computer
+    /// microphone check is stopped first, because the Fix tool opens the same
+    /// microphone for its own test.
+    /// </summary>
+    private void OpenFixTool()
+    {
+        if (_checkStarts.IsBusy || _session?.Active == true || _iqBusy || _iqRun != null)
+        {
+            // DRAFT PROSE (#835): awaiting Noel.
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.fix_tool.wait_for_check"), VerbosityLevel.Critical, interrupt: true);
+            return;
+        }
+        StopComputerMicCheck(speak: false);
+        JJTrace.Tracing.TraceLine("Check your audio: opening the Fix tool", System.Diagnostics.TraceLevel.Info);
+        FixerDialog.Show(() => _rig ?? RigSource?.Invoke(), this);
+    }
 
     /// <summary>The methods in the cycle right now, in its order. Index into this, never cast a SelectedIndex to the enum.</summary>
     private List<AudioCheckListenMethods> _offered = new(AudioCheckMethods.Offered(false, false, "", false));
@@ -209,6 +231,25 @@ public partial class CheckYourAudioDialog
         _sections.Add(CheckContent, _playTakeButton);
 
         BuildOffAirResults();
+
+        // The Fix tool, for when a check fails spectacularly or the transmit
+        // path is broken (ruled by Noel 2026-10-28 21:41 and 21:46). It opens
+        // FixerDialog.Show the way Tools, Fix, "Transmit problems..." does. The
+        // label is short; Ctrl+F1 carries the explanation, in Noel's words. A
+        // failed check's sentence names this button.
+        _fixToolButton = new Button
+        {
+            Content = Lexicon.Get("audio.fix_tool.label"),
+            Padding = new Thickness(8, 4, 8, 4),
+            MinWidth = 120,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(2, 12, 2, 2)
+        };
+        AutomationProperties.SetName(_fixToolButton, Lexicon.Get("audio.fix_tool.label"));
+        // DRAFT PROSE (#835): awaiting Noel. His words, 21:46.
+        JJFlexHelp.SetText(_fixToolButton, Lexicon.Get("audio.fix_tool.help"));
+        _fixToolButton.Click += (s, e) => OpenFixTool();
+        CheckContent.Children.Add(_fixToolButton);
 
         // A tabbable Close, last in the ring (#835, fix round 2026-10-28; Noel
         // 20:36). It takes the title bar's route: closing this window, by any

@@ -307,7 +307,6 @@ audio.audio_layer.vox_not_in_cw_suffix	4c01ad56d50710bf
 audio.binaural.off	a10b7f02bb01f249
 audio.binaural.on	7a6d564629860878
 audio.check.buffer_nearly_full	2fe705db41b87d98
-audio.check.could_not_start	0563be1440107193
 audio.check.dummy_load_released	78cd5f4bccd600f8
 audio.check.elapsed_minutes	985e020816ab4ea4
 audio.check.elapsed_one_minute	420a257bcefae4e7
@@ -325,7 +324,6 @@ audio.check.loopback_setup_failed	9a6eadc36e492e8f
 audio.check.mic_audio_was	c54b1d4863af4487
 audio.check.monitor_on	c30bea0dc5907cde
 audio.check.monitor_restored_off	07d54ccb1bd7d1e3
-audio.check.no_recording_available	45b2a58e1e7b019c
 audio.check.no_recording_yet	a9090e10fab6602c
 audio.check.playback_stopped	39e8223548889fc4
 audio.check.playing_take	0b9da35e8e9ebbd9
@@ -333,7 +331,6 @@ audio.check.playing_take_full_chain	dcf0ffdca0a2e4af
 audio.check.playing_take_shortly	d11fe8d8c17cc923
 audio.check.power_reduced_for_check	5d7c4aa92ad5e565
 audio.check.power_restored	033ce80c1e82b713
-audio.check.radio_did_not_key	91db785ac2b73237
 audio.check.radio_disconnected	250e861ea3bb9b29
 audio.check.recorder_already_running	ae65b438d414b9a8
 audio.check.recording_plays_back	f422a16f2883ddbf
