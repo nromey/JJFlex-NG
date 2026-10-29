@@ -78,6 +78,7 @@ public partial class AudioWorkshopDialog
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2), MinLines = 2,
             Text = Lexicon.Get("audio.diagnostics.bench_idle") };
         AutomationProperties.SetName(_benchStatus, Lexicon.Get("audio.iq.status_label"));
+        JJFlexHelp.SetText(_benchStatus, Lexicon.Get("audio.diagnostics.help.bench_status"));
         AddToSection(DiagnosticsContent, _benchStatus);
 
         _benchRate = new ComboBox { ItemsSource = new[] { Lexicon.Get("audio.iq.rate24"), Lexicon.Get("audio.iq.rate48"), Lexicon.Get("audio.iq.rate96") }, SelectedIndex = 0, Margin = new Thickness(2) };
@@ -86,8 +87,10 @@ public partial class AudioWorkshopDialog
         AddToSection(DiagnosticsContent, _benchRate);
         _benchSeparate = new CheckBox { Content = Lexicon.Get("audio.iq.separate_pan"), Margin = new Thickness(2) };
         AutomationProperties.SetName(_benchSeparate, Lexicon.Get("audio.iq.separate_pan"));
+        JJFlexHelp.SetText(_benchSeparate, Lexicon.Get("audio.diagnostics.help.separate_pan"));
         _benchFdx = new CheckBox { Content = Lexicon.Get("audio.iq.full_duplex"), Margin = new Thickness(2) };
         AutomationProperties.SetName(_benchFdx, Lexicon.Get("audio.iq.full_duplex"));
+        JJFlexHelp.SetText(_benchFdx, Lexicon.Get("audio.diagnostics.help.full_duplex"));
         _benchSeparate.Checked += (_, _) => { if (!_polling) ToggleFeedback.Announce("Separate pan", true); };
         _benchSeparate.Unchecked += (_, _) => { if (!_polling) ToggleFeedback.Announce("Separate pan", false); };
         _benchFdx.Checked += (_, _) => { if (!_polling) ToggleFeedback.Announce("Full duplex", true); };
@@ -99,11 +102,16 @@ public partial class AudioWorkshopDialog
         JJFlexHelp.SetText(_benchAntenna, Lexicon.Get("audio.iq.antenna_help"));
         AddToSection(DiagnosticsContent, _benchAntenna);
 
-        _benchDiagnostic = BenchButton("diagnostic_start", () => _ = ToggleDiagnosticAsync());
-        _benchPreflight = BenchButton("preflight_button", () => _ = PreflightAsync());
-        BenchButton("detune_plus", () => _ = PlayDetunedAsync(1000));
-        BenchButton("detune_minus", () => _ = PlayDetunedAsync(-1000));
-        _benchRecovery = BenchButton("recovery_button", () => _ = RestoreBenchAsync());
+        // Short labels, and Ctrl+F1 says what each does (ruled by Noel
+        // 2026-10-28 20:48: "shorten them I'd say and make sure ctrl+f1
+        // explains them"). The ten seconds, the never-keys promise and the
+        // prove-it-is-real purpose moved from the labels into the explanations.
+        // JJFlexHelp.Text, never HelpText, which NVDA reads on every focus (#91).
+        _benchDiagnostic = BenchButton("diagnostic_start", "audio.diagnostics.help.diagnostic_take", () => _ = ToggleDiagnosticAsync());
+        _benchPreflight = BenchButton("preflight_button", "audio.diagnostics.help.capacity", () => _ = PreflightAsync());
+        BenchButton("detune_plus", "audio.diagnostics.help.detune_plus", () => _ = PlayDetunedAsync(1000));
+        BenchButton("detune_minus", "audio.diagnostics.help.detune_minus", () => _ = PlayDetunedAsync(-1000));
+        _benchRecovery = BenchButton("recovery_button", "audio.diagnostics.help.recovery", () => _ = RestoreBenchAsync());
         _benchRecovery.Visibility = Visibility.Collapsed;
 
         // The one sentence that stands in for the section over SmartLink.
@@ -117,6 +125,7 @@ public partial class AudioWorkshopDialog
             Focusable = true,
         };
         AutomationProperties.SetName(_benchUnavailable, _benchUnavailable.Text);
+        JJFlexHelp.SetText(_benchUnavailable, Lexicon.Get("audio.diagnostics.help.bench_smartlink"));
         DiagnosticsContent.Children.Add(_benchUnavailable);
 
         _benchWatch.Tick += async (_, _) =>
@@ -127,13 +136,16 @@ public partial class AudioWorkshopDialog
         UpdateBenchToolsAvailability();
     }
 
-    private Button BenchButton(string key, Action click)
+    /// <param name="key">The label's key under <c>audio.iq.</c>.</param>
+    /// <param name="helpKey">Its Ctrl+F1 explanation's lexicon key, in full.</param>
+    private Button BenchButton(string key, string helpKey, Action click)
     {
         string fullKey = "audio.iq." + key;
         string name = Lexicon.Get(fullKey);
         var button = new Button { Content = name, Margin = new Thickness(2), Padding = new Thickness(8, 4, 8, 4),
             HorizontalAlignment = HorizontalAlignment.Left };
         AutomationProperties.SetName(button, name);
+        JJFlexHelp.SetText(button, Lexicon.Get(helpKey));
         button.Click += (_, _) => click();
         AddToSection(DiagnosticsContent, button);
         return button;

@@ -1868,6 +1868,21 @@ namespace Radios.Tests
                 "audio.check.status.computer_mic",
                 "audio.check.about.computer_mic",
                 "audio.check.computer_mic.idle",
+                // Track A, fix round 2026-10-28: Ctrl+F1 for every control on
+                // the Workshop's Diagnostics page that had none (ruled 20:48:
+                // short labels, and Ctrl+F1 explains them).
+                "audio.diagnostics.help.diagnostic_take",
+                "audio.diagnostics.help.capacity",
+                "audio.diagnostics.help.detune_plus",
+                "audio.diagnostics.help.detune_minus",
+                "audio.diagnostics.help.recovery",
+                "audio.diagnostics.help.separate_pan",
+                "audio.diagnostics.help.full_duplex",
+                "audio.diagnostics.help.bench_status",
+                "audio.diagnostics.help.rx_result",
+                "audio.diagnostics.help.tx_result",
+                "audio.diagnostics.help.evidence",
+                "audio.diagnostics.help.bench_smartlink",
             };
 
             Assert.Equal(3138, unclassified);   // Track A 2026-10-28: the Workshop's removed Check Microphone button took its two sentences with it

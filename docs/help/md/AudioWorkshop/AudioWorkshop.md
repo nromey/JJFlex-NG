@@ -167,7 +167,7 @@ Both ride the PC audio path, so they need PC audio on and the radio's transmit i
 
 ### Results
 
-Results appear only once there is a take. **Play last take** plays the slice recording with Record yourself, or the off-air take with Hear what you transmitted, and stops a playback in progress. With an off-air take you also get **Play what I sent** and **Tell me how my sound changed compared to my last take**, which compares each new take with the one before it this session. **Review unrestored take settings** appears only when a take left radio settings the radio never confirmed putting back.
+Results appear only once there is a take. **Play last take** plays the slice recording with Record yourself, or the off-air take with Hear what you transmitted, and stops a playback in progress. With an off-air take you also get **Play what I sent** and **Tell me how my sound changed compared to my last take**, which compares each new take with the one before it this session. **Review unrestored settings** appears only when a take left radio settings the radio never confirmed putting back.
 
 ### Escape, and what a check puts back
 
@@ -177,7 +177,7 @@ One honest warning worth knowing: if your hand mic keys the radio through a hard
 
 ### Bench tools
 
-The receive-only diagnostic take, the ten-second IQ capacity check and the two "Prove it is real" detune buttons prove that the take machinery works, rather than check how you sound, so they live on the Audio Workshop's **Diagnostics** category, under **Bench tools**. They are not offered over SmartLink, which does not carry IQ.
+**Diagnostic take** (receive-only), **Check IQ capacity** (ten seconds), and **Play 1 kHz higher** and **Play 1 kHz lower** (prove it is real) prove that the take machinery works, rather than check how you sound, so they live on the Audio Workshop's **Diagnostics** category, under **Bench tools**. They are not offered over SmartLink, which does not carry IQ.
 
 ### Command Finder
 

@@ -163,5 +163,36 @@ namespace Radios.Tests
             Assert.Contains("**Alt+C** — Open Check your audio", Source("docs/help/md/KeyboardReference/KeyboardReference.md"));
             Assert.Contains("`Alt+C` — open Check your audio", Source("docs/help/md/AudioWorkshop/AudioWorkshop.md"));
         }
+
+        // ── Item 11: the Diagnostics page's short labels and their Ctrl+F1 ──
+
+        [Theory]
+        [InlineData("audio.iq.diagnostic_start", "Diagnostic take", "audio.diagnostics.help.diagnostic_take")]
+        [InlineData("audio.iq.preflight_button", "Check IQ capacity", "audio.diagnostics.help.capacity")]
+        [InlineData("audio.iq.detune_plus", "Play 1 kHz higher", "audio.diagnostics.help.detune_plus")]
+        [InlineData("audio.iq.detune_minus", "Play 1 kHz lower", "audio.diagnostics.help.detune_minus")]
+        [InlineData("audio.iq.recovery_button", "Review unrestored settings", "audio.diagnostics.help.recovery")]
+        public void Each_bench_button_has_its_short_label_and_a_Ctrl_F1_explanation(string label, string text, string help)
+        {
+            Assert.Equal(text, Lexicon.Get(label));
+            string explanation = Lexicon.Get(help);
+            Assert.NotEqual(help, explanation);
+            Assert.EndsWith(".", explanation);
+        }
+
+        [Fact]
+        public void Every_control_on_the_Diagnostics_page_has_Ctrl_F1_and_none_uses_HelpText()
+        {
+            string bench = Dialog("AudioWorkshopDialog.BenchTools");
+            string diag = Dialog("AudioWorkshopDialog.Diagnostics");
+            Assert.Contains("JJFlexHelp.SetText(button, Lexicon.Get(helpKey));",
+                Body(bench, "private Button BenchButton(string key, string helpKey, Action click)"));
+            foreach (var control in new[] { "_benchStatus", "_benchRate", "_benchSeparate", "_benchFdx", "_benchAntenna", "_benchUnavailable" })
+                Assert.Contains("JJFlexHelp.SetText(" + control + ",", bench);
+            foreach (var control in new[] { "rxButton", "txButton", "_copyEvidenceButton", "_rxAdvisoryBox", "_txReportBox", "_evidenceBox" })
+                Assert.Contains("JJFlexHelp.SetText(" + control + ",", diag);
+            Assert.DoesNotContain("SetHelpText(", bench);
+            Assert.DoesNotContain("SetHelpText(", diag);
+        }
     }
 }

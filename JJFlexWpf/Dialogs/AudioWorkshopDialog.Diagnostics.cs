@@ -158,6 +158,7 @@ public partial class AudioWorkshopDialog
         AddToSection(DiagnosticsContent, rxButton);
 
         _rxAdvisoryBox = MakeReportBox("Receive audio test result", 3, 12);
+        JJFlexHelp.SetText(_rxAdvisoryBox, Lexicon.Get("audio.diagnostics.help.rx_result"));
         AddToSection(DiagnosticsContent, _rxAdvisoryBox);
 
         AddSectionHeader(DiagnosticsContent, "Why can nobody hear me");
@@ -193,6 +194,7 @@ public partial class AudioWorkshopDialog
         AddToSection(DiagnosticsContent, txButton);
 
         _txReportBox = MakeReportBox("Transmit chain test result", 8, 20);
+        JJFlexHelp.SetText(_txReportBox, Lexicon.Get("audio.diagnostics.help.tx_result"));
         _txReportBox.Text = NoTxReportYet;
         AddToSection(DiagnosticsContent, _txReportBox);
 
@@ -209,6 +211,7 @@ public partial class AudioWorkshopDialog
         AddToSection(DiagnosticsContent, evIntro);
 
         _evidenceBox = MakeReportBox("Evidence to send to Flex support", 8, 24);
+        JJFlexHelp.SetText(_evidenceBox, Lexicon.Get("audio.diagnostics.help.evidence"));
         _evidenceBox.Text = NoEvidenceYet;
         AddToSection(DiagnosticsContent, _evidenceBox);
 
