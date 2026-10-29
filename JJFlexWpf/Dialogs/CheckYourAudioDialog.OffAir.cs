@@ -249,9 +249,12 @@ public partial class CheckYourAudioDialog
             else
             {
                 TakeAnalysisResult? measured = null;
+                TakeRenderResult? rendered = null;
                 if (take.Get("mode") is "USB" or "LSB")
-                    await Task.Run(() => SsbTakeRenderer.Render(run.DirectoryPath));
-                string seconds = ListenbackTakes.Seconds(take);
+                    rendered = await Task.Run(() => SsbTakeRenderer.Render(run.DirectoryPath));
+                // The length said is the playback's, from just before the key
+                // (fix round 2026-10-28): the countdown's setup hiss is not the take.
+                string seconds = ListenbackTakes.Seconds(take, rendered);
                 if (!run.HasRadioKeying) IqStatus(Lexicon.Get("audio.iq.never_keyed"), true);
                 else IqStatus(Lexicon.Get("audio.iq.take_result", ("state", ListenbackTakes.StateText(take.State)),
                     ("seconds", seconds),
@@ -260,9 +263,9 @@ public partial class CheckYourAudioDialog
                     ("classifier", take.Get("classifier") ?? Lexicon.Get("audio.iq.unknown"))) +
                     (take.Get("startup-signature") == "detected" ? " " + Lexicon.Get("audio.iq.startup_signature") : ""),
                     speak: false);
-                if (run.HasRadioKeying && !_iqClosing && File.Exists(Path.Combine(run.DirectoryPath, "heard.wav")))
+                string heardPath = ListenbackTakes.PlaybackPath(run.DirectoryPath, rendered);
+                if (run.HasRadioKeying && !_iqClosing && File.Exists(heardPath))
                 {
-                    string heardPath = Path.Combine(run.DirectoryPath, "heard.wav");
                     if (_iqAutoCompare?.IsChecked == true)
                     {
                         _pendingAutoPlayback = heardPath;

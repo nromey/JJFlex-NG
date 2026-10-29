@@ -68,6 +68,21 @@ internal static class ListenbackTakes
     internal static string UnalignedKey(string reason) => reason == "not-keyed" ? "audio.iq.no_transmission" :
         reason == "sent-unavailable" ? "audio.iq.sent_unavailable" : "audio.iq.not_aligned";
 
+    /// <summary>
+    /// The take's length as the status lines say it: the PLAYBACK's, from just
+    /// before the first keyed mark, when there is a render (#835, fix round
+    /// 2026-10-28); the whole capture otherwise.
+    /// </summary>
+    internal static string Seconds(TakeInspection take, TakeRenderResult? rendered) =>
+        rendered != null && rendered.PlaybackPath.Length > 0
+            ? rendered.PlaybackSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)
+            : Seconds(take);
+
+    /// <summary>The file to play: the trimmed playback when there is one, heard.wav otherwise.</summary>
+    internal static string PlaybackPath(string directory, TakeRenderResult? rendered) =>
+        rendered != null && rendered.PlaybackPath.Length > 0 && System.IO.File.Exists(rendered.PlaybackPath)
+            ? rendered.PlaybackPath : System.IO.Path.Combine(directory, "heard.wav");
+
     /// <summary>The take's length in seconds, as the status lines say it.</summary>
     internal static string Seconds(TakeInspection take) =>
         (double.Parse(take.Get("pairs-written") ?? "0", System.Globalization.CultureInfo.InvariantCulture) /
@@ -144,7 +159,7 @@ internal static class ListenbackTakes
         var rendered = await Task.Run(() => SsbTakeRenderer.Render(directory, detune));
         if (!stillWanted(rig)) return null;
         string playbackKey = take.State == "incomplete" ? "audio.iq.playing_incomplete" : detune == 0 ? "audio.iq.playing" : "audio.iq.playing_detuned";
-        await PlayAfterClickAsync(rendered.Path, Lexicon.Get(playbackKey), rig, stillWanted,
+        await PlayAfterClickAsync(PlaybackPath(directory, rendered), Lexicon.Get(playbackKey), rig, stillWanted,
             offAirListeningGain: true);
         return null;
     }
