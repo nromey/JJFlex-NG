@@ -434,6 +434,8 @@ public partial class CheckYourAudioDialog
     {
         _checkStarts.Cancel();
         _iqCancellation?.Cancel();
+        // A count still playing stops where it is (#835); one that has ended is left alone.
+        _startCountdown?.Cancel();
     }
 
     /// <summary>
@@ -494,6 +496,8 @@ public partial class CheckYourAudioDialog
         using var tracking = TrackStart(rig, "loopback check start");
         _loopbackStarting = true;
         SetStartButtonLabel("Stop Audio Check");
+        // The count plays while the arrangement goes up (#835, 21:35).
+        BeginStartCountdown(AudioCheckListenMethods.Loopback);
         try
         {
         if (!await rig.StartLoopbackArrangementAsync())
@@ -549,6 +553,7 @@ public partial class CheckYourAudioDialog
         }
         finally
         {
+            EndStartCountdown();
             _loopbackStarting = false;
             if (_session?.Active != true) SetStartButtonLabel("Start Audio Check");
         }
@@ -627,6 +632,8 @@ public partial class CheckYourAudioDialog
         using var start = _checkStarts.TryBegin();
         if (start == null || _session?.Active == true) return;
         SetStartButtonLabel("Stop Audio Check");
+        // The count plays while the session sets up (#835).
+        BeginStartCountdown(session.Method);
         try
         {
             if (await session.StartAsync(start))
@@ -645,6 +652,7 @@ public partial class CheckYourAudioDialog
         }
         finally
         {
+            EndStartCountdown();
             if (_session?.Active != true) SetStartButtonLabel("Start Audio Check");
         }
     }
@@ -1021,6 +1029,8 @@ public partial class CheckYourAudioDialog
 
         public bool Active { get; private set; }
         public bool IsLoopback => _loopback;
+        /// <summary>The method this session runs; its countdown names it (#835).</summary>
+        public AudioCheckListenMethods Method => _method;
 
         /// <summary>True for the methods that record while keyed and play back after.</summary>
         private bool Records => _method == AudioCheckListenMethods.RecordPlayback
@@ -1170,6 +1180,18 @@ public partial class CheckYourAudioDialog
                     rig.Monitor = FlexBase.OffOnValues.on;
                     Remember(rig, "audio check: monitor", () => rig.Monitor = FlexBase.OffOnValues.off);
                 }
+            }
+
+            // The countdown (#835, Noel 21:35). Everything above ran while it
+            // counted; reaching here confirms the setup, and the key goes down
+            // only once the count has ended too. A count called off (Escape,
+            // Stop, the window closing) rolls back what the setup changed.
+            if (!await _owner.CountdownLetsKeyAsync())
+            {
+                RestoreWhenReceiving(rig);
+                if (Records && !recorderAlreadyRunning)
+                    await RecorderControls.ReportStopFailureAsync(rig.StopSliceRecordAsync(_recorderTarget));
+                return false;
             }
 
             // Key through the controller. Its own key-down announcement fires
