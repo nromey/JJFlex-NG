@@ -156,22 +156,77 @@ public partial class CycleFieldControl : UserControl
                 ValuePatternIdentifiers.ValueProperty, oldValue, newValue);
     }
 
+    // ── Options for a field that is a SEQUENCE rather than a cycle (#835,
+    // fix round 2026-10-28). Every default is the behaviour this control has
+    // always had, so the other users of it do not move under the operator:
+    // Up forward, Down backward, wrapping at both ends, Home and End untouched.
+    // Check your audio's method field sets all four, because its methods are an
+    // escalation with a first and a last step (ruled by Noel 20:32 and 21:20).
+
+    /// <summary>When false, an arrow at either end stays put and <see cref="AtBoundary"/> is told. Default true: wrap.</summary>
+    public bool Wraps { get; set; } = true;
+
+    /// <summary>When true, Down goes to the NEXT option and Up back. Default false: Up goes forward.</summary>
+    public bool DownMovesForward { get; set; }
+
+    /// <summary>When true, Home goes to the first option and End to the last. Default false: they pass through.</summary>
+    public bool HomeEndJump { get; set; }
+
+    /// <summary>
+    /// Called when a key would move past an end and the field does not wrap,
+    /// with true at the first option and false at the last. The owner plays the
+    /// boundary sound; the control knows no sounds.
+    /// </summary>
+    public Action<bool>? AtBoundary { get; set; }
+
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (_options.Length == 0) return;
+        if (HandleKey(e.Key)) e.Handled = true;
+    }
 
-        switch (e.Key)
+    /// <summary>The key handling itself, separate from the event so it can be driven without a window. True when the key was the field's.</summary>
+    internal bool HandleKey(Key key)
+    {
+        if (_options.Length == 0) return false;
+
+        switch (key)
         {
             case Key.Up:
-                CycleForward();
-                e.Handled = true;
-                break;
+                if (DownMovesForward) Step(-1); else Step(+1);
+                return true;
 
             case Key.Down:
-                CycleBackward();
-                e.Handled = true;
-                break;
+                if (DownMovesForward) Step(+1); else Step(-1);
+                return true;
+
+            case Key.Home when HomeEndJump:
+                if (_selectedIndex == 0) AtBoundary?.Invoke(true);
+                else SetIndex(0);
+                return true;
+
+            case Key.End when HomeEndJump:
+                if (_selectedIndex == _options.Length - 1) AtBoundary?.Invoke(false);
+                else SetIndex(_options.Length - 1);
+                return true;
         }
+        return false;
+    }
+
+    /// <summary>One option along: +1 is the next, -1 the previous.</summary>
+    private void Step(int direction)
+    {
+        if (Wraps)
+        {
+            if (direction > 0) CycleForward(); else CycleBackward();
+            return;
+        }
+        int target = _selectedIndex + direction;
+        if (target < 0 || target >= _options.Length)
+        {
+            AtBoundary?.Invoke(target < 0);
+            return;
+        }
+        SetIndex(target);
     }
 
     private void CycleForward()

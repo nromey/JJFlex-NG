@@ -113,5 +113,23 @@ namespace Radios.Tests
             // Positive control: the capability moved, it did not vanish.
             Assert.Contains("AudioCheckListenMethods.ComputerMic", Source("Radios/AudioCheckMethods.cs"));
         }
+
+        // ── Item 6: the method field is a sequence; nothing else moved ──
+
+        [Fact]
+        public void Only_the_method_field_is_a_sequence_and_it_plays_the_existing_boundary_sound()
+        {
+            string build = Body(Dialog("CheckYourAudioDialog.Check"), "private void BuildCheckDialog()");
+            Assert.Contains("_listenMethodControl.Wraps = false;", build);
+            Assert.Contains("_listenMethodControl.DownMovesForward = true;", build);
+            Assert.Contains("_listenMethodControl.HomeEndJump = true;", build);
+            Assert.Contains("EarconPlayer.FilterBoundaryHitTone(", build);
+            // No other file sets the options: every other cycle field keeps its keys.
+            var setters = Directory.GetFiles(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf"), "*.cs", SearchOption.AllDirectories)
+                .Where(f => !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar))
+                .Where(f => File.ReadAllText(f).Contains(".DownMovesForward = true"))
+                .Select(Path.GetFileName).ToList();
+            Assert.Equal(new[] { "CheckYourAudioDialog.Check.cs" }, setters);
+        }
     }
 }

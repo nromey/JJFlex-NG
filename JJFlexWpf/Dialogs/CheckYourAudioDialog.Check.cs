@@ -76,6 +76,15 @@ public partial class CheckYourAudioDialog
 
         _sections.Open(CheckContent, "Method");
         _listenMethodControl = MakeCycle("Method", MethodNames(_offered));
+        // The methods are an escalation (ruled by Noel 2026-10-28 20:32 and
+        // 21:20): Down goes to the NEXT step and Up back, Home and End jump to
+        // the first and the last, and at either end the arrow stays put and
+        // the existing boundary sound plays. Only this field; the control's
+        // defaults, used by every other cycle field, are unchanged.
+        _listenMethodControl.Wraps = false;
+        _listenMethodControl.DownMovesForward = true;
+        _listenMethodControl.HomeEndJump = true;
+        _listenMethodControl.AtBoundary = atFirst => EarconPlayer.FilterBoundaryHitTone(isLowEdge: atFirst);
         // Before a radio is known, show the local default rather than the
         // first row; SetRig resolves the real choice.
         _listenMethodControl.SuppressEvents = true;
