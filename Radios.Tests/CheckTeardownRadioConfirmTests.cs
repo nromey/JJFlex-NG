@@ -93,7 +93,7 @@ public sealed class CheckTeardownRadioConfirmTests : IDisposable
         // connection is going, or the command channel has stalled.
         c.F.Vendor.Transport.CommandWritten = command =>
         {
-            if (command == "ping") return;
+            if (command.StartsWith("ping", StringComparison.Ordinal)) return;
             answer!(command);
         };
         RememberPower(c, 66);
@@ -124,5 +124,69 @@ public sealed class CheckTeardownRadioConfirmTests : IDisposable
         var threw = await AudioCheckTeardown.RunAsync(() => Task.FromResult(true), () => false,
             _ => Task.FromResult(true), TimeSpan.FromSeconds(2), _ => throw new InvalidOperationException());
         Assert.Equal("radio", threw.Stage);
+    }
+
+    [Fact]
+    public async Task The_confirmation_still_goes_out_and_completes_while_a_trace_topic_is_held()
+    {
+        // Codex round 1, follow-up 3: FlexLib's SendCommand, with any telnet
+        // trace topic selected, takes the command's first word with
+        // Substring(0, IndexOf(' ')) and throws on a one-word command. A status
+        // tap (an IQ take, Track B's send-piece PTT watch) holds topics, so a
+        // bare "ping" sent during one failed before it reached the socket.
+        using var c = new RadioCase();
+        using var tap = new Radios.Listenback.RadioStatusTap(c.F.Vendor.Radio);
+        Assert.NotEmpty(c.F.Vendor.Radio.SelectedTelnetTraceTopics);   // the condition under test is real
+
+        RememberPower(c, 55);
+        c.F.Rig.BeginCheckTeardown();
+        var settle = c.F.Rig.SettleChecksForTeardownAsync(TimeSpan.FromSeconds(4));
+        await Pump(c, () => settle.IsCompleted, TimeSpan.FromSeconds(6));
+        var result = await settle;
+        Assert.True(result.Completed, "stage " + result.Stage);
+        int write = IndexOf(c, "rfpower=55");
+        int ping = IndexOf(c, "ping ", write + 1);
+        Assert.True(write >= 0 && ping > write, "the confirmation went out after the write, as a command FlexLib can trace");
+        c.F.Rig.EndCheckTeardown();
+    }
+
+    [Fact]
+    public async Task With_a_trace_topic_held_an_unanswered_confirmation_is_still_named_not_completed()
+    {
+        using var c = new RadioCase();
+        using var tap = new Radios.Listenback.RadioStatusTap(c.F.Vendor.Radio);
+        var answer = c.F.Vendor.Transport.CommandWritten;
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command.StartsWith("ping", StringComparison.Ordinal)) return;
+            answer!(command);
+        };
+        RememberPower(c, 44);
+        c.F.Rig.BeginCheckTeardown();
+        var settle = c.F.Rig.SettleChecksForTeardownAsync(TimeSpan.FromMilliseconds(1500));
+        await Pump(c, () => settle.IsCompleted, TimeSpan.FromSeconds(4));
+        Assert.Equal(new AudioCheckTeardownResult(false, "radio"), await settle);
+        Assert.True(IndexOf(c, "ping ") >= 0, "the confirmation was asked for, and simply not answered");
+        c.F.Rig.EndCheckTeardown();
+    }
+
+    [Fact]
+    public async Task The_confirmation_completes_while_the_send_pieces_interlock_topic_is_held()
+    {
+        // The exact shape Track B's send-piece PTT-source watch leaves behind:
+        // the "interlock" topic selected on the radio for as long as a send runs.
+        using var c = new RadioCase();
+        c.F.Vendor.Radio.AddTelnetTraceTopic("interlock");
+        try
+        {
+            RememberPower(c, 33);
+            c.F.Rig.BeginCheckTeardown();
+            var settle = c.F.Rig.SettleChecksForTeardownAsync(TimeSpan.FromSeconds(4));
+            await Pump(c, () => settle.IsCompleted, TimeSpan.FromSeconds(6));
+            var result = await settle;
+            Assert.True(result.Completed, "stage " + result.Stage);
+            c.F.Rig.EndCheckTeardown();
+        }
+        finally { c.F.Vendor.Radio.RemoveTelnetTraceTopic("interlock"); }
     }
 }

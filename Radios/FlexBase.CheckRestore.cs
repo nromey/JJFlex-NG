@@ -68,7 +68,14 @@ public partial class FlexBase
         var radio = theRadio;
         if (radio == null) return false;
         var answered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        string? refusal = SendRadioCommandWithReply(radio, "ping", reply => answered.TrySetResult(reply.Acknowledged));
+        // NOT a bare "ping" (Codex round 1): FlexLib's SendCommand, whenever any
+        // telnet trace topic is selected, takes the first word with
+        // Substring(0, IndexOf(' ')) and throws on a one-word command. Status
+        // taps hold topics (an IQ take; a send piece's PTT-source watch), so a
+        // teardown during one would have been refused before the socket. This
+        // is the form FlexLib's own keepalive sends, which the radio answers.
+        string ping = "ping ms_timestamp=" + (Environment.TickCount64 & 0x7FFFFFFF).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        string? refusal = SendRadioCommandWithReply(radio, ping, reply => answered.TrySetResult(reply.Acknowledged));
         if (refusal != null)
         {
             Tracing.TraceLine("Check restore: the radio was not asked to confirm: " + refusal, System.Diagnostics.TraceLevel.Warning);
