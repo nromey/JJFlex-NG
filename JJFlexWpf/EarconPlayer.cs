@@ -2314,6 +2314,12 @@ namespace JJFlexWpf
             // is armed by Gate for every other earcon, so it is set explicitly
             // here rather than left holding whatever the previous sound used.
             _currentTrimDb = GetLevelTrimDb(nameof(SpeechUnavailableAlarm));
+            // It skips the gate, and so the switches, by design; the mixer
+            // must not apply the master mute either, or on a live alert
+            // channel this alarm is silenced the moment alert sounds are off
+            // (#810 repair, round two). The admission is the same one every
+            // warning opens, and ends with this method.
+            using var admitted = AdmitWarnings();
             RxDuck.RequestFor(1900);
             PlayVoicedSequenceCore(EarconVoices.Alarm,
                 new[] { (800, 750), (0, 400), (800, 750) }, VolumeStrong);

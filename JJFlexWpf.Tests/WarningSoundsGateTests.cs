@@ -155,6 +155,37 @@ public sealed class WarningSoundsGateTests
         Assert.Equal(0, Submitted(master: false, warnings: false, Play(earcon)));
     }
 
+    /// <summary>
+    /// Round two (the Codex re-check, B2): the speech-unavailable alarm skips
+    /// the gate by design, and the mixer still applied the master mute to it.
+    /// It fires when the program cannot speak, so it must sound whatever the
+    /// switches say.
+    /// </summary>
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    public void The_speech_unavailable_alarm_is_submitted_whatever_the_switches_say(bool master, bool warnings)
+    {
+        AssertWindowless();
+        Assert.True(Submitted(master, warnings, EarconPlayer.SpeechUnavailableAlarm) > 0,
+            "the speech-unavailable alarm was not submitted with master=" + master + ", warnings=" + warnings);
+    }
+
+    /// <summary>
+    /// Round two (F2): the panned route. A bench pan sends the sound through
+    /// AddToMixerPanned rather than AddToMixer, and that helper read the
+    /// master switch too.
+    /// </summary>
+    [Fact]
+    public void A_panned_warning_is_submitted_with_alert_sounds_off()
+    {
+        AssertWindowless();
+        Assert.True(Submitted(master: false, warnings: true,
+                () => EarconPlayer.PlayWithBenchSettings(EarconPlayer.WarningAlarmTone, 1f, 0.6f)) > 0,
+            "a panned warning passed the gate and never reached the mixer");
+    }
+
     [Fact]
     public void A_long_transmission_beep_still_meets_the_master_mute_and_the_seam_sees_it_when_on()
     {
@@ -230,6 +261,23 @@ public sealed class WarningSoundsGateTests
             Assert.Equal("using var admitted = AdmitWarnings();", m.Groups[2].Value.Trim());
         }
         Assert.True(seen >= 3, "only " + seen + " Warnings gates were found");
+
+        // And every earcon LISTED under Warnings, gated or not, opens it: the
+        // speech-unavailable alarm has no gate and was missed by the check
+        // above until round two.
+        var listed = new System.Text.RegularExpressions.Regex(
+            @"\[Earcon\(""[^""]*"",\s*EarconCategory\.Warnings(?:(?!\[Earcon\()[\s\S])*?public static void (\w+)\(\)\s*\{");
+        int warnings = 0;
+        foreach (System.Text.RegularExpressions.Match m in listed.Matches(source))
+        {
+            warnings++;
+            int bodyStart = m.Index + m.Length;
+            int next = source.IndexOf("public static", bodyStart, System.StringComparison.Ordinal);
+            string body = source.Substring(bodyStart, (next < 0 ? source.Length : next) - bodyStart);
+            Assert.True(body.Contains("using var admitted = AdmitWarnings();", System.StringComparison.Ordinal),
+                m.Groups[1].Value + " is listed under Warnings but never opens the admission");
+        }
+        Assert.True(warnings >= 4, "only " + warnings + " Warnings earcons were found");
     }
 
     /// <summary>
