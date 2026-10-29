@@ -11092,9 +11092,13 @@ namespace Radios
         /// the rear RCA keeps the rig transmitting no matter what the app
         /// does, and the operator must be told so (2026-08-07 stuck-TX
         /// episode, interlock source=RCA).
+        /// While a send holds <see cref="WatchPttSource"/>, the radio's own
+        /// <c>source=</c> word is read as sent, because FlexLib drops a list
+        /// such as <c>RCA,SW</c> and keeps the stale <c>SW</c> (#835, bench
+        /// 2026-10-28); see <see cref="PttSourceReading"/>.
         /// </summary>
         public bool PttSourceIsHardware =>
-            theRadio?.PTTSource is PTTSource.Mic or PTTSource.ACC or PTTSource.RCA;
+            PttSourceReading.IsHardware(theRadio?.PTTSource ?? PTTSource.None, RawPttSource);
 
         // ── Loopback check plumbing (QB Track G, 2026-08-07) ──
         //

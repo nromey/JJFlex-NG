@@ -39,8 +39,12 @@ namespace Radios
     /// through that unkey keeps the radio keyed by itself.
     /// </para>
     /// <para>
-    /// Not proved anywhere but the bench: what the radio reports as the
-    /// source when a hardware line is pressed under a software key.
+    /// <b>Read off the 8600 on 2026-10-28:</b> a hardware line pressed under the
+    /// send's software key is reported as BOTH, <c>source=RCA,SW</c>, which
+    /// FlexLib cannot parse and drops. The reading therefore holds only while
+    /// the send holds <see cref="FlexBase.WatchPttSource"/>, which reads the
+    /// radio's word as sent (<see cref="PttSourceReading"/>); the send host
+    /// takes that watch for every piece.
     /// </para>
     /// </remarks>
     public sealed class BoxSendTakeover

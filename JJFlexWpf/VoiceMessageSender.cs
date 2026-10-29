@@ -100,6 +100,52 @@ internal static class VoiceMessageSender
         public SendSession Session = new(0);
         /// <summary>The piece about to start carries on after a pause, so it says so rather than "Sending".</summary>
         public bool Resuming;
+        /// <summary>What the running piece holds on the radio, given back when it settles.</summary>
+        public PieceHolds? Holds;
+    }
+
+    /// <summary>
+    /// What a send holds on the radio for exactly the life of one piece, from
+    /// before it keys until it settles (#835, fix round 2026-10-28). A paused
+    /// send holds none of it. Disposing twice is harmless.
+    /// </summary>
+    /// <remarks>
+    /// The radio's PTT source read as the radio sends it
+    /// (<see cref="FlexBase.WatchPttSource"/>), so a hardware PTT pressed under
+    /// the send's own key is seen: the radio reports <c>RCA,SW</c>, which
+    /// FlexLib cannot parse.
+    /// </remarks>
+    private sealed class PieceHolds : IDisposable
+    {
+        private IDisposable? _pttWatch;
+
+        private PieceHolds(IDisposable? pttWatch) { _pttWatch = pttWatch; }
+
+        public static PieceHolds Take(FlexBase rig)
+        {
+            IDisposable? watch = null;
+            try { watch = rig.WatchPttSource(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("VoiceMessageSender: the PTT source watch could not start: " + ex.Message,
+                    TraceLevel.Warning);
+            }
+            return new PieceHolds(watch);
+        }
+
+        public void Dispose()
+        {
+            System.Threading.Interlocked.Exchange(ref _pttWatch, null)?.Dispose();
+        }
+    }
+
+    /// <summary>Give back what a piece held. Safe when it held nothing.</summary>
+    private static void ReleaseHolds(SendInfo? info)
+    {
+        if (info == null) return;
+        PieceHolds? holds = info.Holds;
+        info.Holds = null;
+        holds?.Dispose();
     }
 
     private static SendInfo? _current;
@@ -553,6 +599,23 @@ internal static class VoiceMessageSender
     private static async Task BeginBoxAsync(FlexBase rig, SendInfo info, IVoiceMessageRig sendRig,
         bool startsOnKey, Action joinInstead)
     {
+        // This attempt's own holds, taken before anything can key: handed to
+        // the piece if it launches, given back on every other road out.
+        PieceHolds? holds = PieceHolds.Take(rig);
+        try
+        {
+            if (await BeginBoxCoreAsync(rig, info, sendRig, startsOnKey, joinInstead, holds)) holds = null;
+        }
+        finally
+        {
+            holds?.Dispose();
+        }
+    }
+
+    /// <summary>The box start itself; true when the piece launched and took <paramref name="holds"/>.</summary>
+    private static async Task<bool> BeginBoxCoreAsync(FlexBase rig, SendInfo info, IVoiceMessageRig sendRig,
+        bool startsOnKey, Action joinInstead, PieceHolds holds)
+    {
         _starting = info;
         // A kill from here on cancels this send's key, whatever route it takes
         // (fix round 1, Codex's follow-up 4). Escape invalidates _starting;
@@ -571,13 +634,13 @@ internal static class VoiceMessageSender
         {
             // Stopped, or replaced by another press, while the radio answered.
             pause?.Dispose();
-            return;
+            return false;
         }
         if (pause == null)
         {
             _starting = null;
             RefuseOrHold(info, Lexicon.Get("audio.send.vox_unconfirmed"));
-            return;
+            return false;
         }
 
         // The tail of VOX's own hold on the operator's last words. It counts
@@ -591,7 +654,7 @@ internal static class VoiceMessageSender
         if (!ReferenceEquals(_starting, info))
         {
             pause.Dispose();
-            return;
+            return false;
         }
         _starting = null;
         if (TransmitKillSwitch.DisarmGeneration != disarmsAtPress)
@@ -601,7 +664,7 @@ internal static class VoiceMessageSender
             Tracing.TraceLine("VoiceMessageSender: box send of " + Name(info) + " cancelled by a kill before it keyed",
                 TraceLevel.Warning);
             pause.Dispose();
-            return;
+            return false;
         }
 
         PttSafetyController? ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
@@ -614,12 +677,12 @@ internal static class VoiceMessageSender
                 + ": the radio is held by the operator or another source, so the send joins it", TraceLevel.Info);
             pause.Dispose();
             joinInstead();
-            return;
+            return false;
         }
         if (ptt != null && ptt.RefuseIfHeldAfterCut("a send"))
         {
             pause.Dispose();
-            return;
+            return false;
         }
 
         info.VoxPause = pause;
@@ -647,10 +710,11 @@ internal static class VoiceMessageSender
             // A kill came while this send was getting ready. Nothing keys.
             pause.Dispose();
             info.VoxPause = null;
-            return;
+            return false;
         }
         var send = VoiceMessageSend.BeginKeyed(info.Owned, Name(info), Environment.TickCount64, options);
-        Launch(rig, info, send, info.MonitorPath ?? "", "box");
+        Launch(rig, info, send, info.MonitorPath ?? "", "box", holds);
+        return true;
     }
 
     // ── Hearing the send ────────────────────────────────────────────────
@@ -679,8 +743,14 @@ internal static class VoiceMessageSender
 
     private static string Name(SendInfo info) => info.Kind == SendKind.VoiceMessage ? info.Label : info.What;
 
-    private static void Launch(FlexBase rig, SendInfo info, VoiceMessageSend send, string path, string describe)
+    private static void Launch(FlexBase rig, SendInfo info, VoiceMessageSend send, string path, string describe,
+        PieceHolds? holds = null)
     {
+        // The piece's holds: handed over by a box start, taken here otherwise.
+        // An earlier piece's are already given back by Settle; any left are a
+        // defect, and go now rather than leak.
+        ReleaseHolds(info);
+        info.Holds = holds ?? PieceHolds.Take(rig);
         PttSafetyController? ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
         _send = send;
         _current = info;
@@ -999,6 +1069,7 @@ internal static class VoiceMessageSender
             _watchedBy = null;
         }
         StopMonitor(info);
+        ReleaseHolds(info);
         // The box's VOX pause: VOX comes back on only once the radio reports
         // receive and the transmit path has drained, so the recording's tail
         // cannot key it again. A send the operator took over gives it back
