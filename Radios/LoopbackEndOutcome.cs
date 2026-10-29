@@ -81,9 +81,20 @@ namespace Radios
         private static IReadOnlyList<string> InOrder(IReadOnlyList<string>? parts) =>
             (parts ?? Array.Empty<string>()).OrderBy(p => Array.IndexOf(Order, p) is int i && i >= 0 ? i : Order.Length).ToList();
 
+        // DRAFT PROSE (#835): awaiting Noel.
+        private static string PartName(string part) => Lexicon.Get(part switch
+        {
+            Antenna => "audio.check.loopback_part.antenna",
+            Power => "audio.check.loopback_part.power",
+            Monitor => "audio.check.loopback_part.monitor",
+            Duplex => "audio.check.loopback_part.duplex",
+            Drive => "audio.check.loopback_part.drive",
+            _ => "audio.check.loopback_part.mutes",
+        });
+
         private static string Join(IReadOnlyList<string> parts)
         {
-            var names = parts.Select(p => Lexicon.Get("audio.check.loopback_part." + p)).ToList();
+            var names = parts.Select(PartName).ToList();
             if (names.Count == 1) return names[0];
             return string.Join(", ", names.Take(names.Count - 1)) + " " + Lexicon.Get("audio.check.loopback_part.and") + " " + names[^1];
         }
