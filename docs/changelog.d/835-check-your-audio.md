@@ -1,2 +1,8 @@
 - Check your audio is now its own window, opened with the JJ key then Alt+C, from the Audio menu, or from the Audio Workshop: test your microphone with nothing going on the air, hear yourself live, or record yourself and hear it back. It offers only what your radio and connection can do, so over SmartLink you no longer meet off-air take controls your radio cannot use.
 - In Check your audio, Ctrl+F1 on the method tells you what the method you've chosen does, and F1 opens the help right at that method.
+- Check your audio now starts with a check of this computer's microphone that needs no radio at all, and with no radio connected it is the one check offered. Arrow down from it and each check goes one step further; Home and End take you to the first and the last.
+- The line under the method is one short sentence again, and your screen reader reads it when you tab to it.
+- A Fix tool button in Check your audio and on the Audio Workshop's Diagnostics page opens the Fix tool, and a check that fails tells you it is there.
+- Both windows have a Close button you can tab to, Alt+C in the Audio Workshop opens Check your audio, and Home's Audio and Slice group has a Check your audio button right after your microphone's verdict.
+- An off-air take now plays back from when you keyed, so it no longer starts with seconds of hiss, and it is heard on whatever band you are on rather than sometimes coming back as static.
+- The Audio Workshop's Check Microphone button is gone; that check lives in Check your audio now.
