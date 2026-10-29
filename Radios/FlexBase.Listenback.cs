@@ -464,7 +464,6 @@ public partial class FlexBase
                 ["daxiq-capacity"] = radio.DAXIQCapacity.ToString(CultureInfo.InvariantCulture),
                 ["pan-id"] = pan.StreamID.ToString("X"), ["receive-antenna"] = pan.RXAnt,
                 ["rf-gain"] = pan.RFGain.ToString(CultureInfo.InvariantCulture),
-                ["pan-centre-mhz"] = pan.CenterFreq.ToString("R", CultureInfo.InvariantCulture),
                 ["tx-frequency-mhz"] = tx.Freq.ToString("R", CultureInfo.InvariantCulture), ["mode"] = tx.DemodMode,
                 ["tx-antenna"] = tx.TXAnt, ["rf-power"] = radio.RFPower.ToString(CultureInfo.InvariantCulture),
                 ["dummy-load"] = DummyLoadMode.ToString(), ["tx-filter-low"] = TXFilterLow.ToString(CultureInfo.InvariantCulture),
@@ -491,6 +490,19 @@ public partial class FlexBase
                 ["preflight"] = RemoteRig ? _listenbackPreflightResult : "LAN; not required",
                 ["kind"] = options.OffAir ? "off-air" : "receive-only-diagnostic"
             };
+            // The pan centre is written only once the radio has REPORTED it
+            // (#835, fix round 2026-10-28). It was read here from FlexLib's
+            // cache, which for a pan we had just moved could still hold the
+            // radio-chosen creation frequency: the radio reported the move 668 ms
+            // after the tune on the failed bench take and 23 ms after on a good
+            // one. The renderer demodulates at tx-frequency minus pan-centre, so
+            // the take played static on 15 m and detuned on 40 m. A take on the
+            // transmit pan, which nothing moved, keeps the cached centre.
+            if (created == null)
+            {
+                provenance["pan-centre-mhz"] = pan.CenterFreq.ToString("R", CultureInfo.InvariantCulture);
+                provenance["pan-centre-source"] = "unmoved-transmit-pan";
+            }
             foreach (var fact in provenance) writer.Header.Write(fact.Key, fact.Value);
             writer.Header.Event("tx-equalizer", GetTxEq() == null ? null :
                 new { GetTxEq().Enabled, GetTxEq().Hz32, GetTxEq().Hz63, GetTxEq().Hz125, GetTxEq().Hz250, GetTxEq().Hz500, GetTxEq().Hz1000, GetTxEq().Hz2000, GetTxEq().Hz4000, GetTxEq().Hz8000 });
@@ -546,6 +558,12 @@ public partial class FlexBase
                     if (observation != lastObservation) { writer.Header.Write("listener-confirmation", observation); lastObservation = observation; }
                     if (sliceProblem.Length == 0 && panProblem.Length == 0)
                     {
+                        // The centre the radio reported for the pan it moved,
+                        // which the frequency clause above has just matched to
+                        // the transmit frequency. Nothing keys before this:
+                        // the caller keys only once this start has returned.
+                        writer.Header.Write("pan-centre-mhz", panReport.Frequency.ToString("R", CultureInfo.InvariantCulture));
+                        writer.Header.Write("pan-centre-source", "radio-report");
                         snapshot.Resources.Add(sliceReport); snapshot.Resources.Add(panReport);
                         store.Save(snapshot);
                         writer.Header.Event("confirmed-created-resources", snapshot.Resources);
