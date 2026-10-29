@@ -22,8 +22,10 @@ namespace Radios
     /// <param name="Ms">The tone's length.</param>
     /// <param name="Beeped">Whether the tone plays.</param>
     /// <param name="Spoken">What is spoken on this beat, or null.</param>
+    /// <param name="Sound">The pip sound, one of <see cref="CountdownSettings.PipSounds"/>. Carried
+    /// on the beat so Play sample plays the choice on screen, not the one saved.</param>
     public sealed record CountdownBeat(int AtMs, int Number, bool IsLanding, int Hz, int Ms,
-        bool Beeped, string? Spoken);
+        bool Beeped, string? Spoken, string Sound = CountdownSettings.DefaultPipSound);
 
     /// <summary>
     /// A countdown worked out in full before it plays (#835): every beat's
@@ -127,7 +129,8 @@ namespace Radios
                     Hz: landing ? s.LandingHz : s.PipHz,
                     Ms: landing ? s.LandingMs : s.PipMs,
                     Beeped: beep,
-                    Spoken: speak ? numberText(number) : null));
+                    Spoken: speak ? numberText(number) : null,
+                    Sound: s.PipSound));
             }
             return new CountdownPlan(voicing, lead, beats, first + s.Seconds * CountdownSettings.BeatMs);
         }

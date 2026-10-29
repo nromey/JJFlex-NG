@@ -1992,6 +1992,11 @@ namespace Radios.Tests
                 // Alt chord names both (ruled 2026-10-28 21:25). TextOnly on
                 // leader.near_miss's reasoning, beside which it sits. Draft prose.
                 "leader.near_miss_two",
+                // Check your audio Track C, fix round 2026-10-29 (#835): the
+                // countdown's pip sound, ruled 00:51. Draft prose, awaiting Noel.
+                "audio.countdown.pip_sound_label",
+                "audio.countdown.pip_sound_default",
+                "audio.countdown.pip_sound_help",
             };
 
             Assert.Equal(3135, unclassified);   // Track A 2026-10-28: the Workshop's removed Check Microphone button took its two sentences with it, and three failure sentences that now name the Fix tool were classified

@@ -86,6 +86,52 @@ public sealed class CountdownWiringTests
         Assert.True(older.Countdown.LeadIn);
     }
 
+    [Fact]
+    public void Every_pip_sound_is_a_CW_waveform_and_the_countdown_plays_it()
+    {
+        // Ruled 2026-10-29 00:51: the six existing CW waveforms, the Fix tool
+        // following the choice. One definition of each spectrum: the countdown
+        // resolves the CW set's, it does not declare its own.
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Assert.Equal(EarconVoices.CwWaveforms.Select(w => w.Id), CountdownSettings.PipSounds);
+
+        foreach (var id in CountdownSettings.PipSounds)
+        {
+            var voice = EarconPlayer.CountdownVoiceFor(id);
+            Assert.NotNull(voice);
+            var cw = EarconVoices.ResolveCwWaveform(id);
+            Assert.Equal(id, cw.Id); // resolved, not fallen back
+            if (cw.Voice != null)
+                Assert.Same(cw.Voice, voice);
+            else
+                Assert.Equal(new[] { 1f }, voice.Partials); // Sine: one pure partial, not some other voice
+        }
+
+        // The live voice follows the operator's committed choice, which is
+        // what the Fix tool's figure plays.
+        var original = CountdownSettings.Current;
+        try
+        {
+            CountdownSettings.Current = new CountdownSettings { PipSound = "Bell" };
+            Assert.Same(EarconVoices.ResolveCwWaveform("Bell").Voice, EarconPlayer.CountdownVoice);
+            CountdownSettings.Current = new CountdownSettings();
+            Assert.Same(EarconVoices.ResolveCwWaveform("Hollow").Voice, EarconPlayer.CountdownVoice);
+        }
+        finally { CountdownSettings.Current = original; }
+    }
+
+    [Fact]
+    public void The_pip_sound_is_saved_and_loaded_with_the_audio_settings()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var back = RoundTrip(new AudioOutputConfig { Countdown = new CountdownSettings { PipSound = "Reed" } });
+        Assert.Equal("Reed", back.Countdown.PipSound);
+
+        var older = (AudioOutputConfig)new XmlSerializer(typeof(AudioOutputConfig))
+            .Deserialize(new StringReader("<AudioOutputConfig><Countdown><Seconds>6</Seconds></Countdown></AudioOutputConfig>"))!;
+        Assert.Equal(CountdownSettings.DefaultPipSound, older.Countdown.PipSound);
+    }
+
     private static AudioOutputConfig RoundTrip(AudioOutputConfig config)
     {
         var xs = new XmlSerializer(typeof(AudioOutputConfig));

@@ -296,6 +296,47 @@ namespace Radios.Tests
             Assert.Equal(4000, clock.Now);
         }
 
+        // ── The pip sound (ruled 2026-10-29 00:51) ─────────────────────────
+
+        [Fact]
+        public void The_pip_sound_offers_the_six_CW_sounds_and_Hollow_stays_the_default()
+        {
+            Assert.Equal(new[] { "Sine", "Square", "Sawtooth", "Reed", "Hollow", "Bell" }, CountdownSettings.PipSounds);
+            Assert.Equal("Hollow", CountdownSettings.DefaultPipSound);
+            Assert.Equal("Hollow", new CountdownSettings().PipSound);
+        }
+
+        [Fact]
+        public void The_pip_sound_survives_a_save_and_load_and_an_unknown_one_falls_back_to_the_default()
+        {
+            Assert.Equal("Bell", RoundTrip(new CountdownSettings { PipSound = "Bell" }).PipSound);
+            Assert.Equal("Bell", new CountdownSettings { PipSound = "Bell" }.Clone().PipSound);
+
+            // A hand-edited file: the right sound in the wrong case is that sound;
+            // a sound that does not exist is the default, never silence.
+            Assert.Equal("Sawtooth", new CountdownSettings { PipSound = "sawTOOTH" }.Clamped().PipSound);
+            Assert.Equal("Hollow", new CountdownSettings { PipSound = "Kazoo" }.Clamped().PipSound);
+            Assert.Equal("Hollow", new CountdownSettings { PipSound = null! }.Clamped().PipSound);
+            var original = CountdownSettings.Current;
+            try
+            {
+                CountdownSettings.Current = new CountdownSettings { PipSound = "reed" };
+                Assert.Equal("Reed", CountdownSettings.Current.PipSound);
+            }
+            finally { CountdownSettings.Current = original; }
+        }
+
+        [Fact]
+        public void Every_beat_carries_the_chosen_sound_so_Play_sample_plays_what_is_on_screen()
+        {
+            // Play sample plays the settings as they stand on screen, uncommitted,
+            // so the sound must travel with the plan, not be read from the live set.
+            var plan = CountdownPlan.For(new CountdownSettings { PipSound = "Square" }, CountdownVoicing.Beeped);
+            Assert.All(plan.Beats, b => Assert.Equal("Square", b.Sound));
+            var sample = CheckCountdown.SamplePlan(new CountdownSettings { PipSound = "Bell" }, true, VerbosityLevel.Terse);
+            Assert.All(sample.Beats, b => Assert.Equal("Bell", b.Sound));
+        }
+
         // ── Control skips the rest of the count (Noel 2026-10-29 01:05) ────
 
         [Fact]

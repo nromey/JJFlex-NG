@@ -909,9 +909,11 @@ namespace JJFlexWpf
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// The countdown's voice: the same clarinet spectrum the CW waveform
-        /// set calls "Hollow", resolved rather than re-declared so there is
-        /// still one definition of it in the assembly.
+        /// The countdown's voice: the operator's pip sound from the Countdown
+        /// settings, one of the CW waveform set's spectra (Hollow, the
+        /// clarinet, unless they chose another), resolved rather than
+        /// re-declared so there is still one definition of each in the
+        /// assembly. The Fix tool's figure and its test-finished fall play it.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -934,9 +936,40 @@ namespace JJFlexWpf
         /// live transmitter. Worth revisiting by ear, but the safe default is
         /// that a safety cue does not get quieter or plainer on a preference.
         /// </para>
+        /// <para>
+        /// <b>Superseded in part, 2026-10-29 00:51:</b> Noel heard Hollow's pips
+        /// and ruled a pip-sound choice of all six CW waveforms, Sine included.
+        /// The voice-set switch still does not move it; only the operator's own
+        /// choice in the Countdown group does, and Hollow stays the default.
+        /// </para>
         /// </remarks>
-        private static MeterVoice CountdownVoice =>
-            EarconVoices.ResolveCwWaveform("Hollow").Voice ?? EarconVoices.Chime;
+        internal static MeterVoice CountdownVoice =>
+            CountdownVoiceFor(Radios.CountdownSettings.Current.PipSound);
+
+        /// <summary>
+        /// The countdown's voice for a pip sound (#835, ruled 2026-10-29
+        /// 00:51): the CW waveform of that id, resolved from the CW set so each
+        /// spectrum is still defined once. The CW set's Sine has no voice (the
+        /// CW renderer draws it plainly), so here it is one pure partial.
+        /// </summary>
+        /// <remarks>
+        /// An unknown id is the default sound (<see cref="Radios.CountdownSettings.KnownPipSound"/>),
+        /// and if a waveform ever disappears the fallback is still a sound, for
+        /// the reason given above: silence here reads as "not started yet".
+        /// </remarks>
+        internal static MeterVoice CountdownVoiceFor(string? id)
+        {
+            var wave = EarconVoices.ResolveCwWaveform(Radios.CountdownSettings.KnownPipSound(id));
+            if (wave.Voice != null) return wave.Voice;
+            return string.Equals(wave.Id, "Sine", StringComparison.OrdinalIgnoreCase) ? CountdownSine : EarconVoices.Chime;
+        }
+
+        /// <summary>The Sine pip sound: one pure partial, shaped by the countdown's own decay.</summary>
+        private static MeterVoice CountdownSine { get; } = new MeterVoice
+        {
+            Name = "Countdown Sine",
+            Partials = new[] { 1f },
+        };
 
         /// <summary>The counting pitch. Three dits at this, then a landing
         /// derived from it.</summary>
@@ -1248,11 +1281,13 @@ namespace JJFlexWpf
         /// <param name="hz">The beat's pitch: the pip, or the octave above for the landing.</param>
         /// <param name="ms">The beat's length; it decays inside it.</param>
         /// <param name="landing">True for the long tone on the last beat.</param>
-        internal static void CountdownBeatTone(int hz, int ms, bool landing)
+        /// <param name="sound">The pip sound, carried by the beat so Play sample plays the choice on screen.</param>
+        internal static void CountdownBeatTone(int hz, int ms, bool landing, string? sound)
         {
-            if (!GateDetailed(EarconCategory.Transmit, landing ? "beat=landing" : "beat=count",
+            if (!GateDetailed(EarconCategory.Transmit,
+                    (landing ? "beat=landing" : "beat=count") + " sound=" + Radios.CountdownSettings.KnownPipSound(sound),
                     nameof(CountdownTransmitTone))) return;
-            PlayVoicedDecaySequence(CountdownVoice, new[] { (hz, ms) }, VolumeStrong);
+            PlayVoicedDecaySequence(CountdownVoiceFor(sound), new[] { (hz, ms) }, VolumeStrong);
         }
 
         // ── The connect ladder ────────────────────────────────────────────

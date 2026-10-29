@@ -1382,11 +1382,11 @@
   "audio.countdown.method.other": {"text": "the check", "delivery": null},
   "audio.countdown.method.computer_mic": {"text": "the computer microphone check", "delivery": null},
   "audio.countdown.group": {"text": "Countdown", "delivery": null},
-  "audio.countdown.enabled_label": {"text": "Count down before Check your audio transmits", "delivery": null},
-  "audio.countdown.enabled_help": {"text": "On, Check your audio counts you in before it keys the radio, and sets the check up while it counts; if the setup takes longer, the last beat waits for it. The Fix tool counts down before its tests either way, at the length, pitch and pip length set here.", "delivery": null},
+  "audio.countdown.enabled_label": {"text": "Countdown before audio transmission or check", "delivery": null},
+  "audio.countdown.enabled_help": {"text": "On, Check your audio counts you in before it keys the radio, and sets the check up while it counts; if the setup takes longer, the last beat waits for it. During the count, Control on its own skips the rest and transmits, and Escape stops the check without transmitting. The Fix tool counts down before its tests either way, at the length, pitch, sound and pip length set here.", "delivery": null},
   "audio.countdown.seconds_label": {"text": "Countdown length", "delivery": null},
   "audio.countdown.seconds_help": {"text": "How many seconds the countdown lasts, from 2 to 10. Each second is one pip, and the last one is the long tone.", "delivery": null},
-  "audio.countdown.pitch_label": {"text": "Pip pitch", "delivery": null},
+  "audio.countdown.pitch_label": {"text": "Countdown beep or pip pitch (Hz)", "delivery": null},
   "audio.countdown.pitch_preset": {"text": "{hz} hertz", "delivery": null},
   "audio.countdown.pitch_preset_default": {"text": "{hz} hertz, the default", "delivery": null},
   "audio.countdown.pitch_custom": {"text": "Custom pitch", "delivery": null},
@@ -1402,5 +1402,8 @@
   "audio.send.message_taken_over_ptt": {"text": "{label} stopped.", "delivery": null},
   "audio.send.taken_over_ptt": {"text": "Stopped sending {what}.", "delivery": null},
   "audio.recorder.pause_play_from_computer_button": {"text": "Pause playing from computer", "delivery": null},
-  "audio.recorder.carry_on_play_from_computer_button": {"text": "Carry on playing from computer", "delivery": null}
+  "audio.recorder.carry_on_play_from_computer_button": {"text": "Carry on playing from computer", "delivery": null},
+  "audio.countdown.pip_sound_label": {"text": "Countdown beep or pip sound", "delivery": null},
+  "audio.countdown.pip_sound_default": {"text": "{sound}, the default", "delivery": null},
+  "audio.countdown.pip_sound_help": {"text": "The sound of the counting pips and the long tone at the end: the same six sounds CW notifications offer. Play sample plays your choice before you keep it, and the Fix tool's countdown uses it too.", "delivery": null}
 }
