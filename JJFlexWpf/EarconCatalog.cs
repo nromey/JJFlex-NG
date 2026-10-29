@@ -215,8 +215,10 @@ namespace JJFlexWpf
                 "Filter edges and boundaries, band edges, and frequency-entry confirmations.",
             EarconPlayer.EarconCategory.CommandsAndConfirmations =>
                 "JJ-layer tones, feature on and off, mute all, and confirmations.",
+            // DRAFT PROSE (#810): the second sentence is new and the wording is Noel's.
             EarconPlayer.EarconCategory.Warnings =>
-                "Something is wrong. The one family worth thinking twice about switching off.",
+                "Something is wrong. The one family worth thinking twice about switching off. "
+                + "These play even with alert sounds switched off; only their own switch silences them.",
             _ =>
                 "Calibration and bench sounds. These answer to the master earcon switch only, "
                 + "on purpose — they are not part of any family an operator would turn off.",

@@ -61,7 +61,8 @@ namespace JJFlexWpf
             /// connect progresses, and the double-beep at the top when it
             /// lands.</summary>
             Connection = 0,
-            /// <summary>TX start/stop, hard kill, tune carrier, ATU, PTT warnings.</summary>
+            /// <summary>TX start/stop, tune carrier, ATU, PTT warnings. (The hard
+            /// kill moved to Warnings under #810.)</summary>
             Transmit = 1,
             /// <summary>Dialog open/close dings and panel expand/collapse sweeps.</summary>
             DialogsAndPanels = 2,
@@ -80,6 +81,10 @@ namespace JJFlexWpf
             /// off. Everything else here answers a key the operator just
             /// pressed; this fires when the app has something to say that
             /// nobody asked for.
+            ///
+            /// And the hard-kill tone, since #810. This category does NOT answer
+            /// to the master <see cref="EarconsEnabled"/> switch: it plays with
+            /// alert sounds off and is silenced only by its own switch.
             /// </summary>
             Warnings = 5,
         }
@@ -92,13 +97,30 @@ namespace JJFlexWpf
         public static bool GetCategoryEnabled(EarconCategory category) =>
             _categoryEnabled[(int)category];
 
-        /// <summary>Enable or disable one earcon category. Master gate still wins.</summary>
+        /// <summary>Enable or disable one earcon category. The master gate still
+        /// wins for every category except <see cref="EarconCategory.Warnings"/>.</summary>
         public static void SetCategoryEnabled(EarconCategory category, bool enabled) =>
             _categoryEnabled[(int)category] = enabled;
 
-        /// <summary>Master gate AND the category's own switch.</summary>
+        /// <summary>
+        /// The master gate AND the category's own switch, except for warnings,
+        /// which answer to their own switch alone.
+        /// </summary>
+        /// <remarks>
+        /// #810, ruled by Noel 2026-10-22: "If alarm sounds are on, and sound
+        /// is off, alarms should still play." The whole Warnings category (the
+        /// warning alarm and the problem-recorded tone) and the hard-kill tone,
+        /// which lives in that category for this reason, play with alert sounds
+        /// off and are silenced only by the Warning sounds switch, on by
+        /// default. The long-transmission warnings stay behind the master
+        /// switch on purpose: their first two beeps are also the everyday
+        /// out-of-range nudges. This is the ONE place the rule lives; every
+        /// gated earcon and <see cref="IsOn"/> come through here.
+        /// </remarks>
         private static bool On(EarconCategory category) =>
-            EarconsEnabled && _categoryEnabled[(int)category];
+            category == EarconCategory.Warnings
+                ? _categoryEnabled[(int)category]
+                : EarconsEnabled && _categoryEnabled[(int)category];
 
         /// <summary>
         /// Whether the operator's switches — master and category — let a
@@ -842,11 +864,16 @@ namespace JJFlexWpf
         }
 
         /// <summary>Hard kill tone — two rapid descending beeps.</summary>
-        [Earcon("Hard kill", EarconCategory.Transmit, Order = 3,
+        /// <remarks>
+        /// In the Warnings category, not Transmit, since #810: a cut-off
+        /// transmission is a critical alarm, so it plays with alert sounds off
+        /// and answers only to the Warning sounds switch (see <see cref="On"/>).
+        /// </remarks>
+        [Earcon("Hard kill", EarconCategory.Warnings, Order = 4,
             Description = "Transmission was cut off rather than ended.")]
         public static void HardKillTone()
         {
-            if (!Gate(EarconCategory.Transmit)) return;
+            if (!Gate(EarconCategory.Warnings)) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (1000, 100), (0, 30), (600, 200) }, VolumeStrong);
         }
@@ -2202,7 +2229,8 @@ namespace JJFlexWpf
         /// <para>
         /// <b>This is the only earcon in the app that ignores the switches, and
         /// the exception is deliberate.</b> Every other sound here answers to
-        /// <see cref="EarconsEnabled"/> and to its category, because an operator
+        /// its category's switch (and, outside the Warnings category, to
+        /// <see cref="EarconsEnabled"/> as well, #810), because an operator
         /// who says "no alarm tones" means it. This one fires in the single
         /// state where the application has no other voice of its own: the
         /// speech library failed to load, so nothing can be announced, and an
