@@ -169,6 +169,15 @@ namespace JJFlexWpf
         public static bool Installed => _hookHandle != IntPtr.Zero;
 
         /// <summary>
+        /// True from the first moment the hook was installed, for the rest of
+        /// the process, through any fault or unhook. A window deciding a key
+        /// gesture by itself may do so only while this is false: once a hook
+        /// has run, it may have swallowed a key the window never saw (#835).
+        /// </summary>
+        public static bool EverInstalled => _everInstalled;
+        private static volatile bool _everInstalled;
+
+        /// <summary>
         /// A bare Control (pressed and released with no other key, the hook's
         /// swallowed keys included) was just released, anywhere (#835). Raised
         /// on the UI dispatcher. Check your audio's countdown skip listens; it
@@ -348,6 +357,7 @@ namespace JJFlexWpf
                 }
                 else
                 {
+                    _everInstalled = true;
                     Tracing.TraceLine("SystemWideKeys: hook installed on the dedicated hook thread", TraceLevel.Info);
                 }
             }
@@ -440,7 +450,7 @@ namespace JJFlexWpf
                     // Every edge, passed or swallowed, in the order it came: the
                     // one place a bare Control can be told from a chord whose
                     // letter this hook eats (#835, Codex round 2, B1).
-                    bare = _bareGestures.Observe(data.vkCode, isDown, now);
+                    bare = _bareGestures.Observe(data.vkCode, isDown, now, (long)GetForegroundWindow());
                     switch (d.Action)
                     {
                         case SystemWideAction.PttDown:

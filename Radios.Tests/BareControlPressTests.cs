@@ -166,11 +166,15 @@ namespace Radios.Tests
             // and the window's own bare release, only when no hook is installed.
             Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(src, @"\.Skip\(\)").Count);
             string hookPath = Body(src, "private void OnHookBareControl");
-            Assert.Contains("_skipGate.HookVerdictSkips(verdict, SystemWideKeys.Installed, IsActive,", hookPath);
+            Assert.Contains("_skipGate.HookVerdictSkips(verdict, SystemWideKeys.Installed, IsActive, OwnWindowHandle,", hookPath);
+            Assert.Contains("_activeSinceTick, run.IsRunning, _countdownStartedTick", hookPath);
+            // Ownership is dated: reactivation restarts it, deactivation ends it.
+            Assert.Contains("Activated += (s, e) => _activeSinceTick = Environment.TickCount64;", src);
+            Assert.Contains("_activeSinceTick = long.MaxValue;", src);
             Assert.Contains("run.Skip();", hookPath);
             string windowPath = Body(src, "private void CountdownSkipKeyUp");
             int bare = windowPath.IndexOf("if (!bare) return;", System.StringComparison.Ordinal);
-            int may = windowPath.IndexOf("CountdownSkipGate.WindowMayDecide(_hookAtControlDown, SystemWideKeys.Installed)", System.StringComparison.Ordinal);
+            int may = windowPath.IndexOf("CountdownSkipGate.WindowMayDecide(_hookAtControlDown, SystemWideKeys.EverInstalled)", System.StringComparison.Ordinal);
             int skip = windowPath.IndexOf(".Skip()", System.StringComparison.Ordinal);
             Assert.True(bare > 0 && may > bare && skip > may, "the window's skip must sit behind both its own bare test and the no-hook test");
 
@@ -179,7 +183,7 @@ namespace Radios.Tests
             string hook = Read("JJFlexWpf", "SystemWideKeys.cs");
             string callback = Body(hook, "private static IntPtr HookCallback");
             int decide = callback.IndexOf("d = _decider.Decide(data.vkCode, isDown, held);", System.StringComparison.Ordinal);
-            int observe = callback.IndexOf("bare = _bareGestures.Observe(data.vkCode, isDown, now);", System.StringComparison.Ordinal);
+            int observe = callback.IndexOf("bare = _bareGestures.Observe(data.vkCode, isDown, now, (long)GetForegroundWindow());", System.StringComparison.Ordinal);
             int swallow = callback.IndexOf("if (d.Swallow)", System.StringComparison.Ordinal);
             Assert.True(decide > 0 && observe > decide && swallow > observe, "every edge must reach the gesture tracker, before the swallow");
             Assert.Contains("BareControlReleased?.Invoke(verdict)", callback);
@@ -214,7 +218,7 @@ namespace Radios.Tests
                 var d = decider.Decide(k.vk, k.down, new SystemWideModifiers(k.ctrl, k.alt, k.shift));
                 if (systemWide)
                 {
-                    var v = gestures.Observe(k.vk, k.down, tick);
+                    var v = gestures.Observe(k.vk, k.down, tick, Own);
                     if (v != null) verdicts.Add(v.Value);
                 }
                 if (!d.Swallow) passed.Add((k.vk, k.down, k.alt, k.shift));
@@ -235,7 +239,8 @@ namespace Radios.Tests
             // The hook's verdicts, later still.
             var gate = new CountdownSkipGate();
             foreach (var v in verdicts)
-                skipped |= gate.HookVerdictSkips(v, hookInstalled, windowActive: true, countRunning: true, countStartedTick: countStarted);
+                skipped |= gate.HookVerdictSkips(v, hookInstalled, windowActive: true, ownWindow: Own,
+                    activeSinceTick: 0, countRunning: true, countStartedTick: countStarted);
             return skipped;
         }
 
@@ -297,31 +302,86 @@ namespace Radios.Tests
 
         // ── The gate: which count, which window, once ──────────────────────
 
+        private const long Own = 7, Other = 9;
+
+        /// <summary>The gate with this window active since 500 and a count started at 1000, unless a test says otherwise.</summary>
+        private static bool Gate(BareControlRelease v, bool hookInstalled = true, bool windowActive = true,
+            long activeSince = 500, bool countRunning = true, long countStarted = 1000, CountdownSkipGate? gate = null) =>
+            (gate ?? new CountdownSkipGate()).HookVerdictSkips(v, hookInstalled, windowActive, Own, activeSince,
+                countRunning, countStarted);
+
         [Fact]
         public void A_hook_verdict_skips_only_this_windows_running_count_pressed_during_it_and_only_once()
         {
-            var during = new BareControlRelease(Gesture: 1, DownTick: 2000, UpTick: 2100);
-            Assert.True(new CountdownSkipGate().HookVerdictSkips(during, true, true, true, countStartedTick: 1000));
+            var during = new BareControlRelease(Gesture: 1, DownTick: 2000, UpTick: 2100, DownWindow: Own, UpWindow: Own);
+            Assert.True(Gate(during));
 
             // Control went down before the count began (the Ctrl+Enter that started it).
-            Assert.False(new CountdownSkipGate().HookVerdictSkips(during with { DownTick = 900 }, true, true, true, 1000));
-            // Another program was in front.
-            Assert.False(new CountdownSkipGate().HookVerdictSkips(during, true, windowActive: false, true, 1000));
+            Assert.False(Gate(during with { DownTick = 900 }));
+            // Another program is in front now.
+            Assert.False(Gate(during, windowActive: false));
             // No count running.
-            Assert.False(new CountdownSkipGate().HookVerdictSkips(during, true, true, countRunning: false, 1000));
+            Assert.False(Gate(during, countRunning: false));
             // The hook is gone: a stale verdict is not trusted.
-            Assert.False(new CountdownSkipGate().HookVerdictSkips(during, hookInstalled: false, true, true, 1000));
+            Assert.False(Gate(during, hookInstalled: false));
 
             // One gesture, one skip; an older one never.
             var gate = new CountdownSkipGate();
-            Assert.True(gate.HookVerdictSkips(during, true, true, true, 1000));
-            Assert.False(gate.HookVerdictSkips(during, true, true, true, 1000));
-            Assert.False(gate.HookVerdictSkips(during with { Gesture = 0 }, true, true, true, 1000));
-            Assert.True(gate.HookVerdictSkips(during with { Gesture = 2 }, true, true, true, 1000));
+            Assert.True(Gate(during, gate: gate));
+            Assert.False(Gate(during, gate: gate));
+            Assert.False(Gate(during with { Gesture = 0 }, gate: gate));
+            Assert.True(Gate(during with { Gesture = 2 }, gate: gate));
+        }
+
+        /// <summary>Codex round 3, F1: a press at the count's own start tick is not provably after it.</summary>
+        [Fact]
+        public void A_press_stamped_at_the_counts_own_start_never_skips()
+        {
+            var v = new BareControlRelease(1, DownTick: 1000, UpTick: 1100, DownWindow: Own, UpWindow: Own);
+            Assert.False(Gate(v, countStarted: 1000));
+            Assert.True(Gate(v with { DownTick = 1001 }, countStarted: 1000));
+        }
+
+        /// <summary>
+        /// Codex round 3, B2: the gesture must belong to THIS window from the
+        /// moment Control went down, not merely have this window in front when
+        /// the verdict is read.
+        /// </summary>
+        [Fact]
+        public void A_Control_pressed_in_another_window_then_released_here_never_skips()
+        {
+            // Codex's mouse-activation schedule: Control down at 1100 in another
+            // window, a mouse click brings this window in front at 1300 (no
+            // keyboard edge), Control released here at 1500. Now this window is
+            // active, but it was not when Control went down.
+            var mouse = new BareControlRelease(1, DownTick: 1100, UpTick: 1500, DownWindow: Other, UpWindow: Own);
+            Assert.False(Gate(mouse, activeSince: 1300));
+            // Even if the hook could not name the window, the activation is later than the press.
+            Assert.False(Gate(mouse with { DownWindow = Own }, activeSince: 1300));
+            // And the window named at the press decides on its own.
+            Assert.False(Gate(mouse, activeSince: 500));
         }
 
         [Fact]
-        public void The_window_decides_alone_only_when_no_hook_was_installed_at_either_end()
+        public void A_verdict_queued_while_another_window_was_in_front_never_skips_once_this_one_returns()
+        {
+            // Press and release both in another window; the verdict is read
+            // only after this window has come back to the front.
+            var elsewhere = new BareControlRelease(1, DownTick: 1100, UpTick: 1200, DownWindow: Other, UpWindow: Other);
+            Assert.False(Gate(elsewhere, activeSince: 1300));
+            // Read while the other window is still in front.
+            Assert.False(Gate(elsewhere, windowActive: false));
+            // Pressed here, this window went away and came back before the release.
+            var leftAndBack = new BareControlRelease(1, DownTick: 1100, UpTick: 1500, DownWindow: Own, UpWindow: Own);
+            Assert.False(Gate(leftAndBack, activeSince: 1300));
+            // Positive control: pressed and released here, this window in front the whole time.
+            Assert.True(Gate(leftAndBack, activeSince: 1000));
+            // And an activation stamped at the very tick of the press is not provably before it.
+            Assert.False(Gate(leftAndBack, activeSince: 1100));
+        }
+
+        [Fact]
+        public void The_window_decides_alone_only_when_no_hook_has_ever_been_installed()
         {
             Assert.True(CountdownSkipGate.WindowMayDecide(false, false));
             Assert.False(CountdownSkipGate.WindowMayDecide(true, false));
@@ -330,21 +390,20 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_hook_tracker_numbers_each_bare_press_and_dates_it_from_Controls_press()
+        public void The_hook_tracker_numbers_each_bare_press_and_dates_and_places_it_from_Controls_press()
         {
             var g = new BareControlGestures();
-            Assert.Null(g.Observe(VCtl, true, 100));
-            Assert.Null(g.Observe(VCtl, true, 130));   // a repeat keeps the first press's time
-            var first = g.Observe(VCtl, false, 400);
-            Assert.Equal(new BareControlRelease(1, 100, 400), first);
+            Assert.Null(g.Observe(VCtl, true, 100, Own));
+            Assert.Null(g.Observe(VCtl, true, 130, Other));   // a repeat keeps the first press's time and window
+            Assert.Equal(new BareControlRelease(1, 100, 400, Own, Other), g.Observe(VCtl, false, 400, Other));
 
-            Assert.Null(g.Observe(VCtl, true, 500));
-            Assert.Null(g.Observe(VK, true, 520));      // swallowed or not, the hook sees it
-            Assert.Null(g.Observe(VK, false, 540));
-            Assert.Null(g.Observe(VCtl, false, 600));   // a chord: no verdict
+            Assert.Null(g.Observe(VCtl, true, 500, Own));
+            Assert.Null(g.Observe(VK, true, 520, Own));       // swallowed or not, the hook sees it
+            Assert.Null(g.Observe(VK, false, 540, Own));
+            Assert.Null(g.Observe(VCtl, false, 600, Own));    // a chord: no verdict
 
-            Assert.Null(g.Observe(VCtl, true, 700));
-            Assert.Equal(new BareControlRelease(2, 700, 800), g.Observe(VCtl, false, 800));
+            Assert.Null(g.Observe(VCtl, true, 700, Own));
+            Assert.Equal(new BareControlRelease(2, 700, 800, Own, Own), g.Observe(VCtl, false, 800, Own));
         }
 
         private static string Body(string source, string signature)

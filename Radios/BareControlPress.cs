@@ -98,7 +98,10 @@ namespace Radios
     /// <param name="Gesture">A number that rises with every bare press, so one press is acted on once.</param>
     /// <param name="DownTick">When Control went down, on <c>Environment.TickCount64</c>.</param>
     /// <param name="UpTick">When it came up, on the same clock.</param>
-    public readonly record struct BareControlRelease(long Gesture, long DownTick, long UpTick);
+    /// <param name="DownWindow">The foreground window when Control went down, as a handle; 0 when unknown.</param>
+    /// <param name="UpWindow">The foreground window when it came up.</param>
+    public readonly record struct BareControlRelease(long Gesture, long DownTick, long UpTick,
+        long DownWindow = 0, long UpWindow = 0);
 
     /// <summary>
     /// Bare Control decided where every key edge is seen in order: inside this
@@ -130,6 +133,7 @@ namespace Radios
 
         private readonly BareControlPress _press = new();
         private long _downTick;
+        private long _downWindow;
         private long _gesture;
 
         /// <summary>Whether a virtual key is a Control key.</summary>
@@ -139,12 +143,18 @@ namespace Radios
         /// One key edge, in the order the hook saw it, passed or swallowed.
         /// Returns the verdict when this edge ends a bare Control press.
         /// </summary>
-        public BareControlRelease? Observe(uint vk, bool isDown, long tick)
+        /// <param name="vk">The virtual key.</param>
+        /// <param name="isDown">A press, or a release.</param>
+        /// <param name="tick">When, on <c>Environment.TickCount64</c>.</param>
+        /// <param name="foreground">The foreground window at this edge, so the
+        /// verdict says where Control went down and where it came up (Codex
+        /// round 3, B2).</param>
+        public BareControlRelease? Observe(uint vk, bool isDown, long tick, long foreground = 0)
         {
             bool control = IsControlVirtualKey(vk);
             if (isDown)
             {
-                if (control && !_press.ControlDown) _downTick = tick;
+                if (control && !_press.ControlDown) { _downTick = tick; _downWindow = foreground; }
                 // A low-level hook reports a held key's repeats as further
                 // downs; the recogniser already treats a second Control down
                 // as the same press and a repeated other key as still held.
@@ -152,7 +162,7 @@ namespace Radios
                 return null;
             }
             if (!_press.KeyUp((int)vk, control)) return null;
-            return new BareControlRelease(++_gesture, _downTick, tick);
+            return new BareControlRelease(++_gesture, _downTick, tick, _downWindow, foreground);
         }
 
         /// <summary>Forget every edge in flight.</summary>
@@ -169,24 +179,46 @@ namespace Radios
         private long _lastGesture;
 
         /// <summary>
-        /// A verdict from the system-wide hook. True, once per gesture, when it
-        /// should skip: the hook is installed, this window is the active one,
-        /// a count is running, and Control went down after that count began
-        /// (a Control held from before, as in the Ctrl+Enter that started it,
-        /// skips nothing).
+        /// A verdict from the system-wide hook. True, once per gesture, when
+        /// the WHOLE gesture belongs to this window and this count (Codex round
+        /// 3, B2): the hook is installed; this window is active now, and has
+        /// been without a break since before Control went down (an activation
+        /// is a fresh start, so a press made elsewhere, or before this window
+        /// left and came back, is not ours); the hook saw this window in front
+        /// at the press AND at the release; and a count is running that began
+        /// before the press. Every "before" is STRICT (round 3, F1): the clock
+        /// ticks every 10 to 16 ms, so equal stamps do not say which came first,
+        /// and an unprovable order never skips.
         /// </summary>
+        /// <param name="verdict">The hook's report of a bare Control.</param>
+        /// <param name="hookInstalled">The hook is installed now.</param>
+        /// <param name="windowActive">This window is the active one now.</param>
+        /// <param name="ownWindow">This window's handle, as the hook reports windows.</param>
+        /// <param name="activeSinceTick">When this window last became active; <c>long.MaxValue</c> while it is not.</param>
+        /// <param name="countRunning">A count is running now.</param>
+        /// <param name="countStartedTick">When that count began.</param>
         public bool HookVerdictSkips(BareControlRelease verdict, bool hookInstalled, bool windowActive,
-            bool countRunning, long countStartedTick)
+            long ownWindow, long activeSinceTick, bool countRunning, long countStartedTick)
         {
             if (verdict.Gesture <= _lastGesture) return false;
             _lastGesture = verdict.Gesture;
-            return hookInstalled && windowActive && countRunning && verdict.DownTick >= countStartedTick;
+            return hookInstalled
+                && windowActive
+                && ownWindow != 0
+                && verdict.DownWindow == ownWindow
+                && verdict.UpWindow == ownWindow
+                && activeSinceTick < verdict.DownTick
+                && countRunning
+                && countStartedTick < verdict.DownTick;
         }
 
         /// <summary>
-        /// The window's own recogniser decides only when no hook was installed
-        /// at Control's press AND at its release: then nothing can have been
-        /// swallowed between them. With a hook, only its verdict counts.
+        /// The window's own recogniser decides only when no hook had EVER been
+        /// installed by Control's press AND by its release: then nothing can
+        /// have been swallowed between them. "Is a hook installed now" at the
+        /// two ends is not enough (Codex round 3, F2): a hook can install,
+        /// swallow and unhook between two delayed samples. With a hook, ever,
+        /// only its verdict counts.
         /// </summary>
         public static bool WindowMayDecide(bool hookInstalledAtDown, bool hookInstalledAtUp) =>
             !hookInstalledAtDown && !hookInstalledAtUp;

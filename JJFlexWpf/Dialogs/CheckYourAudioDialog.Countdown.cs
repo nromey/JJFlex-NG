@@ -103,13 +103,23 @@ public partial class CheckYourAudioDialog
     /// <summary>Pairs a hook verdict with this window and this count, once per gesture.</summary>
     private readonly CountdownSkipGate _skipGate = new();
 
+    /// <summary>
+    /// When this window last became active, on the hook's clock; long.MaxValue
+    /// while it is not. A gesture begun before it, elsewhere or before the
+    /// window left and came back, is not this window's (Codex round 3, B2).
+    /// </summary>
+    private long _activeSinceTick = long.MaxValue;
+
+    /// <summary>This window's handle, as the hook reports the foreground window.</summary>
+    private long OwnWindowHandle => (long)new System.Windows.Interop.WindowInteropHelper(this).Handle;
+
     /// <summary>The window's own recogniser, used only when no hook is installed.</summary>
     private readonly BareControlPress _bareControl = new();
 
     /// <summary>The count that was running when the Control now held went down; only that count is skipped by it.</summary>
     private CountdownRun? _controlPressedDuring;
 
-    /// <summary>Whether the system-wide hook was installed when the Control now held went down.</summary>
+    /// <summary>Whether the system-wide hook had ever been installed when the Control now held went down.</summary>
     private bool _hookAtControlDown;
 
     private bool _countdownSkipKeysHooked;
@@ -126,6 +136,12 @@ public partial class CheckYourAudioDialog
         if (_countdownSkipKeysHooked) return;
         _countdownSkipKeysHooked = true;
         SystemWideKeys.BareControlReleased += OnHookBareControl;
+        // Ownership is dated from the latest activation and ends at deactivation.
+        // Hooked at the first count, when the window is already active, so the
+        // first activation is taken from that moment instead.
+        Activated += (s, e) => _activeSinceTick = Environment.TickCount64;
+        Deactivated += (s, e) => _activeSinceTick = long.MaxValue;
+        if (IsActive) _activeSinceTick = Environment.TickCount64;
         Closed += (s, e) => SystemWideKeys.BareControlReleased -= OnHookBareControl;
         AddHandler(PreviewKeyDownEvent, new KeyEventHandler(CountdownSkipKeyDown), handledEventsToo: true);
         AddHandler(PreviewKeyUpEvent, new KeyEventHandler(CountdownSkipKeyUp), handledEventsToo: true);
@@ -140,8 +156,8 @@ public partial class CheckYourAudioDialog
     private void OnHookBareControl(BareControlRelease verdict)
     {
         var run = _startCountdown;
-        if (run == null || !_skipGate.HookVerdictSkips(verdict, SystemWideKeys.Installed, IsActive,
-                run.IsRunning, _countdownStartedTick)) return;
+        if (run == null || !_skipGate.HookVerdictSkips(verdict, SystemWideKeys.Installed, IsActive, OwnWindowHandle,
+                _activeSinceTick, run.IsRunning, _countdownStartedTick)) return;
         run.Skip();
     }
 
@@ -160,7 +176,7 @@ public partial class CheckYourAudioDialog
         if (control && !e.IsRepeat && _controlPressedDuring == null)
         {
             _controlPressedDuring = StartCountdownRunning ? _startCountdown : null;
-            _hookAtControlDown = SystemWideKeys.Installed;
+            _hookAtControlDown = SystemWideKeys.EverInstalled;
         }
         bool otherModifier = (Keyboard.Modifiers & (ModifierKeys.Shift | ModifierKeys.Alt | ModifierKeys.Windows)) != 0;
         _bareControl.KeyDown(KeyIdentity(e), control, e.IsRepeat, otherModifier);
@@ -177,7 +193,7 @@ public partial class CheckYourAudioDialog
         if (!bare) return;
         // With the hook installed at either end of the press, its verdict
         // decides, not this window.
-        if (!CountdownSkipGate.WindowMayDecide(_hookAtControlDown, SystemWideKeys.Installed)) return;
+        if (!CountdownSkipGate.WindowMayDecide(_hookAtControlDown, SystemWideKeys.EverInstalled)) return;
         // Only the count that was running when Control went down, and only
         // while it is still running: a Control held from before the count
         // began, or across its end, skips nothing.
