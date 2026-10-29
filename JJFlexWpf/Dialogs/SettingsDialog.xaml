@@ -607,6 +607,15 @@
 
                     <Separator Margin="0,4,0,8"/>
 
+                    <!-- Countdown (#835): the one countdown, for Check your audio and
+                         the Fix tool. Its header and controls are built in code from
+                         the Lexicon (audio.countdown.*), in SettingsDialog.Countdown.cs. -->
+                    <GroupBox x:Name="CountdownGroup" Margin="0,4,0,8">
+                        <StackPanel x:Name="CountdownPanel" Margin="4"/>
+                    </GroupBox>
+
+                    <Separator Margin="0,4,0,8"/>
+
                     <!-- Braille Display section -->
                     <GroupBox Header="Braille Display" Margin="0,4,0,8"
                               AutomationProperties.Name="Braille Display">
