@@ -12,29 +12,35 @@ keywords:
 
 # Know Your Radio
 
-There are a lot of ports on the back of a Flex, and the manual that came with yours describes them with photographs. These pages are the same information written to be read rather than looked at: what is on each panel, what shape each connector is, and how to find the one you want by touch.
+Use these guides to identify the connectors on a Flex radio by touch. Each guide describes what is on each panel, the shape of each connector, and how to find it. The descriptions turn the panel photographs in FlexRadio's hardware reference manuals into text.
 
-Each page was written from FlexRadio's own hardware reference manual for that radio and checked against the panel photographs in it, because the text of a manual alone gets positions wrong surprisingly often.
+Each guide was written from the radio's hardware reference manual and checked against its panel photographs. Both sources matter: a connector's description alone may not establish its position on the panel.
 
-## Pick your radio
+## Choosing a Radio Guide
 
-- [FLEX-6300](Flex6300.md)
-- [FLEX-6400 and FLEX-6600](Flex6400And6600.md), including the 6400M and 6600M
-- [FLEX-6500](Flex6500.md)
-- [FLEX-6700](Flex6700.md), including the 6700R
-- [FLEX-8400 and FLEX-8600](Flex8400And8600.md), including the 8400M and 8600M
+- Open the [FLEX-6300](Flex6300.md) guide for that model.
+- Open the [FLEX-6400 and FLEX-6600](Flex6400And6600.md) guide for those models, including the 6400M and 6600M.
+- Open the [FLEX-6500](Flex6500.md) guide for that model.
+- Open the [FLEX-6700](Flex6700.md) guide for the 6700 or 6700R.
+- Open the [FLEX-8400 and FLEX-8600](Flex8400And8600.md) guide for those models, including the 8400M and 8600M.
 
-If you are connected to a radio that has a guide here, three confirmations in Settings, Radio Setup also offer a "Where are the jacks on my radio?" button. You will find it when registering with SmartLink, unregistering from SmartLink, or sending firmware. The button opens the guide for the radio you are connected to.
+When the connected radio has a guide, three confirmations in **Settings**, under **Radio Setup**, also offer the **Where are the jacks on my radio?** button: registering with SmartLink, unregistering from SmartLink, and sending firmware. Press this button to open the guide for the connected radio.
 
-## The one thing worth knowing before you start
+## Connecting a Hand Microphone
 
-Where the hand microphone plugs in, and whether that single plug is enough, is not the same on every Flex. It splits into two camps:
+The microphone connection differs between radio families. On some models, one plug carries both audio and push-to-talk (PTT); on others, the microphone needs a separate PTT connection.
 
-- On the FLEX-6300, FLEX-6500 and FLEX-6700, the microphone goes into a round eight-pin connector on the **front** panel, and that one plug carries push-to-talk with it.
-- On the FLEX-6400, FLEX-6600 and the whole 8000 series, the microphone goes into a small jack on the **back**, and it does **not** carry push-to-talk. The hand microphone has a second, RCA plug that has to go into the separate PTT jack, or its PTT button does nothing at all.
+- On the FLEX-6300, FLEX-6500 and FLEX-6700, the microphone uses a round eight-pin connector on the front panel. That plug carries PTT as well as microphone audio.
+- On the FLEX-6400, FLEX-6600 and the 8000 series, the microphone uses a small jack on the rear panel. This jack does not carry PTT. The hand microphone's second, RCA plug must connect to the separate PTT jack for the microphone's PTT button to work.
 
-That second case catches people out constantly, and it is not a fault in the radio or the microphone — the jack simply has no PTT pin.
+If the microphone audio works but its PTT button does nothing on a model in the second group, check that separate connection. The microphone jack has no PTT pin.
 
-## Radios not listed here
+## Radios Without a Guide
 
-The Aurora models, AU-510 and AU-520, are not covered. They are built on the FLEX-8400 and FLEX-8600, but "built on" is not the same as verified, and a confidently wrong description of where a jack sits is worse than no description at all. When their panel layout has been checked against a manual, a page will appear here and the button will start offering it.
+The Aurora AU-510 and AU-520 are not covered by these guides. They are based on the FLEX-8400 and FLEX-8600, but that does not establish the positions of their connectors. Their panel layouts still need to be verified against a manual before a guide can be offered.
+
+## Related Topics
+
+- [Getting Started](GettingStarted.md)
+- [SmartLink Accounts](SmartLinkAccounts.md)
+- [PTT and Transmission](PttAndTransmission.md)

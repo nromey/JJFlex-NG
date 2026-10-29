@@ -246,8 +246,6 @@ namespace Radios.Tests
         {
             "JJFlexibleHome/BandNavigation.md",
             "JJFlexibleHome/ModeSwitching.md",
-            "Logging/Logging.md",
-            "Receiver/FiltersAndDsp.md",
             "Sounds/MeterTones.md",
         };
 

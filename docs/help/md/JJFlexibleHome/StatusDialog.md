@@ -1,35 +1,58 @@
 ---
-keywords: []
+keywords:
+  - status dialog
+  - radio status
+  - tuning mode
+  - network identity
+  - copy status
+  - undelivered details
 ---
 
 # Status Dialog
 
-`Ctrl+Alt+S` opens a live Status dialog — every piece of radio state you would want to know at a glance, organised into navigable categories, and refreshing in real time while the dialog is open. The Status dialog is a different tool from `Ctrl+Shift+S` (Speak Status), and each is useful in different moments.
+Use the Status dialog to read the radio's current operating state, check its network identity, or copy a status report. Press `Ctrl+Alt+S` to open the **Radio Status** window in JJ Flexible Radio Access. It also opens without a connected radio.
 
-## Speak Status vs the Status Dialog
+For a spoken status report without opening a window, press `Ctrl+Shift+S`. This reads the slice status and current tuning information without moving focus.
 
-- **`Ctrl+Shift+S` (Speak Status)** — fires a short spoken summary: "Listening on 14.225, Upper Side Band, 20 meter band, slice A." No dialog is shown, and focus does not move. Use Speak Status constantly during operation to confirm where you are.
-- **`Ctrl+Alt+S` (Status dialog)** — opens a resizable window with categories you can arrow through. Use the Status dialog when you want to inspect in depth: what is every slice doing, what is the ATU status, what are all the meters showing right now, what is the current power amplifier temperature. The dialog stays open until you close it (with `Escape` or `Alt+F4`).
+## Reading the Status
 
-## Navigating the Status Dialog
+Focus starts in the **Radio status information** text box. Use the arrows to read it line by line, or select and copy part of the text. The text is read-only; reading or selecting it does not change the radio's settings.
 
-The Status dialog is organised into expandable categories. Arrow Up and Arrow Down move between category headers. Enter expands or collapses the focused category. Inside an expanded category, Tab moves through the individual fields.
+The readout has section headings within the text. Depending on the radio and the information available, it includes:
 
-Typical categories you will see include:
+- **Radio** gives the model, the radio's name if set, and whether the connection is local or through SmartLink.
+- **At connect** holds the fuller details behind the connection announcement, such as the slice count and profile results.
+- **Operating** gives the Classic or Modern tuning mode and the active filter preset. In Modern mode, the tuning information includes the coarse and fine steps. If the filter does not match a named preset, the readout says so.
+- **Slices** describes the available slices, including their frequencies and modes, which is selected for receiving, and which is selected for transmitting. With multiple slices, it also reports mute and pan settings.
+- **Meters** gives the S-meter reading while receiving. While transmitting, it reports forward power and the standing wave ratio (SWR), with transmit (TX) drive and microphone information when readings are available.
+- **Transmit** says whether the radio is receiving or transmitting and identifies the transmit slice when available.
+- **Antenna Tuner** gives the tuner type when the radio has an automatic antenna tuner (ATU).
 
-- **Operating** — which tuning mode you are in, Classic or Modern, with your coarse and fine steps when you are in Modern; and the filter preset you are sitting on, or a plain "no named filter preset" when you have walked the filter off one. The tuning mode is the one people come here for: Classic and Modern give some keys different jobs, and until this line existed the only way to find out which one you were in was to switch and listen to the announcement.
-- **VFO and slice state** — frequency, mode, and filter width for each active slice.
-- **Meters** — S-meter, SWR, ALC, forward power, power-amplifier temperature, voltage.
-- **DSP state** — which of NR, NB, APF, and the preselector are active, and their current settings.
-- **Transmit state** — PTT status, tune carrier status, microphone gain, compression.
-- **Network** — connection type, SmartLink status, and latency where available.
-- **Radio identity** — radio model, serial number, firmware version.
+## Checking the Network Identity
 
-## Refresh Behaviour
+Press `Tab` to reach the **Network identity** text box, then use the arrows to read its lines. It gives the model, serial number and firmware version when the radio reports them, followed by details of the connection.
 
-Fields inside the Status dialog update live while the dialog is open. The refresh rate is tuned for responsiveness without being chatty — the S-meter reads several times a second, while slower-changing fields update only when they change rather than on a poll cycle.
+For a local connection, these details include the radio's address and whether it uses an automatic or fixed address. For a SmartLink connection, they include the public address, the connection path and any saved reachability-test result from this session. Opening the dialog does not start a network test.
 
-## When to Use Each
+## Checking for Missed Details
 
-- Use **Speak Status** for "where am I right now?" during normal operating.
-- Use the **Status dialog** for "why is the radio doing that?" when something is off. You can leave the dialog open on a second monitor (or just Alt-Tab to it) and watch everything in one place while you troubleshoot.
+The **Undelivered details** button opens a list of information the application could not deliver. A separate summary reports its current state. This button works even after a radio disconnects or when no radio is connected.
+
+## Copying and Closing the Status
+
+Press the **Copy to Clipboard** button to copy the status readout and network identity together, with the date and time the copy was made. This is useful when keeping a record of a problem or asking for help.
+
+Press the **Close** button or `Escape` to close the dialog.
+
+## When the Readings Refresh
+
+The dialog refreshes every 5 seconds. While the status text has focus, its contents stay unchanged so the caret does not move during reading. Move focus to another control to allow the next refresh to update it. The network identity text has the same protection while it has focus.
+
+The undelivered-details summary refreshes separately, including while the status text is being read.
+
+## Related Topics
+
+- [JJ Flexible Home](JJFlexibleHome.md)
+- [Meter Tones](MeterTones.md)
+- [Network Diagnostics](NetworkDiagnostics.md)
+- [Diagnostic Log](DiagnosticLog.md)

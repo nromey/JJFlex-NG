@@ -1,73 +1,104 @@
 ---
 keywords:
   - DSP
-  - filters
+  - receive filters
+  - filter width
   - noise blanker
   - noise reduction
+  - auto notch
+  - audio peak filter
+  - NR Filter
 ---
 
 # Filters and DSP
 
-Your Flex radio has a lot of DSP (Digital Signal Processing) horsepower built in, and JJ Flexible Radio Access gives you keyboard control over all of it.
+Receive filters and digital signal processing (DSP) help separate a station from nearby signals and noise. In JJ Flexible Radio Access, Home's **Receiver** group shows the receive filter's edges and width. The **Noise Reduction and DSP** group holds the noise-processing controls. Use the filter layer to adjust the passband and the noise layer to switch processing on or off.
 
-## Quick DSP Toggles via the JJ Key
+## Choosing a Receive Filter
 
-The fastest way to toggle DSP features is through the JJ key. Press `Ctrl+J` to enter the JJ Command layer, then press one of the following:
+A receive filter passes a range of frequencies and rejects signals outside that range. A narrower filter can help separate a CW station from a crowded band. Voice needs a wider passband to remain intelligible. The low and high edges set the limits; the difference between them is the filter width.
 
-| Key | Feature |
-|-----|---------|
-| N | Legacy Noise Reduction (NR) |
-| Shift+N | NR Filter (model-specific) |
-| B | Noise Blanker (NB) |
-| W | Wideband Noise Blanker (WNB) |
-| R | Neural Noise Reduction (RNN) |
-| Shift+R | PC-side Neural Noise Reduction (runs on your computer) |
-| S | Spectral Noise Reduction |
-| A | Auto Notch Filter (ANF) |
-| P | Audio Peak Filter (APF, CW only) |
-| F | Speak the current TX filter width |
-| Shift+F | Speak the current RX filter width |
+Home's **Receiver** group gives a read-only report of the current receive filter. To change it, press `Ctrl+J`, then `F` to open the filter layer. It starts with the receive filter of the selected slice.
 
-Each toggle plays an earcon — a rising tone when the feature turns on, a falling tone when it turns off — followed by a speech announcement confirming the new state.
+- Hold `Left Shift` and press `Left` or `Right` to lower or raise the low edge.
+- Hold `Right Shift` and press `Left` or `Right` to lower or raise the high edge.
+- Press `Left` or `Right` without a modifier to slide the whole filter down or up while keeping its width. `Up` and `Down` also slide it up and down.
+- Press `Ctrl+Up` to widen the filter or `Ctrl+Down` to narrow it about its centre.
+- Press `S` to hear both edges and the width. Hold `Left Shift` with `S` to hear only the low edge, or `Right Shift` with `S` to hear only the high edge.
+- Press `Home` or `End` to move the selected edge to its lowest or highest limit. Without a modifier, these keys move the whole filter; with `Ctrl`, they set the minimum or maximum width.
+- Press `T` to work on the transmit (TX) filter, or `R` to return to the receive filter.
+- Press `Enter` to keep the changes and close the layer. Press `Escape` to restore the filters changed during this visit and close the layer.
 
-## Noise Reduction (NR)
+The adjustment step follows the filter width: narrow filters use smaller steps. The permitted edges depend on the operating mode. To hear the receive filter values without opening the layer, press `Ctrl+Alt+F`.
 
-The Legacy Noise Reduction feature reduces background noise on received signals. It is one of the most commonly used DSP features. Toggle it with `Ctrl+J`, then `N`.
+For the general layer controls, see [JJ Key Commands](JJKey.md). For saved filter settings, see [Filter Presets](FilterPresets.md). Transmit filtering is covered in [TX Audio Sculpting](TxSculpting.md).
 
-## Noise Blanker (NB)
+## Choosing Noise Processing
 
-The Noise Blanker is designed to suppress impulse noise — things like power line interference, electric fences, and other sharp clicks and pops. Toggle it with `Ctrl+J`, then `B`.
+Different tools address different kinds of interference. Use a blanker for sharp pulses, noise reduction for background noise, or an automatic notch for a steady carrier. Compare the result with the feature off: removing more noise is useful only while the wanted signal remains readable.
 
-## Wideband Noise Blanker (WNB)
+To use the switches described in the following sections, press `Ctrl+J`, then `N` to open the noise layer. The letter given for each feature is pressed inside that layer. Press `H` there for its command list. Press `Enter` to keep changes or `Escape` to restore the switches changed during this visit.
 
-The Wideband Noise Blanker works on broader noise patterns than the standard Noise Blanker, and it complements NB rather than replacing it. Toggle it with `Ctrl+J`, then `W`.
+### Noise Reduction
 
-## Neural Noise Reduction (RNN)
+The radio's standard noise reduction (NR) reduces background hiss on received signals. Press `N` in the noise layer to switch it on or off.
 
-Neural NR uses machine learning to separate speech from noise. It requires a radio model that supports Neural NR in its firmware, along with an appropriate license tier. Toggle it with `Ctrl+J`, then `R`.
+Home and the Slice DSP menu also offer **Legacy NR**, a separate radio control. Home's **NR Level** control appears when Legacy NR is on; adjust it to compare noise reduction with the clarity of the station.
 
-You can also run a PC-side Neural NR engine on any Flex radio, regardless of license. See the PC-side Noise Reduction help page for details.
+### Noise Blanker
 
-## Spectral Noise Reduction
+The noise blanker (NB) suppresses impulse noise such as power-line crackle, electric-fence pulses, and sharp clicks. Press `B` in the noise layer to switch it on or off. Home's **NB Level** control appears when the blanker is on.
 
-Spectral NR works in the frequency domain to reduce steady-state noise. It is often the cleanest choice for removing things like a noisy power supply hum. Toggle it with `Ctrl+J`, then `S`.
+### Wideband Noise Blanker
 
-## Auto Notch Filter (ANF)
+The wideband noise blanker (WNB) works across the whole passband. It offers another way to address pulse noise alongside the standard blanker. Press `W` in the noise layer to switch it on or off. Home's **WNB Level** control appears when it is on.
 
-The Auto Notch automatically finds and removes carriers and tones — great for eliminating that annoying heterodyne on a busy band. Toggle it with `Ctrl+J`, then `Ctrl+A`.
+### On-Radio Neural Noise Reduction
 
-## Audio Peak Filter (APF)
+Neural noise reduction uses machine learning to separate speech from noise. **On-Radio Neural NR** runs in the radio and requires supporting hardware, firmware and a suitable licence. Press `R` in the noise layer to switch it on or off.
 
-The Audio Peak Filter narrows the audio passband around a CW signal, making it easier to pick out a single station in a pileup. APF is mostly useful in CW mode, and JJ Flexible Radio Access will tell you "Audio Peak Filter is CW only" if you try to enable it in another mode. Toggle it with `Ctrl+J`, then `P`.
+### On-Radio Spectral Noise Reduction
 
-## Filter Width
+Spectral noise reduction works on the frequency content of received audio to reduce steady background noise, such as hum. **On-Radio Spectral NR** runs in the radio and has its own hardware, firmware and licence requirements. Press `S` in the noise layer to switch it on or off.
 
-You can adjust the receive filter width through the ScreenFields panel. The filter settings available depend on your current operating mode — voice modes use wider filters, and CW uses narrower ones.
+### NR Filter
 
-To hear the current TX filter width, press `Ctrl+J`, then `F`. To hear the current RX filter width, press `Ctrl+J`, then `Shift+F`.
+**NR Filter** is another on-radio noise-reduction option, available only with supporting hardware, firmware and a suitable licence. Press `Ctrl+N` in the noise layer to switch it on or off.
 
-## Feature Availability
+### Auto Notch Filter
 
-Not all DSP features are available on every radio model. Some require specific hardware, specific firmware, or a particular software license tier. The Feature Availability tab in JJ Flexible Radio Access shows you which features your radio supports, and explains why any greyed-out features are not available.
+The auto notch filter (ANF) finds and suppresses steady carriers and tones, such as a heterodyne over a voice contact. Press `A` in the noise layer to switch the automatic notch on or off. This controls **FFT Auto-Notch**, which uses a fast Fourier transform (FFT); the separate **Legacy Auto-Notch** option is available in Home and the Slice DSP menu.
 
-The menus tell you too, right where the feature would have been. When a gated feature family cannot be offered on your radio — advanced noise reduction without its subscription, or diversity on a single-receiver model — the menu no longer just leaves a hole. In its place sits an item like **"Advanced noise reduction unavailable"** or **"Diversity unavailable"**: select it and it speaks exactly which gate is shut and, where one exists, points you at the equivalent that runs on your computer instead. A feature you cannot have is only useful news alongside the one you can.
+### Audio Peak Filter
+
+The audio peak filter (APF) emphasises the CW tone to help pick out a station. Press `P` in the noise layer to switch it on or off. This feature is for CW; in another mode, the layer reports "Audio Peak Filter is CW only" instead of enabling it.
+
+### Noise Reduction on the Computer
+
+The noise layer also offers PC neural noise reduction with `Ctrl+R` and PC spectral noise reduction with `Ctrl+S`. For setup, noise-profile capture and management, see [PC-Side Noise Reduction](PcNoiseReduction.md).
+
+## Using Home or the Slice DSP Menu
+
+Open Home's **Noise Reduction and DSP** group to read or change the processing controls. The on-radio switches apply to the selected slice. The PC noise-reduction controls apply to audio processed on this computer.
+
+The **Slice** menu's **DSP** submenu offers the same feature families:
+
+- **Noise Reduction** contains the on-radio neural and spectral switches, **NR Filter**, **Legacy NR**, and commands to raise or lower the legacy NR level.
+- **Noise Blankers** contains the two blanker switches and their level adjustments.
+- **Auto Notch** contains **FFT Auto-Notch** and **Legacy Auto-Notch**.
+- **Audio Peak Filter** switches the CW peak filter on or off.
+- **PC Noise Reduction** contains the PC switches, **Capture Noise Profile**, **Noise Profiles...**, and **Open Noise Profiles Folder**.
+
+## When a Feature Is Unavailable
+
+Some on-radio features need particular hardware, firmware or a licence. On-radio neural NR, spectral NR and NR Filter are also unavailable in CW and FM modes. The advanced noise-reduction menu items remain present when unavailable, with wording that marks their state. Select one to hear why it cannot be used. The corresponding noise-layer key also explains the refusal.
+
+For a fuller account of the connected radio's capabilities, open the **Tools** menu and choose **Feature Availability**.
+
+## Related Topics
+
+- [JJ Key Commands](JJKey.md)
+- [PC-Side Noise Reduction](PcNoiseReduction.md)
+- [Filter Presets](FilterPresets.md)
+- [TX Audio Sculpting](TxSculpting.md)
+- [JJ Flexible Home](JJFlexibleHome.md)
