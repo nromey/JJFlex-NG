@@ -33,7 +33,7 @@ If any file in the folder couldn't be read, I tell you how many when the window 
 
 ## Which recording Play from computer plays
 
-Play from computer (Ctrl+Alt+F11, or JJ key Ctrl+Shift+P) plays your newest recording, unless you select another one here: then it plays the selected recording. Making a new recording puts it back on the newest, and so does restarting JJ Flexible.
+Play from computer (Ctrl+Alt+F11, or JJ key Ctrl+Shift+P) plays your newest recording, unless you select another one here: then it plays the selected recording. Making a new recording puts it back on the newest, and so does restarting JJ Flexible. The window always opens on the recording Play from computer will play, so the one you see selected is the one that goes.
 
 Press Play from computer while you are transmitting and the same recording goes out over the air, and you hear it through the radio's transmit monitor. Your microphone comes back when it ends, and you keep the key. With VOX on and **Sends key the radio when VOX is on** checked, Play from computer keys the radio itself; see Push to Talk and Transmission.
 
