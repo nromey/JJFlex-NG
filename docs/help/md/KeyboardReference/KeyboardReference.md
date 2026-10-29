@@ -672,7 +672,7 @@ These keys work anywhere inside the Check your audio window (`Ctrl+J`, then `Alt
 - **Escape** — While a check is transmitting, the first press unkeys and stays in the window; press again to close. Escape never leaves you transmitting. While the check of this computer's microphone is listening, the first press stops it and you hear the verdict; press again to close
 - **F6 / Shift+F6** — Move between the sections of the window and hear each section's name. The keys wrap at both ends and skip hidden sections
 
-- **Down Arrow / Up Arrow** on the method — The next method, or the one before. The methods run in order from checking this computer's microphone to the most involved, and do not wrap: at either end the arrow stays put and you hear the boundary sound
+- **Down Arrow / Up Arrow** on the method — The next method, or the one before. The methods run in order from checking whether Windows hears your microphone to the most involved, and do not wrap: you hear the boundary sound as you arrive at the first or the last method, and a further press there stays put and plays the sound alone
 - **Home / End** on the method — The first method, or the last
 
 Focus lands on the method when the window opens, and `Shift+Tab` from there reaches the Start button. The **Close** button, last in the tab order, closes the window the way its title bar does, which stops a running check and puts back what it changed.

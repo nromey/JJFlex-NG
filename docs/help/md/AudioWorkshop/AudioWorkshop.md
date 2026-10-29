@@ -110,13 +110,13 @@ All of it lives in Settings, on the Audio tab, in the **Countdown** group: turn 
 
 ### The methods
 
-The method decides how you hear yourself. Each name says what you hear and whether anything goes out. They run in order, each one a step further than the one before: `Down Arrow` takes you to the next, `Up Arrow` back, `Home` to the first and `End` to the last. Only the methods your radio and your connection can do are offered. **About this method**, the line under the method, says in one sentence what Start will do; `Ctrl+F1` on the method gives the whole account below, and says why a method is missing if one is, and `F1` anywhere in the window opens this page at that method.
+The method decides how you hear yourself. Each name says what you hear and whether anything goes out. They run in order, each one a step further than the one before: `Down Arrow` takes you to the next, `Up Arrow` back, `Home` to the first and `End` to the last. You hear the boundary sound as you arrive at the first or the last method, and again if you press on past it. Only the methods your radio and your connection can do are offered. **About this method**, the line under the method, says in one sentence what Start will do; `Ctrl+F1` on the method gives the whole account below, and says why a method is missing if one is, and `F1` anywhere in the window opens this page at that method.
 
 Your method is remembered per radio. The same radio reached over SmartLink starts on Record yourself if the method you chose locally is not offered there, without forgetting your local choice.
 
 #### Is Windows hearing my microphone? No radio involved {#check-audio-computer-mic}
 
-Start listens to this computer's chosen microphone through Windows, with no radio involved and nothing keyed, and the reading box says what it hears while you talk. Press Start again to stop, and the reading box gives the verdict.
+Start listens to this computer's chosen microphone through Windows, with no radio involved and nothing keyed, and the reading box says what it hears while you talk. Press Start again to stop, and the reading box gives the verdict. The recorder's start tone tells you it is listening, and its stop tone that it has stopped.
 
 It is the same check, in the same words, as the one in Audio Devices, so it answers that question before a radio is involved. With no radio connected it is the only method offered, and nothing is remembered. `Escape` while it listens stops it and gives you the verdict; the next `Escape` closes the window.
 
