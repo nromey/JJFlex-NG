@@ -221,12 +221,16 @@ public sealed class ListenbackRoundThreeTests : IDisposable
             if (!offAir) Assert.DoesNotContain(snapshot.Resources, r => r.Kind == "slice" && r.Id == 1);
             if (backToBack)
             {
-                // The raw restore replies succeeded, but FlexLib still reports
-                // the take's old setup values because no status echoed them.
-                Assert.True(c.Tx.Mute);
-                Assert.Equal("XVT-A", c.Tx.TXAnt);
-                Assert.Equal(1, radio.RFPower);
-                Assert.False(radio.TXMonitor);
+                // The raw restore replies succeeded and no status echoed them.
+                // Until 2026-10-29 FlexLib went on reporting the take's setup
+                // values here, and this test pinned that stale cache; a send
+                // right after a take then switched off a monitor that was on
+                // (#835, item 1). The restore now puts each reply-proven value
+                // into FlexLib's cache itself.
+                Assert.False(c.Tx.Mute);
+                Assert.Equal("ANT1", c.Tx.TXAnt);
+                Assert.Equal(20, radio.RFPower);
+                Assert.True(radio.TXMonitor);
                 c.F.Vendor.Transport.Written.Clear();
                 var next = await c.Pump(c.F.Rig.StartListenbackAsync(new ListenbackOptions(OffAir: true), default));
                 try
