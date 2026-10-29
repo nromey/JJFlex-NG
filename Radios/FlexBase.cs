@@ -5047,6 +5047,9 @@ namespace Radios
                 case "InterlockState":
                     {
                         Tracing.TraceLine("InterlockState:" + r.InterlockState.ToString(), TraceLevel.Info);
+                        // A restore withheld while the radio reported keyed can
+                        // go the moment it reports receive (#835).
+                        if (!RadioInterlockReportsTransmit) _checkRestorations?.Kick();
                     }
                     break;
                 case "IsMuteLocalAudioWhenRemoteOn":

@@ -22,13 +22,63 @@ public partial class FlexBase
             lock (_checkRestorationsGate)
             {
                 if (_checkRestorations != null) return _checkRestorations;
-                var owner = new CheckRestorations(() => Transmit);
+                // Our own cached Mox is NOT enough (fix round 2026-10-28): FlexLib
+                // flips it the moment WE ask for the unkey, before the radio has
+                // done anything. The radio's own interlock report decides too.
+                var owner = new CheckRestorations(() => Transmit || RadioInterlockReportsTransmit);
                 // The receive report is the fast road; the owner's own slow poll
                 // covers a report that never reaches this subscriber.
                 TransmitChange += (_, transmitting) => { if (!transmitting) owner.Kick(); };
                 return _checkRestorations = owner;
             }
         }
+    }
+
+    /// <summary>
+    /// True while the RADIO's own interlock report says it is keyed or on its
+    /// way into or out of transmit (#835, fix round 2026-10-28). Unlike
+    /// <see cref="Transmit"/>, nothing on this side sets it: FlexLib's Mox
+    /// cache flips the moment we ask for an unkey, while the interlock moves
+    /// only when the radio says so. A missing radio or an unknown state reads
+    /// as not keyed, which is what the cached Mox already covered.
+    /// </summary>
+    public bool RadioInterlockReportsTransmit
+    {
+        get
+        {
+            var radio = theRadio;
+            if (radio == null) return false;
+            return radio.InterlockState is Flex.Smoothlake.FlexLib.InterlockState.PTTRequested
+                or Flex.Smoothlake.FlexLib.InterlockState.Transmitting
+                or Flex.Smoothlake.FlexLib.InterlockState.UnkeyRequested;
+        }
+    }
+
+    /// <summary>
+    /// After a teardown's restore writes have left the command queue, ask the
+    /// radio to answer a <c>ping</c> (#835, fix round 2026-10-28). The radio
+    /// answers commands in the order it received them, so its answer means it
+    /// has processed every write sent before it; "completed" then rests on the
+    /// radio's word, not on our queue having handed the writes to the socket.
+    /// False when there is no radio, the send is refused, the answer is a
+    /// rejection, or none comes inside <paramref name="bound"/>.
+    /// </summary>
+    public async Task<bool> ConfirmWritesReachedRadioAsync(TimeSpan bound)
+    {
+        var radio = theRadio;
+        if (radio == null) return false;
+        var answered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        string? refusal = SendRadioCommandWithReply(radio, "ping", reply => answered.TrySetResult(reply.Acknowledged));
+        if (refusal != null)
+        {
+            Tracing.TraceLine("Check restore: the radio was not asked to confirm: " + refusal, System.Diagnostics.TraceLevel.Warning);
+            return false;
+        }
+        var finished = await Task.WhenAny(answered.Task, Task.Delay(bound)).ConfigureAwait(false);
+        bool ok = ReferenceEquals(finished, answered.Task) && answered.Task.Result;
+        Tracing.TraceLine("Check restore: the radio " + (ok ? "answered after the restore writes" : "did not confirm the restore writes"),
+            ok ? System.Diagnostics.TraceLevel.Info : System.Diagnostics.TraceLevel.Warning);
+        return ok;
     }
 
     private Task<AudioCheckTeardownResult>? _checkTeardown;
@@ -111,7 +161,8 @@ public partial class FlexBase
                     settled: owner.CompletionAsync,
                     withheld: () => owner.WithheldByTransmit,
                     drain: DrainCommandQueueAsync,
-                    bound: bound).ConfigureAwait(false);
+                    bound: bound,
+                    confirm: ConfirmWritesReachedRadioAsync).ConfigureAwait(false);
             }
             finally { owner.EndReleasingEverything(); }
             owner.ClearFinished();
