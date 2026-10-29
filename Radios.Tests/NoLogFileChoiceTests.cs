@@ -100,6 +100,24 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void Both_dialogs_belong_to_the_main_window_so_closing_one_does_not_announce_another_program()
+        {
+            // #850: unowned, each dialog's closing let Windows activate the window
+            // behind the app, and NVDA said "for-noel - File Explorer" before
+            // focus came back.
+            string log = Read("LogClass.vb");
+            string choose = Between(log, "Private Function ChooseLogFile(", "End Function");
+            Assert.Contains("TaskDialog.ShowDialog(owner, page)", choose);
+            Assert.Contains("= LogDialogOwner()", choose);
+            string ask = Between(log, "Private Function AskForFile(", "End Function");
+            Assert.Contains("dialog.ShowDialog(LogDialogOwner())", ask);
+            Assert.DoesNotContain("dialog.ShowDialog()", ask);
+            string owner = Between(log, "Private Shared Function LogDialogOwner(", "End Function");
+            Assert.Contains("AppShellForm", owner);
+            Assert.Contains("InvokeRequired", owner);
+        }
+
+        [Fact]
         public void A_field_jump_after_a_cancel_says_why_before_the_window_changes()
         {
             string bring = Between(Read("globals.vb"), ".BringUpLogForm = Sub(adifTag)", "End Sub,");

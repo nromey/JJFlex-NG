@@ -242,7 +242,10 @@ Public Class LogClass
         page.Buttons.Add(System.Windows.Forms.TaskDialogButton.Cancel)
         page.DefaultButton = openButton
 
-        Dim answer As System.Windows.Forms.TaskDialogButton = System.Windows.Forms.TaskDialog.ShowDialog(page)
+        Dim owner As System.Windows.Forms.IWin32Window = LogDialogOwner()
+        Dim answer As System.Windows.Forms.TaskDialogButton = If(owner Is Nothing,
+            System.Windows.Forms.TaskDialog.ShowDialog(page),
+            System.Windows.Forms.TaskDialog.ShowDialog(owner, page))
         Dim chosen As String = Nothing
         If answer Is openButton Then
             Tracing.TraceLine("LogClass open: no log file; operator chose to open one", TraceLevel.Info)
@@ -260,6 +263,21 @@ Public Class LogClass
             filePrompt.Chosen()
         End If
         Return chosen
+    End Function
+
+    ''' <summary>
+    ''' The window the no-log-file dialogs belong to (#850). Shown without an
+    ''' owner, each one's closing let Windows activate whatever program sat
+    ''' behind the app, and the screen reader announced that program before
+    ''' focus came back. Nothing when the shell cannot own a dialog from this
+    ''' thread; the dialogs then show unowned, as before.
+    ''' </summary>
+    Private Shared Function LogDialogOwner() As System.Windows.Forms.IWin32Window
+        Dim shell As ShellForm = AppShellForm
+        If shell Is Nothing OrElse shell.IsDisposed OrElse Not shell.IsHandleCreated OrElse shell.InvokeRequired Then
+            Return Nothing
+        End If
+        Return shell
     End Function
 
     ''' <summary>
@@ -301,7 +319,7 @@ Public Class LogClass
             dialog.AddExtension = True
             dialog.CheckPathExists = True
             dialog.InitialDirectory = folder
-            If dialog.ShowDialog() = System.Windows.Forms.DialogResult.OK Then
+            If dialog.ShowDialog(LogDialogOwner()) = System.Windows.Forms.DialogResult.OK Then
                 Return dialog.FileName
             End If
         End Using
