@@ -30,6 +30,7 @@ namespace Radios.Tests
     /// detector that never fires and a clean tree produce identical output.
     /// </para>
     /// </remarks>
+    [Collection(BuiltAppAssemblyCollection.Name)]
     public class IntegrationPassRuleTests
     {
         // ═══════════════════════════════════════════════════════════════

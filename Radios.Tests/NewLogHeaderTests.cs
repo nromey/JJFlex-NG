@@ -33,6 +33,7 @@ namespace Radios.Tests
     /// No form, window or file is created.
     /// </para>
     /// </remarks>
+    [Collection(BuiltAppAssemblyCollection.Name)]
     public sealed class NewLogHeaderTests
     {
         private static string Read(string relative) =>
@@ -72,6 +73,19 @@ namespace Radios.Tests
                 "Build JJFlexRadio.vbproj (Debug, x64) first: this test calls the logger's real "
                 + "setHeaderDefaults from the built app assembly.");
 
+            WeakReference unloaded = CheckInIsolatedContext(app!);
+            // Make the unload real before returning, so no later test in this
+            // process sees the app's assemblies.
+            for (int i = 0; unloaded.IsAlive && i < 20; i++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static WeakReference CheckInIsolatedContext(string app)
+        {
             var context = new AssemblyLoadContext("new-log-header", isCollectible: true);
             string folder = Path.GetDirectoryName(app)!;
             context.Resolving += (ctx, name) =>
@@ -81,7 +95,7 @@ namespace Radios.Tests
             };
             try
             {
-                Assembly assembly = context.LoadFromAssemblyPath(app!);
+                Assembly assembly = context.LoadFromAssemblyPath(app);
                 Type sessionType = assembly.GetTypes().Single(t => t.Name == "LogSession");
                 Type logClassType = assembly.GetTypes().Single(t => t.Name == "LogClass");
                 const BindingFlags any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
@@ -125,6 +139,7 @@ namespace Radios.Tests
             {
                 context.Unload();
             }
+            return new WeakReference(context);
         }
 
         private static string? BuiltAppAssembly()
