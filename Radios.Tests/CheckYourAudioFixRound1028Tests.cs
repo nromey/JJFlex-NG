@@ -16,6 +16,7 @@ namespace Radios.Tests
     /// step in the round's report. Each was shown red against the round's base,
     /// <c>4191ea3b</c>.
     /// </remarks>
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class CheckYourAudioFixRound1028Tests
     {
         private static string Source(string path)
