@@ -251,6 +251,35 @@ namespace Radios.Tests
             Assert.True(sendEscape >= 0 && speakerEscape > sendEscape, "a send to the air is stopped first");
         }
 
+        // ── Item 9: the operator keying CW stops a CW send ───────────────────
+
+        /// <summary>
+        /// Noel, 2026-10-28 21:25: touching the paddle or key, or the future
+        /// on-screen key, STOPS a CW send. The hook drops the CW text this app
+        /// has not yet handed to the radio's keyer and asks the keyer to clear
+        /// its own buffer (<c>StopCW</c>). What this cannot see: the keyer's
+        /// buffer on the radio, and whether the radio ever reports a paddle
+        /// closure at all; nothing calls the hook yet, for that reason.
+        /// </summary>
+        [Fact]
+        public void The_operator_keying_cw_by_hand_drops_the_cw_message_still_to_go()
+        {
+            using var f = new Radios.Tests.StationConnect.RigOnVendorRadio("cw-takeover-test");
+            var bufferField = typeof(FlexBase).GetField("cwBuffer",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+            object buffer = bufferField.GetValue(f.Rig)!;
+            var text = buffer.GetType().GetField("Text")!;
+            f.Rig.CWBuffering = true;
+            text.SetValue(buffer, "CQ CQ TEST");
+
+            f.Rig.CwSendTakenByOperator("the paddle");
+
+            Assert.Equal("", (string?)text.GetValue(buffer));
+            Assert.True(f.Rig.CWBuffering, "StopCW leaves buffering as it was, by its own contract");
+            Assert.Contains("StopCW();", Body(ReadSource("Radios/FlexBase.CwTakeover.cs"),
+                "public void CwSendTakenByOperator(string by)"));
+        }
+
         // ── helpers ─────────────────────────────────────────────────────────
 
         internal static string Body(string src, string signature)
