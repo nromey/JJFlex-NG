@@ -11,6 +11,14 @@
     },
     "delivery": null
   },
+  "leader.near_miss_two": {
+    "text": {
+      "critical": "{alt} launches {what}; {alt2} launches {what2}; not {pressed}.",
+      "terse": "{alt} launches {what}; {alt2} launches {what2}; not {pressed}.",
+      "chatty": "You pressed {pressed} which isn't assigned. Pressing {alt} launches {what}, and pressing {alt2} launches {what2}, if either was what you were looking for; otherwise use JJ H to hear keys you can use with the JJ key."
+    },
+    "delivery": null
+  },
   "leader.unknown_key": {
     "critical": "Unknown key. H for the list, Escape to cancel.",
     "terse": "Unknown key. H for the list, Escape to cancel.",

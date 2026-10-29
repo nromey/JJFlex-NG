@@ -118,6 +118,7 @@ namespace Radios
         private bool _leaderArmed;
         private bool _helpArmed;
         private Keys _helpArmedChord;
+        private Keys _helpArmedSecondChord;
         private uint _secondKeyVk;
 
         /// <summary>
@@ -171,10 +172,18 @@ namespace Radios
         /// well as H, the slash key and Escape. <see cref="Keys.None"/> after
         /// an unknown key.
         /// </summary>
-        public void SetHelpArmed(bool armed, Keys nearMissChord)
+        public void SetHelpArmed(bool armed, Keys nearMissChord) => SetHelpArmed(armed, nearMissChord, Keys.None);
+
+        /// <summary>
+        /// The same, when the near miss named a second chord (#835 fix round:
+        /// a bare letter with both a Ctrl and an Alt chord names both), so this
+        /// class claims either of them.
+        /// </summary>
+        public void SetHelpArmed(bool armed, Keys nearMissChord, Keys secondChord)
         {
             _helpArmed = armed;
             _helpArmedChord = armed ? nearMissChord : Keys.None;
+            _helpArmedSecondChord = armed ? secondChord : Keys.None;
         }
 
         /// <summary>
@@ -273,9 +282,11 @@ namespace Radios
                     return new SystemWideDecision(true, SystemWideAction.LeaderCancelled);
                 Keys chord = (Keys)vk | held.Flags;
                 if (vk == VK_H || vk == VK_OEM_2
-                    || (_helpArmedChord != Keys.None && chord == _helpArmedChord))
+                    || (_helpArmedChord != Keys.None && chord == _helpArmedChord)
+                    || (_helpArmedSecondChord != Keys.None && chord == _helpArmedSecondChord))
                 {
                     _helpArmedChord = Keys.None;
+                    _helpArmedSecondChord = Keys.None;
                     _secondKeyVk = vk;
                     return new SystemWideDecision(true, SystemWideAction.LeaderKey, chord);
                 }
