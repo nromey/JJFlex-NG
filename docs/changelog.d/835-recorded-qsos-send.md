@@ -1,0 +1,1 @@
+In Recorded QSOs, Enter now follows the Sends key the radio when VOX is on box the same way Play from computer does: with VOX on and the box checked, Enter sends the recording you have selected over the air, Enter again pauses it, and Escape stops it.

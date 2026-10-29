@@ -76,6 +76,13 @@ namespace JJFlexWpf.Dialogs;
 /// exactly as slice playback does (<see cref="LocalPlaybackVox"/>). With no
 /// radio there is nothing to pause.
 /// </para>
+/// <para>
+/// <b>The VOX send box (#835, fix round 2026-10-29).</b> With the box ticked
+/// and VOX on, Enter is not a preview: it sends the selected recording through
+/// Play from computer's send, keying the radio itself, and Enter again pauses
+/// or carries on that send (<see cref="ChooseEnter"/>). Escape stops any send
+/// in hand before it does anything else here, as in the main window.
+/// </para>
 /// </remarks>
 public sealed class RecordedQsosDialog : JJFlexDialog
 {
@@ -198,6 +205,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         controls.Children.Add(stepRow);
 
         var transport = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
+        // DRAFT PROSE (#835): awaiting Noel. play_help gained the VOX send box sentence (fix round 2026-10-29).
         _play = AddButton(transport, Lexicon.Get("audio.qsos.play"), () => _ = PlayOrPauseAsync(), "audio.qsos.play_help");
         _stop = AddButton(transport, Lexicon.Get("audio.qsos.stop"), () => StopToStart(speak: true), "audio.qsos.stop_help");
         controls.Children.Add(transport);
@@ -238,6 +246,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         var listArea = new Grid();
         Grid.SetRow(listArea, 1);
         AutomationProperties.SetName(_list, Lexicon.Get("audio.qsos.list"));
+        // DRAFT PROSE (#835): awaiting Noel. list_help gained the VOX send box sentence (fix round 2026-10-29).
         JJFlexHelp.SetText(_list, Lexicon.Get("audio.qsos.list_help"));
         _list.SelectionMode = SelectionMode.Single;
         _list.IsTextSearchEnabled = false; // "S" must never jump to a row (Noel 16:05, then P; S since 2026-10-25).
@@ -506,6 +515,14 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         base.OnPreviewKeyDown(e);
         if (e.Handled) return;
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        // A send in hand stops first, as in the main window: RF before the
+        // preview and before closing (#835, fix round 2026-10-29). Enter can
+        // start one here now, under the VOX send box.
+        if (key == Key.Escape && Keyboard.Modifiers == ModifierKeys.None && StopSendOnEscape())
+        {
+            e.Handled = true;
+            return;
+        }
         // Escape stops only what you can HEAR. Paused, it closes the window
         // and the preview ends silently with it (Noel, retest 2026-10-25: a
         // paused preview answered Escape with "Stopped", which was weird for
@@ -566,13 +583,123 @@ public sealed class RecordedQsosDialog : JJFlexDialog
 
     private static string? CurrentRecordingPath() => (ComputerRecorder.Current as ComputerFlacRecorder)?.CurrentRecordingPath;
 
+    // ── the VOX send box (#835, fix round 2026-10-29) ───────────────────
+
+    /// <summary>
+    /// The send doors Enter and Escape use in this window: the very ones Play
+    /// from computer uses (<see cref="RecorderControls.ToggleComputerPlayAsync"/>),
+    /// so the box rule has one home. A seam only so a windowless test can
+    /// hold the rule without a radio; production never replaces it.
+    /// </summary>
+    internal interface ISendDoors
+    {
+        /// <summary>Which way a send pressed now goes (<see cref="VoiceMessageSender.RouteFor"/>).</summary>
+        SendRoute RouteFor(FlexBase rig);
+        /// <summary>A computer recording's send is going out, getting ready, or paused.</summary>
+        bool ComputerRecordingInHand { get; }
+        /// <summary>Any send is going out, getting ready, or paused.</summary>
+        bool InFlight { get; }
+        void SendComputerRecording(FlexBase rig, string path, SendRoute route);
+        /// <summary>Pause, carry on, or stop the send in hand, as Play from computer does.</summary>
+        bool AnswerPlayFromComputer();
+        void Stop();
+    }
+
+    private sealed class LiveSendDoors : ISendDoors
+    {
+        public SendRoute RouteFor(FlexBase rig) => VoiceMessageSender.RouteFor(rig);
+        public bool ComputerRecordingInHand => VoiceMessageSender.ComputerRecordingInHand;
+        public bool InFlight => VoiceMessageSender.InFlight;
+        public void SendComputerRecording(FlexBase rig, string path, SendRoute route) =>
+            VoiceMessageSender.SendComputerRecording(rig, path, route);
+        public bool AnswerPlayFromComputer() => VoiceMessageSender.AnswerPlayFromComputer();
+        public void Stop() => VoiceMessageSender.Stop();
+    }
+
+    internal static ISendDoors SendDoors { get; set; } = new LiveSendDoors();
+
+    /// <summary>What Enter (and the Play button) does, decided once per press.</summary>
+    internal enum EnterAct
+    {
+        /// <summary>This window's preview is playing or paused: pause it, or carry it on.</summary>
+        PreviewTransport,
+        /// <summary>A computer recording's send is in hand: pause it, or carry it on, as Play from computer does.</summary>
+        AnswerSend,
+        /// <summary>The box is ticked and VOX is on: send the selected recording to the air.</summary>
+        Send,
+        /// <summary>Everything else: preview on this computer's speakers, as before the box.</summary>
+        Preview,
+    }
+
+    /// <summary>
+    /// Enter follows the box rule like Play from computer (Noel, 2026-10-29
+    /// 01:40-01:42: <i>"I pressed enter from within the computer play dialog,
+    /// That should send as well"</i>). With the box ticked and VOX on, Play IS
+    /// the send (2026-10-27 15:22), so Enter here is too; otherwise it previews
+    /// on the speakers as it always has. A send Enter (or Play from computer)
+    /// started is paused and carried on by Enter, the one meaning the key has
+    /// in this window. <paramref name="route"/> is null with no radio.
+    /// </summary>
+    internal static EnterAct ChooseEnter(bool previewActive, bool computerSendInHand, SendRoute? route)
+    {
+        if (previewActive) return EnterAct.PreviewTransport;
+        if (computerSendInHand) return EnterAct.AnswerSend;
+        if (route == SendRoute.Box) return EnterAct.Send;
+        return EnterAct.Preview;
+    }
+
+    /// <summary>
+    /// Send the selected row through Play from computer's send, under the box.
+    /// The send says what it is doing itself, under the message key's subject,
+    /// so this window says nothing unless it refuses. The whole recording goes,
+    /// from its start, as Play from computer sends it: the play head and the
+    /// trim marks are this window's preview and Save As, not the send's.
+    /// </summary>
+    private void SendSelected(ISendDoors doors)
+    {
+        var q = _browser.Current;
+        if (q == null) { Refuse(Lexicon.Get("audio.qsos.nothing_selected")); return; }
+        if (CurrentIsStillRecording) { Refuse(Lexicon.Get("audio.qsos.still_recording")); return; }
+        Tracing.TraceLine("RecordedQsosDialog: Enter sends " + Path.GetFileName(q.Path)
+            + " under the VOX send box", TraceLevel.Info);
+        doors.SendComputerRecording(_rig!, q.Path, SendRoute.Box);
+    }
+
+    /// <summary>
+    /// Escape while a send is in hand stops it, as Escape does in the main
+    /// window (RF first), and is consumed so the window stays open; the next
+    /// Escape closes. The box send keys the radio itself, so the PTT
+    /// controller is idle and the dialog transmit door leaves this Escape to
+    /// the window. True when there was a send to stop.
+    /// </summary>
+    internal bool StopSendOnEscape()
+    {
+        var doors = SendDoors;
+        if (!doors.InFlight) return false;
+        Tracing.TraceLine("RecordedQsosDialog: Escape stops the send in hand", TraceLevel.Info);
+        doors.Stop();
+        return true;
+    }
+
     /// <summary>Enter and the Play button: play from the play head, pause, or resume.</summary>
     private async Task PlayOrPauseAsync()
     {
-        if (!PreviewActive)
+        // The box rule first (#835, fix round 2026-10-29): the same question
+        // Play from computer asks, read live once per press.
+        var doors = SendDoors;
+        bool previewActive = PreviewActive;
+        SendRoute? route = !previewActive && _rig != null ? doors.RouteFor(_rig) : null;
+        switch (ChooseEnter(previewActive, doors.ComputerRecordingInHand, route))
         {
-            await StartPreviewAsync();
-            return;
+            case EnterAct.AnswerSend:
+                doors.AnswerPlayFromComputer();
+                return;
+            case EnterAct.Send:
+                SendSelected(doors);
+                return;
+            case EnterAct.Preview:
+                await StartPreviewAsync();
+                return;
         }
         if (RecordingPlayer.IsPaused)
         {

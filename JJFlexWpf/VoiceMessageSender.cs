@@ -201,6 +201,13 @@ internal static class VoiceMessageSender
     public static bool InFlightFromPlay =>
         InFlight && Active?.Kind is SendKind.ComputerRecording or SendKind.SliceRecording;
 
+    /// <summary>
+    /// True while the send in hand (going out, getting ready, or paused) is a
+    /// computer recording: the one Play from computer and Enter in Recorded
+    /// QSOs pause and carry on (#835, fix round 2026-10-29).
+    /// </summary>
+    public static bool ComputerRecordingInHand => InFlight && Active?.Kind == SendKind.ComputerRecording;
+
     /// <summary>The send in hand, whichever state it is in.</summary>
     private static SendInfo? Active => _starting ?? (_send != null && !_send.Finished ? _current : null) ?? _paused;
 
