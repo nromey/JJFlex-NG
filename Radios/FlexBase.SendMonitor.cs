@@ -89,6 +89,23 @@ namespace Radios
             MonitorPutBackStore.Add(radio.Serial);
         }
 
+        /// <summary>
+        /// The operator chose the monitor in this app (the <see cref="Monitor"/>
+        /// setter: Home's checkbox, the menu, the Workshop): any put-back owed to
+        /// this radio from an earlier disconnect is an older intent and goes
+        /// (#835, Codex round 3). Never throws; the store traces its own failures.
+        /// </summary>
+        private void SupersedeOwedMonitorPutBack()
+        {
+            string? serial = theRadio?.Serial;
+            if (string.IsNullOrEmpty(serial)) return;
+            SendMonitorPutBackStore store = MonitorPutBackStore;
+            if (!store.Contains(serial)) return;
+            store.Remove(serial);
+            Tracing.TraceLine("SendMonitor: the operator set the monitor, so the put-back owed from an earlier disconnect is dropped",
+                TraceLevel.Info);
+        }
+
         /// <summary>How long the disconnect waits for the radio to acknowledge the monitor's put-back.</summary>
         private const int MonitorPutBackWaitMs = 1000;
 
@@ -126,6 +143,14 @@ namespace Radios
             string? serial = radio?.Serial;
             if (radio == null || string.IsNullOrEmpty(serial)) return;
             SendMonitorPutBackStore store = MonitorPutBackStore;
+            // Revalidated here, when the queue runs it: an operator choice made
+            // since it was scheduled has already cleared the record (Codex round 3).
+            if (!store.Contains(serial))
+            {
+                Tracing.TraceLine("SendMonitor: the owed put-back was superseded by the operator's own monitor choice; not sent",
+                    TraceLevel.Info);
+                return;
+            }
             string? refused = SendRadioCommandWithReply(radio, "transmit set mon=0", reply =>
             {
                 Tracing.TraceLine("SendMonitor: monitor put-back for an earlier disconnect " + reply, TraceLevel.Info);

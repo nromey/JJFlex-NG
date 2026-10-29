@@ -166,6 +166,10 @@ namespace Radios
                         output.RemoveAt(_pttWatchKeptIndex);
                     _pttWatchKeptList = null;
                     _pttWatchKeptIndex = -1;
+                    // The cursor is set AFTER that removal: set before it, it
+                    // pointed one past the end, and the lease's first status
+                    // went unread (Codex round 3).
+                    _pttWatchSeen = output.Count;
                     _pttWatchTrimFrom = Math.Max(0, output.Count - 1);
                     _pttWatchRadio = radio;
                 }

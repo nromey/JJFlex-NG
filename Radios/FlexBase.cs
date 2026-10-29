@@ -10738,8 +10738,11 @@ namespace Radios
             {
                 bool val = (value == OffOnValues.on) ? true : false;
                 // A send that turned the monitor on hands it to whoever writes
-                // it here, and never puts it back over them (#835).
+                // it here, and never puts it back over them (#835). The same
+                // holds for a put-back owed from an earlier disconnect: this
+                // choice is newer, so the old intent goes (Codex round 3).
                 System.Threading.Interlocked.Increment(ref _monitorOperatorWrites);
+                SupersedeOwedMonitorPutBack();
                 q.Enqueue((FunctionDel)(() => { theRadio.TXMonitor = val; }));
             }
         }

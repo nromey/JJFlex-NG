@@ -174,6 +174,57 @@ namespace Radios.Tests
                 SendFixRoundTests.ReadSource("Radios/FlexBase.SliceRecorder.cs"));
         }
 
+        // ── Round 3, finding 1: a newer monitor choice in this app wins ───────
+
+        /// <summary>
+        /// A put-back owed from an earlier disconnect is an intent, and the
+        /// operator choosing the monitor in THIS app supersedes it: the record
+        /// goes, and a recovery already queued finds it gone and sends nothing.
+        /// Created state: a refused recovery keeps the record, then the real
+        /// Monitor setter is used, then the recovery runs again.
+        /// </summary>
+        [Fact]
+        public void A_monitor_choice_in_this_app_supersedes_an_owed_put_back()
+        {
+            string dir = TempDir();
+            try
+            {
+                using var f = new RigOnVendorRadio("rig-three");
+                var store = new SendMonitorPutBackStore(dir);
+                f.Rig.MonitorPutBackStoreOverride = store;
+                store.Add("rig-three");
+                f.Rig.PutBackMonitorNow(f.Vendor.Radio);
+                f.Vendor.Reply(f.Vendor.LastSequence, 0x50000015, "refused");
+                Assert.True(store.Contains("rig-three"), "positive control: a refusal keeps the debt");
+                int commands = f.Vendor.Transport.Commands.Count;
+
+                f.Rig.Monitor = FlexBase.OffOnValues.on;   // the operator's choice, through the app's setter
+
+                Assert.False(store.Contains("rig-three"), "the operator's choice must clear the old put-back");
+                f.Rig.PutBackMonitorNow(f.Vendor.Radio);   // a recovery queued before the choice, running after it
+                Assert.DoesNotContain("transmit set mon=0", f.Vendor.Transport.Commands.Skip(commands));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        // ── Round 3, finding 2: the first status after a removed line is read ─
+
+        [Fact]
+        public void The_first_status_of_a_lease_that_removed_a_kept_line_is_read()
+        {
+            using var f = new RigOnVendorRadio("ptt-watch-cursor-test");
+            f.Vendor.Radio.AddTelnetTraceTopic("transmit");
+            using (f.Rig.WatchPttSource())
+                f.Vendor.Status("interlock state=TRANSMITTING source=SW");   // kept as the last line
+            f.Vendor.Status("transmit rfpower=25");                       // another topic appends after it
+
+            using var watch = f.Rig.WatchPttSource();                     // removes the kept line
+            f.Vendor.Status("interlock state=TRANSMITTING source=RCA,SW");   // ONE status
+
+            Assert.Equal("RCA,SW", f.Rig.RawPttSource);
+            Assert.True(f.Rig.PttSourceIsHardware);
+        }
+
         // ── Finding 3 (follow-up): the line kept between leases ───────────────
 
         [Fact]
