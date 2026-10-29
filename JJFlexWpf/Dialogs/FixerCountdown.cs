@@ -81,6 +81,53 @@ internal static class FixerCountdown
     public static void StageDone()
         => Guarded(EarconPlayer.FixerStageDoneTone, "FixerStageDoneTone");
 
+    /// <summary>
+    /// One beat of the countdown, for a count played a beat at a time (#835):
+    /// Check your audio's, whose last beat waits for the setup, and the
+    /// Countdown settings' Play sample. The same sound as the figure above,
+    /// through the same seam, so there is one countdown in the app.
+    /// </summary>
+    public static void Beat(Radios.CountdownBeat beat)
+        => Guarded(() => EarconPlayer.CountdownBeatTone(beat.Hz, beat.Ms, beat.IsLanding),
+                   beat.IsLanding ? "CountdownBeatTone landing" : "CountdownBeatTone count");
+
+    /// <summary>
+    /// Where a running <see cref="Radios.CountdownRun"/> plays and speaks:
+    /// tones through <see cref="Beat"/>, words through the screen reader.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Critical, because sounds-off makes the words the only warning.</b>
+    /// With the transmit sounds switched off the spoken count is all that
+    /// stands between an operator and a keying radio, so it is not left to the
+    /// verbosity filter. Which pieces are spoken at all is the plan's decision
+    /// (sounds off, or sounds on and Chatty), made before it starts.
+    /// </para>
+    /// <para>
+    /// <b>Queued, not interrupting.</b> An interrupt would let each number cut
+    /// the one before it, and at a slow speech rate the lead-in itself. Each
+    /// is keyed to <see cref="Radios.Speech.SpeechSubject.CheckCountdown"/>
+    /// and carries the run's still-valid test, so a count that was called off
+    /// is not spoken on afterwards.
+    /// </para>
+    /// </remarks>
+    public sealed class Voice : Radios.ICountdownOutput
+    {
+        /// <summary>The one instance; it holds no state.</summary>
+        public static Voice Instance { get; } = new();
+
+        private Voice() { }
+
+        /// <inheritdoc/>
+        public void Tone(Radios.CountdownBeat beat) => Beat(beat);
+
+        /// <inheritdoc/>
+        public void Say(string text, Func<bool> stillValid)
+            => Radios.ScreenReaderOutput.Speak(text, Radios.Speech.SpeechIntent.Queue,
+                Radios.VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.CheckCountdown, stillValid: stillValid);
+    }
+
     private static void Guarded(Action tone, string name)
     {
         try { tone(); }

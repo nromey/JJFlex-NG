@@ -486,6 +486,10 @@ public sealed class FixerDialog : JJFlexDialog
         try
         {
             int at = EarconPlayer.CountdownLastDitAtMs;
+            // At the shortest countdown the operator can set (two seconds, #835)
+            // the last counting dit is the first, at zero, which would key with
+            // no window to stop it. Key on the landing instead: late, never early.
+            if (at <= 0) at = EarconPlayer.CountdownLandingAtMs;
             return at > 0 ? at : FixerTransmitAudioBoundary.DefaultCountdownKeyUpMs;
         }
         catch (Exception ex)
