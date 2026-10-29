@@ -1668,6 +1668,18 @@ Plan files are named with three random ham-radio-flavored words, e.g. `barefoot-
 ### Test Matrices
 Create a separate test matrix file for each sprint: `C:/dev/jjf-private/planning/agile/sprintN-test-matrix.md`. This keeps the test checklist accessible during testing without having to dig through the full sprint plan. Include per-track functional tests, integration tests, and a screen reader matrix (JAWS + NVDA). Archive alongside the sprint plan when done.
 
+### Bench steps go to the harness first. Ruled by Noel 2026-10-28, project-wide
+
+**Noel's attention is the scarcest thing on this project. A bench step a tool can judge is a step he should never be handed.** Ruled after a bench evening spent walking him through window, focus, Escape, microphone-switch and keyed-send checks that the harness could have run: *"This would have saved hours today."* And: *"Can't find any problems with the harness if we're not exercising it."*
+
+- **Sort every step before it reaches him.** He gets only what needs his ear (judging audio), his hands on hardware (a physical PTT, a footswitch), or a judgement only he can make. Everything else runs through the tools: `tools/uia-probe` (`jjprobe`: press chords into the running app, walk the UIA tree, watch focus), `tools/RigSurface` (read the radio's own state back), `tools/radiocheck`, the live trace, the code, and the saved take files.
+- **Transmitting is not a reason to hand him a step.** The bench load is rated 400 W continuous, and any transmit test may run into it under the unattended keying authorization (`memory/project_unattended_keying_authorization.md`). Generated audio (the test tone, the long reference recordings) stands in for his voice. **"No agent keys a radio" in track briefs binds IMPLEMENTATION agents, not bench runs.**
+- **Prefer a private desktop**, so he can keep working while tests run. **When a test needs the real desktop**, tell him to keep his hands off the keyboard first, then press whatever the test needs. **Screen readers are instruments too:** silencing NVDA to read its IO-level log, or closing NVDA and starting JAWS, is allowed after the same heads-up. Noel: *"as long as you tell me that I need to be hands off and it's not a surprise, I'll do it because it'll be better for the application."*
+- **Fix rounds get these tests automatically, before a sheet goes to him** (#842). Ctrl+F1 everywhere, Tab reading the right labels, keys still working: all are candidates.
+- **If the harness is in the way, fix the harness.** If a test does not make sense, ask him.
+
+The larger aim is his: methods where an AI tests accessibility and usability through automated, agent-guided runs.
+
 ### Resuming Work
 If a session ends mid-task, tell Claude: "Resume [phase/task name] from `docs/barefoot-qrm-trap.md`"
 

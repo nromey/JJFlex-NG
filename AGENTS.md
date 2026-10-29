@@ -78,6 +78,10 @@ Also, from the memory tree rather than `CLAUDE.md`:
   your own session. Keying rules are in the memory tree; search it for
   `transmit` before going anywhere near the radio code paths that key.
 - **Do not edit vendor code** under `FlexLib_API` unless your brief says to.
+- **Bench steps go to the harness first** (ruled 2026-10-28, project-wide; see
+  `CLAUDE.md`). When you write test or bench steps for Noel, check each one
+  first with `tools/uia-probe`, `tools/RigSurface`, the trace or the code, and
+  send him only what needs his ear or his hands on hardware.
 
 ## Memory and the register: read them, never write them
 
