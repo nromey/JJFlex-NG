@@ -107,6 +107,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     private bool _quietSelection;
     private int _unreadable;
     private bool _starting;
+    private bool _sendSeen;
     private bool _closed;
     private int _selectionVersion;
     private readonly DispatcherTimer _watch = new() { Interval = TimeSpan.FromMilliseconds(500) };
@@ -207,7 +208,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         var transport = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
         // DRAFT PROSE (#835): awaiting Noel. play_help gained the VOX send box sentence (fix round 2026-10-29).
         _play = AddButton(transport, Lexicon.Get("audio.qsos.play"), () => _ = PlayOrPauseAsync(), "audio.qsos.play_help");
-        _stop = AddButton(transport, Lexicon.Get("audio.qsos.stop"), () => StopToStart(speak: true), "audio.qsos.stop_help");
+        _stop = AddButton(transport, Lexicon.Get("audio.qsos.stop"), () => StopPressed("the Stop button"), "audio.qsos.stop_help"); // DRAFT PROSE (#835): awaiting Noel. stop_help gained the send sentence (Codex round 1).
         controls.Children.Add(transport);
 
         AutomationProperties.SetName(_position, Lexicon.Get("audio.qsos.position"));
@@ -289,6 +290,9 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         {
             FollowRecorder(force: false);
             if (!_closed && PreviewActive && !RecordingPlayer.IsPaused) ShowPlayHead();
+            // The send has no change event here: follow it, so Stop is
+            // offered while one is in hand and withdrawn when it ends.
+            if (!_closed && SendDoors.InFlight != _sendSeen) RefreshControls();
         };
         Activated += (_, _) => FollowRecorder(force: false);
         Loaded += (_, _) =>
@@ -568,7 +572,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
                 break;
             case Key.S when !shift:
                 e.Handled = true;
-                StopToStart(speak: true);
+                StopPressed("S");
                 break;
         }
     }
@@ -672,12 +676,28 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     /// controller is idle and the dialog transmit door leaves this Escape to
     /// the window. True when there was a send to stop.
     /// </summary>
-    internal bool StopSendOnEscape()
+    internal bool StopSendOnEscape() => StopSendInHand("Escape");
+
+    /// <summary>
+    /// S and the Stop button: a send in hand stops (Codex round 1, 2026-10-29:
+    /// during a send Enter started, S went to the preview's stop, which only
+    /// moved the play head, and the Stop button was disabled). Otherwise the
+    /// preview's stop, as before.
+    /// </summary>
+    private void StopPressed(string door)
+    {
+        if (StopSendInHand(door)) return;
+        StopToStart(speak: true);
+    }
+
+    /// <summary>Stop any send in hand, saying which door did it in the trace. True when there was one.</summary>
+    private bool StopSendInHand(string door)
     {
         var doors = SendDoors;
         if (!doors.InFlight) return false;
-        Tracing.TraceLine("RecordedQsosDialog: Escape stops the send in hand", TraceLevel.Info);
+        Tracing.TraceLine("RecordedQsosDialog: " + door + " stops the send in hand", TraceLevel.Info);
         doors.Stop();
+        if (_stop != null) RefreshControls();
         return true;
     }
 
@@ -693,9 +713,12 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         {
             case EnterAct.AnswerSend:
                 doors.AnswerPlayFromComputer();
+                if (_stop != null) RefreshControls();
                 return;
             case EnterAct.Send:
                 SendSelected(doors);
+                // Offer Stop at once rather than at the next poll.
+                if (_stop != null) RefreshControls();
                 return;
             case EnterAct.Preview:
                 await StartPreviewAsync();
@@ -1103,7 +1126,9 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         _play.Content = playLabel;
         AutomationProperties.SetName(_play, playLabel);
         _play.IsEnabled = has && !CurrentIsStillRecording;
-        _stop.IsEnabled = active;
+        // A send in hand can be stopped from here too (Codex round 1).
+        _sendSeen = SendDoors.InFlight;
+        _stop.IsEnabled = active || _sendSeen;
         bool canMove = has && _browser.CanMove && !CurrentIsStillRecording;
         _position.IsEnabled = canMove;
         _position.Maximum = Math.Max(1, _browser.Duration ?? 1);

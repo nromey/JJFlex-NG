@@ -122,11 +122,32 @@ public sealed class RecordedQsoEnterSendTests
         var doors = new FakeDoors { Route = SendRoute.Box };
         OnSta(doors, (dialog, rig) =>
         {
-            // Refuse() reaches the status line, which an uninitialized window
-            // does not have; that is the refusal path, and the point is only
-            // that nothing was handed to the send.
-            PressEnter(dialog);
+            // The refusal writes the status line before it sounds or speaks,
+            // and an uninitialized window has none, so reaching it throws
+            // there, with nothing played and nothing spoken. The stack names
+            // the method, which proves the refusal was reached and not some
+            // other failure (Codex round 1: this used to discard the fault).
+            Exception? fault = PressEnter(dialog);
             Assert.Empty(doors.Sent);
+            Assert.IsType<NullReferenceException>(fault);
+            Assert.Contains("RecordedQsosDialog.Refuse", fault!.StackTrace);
+            Assert.Contains("RecordedQsosDialog.SendSelected", fault.StackTrace);
+        });
+    }
+
+    /// <summary>
+    /// The Stop button's handler (the button itself exists only in the
+    /// constructor, which an uninitialized window never ran): a send in hand
+    /// stops, as S does.
+    /// </summary>
+    [Fact]
+    public void The_Stop_button_during_a_send_stops_the_send()
+    {
+        var doors = new FakeDoors { AnyInFlight = true };
+        OnSta(doors, (dialog, rig) =>
+        {
+            typeof(RecordedQsosDialog).GetMethod("StopPressed", Private)!.Invoke(dialog, new object[] { "the Stop button" });
+            Assert.Equal(1, doors.Stopped);
         });
     }
 
@@ -145,6 +166,41 @@ public sealed class RecordedQsoEnterSendTests
         });
     }
 
+    /// <summary>
+    /// Codex round 1 (2026-10-29): during a send Enter started, S stopped
+    /// nothing: it went to the preview's StopToStart, which only moved the
+    /// play head. These drive the window's real key handler, OnPreviewKeyDown,
+    /// with a real key event, so they hold the routing and not just a method.
+    /// </summary>
+    [Fact]
+    public void S_during_a_send_stops_the_send_through_the_windows_own_key_handler()
+    {
+        var doors = new FakeDoors { AnyInFlight = true, ComputerInHand = true };
+        OnSta(doors, (dialog, rig) =>
+        {
+            Browser(dialog).Select(Recording(@"C:\nowhere\QSO-2026-10-29-024000.flac"));
+            var (handled, fault) = PressKey(dialog, System.Windows.Input.Key.S);
+            Assert.True(doors.Stopped == 1,
+                "S during a send must stop the send; it did not"
+                + (fault == null ? "." : " (it went to the preview's stop and threw " + fault.GetType().Name + ")."));
+            Assert.True(handled, "S must be consumed");
+            Assert.Null(fault);
+        });
+    }
+
+    [Fact]
+    public void Escape_during_a_send_stops_it_through_the_windows_own_key_handler_and_is_consumed()
+    {
+        var doors = new FakeDoors { AnyInFlight = true };
+        OnSta(doors, (dialog, rig) =>
+        {
+            var (handled, fault) = PressKey(dialog, System.Windows.Input.Key.Escape);
+            Assert.Null(fault);
+            Assert.Equal(1, doors.Stopped);
+            Assert.True(handled, "consumed, so the base dialog's Escape does not close the window");
+        });
+    }
+
     // ── harness ─────────────────────────────────────────────────────────
 
     private static RecordedQso Recording(string path) =>
@@ -153,6 +209,38 @@ public sealed class RecordedQsoEnterSendTests
 
     private static RecordedQsoBrowser Browser(RecordedQsosDialog dialog) =>
         (RecordedQsoBrowser)typeof(RecordedQsosDialog).GetField("_browser", Private)!.GetValue(dialog)!;
+
+    /// <summary>
+    /// A key event must name the presentation source it came from. This one
+    /// is windowless: no HWND, no visual, nothing on the desktop.
+    /// </summary>
+    private sealed class NoWindowSource : System.Windows.PresentationSource
+    {
+        protected override System.Windows.Media.CompositionTarget GetCompositionTargetCore() => null!;
+        public override System.Windows.Media.Visual RootVisual { get => null!; set { } }
+        public override bool IsDisposed => false;
+    }
+
+    /// <summary>
+    /// A real key event through the window's own <c>OnPreviewKeyDown</c>, the
+    /// handler WPF calls for a key pressed anywhere in the window, after the
+    /// dialog transmit door. Its source is <see cref="NoWindowSource"/>, and
+    /// the event carries its routed event so Handled can be set as WPF sets it.
+    /// </summary>
+    private static (bool Handled, Exception? Fault) PressKey(RecordedQsosDialog dialog, System.Windows.Input.Key key)
+    {
+        var e = new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, new NoWindowSource(), 0, key)
+        {
+            RoutedEvent = System.Windows.Input.Keyboard.PreviewKeyDownEvent,
+        };
+        try
+        {
+            typeof(RecordedQsosDialog).GetMethod("OnPreviewKeyDown", Private)!.Invoke(dialog, new object[] { e });
+            return (e.Handled, null);
+        }
+        catch (TargetInvocationException ex) { return (e.Handled, ex.InnerException ?? ex); }
+        catch (Exception ex) { return (e.Handled, ex); }
+    }
 
     /// <summary>The window's Enter: the same method the list's Enter, the Play button and a double click call.</summary>
     private static Exception? PressEnter(RecordedQsosDialog dialog)
