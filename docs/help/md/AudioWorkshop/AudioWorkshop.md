@@ -15,7 +15,7 @@ Press `Ctrl+Shift+W` from anywhere in the application to open the audio workshop
 
 ### No radio? Still useful
 
-The Workshop opens happily with no radio connected — it is on the no-radio Home page's own short menu for exactly that reason. The microphone check and everything in the This Computer section work fully offline, so you can prove a headset before you ever connect. The radio-side controls — mic gain, boost, bias, the compander, processor, filters, and monitor — disable themselves and step out of the tab order until a radio arrives, so nothing in here will claim to have changed a rig that was not listening.
+The Workshop opens happily with no radio connected — it is on the no-radio Home page's own short menu for exactly that reason. Everything in the This Computer section works fully offline, and so does Check your audio's first method, checking this computer's microphone, so you can prove a headset before you ever connect. The radio-side controls — mic gain, boost, bias, the compander, processor, filters, and monitor — disable themselves and step out of the tab order until a radio arrives, so nothing in here will claim to have changed a rig that was not listening.
 
 When the workshop opens, you land on the list of categories down the left, which tells you where you are.
 

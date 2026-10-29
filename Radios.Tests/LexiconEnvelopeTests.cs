@@ -1870,7 +1870,7 @@ namespace Radios.Tests
                 "audio.check.computer_mic.idle",
             };
 
-            Assert.Equal(3140, unclassified);
+            Assert.Equal(3138, unclassified);   // Track A 2026-10-28: the Workshop's removed Check Microphone button took its two sentences with it
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

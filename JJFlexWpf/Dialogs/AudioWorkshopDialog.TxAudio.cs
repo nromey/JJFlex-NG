@@ -431,69 +431,13 @@ public partial class AudioWorkshopDialog
         };
         AddToSection(ThisComputerContent, deviceButton);
 
-        // "Is it actually working?" is the question that follows "which
-        // microphone", so it belongs in the same section and one key away.
-        // This deliberately OPENS the check rather than reimplementing it:
-        // there is exactly one microphone probe and one set of words for what
-        // it hears, and a second live-reading surface here would be the same
-        // drift this whole arc keeps finding — two descriptions of one thing,
-        // aging apart. Costs a dialog; buys one truth.
-        var checkButton = new Button
-        {
-            Content = "Check Microphone...",
-            Padding = new Thickness(8, 4, 8, 4),
-            MinWidth = 200,
-            HorizontalAlignment = HorizontalAlignment.Left,
-            Margin = new Thickness(2)
-        };
-        AutomationProperties.SetName(checkButton, "Check Microphone");
-        JJFlexHelp.SetText(checkButton,
-            "Opens the Audio Devices window and listens to your microphone. "
-            + "The radio is not involved and nothing is transmitted.");
-        checkButton.Click += (s, e) => OpenMicrophoneCheck();
-        AddToSection(ThisComputerContent, checkButton);
+        // The Check Microphone button that stood here is gone (ruled by
+        // Noel 2026-10-28 20:30): checking this computer's microphone is
+        // Check your audio's first method now, one probe and one set of words,
+        // and the escalation from it is one Down Arrow away. Check your audio
+        // opens from this window with Alt+C or its button.
 
         RefreshDeviceReading(announce: false);
-    }
-
-    /// <summary>
-    /// Open the Audio Devices window with the microphone check already
-    /// running. Goes straight to <see cref="AudioDevicesDialog.ShowPicker"/>
-    /// rather than through the menu callback, because that callback takes no
-    /// arguments and cannot say "start the check" — and an operator who
-    /// pressed Check Microphone should not have to ask a second time on
-    /// arrival.
-    /// </summary>
-    private void OpenMicrophoneCheck()
-    {
-        string? path = AudioDevicesPath?.Invoke();
-        if (string.IsNullOrEmpty(path))
-        {
-            ScreenReaderOutput.Speak(
-                Lexicon.Get("audio.tx.mic_check_settings_file_missing"),
-                VerbosityLevel.Critical);
-            return;
-        }
-
-        try
-        {
-            var cfg = AudioConfigSource?.Invoke();
-            AudioDevicesDialog.ShowPicker(this, path, cfg,
-                AudioConfigSave, startMicCheck: true);
-        }
-        catch (Exception ex)
-        {
-            JJTrace.Tracing.TraceLine(
-                "AudioWorkshop: the microphone check could not open — " + ex.Message,
-                System.Diagnostics.TraceLevel.Error);
-            ScreenReaderOutput.Speak(
-                Lexicon.Get("audio.tx.mic_check_could_not_open", ("reason", ex.Message)),
-                VerbosityLevel.Critical);
-            return;
-        }
-
-        // The picker may have changed the selection on its way out.
-        RefreshDeviceReading(announce: true);
     }
 
     /// <summary>

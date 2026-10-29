@@ -96,5 +96,22 @@ namespace Radios.Tests
             Assert.Contains("MissingMethodsSentence(_rig)",
                 Body(Dialog("CheckYourAudioDialog.Check"), "private void UpdateMethodHelp(AudioCheckListenMethods method)"));
         }
+
+        // ── Item 8: the Workshop's Check Microphone button is gone ──
+
+        [Fact]
+        public void The_Workshop_has_no_Check_Microphone_button_and_nothing_points_at_one()
+        {
+            foreach (var part in new[] { "AudioWorkshopDialog.TxAudio", "AudioWorkshopDialog.xaml" })
+            {
+                string src = Dialog(part);
+                Assert.DoesNotContain("\"Check Microphone...\"", src);
+                Assert.DoesNotContain("OpenMicrophoneCheck", src);
+            }
+            foreach (var page in new[] { "AudioWorkshop/AudioWorkshop.md", "JJFlexibleHome/HomeWithoutARadio.md" })
+                Assert.DoesNotContain("the microphone check and", Source("docs/help/md/" + page).ToLowerInvariant());
+            // Positive control: the capability moved, it did not vanish.
+            Assert.Contains("AudioCheckListenMethods.ComputerMic", Source("Radios/AudioCheckMethods.cs"));
+        }
     }
 }

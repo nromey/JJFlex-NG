@@ -795,8 +795,6 @@
   "audio.tx.devices_cannot_open_from_here": "Audio devices cannot be opened from here yet.",
   "audio.tx.filter_high": "TX high {value}",
   "audio.tx.filter_low": "TX low {value}",
-  "audio.tx.mic_check_could_not_open": "The microphone check could not open: {reason}",
-  "audio.tx.mic_check_settings_file_missing": "The microphone check is not available yet — the audio device settings file could not be located.",
   "audio.tx.mic_gain": "Mic gain {value}",
   "audio.tx.microphone_checking": "Microphone: checking",
   "audio.tx.microphone_named": "Microphone: {device}",

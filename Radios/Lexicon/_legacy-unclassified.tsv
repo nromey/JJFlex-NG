@@ -1014,8 +1014,6 @@ audio.tx.compander_level	28439250af4e70c3
 audio.tx.devices_cannot_open_from_here	32f9ad0e77a79d85
 audio.tx.filter_high	78fc9ae279444297
 audio.tx.filter_low	819c81cb9b270422
-audio.tx.mic_check_could_not_open	c6e60dad463f57f2
-audio.tx.mic_check_settings_file_missing	4ce38fe864d55be7
 audio.tx.mic_gain	ca01f13638c09a1e
 audio.tx.microphone_checking	610c27816b98ab0a
 audio.tx.microphone_named	43f1dee10a87b894

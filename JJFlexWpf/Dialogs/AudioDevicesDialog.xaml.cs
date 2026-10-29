@@ -2753,7 +2753,8 @@ namespace JJFlexWpf.Dialogs
 
         /// <summary>
         /// Set by a caller that opened this dialog specifically to check a
-        /// microphone — the Audio Workshop's "Check Microphone" button — so the
+        /// microphone (the Audio Workshop's "Check Microphone" button did, until
+        /// it was removed in favour of Check your audio's first method) so the
         /// operator does not arrive at a dialog they asked a question of and
         /// have to ask it a second time. Runs on Loaded, after the device lists
         /// are populated and a row is selected.
