@@ -58,6 +58,46 @@ namespace Radios.Tests
             Assert.InRange(bench.Tones[0], 2000, 2000 + CountdownRun.SpeechPollMs);
         }
 
+        [Fact]
+        public async Task A_number_the_reader_has_accepted_but_not_begun_holds_its_pip()
+        {
+            // Codex round 3: the reader takes the number at once (it has left
+            // our pump) and then holds it for two seconds behind speech of its
+            // own. The pip must wait for the first word, not for the hand-over.
+            var bench = new Bench { ReaderFirstWordDelayMs = 2000 };
+            var run = bench.Start(CountdownVoicing.SpokenAndBeeped, seconds: 3);
+
+            Assert.True(await bench.RunUntil(run.Completion));
+            Assert.InRange(bench.Tones[0], 2000, 2000 + CountdownRun.SpeechPollMs);
+            foreach (var (number, toneAt) in new[] { "3", "2", "1" }.Zip(bench.Tones))
+                Assert.True(toneAt >= bench.StartedAt(number),
+                    $"the pip for {number} sounded at {toneAt} ms, before its first word at {bench.StartedAt(number)} ms");
+        }
+
+        [Fact]
+        public void The_real_pump_says_a_piece_has_started_only_at_its_first_word_mark()
+        {
+            // The production signal, on the production pump: handed to the
+            // reader is not started; the first word mark is.
+            var channel = new FakeCompletionChannel();
+            using var pump = new PacedSpeechDelivery((text, interrupt) => SpeechDelivery.Accepted,
+                (ticket, text, outcome) => { }, _ => 5000);
+            try
+            {
+                long ticket = pump.Enqueue(channel, "three");
+                var call = channel.WaitForCall();
+                Assert.Equal(ticket, call.Ticket);
+                Assert.False(pump.HasReachedFirstWord(ticket), "accepted by the reader, no word yet, yet read as started");
+
+                channel.Mark(call);
+                Assert.True(pump.HasReachedFirstWord(ticket));
+
+                long other = pump.Enqueue(channel, "two");
+                Assert.False(pump.HasReachedFirstWord(other), "still queued, yet read as started");
+            }
+            finally { channel.ReleaseAll(); }
+        }
+
         // ── The count, and the key, follow delivery ─────────────────────
 
         [Fact]
@@ -230,6 +270,14 @@ namespace Radios.Tests
             public bool ReaderRefuses { get; set; }
             public int ReaderMsPerPiece { get; set; } = 300;
 
+            /// <summary>
+            /// How long the reader holds a piece it has accepted before its first
+            /// word: speech of its own ahead of ours, which the app cannot see
+            /// (Codex round 3). The first word mark comes this long after it
+            /// takes the piece.
+            /// </summary>
+            public int ReaderFirstWordDelayMs { get; set; }
+
             public FakeSpeechClock SpeechClock { get; } = new();
             public Clock Clock { get; }
             public SpeechArbiter Arbiter { get; }
@@ -278,7 +326,12 @@ namespace Radios.Tests
                             return true;
                         }
                     });
-                Speech = new CountdownSpeech(Arbiter, ticket => { lock (_sync) return _queue.Exists(q => q.Ticket == ticket); });
+                // The production signal: the reader has reported the first word.
+                Speech = new CountdownSpeech(Arbiter, ticket =>
+                {
+                    lock (_sync)
+                        return _inFlight is { } f && f.Ticket == ticket && Clock.Now >= f.Since + ReaderFirstWordDelayMs;
+                });
             }
 
             public IEnumerable<string> QueuedTexts { get { lock (_sync) return _queue.Select(q => q.Text).ToList(); } }
@@ -313,7 +366,7 @@ namespace Radios.Tests
                 lock (_sync)
                 {
                     if (now < _busyUntil) return;
-                    if (_inFlight is { } f && now >= f.Since + ReaderMsPerPiece && f.Text != ReaderHolds)
+                    if (_inFlight is { } f && now >= f.Since + ReaderFirstWordDelayMs + ReaderMsPerPiece && f.Text != ReaderHolds)
                     {
                         _finished[f.Text] = now;
                         done = f;
@@ -336,7 +389,7 @@ namespace Radios.Tests
                     else
                     {
                         _inFlight = (next.Ticket, next.Text, now);
-                        _started[next.Text] = now;
+                        _started[next.Text] = now + ReaderFirstWordDelayMs;
                     }
                 }
                 if (ReaderRefuses && next.Ticket != 0)

@@ -279,14 +279,14 @@ namespace Radios
         /// <see cref="Speech.CountdownSpeech"/>.
         /// </summary>
         public static Speech.CountdownSpeech CountdownSpeech =>
-            _countdownSpeech ??= new Speech.CountdownSpeech(_arbiter, PumpStillQueues);
+            _countdownSpeech ??= new Speech.CountdownSpeech(_arbiter, PumpReachedFirstWord);
 
-        /// <summary>Whether a ticket is still waiting in the delivery pump, not yet with the reader.</summary>
-        private static bool PumpStillQueues(long ticket)
+        /// <summary>Whether the reader has reported the first word of a ticket (its first mark).</summary>
+        private static bool PumpReachedFirstWord(long ticket)
         {
             Speech.PacedSpeechDelivery? pump;
             lock (_backendLock) { pump = _pump; }
-            return pump?.IsQueued(ticket) == true;
+            return pump?.HasReachedFirstWord(ticket) == true;
         }
 
         /// <summary>

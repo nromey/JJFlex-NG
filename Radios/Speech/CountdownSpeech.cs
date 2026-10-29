@@ -27,8 +27,10 @@ namespace Radios.Speech
     /// <list type="bullet">
     /// <item><b>Started</b>, so a pip waits for its own number. On a reader
     /// that reports completion (NVDA's channel), a piece has started when the
-    /// pump has handed it to the reader. On the estimate path it has started
-    /// when its estimated start has passed.</item>
+    /// reader reports its FIRST WORD MARK; being handed to the reader is not
+    /// enough, since the reader can hold it behind speech of its own (Codex
+    /// round 3). On the estimate path it has started when its estimated start
+    /// has passed.</item>
     /// <item><b>Finished.</b> Tracked: when the reader says so (or it was cut
     /// part-way, which for a one-word number is heard). Untracked: an expired
     /// estimate is NOT proof, so where these words are the only warning
@@ -56,12 +58,16 @@ namespace Radios.Speech
         public const int UntrackedMarginPercent = 50;
 
         private readonly SpeechArbiter _arbiter;
-        private readonly Func<long, bool>? _stillQueuedInPump;
+        private readonly Func<long, bool>? _reachedFirstWord;
 
-        internal CountdownSpeech(SpeechArbiter arbiter, Func<long, bool>? stillQueuedInPump = null)
+        /// <param name="arbiter">The arbiter the words go through.</param>
+        /// <param name="reachedFirstWord">Whether the reader has reported the first
+        /// word of a ticket. Null means no such signal: a tracked piece then
+        /// counts as started only once it has finished.</param>
+        internal CountdownSpeech(SpeechArbiter arbiter, Func<long, bool>? reachedFirstWord = null)
         {
             _arbiter = arbiter;
-            _stillQueuedInPump = stillQueuedInPump;
+            _reachedFirstWord = reachedFirstWord;
         }
 
         /// <summary>
@@ -125,8 +131,8 @@ namespace Radios.Speech
                     if (v.Tracked)
                     {
                         if (!v.InLedger) return true;                          // the reader finished it
-                        // Handed to the reader is started; still in our pump is not.
-                        return _owner._stillQueuedInPump != null && !_owner._stillQueuedInPump(v.Ticket);
+                        // Only the reader's first word mark says it has begun.
+                        return _owner._reachedFirstWord != null && _owner._reachedFirstWord(v.Ticket);
                     }
                     return v.NowUtc >= v.EstStartUtc;
                 }
