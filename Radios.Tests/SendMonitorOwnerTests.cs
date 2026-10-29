@@ -31,6 +31,8 @@ namespace Radios.Tests
             public object? Connection => Conn;
             public void WriteMonitor(bool on) => Writes.Add(on ? "on" : "off");
             public void Watch(bool watching) => Watching += watching ? 1 : -1;
+            public int Lost;
+            public void PutBackLost() => Lost++;
 
             /// <summary>The radio reports the monitor; the port tells the owner, as FlexBase's does.</summary>
             public void Report(bool on) { Monitor = on; Owner?.Observe(); }
@@ -140,6 +142,55 @@ namespace Radios.Tests
             port.Conn = null;
             hold.Dispose();
             Assert.Equal(new[] { "on" }, port.Writes);
+        }
+
+        /// <summary>
+        /// Codex round 1, finding 3: a disconnect used to forget that the send
+        /// had turned the monitor on. Now a put-back that cannot be written is
+        /// reported, so the next connect can make it.
+        /// </summary>
+        [Fact]
+        public void A_put_back_lost_to_a_disconnect_is_reported_not_forgotten()
+        {
+            var (owner, port) = Make();
+            var hold = owner.Hold("cq");
+            port.Report(true);
+            port.Conn = null;
+            hold.Dispose();
+            Assert.Equal(1, port.Lost);
+        }
+
+        [Fact]
+        public void A_put_back_made_on_the_disconnect_path_is_not_made_again_or_reported_lost()
+        {
+            var (owner, port) = Make();
+            var hold = owner.Hold("cq");
+            port.Report(true);
+
+            Assert.True(owner.TakeBackForDisconnect(), "the send turned it on, so the disconnect path puts it back");
+            Assert.False(owner.TakeBackForDisconnect(), "and only once");
+            port.Conn = null;
+            hold.Dispose();
+
+            Assert.Equal(new[] { "on" }, port.Writes);   // the disconnect path wrote "off" itself
+            Assert.Equal(0, port.Lost);
+        }
+
+        [Fact]
+        public void The_disconnect_path_leaves_an_operators_monitor_alone()
+        {
+            var (owner, port) = Make(monitorOn: true);
+            var hold = owner.Hold("cq");
+            Assert.False(owner.TakeBackForDisconnect());
+            hold.Dispose();
+
+            var (owner2, port2) = Make();
+            var hold2 = owner2.Hold("cq");
+            port2.Report(true);
+            port2.OperatorSets(true);
+            Assert.False(owner2.TakeBackForDisconnect());
+            hold2.Dispose();
+            Assert.Equal(0, port2.Lost);
         }
 
         [Fact]

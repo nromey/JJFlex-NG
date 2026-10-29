@@ -2881,6 +2881,7 @@ namespace Radios
                 // The stored GUI client id for this radio and instance, or null
                 // for "radio, mint one" (#782). FlexLib sends `client gui <id>`
                 // or a bare `client gui` accordingly.
+                RevokePttWatch("Connect");   // a selected trace topic makes the bare ping fence throw (#835)
                 rv = theRadio.Connect(prepareClientIdentityForConnect("Connect"));
                 ConnectionProfiler.Current?.RecordEvent("flexlib_connect_end", new Dictionary<string, object>
                 {
@@ -3417,6 +3418,7 @@ namespace Radios
                     NoteFlexLibConnectTimeProfileAsk("RetryConnect");
                     // The same stored id as the first attempt presented, unless
                     // the radio refused it as a duplicate in between (#782).
+                    RevokePttWatch("RetryConnect");   // as in Connect (#835)
                     rv = theRadio.Connect(prepareClientIdentityForConnect("RetryConnect"));
                     Tracing.TraceLine($"RetryConnect: Radio.Connect returned {rv} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
 
@@ -3935,6 +3937,13 @@ namespace Radios
             // section 8).
             BeginTeardownOperation("Disconnect");
             DisconnectVoxPauses();
+            // While the link is certainly up: end what a send holds on the
+            // radio, the PTT source watch and a monitor it turned on (#835).
+            try { RevokeSendHoldsForDisconnect("Disconnect"); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("Disconnect: ending the send's holds threw: " + ex.Message, TraceLevel.Error);
+            }
 
             // The deferred create of a global that was definitely missing at
             // connect (#578, design step 11), on the CLEAN disconnect and
@@ -4787,6 +4796,7 @@ namespace Radios
                 !string.IsNullOrEmpty(clientID))
             {
                 justReconnected = true;
+                RevokePttWatch("reconnect");   // as in Connect (#835)
                 theRadio.Connect(clientID);
             }
             else

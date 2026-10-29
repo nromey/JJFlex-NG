@@ -26,15 +26,30 @@ namespace Radios
     /// remove each other's topic.
     /// </para>
     /// <para>
-    /// <b>Why leased, not held for the whole connection.</b> Two vendor costs
-    /// come with any selected topic, and both are bounded by a send's life
-    /// rather than paid all evening: <c>TelnetTraceOutput</c> is a list nobody
-    /// trims, and while any topic is selected <c>Radio.SendCommand</c> reads
+    /// <b>Locks, in ONE order: the lease gate, then FlexLib's topic list, then
+    /// FlexLib's output list, then the read gate.</b> FlexLib raises the
+    /// trace's change from three places: <c>ParseStatus</c> and
+    /// <c>SendCommand</c> while holding the topic list, and <c>ParseReply</c>
+    /// while holding the OUTPUT list. So the change handler takes the output
+    /// list first and its own read gate second, and nothing here ever takes
+    /// the output list while holding the read gate. Until Codex's round on the
+    /// 2026-10-28 fix round the handler took them the other way round, and a
+    /// reply raised under the output lock could deadlock against a command
+    /// raised outside it (reproduced in <c>PttSourceWatchSafetyTests</c>).
+    /// </para>
+    /// <para>
+    /// <b>Leased, revoked, and trimmed.</b> Two vendor costs come with any
+    /// selected topic. While one is selected, <c>Radio.SendCommand</c> reads
     /// each command's first word with <c>Substring(0, IndexOf(' '))</c>, which
-    /// throws for a command with no space (the connect-time <c>info</c> and
-    /// <c>version</c>, and a Maestro's bare <c>ping</c>). None of those is sent
-    /// during a send. Outside a lease, <see cref="PttSourceIsHardware"/> is
-    /// FlexLib's parse, exactly as before.
+    /// throws for a command with no space: the connect fence's bare
+    /// <c>ping</c>, the connect-time <c>info</c> and <c>version</c>. So the
+    /// watch is held only by a send piece, and <see cref="RevokePttWatch"/>
+    /// ends every lease at once on a disconnect and before every connect. And
+    /// <c>TelnetTraceOutput</c> is a list nobody trims, so the watch removes
+    /// the interlock lines it caused once read, keeping only the newest, which
+    /// another trace reader may still be reading as "the last line". Lines of
+    /// other topics are never touched, and nothing is trimmed when someone else
+    /// had the topic selected first.
     /// </para>
     /// <para>
     /// <b>Every line is read, not just the last.</b> Commands from other
@@ -47,17 +62,18 @@ namespace Radios
     {
         private const string InterlockTraceTopic = "interlock";
 
-        // Two locks, in this order only: the lease gate may be held while
-        // FlexLib's topic list or the read gate is taken, never the reverse.
-        // FlexLib raises the trace's change event while it holds its topic
-        // list, so the change handler takes the read gate alone.
+        // See the lock order above. _pttWatchGate: leases. _pttWatchReadGate:
+        // the fields the change handler reads, always taken INSIDE the output list's lock.
         private readonly object _pttWatchGate = new();
         private readonly object _pttWatchReadGate = new();
         private int _pttWatchLeases;
-        private Radio? _pttWatchRadio;
+        private int _pttWatchGeneration;
         private bool _pttWatchAddedTopic;
+        private Radio? _pttWatchRadio;
         private List<string>? _pttWatchList;
         private int _pttWatchSeen;
+        private int _pttWatchTrimFrom;
+        private bool _pttWatchTrims;
         private volatile string? _rawPttSource;
 
         /// <summary>
@@ -70,18 +86,40 @@ namespace Radios
         /// Read the radio's interlock source line by line until the returned
         /// lease is disposed, so <see cref="PttSourceIsHardware"/> sees a
         /// hardware line pressed under the app's own key. Leases nest; the
-        /// topic is selected for the first and released with the last.
-        /// Disposing twice is harmless. With no radio the lease holds nothing.
+        /// topic is selected for the first and released with the last, or by
+        /// <see cref="RevokePttWatch"/>. Disposing twice is harmless, and a
+        /// lease from before a revoke does nothing when disposed.
         /// </summary>
         public IDisposable WatchPttSource()
         {
             lock (_pttWatchGate)
             {
                 if (_pttWatchLeases++ == 0) StartPttWatch();
+                return new PttWatchLease(this, _pttWatchGeneration);
             }
-            return new PttWatchLease(this);
         }
 
+        /// <summary>
+        /// End every lease now (#835, Codex round 1, finding 4): the radio is
+        /// disconnecting or a connection is about to be opened, and the topic
+        /// must not stay selected across it, where a space-less command would
+        /// throw in <c>Radio.SendCommand</c>. Leases taken before this become
+        /// inert. Safe when none is held.
+        /// </summary>
+        internal void RevokePttWatch(string why)
+        {
+            lock (_pttWatchGate)
+            {
+                if (_pttWatchLeases == 0) return;
+                Tracing.TraceLine("PttSourceWatch: revoked (" + why + "), " + _pttWatchLeases + " lease(s) ended",
+                    TraceLevel.Info);
+                _pttWatchLeases = 0;
+                _pttWatchGeneration++;
+                StopPttWatch();
+            }
+        }
+
+        // Called with _pttWatchGate held.
         private void StartPttWatch()
         {
             Radio? radio = theRadio;
@@ -102,14 +140,18 @@ namespace Radios
                         _pttWatchAddedTopic = true;
                     }
                 }
+                List<string> output = radio.TelnetTraceOutput;
+                lock (output)
                 lock (_pttWatchReadGate)
                 {
-                    List<string> output = radio.TelnetTraceOutput;
-                    lock (output)
-                    {
-                        _pttWatchList = output;
-                        _pttWatchSeen = output.Count;
-                    }
+                    _pttWatchList = output;
+                    _pttWatchSeen = output.Count;
+                    // Ours to trim only if nobody else had the topic. Then any
+                    // interlock line already in the list is left from an earlier
+                    // lease of ours (the topic was unselected since), so the
+                    // newest, kept last time, may go too.
+                    _pttWatchTrims = _pttWatchAddedTopic;
+                    _pttWatchTrimFrom = Math.Max(0, output.Count - 1);
                     _pttWatchRadio = radio;
                 }
                 radio.PropertyChanged += OnPttWatchTrace;
@@ -120,25 +162,37 @@ namespace Radios
             }
         }
 
+        // Called with _pttWatchGate held.
         private void StopPttWatch()
         {
             Radio? radio;
+            lock (_pttWatchReadGate) radio = _pttWatchRadio;
+            if (radio != null)
+            {
+                try
+                {
+                    radio.PropertyChanged -= OnPttWatchTrace;
+                    List<string> output = radio.TelnetTraceOutput;
+                    lock (output)
+                    lock (_pttWatchReadGate)
+                    {
+                        TrimLocked(output);
+                        _pttWatchRadio = null;
+                        _pttWatchList = null;
+                        _rawPttSource = null;
+                    }
+                    if (_pttWatchAddedTopic) radio.RemoveTelnetTraceTopic(InterlockTraceTopic);
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("PttSourceWatch: could not stop cleanly: " + ex.Message, TraceLevel.Warning);
+                }
+            }
             lock (_pttWatchReadGate)
             {
-                radio = _pttWatchRadio;
                 _pttWatchRadio = null;
-                _rawPttSource = null;
                 _pttWatchList = null;
-            }
-            if (radio == null) return;
-            try
-            {
-                radio.PropertyChanged -= OnPttWatchTrace;
-                if (_pttWatchAddedTopic) radio.RemoveTelnetTraceTopic(InterlockTraceTopic);
-            }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine("PttSourceWatch: could not stop cleanly: " + ex.Message, TraceLevel.Warning);
+                _rawPttSource = null;
             }
             _pttWatchAddedTopic = false;
         }
@@ -148,27 +202,27 @@ namespace Radios
             if (e.PropertyName != nameof(Radio.TelnetTraceOutput)) return;
             if (sender is not Radio radio) return;
             string? latest = null;
+            List<string> output = radio.TelnetTraceOutput;
+            // FlexLib's list FIRST: ParseReply raises this while already holding it.
+            lock (output)
             lock (_pttWatchReadGate)
             {
                 if (!ReferenceEquals(radio, _pttWatchRadio)) return;
-                List<string> output = radio.TelnetTraceOutput;
-                lock (output)
+                // A cleared trace is a new list; start again at its top.
+                if (!ReferenceEquals(output, _pttWatchList))
                 {
-                    // A cleared trace is a new list; start again at its top.
-                    if (!ReferenceEquals(output, _pttWatchList))
-                    {
-                        _pttWatchList = output;
-                        _pttWatchSeen = 0;
-                    }
-                    for (int i = _pttWatchSeen; i < output.Count; i++)
-                    {
-                        string? source = PttSourceReading.SourceFromInterlockStatus(output[i]);
-                        if (source != null) latest = source;
-                    }
-                    _pttWatchSeen = output.Count;
+                    _pttWatchList = output;
+                    _pttWatchSeen = 0;
+                    _pttWatchTrimFrom = 0;
                 }
-                if (latest == null) return;
-                if (string.Equals(latest, _rawPttSource, StringComparison.Ordinal)) return;
+                for (int i = _pttWatchSeen; i < output.Count; i++)
+                {
+                    string? source = PttSourceReading.SourceFromInterlockStatus(output[i]);
+                    if (source != null) latest = source;
+                }
+                _pttWatchSeen = output.Count;
+                TrimLocked(output);
+                if (latest == null || string.Equals(latest, _rawPttSource, StringComparison.Ordinal)) return;
                 _rawPttSource = latest;
             }
             Tracing.TraceLine("PttSourceWatch: the radio reports source=" + latest
@@ -176,16 +230,41 @@ namespace Radios
                 TraceLevel.Info);
         }
 
+        /// <summary>
+        /// Remove the interlock status lines this watch has read, except the
+        /// list's last line. Called holding the output list and the read gate.
+        /// </summary>
+        private void TrimLocked(List<string> output)
+        {
+            if (!_pttWatchTrims || !ReferenceEquals(output, _pttWatchList)) return;
+            // Every line up to the last has been read by the time this runs
+            // (the handler scans first; a stop no longer needs to read).
+            for (int i = output.Count - 2; i >= _pttWatchTrimFrom && i >= 0; i--)
+                if (IsInterlockStatus(output[i])) output.RemoveAt(i);
+            // The newest line was kept as "last"; the next trim starts there.
+            _pttWatchTrimFrom = Math.Max(0, output.Count - 1);
+            _pttWatchSeen = output.Count;
+        }
+
+        private static bool IsInterlockStatus(string line)
+        {
+            if (string.IsNullOrEmpty(line) || line[0] != 'S') return false;
+            int bar = line.IndexOf('|');
+            return bar >= 0 && string.CompareOrdinal(line, bar + 1, "interlock ", 0, "interlock ".Length) == 0;
+        }
+
         private sealed class PttWatchLease : IDisposable
         {
             private FlexBase? _owner;
-            internal PttWatchLease(FlexBase owner) { _owner = owner; }
+            private readonly int _generation;
+            internal PttWatchLease(FlexBase owner, int generation) { _owner = owner; _generation = generation; }
             public void Dispose()
             {
                 FlexBase? owner = System.Threading.Interlocked.Exchange(ref _owner, null);
                 if (owner == null) return;
                 lock (owner._pttWatchGate)
                 {
+                    if (_generation != owner._pttWatchGeneration) return;   // revoked: nothing of ours left
                     if (owner._pttWatchLeases > 0 && --owner._pttWatchLeases == 0) owner.StopPttWatch();
                 }
             }

@@ -35,10 +35,12 @@ namespace Radios
     /// monitor the operator turns on mid-send stays on.
     /// </para>
     /// <para>
-    /// <b>A radio that went away is not written.</b> The put-back needs the
-    /// same connection the turn-on used; after a disconnect it is traced and
-    /// skipped, because a write to the next connection would be a write to a
-    /// radio nobody asked about.
+    /// <b>A disconnect does not forget it</b> (Codex round 1, finding 3). A
+    /// deliberate disconnect asks <see cref="TakeBackForDisconnect"/> while the
+    /// link is up and puts the monitor back itself. If the connection was
+    /// already gone, the release cannot write to it; it tells the port
+    /// (<see cref="IPort.PutBackLost"/>), which records it for the next connect
+    /// to the same radio, rather than writing to whatever connection is current.
     /// </para>
     /// <para>
     /// Holds nest, so a box send of a slice recording (the send host's hold
@@ -71,6 +73,31 @@ namespace Radios
             /// the radio reports the monitor.
             /// </summary>
             void Watch(bool watching);
+
+            /// <summary>
+            /// A monitor this owner turned on could not be put back, because the
+            /// connection went away first (#835, Codex round 1, finding 3). The
+            /// port records it so the next connect to the same radio can.
+            /// </summary>
+            void PutBackLost();
+        }
+
+        /// <summary>
+        /// The radio is about to disconnect while a send holds the monitor (#835,
+        /// Codex round 1, finding 3). True when the send turned it on and nobody
+        /// has touched it since: the CALLER puts it back now, while the link is
+        /// up, and the holds released afterwards write nothing and report
+        /// nothing. False otherwise, and then nothing changes. True only once.
+        /// </summary>
+        public bool TakeBackForDisconnect()
+        {
+            lock (_gate)
+            {
+                ObserveLocked();
+                if (_holders == 0 || !_weTurnedOn || _operators) return false;
+                _weTurnedOn = false;   // put back by the caller: the release has nothing left to do
+                return true;
+            }
         }
 
         private readonly IPort _port;
@@ -152,7 +179,7 @@ namespace Radios
 
         private void Release()
         {
-            bool turnOff = false, unwatch = false, skipped = false;
+            bool turnOff = false, unwatch = false, lost = false;
             lock (_gate)
             {
                 if (_holders == 0) return;
@@ -163,7 +190,7 @@ namespace Radios
                 {
                     object? now = _port.Connection;
                     if (now != null && ReferenceEquals(now, _connection)) turnOff = true;
-                    else skipped = true;
+                    else lost = true;
                 }
                 _weTurnedOn = _sawOn = _operators = false;
                 _connection = null;
@@ -174,10 +201,11 @@ namespace Radios
                 Tracing.TraceLine("SendMonitor: transmit monitor back off", TraceLevel.Info);
                 SafePort(() => _port.WriteMonitor(false), "turn off");
             }
-            else if (skipped)
+            else if (lost)
             {
                 Tracing.TraceLine("SendMonitor: the radio's connection went away during the send, so the monitor"
-                    + " the send turned on was NOT put back off", TraceLevel.Warning);
+                    + " the send turned on could not be put back off; noted for the next connect", TraceLevel.Warning);
+                SafePort(_port.PutBackLost, "note the lost put-back");
             }
         }
 
