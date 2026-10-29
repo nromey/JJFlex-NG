@@ -1813,6 +1813,11 @@ namespace Radios.Tests
                 "audio.qsos.delete_help",
                 "audio.qsos.prune_help",
                 "audio.qsos.close_help",
+                // DRAFT PROSE (#829): two default keys whose function is not
+                // built say so instead of doing nothing in silence. Spoken
+                // under SpeechSubject.UnbuiltKey.
+                "connect.cluster.not_available",
+                "connect.scan.resume_none_paused",
             };
 
             Assert.Equal(3140, unclassified);

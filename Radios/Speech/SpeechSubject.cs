@@ -589,5 +589,14 @@ namespace Radios.Speech
         /// the newer stop covers an unheard older one.
         /// </summary>
         public const string SixtyMeterStop = "sixty-meter-stop";
+
+        /// <summary>
+        /// A default key whose function is not built yet saying so, rather
+        /// than doing nothing in silence (#829): the DX cluster key, and the
+        /// resume-scan key when no scan is paused. True until the next press of
+        /// such a key, which says the same kind of thing, so the newer covers an
+        /// unheard older one.
+        /// </summary>
+        public const string UnbuiltKey = "unbuilt-key";
     }
 }

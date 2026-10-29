@@ -2260,9 +2260,15 @@ Module globals
 
     ''' <summary>
     ''' Show DX cluster. Placeholder — cluster UI requires reimplementation after key migration.
+    ''' Until it is rebuilt (#828), the key says so rather than doing nothing in
+    ''' silence (#829): a documented key that is silent makes the operator doubt
+    ''' themselves, not the key.
     ''' </summary>
     Friend Sub ShowArCluster()
         Tracing.TraceLine("ShowArCluster: not yet reimplemented after key migration", TraceLevel.Warning)
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.cluster.not_available"),
+            Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
+            subject:=Radios.Speech.SpeechSubject.UnbuiltKey)
     End Sub
 
     ''' <summary>
@@ -2486,8 +2492,19 @@ Module globals
                 End If
             End Sub,
             .ResumeScan = Sub()
-                If (scanstate <> scans.none) AndAlso (Not ScanInProcess) AndAlso
-                   (RigControl IsNot Nothing) AndAlso (Not RigControl.Transmit) Then
+                ' A scan is paused when one is set up but its timer is stopped.
+                ' Only PauseScan (scan.vb) leaves it that way, and nothing calls
+                ' PauseScan today, so this key can never find a paused scan
+                ' (#829). Until pausing is built (#828) it says so, rather than
+                ' doing nothing in silence; a genuinely paused scan still
+                ' resumes exactly as before.
+                Dim scanIsPaused As Boolean = (scanstate <> scans.none) AndAlso (Not ScanInProcess)
+                If Not scanIsPaused Then
+                    Tracing.TraceLine("ResumeScan: no paused scan to resume", TraceLevel.Info)
+                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.scan.resume_none_paused"),
+                        Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
+                        subject:=Radios.Speech.SpeechSubject.UnbuiltKey)
+                ElseIf (RigControl IsNot Nothing) AndAlso (Not RigControl.Transmit) Then
                     scan.resumeScan()
                 End If
             End Sub,
