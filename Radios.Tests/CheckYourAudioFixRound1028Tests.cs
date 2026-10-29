@@ -207,16 +207,18 @@ namespace Radios.Tests
             string check = Dialog("CheckYourAudioDialog.Check");
             string open = Body(check, "private void OpenFixTool()");
             Assert.Contains("FixerDialog.Show(", open);
-            Assert.Contains("audio.fix_tool.wait_for_check", open);
-            Assert.True(open.IndexOf("audio.fix_tool.wait_for_check", StringComparison.Ordinal)
-                < open.IndexOf("FixerDialog.Show(", StringComparison.Ordinal), "refuses before it opens");
+            // Codex round 1: ONE hand-off decision for both doors, asked before opening.
+            Assert.True(open.IndexOf("HandOffToFixTool(", StringComparison.Ordinal) >= 0 &&
+                open.IndexOf("HandOffToFixTool(", StringComparison.Ordinal)
+                < open.IndexOf("FixerDialog.Show(", StringComparison.Ordinal), "asks the shared hand-off before it opens");
+            Assert.Contains("audio.fix_tool.wait_for_check", Body(check, "internal static bool HandOffToFixTool(string door)"));
             Assert.Contains("JJFlexHelp.SetText(_fixToolButton,", check);
             Assert.Contains("\"audio.fix_tool.help\"", check);
 
             string diag = Dialog("AudioWorkshopDialog.Diagnostics");
             string open2 = Body(diag, "private void OpenFixTool()");
             Assert.Contains("FixerDialog.Show(", open2);
-            Assert.Contains("CheckYourAudioDialog.ACheckIsStartingOrActive", open2);
+            Assert.Contains("CheckYourAudioDialog.HandOffToFixTool(", open2);
             Assert.Contains("JJFlexHelp.SetText(fixTool,", diag);
             Assert.Contains("\"audio.fix_tool.help\"", diag);
             Assert.DoesNotContain("SetHelpText(fixTool", diag);

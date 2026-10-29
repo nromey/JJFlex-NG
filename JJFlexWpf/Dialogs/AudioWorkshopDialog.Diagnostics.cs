@@ -290,13 +290,10 @@ public partial class AudioWorkshopDialog
     /// </summary>
     private void OpenFixTool()
     {
-        if (CheckYourAudioDialog.ACheckIsStartingOrActive || ABenchTakeIsRunning)
-        {
-            // DRAFT PROSE (#835): awaiting Noel.
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.fix_tool.wait_for_check"), VerbosityLevel.Critical, interrupt: true);
-            return;
-        }
-        Tracing.TraceLine("Audio Workshop: opening the Fix tool from Diagnostics", TraceLevel.Info);
+        // The one hand-off both doors share (Codex round 1): it refuses for a
+        // check, a take or this page's diagnostic take, and stops a computer
+        // microphone check listening in Check your audio.
+        if (!CheckYourAudioDialog.HandOffToFixTool("the Audio Workshop's Diagnostics page")) return;
         FixerDialog.Show(() => _rig ?? CheckYourAudioDialog.RigSource?.Invoke(), this);
     }
 

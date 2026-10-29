@@ -48,15 +48,59 @@ public partial class CheckYourAudioDialog
     /// </summary>
     private void OpenFixTool()
     {
-        if (_checkStarts.IsBusy || _session?.Active == true || _iqBusy || _iqRun != null)
+        if (!HandOffToFixTool("Check your audio")) return;
+        FixerDialog.Show(() => _rig ?? RigSource?.Invoke(), this);
+    }
+
+    /// <summary>What a Fix tool door may do, given what else is using the transmitter or the microphone.</summary>
+    internal enum FixToolHandoff
+    {
+        /// <summary>Nothing else is using either: open it.</summary>
+        Open,
+        /// <summary>The computer microphone check is listening: stop it (the Fix tool opens the same microphone), then open.</summary>
+        StopComputerMicThenOpen,
+        /// <summary>A check is starting or running, a take is running, or the Workshop's diagnostic take is: refuse, saying so.</summary>
+        RefuseCheckRunning,
+    }
+
+    /// <summary>
+    /// The ONE decision both Fix tool doors make (Codex round 1, follow-up 1).
+    /// Until this each door asked its own question: Check your audio's stopped
+    /// its computer check but did not see the Workshop's diagnostic take, and
+    /// the Workshop's saw the take but opened the Fix tool with the other
+    /// window's microphone check still holding the device.
+    /// </summary>
+    internal static FixToolHandoff DecideFixToolHandoff(bool checkStartingOrActive, bool takeRunning,
+        bool benchTakeRunning, bool computerMicListening)
+    {
+        if (checkStartingOrActive || takeRunning || benchTakeRunning) return FixToolHandoff.RefuseCheckRunning;
+        return computerMicListening ? FixToolHandoff.StopComputerMicThenOpen : FixToolHandoff.Open;
+    }
+
+    /// <summary>
+    /// Ask whether the Fix tool may open now, from either door, and do the
+    /// hand-off: refuse (spoken) while a check, a take or the Workshop's
+    /// diagnostic take runs; stop a listening computer microphone check. True
+    /// when the caller may open it. Call on the UI thread.
+    /// </summary>
+    /// <param name="door">The door asking, for the trace.</param>
+    internal static bool HandOffToFixTool(string door)
+    {
+        var inst = _instance;
+        var decision = DecideFixToolHandoff(
+            inst != null && (inst._checkStarts.IsBusy || inst._session?.Active == true),
+            inst != null && (inst._iqBusy || inst._iqRun != null),
+            AudioWorkshopDialog.ABenchTakeIsRunning,
+            inst?.ComputerMicCheckRunning == true);
+        JJTrace.Tracing.TraceLine("Fix tool from " + door + ": " + decision, System.Diagnostics.TraceLevel.Info);
+        if (decision == FixToolHandoff.RefuseCheckRunning)
         {
             // DRAFT PROSE (#835): awaiting Noel.
             ScreenReaderOutput.Speak(Lexicon.Get("audio.fix_tool.wait_for_check"), VerbosityLevel.Critical, interrupt: true);
-            return;
+            return false;
         }
-        StopComputerMicCheck(speak: false);
-        JJTrace.Tracing.TraceLine("Check your audio: opening the Fix tool", System.Diagnostics.TraceLevel.Info);
-        FixerDialog.Show(() => _rig ?? RigSource?.Invoke(), this);
+        if (decision == FixToolHandoff.StopComputerMicThenOpen) inst!.StopComputerMicCheck(speak: false);
+        return true;
     }
 
     /// <summary>The methods in the cycle right now, in its order. Index into this, never cast a SelectedIndex to the enum.</summary>
@@ -310,9 +354,18 @@ public partial class CheckYourAudioDialog
         var wanted = SelectedMethod;
         // A method that left mid-check is not taken out from under the check:
         // the cycle is rebuilt when it ends.
-        // Nor is a computer microphone check stopped by a radio arriving.
-        if (_session?.Active == true || _checkStarts.IsBusy || ComputerMicCheckRunning) return;
+        if (_session?.Active == true || _checkStarts.IsBusy) return;
         _offered = new List<AudioCheckListenMethods>(offered);
+        // A computer microphone check that is listening keeps its method and
+        // keeps listening, whatever the radio does; but the OFFER still follows
+        // the radio (Codex round 1, follow-up 2): returning early here left
+        // every radio method on offer after a disconnect, with no radio.
+        // ComputerMic leads every offer, so it is always there to keep.
+        if (ComputerMicCheckRunning)
+        {
+            SetMethodSilently(AudioCheckListenMethods.ComputerMic);
+            return;
+        }
         // Every choice the operator makes is saved at once, so the saved
         // choice IS the operator's choice: resolving it again is what brings a
         // saved Off the air back once a late antenna list makes it offerable,
