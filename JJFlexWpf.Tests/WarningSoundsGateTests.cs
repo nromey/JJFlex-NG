@@ -95,6 +95,143 @@ public sealed class WarningSoundsGateTests
         Assert.Equal(category, entry!.Category);
     }
 
+    // ── What actually reaches the mixer (the #810 repair) ─────────────────
+    //
+    // The gate tests above all passed while every warning was still silent
+    // with alert sounds off: the voiced renderers and the mixer admission
+    // helpers each read the master switch again after the gate had let the
+    // sound through. These watch the output seam instead — a mixer standing
+    // in for the alert channel's, which opens no device (and this project's
+    // QuietRun has render off besides) — and count what is submitted to it.
+
+    private static int Submitted(bool master, bool warnings, System.Action play)
+    {
+        var mixer = new NAudio.Wave.SampleProviders.MixingSampleProvider(
+            NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(EarconPlayer.MixerSampleRate, 2));
+        int count = 0;
+        WithSwitches(master, warnings, () =>
+        {
+            EarconPlayer.TestAlertMixer = mixer;
+            try
+            {
+                play();
+                count = System.Linq.Enumerable.Count(mixer.MixerInputs);
+            }
+            finally { EarconPlayer.TestAlertMixer = null; }
+        });
+        return count;
+    }
+
+    public static System.Collections.Generic.IEnumerable<object[]> TheThreeWarnings()
+    {
+        yield return new object[] { nameof(EarconPlayer.WarningAlarmTone) };
+        yield return new object[] { nameof(EarconPlayer.ProblemRecordedTone) };
+        yield return new object[] { nameof(EarconPlayer.HardKillTone) };
+    }
+
+    private static System.Action Play(string earcon) => earcon switch
+    {
+        nameof(EarconPlayer.WarningAlarmTone) => EarconPlayer.WarningAlarmTone,
+        nameof(EarconPlayer.ProblemRecordedTone) => EarconPlayer.ProblemRecordedTone,
+        nameof(EarconPlayer.HardKillTone) => EarconPlayer.HardKillTone,
+        _ => throw new System.ArgumentException(earcon),
+    };
+
+    [Theory]
+    [MemberData(nameof(TheThreeWarnings))]
+    public void With_alert_sounds_off_each_warning_is_actually_submitted_for_playback(string earcon)
+    {
+        AssertWindowless();
+        Assert.True(Submitted(master: false, warnings: true, Play(earcon)) > 0,
+            earcon + " passed the gate with alert sounds off and then never reached the mixer");
+    }
+
+    [Theory]
+    [MemberData(nameof(TheThreeWarnings))]
+    public void With_Warning_sounds_off_nothing_is_submitted_whatever_the_master_says(string earcon)
+    {
+        AssertWindowless();
+        Assert.Equal(0, Submitted(master: true, warnings: false, Play(earcon)));
+        Assert.Equal(0, Submitted(master: false, warnings: false, Play(earcon)));
+    }
+
+    [Fact]
+    public void A_long_transmission_beep_still_meets_the_master_mute_and_the_seam_sees_it_when_on()
+    {
+        AssertWindowless();
+        // Positive control first: the seam does see a Transmit sound.
+        Assert.True(Submitted(master: true, warnings: true, EarconPlayer.Warning1Beep) > 0,
+            "the test mixer saw nothing even with every switch on, so a zero below would prove nothing");
+        Assert.Equal(0, Submitted(master: false, warnings: true, EarconPlayer.Warning1Beep));
+    }
+
+    [Fact]
+    public void The_admission_ends_with_the_warning_and_does_not_leak_into_the_next_sound()
+    {
+        AssertWindowless();
+        int raw = Submitted(master: false, warnings: true, () =>
+        {
+            EarconPlayer.WarningAlarmTone();
+            // A raw voiced note on the same thread, outside any warning: it
+            // must still meet the master mute.
+            EarconPlayer.PlayVoiced(EarconVoices.Plain, 440, 50, 0.5f);
+        });
+        Assert.Equal(1, raw);   // the warning's own submission, and nothing else
+    }
+
+    /// <summary>
+    /// F1: Settings' per-sound preview and Play button refuse by the same
+    /// master rule the sounds follow, so a warning auditions with alert sounds
+    /// off and an ordinary sound still does not.
+    /// </summary>
+    [Fact]
+    public void The_master_holds_every_family_but_warnings()
+    {
+        AssertWindowless();
+        WithSwitches(master: false, warnings: true, () =>
+        {
+            Assert.False(EarconPlayer.MasterHolds(EarconPlayer.EarconCategory.Warnings));
+            Assert.True(EarconPlayer.MasterHolds(EarconPlayer.EarconCategory.Transmit));
+            Assert.True(EarconPlayer.MasterHolds(null));
+        });
+        WithSwitches(master: true, warnings: true, () =>
+            Assert.False(EarconPlayer.MasterHolds(EarconPlayer.EarconCategory.Transmit)));
+
+        string settings = System.IO.File.ReadAllText(System.IO.Path.Combine(
+            Infrastructure.RepoPaths.RequireRoot(), "JJFlexWpf", "Dialogs", "SettingsDialog.xaml.cs"));
+        foreach (string handler in new[] { "EarconTrimSoundCombo_SelectionChanged", "EarconTrimPlayButton_Click" })
+        {
+            int at = settings.IndexOf("private void " + handler, System.StringComparison.Ordinal);
+            Assert.True(at >= 0, handler + " not found");
+            int end = settings.IndexOf("\n        }", at, System.StringComparison.Ordinal);
+            string body = settings.Substring(at, end - at);
+            Assert.Contains("EarconPlayer.MasterHolds(entry.Category)", body);
+            Assert.DoesNotContain("EarconPlayer.EarconsEnabled", body);
+        }
+    }
+
+    /// <summary>
+    /// The class: every earcon that gates on Warnings opens the admission
+    /// right after its gate, so the next warning added cannot pass the gate
+    /// and stay silent the way these three did.
+    /// </summary>
+    [Fact]
+    public void Every_warning_earcon_opens_the_admission_after_its_gate()
+    {
+        AssertWindowless();
+        string source = System.IO.File.ReadAllText(System.IO.Path.Combine(
+            Infrastructure.RepoPaths.RequireRoot(), "JJFlexWpf", "EarconPlayer.cs"));
+        var gate = new System.Text.RegularExpressions.Regex(
+            @"if \(!Gate\(EarconCategory\.Warnings\)\) return;(\s*)(\S[^\r\n]*)");
+        int seen = 0;
+        foreach (System.Text.RegularExpressions.Match m in gate.Matches(source))
+        {
+            seen++;
+            Assert.Equal("using var admitted = AdmitWarnings();", m.Groups[2].Value.Trim());
+        }
+        Assert.True(seen >= 3, "only " + seen + " Warnings gates were found");
+    }
+
     /// <summary>
     /// The attribute decides which switch the Settings list shows a sound
     /// under; the Gate call decides which switch actually silences it. The

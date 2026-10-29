@@ -114,13 +114,62 @@ namespace JJFlexWpf
         /// off and are silenced only by the Warning sounds switch, on by
         /// default. The long-transmission warnings stay behind the master
         /// switch on purpose: their first two beeps are also the everyday
-        /// out-of-range nudges. This is the ONE place the rule lives; every
-        /// gated earcon and <see cref="IsOn"/> come through here.
+        /// out-of-range nudges. The rule itself is <see cref="MasterHolds"/>;
+        /// every gated earcon and <see cref="IsOn"/> come through here. The
+        /// render half of it is the warning admission scope below: the
+        /// voiced renderers and the mixer read the master switch too.
         /// </remarks>
         private static bool On(EarconCategory category) =>
-            category == EarconCategory.Warnings
-                ? _categoryEnabled[(int)category]
-                : EarconsEnabled && _categoryEnabled[(int)category];
+            !MasterHolds(category) && _categoryEnabled[(int)category];
+
+        /// <summary>
+        /// Whether the master alert-sounds switch holds back a sound of this
+        /// family: true when the master is off, except for
+        /// <see cref="EarconCategory.Warnings"/>, which answer only to their
+        /// own switch (#810). A null family (the bench and calibration sounds)
+        /// answers to the master. Published so the Settings auditions refuse
+        /// by the same rule the sounds themselves follow.
+        /// </summary>
+        public static bool MasterHolds(EarconCategory? category) =>
+            !EarconsEnabled && category != EarconCategory.Warnings;
+
+        // #810 repair. The gate is not the only place the master switch is
+        // read: the voiced renderers and the mixer admission helpers each
+        // returned on !EarconsEnabled, so a warning the gate let through was
+        // still silenced two calls later, while the trace said gate=True.
+        // A warning earcon opens this scope right after its Gate passes, and
+        // those helpers admit its sound through the master mute while the
+        // scope is open on this thread. Counted, not a flag, so nesting is
+        // safe; ended by the using at the end of the earcon method, so it
+        // cannot leak into an unrelated sound played later on the same
+        // thread. Everything else, raw and uncategorised playback included,
+        // still meets the master mute exactly as before.
+        [ThreadStatic] private static int _warningAdmission;
+
+        /// <summary>The master mute, as the renderers and the mixer see it.</summary>
+        private static bool MasterAdmits => EarconsEnabled || _warningAdmission > 0;
+
+        /// <summary>
+        /// Opened by a warning earcon after <see cref="Gate"/> passes, so its
+        /// sound reaches the mixer with alert sounds off (#810). See above.
+        /// </summary>
+        private static WarningAdmissionScope AdmitWarnings()
+        {
+            _warningAdmission++;
+            return new WarningAdmissionScope();
+        }
+
+        private readonly struct WarningAdmissionScope : IDisposable
+        {
+            public void Dispose() => _warningAdmission--;
+        }
+
+        /// <summary>
+        /// Test seam: a mixer standing in for the alert channel's, so a test can
+        /// see what is actually submitted for playback without opening a device.
+        /// Null in production.
+        /// </summary>
+        internal static MixingSampleProvider? TestAlertMixer { get; set; }
 
         /// <summary>
         /// Whether the operator's switches — master and category — let a
@@ -216,7 +265,7 @@ namespace JJFlexWpf
         #endregion
 
         // Convenience accessors for the channel mixers
-        private static MixingSampleProvider? AlertMixer => _alertChannel?.Mixer;
+        private static MixingSampleProvider? AlertMixer => TestAlertMixer ?? _alertChannel?.Mixer;
 
         /// <summary>
         /// Whether the alert channel has a live mixer (a real audio device is
@@ -874,6 +923,7 @@ namespace JJFlexWpf
         public static void HardKillTone()
         {
             if (!Gate(EarconCategory.Warnings)) return;
+            using var admitted = AdmitWarnings();
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (1000, 100), (0, 30), (600, 200) }, VolumeStrong);
         }
@@ -2174,6 +2224,7 @@ namespace JJFlexWpf
         public static void ProblemRecordedTone()
         {
             if (!Gate(EarconCategory.Warnings)) return;
+            using var admitted = AdmitWarnings();
             // 90 + 50 + 130. #116: warnings duck the band audio for their own
             // length, and the duration is stated here rather than guessed at,
             // because the request is a deadline and a wrong one is audible.
@@ -2217,6 +2268,7 @@ namespace JJFlexWpf
         public static void WarningAlarmTone()
         {
             if (!Gate(EarconCategory.Warnings)) return;
+            using var admitted = AdmitWarnings();
             RxDuck.RequestFor(750);
             PlayVoiced(EarconVoices.Alarm, 800, 750, VolumeStrong);
         }
@@ -3383,7 +3435,7 @@ namespace JJFlexWpf
         /// <summary>Add a mono source to the alert channel stereo mixer (auto-converts to stereo center).</summary>
         private static void AddToMixer(ISampleProvider monoSource)
         {
-            if (!EarconsEnabled || AlertMixer == null) return;
+            if (!MasterAdmits || AlertMixer == null) return;
             // A bench pan on an otherwise centred sound has to become a real
             // pan, which needs the mono source before it is widened.
             if (_previewActive && Math.Abs(_previewPan) >= 0.01f
@@ -3401,7 +3453,7 @@ namespace JJFlexWpf
         /// <summary>Add a mono source to the alert channel stereo mixer with panning (-1 left, 0 center, +1 right).</summary>
         private static void AddToMixerPanned(ISampleProvider monoSource, float pan)
         {
-            if (!EarconsEnabled || AlertMixer == null) return;
+            if (!MasterAdmits || AlertMixer == null) return;
             // PanningSampleProvider takes mono → outputs stereo
             if (monoSource.WaveFormat.Channels != 1)
                 monoSource = monoSource.ToMono();
@@ -3413,7 +3465,7 @@ namespace JJFlexWpf
         /// <summary>Add a mono source with panning that sweeps from startPan to endPan over durationMs.</summary>
         private static void AddToMixerSweptPan(ISampleProvider monoSource, float startPan, float endPan, int durationMs)
         {
-            if (!EarconsEnabled || AlertMixer == null) return;
+            if (!MasterAdmits || AlertMixer == null) return;
             if (monoSource.WaveFormat.Channels != 1)
                 monoSource = monoSource.ToMono();
             var swept = new SweepPanningSampleProvider(monoSource, startPan, endPan, durationMs);
@@ -3659,7 +3711,7 @@ namespace JJFlexWpf
         internal static void PlayVoicedSequence(MeterVoice voice, (int freq, int ms)[] steps,
             float volume, float pan = 0f)
         {
-            if (!EarconsEnabled) return;
+            if (!MasterAdmits) return;
             PlayVoicedSequenceCore(voice, steps, volume, pan);
         }
 
@@ -3720,7 +3772,7 @@ namespace JJFlexWpf
         internal static void PlayVoicedDecaySequence(MeterVoice voice, (int freq, int ms)[] steps,
             float volume, float pan = 0f)
         {
-            if (!EarconsEnabled) return;
+            if (!MasterAdmits) return;
             if (AlertMixer == null) { PlayVoicedSequence(voice, steps, volume, pan); return; }
             try
             {
