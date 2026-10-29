@@ -18,9 +18,12 @@ namespace POpusCodec
         [DllImport("libopus.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         private static extern IntPtr opus_get_version_string();
 
+        // Opus returns plain 8-bit C strings. PtrToStringAuto reads them as
+        // UTF-16 on Windows and returns garbage, so both string readers here
+        // use PtrToStringAnsi (#807).
         public static string opus_get_version()
         {
-            return Marshal.PtrToStringAuto(opus_get_version_string());
+            return Marshal.PtrToStringAnsi(opus_get_version_string());
         }
 
         public static IntPtr opus_encoder_create(SamplingRate Fs, Channels channels, OpusApplicationType application)
@@ -234,7 +237,7 @@ namespace POpusCodec
 
         private static string opus_error(OpusStatusCode error)
         {
-            return Marshal.PtrToStringAuto(opus_strerror(error));
+            return Marshal.PtrToStringAnsi(opus_strerror(error));
         }
 
         private static void HandleStatusCode(OpusStatusCode statusCode)
