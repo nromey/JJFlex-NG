@@ -438,7 +438,55 @@ namespace Radios.Tests
             Assert.False(run.SpeechStalled);
         }
 
+        [Fact]
+        public async Task A_skip_landing_mid_question_is_a_skip_not_words_that_were_never_delivered()
+        {
+            // The skip takes the unsaid words back, which makes them read as
+            // failed. If it lands while the count is asking about them, the
+            // count must still treat it as a skip: not stop, not report its
+            // words undelivered.
+            var clock = new SteppedClock();
+            var output = new SkipMidQuestionOutput();
+            var plan = CountdownPlan.For(new CountdownSettings { Seconds = 5, LeadIn = false },
+                CountdownVoicing.Spoken, numberText: n => n.ToString());
+            var run = CountdownRun.Start(plan, output, "test", clock.NowMs, clock.Delay);
+            output.Run = run;
+            var ready = run.ReadyToKeyAsync();
+
+            clock.Step();
+            output.SkipOnNextQuestion = true;
+            Assert.True(await clock.RunUntil(ready));
+            Assert.True(run.Skipped);
+            Assert.False(run.SpeechStalled, "a skip was reported as words that never reached the reader");
+        }
+
         private static async Task<bool> Idle() { await Task.Delay(1); return true; }
+
+        /// <summary>A reader whose words never finish, and which presses skip while the count asks about them.</summary>
+        private sealed class SkipMidQuestionOutput : ICountdownOutput
+        {
+            public CountdownRun? Run;
+            public volatile bool SkipOnNextQuestion;
+            private volatile bool _withdrawn;
+            public void Tone(CountdownBeat beat) { }
+            public ICountdownWords Say(string text, bool onlyWarning) => new Words(this);
+            public void WithdrawSpeech(string why) => _withdrawn = true;
+            private sealed class Words : ICountdownWords
+            {
+                private readonly SkipMidQuestionOutput _o;
+                public Words(SkipMidQuestionOutput o) => _o = o;
+                public bool Failed
+                {
+                    get
+                    {
+                        if (_o.SkipOnNextQuestion) { _o.SkipOnNextQuestion = false; _o.Run!.Skip(); }
+                        return _o._withdrawn;
+                    }
+                }
+                public bool Started => true;
+                public bool Finished => false;
+            }
+        }
 
         /// <summary>A reader that starts every piece and never finishes one.</summary>
         private sealed class StuckOutput : ICountdownOutput

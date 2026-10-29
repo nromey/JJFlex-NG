@@ -380,7 +380,12 @@ namespace Radios
             long from = _nowMs();
             while (true)
             {
+                // A skip takes the unsaid words back, which makes them read as
+                // failed; it must end this wait as a skip, never as words that
+                // were not delivered.
+                _waits.ThrowIfCancellationRequested();
                 bool failed = Ask(() => words.Failed, failedIfThrows: true);
+                if (failed) _waits.ThrowIfCancellationRequested();
                 if (!failed && Ask(() => finished ? words.Finished : words.Started, failedIfThrows: false))
                     return true;
                 if (failed || _nowMs() - from >= SpeechCeilingMs)
