@@ -1073,6 +1073,7 @@ namespace Radios
                 "GetProfileInfo:radio profile autosave="
                 + (ProfileEvidence.Snapshot().RadioReportedAutosave?.ToString() ?? "not reported")
                 + ", global selection=" + (theRadio?.ProfileGlobalSelection ?? "none")
+                + ", " + DescribeUnsavedProfileChanges()
                 + ", station outcome=" + result.Outcome, TraceLevel.Info);
 
             if (theRadio != null) _TotalNumSlices = theRadio.SliceList.Count;

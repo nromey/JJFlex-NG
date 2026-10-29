@@ -256,11 +256,39 @@ namespace JJFlexWpf
         /// firing when nothing changed, when another operator is connected, or
         /// on a radio the operator has not marked as theirs.</para>
         ///
+        /// <para><b>It stays off because of #499, not in spite of it.</b> #499's
+        /// settled design saves the station automatically, and this question
+        /// becomes the fallback for an operator who turns that save off. On by
+        /// default, the question would ask nearly every session, because
+        /// OperatorChangedStationThisSession is true whenever a ham has tuned
+        /// around or nudged a filter. A default-on with a one-time migration
+        /// was built and backed out on 2026-10-27 (#759); a file that build
+        /// wrote carries a StationSaveOfferVersion element, which the
+        /// serializer now ignores, so whatever value that build left stands
+        /// until the operator changes it.</para>
+        ///
         /// <para>Absent from an older audioConfig.xml this deserialises to
         /// false, which is exactly the behaviour that file was written
         /// under.</para>
         /// </summary>
         public bool OfferStationSaveOnDisconnect { get; set; }
+
+        /// <summary>
+        /// The operator ticked "don't ask me again" on the disconnect question:
+        /// switch the offer off now and on disk. The live config, when there is
+        /// one, is changed as well as the file, because it is saved again at
+        /// power-off and would otherwise write the old "on" back over this.
+        /// There is one audioConfig.xml (see <see cref="CanonicalDir"/>), so
+        /// one save covers every radio.
+        /// </summary>
+        internal static void RecordStationSaveOfferTurnedOff(AudioOutputConfig? live, string configDir)
+        {
+            Radios.FlexBase.OfferStationSaveOnDisconnect = false;
+            var config = live ?? Load(configDir);
+            config.OfferStationSaveOnDisconnect = false;
+            config.Save(configDir);
+            Trace.WriteLine("AudioOutputConfig: the operator turned off the offer to save the station on disconnect (#759)");
+        }
 
         /// <summary>Whether braille status line is enabled.</summary>
         public bool BrailleEnabled { get; set; }

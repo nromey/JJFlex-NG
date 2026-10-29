@@ -2569,6 +2569,7 @@ namespace Radios.Speech
                 {
                     var oldest = _held[victim];
                     _held.RemoveAt(victim);
+                    SpeechTally.Shared.NoteDropped();
                     Tracing.TraceLine(
                         $"SpeechArbiter: dropped a salvage (held set full at {LedgerCap}, oldest first) "
                         + $"after {oldest.SalvageCount} rescue(s): '{oldest.Message}'",
@@ -3033,6 +3034,7 @@ namespace Radios.Speech
         /// </summary>
         private static void TraceDropLocked(BelievedQueued s, string refusal, DateTime now)
         {
+            SpeechTally.Shared.NoteDropped();
             Tracing.TraceLine(
                 $"SpeechArbiter: dropped a salvage ({refusal}) after "
                 + $"{s.SalvageCount} rescue(s), "

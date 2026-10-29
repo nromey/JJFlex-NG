@@ -45,11 +45,28 @@ namespace Radios
 
         /// <summary>"Load my profiles here." On a radio the operator has
         /// declared theirs: load them and leave them, creating an absent one
-        /// as ordinary housekeeping. On any other radio: select only profiles
-        /// the radio ALREADY HAS, never create one, turn the radio's autosave
-        /// off for the visit, and put the names it was on back when leaving.
-        /// The whole-profile-set option — the intrusive one on a borrowed
-        /// station, kept because it is right on your own.</summary>
+        /// as ordinary housekeeping.
+        /// <para><b>On any other radio it does NOTHING, by ruling</b> (#590,
+        /// 2026-09-21). The guest route this comment used to describe -
+        /// select only profiles the radio already has, autosave off for the
+        /// visit, the old names put back on leaving - was deleted, and nothing
+        /// on the connect path implements it. The global profile is refused
+        /// before any plan by <c>StationCoordinator.AutomaticStewardshipRefusal</c>
+        /// ("only the owner's connection restores a station"), and the
+        /// transmit and microphone loads are turned into
+        /// <see cref="ProfileSkipReason.NotTheDeclaredOwner"/> skips by
+        /// <see cref="ProfileStewardship.ApplyOwnershipRuling"/>, which every
+        /// connect phase runs through <c>PlanConnectRuled</c>.
+        /// <see cref="ProfileStewardship.PlanConnect"/> on its own still plans
+        /// guest loads; it is the unruled layer, and no connect calls it
+        /// bare.</para>
+        /// <para>So this answer plus a radio that is not the operator's is a
+        /// connect that loads, creates and saves nothing on the radio's
+        /// profiles. Marking the radio as theirs is what unblocks it, which is
+        /// why <c>StationCoordinator.OwnershipQuestionWouldHelp</c> still raises
+        /// the ownership question for this intent while ownership is
+        /// unset. The transmit-audio-only middle for a borrowed radio is
+        /// <see cref="UseMyTransmitAudio"/>.</para></summary>
         LoadMineAndPutBack = 2,
 
         /// <summary>"Use my transmit audio here, and nothing else." The

@@ -27,6 +27,15 @@ namespace JJFlexWpf.Dialogs
     {
         private readonly string? _radioModel;
         private readonly Radios.AdvisoryKey? _suppressKey;
+        private readonly bool _offersStopAsking;
+        private bool _answered;
+
+        /// <summary>
+        /// True when the dialog offered a stop-asking box, the operator ticked
+        /// it, and then answered with Yes or No. Escape is not an answer: it
+        /// backs out of the whole dialog, box included.
+        /// </summary>
+        public bool StopAskingChosen => _offersStopAsking && _answered && DontShowAgainCheck.IsChecked == true;
 
         /// <param name="radioModel">
         /// The connected radio's model, for actions that ask the user to go and touch
@@ -55,18 +64,42 @@ namespace JJFlexWpf.Dialogs
         /// which on a CONFIRMATION dialog meant one keypress could stop a
         /// destructive action asking, permanently, with no way back.</para>
         /// </param>
+        /// <param name="stopAskingLabel">
+        /// #759. Shows the same checkbox as <paramref name="suppressKey"/> with
+        /// this label, for a question the operator can turn off as a SETTING:
+        /// the caller reads <see cref="StopAskingChosen"/> after the dialog and
+        /// switches its own setting off. Unlike a suppression it is honoured on
+        /// either answer, because "never ask, and not this time" is a coherent
+        /// state for a question that only ever OFFERS. Not with
+        /// <paramref name="suppressKey"/>; the two would share one box.
+        /// </param>
+        /// <param name="stopAskingHelp">The box's F1 text: where the way back is.</param>
         public ConfirmActionDialog(
             string title,
             string message,
             IReadOnlyList<string>? warnings = null,
             string question = "Continue?",
             string yesLabel = "_Yes",
-            string noLabel = "_No",
+            string? noLabel = null,
             string? radioModel = null,
             Radios.AdvisoryKey? suppressKey = null,
-            bool enterConfirms = false)
+            bool enterConfirms = false,
+            string? stopAskingLabel = null,
+            string? stopAskingHelp = null)
         {
             InitializeComponent();
+
+            if (stopAskingLabel != null && suppressKey != null)
+                throw new System.ArgumentException("A suppression key and a stop-asking label would share one checkbox.",
+                    nameof(stopAskingLabel));
+            _offersStopAsking = stopAskingLabel != null;
+            if (stopAskingLabel != null)
+            {
+                DontShowAgainCheck.Content = stopAskingLabel;
+                AutomationProperties.SetName(DontShowAgainCheck, stopAskingLabel.Replace("_", ""));
+                DontShowAgainCheck.Visibility = Visibility.Visible;
+                if (stopAskingHelp != null) JJFlexHelp.SetText(DontShowAgainCheck, stopAskingHelp);
+            }
 
             // Opt-in, per caller: Enter on the message presses the action
             // button. Off everywhere by default (the action button is not
@@ -91,7 +124,17 @@ namespace JJFlexWpf.Dialogs
             AutomationProperties.SetName(this, title);
             YesButton.Content = yesLabel;
             AutomationProperties.SetName(YesButton, yesLabel.Replace("_", ""));
-            NoButton.Content = noLabel;
+            // The No button's spoken name follows its label, as Yes's does. The
+            // XAML names it "No, cancel", which is right for the plain No and
+            // was wrong for every caller that relabels it: the disconnect
+            // question showed "Disconnect without saving" and was announced as
+            // "No, cancel", so the operator could not tell which button saved
+            // (bench, 2026-10-28). Left null, the plain No keeps its fuller name.
+            if (noLabel != null)
+            {
+                NoButton.Content = noLabel;
+                AutomationProperties.SetName(NoButton, noLabel.Replace("_", ""));
+            }
             _radioModel = radioModel;
             _suppressKey = suppressKey;
             if (suppressKey != null)
@@ -150,12 +193,14 @@ namespace JJFlexWpf.Dialogs
             // the next time the action is attempted.
             if (_suppressKey != null && DontShowAgainCheck.IsChecked == true)
                 Radios.AdvisorySuppression.Suppress(_suppressKey);
+            _answered = true;
             DialogResult = true;
             Close();
         }
 
         private void NoButton_Click(object sender, RoutedEventArgs e)
         {
+            _answered = true;
             DialogResult = false;
             Close();
         }

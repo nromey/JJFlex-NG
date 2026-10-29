@@ -13,19 +13,42 @@ namespace Radios
 
         /// <summary>A command that also reports on or off.</summary>
         Toggle,
+
+        /// <summary>
+        /// A row that opens a submenu of its own. The submenu's rows and their
+        /// handlers live in its builder, not here.
+        /// </summary>
+        Submenu,
+    }
+
+    /// <summary>Which menu is being built from <see cref="AudioMenuLayout"/>.</summary>
+    /// <remarks>
+    /// Two menus build from the one layout: the top-level Audio menu and the
+    /// Slice menu's Audio submenu. They hold the same rows in the same order,
+    /// except the rows marked <see cref="AudioMenuEntry.TopLevelOnly"/>, which
+    /// only the top-level menu shows (#836).
+    /// </remarks>
+    public enum AudioMenuHost
+    {
+        /// <summary>The top-level Audio menu on the menu bar.</summary>
+        AudioMenu,
+
+        /// <summary>The Audio submenu inside the Slice menu.</summary>
+        SliceAudioSubmenu,
     }
 
     /// <summary>One row of the Audio menu.</summary>
     public sealed class AudioMenuEntry
     {
         public AudioMenuEntry(string id, string label, AudioMenuEntryKind kind,
-                              bool needsRadio, string accelerator = "")
+                              bool needsRadio, string accelerator = "", bool topLevelOnly = false)
         {
             Id = id;
             Label = label;
             Kind = kind;
             NeedsRadio = needsRadio;
             Accelerator = accelerator ?? "";
+            TopLevelOnly = topLevelOnly;
         }
 
         /// <summary>Stable name the menu builder hangs a handler on. Never shown.</summary>
@@ -41,6 +64,13 @@ namespace Radios
 
         /// <summary>Key hint for the right-hand column, or empty.</summary>
         public string Accelerator { get; }
+
+        /// <summary>
+        /// True when only the top-level Audio menu shows this row, and the
+        /// Slice menu's Audio submenu leaves it out. See
+        /// <see cref="AudioMenuLayout.EntriesFor"/>.
+        /// </summary>
+        public bool TopLevelOnly { get; }
     }
 
     /// <summary>
@@ -106,14 +136,19 @@ namespace Radios
         public const string NeedsRadioSuffix = " - needs a radio";
 
         /// <summary>
-        /// Every row of the Audio menu, in order, in every state.
+        /// Every row of the top-level Audio menu, in order, in every state. The
+        /// Slice menu's Audio submenu shows the same rows less the
+        /// <see cref="AudioMenuEntry.TopLevelOnly"/> ones; build from
+        /// <see cref="EntriesFor"/>.
         /// </summary>
         /// <remarks>
         /// Audio Workshop is part of this list even though it used to be
         /// appended by each caller after the shared builder ran. Two callers
         /// appending the same row in the same place is a second copy of the
         /// menu's shape living outside the menu's shape; with it here, the
-        /// order below is the whole order and nothing can drift from it.
+        /// order below is the whole order and nothing can drift from it. The
+        /// DSP submenu (#836) is here, flagged, for the same reason rather than
+        /// appended by the one caller that shows it.
         /// </remarks>
         public static IReadOnlyList<AudioMenuEntry> Entries { get; } = new List<AudioMenuEntry>
         {
@@ -162,6 +197,36 @@ namespace Radios
                 AudioMenuEntryKind.Command, true, "Ctrl+J, V"),
             new("on-radio-levels", "On-Radio Levels (the radio's own jacks)",
                 AudioMenuEntryKind.Command, true, "Ctrl+J, V"),
+
+            // #836: the DSP submenu - noise reduction, noise blankers, PC noise
+            // reduction, auto notch and the audio peak filter. It
+            // sat only under the Slice menu from Sprint 23, when the Operations
+            // menu that used to hold it was deleted, and nobody noticed for
+            // seven months. Noel, 2026-10-27: "This should not be in slice ...
+            // this needs to be moved to audio."
+            //
+            // TOP-LEVEL ONLY, the one place the two menus built from this
+            // layout differ. He ruled it OFF the Slice menu, and the Slice
+            // menu's Audio submenu is built from this same list, so without the
+            // flag it would come straight back under Slice, Audio. Per-slice
+            // DSP inside each slice's own submenu is #586's, later.
+            //
+            // Every item acts on the active slice, as it did under Slice. The
+            // row itself needs no radio, because some of what is inside works
+            // without one (PC noise reduction's switches and its folder); the
+            // rows inside that do need one are greyed and say so in their own
+            // labels, through MarkNeedsRadio, exactly as the rows above do.
+            // D is a first letter no other row on this menu claims.
+            new("sep-dsp", "", AudioMenuEntryKind.Separator, false, topLevelOnly: true),
+            new("dsp", "DSP", AudioMenuEntryKind.Submenu, false, topLevelOnly: true),
+
+            // Meter tones came along inside DSP in that move and get their own
+            // row instead (Noel, 2026-10-27 20:41: "I think it gets its own
+            // row"). They are not signal processing and do not act on a slice.
+            // Top-level only for the same reason as DSP: before #836 their one
+            // home was Slice, DSP, and a copy under Slice, Audio would be a
+            // second. Its M is shared with the two Mute rows at the top.
+            new("meter-tones", "Meter Tones", AudioMenuEntryKind.Submenu, false, topLevelOnly: true),
 
             new("sep-setup", "", AudioMenuEntryKind.Separator, false),
 
@@ -231,9 +296,57 @@ namespace Radios
             if (entry.Kind == AudioMenuEntryKind.Separator) return "";
 
             string text = entry.Label;
-            if (entry.NeedsRadio && !radioConnected) text += NeedsRadioSuffix;
             if (entry.Accelerator.Length > 0) text += "\t" + entry.Accelerator;
-            return text;
+            return entry.NeedsRadio ? MarkNeedsRadio(text, radioConnected) : text;
+        }
+
+        /// <summary>
+        /// The rows <paramref name="host"/> shows, in order: every entry on the
+        /// top-level Audio menu, and every entry except the
+        /// <see cref="AudioMenuEntry.TopLevelOnly"/> ones on the Slice menu's
+        /// Audio submenu.
+        /// </summary>
+        /// <remarks>
+        /// Only WHICH MENU may change the set. Connection state never does,
+        /// which is the rule this file exists to hold (#214).
+        /// </remarks>
+        public static IReadOnlyList<AudioMenuEntry> EntriesFor(AudioMenuHost host)
+        {
+            if (host == AudioMenuHost.AudioMenu) return Entries;
+
+            var rows = new List<AudioMenuEntry>();
+            foreach (var entry in Entries)
+                if (!entry.TopLevelOnly) rows.Add(entry);
+            return rows;
+        }
+
+        /// <summary>
+        /// Menu text for a row that needs a radio: unchanged with one, and with
+        /// <see cref="NeedsRadioSuffix"/> inserted before the accelerator column
+        /// without one.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Public so a submenu hung off this menu marks its own rows the same
+        /// way, rather than growing a second wording or a second rule for where
+        /// the reason goes. The DSP submenu (#836) is the first.
+        /// </para>
+        /// <para>
+        /// The suffix goes BEFORE the tab, not after. Windows treats everything
+        /// past a tab as the right-hand key column, so a reason appended to the
+        /// end would be laid out as part of the keystroke and read as part of it
+        /// too.
+        /// </para>
+        /// </remarks>
+        public static string MarkNeedsRadio(string menuText, bool radioConnected)
+        {
+            menuText ??= "";
+            if (radioConnected) return menuText;
+
+            int tab = menuText.IndexOf('\t');
+            return tab < 0
+                ? menuText + NeedsRadioSuffix
+                : menuText.Substring(0, tab) + NeedsRadioSuffix + menuText.Substring(tab);
         }
     }
 }

@@ -78,7 +78,9 @@ namespace Radios.Tests
             string profiles = Read(FlexBaseProfiles);
             Assert.Contains("StationLayoutSaveBlocker();",
                 MethodBody(profiles, "public string SaveCurrentStationLayout("));
-            Assert.Contains("StationLayoutSaveBlocker() != null) return false;",
+            // #759 gave every declined branch a trace, so the blocker's answer
+            // is now held long enough to be named; the call is what matters.
+            Assert.Contains("string? blocker = StationLayoutSaveBlocker();",
                 MethodBody(profiles, "public bool ShouldOfferStationLayoutSave("));
 
             string menu = Read(Menu);

@@ -317,6 +317,42 @@ namespace Radios
                     TierAwareLicenceTextPendingNoel("CW Autotune", reason, wording),
                 ModeRequirement = CwAutotuneModeRequirement,
             },
+            // FFT AUTO-NOTCH, THE ONE LICENSED SWITCH #726's TABLE NEVER
+            // REACHED (#746). MEASURED, not read from a document: on
+            // 2026-10-27 an unlicensed 8600 (noise_reduction reported, disabled,
+            // reason plus) refused "slice set 0 anft=1" and "anft=0" with
+            // 0x50004001, its licence refusal, exactly as it refused NRS, NRF
+            // and RNN.
+            //
+            // LEGACY NR AND LEGACY AUTO-NOTCH HAVE NO ROW, AND MUST NOT GET ONE.
+            // FlexRadio's documents list NRL and ANFL as SmartSDR+ beside ANFT,
+            // and the first #746 build gated all three on that basis. The same
+            // radio in the same run ACCEPTED lms_nr and lms_anf with 0x00000000
+            // and the operator heard both change the audio. The documents were
+            // wrong for these two, as they were for diversity under #745.
+            // CapabilityGateTests.LegacyNrAndLegacyAutoNotchAreNotLicenceGated
+            // holds this.
+            //
+            // NO HARDWARE RUNG: ANFT runs on every model. Its refusal sentence
+            // is the advanced-NR family's, through the same reason-aware seam,
+            // so Noel's #720 wording reaches it with the others. The fallback
+            // literal is unreachable while FlexLib supplies a FeatureGatedMessage
+            // for every disabled item (#742), and exists so a refusal can never
+            // resolve to an empty string, which CapabilityWriteRefusal would read
+            // as "not refused". DRAFT prose, in the CW Autotune row's pattern.
+            new CapabilityDescriptor
+            {
+                Capability = RadioCapability.AutoNotchFft,
+                Name = "FFT Auto-Notch",
+                NotConnectedText = "No radio connected.",
+                NoSliceText = "Select a slice",
+                Licence = r => r.theRadio?.FeatureLicense?.LicenseFeatNoiseReduction,
+                LicenceNotReportedText = null,
+                LicenceDisabledFallbackText = // DRAFT
+                    "Your radio reports that FFT Auto-Notch is not included in its current subscription.",
+                TierAwareLicenceDisabledText = (reason, wording) =>
+                    TierAwareLicenceTextPendingNoel("FFT Auto-Notch", reason, wording),
+            },
         };
 
         // Carried verbatim from NativeMenuBar.AdvancedNrGateMessage so promoting

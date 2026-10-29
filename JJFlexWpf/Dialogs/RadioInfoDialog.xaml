@@ -80,7 +80,14 @@
                             AutomationProperties.Name="Refresh License"
                             AutomationProperties.AcceleratorKey="Alt+R"
                             Click="RefreshLicenseButton_Click"/>
+                    <!-- IsReadOnlyCaretVisible: without it NVDA's Down, Up and
+                         Ctrl+End all re-read line 1, so every line after the
+                         first is unreachable (#744). A plain property rather
+                         than LiveStatusTextBox: that control exists to keep the
+                         caret in place across TIMER refreshes, and this box is
+                         written once on open and once per Refresh License. -->
                     <TextBox x:Name="FeatureAvailabilityBox" IsReadOnly="True"
+                             IsReadOnlyCaretVisible="True"
                              TextWrapping="Wrap" AcceptsReturn="True"
                              VerticalScrollBarVisibility="Auto"
                              AutomationProperties.Name="Feature availability status"/>

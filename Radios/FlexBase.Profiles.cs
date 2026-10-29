@@ -1502,6 +1502,25 @@ namespace Radios
         /// <para>Global profiles have no such report, so global reads false.
         /// That is an honest gap, not a claim of safety.</para>
         /// </summary>
+        /// <summary>
+        /// The radio's two unsaved-changes flags, as one trace fragment (#763).
+        /// </summary>
+        /// <remarks>
+        /// <para>Traced at the station's first verdict (the
+        /// <c>GetProfileInfo:</c> line) and on every move, because
+        /// <c>ProfileSkipReason.OwnerHasUnsavedWork</c> fires on these and a
+        /// guard whose input is never recorded is a guard nobody can confirm
+        /// ran. They are also the one reading that says whether an autosave
+        /// question is about TX and MIC profiles rather than global ones.</para>
+        /// <para><b>Read a false with care.</b> FlexLib starts both at false
+        /// and raises nothing when the radio reports the value it already
+        /// holds, so "false" at the first verdict means "not unsaved, or not yet
+        /// reported", and only a moved line proves the radio spoke.</para>
+        /// </remarks>
+        internal string DescribeUnsavedProfileChanges()
+            => "unsaved_changes tx=" + UnsavedProfileChangesFor(ProfileTypes.tx).ToString().ToLowerInvariant()
+               + " mic=" + UnsavedProfileChangesFor(ProfileTypes.mic).ToString().ToLowerInvariant();
+
         public bool UnsavedProfileChangesFor(ProfileTypes type)
         {
             var radio = theRadio;
@@ -3137,26 +3156,65 @@ namespace Radios
         /// class. Default false: the shipped behaviour stays Sprint 32's spoken
         /// notification until somebody deliberately turns this on.
         /// </summary>
+        /// <remarks>
+        /// Off because of #499: its settled design saves the station
+        /// automatically, and this question is the fallback for an operator who
+        /// turns that save off. On by default it would ask nearly every
+        /// session, since OperatorChangedStationThisSession is true whenever a
+        /// ham has tuned around. A default-on was built and backed out on
+        /// 2026-10-27 (#759); the decline traces it brought stay.
+        /// </remarks>
         public static bool OfferStationSaveOnDisconnect { get; set; }
+
+        /// <summary>
+        /// Why the most recent <see cref="ShouldOfferStationLayoutSave"/> did
+        /// not offer, or null when it offered (or has not been asked). The same
+        /// words the trace line carries, kept so a test can read which gate
+        /// closed without capturing the trace.
+        /// </summary>
+        internal string? LastStationSaveOfferDecline { get; private set; }
 
         /// <summary>
         /// Whether to offer a station-layout save right now. Every condition
         /// must hold, and each one is a separate objection being answered.
         /// </summary>
+        /// <remarks>
+        /// <b>Every refusal traces which gate closed (#759).</b> Until then only
+        /// the ownership branch did, and it was the one that PASSED on the radio
+        /// where the prompt failed to appear - so the record could not say which
+        /// of the other four had closed it. A prompt whose whole job is to stop
+        /// a silent loss must not decline silently. One line per disconnect, at
+        /// Info.
+        /// </remarks>
         public bool ShouldOfferStationLayoutSave()
         {
+            LastStationSaveOfferDecline = null;
+
+            bool Decline(string why)
+            {
+                LastStationSaveOfferDecline = why;
+                Tracing.TraceLine("ShouldOfferStationLayoutSave:not offering, " + why, TraceLevel.Info);
+                return false;
+            }
+
             // The operator asked for the question.
-            if (!OfferStationSaveOnDisconnect) return false;
+            if (!OfferStationSaveOnDisconnect)
+                return Decline("the offer is switched off in Settings (Notifications, Saving Your Setup to the Radio)");
 
             // Something to ask ABOUT. An offer on a session where the operator
             // never touched the slice set or a radio-persisted setting is the
             // reflexive-dismissal trap, and this is the line that keeps it shut.
-            if (!OperatorChangedStationThisSession) return false;
+            if (!OperatorChangedStationThisSession)
+                return Decline("nothing on the station changed this session");
 
             // Saveable at all: connected, sole operator, a profile loaded to
             // save into. Carries the MultiFlex refusal, so the offer cannot
-            // become the trap it exists to avoid.
-            if (StationLayoutSaveBlocker() != null) return false;
+            // become the trap it exists to avoid. The blocker's own sentence
+            // names which of its reasons it was - including roster Unknown,
+            // the deliberate fail-safe that otherwise looks exactly like a bug.
+            string? blocker = StationLayoutSaveBlocker();
+            if (blocker != null)
+                return Decline("the save is blocked: " + blocker);
 
             // Ownership. Until #777 this was the ONLY ownership gate on the
             // layout save, on the reasoning that a proactive prompt is a write
@@ -3168,16 +3226,11 @@ namespace Radios
             // any other answer. Kept as the second lock on a door that should
             // already be shut, with its trace.
             var radio = theRadio;
-            if (radio == null) return false;
+            if (radio == null) return Decline("no radio");
             if (RadioConfig.OwnershipOf(radio.Serial) != RadioOwnership.Mine)
-            {
-                Tracing.TraceLine(
-                    "ShouldOfferStationLayoutSave:not offering, radio "
-                    + radio.Serial + " is not declared as the operator's",
-                    TraceLevel.Info);
-                return false;
-            }
+                return Decline("radio " + radio.Serial + " is not declared as the operator's");
 
+            Tracing.TraceLine("ShouldOfferStationLayoutSave:offering", TraceLevel.Info);
             return true;
         }
 

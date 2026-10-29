@@ -374,6 +374,9 @@ namespace Radios
             {
                 delivery = Speech.SpeechDelivery.Failed($"backend speak threw on the delivery thread: {ex.Message}");
             }
+            // The pump's re-sends through the plain path are counted here,
+            // and SpeechTally.Classify leaves their outcome uncounted (#506).
+            if (delivery.Delivered) Speech.SpeechTally.Shared.NoteSaid();
             NoteDelivery(delivery, message);
             return delivery;
         }
@@ -395,6 +398,7 @@ namespace Radios
             {
                 Tracing.TraceLine($"ScreenReaderOutput: OnOutcome threw for #{ticket}: {ex.Message}", TraceLevel.Warning);
             }
+            Speech.SpeechTally.Shared.NoteOutcome(outcome);
 
             if (outcome.Kind == Speech.SpeechOutcomeKind.Unknown
                 && outcome.UnknownReason == Speech.SpeechUnknownReason.Refused)
@@ -740,6 +744,15 @@ namespace Radios
                             // reading since #503 greps for it; #521's own finding
                             // is that it has only ever meant "handed to the
                             // reader". The ticket says a real answer is coming.
+                            //
+                            // VERBOSE ON PURPOSE (#506): detailed capture records
+                            // every sentence spoken; the ordinary log gets
+                            // SpeechTally's counts instead, because a log that
+                            // wrote every sentence all day grows fast (Noel,
+                            // 2026-10-27). A paced ticket is counted at its
+                            // outcome instead (OnPacedOutcome), because the
+                            // pump can still withdraw it or the reader refuse it.
+                            if (ticket == 0) Speech.SpeechTally.Shared.NoteSaid();
                             Tracing.TraceLine(
                                 $"ScreenReaderOutput: Spoke '{message}' via "
                                 + $"{_screenReaderName ?? "no named reader"} (interrupt={interrupt}"
@@ -806,6 +819,7 @@ namespace Radios
         {
             if (delivery.Refused)
             {
+                Speech.SpeechTally.Shared.NoteRefused();
                 bool first = System.Threading.Interlocked.Exchange(ref _deliveryFailing, 1) == 0;
                 if (first)
                 {
@@ -1040,6 +1054,8 @@ namespace Radios
                     if (delivery.Delivered)
                     {
                         rendered = OutputChannelRecorder.RenderEnabled;
+                        // Verbose like "Spoke", and counted the same way (#506).
+                        Speech.SpeechTally.Shared.NoteSaid();
                         Tracing.TraceLine(
                             $"ScreenReaderOutput: Output '{message}' via "
                             + $"{_screenReaderName ?? "no named reader"}",
@@ -1146,6 +1162,9 @@ namespace Radios
         /// </summary>
         public static void Shutdown()
         {
+            // The last speech counts first, while the trace is still open (#506).
+            try { Speech.SpeechTally.Shared.Write("shutdown"); } catch { /* ignore */ }
+
             // The watchdog first: it is the one thing that can decide to build
             // a NEW backend, and it must not do that while we are tearing the
             // current one down.

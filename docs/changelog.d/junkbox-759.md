@@ -1,0 +1,1 @@
+If you turned on the offer to save your setup to the radio when you disconnect, that question now has a "Don't ask me this again when I disconnect" box, so you can switch it off right there instead of going back to Settings. The setting on the Notifications tab still brings it back.

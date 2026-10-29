@@ -1387,7 +1387,7 @@ public static class KeyInventory
         {
             Description = "Noise Profiles dialog - PC noise reduction strengths, capture duration, save and load profiles",
             Scope = "Radio", Group = "DSP",
-            MenuText = "Slice menu, DSP, PC Noise Reduction, Noise Profiles (also the DSP field group's Noise Profiles button)",
+            MenuText = "Audio menu, DSP, PC Noise Reduction, Noise Profiles (also the DSP field group's Noise Profiles button)",
             Keywords = new[] { "noise", "profile", "profiles", "spectral", "neural", "rnn", "strength",
                                "floor", "capture", "duration", "save", "load", "pc", "reduction", "folder" },
         },
