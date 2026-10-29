@@ -221,6 +221,36 @@ namespace Radios.Tests
             Assert.True(VoiceMessageSend.NeedsLengthWarning(20 * 60.0, SendRoute.Box));
         }
 
+        // ── Item 3: Play from computer pauses on the speakers too ────────────
+
+        /// <summary>
+        /// Noel, 2026-10-28 21:20: one meaning for the key everywhere. Play
+        /// pauses a recording playing on the speakers, Play again carries it
+        /// on, Escape stops it. Pinned from source: the player is real audio,
+        /// and driving it from a test would put sound on the operator's desk.
+        /// </summary>
+        [Fact]
+        public void Play_from_computer_pauses_on_the_speakers_and_Escape_stops_it()
+        {
+            string controls = ReadSource("JJFlexWpf/RecorderControls.cs");
+            string play = Body(controls, "public static async Task<RecorderOutcome> ToggleComputerPlayAsync(");
+            int sendFirst = play.IndexOf("VoiceMessageSender.AnswerPlayFromComputer()", StringComparison.Ordinal);
+            int speakers = play.IndexOf("PauseOrCarryOnSpeakers()", StringComparison.Ordinal);
+            int engine = play.IndexOf("ComputerRecorder.TogglePlaybackAsync", StringComparison.Ordinal);
+            Assert.True(sendFirst >= 0 && speakers > sendFirst && engine > speakers,
+                "a send answers first, then a playing recording pauses, and only then may Play start one");
+
+            string pause = Body(controls, "private static RecorderOutcome PauseOrCarryOnSpeakers()");
+            Assert.Contains("RecordingPlayer.Resume()", pause);
+            Assert.Contains("RecordingPlayer.Pause()", pause);
+            Assert.DoesNotContain("Stop", pause);
+
+            string main = ReadSource("JJFlexWpf/MainWindow.xaml.cs");
+            int sendEscape = main.IndexOf("if (rawKey == Key.Escape && VoiceMessageSender.InFlight)", StringComparison.Ordinal);
+            int speakerEscape = main.IndexOf("if (rawKey == Key.Escape && RecorderControls.StopSpeakersOnEscape())", StringComparison.Ordinal);
+            Assert.True(sendEscape >= 0 && speakerEscape > sendEscape, "a send to the air is stopped first");
+        }
+
         // ── helpers ─────────────────────────────────────────────────────────
 
         internal static string Body(string src, string signature)

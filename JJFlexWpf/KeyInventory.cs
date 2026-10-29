@@ -627,7 +627,7 @@ public static class KeyInventory
                     "tape", "audio", "leader", "toggle" }, "Radio", "Audio"),
         // Tape Deck phase 2 (#835): keyed, it goes to the air.
         // DRAFT PROSE (#835): awaiting Noel
-        new("Leader", "JJ key", "Ctrl+J, Ctrl+Shift+P", "Play from computer: play your last computer recording, or stop — on your speakers while receiving, on the air when already keyed, or keying the radio itself when VOX is on and sends key the radio",
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+Shift+P", "Play from computer: play your last computer recording, or pause it and carry it on — on your speakers while receiving, on the air when already keyed, or keying the radio itself when VOX is on and sends key the radio; Escape stops it",
             new[] { "play", "playback", "replay", "recording", "file", "computer", "last", "listen",
                     "back", "audio", "leader", "toggle" }, "Global", "Audio"),
 

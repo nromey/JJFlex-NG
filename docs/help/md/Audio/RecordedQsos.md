@@ -35,9 +35,9 @@ If any file in the folder couldn't be read, I tell you how many when the window 
 
 Play from computer (Ctrl+Alt+F11, or JJ key Ctrl+Shift+P) plays your newest recording, unless you select another one here: then it plays the selected recording. Making a new recording puts it back on the newest, and so does restarting JJ Flexible.
 
-Press Play from computer while you are transmitting and the same recording goes out over the air, while you hear it here. Your microphone comes back when it ends, and you keep the key. With VOX on and **Sends key the radio when VOX is on** checked, Play from computer keys the radio itself; see Push to Talk and Transmission.
+Press Play from computer while you are transmitting and the same recording goes out over the air, and you hear it through the radio's transmit monitor. Your microphone comes back when it ends, and you keep the key. With VOX on and **Sends key the radio when VOX is on** checked, Play from computer keys the radio itself; see Push to Talk and Transmission.
 
-Press Play from computer again while the recording is going over the air and it pauses, holding its place; press it once more to carry on. A recording longer than three minutes asks before it is sent, and after ten minutes on the air a send pauses by itself so you can identify. Long recordings go out whole, ten minutes at a time; see Push to Talk and Transmission.
+Press Play from computer again while the recording is playing, on your speakers or over the air, and it pauses, holding its place; press it once more to carry on. Escape in the main window stops it. A recording longer than three minutes asks before it is sent, and after ten minutes on the air a send pauses by itself so you can identify. Long recordings go out whole, ten minutes at a time; see Push to Talk and Transmission.
 
 While a recording plays back on your computer, the radio's audio on your computer drops by 12 dB, so you hear the recording over the band rather than mixed into it. To change that, go to Settings and use **Radio audio during playback**: Unchanged, Lowered 6, 12, 18 or 24 dB, or Muted. It works on the audio you hear through the computer only; the radio's own speaker is untouched.
 

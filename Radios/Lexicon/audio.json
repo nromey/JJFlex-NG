@@ -1097,7 +1097,6 @@
   "audio.recorder.record_to_file_button": {"text": "Record to file", "delivery": null},
   "audio.recorder.stop_record_to_file_button": {"text": "Stop recording to file", "delivery": null},
   "audio.recorder.play_from_computer_button": {"text": "Play from computer", "delivery": null},
-  "audio.recorder.stop_play_from_computer_button": {"text": "Stop playing from computer", "delivery": null},
   "audio.fields.computer_recorder_help": {"text": "Record to file saves what the radio plays through this computer to a file. Play from computer plays your last recording, or the one you chose in Recorded QSOs. Alt F11 records to file, Control Alt F11 plays from computer, and Control Alt Shift F11 opens Recorded QSOs; the JJ key chords work too.", "delivery": null},
   "audio.recorder.play_vox_unconfirmed": {"text": "I could not confirm that VOX or CW break-in is off, so the recording did not play.", "delivery": null},
   "audio.recorder.play_intent_changed": {"text": "Playback could not continue because the transmit state or permission changed; press Play again when you are ready.", "delivery": null},
@@ -1319,5 +1318,7 @@
   "audio.send.stopped_paused": {"text": "Stopped {what}, which was paused.", "delivery": null},
   "audio.send.paused_disconnected": {"text": "Ended {what}, which was paused, because the radio disconnected.", "delivery": null},
   "audio.send.message_taken_over_ptt": {"text": "{label} stopped.", "delivery": null},
-  "audio.send.taken_over_ptt": {"text": "Stopped sending {what}.", "delivery": null}
+  "audio.send.taken_over_ptt": {"text": "Stopped sending {what}.", "delivery": null},
+  "audio.recorder.pause_play_from_computer_button": {"text": "Pause playing from computer", "delivery": null},
+  "audio.recorder.carry_on_play_from_computer_button": {"text": "Carry on playing from computer", "delivery": null}
 }

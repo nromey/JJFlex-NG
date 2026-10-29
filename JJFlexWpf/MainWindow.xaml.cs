@@ -2781,6 +2781,16 @@ public partial class MainWindow : UserControl
             return;
         }
 
+        // 1c. Play from computer on the speakers: Play pauses it and carries it
+        //     on, so Escape is what stops it, paused or not (#835 fix round;
+        //     Noel, 2026-10-28 21:20). Only while one is playing or paused, so
+        //     Escape's other meanings below are untouched the rest of the time.
+        if (rawKey == Key.Escape && RecorderControls.StopSpeakersOnEscape())
+        {
+            e.Handled = true;
+            return;
+        }
+
         // 2. Filter hotkeys (bracket keys) — Modern and Classic modes (not Logging)
         if (ActiveUIMode != UIMode.Logging && _freqOutHandlers != null && _radioPowerOn)
         {

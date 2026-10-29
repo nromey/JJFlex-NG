@@ -37,7 +37,7 @@ A voice message key, or Play on a recording while you are transmitting, sends th
 
 That is what **Sends key the radio when VOX is on** is for. You will find it in Home's Transmission group right after VOX gain and VOX delay, and in Settings on the PTT tab. It is off until you turn it on, and it stays the way you leave it. With it checked and VOX on, any send keys the radio by itself: a voice message, the active slice's recording, or a computer recording from Play from computer. The whole recording goes out, the radio unkeys, and then VOX comes back on. JJ Flexible holds VOX off until the radio has unkeyed and the last of the recording has left the transmit path, so the tail of the recording cannot key you up again. When VOX comes back on, some radios key for a fraction of a second on their own; that is the radio, it is brief, and nothing is sent.
 
-You hear the recording while it goes out. A voice message or a computer recording plays on this computer as it is sent, and the radio lets you hear its own slice recording as it plays it.
+You hear every send through the radio's transmit monitor, at your own monitor level. If the monitor is off, JJ Flexible turns it on for the send without a word and turns it back off afterwards; if it was already on, it is left alone, and so is any change you make to it while the send is going out. Over SmartLink the monitor arrives a moment late, which does no harm when you are not talking over the recording.
 
 - If you are already transmitting with push to talk or the transmit lock when you send, the recording goes out on your transmission and you keep the key.
 - If VOX is still holding the radio up on your last words, the send lets it drop and then keys the radio itself, so the recording does not ride on VOX.

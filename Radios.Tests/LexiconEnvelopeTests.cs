@@ -1385,7 +1385,6 @@ namespace Radios.Tests
                 "audio.recorder.record_to_file_button",
                 "audio.recorder.stop_record_to_file_button",
                 "audio.recorder.play_from_computer_button",
-                "audio.recorder.stop_play_from_computer_button",
                 "audio.fields.computer_recorder_help",
 
                 // DRAFT PROSE (#787): pending-start cancellation confirmation.
@@ -1863,6 +1862,10 @@ namespace Radios.Tests
                 // Draft prose, awaiting Noel.
                 "audio.send.message_taken_over_ptt",
                 "audio.send.taken_over_ptt",
+                // The same round: Play from computer pauses on the speakers too,
+                // so its Home button says pause or carry on. Draft prose.
+                "audio.recorder.pause_play_from_computer_button",
+                "audio.recorder.carry_on_play_from_computer_button",
             };
 
             Assert.Equal(3140, unclassified);
