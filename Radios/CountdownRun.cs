@@ -12,21 +12,52 @@ namespace Radios
         /// <summary>Play one beat's tone. Never called for a beat that is not beeped.</summary>
         void Tone(CountdownBeat beat);
 
-        /// <summary>Queue one piece of the count for speech: the lead-in, or a number.</summary>
-        void Say(string text);
-
         /// <summary>
-        /// True while a piece already given to <see cref="Say"/> has not yet
-        /// been started by the reader. The count waits on this before every
-        /// beat and before the key (Codex round 1, blocker 1).
+        /// Queue one piece of the count for speech, the lead-in or a number,
+        /// and return a handle the count follows it by.
         /// </summary>
-        bool SpeechOwed { get; }
+        /// <param name="text">The words.</param>
+        /// <param name="onlyWarning">True when the words are the only warning
+        /// (sounds off), so an estimate alone must not count as delivery.</param>
+        ICountdownWords Say(string text, bool onlyWarning);
 
         /// <summary>
         /// Take back every piece not yet said. Called when the count is called
-        /// off, and when its words could not be delivered (blocker 2).
+        /// off, and when its words could not be delivered (Codex round 1).
         /// </summary>
         void WithdrawSpeech(string why);
+    }
+
+    /// <summary>One queued piece of the count, followed to delivery (Codex rounds 1 and 2).</summary>
+    public interface ICountdownWords
+    {
+        /// <summary>It will not be said: the reader was never reached, or it was taken back.</summary>
+        bool Failed { get; }
+
+        /// <summary>The reader has begun it. A pip waits for this on its own number.</summary>
+        bool Started { get; }
+
+        /// <summary>The reader has finished it, as far as can honestly be told. The next beat, and the key, wait for this.</summary>
+        bool Finished { get; }
+    }
+
+    /// <summary>Words handles that need no speech layer.</summary>
+    public static class CountdownWords
+    {
+        /// <summary>A piece that never reached the reader, or whose Say threw: never started, never said.</summary>
+        public static ICountdownWords Undelivered { get; } = new Fixed(failed: true, done: false);
+
+        /// <summary>A piece the reader says at once: for tests and for outputs with no reader to wait on.</summary>
+        public static ICountdownWords Immediate { get; } = new Fixed(failed: false, done: true);
+
+        private sealed class Fixed : ICountdownWords
+        {
+            private readonly bool _failed, _done;
+            public Fixed(bool failed, bool done) { _failed = failed; _done = done; }
+            public bool Failed => _failed;
+            public bool Started => _done;
+            public bool Finished => _done;
+        }
     }
 
     /// <summary>
@@ -58,6 +89,14 @@ namespace Radios
     /// beat after it, including the end.
     /// </para>
     /// <para>
+    /// <b>Each pip waits for its own number to start (Codex round 2).</b> A
+    /// spoken beat queues its number first and sounds its pip only once the
+    /// reader has begun it, so a busy reader cannot leave a number a second
+    /// behind its pip. A piece that never reached the reader, or whose Say
+    /// threw, is never "said": where the words are the warning the count stops
+    /// without keying, exactly as when they are not delivered in time.
+    /// </para>
+    /// <para>
     /// <b>And it follows its words, not only its clock (Codex round 1).</b> A
     /// beat does not fall while a piece of the count already given to the
     /// reader is still unsaid, and the count does not end, so nothing keys,
@@ -82,6 +121,7 @@ namespace Radios
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private Task<bool> _completion = Task.FromResult(false);
         private volatile bool _ended;
+        private ICountdownWords? _dropped;
 
         /// <summary>The plan this countdown is playing.</summary>
         public CountdownPlan Plan => _plan;
@@ -178,14 +218,17 @@ namespace Radios
                 long origin = _nowMs();
                 long shift = 0;
 
-                if (_plan.LeadIn != null) Say(_plan.LeadIn);
+                // The words follow the pieces one by one: `said` is the last
+                // piece given to the reader, which the next beat waits on.
+                ICountdownWords? said = null;
+                if (_plan.LeadIn != null) said = Say(_plan.LeadIn);
 
                 foreach (var beat in _plan.Beats)
                 {
                     await WaitUntil(origin + shift + beat.AtMs);
                     // The piece before this beat must have been said first; a
                     // late one moves this beat and every beat after it.
-                    if (!await WaitForWords()) return false;
+                    if (!await WaitFor(said, finished: true)) return false;
                     long behind = _nowMs() - (origin + shift + beat.AtMs);
                     if (behind > 0) shift += behind;
 
@@ -207,15 +250,23 @@ namespace Radios
                     }
 
                     if (_cancel.IsCancellationRequested) return false;
+                    if (beat.Spoken != null)
+                    {
+                        // The number first, and its pip only once the reader
+                        // has begun it, so the two arrive together.
+                        said = Say(beat.Spoken);
+                        if (!await WaitFor(said, finished: false)) return false;
+                        long startedLate = _nowMs() - (origin + shift + beat.AtMs);
+                        if (startedLate > 0) shift += startedLate;
+                    }
                     if (beat.Beeped) Tone(beat);
-                    if (beat.Spoken != null) Say(beat.Spoken);
                 }
 
                 await WaitUntil(origin + shift + _plan.EndsAtMs);
                 // The last number must have been said before anything keys;
                 // if it was late, it still gets its beat.
                 long sayingFrom = _nowMs();
-                if (!await WaitForWords()) return false;
+                if (!await WaitFor(said, finished: true)) return false;
                 if (_nowMs() > sayingFrom) await WaitUntil(_nowMs() + CountdownSettings.BeatMs);
                 ok = !_cancel.IsCancellationRequested;
                 return ok;
@@ -244,50 +295,63 @@ namespace Radios
         }
 
         /// <summary>
-        /// Wait until every piece of the count given to the reader has been
-        /// started. True to carry on; false when the words could not be
-        /// delivered and the count must not key.
+        /// Wait until <paramref name="words"/> has started, or finished. True
+        /// to carry on; false when the words could not be delivered and the
+        /// count must not key.
         /// </summary>
-        private async Task<bool> WaitForWords()
+        /// <remarks>
+        /// A piece that failed outright (never reached the reader, or its Say
+        /// threw) is not waited on: it will never be said. Where the words are
+        /// the warning, the count stops at once; in a beeped count, where only
+        /// the lead-in is spoken and the pips are the warning, the words are
+        /// dropped and the pips count on. The same two outcomes follow a piece
+        /// still unsaid after <see cref="SpeechCeilingMs"/>.
+        /// </remarks>
+        private async Task<bool> WaitFor(ICountdownWords? words, bool finished)
         {
+            if (words == null || ReferenceEquals(words, _dropped)) return true;
             long from = _nowMs();
-            while (Owed())
+            while (true)
             {
-                if (_nowMs() - from >= SpeechCeilingMs)
+                bool failed = Ask(() => words.Failed, failedIfThrows: true);
+                if (!failed && Ask(() => finished ? words.Finished : words.Started, failedIfThrows: false))
+                    return true;
+                if (failed || _nowMs() - from >= SpeechCeilingMs)
                 {
                     Withdraw("the countdown's words not being delivered");
+                    string why = failed ? "never reached the reader" : "were not said within " + SpeechCeilingMs + " ms";
                     if (_plan.Voicing == CountdownVoicing.Beeped)
                     {
                         // Only the lead-in is spoken in a beeped count, and the
                         // pips are its warning: drop the words, keep counting.
-                        Tracing.TraceLine("Countdown: " + _what + " dropped its lead-in, unsaid after "
-                            + SpeechCeilingMs + " ms; the pips count on", TraceLevel.Warning);
+                        _dropped = words;
+                        Tracing.TraceLine("Countdown: " + _what + " dropped its lead-in, which " + why
+                            + "; the pips count on", TraceLevel.Warning);
                         return true;
                     }
                     SpeechStalled = true;
-                    Tracing.TraceLine("Countdown: " + _what + " stopped: its words were not said within "
-                        + SpeechCeilingMs + " ms, so nothing keys", TraceLevel.Warning);
+                    Tracing.TraceLine("Countdown: " + _what + " stopped: its words " + why
+                        + ", so nothing keys", TraceLevel.Warning);
                     return false;
                 }
                 await _delay(SpeechPollMs, _cancel.Token);
                 _cancel.Token.ThrowIfCancellationRequested();
             }
-            return true;
         }
 
         /// <summary>
-        /// Whether words are still owed. A speech layer that throws reads as
-        /// OWED: with sounds off the words are the only warning, so a count
-        /// that cannot tell must wait, and in the end stop, rather than key.
+        /// Ask the speech layer a question it might throw on. A throw on
+        /// "did it fail?" reads as failed, and on "has it started or finished?"
+        /// as not yet: with sounds off the words are the only warning, so a
+        /// count that cannot tell must wait, and in the end stop, rather than key.
         /// </summary>
-        private bool Owed()
+        private bool Ask(Func<bool> question, bool failedIfThrows)
         {
-            try { return _output.SpeechOwed; }
+            try { return question(); }
             catch (Exception ex)
             {
-                Tracing.TraceLine("Countdown: asking whether its words were said threw: " + ex.Message,
-                    TraceLevel.Warning);
-                return true;
+                Tracing.TraceLine("Countdown: asking about its words threw: " + ex.Message, TraceLevel.Warning);
+                return failedIfThrows;
             }
         }
 
@@ -316,12 +380,19 @@ namespace Radios
             }
         }
 
-        private void Say(string text)
+        /// <summary>
+        /// Queue a piece. A speech layer that throws gives a piece that never
+        /// reached the reader, which is never counted as said (Codex round 2,
+        /// follow-up 3).
+        /// </summary>
+        private ICountdownWords Say(string text)
         {
-            try { _output.Say(text); }
+            try { return _output.Say(text, _plan.Voicing == CountdownVoicing.Spoken) ?? CountdownWords.Undelivered; }
             catch (Exception ex)
             {
-                Tracing.TraceLine("Countdown: speech threw and was ignored: " + ex.Message, TraceLevel.Warning);
+                Tracing.TraceLine("Countdown: speech threw, so these words count as never said: " + ex.Message,
+                    TraceLevel.Warning);
+                return CountdownWords.Undelivered;
             }
         }
     }

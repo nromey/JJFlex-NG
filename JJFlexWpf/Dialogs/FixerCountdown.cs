@@ -122,10 +122,8 @@ internal static class FixerCountdown
         public void Tone(Radios.CountdownBeat beat) => Beat(beat);
 
         /// <inheritdoc/>
-        public void Say(string text) => Radios.ScreenReaderOutput.CountdownSpeech.Say(text);
-
-        /// <inheritdoc/>
-        public bool SpeechOwed => Radios.ScreenReaderOutput.CountdownSpeech.Owed;
+        public Radios.ICountdownWords Say(string text, bool onlyWarning) =>
+            Radios.ScreenReaderOutput.CountdownSpeech.Say(text, onlyWarning);
 
         /// <inheritdoc/>
         public void WithdrawSpeech(string why) => Radios.ScreenReaderOutput.CountdownSpeech.Withdraw(why);

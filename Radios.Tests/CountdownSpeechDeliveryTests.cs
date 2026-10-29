@@ -10,132 +10,150 @@ using Xunit;
 namespace Radios.Tests
 {
     /// <summary>
-    /// The spoken countdown through the REAL speech handoff (#835, Codex round
-    /// 1, blockers 1 and 2): a real <see cref="SpeechArbiter"/>, a pump that
-    /// holds what it has not handed to the reader, and a reader that answers
-    /// only when the test says so, so "busy" and "slow" are facts rather than
-    /// sleeps.
+    /// The spoken countdown through the REAL speech handoff (#835, Codex rounds
+    /// 1 and 2): a real <see cref="SpeechArbiter"/>, a pump that holds what it
+    /// has not handed to the reader, and a reader whose start and finish of
+    /// each piece the test controls. The countdown's clock and the arbiter's
+    /// clock advance together, and what the reader actually did is recorded
+    /// apart from what was asked of it.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>What Codex found.</b> The numbers were queued on the pips' clock with
-    /// nothing listening for delivery, so a busy reader delayed them while the
-    /// count, and the key, ran on time; with sounds off that keys the radio
-    /// while its only warning is still owed. They shared a subject without
-    /// being additive, so a new number superseded, and the pump withdrew, an
-    /// unsaid earlier one. And a cancelled count's words stayed queued, since
-    /// the still-valid test the old output passed is honoured only for Urgent
-    /// speech. The earlier tests could not see any of it: their output recorded
-    /// each Say the instant it was called.
+    /// <b>Round 1</b> found the numbers queued on the pips' clock with nothing
+    /// listening for delivery, superseding one another, and left queued after a
+    /// cancel. <b>Round 2</b> found three more: a pip sounding ahead of its own
+    /// number under a busy reader; an expired estimate read as delivery on a
+    /// reader with no completion channel (JAWS, SAPI); and a piece that never
+    /// reached the reader, or whose Say threw, read as said. Round 1's bench
+    /// could see none of the three: its arbiter clock never moved, every
+    /// handoff was tracked, and it timed requests rather than delivery.
     /// </para>
     /// <para>
-    /// <b>What it still cannot see:</b> NVDA itself. The reader here is the
-    /// arbiter's completion contract, played by the test.
+    /// <b>What it still cannot see:</b> NVDA, JAWS or SAPI themselves. On the
+    /// estimate path in particular, the reader's own speech (a focus
+    /// announcement) is outside the arbiter's knowledge; the test pins the
+    /// stated rule, estimate plus margin, not a delivery the code cannot see.
     /// </para>
     /// </remarks>
     public sealed class CountdownSpeechDeliveryTests
     {
-        private const string Subject = SpeechSubject.CheckCountdown;
+        // ── A pip never sounds ahead of its own number ──────────────────
 
-        // ── Blocker 1: the count follows delivery, and the key waits for it ──
+        [Fact]
+        public async Task With_a_busy_tracked_reader_each_pip_waits_for_its_own_number_to_start()
+        {
+            var bench = new Bench();
+            bench.BusyWithOtherSpeechUntil(2000);
+            var run = bench.Start(CountdownVoicing.SpokenAndBeeped, seconds: 3);
+
+            Assert.True(await bench.RunUntil(run.Completion));
+
+            Assert.Equal(new[] { "3", "2", "1" }, bench.Requested);
+            Assert.Equal(3, bench.Tones.Count);
+            foreach (var (number, toneAt) in new[] { "3", "2", "1" }.Zip(bench.Tones))
+                Assert.True(toneAt >= bench.StartedAt(number),
+                    $"the pip for {number} sounded at {toneAt} ms, before the reader began {number} at {bench.StartedAt(number)} ms");
+            // The first number really was held up: its pip came at 2000 (within
+            // one poll of the reader starting it), not at 0.
+            Assert.InRange(bench.Tones[0], 2000, 2000 + CountdownRun.SpeechPollMs);
+        }
+
+        // ── The count, and the key, follow delivery ─────────────────────
 
         [Fact]
         public async Task With_the_reader_busy_the_next_number_and_the_key_wait_for_the_last_number_to_be_said()
         {
             var bench = new Bench();
-            bench.Arbiter.Emit("A long sentence the reader is still saying.", false, SpeechIntent.Queue,
-                VerbosityLevel.Terse, "test", "something-else");
+            bench.BusyWithOtherSpeechUntil(2000);
             var run = bench.Start(CountdownVoicing.Spoken, seconds: 3);
 
-            // Two seconds of clock with the reader stuck on the earlier sentence.
-            await bench.AdvanceTo(2000);
-            Assert.Equal(new[] { "3" }, bench.Said);
-            Assert.False(run.Completion.IsCompleted, "the count ran on while its first number was unsaid");
-
-            // The reader catches up; from here it says each piece at once.
-            bench.ReaderKeepsUp = true;
-            long caughtUpAt = bench.Clock.Now;
             Assert.True(await bench.RunUntil(run.Completion));
 
-            Assert.Equal(new[] { "3", "2", "1" }, bench.Said);
-            // Each number followed the delivery of the one before it, a beat on.
-            Assert.True(bench.SaidAt("2") >= caughtUpAt);
-            Assert.True(bench.SaidAt("1") >= bench.SaidAt("2") + CountdownSettings.BeatMs);
-            // And the key may go down only after "1" was said, a beat on.
-            Assert.True(bench.Clock.Now >= bench.SaidAt("1") + CountdownSettings.BeatMs);
+            Assert.Equal(new[] { "3", "2", "1" }, bench.Requested);
+            Assert.True(bench.RequestedAt("2") >= bench.FinishedAt("3"));
+            Assert.True(bench.RequestedAt("1") >= bench.FinishedAt("2"));
+            Assert.True(bench.Clock.Now >= bench.FinishedAt("1"), "the key went down before the reader finished 1");
             Assert.Empty(bench.Withdrawn);
         }
 
         [Fact]
         public async Task The_key_waits_for_the_last_number_even_when_the_count_has_run_out()
         {
-            var bench = new Bench { ReaderKeepsUp = true, ReaderHolds = "1" };
+            var bench = new Bench { ReaderHolds = "1" };
             var run = bench.Start(CountdownVoicing.Spoken, seconds: 3);
 
-            // The count's own end is 3000 ms; run the clock well past it with "1" unsaid.
-            await bench.AdvanceTo(5000, keepUp: true, stopIf: run.Completion);
-            Assert.Equal(new[] { "3", "2", "1" }, bench.Said);
+            await bench.Run(until: 5000, stopIf: run.Completion);
             Assert.False(run.Completion.IsCompleted, "the count ended, and would have keyed, before its 1 was said");
 
             bench.ReaderHolds = null;
-            long saidAt = bench.Clock.Now;
             Assert.True(await bench.RunUntil(run.Completion));
-            Assert.True(bench.Clock.Now >= saidAt + CountdownSettings.BeatMs,
+            Assert.True(bench.Clock.Now >= bench.FinishedAt("1") + CountdownSettings.BeatMs,
                 "a late 1 must still get its beat before the key");
         }
+
+        // ── Words that are never said: nothing keys ─────────────────────
 
         [Fact]
         public async Task A_count_whose_words_are_never_said_does_not_key_and_takes_its_words_back()
         {
             var bench = new Bench();
-            bench.Arbiter.Emit("A sentence the reader never finishes.", false, SpeechIntent.Queue,
-                VerbosityLevel.Terse, "test", "something-else");
+            bench.BusyWithOtherSpeechUntil(long.MaxValue);
+            var run = bench.Start(CountdownVoicing.Spoken, seconds: 3);
+
+            Assert.False(await bench.RunUntil(run.Completion, until: 30_000));
+            Assert.True(run.SpeechStalled);
+            Assert.Contains("3", bench.Withdrawn);
+        }
+
+        [Fact]
+        public async Task A_tracked_reader_that_refuses_the_words_does_not_key()
+        {
+            var bench = new Bench { ReaderRefuses = true };
+            var run = bench.Start(CountdownVoicing.Spoken, seconds: 3);
+
+            Assert.False(await bench.RunUntil(run.Completion, until: 30_000));
+            Assert.True(run.SpeechStalled);
+        }
+
+        [Fact]
+        public async Task Words_that_never_reach_the_reader_are_not_counted_as_said()
+        {
+            var bench = new Bench { Delivery = Bench.Mode.NotReached };
             var run = bench.Start(CountdownVoicing.Spoken, seconds: 3);
 
             Assert.False(await bench.RunUntil(run.Completion, until: 30_000),
-                "the count finished, and would have keyed, with its words never said");
-            Assert.Contains("3", bench.Withdrawn);
-            Assert.False(new CountdownSpeech(bench.Arbiter).Owed);
+                "the count keyed although none of its words reached the reader");
+            Assert.True(run.SpeechStalled);
+            Assert.True(bench.Clock.Now < CountdownSettings.BeatMs, "a piece that can never be said need not be waited on");
         }
 
         [Fact]
-        public void The_numbers_do_not_supersede_one_another()
+        public async Task A_speech_layer_that_throws_is_not_counted_as_said()
         {
-            var bench = new Bench();
-            bench.Arbiter.Emit("Busy.", false, SpeechIntent.Queue, VerbosityLevel.Terse, "test", "something-else");
-            var speech = new CountdownSpeech(bench.Arbiter);
-            speech.Say("5");
-            speech.Say("4");
-            speech.Say("3");
+            var bench = new Bench { Delivery = Bench.Mode.Throws };
+            var run = bench.Start(CountdownVoicing.Spoken, seconds: 3);
 
-            // All three are still owed and still in the pump, in order.
-            Assert.Empty(bench.Withdrawn);
-            Assert.Equal(new[] { "Busy.", "5", "4", "3" }, bench.Unsent.Select(u => u.Text));
-            Assert.True(speech.Owed);
+            Assert.False(await bench.RunUntil(run.Completion, until: 30_000),
+                "the count keyed although every Say threw");
+            Assert.True(run.SpeechStalled);
         }
 
-        // ── Blocker 2: cancelling takes the words back ──
-
         [Fact]
-        public async Task Cancelling_the_count_withdraws_its_unsaid_words()
+        public async Task A_beeped_count_whose_lead_in_never_reaches_the_reader_counts_on_its_pips()
         {
-            var bench = new Bench();
-            bench.Arbiter.Emit("Busy.", false, SpeechIntent.Queue, VerbosityLevel.Terse, "test", "something-else");
-            var run = bench.Start(CountdownVoicing.Spoken, seconds: 5, leadIn: "Starting the live check in");
-            await bench.AdvanceTo(300);
+            var bench = new Bench { Delivery = Bench.Mode.NotReached };
+            var run = bench.Start(CountdownVoicing.Beeped, seconds: 3, leadIn: "Starting the microphone test in");
 
-            run.Cancel();
-            Assert.False(await bench.RunUntil(run.Completion));
-            Assert.Contains("Starting the live check in", bench.Withdrawn);
-            Assert.DoesNotContain(bench.Unsent, u => bench.Said.Contains(u.Text));
-            Assert.False(new CountdownSpeech(bench.Arbiter).Owed);
+            Assert.True(await bench.RunUntil(run.Completion, until: 30_000));
+            Assert.False(run.SpeechStalled);
+            Assert.Equal(3, bench.Tones.Count);
         }
 
         [Fact]
         public async Task A_beeped_count_whose_lead_in_is_never_said_drops_the_lead_in_and_counts_on_its_pips()
         {
             var bench = new Bench();
-            bench.Arbiter.Emit("Busy.", false, SpeechIntent.Queue, VerbosityLevel.Terse, "test", "something-else");
+            bench.BusyWithOtherSpeechUntil(long.MaxValue);
             var run = bench.Start(CountdownVoicing.Beeped, seconds: 3, leadIn: "Starting the microphone test in");
 
             Assert.True(await bench.RunUntil(run.Completion, until: 30_000));
@@ -143,41 +161,107 @@ namespace Radios.Tests
             Assert.Equal(3, bench.Tones.Count);
         }
 
+        // ── The estimate path (JAWS, SAPI): estimate plus margin ────────
+
+        [Fact]
+        public async Task On_a_reader_with_no_completion_signal_a_spoken_count_holds_each_number_for_its_estimate_and_margin()
+        {
+            var bench = new Bench { Delivery = Bench.Mode.Untracked };
+            var run = bench.Start(CountdownVoicing.Spoken, seconds: 3);
+
+            Assert.True(await bench.RunUntil(run.Completion));
+
+            int Held(string text)
+            {
+                int est = SpeechArbiter.EstimateSpokenMs(text);
+                return est + CountdownSpeech.UntrackedMarginMs(est);
+            }
+            Assert.Equal(new[] { "3", "2", "1" }, bench.Requested);
+            Assert.True(bench.RequestedAt("2") >= bench.RequestedAt("3") + Held("3"),
+                "the next number came before the last one's estimate and margin had passed");
+            Assert.True(bench.RequestedAt("1") >= bench.RequestedAt("2") + Held("2"));
+            Assert.True(bench.Clock.Now >= bench.RequestedAt("1") + Held("1"),
+                "the key went down before the last number's estimate and margin had passed");
+        }
+
+        // ── The policy: additive, and withdrawn on cancel ───────────────
+
+        [Fact]
+        public void The_numbers_do_not_supersede_one_another()
+        {
+            var bench = new Bench();
+            bench.BusyWithOtherSpeechUntil(long.MaxValue);
+            var speech = bench.Speech;
+            speech.Say("5", true);
+            speech.Say("4", true);
+            speech.Say("3", true);
+
+            Assert.Empty(bench.Withdrawn);
+            Assert.Equal(new[] { "5", "4", "3" }, bench.QueuedTexts);
+        }
+
+        [Fact]
+        public async Task Cancelling_the_count_withdraws_its_unsaid_words()
+        {
+            var bench = new Bench();
+            bench.BusyWithOtherSpeechUntil(long.MaxValue);
+            var run = bench.Start(CountdownVoicing.Spoken, seconds: 5, leadIn: "Starting the live check in");
+            await bench.Run(until: 300, stopIf: run.Completion);
+
+            run.Cancel();
+            Assert.False(await bench.RunUntil(run.Completion));
+            Assert.Contains("Starting the live check in", bench.Withdrawn);
+            Assert.Empty(bench.QueuedTexts);
+        }
+
         // ── The bench ──────────────────────────────────────────────────
 
         private sealed class Bench
         {
-            private long _nextTicket;
+            public enum Mode { Tracked, Untracked, NotReached, Throws }
+
             private readonly object _sync = new();
+            private long _nextTicket;
+            private long _busyUntil = -1;
+            private (long Ticket, string Text, long Since)? _inFlight;
+
+            public Mode Delivery { get; set; } = Mode.Tracked;
+            public string? ReaderHolds { get; set; }
+            public bool ReaderRefuses { get; set; }
+            public int ReaderMsPerPiece { get; set; } = 300;
 
             public FakeSpeechClock SpeechClock { get; } = new();
-            public Clock Clock { get; } = new();
+            public Clock Clock { get; }
             public SpeechArbiter Arbiter { get; }
-            public List<(long Ticket, string Text, string? Subject)> Unsent { get; } = new();
+            public CountdownSpeech Speech { get; }
+
+            private readonly List<(long Ticket, string Text)> _queue = new();
             public List<string> Withdrawn { get; } = new();
-            public List<(long At, string Text)> SaidLog { get; } = new();
             public List<long> Tones { get; } = new();
-            public bool ReaderKeepsUp { get; set; }
-
-            /// <summary>A piece the reader will not finish while this is set.</summary>
-            public string? ReaderHolds { get; set; }
-
-            private readonly Dictionary<long, (string Text, string? Subject)> _sent = new();
+            private readonly List<(long At, string Text)> _requested = new();
+            private readonly Dictionary<string, long> _started = new();
+            private readonly Dictionary<string, long> _finished = new();
 
             public Bench()
             {
+                Clock = new Clock(ms => SpeechClock.Advance(ms));
                 Arbiter = new SpeechArbiter(
                     SpeechClock,
                     () => VerbosityLevel.Chatty,
                     (message, interrupt, intent, level, origin, salvaged) =>
                     {
-                        long ticket = ++_nextTicket;
-                        lock (_sync)
+                        switch (Delivery)
                         {
-                            Unsent.Add((ticket, message, null));
-                            _sent[ticket] = (message, null);
+                            case Mode.NotReached: return SpeechHandoff.NotReached;
+                            case Mode.Throws: throw new InvalidOperationException("the speech layer is broken");
+                            case Mode.Untracked:
+                                lock (_sync) _queue.Add((0, message));
+                                return SpeechHandoff.Untracked;
+                            default:
+                                long ticket = Interlocked.Increment(ref _nextTicket);
+                                lock (_sync) _queue.Add((ticket, message));
+                                return SpeechHandoff.TrackedAs(ticket);
                         }
-                        return SpeechHandoff.TrackedAs(ticket);
                     },
                     () => { },
                     (message, level, intent, origin) => { },
@@ -187,54 +271,86 @@ namespace Radios.Tests
                     {
                         lock (_sync)
                         {
-                            int i = Unsent.FindIndex(u => u.Ticket == ticket);
+                            int i = _queue.FindIndex(q => q.Ticket == ticket && ticket != 0);
                             if (i < 0) return false;
-                            Withdrawn.Add(Unsent[i].Text);
-                            Unsent.RemoveAt(i);
+                            Withdrawn.Add(_queue[i].Text);
+                            _queue.RemoveAt(i);
                             return true;
                         }
                     });
+                Speech = new CountdownSpeech(Arbiter, ticket => { lock (_sync) return _queue.Exists(q => q.Ticket == ticket); });
             }
 
-            public IEnumerable<string> Said => SaidLog.Select(s => s.Text);
-            public long SaidAt(string text) => SaidLog.First(s => s.Text == text).At;
+            public IEnumerable<string> QueuedTexts { get { lock (_sync) return _queue.Select(q => q.Text).ToList(); } }
+            public IEnumerable<string> Requested { get { lock (_requested) return _requested.Select(r => r.Text).ToList(); } }
+            public long RequestedAt(string text) { lock (_requested) return _requested.First(r => r.Text == text).At; }
+            public long StartedAt(string text) { lock (_sync) return _started[text]; }
+            public long FinishedAt(string text) { lock (_sync) return _finished[text]; }
+
+            /// <summary>The reader is saying something of its own (or of ours, unfollowed) until then.</summary>
+            public void BusyWithOtherSpeechUntil(long t) => _busyUntil = t;
 
             public CountdownRun Start(CountdownVoicing voicing, int seconds, string? leadIn = null)
             {
                 var plan = CountdownPlan.For(new CountdownSettings { Seconds = seconds }, voicing,
                     leadIn, n => n.ToString());
-                var run = CountdownRun.Start(plan, new Output(this, new CountdownSpeech(Arbiter)), "test",
-                    Clock.NowMs, Clock.Delay);
+                var run = CountdownRun.Start(plan, new Output(this), "test", Clock.NowMs, Clock.Delay);
                 // No setup to wait for: these tests are about the words.
                 _ = run.ReadyToKeyAsync();
                 return run;
             }
 
             /// <summary>
-            /// The reader says, and finishes, whatever is first in the pump.
-            /// False when there is nothing, or the first is the held piece.
+            /// The reader, one step: finish what it is saying when its time is
+            /// up, then take the next piece from the pump. Tracked pieces are
+            /// answered through the arbiter; untracked ones are only recorded,
+            /// since nobody tells the arbiter.
             /// </summary>
-            public bool ReaderFinishesNext()
+            private void ReaderStep()
             {
-                (long Ticket, string Text, string? Subject) next;
+                long now = Clock.Now;
+                (long Ticket, string Text, long Since)? done = null;
                 lock (_sync)
                 {
-                    if (Unsent.Count == 0) return false;
-                    if (ReaderHolds != null && Unsent[0].Text == ReaderHolds) return false;
-                    next = Unsent[0];
-                    Unsent.RemoveAt(0);
+                    if (now < _busyUntil) return;
+                    if (_inFlight is { } f && now >= f.Since + ReaderMsPerPiece && f.Text != ReaderHolds)
+                    {
+                        _finished[f.Text] = now;
+                        done = f;
+                        _inFlight = null;
+                    }
                 }
-                Arbiter.OnOutcome(next.Ticket, next.Text, SpeechOutcome.Completed(1, 1, 200));
-                return true;
+                if (done is { } d && d.Ticket != 0)
+                    Arbiter.OnOutcome(d.Ticket, d.Text, SpeechOutcome.Completed(1, 1, ReaderMsPerPiece));
+
+                (long Ticket, string Text) next;
+                lock (_sync)
+                {
+                    if (_inFlight != null || _queue.Count == 0) return;
+                    next = _queue[0];
+                    _queue.RemoveAt(0);
+                    if (ReaderRefuses)
+                    {
+                        _inFlight = null;
+                    }
+                    else
+                    {
+                        _inFlight = (next.Ticket, next.Text, now);
+                        _started[next.Text] = now;
+                    }
+                }
+                if (ReaderRefuses && next.Ticket != 0)
+                    Arbiter.OnOutcome(next.Ticket, next.Text,
+                        SpeechOutcome.Unknown(SpeechUnknownReason.Refused, "asleep", 0));
             }
 
-            public async Task AdvanceTo(long t, bool keepUp = false, Task? stopIf = null)
+            public async Task Run(long until, Task? stopIf = null)
             {
                 var deadline = DateTime.UtcNow.AddSeconds(10);
-                while (Clock.Now < t && stopIf?.IsCompleted != true)
+                while (Clock.Now < until && stopIf?.IsCompleted != true)
                 {
                     Assert.True(DateTime.UtcNow < deadline, "the clock stopped moving");
-                    if (keepUp) while (ReaderFinishesNext()) { }
+                    ReaderStep();
                     if (!Clock.Step()) await Task.Delay(1);
                 }
             }
@@ -246,7 +362,7 @@ namespace Radios.Tests
                 {
                     Assert.True(DateTime.UtcNow < deadline, "the countdown never finished");
                     Assert.True(Clock.Now <= until, "the countdown ran past " + until + " ms of its own clock");
-                    if (ReaderKeepsUp) while (ReaderFinishesNext()) { }
+                    ReaderStep();
                     if (!Clock.Step()) await Task.Delay(1);
                 }
                 return await task;
@@ -255,25 +371,30 @@ namespace Radios.Tests
             private sealed class Output : ICountdownOutput
             {
                 private readonly Bench _bench;
-                private readonly CountdownSpeech _speech;
-                public Output(Bench bench, CountdownSpeech speech) { _bench = bench; _speech = speech; }
+                public Output(Bench bench) => _bench = bench;
                 public void Tone(CountdownBeat beat) { lock (_bench.Tones) _bench.Tones.Add(_bench.Clock.Now); }
-                public void Say(string text)
+                public ICountdownWords Say(string text, bool onlyWarning)
                 {
-                    lock (_bench.SaidLog) _bench.SaidLog.Add((_bench.Clock.Now, text));
-                    _speech.Say(text);
+                    lock (_bench._requested) _bench._requested.Add((_bench.Clock.Now, text));
+                    return _bench.Speech.Say(text, onlyWarning);
                 }
-                public bool SpeechOwed => _speech.Owed;
-                public void WithdrawSpeech(string why) => _speech.Withdraw(why);
+                public void WithdrawSpeech(string why) => _bench.Speech.Withdraw(why);
             }
         }
 
-        /// <summary>A virtual clock whose delays complete only when stepped.</summary>
+        /// <summary>
+        /// A virtual clock whose delays complete only when stepped, and which
+        /// moves the arbiter's clock by the same amount, so estimates expire in
+        /// step with the count.
+        /// </summary>
         private sealed class Clock
         {
             private readonly object _sync = new();
             private readonly Queue<(int Ms, TaskCompletionSource Done)> _pending = new();
+            private readonly Action<int> _alsoAdvance;
             private long _now;
+
+            public Clock(Action<int> alsoAdvance) => _alsoAdvance = alsoAdvance;
 
             public long Now { get { lock (_sync) return _now; } }
             public long NowMs() => Now;
@@ -293,7 +414,11 @@ namespace Radios.Tests
                 {
                     if (_pending.Count == 0) return false;
                     next = _pending.Dequeue();
-                    if (!next.Done.Task.IsCompleted) _now += next.Ms;
+                    if (!next.Done.Task.IsCompleted)
+                    {
+                        _now += next.Ms;
+                        _alsoAdvance(next.Ms);
+                    }
                 }
                 next.Done.TrySetResult();
                 return true;

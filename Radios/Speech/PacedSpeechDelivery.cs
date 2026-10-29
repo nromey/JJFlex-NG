@@ -159,6 +159,15 @@ namespace Radios.Speech
         /// <summary>How many utterances wait behind the one in flight.</summary>
         public int QueuedCount { get { lock (_lock) { return _queue.Count; } } }
 
+        /// <summary>
+        /// Whether <paramref name="ticket"/> is still waiting in this pump,
+        /// not yet handed to the reader. False once the reader has it (it has
+        /// started), or it is finished, withdrawn or unknown. Read by the
+        /// countdown before a check keys (#835), whose pip must not sound
+        /// before its own number has started.
+        /// </summary>
+        public bool IsQueued(long ticket) { lock (_lock) { return _queue.Exists(q => q.Ticket == ticket); } }
+
         /// <summary>True while the reader has one of ours.</summary>
         public bool InFlight { get { lock (_lock) { return _inFlight != null; } } }
 

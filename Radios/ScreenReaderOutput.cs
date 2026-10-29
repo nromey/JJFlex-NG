@@ -279,7 +279,15 @@ namespace Radios
         /// <see cref="Speech.CountdownSpeech"/>.
         /// </summary>
         public static Speech.CountdownSpeech CountdownSpeech =>
-            _countdownSpeech ??= new Speech.CountdownSpeech(_arbiter);
+            _countdownSpeech ??= new Speech.CountdownSpeech(_arbiter, PumpStillQueues);
+
+        /// <summary>Whether a ticket is still waiting in the delivery pump, not yet with the reader.</summary>
+        private static bool PumpStillQueues(long ticket)
+        {
+            Speech.PacedSpeechDelivery? pump;
+            lock (_backendLock) { pump = _pump; }
+            return pump?.IsQueued(ticket) == true;
+        }
 
         /// <summary>
         /// Test-only: drop the arbiter's transient state — pending coalesced

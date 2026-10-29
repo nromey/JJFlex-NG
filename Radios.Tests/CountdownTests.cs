@@ -418,8 +418,6 @@ namespace Radios.Tests
             public List<(long, string)> Said { get; } = new();
             public int Withdrawn { get; private set; }
 
-            /// <summary>This output's reader says everything the moment it is given.</summary>
-            public bool SpeechOwed => false;
 
             public void WithdrawSpeech(string why) => Withdrawn++;
 
@@ -428,9 +426,11 @@ namespace Radios.Tests
                 lock (Tones) Tones.Add((_clock.Now, beat.Number, beat.IsLanding));
             }
 
-            public void Say(string text)
+            /// <summary>This output's reader says everything the moment it is given.</summary>
+            public ICountdownWords Say(string text, bool onlyWarning)
             {
                 lock (Said) Said.Add((_clock.Now, text));
+                return CountdownWords.Immediate;
             }
         }
     }
