@@ -482,6 +482,10 @@ namespace JJFlexWpf
                         break;
                 }
 
+                // Before the swallow, on this thread: a window counting a bare
+                // Control must know a key went down that it will never see
+                // (#835, Codex round 1, B1).
+                WithheldKeyCounter.Shared.Report(data.vkCode, isDown, d);
                 if (d.Swallow)
                     return (IntPtr)1;
             }

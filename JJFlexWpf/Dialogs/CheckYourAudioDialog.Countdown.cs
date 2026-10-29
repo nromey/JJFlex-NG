@@ -85,8 +85,13 @@ public partial class CheckYourAudioDialog
         return go;
     }
 
-    /// <summary>Recognises the bare Control that skips the count.</summary>
-    private readonly BareControlPress _bareControl = new();
+    /// <summary>
+    /// Recognises the bare Control that skips the count, told also of every
+    /// key this app's low-level hooks swallow before the window sees it (Codex
+    /// round 1, B1: the system-wide JJ key eats a chord's letter and passes its
+    /// Control).
+    /// </summary>
+    private readonly BareControlPress _bareControl = new(() => WithheldKeyCounter.Shared.Downs);
 
     /// <summary>The count that was running when the Control now held went down; only that count is skipped by it.</summary>
     private CountdownRun? _controlPressedDuring;
@@ -115,19 +120,22 @@ public partial class CheckYourAudioDialog
         return key == Key.LeftCtrl || key == Key.RightCtrl;
     }
 
+    /// <summary>The key itself, the same on its press and its release, with Alt's System wrapper taken off.</summary>
+    private static int KeyIdentity(KeyEventArgs e) => (int)(e.Key == Key.System ? e.SystemKey : e.Key);
+
     private void CountdownSkipKeyDown(object sender, KeyEventArgs e)
     {
         bool control = IsControlKey(e);
         if (control && !e.IsRepeat && _controlPressedDuring == null)
             _controlPressedDuring = StartCountdownRunning ? _startCountdown : null;
         bool otherModifier = (Keyboard.Modifiers & (ModifierKeys.Shift | ModifierKeys.Alt | ModifierKeys.Windows)) != 0;
-        _bareControl.KeyDown(control, e.IsRepeat, otherModifier);
+        _bareControl.KeyDown(KeyIdentity(e), control, e.IsRepeat, otherModifier);
     }
 
     private void CountdownSkipKeyUp(object sender, KeyEventArgs e)
     {
         bool control = IsControlKey(e);
-        bool bare = _bareControl.KeyUp(control);
+        bool bare = _bareControl.KeyUp(KeyIdentity(e), control);
         if (!control) return;
         // Every Control release ends that press, a chord's included.
         var pressedDuring = _controlPressedDuring;

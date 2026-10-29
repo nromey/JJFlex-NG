@@ -197,6 +197,8 @@ namespace JJFlexWpf
                     if (fg != IntPtr.Zero && IsHtmlHelpWindow(fg))
                     {
                         PostMessage(fg, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+                        // Counted, so no window reads a Control held across it as bare (#835).
+                        Radios.WithheldKeyCounter.Shared.NoteWithheldDown();
                         return (IntPtr)1; // swallow Escape so CHM doesn't also process it
                     }
                 }

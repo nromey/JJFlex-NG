@@ -385,9 +385,12 @@ namespace Radios
                 // were not delivered.
                 _waits.ThrowIfCancellationRequested();
                 bool failed = Ask(() => words.Failed, failedIfThrows: true);
-                if (failed) _waits.ThrowIfCancellationRequested();
-                if (!failed && Ask(() => finished ? words.Finished : words.Started, failedIfThrows: false))
-                    return true;
+                bool said = !failed && Ask(() => finished ? words.Finished : words.Started, failedIfThrows: false);
+                // Asked again AFTER every question to the reader (Codex round 1,
+                // F2): a skip that landed during any of them is a skip, not
+                // words that failed or ran out of time.
+                _waits.ThrowIfCancellationRequested();
+                if (said) return true;
                 if (failed || _nowMs() - from >= SpeechCeilingMs)
                 {
                     Withdraw("the countdown's words not being delivered");

@@ -460,7 +460,53 @@ namespace Radios.Tests
             Assert.False(run.SpeechStalled, "a skip was reported as words that never reached the reader");
         }
 
+        [Fact]
+        public async Task A_skip_landing_while_the_count_asks_whether_a_number_has_started_is_a_skip_too()
+        {
+            // Codex round 1, F2: the same race at the other getter. The words
+            // have been unsaid for the whole ceiling, and the skip lands while
+            // the count asks "has it started?", the last question before it
+            // would give up on them.
+            var clock = new SteppedClock();
+            var output = new SkipAtCeilingOutput(clock);
+            var plan = CountdownPlan.For(new CountdownSettings { Seconds = 5, LeadIn = false },
+                CountdownVoicing.Spoken, numberText: n => n.ToString());
+            var run = CountdownRun.Start(plan, output, "test", clock.NowMs, clock.Delay);
+            output.Run = run;
+            Assert.True(await clock.RunUntil(run.ReadyToKeyAsync()));
+            Assert.True(run.Skipped);
+            Assert.False(run.SpeechStalled, "a skip was reported as words that were not said in time");
+        }
+
         private static async Task<bool> Idle() { await Task.Delay(1); return true; }
+
+        /// <summary>A reader that never starts a number, and which presses skip when the count has waited the whole ceiling.</summary>
+        private sealed class SkipAtCeilingOutput : ICountdownOutput, ICountdownWords
+        {
+            private readonly SteppedClock _clock;
+            private long _firstAsked = -1;
+            private bool _done;
+            public CountdownRun? Run;
+            public SkipAtCeilingOutput(SteppedClock clock) => _clock = clock;
+            public void Tone(CountdownBeat beat) { }
+            public ICountdownWords Say(string text, bool onlyWarning) => this;
+            public void WithdrawSpeech(string why) { }
+            public bool Failed => false;
+            public bool Finished => false;
+            public bool Started
+            {
+                get
+                {
+                    if (_firstAsked < 0) _firstAsked = _clock.Now;
+                    if (!_done && _clock.Now - _firstAsked >= CountdownRun.SpeechCeilingMs)
+                    {
+                        _done = true;
+                        Run!.Skip();
+                    }
+                    return false;
+                }
+            }
+        }
 
         /// <summary>A reader whose words never finish, and which presses skip while the count asks about them.</summary>
         private sealed class SkipMidQuestionOutput : ICountdownOutput
