@@ -10727,6 +10727,9 @@ namespace Radios
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
+                // A send that turned the monitor on hands it to whoever writes
+                // it here, and never puts it back over them (#835).
+                System.Threading.Interlocked.Increment(ref _monitorOperatorWrites);
                 q.Enqueue((FunctionDel)(() => { theRadio.TXMonitor = val; }));
             }
         }

@@ -84,9 +84,6 @@ internal static class VoiceMessageSender
         public string Label = "";
         /// <summary>A recording's phrase for the sentences, "the computer recording X".</summary>
         public string What = "";
-        /// <summary>The file to play on this computer while the send goes out, or null.</summary>
-        public string? MonitorPath;
-        public bool Monitoring;
         /// <summary>The box's VOX pause, given back when the send has settled.</summary>
         public FlexBase.LocalPlaybackVoxPause? VoxPause;
         public SliceSendRig? Slice;
@@ -110,31 +107,51 @@ internal static class VoiceMessageSender
     /// send holds none of it. Disposing twice is harmless.
     /// </summary>
     /// <remarks>
-    /// The radio's PTT source read as the radio sends it
+    /// <para>
+    /// <b>The transmit monitor</b> (<see cref="FlexBase.HoldMonitorForSend"/>):
+    /// every send is heard through the radio's monitor, switched on silently if
+    /// it was off and put back afterwards, at the operator's own monitor level
+    /// (Noel, 2026-10-28 16:36, 16:47, 16:48). It replaces the local copy a box
+    /// send used to play on this computer, which was far louder than the air
+    /// and doubled what the monitor already gave. Taken before the key so the
+    /// first syllable is heard; the monitor sounds only while transmitting.
+    /// </para>
+    /// <para>
+    /// <b>The radio's PTT source</b> read as the radio sends it
     /// (<see cref="FlexBase.WatchPttSource"/>), so a hardware PTT pressed under
     /// the send's own key is seen: the radio reports <c>RCA,SW</c>, which
     /// FlexLib cannot parse.
+    /// </para>
     /// </remarks>
     private sealed class PieceHolds : IDisposable
     {
         private IDisposable? _pttWatch;
+        private IDisposable? _monitor;
 
-        private PieceHolds(IDisposable? pttWatch) { _pttWatch = pttWatch; }
+        private PieceHolds(IDisposable? pttWatch, IDisposable? monitor) { _pttWatch = pttWatch; _monitor = monitor; }
 
-        public static PieceHolds Take(FlexBase rig)
+        public static PieceHolds Take(FlexBase rig, string who)
         {
-            IDisposable? watch = null;
+            IDisposable? watch = null, monitor = null;
             try { watch = rig.WatchPttSource(); }
             catch (Exception ex)
             {
                 Tracing.TraceLine("VoiceMessageSender: the PTT source watch could not start: " + ex.Message,
                     TraceLevel.Warning);
             }
-            return new PieceHolds(watch);
+            try { monitor = rig.HoldMonitorForSend(who); }
+            catch (Exception ex)
+            {
+                // Hearing the send is a courtesy; it must never stop the send.
+                Tracing.TraceLine("VoiceMessageSender: the transmit monitor could not be held: " + ex.Message,
+                    TraceLevel.Warning);
+            }
+            return new PieceHolds(watch, monitor);
         }
 
         public void Dispose()
         {
+            System.Threading.Interlocked.Exchange(ref _monitor, null)?.Dispose();
             System.Threading.Interlocked.Exchange(ref _pttWatch, null)?.Dispose();
         }
     }
@@ -327,16 +344,30 @@ internal static class VoiceMessageSender
     {
         if (route == SendRoute.Box)
         {
-            info.MonitorPath = info.Path;
             _ = BeginBoxAsync(rig, info, new FlexBaseVoiceMessageRig(rig), startsOnKey: false,
-                joinInstead: () => Launch(rig, info,
-                    VoiceMessageSend.Begin(new FlexBaseVoiceMessageRig(rig), info.Label, Environment.TickCount64),
-                    loaded.Path, loaded.Describe()));
+                joinInstead: () => BeginAndLaunch(rig, info, info.Label, loaded));
             return;
         }
 
-        Launch(rig, info, VoiceMessageSend.Begin(new FlexBaseVoiceMessageRig(rig), info.Label, Environment.TickCount64),
-            loaded.Path, loaded.Describe());
+        BeginAndLaunch(rig, info, info.Label, loaded);
+    }
+
+    /// <summary>
+    /// Take the piece's holds, THEN begin the send, which may key the radio at
+    /// once, then launch it. In that order so the transmit monitor's turn-on is
+    /// queued to the radio ahead of the key and the first syllable is heard.
+    /// </summary>
+    private static void BeginAndLaunch(FlexBase rig, SendInfo info, string label, TxAudioFile.Loaded loaded)
+    {
+        PieceHolds holds = PieceHolds.Take(rig, Name(info));
+        VoiceMessageSend send;
+        try { send = VoiceMessageSend.Begin(new FlexBaseVoiceMessageRig(rig), label, Environment.TickCount64); }
+        catch
+        {
+            holds.Dispose();
+            throw;
+        }
+        Launch(rig, info, send, loaded.Path, loaded.Describe(), holds);
     }
 
     /// <summary>
@@ -357,7 +388,6 @@ internal static class VoiceMessageSender
         {
             Kind = SendKind.ComputerRecording,
             What = Lexicon.Get("audio.send.what_computer", ("name", System.IO.Path.GetFileNameWithoutExtension(path))),
-            MonitorPath = path,
             Path = path,
             Rig = rig,
         };
@@ -512,8 +542,9 @@ internal static class VoiceMessageSender
     /// <summary>
     /// Send the radio's own slice recording under the VOX send box (#835): key, then
     /// start the slice's playback, which the radio sends to the air because the
-    /// radio is keyed, and which the operator already hears as it goes out
-    /// (Noel, 15:24) — so no local copy is played for this one.
+    /// radio is keyed. It is heard through the transmit monitor like every
+    /// other send (2026-10-28 16:47), held for the piece by the send host and
+    /// for the playback itself by the slice recorder.
     /// </summary>
     public static void SendSliceRecording(FlexBase rig, SliceRecorderTarget target)
     {
@@ -585,9 +616,7 @@ internal static class VoiceMessageSender
             RefuseOrHold(info, Lexicon.Get("audio.send.not_yet_transmitting"));
             return;
         }
-        var send = VoiceMessageSend.Begin(new FlexBaseVoiceMessageRig(rig), info.What, Environment.TickCount64);
-        Launch(rig, info, send, loaded.Path, loaded.Describe());
-        StartMonitor(info);
+        BeginAndLaunch(rig, info, info.What, loaded);
     }
 
     // ── the VOX send box ───────────────────────────────────────────────────────
@@ -601,7 +630,7 @@ internal static class VoiceMessageSender
     {
         // This attempt's own holds, taken before anything can key: handed to
         // the piece if it launches, given back on every other road out.
-        PieceHolds? holds = PieceHolds.Take(rig);
+        PieceHolds? holds = PieceHolds.Take(rig, Name(info));
         try
         {
             if (await BeginBoxCoreAsync(rig, info, sendRig, startsOnKey, joinInstead, holds)) holds = null;
@@ -699,7 +728,6 @@ internal static class VoiceMessageSender
                 () => Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke()?.IsTransmitting == true).Check,
             StartSourceWhenKeyed = startsOnKey,
             SourceFailed = info.Slice == null ? null : () => info.Slice.Failed,
-            Keyed = () => StartMonitor(info),
         };
         // The carrier this send keys is under the reflected-power CUT for its
         // whole life (fix round 1, Codex's blocker 1): armed on the transmit
@@ -713,30 +741,8 @@ internal static class VoiceMessageSender
             return false;
         }
         var send = VoiceMessageSend.BeginKeyed(info.Owned, Name(info), Environment.TickCount64, options);
-        Launch(rig, info, send, info.MonitorPath ?? "", "box", holds);
+        Launch(rig, info, send, info.Path ?? "", "box", holds);
         return true;
-    }
-
-    // ── Hearing the send ────────────────────────────────────────────────
-
-    /// <summary>
-    /// Hear what is being sent (Noel, 15:22). Our own file plays on this
-    /// computer alongside the air; the radio's slice playback the radio
-    /// already lets the operator hear, so it has no monitor path.
-    /// </summary>
-    private static void StartMonitor(SendInfo info)
-    {
-        if (info.MonitorPath == null || info.Monitoring) return;
-        info.Monitoring = RecordingPlayer.PlayAlongsideSend(info.MonitorPath, info.Session.HeldAtSeconds);
-    }
-
-    private static void StopMonitor(SendInfo? info)
-    {
-        if (info == null || !info.Monitoring) return;
-        info.Monitoring = false;
-        if (RecordingPlayer.PlayingAlongsideSend
-            && string.Equals(RecordingPlayer.CurrentPath, info.MonitorPath, StringComparison.OrdinalIgnoreCase))
-            RecordingPlayer.StopWithoutSpeaking();
     }
 
     // ── Running a send ──────────────────────────────────────────────────
@@ -750,7 +756,7 @@ internal static class VoiceMessageSender
         // An earlier piece's are already given back by Settle; any left are a
         // defect, and go now rather than leak.
         ReleaseHolds(info);
-        info.Holds = holds ?? PieceHolds.Take(rig);
+        info.Holds = holds ?? PieceHolds.Take(rig, Name(info));
         PttSafetyController? ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
         _send = send;
         _current = info;
@@ -843,7 +849,8 @@ internal static class VoiceMessageSender
         if (paused != null)
         {
             // Nothing of a paused send is keyed or engaged: its VOX pause, its
-            // cut owner and its local copy were all given back at the pause.
+            // cut owner, its transmit monitor and its PTT source watch were all
+            // given back at the pause.
             _paused = null;
             paused.Session.Stop();
             StopTimer();
@@ -1068,7 +1075,6 @@ internal static class VoiceMessageSender
             _watchedBy.EndExternalTransmitWatch();
             _watchedBy = null;
         }
-        StopMonitor(info);
         ReleaseHolds(info);
         // The box's VOX pause: VOX comes back on only once the radio reports
         // receive and the transmit path has drained, so the recording's tail
@@ -1093,7 +1099,8 @@ internal static class VoiceMessageSender
             // Everything the piece held has been given back above: the VOX
             // pause (VOX comes on once the radio reports receive and the path
             // has drained, so the operator can identify by voice), the cut
-            // owner, the controller's watch and the local copy. A paused send
+            // owner, the controller's watch, the transmit monitor and the PTT
+            // source watch (ReleaseHolds). A paused send
             // holds only its place.
             _paused = info;
             EnsureTimer();
