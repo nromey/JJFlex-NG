@@ -627,7 +627,7 @@ public static class KeyInventory
                     "tape", "audio", "leader", "toggle" }, "Radio", "Audio"),
         // Tape Deck phase 2 (#835): keyed, it goes to the air.
         // DRAFT PROSE (#835): awaiting Noel
-        new("Leader", "JJ key", "Ctrl+J, Ctrl+Shift+P", "Play from computer: play your last computer recording, or stop — on your speakers while receiving, on the air when already keyed, or keying the radio itself when VOX is on and sends key the radio",
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+Shift+P", "Play from computer: play your last computer recording, or pause it and carry it on — on your speakers while receiving, on the air when already keyed, or keying the radio itself when VOX is on and sends key the radio; Escape stops it",
             new[] { "play", "playback", "replay", "recording", "file", "computer", "last", "listen",
                     "back", "audio", "leader", "toggle" }, "Global", "Audio"),
 
@@ -866,6 +866,38 @@ public static class KeyInventory
             }
         }
         return false;
+    }
+
+    /// <summary>
+    /// The near miss, and a SECOND chord to name beside it (#835 fix round;
+    /// Noel, 2026-10-28 21:25, "the slipped-K near-miss names BOTH Ctrl+K and
+    /// Alt+K"). When a bare letter's near miss is its Ctrl chord and the same
+    /// letter also has an Alt chord, both are named: the one-shots moved to
+    /// Alt (K the mic check, Q the noise profile, E the CW re-send), and a
+    /// letter that has since gained a Ctrl switch would otherwise point only
+    /// at the switch, away from the thing an operator with the old map was
+    /// reaching for. <paramref name="secondChord"/> is <c>Keys.None</c> when
+    /// there is no second.
+    /// </summary>
+    public static bool TryFindLeaderNearMiss(WinFormsKeys pressed,
+        out WinFormsKeys altChord, out string altKeyName, out string altDescription,
+        out WinFormsKeys secondChord, out string secondKeyName, out string secondDescription)
+    {
+        secondChord = WinFormsKeys.None;
+        secondKeyName = "";
+        secondDescription = "";
+        if (!TryFindLeaderNearMiss(pressed, out altChord, out altKeyName, out altDescription)) return false;
+
+        WinFormsKeys code = pressed & WinFormsKeys.KeyCode;
+        bool bare = (pressed & WinFormsKeys.Modifiers) == WinFormsKeys.None;
+        if (bare && altChord == (code | WinFormsKeys.Control)
+            && LeaderChords().TryGetValue(code | WinFormsKeys.Alt, out var hit))
+        {
+            secondChord = code | WinFormsKeys.Alt;
+            secondKeyName = hit.KeyName;
+            secondDescription = ShortDescription(hit.Description);
+        }
+        return true;
     }
 
     // ────────────────────────────────────────────────────────────────

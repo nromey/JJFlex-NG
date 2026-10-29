@@ -113,7 +113,9 @@ namespace Radios.Tests
             // sentence, a ladder like the audio and filter layers' (#518).
             // Nineteen from junkbox #693: the JJ key near miss, Noel's ruled
             // Chatty and Terse sentences (2026-10-06).
-            Assert.Equal(19, ladders);
+            // Twenty from the Check your audio Track B fix round (#835): the
+            // near miss that names two chords, ruled 2026-10-28 21:25.
+            Assert.Equal(20, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -1385,7 +1387,6 @@ namespace Radios.Tests
                 "audio.recorder.record_to_file_button",
                 "audio.recorder.stop_record_to_file_button",
                 "audio.recorder.play_from_computer_button",
-                "audio.recorder.stop_play_from_computer_button",
                 "audio.fields.computer_recorder_help",
 
                 // DRAFT PROSE (#787): pending-start cancellation confirmation.
@@ -1978,6 +1979,19 @@ namespace Radios.Tests
                 "audio.countdown.sample_help",
                 // Codex round 1: a count whose words could not be delivered stops.
                 "audio.countdown.not_heard",
+                // Check your audio Track B, fix round 2026-10-28 (#835): push to
+                // talk's first line says a box send it took over has stopped.
+                // Draft prose, awaiting Noel.
+                "audio.send.message_taken_over_ptt",
+                "audio.send.taken_over_ptt",
+                // The same round: Play from computer pauses on the speakers too,
+                // so its Home button says pause or carry on. Draft prose.
+                "audio.recorder.pause_play_from_computer_button",
+                "audio.recorder.carry_on_play_from_computer_button",
+                // The same round: a slipped bare letter with both a Ctrl and an
+                // Alt chord names both (ruled 2026-10-28 21:25). TextOnly on
+                // leader.near_miss's reasoning, beside which it sits. Draft prose.
+                "leader.near_miss_two",
             };
 
             Assert.Equal(3135, unclassified);   // Track A 2026-10-28: the Workshop's removed Check Microphone button took its two sentences with it, and three failure sentences that now name the Fix tool were classified

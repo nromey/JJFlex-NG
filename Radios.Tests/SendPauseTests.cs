@@ -292,8 +292,15 @@ namespace Radios.Tests
 
         // ── The session: the held place across pieces ─────────────────────
 
+        /// <summary>
+        /// The held place carries across pieces, and so does the ten-minute
+        /// count: it runs across the operator's OWN pauses, and only the
+        /// automatic ten-minute pause starts it again (Noel, 2026-10-28 21:25),
+        /// so a quick pause of his cannot push the identification reminder out
+        /// to nineteen minutes.
+        /// </summary>
         [Fact]
-        public void APausedSendCarriesOnFromTheHeldPlace_AndTheTenMinutesCountAfresh()
+        public void APausedSendCarriesOnFromTheHeldPlace_AndOnlyTheIdPauseRestartsTheTenMinutes()
         {
             var session = new SendSession(totalSeconds: 1500.0);
             var (rig, first) = BoxKeyed();
@@ -303,6 +310,7 @@ namespace Radios.Tests
             Assert.Equal(600.0, session.HeldAtSeconds, 3);
             Assert.True(session.PausedForId);
             Assert.True(session.PausedPieceKeyed);
+            Assert.Equal(0.0, session.SentSinceIdSeconds, 3);   // the ID pause starts the count again
 
             // Play: the host loads the next piece FROM 600 s and starts a fresh
             // box send on it, which keys exactly as the first did.
@@ -320,16 +328,50 @@ namespace Radios.Tests
             session.Settle();
             Assert.Equal(840.0, session.HeldAtSeconds, 3);
             Assert.False(session.PausedForId);
+            Assert.Equal(240.0, session.SentSinceIdSeconds, 3);   // his pause does not reset it
 
-            // And the third piece runs to the end, with its own ten minutes.
+            // The third piece pauses for identification after SIX minutes, not
+            // ten: four were already sent since the last identification.
             var rig3 = new FakeRig { FileSeconds = 660.0 };
             var third = VoiceMessageSend.BeginKeyed(rig3, "QSO", 1_000_000, new KeyedSendOptions());
             session.Begin(third);
             rig3.RadioSaysTransmitting = true;
             third.Tick(1_000_100);
-            PlayAlong(rig3, third, 1_001_100, 1_599_100, keyedAtMs: 1_000_100);
-            Assert.False(third.Finished);   // 599 s into this piece: not due yet
+            PlayAlong(rig3, third, 1_001_100, 1_359_100, keyedAtMs: 1_000_100);
+            Assert.False(third.Finished);   // 359 s into this piece, 599 since the last identification
+            PlayAlong(rig3, third, 1_360_100, 1_360_100, keyedAtMs: 1_000_100);
+            Assert.Equal(VoiceMessageOutcome.Paused, third.Outcome);
+            Assert.True(third.PausedForId);
+            Assert.Equal(SendSessionState.Paused, session.Settle());
+            Assert.Equal(1200.0, session.HeldAtSeconds, 3);
+            Assert.Equal(0.0, session.SentSinceIdSeconds, 3);
             Assert.Equal(3, session.Pieces);
+        }
+
+        [Fact]
+        public void TwoOperatorPausesInARowStillAddUp()
+        {
+            var session = new SendSession(totalSeconds: 1500.0);
+            var (rig, first) = BoxKeyed();
+            session.Begin(first);
+            PlayAlong(rig, first, 1100, 300_100);
+            first.Pause();
+            session.Settle();
+            Assert.Equal(300.0, session.SentSinceIdSeconds, 1);
+
+            var rig2 = new FakeRig { FileSeconds = 1200.0 };
+            var second = VoiceMessageSend.BeginKeyed(rig2, "QSO", 400_000, new KeyedSendOptions());
+            session.Begin(second);
+            rig2.RadioSaysTransmitting = true;
+            second.Tick(400_100);
+            PlayAlong(rig2, second, 401_100, 600_100, keyedAtMs: 400_100);
+            second.Pause();
+            session.Settle();
+            Assert.Equal(500.0, session.SentSinceIdSeconds, 1);
+
+            // Pausing before anything keyed sends nothing and changes nothing.
+            session.PauseBeforeKeying();
+            Assert.Equal(500.0, session.SentSinceIdSeconds, 1);
         }
 
         [Fact]
@@ -400,7 +442,7 @@ namespace Radios.Tests
         [InlineData(null, true, true, true, SendPress.StartNew)]
         [InlineData(SendSessionState.Running, true, true, true, SendPress.Pause)]
         [InlineData(SendSessionState.Running, false, true, true, SendPress.Stop)]     // another door stops it
-        [InlineData(SendSessionState.Running, true, false, true, SendPress.Stop)]     // the message key keeps stopping
+        [InlineData(SendSessionState.Running, true, false, true, SendPress.Stop)]     // a door that does not pause stops
         [InlineData(SendSessionState.Running, true, true, false, SendPress.Stop)]     // slice playback cannot hold a place
         [InlineData(SendSessionState.Paused, true, true, true, SendPress.Resume)]
         [InlineData(SendSessionState.Paused, true, false, true, SendPress.Resume)]    // a paused message carries on on its key

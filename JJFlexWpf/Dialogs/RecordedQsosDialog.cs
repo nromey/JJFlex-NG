@@ -319,7 +319,12 @@ public sealed class RecordedQsosDialog : JJFlexDialog
             int index;
             if (opening)
             {
-                index = RecordedQsoBrowser.Opening(_rows, ComputerRecorder.ChosenRecording);
+                // The row shown selected is the file Play from computer sends
+                // (#835 fix round): open on what Play plays now, and make the
+                // opening row Play's choice only when they would disagree.
+                var opened = RecordedQsoBrowser.OpeningAgreeingWithPlay(_rows, ComputerRecorder.ChosenForPlayback());
+                index = opened.Index;
+                if (opened.NewChoice != null) ComputerRecorder.ChosenRecording = opened.NewChoice;
             }
             else
             {

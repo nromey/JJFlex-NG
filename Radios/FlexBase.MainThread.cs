@@ -126,6 +126,11 @@ namespace Radios
                     q.Enqueue((FunctionDel)ApplyDeferredGuestTransmitAudio, "deferred guest transmit audio");
                 }
 
+                // A transmit monitor a send turned on and could not put back at an
+                // earlier disconnect (#835): queue work now, after the station's
+                // profile load, and only now that the loop will run it.
+                ApplyPendingMonitorPutBack();
+
                 cwx = theRadio.GetCWX();
                 cwx.Delay = theRadio.CWDelay;
                 cwx.Speed = theRadio.CWSpeed;

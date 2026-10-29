@@ -277,11 +277,19 @@ namespace JJFlexWpf
         /// The same, after a near miss (#693): the layer also waits for the
         /// chord the near miss named, so the hook claims that chord too.
         /// </summary>
-        public static void NoteHelpArmed(bool armed, WinFormsKeys nearMissChord)
+        public static void NoteHelpArmed(bool armed, WinFormsKeys nearMissChord) =>
+            NoteHelpArmed(armed, nearMissChord, WinFormsKeys.None);
+
+        /// <summary>
+        /// The same, after a near miss that named TWO chords (#835 fix round:
+        /// a bare letter with both a Ctrl and an Alt chord), so the hook claims
+        /// both, from another program as in the window.
+        /// </summary>
+        public static void NoteHelpArmed(bool armed, WinFormsKeys nearMissChord, WinFormsKeys secondChord)
         {
             lock (_gate)
             {
-                _decider.SetHelpArmed(armed, nearMissChord);
+                _decider.SetHelpArmed(armed, nearMissChord, secondChord);
                 if (armed)
                 {
                     // "H for the list, Escape to cancel" is a bare waiting

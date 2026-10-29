@@ -157,8 +157,11 @@ namespace Radios
         /// </summary>
         public Func<bool>? SourceFailed { get; init; }
 
-        /// <summary>Called once, on the tick that first sees the radio transmitting.</summary>
-        public Action? Keyed { get; init; }
+        // There was a Keyed hook here, called on the tick that first saw the
+        // radio transmitting, for the box send's local copy to start on. The
+        // local copy went in the 2026-10-28 fix round (every send is heard
+        // through the transmit monitor, held from before the key), and a hook
+        // nothing assigns is a defect class here, so the hook went with it.
     }
 
     /// <summary>
@@ -274,8 +277,9 @@ namespace Radios
         public const int SourceStartWaitMs = 5000;
 
         /// <summary>
-        /// A send that has sent this much of its recording since it keyed, or
-        /// since it last carried on, pauses (#835; Noel, 2026-10-27 20:48:
+        /// A send that has sent this much of its recording since it began, or
+        /// since it last paused for identification, pauses; the operator's own
+        /// pauses do not restart the count (2026-10-28 21:25). #835; Noel, 2026-10-27 20:48:
         /// <i>"In the U.S. you need to identify every 10 minutes, I'd set it to
         /// 600 seconds"</i>). Counted on the recording, not the wall clock, so
         /// time spent paused never counts and each piece that goes out is
@@ -607,8 +611,6 @@ namespace Radios
                     _sawTransmit = true;
                     _keyedAtMs = nowMs;
                     if (_sourceStarted) _sourcePlayingSinceMs = nowMs;
-                    try { box.Keyed?.Invoke(); }
-                    catch { /* hearing the send is a courtesy; it must never stop the send */ }
                 }
                 else if (nowMs - _startedMs > KeyUpWaitMs)
                 {
@@ -681,16 +683,29 @@ namespace Radios
         }
 
         /// <summary>
-        /// Ten minutes of the recording have gone out since this send began,
-        /// and more than the end margin is left (#835, 20:48).
+        /// Ten minutes of the recording have gone out since the send began or
+        /// last paused for identification, counting what went out before this
+        /// piece (<see cref="CarryIdCount"/>), and more than the end margin is
+        /// left (#835, 20:48; 2026-10-28 21:25).
         /// </summary>
         private bool PauseIsDue()
         {
             double played;
             try { played = _rig.FilePlayedSeconds; }
             catch { return false; }
-            return played >= PauseAfterSeconds && _rig.FileSeconds - played > PauseEndMarginSeconds;
+            return played + _idCountCarried >= PauseAfterSeconds && _rig.FileSeconds - played > PauseEndMarginSeconds;
         }
+
+        private double _idCountCarried;
+
+        /// <summary>
+        /// How much went out before this piece since the last identification
+        /// pause (<see cref="SendSession.SentSinceIdSeconds"/>), so the ten
+        /// minutes run across the operator's own pauses (Noel, 2026-10-28
+        /// 21:25). Set by the session when the piece begins, before its first
+        /// tick. Negative is read as zero.
+        /// </summary>
+        public void CarryIdCount(double seconds) => _idCountCarried = Math.Max(0, seconds);
 
         private void PauseHere(bool forId)
         {
@@ -707,6 +722,24 @@ namespace Radios
 
         /// <summary>The operator asked for it to stop. Idempotent.</summary>
         public void Stop() => Finish(VoiceMessageOutcome.Stopped);
+
+        /// <summary>
+        /// The operator's push to talk or lock, through the controller, took a
+        /// box send at the moment of its key-down (#835 fix round, 2026-10-28;
+        /// Noel 16:55). The same ending the tick gives
+        /// <see cref="BoxTakeover.Controller"/>: the recording stops, the
+        /// microphone comes back, and the key is the operator's, so it is not
+        /// dropped. Done at the key-down rather than on the next tick so that
+        /// push to talk's first sentence can say it, before the held key's
+        /// auto-repeat starts cutting speech. False, and nothing done, for a
+        /// send that is not a box send or has already ended.
+        /// </summary>
+        public bool TakeOverByController()
+        {
+            if (Finished || _box == null) return false;
+            Finish(VoiceMessageOutcome.TakenOver);
+            return true;
+        }
 
         /// <summary>
         /// The operator pressed Play while it was going out (#835; Noel,

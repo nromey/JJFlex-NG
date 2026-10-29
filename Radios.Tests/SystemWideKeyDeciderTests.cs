@@ -304,6 +304,38 @@ namespace Radios.Tests
             Assert.False(d.Decide(VK_K, true, AltOnly).Swallow);
         }
 
+        /// <summary>
+        /// #835 fix round (Noel, 2026-10-28 21:25): a slipped K names BOTH
+        /// Ctrl+K and Alt+K, so from another program the hook must claim
+        /// either one, and still nothing else.
+        /// </summary>
+        [Fact]
+        public void After_a_near_miss_that_named_two_chords_the_layer_claims_either()
+        {
+            const uint VK_K = 0x4B;
+            var ctrlOnly = new SystemWideModifiers(true, false, false);
+            var d = Live();
+            d.SetHelpArmed(true, Keys.K | Keys.Control, Keys.K | Keys.Alt);
+            var alt = d.Decide(VK_K, true, AltOnly);
+            Assert.Equal(SystemWideAction.LeaderKey, alt.Action);
+            Assert.Equal(Keys.K | Keys.Alt, alt.Key);
+            d.Decide(VK_K, false, AltOnly);
+
+            d.SetHelpArmed(true, Keys.K | Keys.Control, Keys.K | Keys.Alt);
+            var ctrl = d.Decide(VK_K, true, ctrlOnly);
+            Assert.Equal(SystemWideAction.LeaderKey, ctrl.Action);
+            Assert.Equal(Keys.K | Keys.Control, ctrl.Key);
+            d.Decide(VK_K, false, ctrlOnly);
+
+            // Bare K was neither, so the layer lets go.
+            d.SetHelpArmed(true, Keys.K | Keys.Control, Keys.K | Keys.Alt);
+            Assert.False(d.Decide(VK_K, true, Nothing).Swallow);
+
+            // The two-argument form names no second chord, as before.
+            d.SetHelpArmed(true, Keys.K | Keys.Control);
+            Assert.False(d.Decide(VK_K, true, AltOnly).Swallow);
+        }
+
         [Fact]
         public void After_an_unknown_key_anything_else_lets_go_and_is_not_swallowed()
         {

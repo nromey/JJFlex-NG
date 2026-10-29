@@ -221,6 +221,50 @@ public static class RecorderControls
     }
 
     /// <summary>
+    /// Play from computer pressed while a recording plays on the speakers
+    /// (#835 fix round; Noel, 2026-10-28 21:20): pause it where it is, or carry
+    /// a paused one on from there. The same words the Recorded QSOs window
+    /// says for the same act. The VOX pause a local playback holds stays held
+    /// while paused, as it does for that window's preview: the playback has
+    /// not ended (<see cref="LocalPlaybackVox"/>).
+    /// </summary>
+    private static RecorderOutcome PauseOrCarryOnSpeakers()
+    {
+        if (RecordingPlayer.IsPaused)
+        {
+            double at = RecordingPlayer.PositionSeconds ?? 0;
+            return RecordingPlayer.Resume()
+                ? new(true, Lexicon.Get("audio.qsos.resumed", ("position", RecordedQsoWords.Position(at, null))),
+                    SpeechSubject.ComputerRecorder)
+                : new(false, Lexicon.Get("audio.recorder.failed"), SpeechSubject.ComputerRecorder);
+        }
+        if (!RecordingPlayer.Pause())
+            return new(false, Lexicon.Get("audio.recorder.failed"), SpeechSubject.ComputerRecorder);
+        double pausedAt = RecordingPlayer.PositionSeconds ?? 0;
+        return new(true, Lexicon.Get("audio.qsos.paused", ("position", RecordedQsoWords.Position(pausedAt, null))),
+            SpeechSubject.ComputerRecorder);
+    }
+
+    /// <summary>
+    /// Escape in the main window while a computer recording plays or is paused
+    /// on the speakers: stop it (#835 fix round; Noel, 2026-10-28 21:20). True
+    /// when there was one to stop. A send to the air has its own Escape, asked
+    /// first (<see cref="VoiceMessageSender.InFlight"/>).
+    /// </summary>
+    internal static bool StopSpeakersOnEscape()
+    {
+        if (!ComputerRecorder.Current.IsPlaying) return false;
+        _ = StopSpeakersAsync();
+        return true;
+    }
+
+    private static async Task StopSpeakersAsync()
+    {
+        var outcome = await Guarded(() => ComputerRecorder.Current.StopPlaybackAsync(), SpeechSubject.ComputerRecorder);
+        Speak(outcome);
+    }
+
+    /// <summary>
     /// Start recording to a file on this computer, or stop the recording.
     /// Stopping needs no radio: a recording outlives the connection it began on.
     /// </summary>
@@ -246,8 +290,10 @@ public static class RecorderControls
     /// recording to the air through the transmit-file path, and never touches
     /// the key (Noel, 2026-10-21 10:57). With the VOX send box ticked and VOX on, Play
     /// keys the radio itself, sends it whole and hands back to VOX (2026-10-27
-    /// 14:54). Either way the operator hears it on this computer as it goes
-    /// (15:22). Unkeyed with the box unticked, Play listens, as it always has.
+    /// 14:54). Either way the operator hears it through the radio's transmit
+    /// monitor, switched on for the send if it was off and put back after
+    /// (2026-10-28 16:47). Unkeyed with the box unticked, Play listens, as it
+    /// always has.
     /// </para>
     /// <para>
     /// Pressed again while the send is going out, Play PAUSES it, unkeying only
@@ -255,6 +301,11 @@ public static class RecorderControls
     /// on from there (Noel, 2026-10-27 20:51: <i>"That's how you pause
     /// normally"</i>). Escape ends it. At ten minutes the send pauses by itself
     /// so the operator can identify (20:48, 20:50).
+    /// </para>
+    /// <para>
+    /// <b>On the speakers too</b> (2026-10-28 21:20): pressed while a recording
+    /// plays here, Play pauses it, and pressed again carries it on; Escape in
+    /// the main window stops it (<see cref="StopSpeakersOnEscape"/>).
     /// </para>
     /// </remarks>
     public static async Task<RecorderOutcome> ToggleComputerPlayAsync(FlexBase? rig,
@@ -264,6 +315,14 @@ public static class RecorderControls
         // going out pauses, a paused one carries on, any other send stops.
         if (VoiceMessageSender.AnswerPlayFromComputer())
             return HandedToSend(SpeechSubject.ComputerRecorder);
+        // On the speakers too, Play pauses and Play again carries on; Escape
+        // stops (Noel, 2026-10-28 21:20: one meaning for the key everywhere).
+        if (ComputerRecorder.Current.IsPlaying)
+        {
+            var paused = PauseOrCarryOnSpeakers();
+            (speak ?? Speak)(paused);
+            return paused;
+        }
         bool starting = !ComputerRecorder.Current.IsPlaying;
         if (starting && rig != null)
         {

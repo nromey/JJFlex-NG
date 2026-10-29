@@ -55,6 +55,10 @@ public class KeyCommands
     // while _leaderHelpArmed is true, and overwritten at every arming —
     // Keys.None after an unknown key — so a stale value can never fire.
     private Keys _leaderNearMissChord;
+    // The second chord a near miss named, when a bare letter has both a Ctrl
+    // and an Alt chord (#835 fix round, 2026-10-28 21:25); Keys.None otherwise.
+    // Set and cleared with _leaderNearMissChord, everywhere it is.
+    private Keys _leaderNearMissSecondChord;
 
     // ── Value sub-layer state (Sprint 37 Track C, #305 — pan was the first
     // consumer, #304; Sprint 44 Track I put the audio layer (#514) and the
@@ -3208,6 +3212,7 @@ public class KeyCommands
                 // #693: the chord the near miss just named. The operator
                 // pressed it, so it runs exactly as Ctrl+J then that chord.
                 _leaderNearMissChord = Keys.None;
+                _leaderNearMissSecondChord = Keys.None;
                 return DoLeaderCommand(k);
             }
             if (IsLeaderHelpKey(k))
@@ -4486,7 +4491,8 @@ public class KeyCommands
                 // the key did nothing a moment earlier. The engine was
                 // describing itself, which is the same defect as "nothing
                 // picked" and the pan words scale.
-                if (KeyInventory.TryFindLeaderNearMiss(k, out Keys nearChord, out string nearKey, out string nearWhat))
+                if (KeyInventory.TryFindLeaderNearMiss(k, out Keys nearChord, out string nearKey, out string nearWhat,
+                        out Keys secondChord, out string secondKey, out string secondWhat))
                 {
                     // #693: the layer STAYS ARMED after a near miss, for H, the
                     // slash key, Escape and the chord it named, so recovering
@@ -4498,13 +4504,17 @@ public class KeyCommands
                     // gate: verbosity changes what is said, never what happens.
                     _leaderHelpArmed = true;
                     _leaderNearMissChord = nearChord;
+                    _leaderNearMissSecondChord = secondChord;
 
                     if (!nearMissToneStandsAlone)
                     {
+                        // DRAFT PROSE (#835): awaiting Noel (the two-chord form;
+                        // naming both is ruled, 2026-10-28 21:25).
                         Radios.ScreenReaderOutput.Speak(
-                            Radios.Lexicon.Get("leader.near_miss", verbosity,
+                            Radios.Lexicon.Get(secondChord != Keys.None ? "leader.near_miss_two" : "leader.near_miss", verbosity,
                                 ("pressed", KeyManifest.FormatKey(k)),
-                                ("alt", nearKey), ("what", nearWhat)),
+                                ("alt", nearKey), ("what", nearWhat),
+                                ("alt2", secondKey), ("what2", secondWhat)),
                             Radios.Speech.SpeechIntent.Interrupt,
                             Radios.VerbosityLevel.Critical,
                             subject: Radios.Speech.SpeechSubject.JjKeyHelp);
@@ -4519,6 +4529,7 @@ public class KeyCommands
                     // key names no chord, so none is accepted.
                     _leaderHelpArmed = true;
                     _leaderNearMissChord = Keys.None;
+                    _leaderNearMissSecondChord = Keys.None;
 
                     // Verbosity picks the wording. Terse: "H for the list."
                     // Chatty adds the slash key and what it opens. Both name
@@ -6493,7 +6504,8 @@ public class KeyCommands
     /// after it. False after an unknown key, which names no chord.
     /// </summary>
     private bool IsNearMissChord(Keys k) =>
-        _leaderNearMissChord != Keys.None && k == _leaderNearMissChord;
+        (_leaderNearMissChord != Keys.None && k == _leaderNearMissChord)
+        || (_leaderNearMissSecondChord != Keys.None && k == _leaderNearMissSecondChord);
 
     /// <summary>
     /// Close the leader layer the way Escape closes it: descending tone, then
@@ -6669,6 +6681,7 @@ public class KeyCommands
         _leaderKeyActive = false;
         _leaderHelpArmed = false;
         _leaderNearMissChord = Keys.None;
+        _leaderNearMissSecondChord = Keys.None;
     }
 
     /// <summary>For the window-free tests: is the JJ key waiting for its second key?</summary>
@@ -6679,6 +6692,9 @@ public class KeyCommands
 
     /// <summary>For the window-free tests: the chord a near miss named, while it is honoured (#693).</summary>
     internal Keys LeaderNearMissChordHonoured => _leaderHelpArmed ? _leaderNearMissChord : Keys.None;
+
+    /// <summary>For the window-free tests: the second chord a near miss named, while it is honoured (#835).</summary>
+    internal Keys LeaderNearMissSecondChordHonoured => _leaderHelpArmed ? _leaderNearMissSecondChord : Keys.None;
 
     /// <summary>
     /// The key after the system-wide JJ key, with its modifiers.
@@ -6709,7 +6725,8 @@ public class KeyCommands
             // now waiting for H, slash or Escape (#303) — it is the hook that
             // sees those keys next, not this window.
             SystemWideKeys.NoteHelpArmed(kc._leaderHelpArmed,
-                kc._leaderHelpArmed ? kc._leaderNearMissChord : Keys.None);
+                kc._leaderHelpArmed ? kc._leaderNearMissChord : Keys.None,
+                kc._leaderHelpArmed ? kc._leaderNearMissSecondChord : Keys.None);
         }
 
         if (fromOutside && !layerBefore && kc._valueLayer != null)

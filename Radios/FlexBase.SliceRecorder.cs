@@ -150,6 +150,10 @@ public partial class FlexBase
         internal PropertyChangedEventHandler RadioStatus;
         internal PlaybackIntent Intent;
         internal VoxPauseOwner.Lease PlaybackVoxLease;
+        // The transmit monitor held while a playback goes to the AIR (#835,
+        // 2026-10-28 16:47: every send is heard through the monitor). Given
+        // back with the VOX lease, on every road out (ReleasePlaybackVox).
+        internal IDisposable PlaybackMonitor;
         internal double? RecordStarted, RecordedSeconds;
         internal double? RadioRecordedSeconds;
         internal bool AppRecording;
@@ -805,6 +809,9 @@ public partial class FlexBase
 
     private void ReleasePlaybackVox(SliceRecorderState state)
     {
+        // The on-air playback's transmit monitor goes with it. Its put-back is
+        // a queued radio write, so this is safe under the dictionary lock.
+        Interlocked.Exchange(ref state.PlaybackMonitor, null)?.Dispose();
         var lease = Interlocked.Exchange(ref state.PlaybackVoxLease, null);
         if (lease == null) return;
         // FlexLib status and slice retirement hold _sliceRecorders. A release
@@ -873,6 +880,12 @@ public partial class FlexBase
             state.Intent = intent;
             state.Playing = true;
             state.PlaybackVoxLease = lease;
+            // On the air, the operator hears it through the transmit monitor,
+            // switched on silently if it was off and put back when the playback
+            // ends (#835, 2026-10-28 16:47). Taken before "play" so the first
+            // syllable is heard.
+            if (intent.OnAir && state.PlaybackMonitor == null)
+                state.PlaybackMonitor = HoldMonitorForSend("slice " + letter + "'s recording on the air");
             bool started = await SendSafelyAsync(state, "play", true).ConfigureAwait(false);
             if (!started)
             {
