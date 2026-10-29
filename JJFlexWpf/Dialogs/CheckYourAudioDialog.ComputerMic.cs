@@ -42,6 +42,13 @@ public partial class CheckYourAudioDialog
     /// <summary>The last thing the computer microphone check said, shown in the reading box while that method is chosen.</summary>
     private string _computerMicReading = "";
 
+    /// <summary>
+    /// How long after the start tone the check's levels start again: the tone
+    /// is two 55 ms pips 35 ms apart, and this leaves room for the output's own
+    /// latency and the room.
+    /// </summary>
+    internal static readonly TimeSpan StartToneSettle = TimeSpan.FromMilliseconds(450);
+
     /// <summary>True while the computer microphone check is listening.</summary>
     internal bool ComputerMicCheckRunning => _computerMicProbe != null;
 
@@ -90,6 +97,19 @@ public partial class CheckYourAudioDialog
         _computerMicTimer ??= new DispatcherTimer(TimeSpan.FromMilliseconds(500), DispatcherPriority.Normal,
             (s, e) => UpdateComputerMicReading(), Dispatcher);
         _computerMicTimer.Start();
+        // The start tone (ruled 2026-10-29 01:22: "there's no tones to tell you
+        // that the thing's started"), the recorder's own, so it already means
+        // "listening". The microphone is open while it plays and may hear it
+        // through the speakers, so the levels start again once it has finished:
+        // the verdict is about you, not the tone.
+        EarconPlayer.RecorderStartBeep();
+        var listening = probe;
+        var settle = new DispatcherTimer(StartToneSettle, DispatcherPriority.Normal, (s, e) =>
+        {
+            ((DispatcherTimer)s!).Stop();
+            if (ReferenceEquals(_computerMicProbe, listening)) listening.ResetLevels();
+        }, Dispatcher);
+        settle.Start();
         ScreenReaderOutput.Speak(blocked
             ? Lexicon.Get("audio.device.mic_check_started_but_blocked", ("reason", why))
             : Lexicon.Get("audio.device.mic_check_started", ("device", row.Name)),
@@ -106,6 +126,9 @@ public partial class CheckYourAudioDialog
         MicProbe.Reading final = probe.Read();
         probe.Stop();
         probe.Dispose();
+        // The stop tone, the recorder's own, played once the microphone is
+        // closed (ruled 2026-10-29 01:22).
+        EarconPlayer.RecorderStopBeep();
         // No Windows level control sits beside this reading for the advice to
         // point at, so it points at Windows Sound settings.
         string summary = MicCheckWords.Final(final, levelHere: null);
