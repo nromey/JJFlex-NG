@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -136,6 +137,8 @@ public sealed class CheckRestoreSpeechTests : IDisposable
         string folder = Path.Combine(RadioConfig.AppDataRoot, "reminders-" + Guid.NewGuid().ToString("N"));
         var store = new CheckRestoreReminderStore(folder);
         c.F.Rig.CheckRestoreRemindersOverride = store;
+        var (briefing, _) = OwnBriefing();
+        c.F.Rig.CheckRestoreBriefingOverride = briefing;
         c.F.Rig.SuppressSpeech = false;
 
         c.F.Rig.NoteCheckRestoreReminder(FlexBase.CheckRestoreWithheld);
@@ -150,7 +153,67 @@ public sealed class CheckRestoreSpeechTests : IDisposable
         c.F.Rig.SuppressSpeech = false;
         Announce(c.F.Rig);
         Assert.False(store.Contains("withheld-serial"));
-        Assert.Contains(Lexicon.Get("audio.check.teardown_withheld_reminder"), ConnectBriefing.Current.Reference);
+        Assert.Contains(Lexicon.Get("audio.check.teardown_withheld_reminder"), briefing.Reference);
+    }
+
+    /// <summary>A briefing of the test's own, recording what it hands to speech.</summary>
+    private static (ConnectBriefing Briefing, List<BriefingUtterance> Said) OwnBriefing()
+    {
+        var said = new List<BriefingUtterance>();
+        return (new ConnectBriefing(u => { lock (said) said.Add(u); }, () => { }), said);
+    }
+
+    [Fact]
+    public void A_connect_that_fails_before_its_briefing_is_spoken_keeps_the_reminder_for_the_next_one()
+    {
+        // Codex round 1, F1: the record was cleared the moment the reminder was
+        // NOTED, and during a connect a note is only collected. A radio that
+        // went away before the settle discarded it, and the file was empty.
+        using var c = new RadioCase("failed-connect-serial");
+        var store = new CheckRestoreReminderStore(Path.Combine(RadioConfig.AppDataRoot, "reminders-" + Guid.NewGuid().ToString("N")));
+        c.F.Rig.CheckRestoreRemindersOverride = store;
+        var (briefing, said) = OwnBriefing();
+        c.F.Rig.CheckRestoreBriefingOverride = briefing;
+        c.F.Rig.SuppressSpeech = false;
+        c.F.Rig.NoteCheckRestoreReminder(FlexBase.CheckRestoreWithheld);
+        string reminder = Lexicon.Get("audio.check.teardown_withheld_reminder");
+
+        // The first connect collects it, then fails before its settle.
+        briefing.FlowBegan(); briefing.RadioChosen();
+        Announce(c.F.Rig);
+        briefing.RadioGone();
+        briefing.FlowEndedWithoutRadio();
+        Assert.DoesNotContain(said, u => u.Text == reminder);
+        Assert.True(store.Contains("failed-connect-serial"), "a reminder nobody heard is still owed");
+
+        // The next connect settles: the reminder is spoken, and only then forgotten.
+        briefing.FlowBegan(); briefing.RadioChosen();
+        Announce(c.F.Rig);
+        Assert.True(store.Contains("failed-connect-serial"), "collected is not delivered");
+        briefing.Settle("Connected.", null);
+        Assert.Single(said, u => u.Text == reminder && u.Subject == Radios.Speech.SpeechSubject.CheckSettingsNotRestored);
+        Assert.False(store.Contains("failed-connect-serial"));
+
+        // A further connect says nothing about it.
+        briefing.FlowBegan(); briefing.RadioChosen();
+        Announce(c.F.Rig);
+        briefing.Settle("Connected.", null);
+        Assert.Single(said, u => u.Text == reminder);
+    }
+
+    [Fact]
+    public void A_reminder_noted_with_no_connect_in_flight_is_spoken_at_once_and_forgotten()
+    {
+        using var c = new RadioCase("quiet-serial");
+        var store = new CheckRestoreReminderStore(Path.Combine(RadioConfig.AppDataRoot, "reminders-" + Guid.NewGuid().ToString("N")));
+        c.F.Rig.CheckRestoreRemindersOverride = store;
+        var (briefing, said) = OwnBriefing();
+        c.F.Rig.CheckRestoreBriefingOverride = briefing;
+        c.F.Rig.SuppressSpeech = false;
+        c.F.Rig.NoteCheckRestoreReminder(FlexBase.CheckRestoreUnconfirmed);
+        Announce(c.F.Rig);
+        Assert.Single(said, u => u.Text == Lexicon.Get("audio.check.teardown_unconfirmed_reminder"));
+        Assert.False(store.Contains("quiet-serial"));
     }
 
     [Fact]

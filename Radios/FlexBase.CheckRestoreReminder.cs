@@ -25,6 +25,12 @@ namespace Radios
         /// <summary>For tests: a store in a folder of their own.</summary>
         internal CheckRestoreReminderStore? CheckRestoreRemindersOverride { get; set; }
 
+        /// <summary>The connect briefing the reminder goes through; tests give it one of their own.</summary>
+        internal ConnectBriefing CheckRestoreBriefing => CheckRestoreBriefingOverride ?? ConnectBriefing.Current;
+
+        /// <summary>For tests: a briefing of their own, so a connect's whole life can be driven.</summary>
+        internal ConnectBriefing? CheckRestoreBriefingOverride { get; set; }
+
         /// <summary>
         /// A teardown before a disconnect did not put this radio back
         /// (<paramref name="reason"/> is <see cref="CheckRestoreWithheld"/> or
@@ -66,13 +72,51 @@ namespace Radios
             string text = Lexicon.Get(reason == CheckRestoreUnconfirmed
                 ? "audio.check.teardown_unconfirmed_reminder"
                 : "audio.check.teardown_withheld_reminder");
+            // Forgotten only once the briefing has handed it to speech (Codex
+            // round 1, F1): during a connect a note is only collected, and a
+            // radio that goes away before the settle discards it. Until then
+            // the record stays, and the next connect notes it again. The
+            // listener captures the briefing, the store and the serial, never
+            // this FlexBase, so a failed connect's rig is not kept alive by it.
+            ConnectBriefing briefing = CheckRestoreBriefing;
+            System.Action<BriefingUtterance>? delivered = null;
+            delivered = u =>
+            {
+                if (u.Subject != Speech.SpeechSubject.CheckSettingsNotRestored || u.Text != text) return;
+                lock (CheckRestoreDeliveryGate)
+                {
+                    briefing.Emitted -= delivered;
+                    if (s_checkRestoreDelivery is { } current && ReferenceEquals(current.Listener, delivered))
+                        s_checkRestoreDelivery = null;
+                }
+                store.Remove(serial);
+                Tracing.TraceLine("Check restore reminder (" + reason + ") for " + serial + " handed to speech; forgotten", TraceLevel.Info);
+            };
+            // One listener at a time, process-wide: the sentence names no radio,
+            // so a listener left from an earlier connect to another radio must
+            // not take this one's delivery as its own.
+            lock (CheckRestoreDeliveryGate)
+            {
+                Unsubscribe(s_checkRestoreDelivery);
+                briefing.Emitted += delivered;
+                s_checkRestoreDelivery = (briefing, delivered);
+            }
             // A hazard on the radio, so it sorts with the other station facts,
             // first in the composed statement, and it carries the alarm.
-            ConnectBriefing.Current.Note(new ConnectFact(
+            briefing.Note(new ConnectFact(
                 ConnectFactKind.ProfileStewardship, text, text,
                 VerbosityLevel.Critical, Speech.SpeechSubject.CheckSettingsNotRestored, alarm: true));
-            store.Remove(serial);
-            Tracing.TraceLine("Check restore reminder (" + reason + ") for " + serial + " handed to the connect briefing", TraceLevel.Info);
+            Tracing.TraceLine("Check restore reminder (" + reason + ") for " + serial
+                + " noted in the connect briefing; the record is kept until it is handed to speech", TraceLevel.Info);
+        }
+
+        /// <summary>The listener waiting for the last noted reminder to be spoken, if any.</summary>
+        private static (ConnectBriefing Briefing, System.Action<BriefingUtterance> Listener)? s_checkRestoreDelivery;
+        private static readonly object CheckRestoreDeliveryGate = new();
+
+        private static void Unsubscribe((ConnectBriefing Briefing, System.Action<BriefingUtterance> Listener)? pending)
+        {
+            if (pending is { } p) p.Briefing.Emitted -= p.Listener;
         }
     }
 }

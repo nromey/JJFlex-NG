@@ -33,7 +33,7 @@ namespace Radios.Listenback;
 /// reflection, the way <c>FlexBase.RadioReportsUpdating</c> reads FlexLib's
 /// internal <c>Updating</c>. If a FlexLib upgrade renames one, the answer here is
 /// <c>parser-missing</c> in the take's restore trace, and
-/// <c>FlexLibRestoreCacheTests</c> goes red the same day.
+/// <c>TakeRestoreCacheTests</c> goes red the same day.
 /// </para>
 /// </remarks>
 internal static class FlexLibRestoreCache
