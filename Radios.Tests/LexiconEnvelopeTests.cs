@@ -1861,6 +1861,13 @@ namespace Radios.Tests
                 "audio.check.about.off_air",
                 "audio.check.about.loopback",
                 "audio.check.about_named",
+                // Track A, fix round 2026-10-28: the new first method, checking
+                // this computer's microphone (ruled 20:30): its name, its
+                // description and short sentence, and the reading box before it runs.
+                "audio.check.method.computer_mic",
+                "audio.check.status.computer_mic",
+                "audio.check.about.computer_mic",
+                "audio.check.computer_mic.idle",
             };
 
             Assert.Equal(3140, unclassified);

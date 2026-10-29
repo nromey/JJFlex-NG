@@ -130,9 +130,9 @@ namespace Radios.Tests
         {
             string check = Dialog("CheckYourAudioDialog.Check");
             string build = Body(check, "private void BuildCheckDialog()");
-            int start = build.IndexOf("_sections.OpenRadio(CheckContent, \"Start\")", StringComparison.Ordinal);
+            int start = build.IndexOf("_sections.Open(CheckContent, \"Start\")", StringComparison.Ordinal);
             int button = build.IndexOf("_startCheckButton = new Button", StringComparison.Ordinal);
-            int method = build.IndexOf("_sections.OpenRadio(CheckContent, \"Method\")", StringComparison.Ordinal);
+            int method = build.IndexOf("_sections.Open(CheckContent, \"Method\")", StringComparison.Ordinal);
             Assert.True(start >= 0 && button > start && method > button, "Start, its button, then the Method section");
             Assert.Equal(1, build.Substring(start, method - start).Split("_sections.Add(").Length - 1);
             Assert.Contains("_listenMethodControl.Focus()",

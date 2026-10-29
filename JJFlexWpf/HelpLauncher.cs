@@ -87,6 +87,7 @@ namespace JJFlexWpf
             // F1 in Check your audio opens the section of the method shown
             // (AudioCheckMethods.HelpContext). Plain page-plus-anchor entries,
             // so a launcher that replaces this one carries them over unchanged.
+            { "CheckYourAudioComputerMic", "pages/AudioWorkshop/AudioWorkshop.htm#check-audio-computer-mic" },
             { "CheckYourAudioMicTest", "pages/AudioWorkshop/AudioWorkshop.htm#check-audio-mic-test" },
             { "CheckYourAudioMonitor", "pages/AudioWorkshop/AudioWorkshop.htm#check-audio-monitor" },
             { "CheckYourAudioRecord", "pages/AudioWorkshop/AudioWorkshop.htm#check-audio-record" },

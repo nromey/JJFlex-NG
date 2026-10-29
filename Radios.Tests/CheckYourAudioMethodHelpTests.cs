@@ -53,7 +53,7 @@ namespace Radios.Tests
                 Assert.EndsWith(".", text);
                 Assert.True(seen.Add(text), m + " says the same as another method");
             }
-            Assert.Equal(5, seen.Count);
+            Assert.Equal(6, seen.Count);
         }
 
         [Fact]
@@ -180,6 +180,7 @@ namespace Radios.Tests
 
         private static string MethodNameKey(AudioCheckListenMethods m) => m switch
         {
+            AudioCheckListenMethods.ComputerMic => "audio.check.method.computer_mic",
             AudioCheckListenMethods.MicTest => "audio.check.method.mic_test",
             AudioCheckListenMethods.Monitor => "audio.check.method.monitor",
             AudioCheckListenMethods.RecordPlayback => "audio.check.method.record",

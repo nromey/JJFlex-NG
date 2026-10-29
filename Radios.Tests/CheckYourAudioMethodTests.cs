@@ -40,8 +40,10 @@ namespace Radios.Tests
 
         public void Dispose() => _scope.Dispose();
 
+        // Fix round 2026-10-28: this computer's microphone leads every offer (ruled 20:30).
         private static readonly AudioCheckListenMethods[] SmartLinkThree =
         {
+            AudioCheckListenMethods.ComputerMic,
             AudioCheckListenMethods.MicTest, AudioCheckListenMethods.Monitor, AudioCheckListenMethods.RecordPlayback,
         };
 
@@ -56,14 +58,18 @@ namespace Radios.Tests
             Assert.Equal(2, (int)AudioCheckListenMethods.OffAir);
             Assert.Equal(3, (int)AudioCheckListenMethods.MicTest);
             Assert.Equal(4, (int)AudioCheckListenMethods.Loopback);
-            Assert.Equal(5, Enum.GetValues<AudioCheckListenMethods>().Length);
+            Assert.Equal(5, (int)AudioCheckListenMethods.ComputerMic);
+            Assert.Equal(6, Enum.GetValues<AudioCheckListenMethods>().Length);
         }
 
         [Fact]
         public void Every_method_is_offered_somewhere_and_shown_in_the_ruled_order()
         {
+            // An escalation (ruled 2026-10-28 20:30): the computer's microphone,
+            // the radio's at zero power, live, recorded, then off the air.
             Assert.Equal(new[]
             {
+                AudioCheckListenMethods.ComputerMic,
                 AudioCheckListenMethods.MicTest, AudioCheckListenMethods.Monitor, AudioCheckListenMethods.RecordPlayback,
                 AudioCheckListenMethods.OffAir, AudioCheckListenMethods.Loopback,
             }, AudioCheckMethods.DisplayOrder);
@@ -113,9 +119,19 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void With_no_radio_the_three_are_shown_and_nothing_take_based()
+        public void With_no_radio_only_this_computers_microphone_is_offered()
         {
-            Assert.Equal(SmartLinkThree, AudioCheckMethods.Offered(false, false, "no-radio", false));
+            // Ruled 2026-10-28 20:34: with no connection the window opens
+            // offering only the computer-mic method, and saves nothing.
+            Assert.Equal(new[] { AudioCheckListenMethods.ComputerMic },
+                AudioCheckMethods.Offered(false, false, "no-radio", false));
+            Assert.Equal(AudioCheckListenMethods.ComputerMic,
+                AudioCheckMethods.Resolve(AudioCheckListenMethods.Monitor, chosen: true,
+                    AudioCheckMethods.Offered(false, false, "no-radio", false), remote: false));
+            Assert.False(AudioCheckMethods.KeysTheRadio(AudioCheckListenMethods.ComputerMic));
+            Assert.False(AudioCheckMethods.UsesCheckPower(AudioCheckListenMethods.ComputerMic));
+            Assert.All(AudioCheckMethods.DisplayOrder.Where(m => m != AudioCheckListenMethods.ComputerMic),
+                m => Assert.True(AudioCheckMethods.KeysTheRadio(m)));
         }
 
         [Fact]

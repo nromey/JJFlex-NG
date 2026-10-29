@@ -93,13 +93,19 @@ Mic gain, mic boost, mic bias, the compander and its level, the speech processor
 
 Check your audio is every way of checking how you sound, in one window. Open it with `Ctrl+J`, then `Alt+C`, from anywhere; from the Audio menu; or with the **Check your audio** button in the Audio Workshop. Opening it never keys the radio. Focus lands on the method, `Shift+Tab` from there reaches **Start Audio Check**, and `Ctrl+Enter` starts or stops a check from anywhere in the window. `F6` and `Shift+F6` move between its sections.
 
-Every check keys the radio through the same safety system as ordinary transmit: the timeout warnings, the license check, and the hard kill all stay on duty. When a check starts, focus moves to your gain, and the live reading is the very next `Tab`.
+Every check except the first keys the radio through the same safety system as ordinary transmit: the timeout warnings, the license check, and the hard kill all stay on duty. When a check that keys starts, focus moves to your gain, and the live reading is the very next `Tab`.
 
 ### The methods
 
-The method decides how you hear yourself. Each name says what you hear and whether anything goes out. Only the methods your radio and your connection can do are offered, and the line under the method says what Start will do and, if a method is missing, why. `Ctrl+F1` on the method says the same about the method shown, and `F1` anywhere in the window opens this page at that method.
+The method decides how you hear yourself. Each name says what you hear and whether anything goes out. They run in order, each one a step further than the one before: `Down Arrow` takes you to the next, `Up Arrow` back, `Home` to the first and `End` to the last. Only the methods your radio and your connection can do are offered. **About this method**, the line under the method, says in one sentence what Start will do; `Ctrl+F1` on the method gives the whole account below, and says why a method is missing if one is, and `F1` anywhere in the window opens this page at that method.
 
 Your method is remembered per radio. The same radio reached over SmartLink starts on Record yourself if the method you chose locally is not offered there, without forgetting your local choice.
+
+#### Check this computer's microphone, no radio involved {#check-audio-computer-mic}
+
+Start listens to this computer's chosen microphone through Windows, with no radio involved and nothing keyed, and the reading box says what it hears while you talk. Press Start again to stop, and the reading box gives the verdict.
+
+It is the same check, in the same words, as the one in Audio Devices, so it answers "is Windows hearing my microphone?" before a radio is involved. With no radio connected it is the only method offered, and nothing is remembered. `Escape` while it listens stops it and gives you the verdict; the next `Escape` closes the window.
 
 #### Test your microphone, nothing goes on the air {#check-audio-mic-test}
 

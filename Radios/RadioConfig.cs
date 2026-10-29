@@ -80,6 +80,13 @@ namespace Radios
         /// port": the Loopback Check, as a method that records its listening
         /// slice and plays it back after you stop. Local only (15:32).</summary>
         Loopback = 4,
+
+        /// <summary>"Check this computer's microphone": listen to the PC
+        /// microphone through Windows with the Audio Devices check's probe and
+        /// words. No radio, nothing keyed; the first step of the escalation, and
+        /// the only method offered with no radio connected (ruled by Noel
+        /// 2026-10-28 20:30 and 20:34).</summary>
+        ComputerMic = 5,
     }
 
     /// <summary>The last take this app made in one of the radio's slice buffers.</summary>

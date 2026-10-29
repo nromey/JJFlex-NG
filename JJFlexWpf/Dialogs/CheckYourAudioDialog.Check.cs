@@ -57,7 +57,10 @@ public partial class CheckYourAudioDialog
     private void BuildCheckDialog()
     {
         // DRAFT PROSE (#835): awaiting Noel — section names.
-        _sections.OpenRadio(CheckContent, "Start");
+        // Start and Method are NOT radio-only (fix round 2026-10-28): with no
+        // radio the window offers this computer's microphone check, which
+        // needs neither (ruled 20:34). A radio method refuses at Start, saying so.
+        _sections.Open(CheckContent, "Start");
         _startCheckButton = new Button
         {
             Content = "Start Audio Check",
@@ -71,12 +74,14 @@ public partial class CheckYourAudioDialog
         _startCheckButton.Click += (s, e) => ToggleAudioCheck();
         _sections.Add(CheckContent, _startCheckButton);
 
-        _sections.OpenRadio(CheckContent, "Method");
+        _sections.Open(CheckContent, "Method");
         _listenMethodControl = MakeCycle("Method", MethodNames(_offered));
         // Before a radio is known, show the local default rather than the
         // first row; SetRig resolves the real choice.
         _listenMethodControl.SuppressEvents = true;
-        _listenMethodControl.SelectedIndex = _offered.IndexOf(AudioCheckMethods.DefaultFor(remote: false));
+        // With no radio the only offer is this computer's microphone, which is
+        // not the local default; never leave the cycle on no row at all.
+        _listenMethodControl.SelectedIndex = Math.Max(0, _offered.IndexOf(AudioCheckMethods.DefaultFor(remote: false)));
         _listenMethodControl.SuppressEvents = false;
         _listenMethodControl.SelectionChanged += (s, idx) =>
         {
@@ -208,6 +213,8 @@ public partial class CheckYourAudioDialog
     internal static string MethodName(AudioCheckListenMethods method) => method switch
     {
         // Ruled by Noel 2026-10-27 13:51, 13:57 and 14:57.
+        // Ruled 2026-10-28 20:30; the name is draft prose.
+        AudioCheckListenMethods.ComputerMic => Lexicon.Get("audio.check.method.computer_mic"),
         AudioCheckListenMethods.MicTest => Lexicon.Get("audio.check.method.mic_test"),
         AudioCheckListenMethods.Monitor => Lexicon.Get("audio.check.method.monitor"),
         AudioCheckListenMethods.RecordPlayback => Lexicon.Get("audio.check.method.record"),
@@ -231,7 +238,8 @@ public partial class CheckYourAudioDialog
         var wanted = SelectedMethod;
         // A method that left mid-check is not taken out from under the check:
         // the cycle is rebuilt when it ends.
-        if (_session?.Active == true || _checkStarts.IsBusy) return;
+        // Nor is a computer microphone check stopped by a radio arriving.
+        if (_session?.Active == true || _checkStarts.IsBusy || ComputerMicCheckRunning) return;
         _offered = new List<AudioCheckListenMethods>(offered);
         // Every choice the operator makes is saved at once, so the saved
         // choice IS the operator's choice: resolving it again is what brings a
@@ -273,6 +281,8 @@ public partial class CheckYourAudioDialog
     private void ApplyMethodLayout()
     {
         var method = SelectedMethod;
+        // The computer microphone check runs only while its method is shown.
+        if (method != AudioCheckListenMethods.ComputerMic) StopComputerMicCheck(speak: false);
         if (_powerSection != null)
         {
             // Moving focus off a section about to collapse, before it collapses.
@@ -284,6 +294,7 @@ public partial class CheckYourAudioDialog
         SyncPlayTakeLabel();
         UpdateMethodStatus();
         UpdateMethodHelp(method);
+        UpdateMicReading();
     }
 
     /// <summary>
@@ -325,7 +336,9 @@ public partial class CheckYourAudioDialog
         if (_methodStatus == null) return;
         var rig = _rig;
         string text;
-        if (rig == null) text = Lexicon.Get("audio.no_radio_connected") + ".";
+        // This computer's microphone needs no radio, so its sentence comes first.
+        if (SelectedMethod == AudioCheckListenMethods.ComputerMic) text = AudioCheckMethods.About(SelectedMethod);
+        else if (rig == null) text = Lexicon.Get("audio.no_radio_connected") + ".";
         // An off-air take's own sentence (preparing, recording, its result)
         // takes the line while Off the air is chosen.
         else if (SelectedMethod == AudioCheckListenMethods.OffAir && _offAirStatus.Length > 0) text = _offAirStatus;
@@ -380,7 +393,9 @@ public partial class CheckYourAudioDialog
         var rig = _rig;
         _offered = new List<AudioCheckListenMethods>(AudioCheckMethods.Offered(true, rig.RemoteRig,
             rig.OffAirListenbackRefusalReason, rig.LoopbackSupported));
-        SetMethodSilently(ResolvedSavedMethod());
+        // A computer microphone check already listening keeps its method: a
+        // radio arriving does not stop it out from under the operator.
+        SetMethodSilently(ComputerMicCheckRunning ? AudioCheckListenMethods.ComputerMic : ResolvedSavedMethod());
 
         if (_checkPowerControl != null)
         {
@@ -584,6 +599,13 @@ public partial class CheckYourAudioDialog
         if (_session != null && _session.Active)
         {
             _session.StopCheck();
+            return;
+        }
+
+        // This computer's microphone: no radio, nothing keyed (ruled 20:30).
+        if (ComputerMicCheckRunning || SelectedMethod == AudioCheckListenMethods.ComputerMic)
+        {
+            ToggleComputerMicCheck();
             return;
         }
 
@@ -947,6 +969,9 @@ public partial class CheckYourAudioDialog
     private void UpdateMicReading()
     {
         if (_micReadingBox == null) return;
+        // The computer microphone method's reading is its own words, not the
+        // radio's mic meter, which knows nothing about a check that keyed nothing.
+        if (ShowingComputerMicReading()) return;
         var rig = _rig;
         string text;
         if (rig == null)
