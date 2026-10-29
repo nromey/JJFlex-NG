@@ -42,7 +42,7 @@ You hear the recording while it goes out. A voice message or a computer recordin
 - If you are already transmitting with push to talk or the transmit lock when you send, the recording goes out on your transmission and you keep the key.
 - If VOX is still holding the radio up on your last words, the send lets it drop and then keys the radio itself, so the recording does not ride on VOX.
 - Press push to talk or the lock while a send is going out and you take over: the recording stops, your microphone comes back, and you are still transmitting until you let go.
-- Escape stops a send. So does pressing the same message key again, or Play again on a slice recording; Play on a computer recording pauses it instead (see below).
+- Escape stops a send. Pressing the same message key again pauses a voice message, and Play pauses a computer recording (see below); Play again on a slice recording stops it.
 - With the box unchecked, or VOX off, nothing changes: VOX keys a voice message, and Play plays to your speakers until you key the radio yourself.
 - `Ctrl+J` then `Ctrl+K` turns the box on or off from anywhere, and says which way it went.
 
@@ -50,9 +50,9 @@ You hear the recording while it goes out. A voice message or a computer recordin
 
 A recording longer than three minutes asks you first, before anything keys. The question says how long it is and which keys pause and stop it; choose Send to go ahead, or Cancel or Escape and nothing is sent.
 
-Play pauses a computer recording while it is going over the air, the same Play that started it: Play from computer, `Ctrl+Alt+F11` or `Ctrl+J` then `Ctrl+Shift+P`. If JJ Flexible keyed the radio for the send, it unkeys; if you are holding the transmitter yourself, you keep it and your microphone comes back. Press Play again and the recording carries on from the same place, keying the radio again the same way it did at the start. Escape stops it for good, paused or not.
+Play pauses a computer recording while it is going over the air, the same Play that started it: Play from computer, `Ctrl+Alt+F11` or `Ctrl+J` then `Ctrl+Shift+P`. A voice message pauses the same way on its own message key. If JJ Flexible keyed the radio for the send, it unkeys; if you are holding the transmitter yourself, you keep it and your microphone comes back. Press the same key again and the recording carries on from the same place, keying the radio again the same way it did at the start, without asking again. Escape stops it for good, paused or not.
 
-After ten minutes of sending, a send pauses by itself, so you can identify. JJ Flexible unkeys the radio if it keyed it, and with VOX on, VOX comes back so you can give your call just by talking; if you are holding the transmitter, you keep it and get your microphone back. Press Play when you are ready and the next ten minutes go out from where it paused. A voice message does the same at ten minutes, and its own message key carries it on.
+After ten minutes of sending, a send pauses by itself, so you can identify. Your own pauses do not start the ten minutes again; only this pause does, so pausing for a moment cannot push your identification late. JJ Flexible unkeys the radio if it keyed it, and with VOX on, VOX comes back so you can give your call just by talking; if you are holding the transmitter, you keep it and get your microphone back. Press Play when you are ready and the next ten minutes go out from where it paused. A voice message does the same at ten minutes, and its own message key carries it on.
 
 While a send is paused, nothing keys the radio by itself. Push to talk sends your microphone as usual, and letting go of it does not start the recording again; only Play does. If the radio disconnects, the paused send ends.
 

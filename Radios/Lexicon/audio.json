@@ -1299,7 +1299,7 @@
   "audio.send.long_title": {"text": "Send a long recording?", "delivery": null},
   "audio.send.long_message": {"text": "You are about to send {what}, which is {length} long.", "delivery": null},
   "audio.send.long_pause_play": {"text": "While it goes out, press Play from computer again, Ctrl+J then Ctrl+Shift+P, to pause it: the radio unkeys and the recording holds its place. Press Play from computer once more to carry on from the same place, or Escape to stop.", "delivery": null},
-  "audio.send.long_pause_message": {"text": "While it goes out, Escape stops it, and so does pressing its message key again.", "delivery": null},
+  "audio.send.long_pause_message": {"text": "While it goes out, press its message key again to pause it: the radio unkeys if this computer keyed it, and the message holds its place. Press the message key once more to carry on from the same place, or Escape to stop.", "delivery": null},
   "audio.send.long_id": {"text": "At ten minutes it pauses by itself so you can identify, and {resume} carries on from the same place.", "delivery": null},
   "audio.send.long_question": {"text": "Send it now?", "delivery": null},
   "audio.send.long_yes": {"text": "_Send", "delivery": null},

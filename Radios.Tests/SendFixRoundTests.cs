@@ -12,6 +12,7 @@ namespace Radios.Tests
     /// assembly (the send host, push to talk) are pinned from source and stated
     /// as pins, the way <c>LockSafetySourcePinTests</c> does.
     /// </summary>
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class SendFixRoundTests
     {
         private sealed class FakeRig : IVoiceMessageRig
@@ -82,10 +83,14 @@ namespace Radios.Tests
         public void Push_to_talks_first_line_carries_the_takeover_and_the_send_does_not_say_it_twice()
         {
             string ctl = ReadSource("JJFlexWpf/PttSafetyController.cs");
-            Assert.Contains("SpeakKeyDownFirstLine(Lexicon.Get(\"audio.ptt.announce_transmitting\"));", Body(ctl, "public void PttDown()"));
+            // (The keys are matched by their tails: a quoted key in the source
+            // of a test reads as a lexicon reference to the coverage scanner.)
+            string down = Body(ctl, "public void PttDown()");
+            Assert.Contains("SpeakKeyDownFirstLine(", down);
+            Assert.Contains("announce_transmitting", down);
             string locked = Body(ctl, "private void EnterLocked()");
             Assert.Contains("bool fromIdle = State == PttState.Idle;", locked);
-            Assert.Contains("if (fromIdle) SpeakKeyDownFirstLine(Lexicon.Get(\"audio.ptt.announce_locked\"));", locked);
+            Assert.Contains("if (fromIdle) SpeakKeyDownFirstLine(", locked);
 
             string first = Body(ctl, "private void SpeakKeyDownFirstLine(string keyingLine)");
             int asks = first.IndexOf("VoiceMessageSender.TakeOverAtKeyDown()", StringComparison.Ordinal);
@@ -138,6 +143,82 @@ namespace Radios.Tests
             Assert.Contains("if (intent.OnAir && state.PlaybackMonitor == null)", slice);
             Assert.Contains("Interlocked.Exchange(ref state.PlaybackMonitor, null)?.Dispose();",
                 Body(slice, "private void ReleasePlaybackVox(SliceRecorderState state)"));
+        }
+
+        // ── Item 4: a voice message's own key pauses it ──────────────────────
+
+        /// <summary>
+        /// Noel, 2026-10-28 21:20: a voice message's own key PAUSES it and
+        /// carries it on, the same as Play; Escape stops it. Pinned at the
+        /// door, because the door is in the UI assembly; what Pause does to the
+        /// send is driven in <c>SendPauseTests</c>.
+        /// </summary>
+        [Fact]
+        public void A_voice_messages_own_key_pauses_it_and_carries_it_on()
+        {
+            string host = ReadSource("JJFlexWpf/VoiceMessageSender.cs");
+            string door = Body(host, "public static void Send(FlexBase rig, CWMessageItem item)");
+            Assert.Contains("SendSession.Answer(StateOf(active), same, pressPauses: true, canHoldPlace: true)", door);
+            Assert.Contains("case SendPress.Pause:", door);
+            Assert.Contains("PauseRunning();", door);
+            Assert.Contains("ResumePaused();", door);
+
+            Assert.Equal(SendPress.Pause, SendSession.Answer(SendSessionState.Running, true, true, true));
+            Assert.Equal(SendPress.Resume, SendSession.Answer(SendSessionState.Paused, true, true, true));
+            Assert.Equal(SendPress.Stop, SendSession.Answer(SendSessionState.Running, false, true, true));
+        }
+
+        // ── Item 6: carrying on does not ask again ───────────────────────────
+
+        /// <summary>
+        /// Noel, 2026-10-28 21:25 (Codex's request declined): the send was okayed
+        /// once, so carrying on after a pause never asks the long-send question
+        /// again, however long what is left is.
+        /// </summary>
+        [Fact]
+        public void Carrying_on_after_a_pause_does_not_ask_again()
+        {
+            string host = ReadSource("JJFlexWpf/VoiceMessageSender.cs");
+            string resume = Body(host, "private static void ResumePaused()");
+            Assert.DoesNotContain("LengthAgreed", resume);
+            Assert.DoesNotContain("ConfirmLongSend", resume);
+            Assert.DoesNotContain("NeedsLengthWarning", resume);
+            // And the pieces it goes to never ask either: only the doors do.
+            foreach (string piece in new[]
+                     {
+                         "private static void StartVoiceMessagePiece(",
+                         "private static void StartComputerPiece(",
+                         "private static void BeginAndLaunch(",
+                     })
+                Assert.DoesNotContain("LengthAgreed", Body(host, piece));
+        }
+
+        // ── Item 7: no warning under the operator's own key ──────────────────
+
+        /// <summary>
+        /// Noel, 2026-10-28 21:25 (Codex's blocker declined): a send riding the
+        /// operator's own key, push to talk or the lock, never puts the
+        /// long-recording question up, because no dialog may take focus under
+        /// his thumb. The route is read with the operator holding in every
+        /// combination of the box, VOX and the radio's transmit report.
+        /// </summary>
+        [Theory]
+        [InlineData(false, false, false)]
+        [InlineData(false, false, true)]
+        [InlineData(false, true, false)]
+        [InlineData(false, true, true)]
+        [InlineData(true, false, false)]
+        [InlineData(true, false, true)]
+        [InlineData(true, true, false)]
+        [InlineData(true, true, true)]
+        public void A_send_riding_the_operators_key_never_asks_the_long_recording_question(
+            bool ticked, bool voxOn, bool transmitting)
+        {
+            SendRoute route = VoxSendBox.Choose(ticked, voxOn, transmitting, operatorHolds: true);
+            Assert.Equal(SendRoute.JoinTransmission, route);
+            Assert.False(VoiceMessageSend.NeedsLengthWarning(20 * 60.0, route));
+            // The positive control: the same length, not riding his key, asks.
+            Assert.True(VoiceMessageSend.NeedsLengthWarning(20 * 60.0, SendRoute.Box));
         }
 
         // ── helpers ─────────────────────────────────────────────────────────

@@ -274,8 +274,9 @@ namespace Radios
         public const int SourceStartWaitMs = 5000;
 
         /// <summary>
-        /// A send that has sent this much of its recording since it keyed, or
-        /// since it last carried on, pauses (#835; Noel, 2026-10-27 20:48:
+        /// A send that has sent this much of its recording since it began, or
+        /// since it last paused for identification, pauses; the operator's own
+        /// pauses do not restart the count (2026-10-28 21:25). #835; Noel, 2026-10-27 20:48:
         /// <i>"In the U.S. you need to identify every 10 minutes, I'd set it to
         /// 600 seconds"</i>). Counted on the recording, not the wall clock, so
         /// time spent paused never counts and each piece that goes out is
@@ -681,16 +682,29 @@ namespace Radios
         }
 
         /// <summary>
-        /// Ten minutes of the recording have gone out since this send began,
-        /// and more than the end margin is left (#835, 20:48).
+        /// Ten minutes of the recording have gone out since the send began or
+        /// last paused for identification, counting what went out before this
+        /// piece (<see cref="CarryIdCount"/>), and more than the end margin is
+        /// left (#835, 20:48; 2026-10-28 21:25).
         /// </summary>
         private bool PauseIsDue()
         {
             double played;
             try { played = _rig.FilePlayedSeconds; }
             catch { return false; }
-            return played >= PauseAfterSeconds && _rig.FileSeconds - played > PauseEndMarginSeconds;
+            return played + _idCountCarried >= PauseAfterSeconds && _rig.FileSeconds - played > PauseEndMarginSeconds;
         }
+
+        private double _idCountCarried;
+
+        /// <summary>
+        /// How much went out before this piece since the last identification
+        /// pause (<see cref="SendSession.SentSinceIdSeconds"/>), so the ten
+        /// minutes run across the operator's own pauses (Noel, 2026-10-28
+        /// 21:25). Set by the session when the piece begins, before its first
+        /// tick. Negative is read as zero.
+        /// </summary>
+        public void CarryIdCount(double seconds) => _idCountCarried = Math.Max(0, seconds);
 
         private void PauseHere(bool forId)
         {

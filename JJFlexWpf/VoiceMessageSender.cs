@@ -244,7 +244,8 @@ internal static class VoiceMessageSender
 
     /// <summary>
     /// Send the slot's recording. The same slot pressed while it is going out
-    /// stops it; a different slot stops it and starts the new one.
+    /// pauses it, and pressed again carries it on; a different slot stops it
+    /// and starts the new one; Escape stops it.
     /// </summary>
     public static void Send(FlexBase rig, CWMessageItem item)
     {
@@ -258,16 +259,19 @@ internal static class VoiceMessageSender
             return;
         }
 
-        // The message key keeps #151's meaning while a message is going out:
-        // the same key stops it, another key stops it and starts its own. A
-        // message paused at ten minutes carries on on its own key (#835). Whether
-        // the message key should PAUSE a running message, the way Play pauses a
-        // recording, is not ruled; it is asked, and until then it stops.
+        // A message's own key PAUSES it and carries it on, the same as Play
+        // does for a recording; Escape stops it (Noel, 2026-10-28 21:20, which
+        // replaced #151's "the same key stops it"). Another message key still
+        // stops it and starts its own. Carrying on does not ask the long-send
+        // question again: the send was agreed once (21:25).
         SendInfo? active = Active;
         bool same = active != null && active.Kind == SendKind.VoiceMessage
                     && string.Equals(active.Label, label, StringComparison.Ordinal);
-        switch (SendSession.Answer(StateOf(active), same, pressPauses: false, canHoldPlace: true))
+        switch (SendSession.Answer(StateOf(active), same, pressPauses: true, canHoldPlace: true))
         {
+            case SendPress.Pause:
+                PauseRunning();
+                return;
             case SendPress.Resume:
                 ResumePaused();
                 return;

@@ -74,8 +74,13 @@ namespace Radios
     /// <para>
     /// <b>The held place</b> is where the current piece started in the whole
     /// recording plus how far the piece got. Each piece is loaded from that
-    /// place, so ten minutes of keyed sending is counted afresh after every
-    /// pause, which is what an identification interval means.
+    /// place.
+    /// </para>
+    /// <para>
+    /// <b>The ten minutes</b> are counted from the send's start or from its
+    /// last identification pause, across the operator's own pauses (Noel,
+    /// 2026-10-28 21:25, replacing the first round's "counted afresh after
+    /// every pause"): <see cref="SentSinceIdSeconds"/>.
     /// </para>
     /// </remarks>
     public sealed class SendSession
@@ -114,6 +119,16 @@ namespace Radios
         public int Pieces { get; private set; }
 
         /// <summary>
+        /// How much of the recording has gone out since the send began or since
+        /// it last paused for identification. It runs across the operator's OWN
+        /// pauses and only the automatic ten-minute pause starts it again (Noel,
+        /// 2026-10-28 21:25), so a quick pause of his cannot push the reminder
+        /// out to nineteen minutes. Each piece is told it at its start
+        /// (<see cref="VoiceMessageSend.CarryIdCount"/>).
+        /// </summary>
+        public double SentSinceIdSeconds { get; private set; }
+
+        /// <summary>
         /// A piece has started, from <see cref="HeldAtSeconds"/>. The piece's
         /// recording must have been loaded from that place.
         /// </summary>
@@ -125,6 +140,7 @@ namespace Radios
             Piece = piece;
             State = SendSessionState.Running;
             Pieces++;
+            piece.CarryIdCount(SentSinceIdSeconds);
         }
 
         /// <summary>
@@ -140,6 +156,7 @@ namespace Radios
             {
                 HeldAtSeconds = Math.Min(TotalSeconds, HeldAtSeconds + piece.PausedAtSeconds);
                 PausedForId = piece.PausedForId;
+                SentSinceIdSeconds = piece.PausedForId ? 0 : SentSinceIdSeconds + piece.PausedAtSeconds;
                 PausedPieceKeyed = piece.WeKeyed;
                 State = SendSessionState.Paused;
             }
@@ -183,8 +200,8 @@ namespace Radios
         /// press is the door that started this send (Play from computer for a
         /// computer recording, the same slot's key for a voice message).
         /// <paramref name="pressPauses"/>: that door pauses a running send
-        /// rather than stopping it (Play does; whether a voice message's own
-        /// key should is not yet ruled, so the message key keeps stopping).
+        /// rather than stopping it (Play does, and so does a voice message's own
+        /// key: Noel, 2026-10-28 21:20).
         /// <paramref name="canHoldPlace"/>: the send can carry on from a place
         /// at all (the radio's slice playback cannot, and stops instead).
         /// </summary>
