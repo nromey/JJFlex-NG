@@ -757,16 +757,23 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         UpdateCheckWattsVisibility();
     }
 
-    private void SavePerRadioPrefs()
+    /// <summary>
+    /// Save the one preference the operator just edited. Only that one: the
+    /// others are shown from the file, and a value shown as a fallback (a
+    /// listen method a newer build wrote, which this build displays as
+    /// Monitor) must not be saved back over the real one by a neighbouring
+    /// change (#847 repair).
+    /// </summary>
+    private void SavePerRadioPrefs(AudioCheckPref edited)
     {
         if (_radioCfg == null || string.IsNullOrEmpty(_radioCfgSerial)) return;
-        var method = _listenMethodControl == null ? (AudioCheckListenMethods?)null
+        var method = _listenMethodControl == null ? _radioCfg.AudioCheckListenMethod
             : (AudioCheckListenMethods)_listenMethodControl.SelectedIndex;
-        var power = _checkPowerControl == null ? (AudioCheckPowerModes?)null
+        var power = _checkPowerControl == null ? _radioCfg.AudioCheckPowerMode
             : (AudioCheckPowerModes)_checkPowerControl.SelectedIndex;
-        var watts = _checkWattsControl?.Value;
-        bool? compare = _iqAutoCompare?.IsChecked == null ? null : _iqAutoCompare.IsChecked == true;
-        RadioConfig.RecordAudioCheckPrefs(_radioCfgSerial, method, power, watts, compare);
+        int watts = _checkWattsControl?.Value ?? _radioCfg.AudioCheckLowPowerWatts;
+        bool compare = _iqAutoCompare?.IsChecked == true;
+        RadioConfig.RecordAudioCheckPref(_radioCfgSerial, edited, method, power, watts, compare);
     }
 
     /// <summary>

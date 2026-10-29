@@ -37,6 +37,18 @@ namespace Radios
     /// stable for saved configs; JJ Flexible Connect joins as a third member
     /// when it exists, without renumbering.
     /// </summary>
+    /// <summary>
+    /// Which Audio Check preference the operator edited, so only that one is
+    /// saved (<see cref="RadioConfig.RecordAudioCheckPref"/>).
+    /// </summary>
+    public enum AudioCheckPref
+    {
+        ListenMethod,
+        PowerMode,
+        LowPowerWatts,
+        CompareWithLastTake,
+    }
+
     public enum ConnectPathKind
     {
         /// <summary>The local network — VITA discovery and a direct TCP
@@ -656,6 +668,32 @@ namespace Radios
                     cfg.AudioCheckCompareWithLastTake = compareWithLastTake.Value;
             });
         }
+
+        /// <summary>
+        /// Save the ONE Audio Check preference the operator just edited, from
+        /// the values the Audio Workshop is showing, and leave the others as
+        /// the file holds them.
+        /// </summary>
+        /// <remarks>
+        /// #847 repair, found by the Codex check. The Workshop used to pass
+        /// every displayed value on every change, so toggling only "Compare
+        /// with previous take" saved the DISPLAYED listen method over the one
+        /// in the file. When that file came from a newer build holding a
+        /// listen method this build does not know (Loopback), the Workshop
+        /// displays its fallback, Monitor, and the neighbouring change would
+        /// have overwritten Loopback with Monitor. An edit of the listen
+        /// method itself is a decision, and still replaces it.
+        /// </remarks>
+        public static bool RecordAudioCheckPref(string radioId, AudioCheckPref edited,
+            AudioCheckListenMethods shownMethod, AudioCheckPowerModes shownPower,
+            int shownWatts, bool shownCompare) => edited switch
+        {
+            AudioCheckPref.ListenMethod => RecordAudioCheckPrefs(radioId, shownMethod, null, null),
+            AudioCheckPref.PowerMode => RecordAudioCheckPrefs(radioId, null, shownPower, null),
+            AudioCheckPref.LowPowerWatts => RecordAudioCheckPrefs(radioId, null, null, shownWatts),
+            AudioCheckPref.CompareWithLastTake => RecordAudioCheckPrefs(radioId, null, null, null, shownCompare),
+            _ => throw new ArgumentOutOfRangeException(nameof(edited), edited, null),
+        };
 
         public static bool RecordPcAudioOnConnect(string radioId, PcAudioOnConnectModes mode) =>
             Update(radioId, cfg => { cfg.PcAudioOnConnect = mode; });

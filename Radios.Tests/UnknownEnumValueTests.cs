@@ -30,7 +30,12 @@ namespace Radios.Tests
 
         private string ConfigPath => Path.Combine(_dir, "radios", RadioId, "config.xml");
 
-        /// <summary>The shape seen 2026-10-29, plus every other enum field set to a known value.</summary>
+        /// <summary>
+        /// The shape seen 2026-10-29: an unknown listen method and an unknown
+        /// path kind, beside known ownership, intent and slice mute. The other
+        /// scalar enum fields are absent here; each one gets its own unknown
+        /// token in <see cref="Each_enum_setting_keeps_its_own_unknown_value_and_the_rest_of_the_file"/>.
+        /// </summary>
         private void WriteNewerBuildsConfig(string listenMethod = "Loopback", string pathKind = "Connect",
                                             string mute = "Muted")
         {
@@ -145,9 +150,69 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// Every scalar enum setting, and the nested slice mute, one at a time:
+        /// an unknown token in THAT field reads as its default, every other
+        /// field in the file is read, and saving gives the token back.
+        /// </summary>
+        [Theory]
+        [InlineData(nameof(RadioConfig.ConnectionPreference))]
+        [InlineData(nameof(RadioConfig.RemOnOnConnect))]
+        [InlineData(nameof(RadioConfig.SmartLinkIntent))]
+        [InlineData(nameof(RadioConfig.AudioCheckListenMethod))]
+        [InlineData(nameof(RadioConfig.AudioCheckPowerMode))]
+        [InlineData(nameof(RadioConfig.PcAudioOnConnect))]
+        [InlineData(nameof(RadioConfig.Ownership))]
+        [InlineData(nameof(RadioConfig.ProfileIntent))]
+        [InlineData(nameof(SliceLayoutEntry.Mute))]
+        public void Each_enum_setting_keeps_its_own_unknown_value_and_the_rest_of_the_file(string field)
+        {
+            const string token = "FromANewerBuild";
+            bool nested = field == nameof(SliceLayoutEntry.Mute);
+            Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
+            File.WriteAllText(ConfigPath,
+                "<?xml version=\"1.0\"?>\r\n"
+                + "<RadioConfig xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\">\r\n"
+                + "  <Version>1</Version>\r\n"
+                + "  <RadioId>" + RadioId + "</RadioId>\r\n"
+                + "  <Nickname>Bench</Nickname>\r\n"
+                + "  <FixedHolePunchPort>" + Sentinel + "</FixedHolePunchPort>\r\n"
+                + (nested ? "" : "  <" + field + ">" + token + "</" + field + ">\r\n")
+                + "  <LastStationLayoutSlices>\r\n"
+                + "    <SliceLayoutEntry><FreqHz>7100000</FreqHz><Mode>LSB</Mode><Letter>B</Letter><Mute>"
+                + (nested ? token : "Unmuted") + "</Mute></SliceLayoutEntry>\r\n"
+                + "  </LastStationLayoutSlices>\r\n"
+                + (field == nameof(RadioConfig.Ownership) ? "" : "  <Ownership>Mine</Ownership>\r\n")
+                + "</RadioConfig>\r\n");
+
+            var cfg = RadioConfig.Load(_dir, RadioId);
+
+            Assert.Null(cfg.ReadFailure);
+            Assert.Equal(Sentinel, cfg.FixedHolePunchPort);
+            Assert.Equal("Bench", cfg.Nickname);
+            var slice = Assert.Single(cfg.LastStationLayoutSlices);
+            Assert.Equal(7100000L, slice.FreqHz);
+            if (nested)
+                Assert.Equal(new SliceLayoutEntry().Mute, slice.Mute);
+            else
+            {
+                Assert.Equal(SliceMuteState.Unmuted, slice.Mute);
+                var property = typeof(RadioConfig).GetProperty(field)!;
+                Assert.Equal(property.GetValue(new RadioConfig()), property.GetValue(cfg));
+            }
+            if (field != nameof(RadioConfig.Ownership))
+                Assert.Equal(RadioOwnership.Mine, cfg.Ownership);
+
+            Assert.True(cfg.Save(_dir, RadioId));
+            string written = File.ReadAllText(ConfigPath);
+            Assert.Contains("<" + field + ">" + token + "</" + field + ">", written, StringComparison.Ordinal);
+        }
+
+        /// <summary>
         /// Every enum-typed setting RadioConfig saves goes through the tolerant
         /// reader, so the next enum added cannot bring the whole-file failure
-        /// back: an unknown name in ANY of them leaves the rest of the file read.
+        /// back. This guard checks only that no enum property is serialized
+        /// bare; that each twin really keeps its unknown text is the theory
+        /// above, field by field.
         /// </summary>
         [Fact]
         public void No_enum_setting_is_saved_as_a_bare_enum()
@@ -177,6 +242,129 @@ namespace Radios.Tests
             if (t.IsEnum) return true;
             if (t.IsArray) return IsEnumish(t.GetElementType()!);
             return t.IsGenericType && t.GetGenericArguments().Any(IsEnumish);
+        }
+    }
+}
+
+namespace Radios.Tests
+{
+    /// <summary>
+    /// #847 repair, found by the Codex check: the Audio Workshop saves its
+    /// Audio Check preferences through <see cref="RadioConfig.RecordAudioCheckPref"/>,
+    /// and a change to one of them must not save the DISPLAYED value of the
+    /// others. With a listen method a newer build wrote (Loopback), the
+    /// Workshop displays its fallback, Monitor; toggling only "Compare with
+    /// previous take" used to save Monitor over Loopback.
+    /// </summary>
+    [Collection(RadioConfigStaticsCollection.Name)]
+    public sealed class AudioCheckPrefPreservationTests : IDisposable
+    {
+        private const string Serial = "1234-5678-6300-0847";
+        private readonly RadioConfigStaticsScope _scope = new(nameof(AudioCheckPrefPreservationTests));
+        private string PathToConfig => _scope.PathTo("radios", Serial, "config.xml");
+
+        public void Dispose() => _scope.Dispose();
+
+        private void WriteNewerBuildsConfig(string power = "DummyLoad")
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(PathToConfig)!);
+            File.WriteAllText(PathToConfig,
+                "<?xml version=\"1.0\"?>\r\n"
+                + "<RadioConfig xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\">\r\n"
+                + "  <Version>1</Version>\r\n"
+                + "  <RadioId>" + Serial + "</RadioId>\r\n"
+                + "  <AudioCheckListenMethod>Loopback</AudioCheckListenMethod>\r\n"
+                + "  <AudioCheckPowerMode>" + power + "</AudioCheckPowerMode>\r\n"
+                + "  <AudioCheckLowPowerWatts>10</AudioCheckLowPowerWatts>\r\n"
+                + "  <Ownership>Mine</Ownership>\r\n"
+                + "</RadioConfig>\r\n");
+        }
+
+        /// <summary>What the Workshop shows for this file: the fallbacks, as LoadPerRadioPrefs reads them.</summary>
+        private static RadioConfig Shown() => RadioConfig.LoadForRadio(Serial);
+
+        [Fact]
+        public void A_comparison_only_change_keeps_Loopback()
+        {
+            WriteNewerBuildsConfig();
+            var shown = Shown();
+            Assert.True(RadioConfig.RecordAudioCheckPref(Serial, AudioCheckPref.CompareWithLastTake,
+                shown.AudioCheckListenMethod, shown.AudioCheckPowerMode, shown.AudioCheckLowPowerWatts, true));
+
+            string written = File.ReadAllText(PathToConfig);
+            Assert.Contains("<AudioCheckListenMethod>Loopback</AudioCheckListenMethod>", written, StringComparison.Ordinal);
+            Assert.True(RadioConfig.LoadForRadio(Serial).AudioCheckCompareWithLastTake);
+        }
+
+        [Fact]
+        public void A_watts_only_change_keeps_Loopback()
+        {
+            WriteNewerBuildsConfig();
+            var shown = Shown();
+            Assert.True(RadioConfig.RecordAudioCheckPref(Serial, AudioCheckPref.LowPowerWatts,
+                shown.AudioCheckListenMethod, shown.AudioCheckPowerMode, 3, shown.AudioCheckCompareWithLastTake));
+
+            string written = File.ReadAllText(PathToConfig);
+            Assert.Contains("<AudioCheckListenMethod>Loopback</AudioCheckListenMethod>", written, StringComparison.Ordinal);
+            Assert.Equal(3, RadioConfig.LoadForRadio(Serial).AudioCheckLowPowerWatts);
+        }
+
+        [Fact]
+        public void An_unknown_power_mode_survives_a_neighbouring_change()
+        {
+            WriteNewerBuildsConfig(power: "Spectacle");
+            var shown = Shown();
+            Assert.True(RadioConfig.RecordAudioCheckPref(Serial, AudioCheckPref.CompareWithLastTake,
+                shown.AudioCheckListenMethod, shown.AudioCheckPowerMode, shown.AudioCheckLowPowerWatts, true));
+            Assert.True(RadioConfig.RecordAudioCheckPref(Serial, AudioCheckPref.LowPowerWatts,
+                shown.AudioCheckListenMethod, shown.AudioCheckPowerMode, 4, true));
+
+            string written = File.ReadAllText(PathToConfig);
+            Assert.Contains("<AudioCheckPowerMode>Spectacle</AudioCheckPowerMode>", written, StringComparison.Ordinal);
+            Assert.Contains("<AudioCheckListenMethod>Loopback</AudioCheckListenMethod>", written, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void Editing_the_listen_method_itself_replaces_Loopback()
+        {
+            WriteNewerBuildsConfig();
+            var shown = Shown();
+            Assert.True(RadioConfig.RecordAudioCheckPref(Serial, AudioCheckPref.ListenMethod,
+                AudioCheckListenMethods.Monitor, shown.AudioCheckPowerMode, shown.AudioCheckLowPowerWatts,
+                shown.AudioCheckCompareWithLastTake));
+
+            string written = File.ReadAllText(PathToConfig);
+            Assert.DoesNotContain("Loopback", written, StringComparison.Ordinal);
+            Assert.Contains("<AudioCheckListenMethod>Monitor</AudioCheckListenMethod>", written, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The Workshop's four handlers each name the preference they edit, so
+        /// none of them saves the others' displayed values. Read from source:
+        /// the Workshop is a window.
+        /// </summary>
+        [Theory]
+        [InlineData("AudioWorkshopDialog.AudioCheck.cs", "_listenMethodControl.SelectionChanged", "AudioCheckPref.ListenMethod")]
+        [InlineData("AudioWorkshopDialog.AudioCheck.cs", "_checkPowerControl.SelectionChanged", "AudioCheckPref.PowerMode")]
+        [InlineData("AudioWorkshopDialog.AudioCheck.cs", "_checkWattsControl.ValueChanged", "AudioCheckPref.LowPowerWatts")]
+        [InlineData("AudioWorkshopDialog.Listenback.cs", "_iqAutoCompare.Checked", "AudioCheckPref.CompareWithLastTake")]
+        [InlineData("AudioWorkshopDialog.Listenback.cs", "_iqAutoCompare.Unchecked", "AudioCheckPref.CompareWithLastTake")]
+        public void Each_Workshop_handler_saves_only_the_preference_it_edits(string file, string handler, string edited)
+        {
+            string code = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "JJFlexWpf", "Dialogs", file));
+            int at = code.IndexOf(handler + " +=", StringComparison.Ordinal);
+            Assert.True(at >= 0, handler + " not found in " + file);
+            int save = code.IndexOf("SavePerRadioPrefs(", at, StringComparison.Ordinal);
+            Assert.True(save > at);
+            int close = code.IndexOf(')', save);
+            Assert.Equal("SavePerRadioPrefs(" + edited, code.Substring(save, close - save));
+
+            string dialog = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "JJFlexWpf", "Dialogs", "AudioWorkshopDialog.xaml.cs"));
+            int body = dialog.IndexOf("private void SavePerRadioPrefs(AudioCheckPref edited)", StringComparison.Ordinal);
+            Assert.True(body >= 0);
+            string saver = dialog.Substring(body, dialog.IndexOf("\n    }", body, StringComparison.Ordinal) - body);
+            Assert.Contains("RadioConfig.RecordAudioCheckPref(_radioCfgSerial, edited,", saver);
+            Assert.DoesNotContain("RecordAudioCheckPrefs(", saver);
         }
     }
 }

@@ -134,8 +134,8 @@ public partial class AudioWorkshopDialog
         _iqAutoCompare = new CheckBox { Content = Lexicon.Get("audio.iq.auto_compare"),
             IsChecked = false, Margin = new Thickness(2) };
         AutomationProperties.SetName(_iqAutoCompare, Lexicon.Get("audio.iq.auto_compare"));
-        _iqAutoCompare.Checked += (_, _) => { if (!_polling) { SavePerRadioPrefs(); ToggleFeedback.Announce("Compare with previous take", true); } };
-        _iqAutoCompare.Unchecked += (_, _) => { if (!_polling) { SavePerRadioPrefs(); ToggleFeedback.Announce("Compare with previous take", false); } };
+        _iqAutoCompare.Checked += (_, _) => { if (!_polling) { SavePerRadioPrefs(AudioCheckPref.CompareWithLastTake); ToggleFeedback.Announce("Compare with previous take", true); } };
+        _iqAutoCompare.Unchecked += (_, _) => { if (!_polling) { SavePerRadioPrefs(AudioCheckPref.CompareWithLastTake); ToggleFeedback.Announce("Compare with previous take", false); } };
         AddToSection(HearYourselfContent, _iqAutoCompare);
     }
     private void UpdateIqAvailability()
