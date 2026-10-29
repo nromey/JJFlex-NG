@@ -24,6 +24,7 @@ The selected file's full name, with its extension, is in the read-only File name
 - **Press Up and Down** to select a recording.
 - **Home and End** go to the newest and the oldest.
 - **Enter** starts or pauses playback of the selected recording, from the play head.
+- With VOX on and **Sends key the radio when VOX is on** checked, **Enter** sends the selected recording over the air instead, the way Play from computer does, and Enter again pauses or carries on the send. See "Which recording Play from computer plays" below.
 - **S** stops and returns the play head to the beginning of the file.
 - **Space** only selects. It never plays, and Ctrl+Space is still push to talk.
 - **Left and Right** move the play head backward and forward by the selected step size, including during playback, when you are on the list or the position slider. **Ctrl+Left and Ctrl+Right** do it from anywhere in the window.
@@ -51,9 +52,10 @@ These keys work from anywhere in the window, even while a recording is playing:
 - **[** (left bracket) sets the trim start mark at the play head.
 - **]** (right bracket) sets the trim end mark at the play head.
 - **Shift+[** and **Shift+]** clear those marks, and **Backspace** clears the selection.
+- **Escape**, **S** and the Stop button stop a recording being sent over the air first, if one is going out or paused; after that, Escape closes the window and S returns the play head to the beginning.
 - **Escape** stops playback while a recording is playing, as S does; press it again to close the window. While playback is paused, Escape closes the window straight away. If you're transmitting, Escape unkeys first, as it does in every window.
 
-Playing a recording here never keys the radio. While it plays, VOX (or CW break-in) is paused so your microphone can't key the radio on the sound from your speakers, and it comes back when the recording stops. Closing the window stops the preview too.
+Playing a recording here never keys the radio, unless VOX is on and Sends key the radio when VOX is on is checked: then Enter sends it, as above. While a preview plays, VOX (or CW break-in) is paused so your microphone can't key the radio on the sound from your speakers, and it comes back when the recording stops. Closing the window stops the preview too.
 
 ## Trimming
 
