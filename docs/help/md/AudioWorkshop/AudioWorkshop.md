@@ -114,11 +114,11 @@ The method decides how you hear yourself. Each name says what you hear and wheth
 
 Your method is remembered per radio. The same radio reached over SmartLink starts on Record yourself if the method you chose locally is not offered there, without forgetting your local choice.
 
-#### Check this computer's microphone, no radio involved {#check-audio-computer-mic}
+#### Is Windows hearing my microphone? No radio involved {#check-audio-computer-mic}
 
 Start listens to this computer's chosen microphone through Windows, with no radio involved and nothing keyed, and the reading box says what it hears while you talk. Press Start again to stop, and the reading box gives the verdict.
 
-It is the same check, in the same words, as the one in Audio Devices, so it answers "is Windows hearing my microphone?" before a radio is involved. With no radio connected it is the only method offered, and nothing is remembered. `Escape` while it listens stops it and gives you the verdict; the next `Escape` closes the window.
+It is the same check, in the same words, as the one in Audio Devices, so it answers that question before a radio is involved. With no radio connected it is the only method offered, and nothing is remembered. `Escape` while it listens stops it and gives you the verdict; the next `Escape` closes the window.
 
 #### Test your microphone, nothing goes on the air {#check-audio-mic-test}
 
