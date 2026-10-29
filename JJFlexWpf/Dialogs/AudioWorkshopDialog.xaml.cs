@@ -165,6 +165,13 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
         _gain = new TransmitGainControls(Dispatcher, () => _rig, () => _polling,
             () => AudioDevicesPath?.Invoke(), host: "Audio Workshop");
+        // DRAFT PROSE (#835): awaiting Noel. Ctrl+F1 on the two toolbar-end doors.
+        JJFlexHelp.SetText(CheckYourAudioButton,
+            "Opens Check your audio, every way of checking how you sound. Alt+C does the same "
+            + "anywhere in this window, and Control+J then Alt+C from anywhere in JJ Flexible.");
+        JJFlexHelp.SetText(CloseButton,
+            "Closes the Audio Workshop, the same as its title bar. A check running in Check your "
+            + "audio carries on; Escape there stops it.");
         BuildTxAudioTab();
         ApplyTxAudioTabOrder();
         BuildLiveMetersTab();
@@ -245,6 +252,19 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         if (e.Key == Key.F6)
         {
             MoveToSection(forward: (Keyboard.Modifiers & ModifierKeys.Shift) == 0);
+            e.Handled = true;
+            return;
+        }
+
+        // Alt+C opens Check your audio, matching the JJ key's Alt+C (Noel
+        // 2026-10-28 20:38). With Alt held WPF reports Key.System and puts the
+        // real key in SystemKey, which is how an Alt+L once shipped dead
+        // (2026-08-13). Alt ALONE: Alt+Shift+C passes through to the global
+        // chords. Checked free in this window: no access key or handler had it.
+        var pressed = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (pressed == Key.C && Keyboard.Modifiers == ModifierKeys.Alt)
+        {
+            CheckYourAudio_Click(this, new RoutedEventArgs());
             e.Handled = true;
             return;
         }
@@ -453,6 +473,9 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// category until #835 (ruled by Noel 2026-10-27 13:57: "one surface with
     /// several doors"). It opens the window; it never starts a check.
     /// </summary>
+    /// <summary>The Close button: the title bar's route, so a check running in Check your audio is left alone.</summary>
+    private void Close_Click(object sender, RoutedEventArgs e) => Close();
+
     private void CheckYourAudio_Click(object sender, RoutedEventArgs e) =>
         CheckYourAudioDialog.ShowOrFocus(_rig);
 

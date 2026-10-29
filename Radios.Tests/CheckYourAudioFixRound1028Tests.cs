@@ -131,5 +131,37 @@ namespace Radios.Tests
                 .Select(Path.GetFileName).ToList();
             Assert.Equal(new[] { "CheckYourAudioDialog.Check.cs" }, setters);
         }
+
+        // ── Items 9 and 10: Close in both windows, Alt+C in the Workshop ──
+
+        [Fact]
+        public void Both_windows_have_a_tabbable_Close_that_takes_the_title_bar_route_not_Escape()
+        {
+            string xaml = Source("JJFlexWpf/Dialogs/AudioWorkshopDialog.xaml");
+            Assert.Contains("x:Name=\"CloseButton\"", xaml);
+            Assert.Contains("Click=\"Close_Click\"", xaml);
+            Assert.DoesNotContain("IsCancel", xaml);   // Escape keeps its own route
+            Assert.Contains("private void Close_Click(object sender, RoutedEventArgs e) => Close();",
+                Dialog("AudioWorkshopDialog.xaml"));
+
+            string build = Body(Dialog("CheckYourAudioDialog.Check"), "private void BuildCheckDialog()");
+            Assert.Contains("_closeButton.Click += (s, e) => Close();", build);
+            Assert.DoesNotContain("IsCancel", build);
+            // Last in the window, outside every section.
+            Assert.True(build.IndexOf("CheckContent.Children.Add(_closeButton);", StringComparison.Ordinal)
+                > build.IndexOf("BuildOffAirResults();", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void Alt_C_in_the_Workshop_opens_Check_your_audio_with_Alt_alone()
+        {
+            string keys = Body(Dialog("AudioWorkshopDialog.xaml"), "protected override void OnPreviewKeyDown(KeyEventArgs e)");
+            Assert.Contains("var pressed = e.Key == Key.System ? e.SystemKey : e.Key;", keys);
+            Assert.Contains("if (pressed == Key.C && Keyboard.Modifiers == ModifierKeys.Alt)", keys);
+            Assert.Contains("CheckYourAudio_Click(this, new RoutedEventArgs());", keys);
+            // Documented where the Workshop's keys are listed.
+            Assert.Contains("**Alt+C** — Open Check your audio", Source("docs/help/md/KeyboardReference/KeyboardReference.md"));
+            Assert.Contains("`Alt+C` — open Check your audio", Source("docs/help/md/AudioWorkshop/AudioWorkshop.md"));
+        }
     }
 }

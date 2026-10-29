@@ -25,6 +25,9 @@ These work anywhere inside the workshop window, and only there:
 
 - `Ctrl+S` — save a preset. `Ctrl+O` — load one. The universal document keys, doing the universal document things.
 - `Alt+E` — export a preset to a file. `Alt+I` — import one from a file. `Alt+R` — reset the transmit chain to defaults.
+- `Alt+C` — open Check your audio, the same as `Ctrl+J`, then `Alt+C` from anywhere.
+
+The **Close** button at the bottom closes the workshop the way its title bar does: a check running in Check your audio carries on.
 
 The check's own keys, `Ctrl+Enter` and the two-press Escape, live in Check your audio now.
 
@@ -92,6 +95,8 @@ Mic gain, mic boost, mic bias, the compander and its level, the speech processor
 ## Check your audio
 
 Check your audio is every way of checking how you sound, in one window. Open it with `Ctrl+J`, then `Alt+C`, from anywhere; from the Audio menu; or with the **Check your audio** button in the Audio Workshop. Opening it never keys the radio. Focus lands on the method, `Shift+Tab` from there reaches **Start Audio Check**, and `Ctrl+Enter` starts or stops a check from anywhere in the window. `F6` and `Shift+F6` move between its sections.
+
+The **Close** button at the end of the window closes it the way its title bar does, which stops a running check and puts back what it changed.
 
 Every check except the first keys the radio through the same safety system as ordinary transmit: the timeout warnings, the license check, and the hard kill all stay on duty. When a check that keys starts, focus moves to your gain, and the live reading is the very next `Tab`.
 

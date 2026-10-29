@@ -35,6 +35,7 @@ public partial class CheckYourAudioDialog
     private TextBox? _micReadingBox;
     private GroupBox? _resultsSection;
     private Button? _playTakeButton;
+    private Button? _closeButton;
 
     /// <summary>The methods in the cycle right now, in its order. Index into this, never cast a SelectedIndex to the enum.</summary>
     private List<AudioCheckListenMethods> _offered = new(AudioCheckMethods.Offered(false, false, "", false));
@@ -208,6 +209,27 @@ public partial class CheckYourAudioDialog
         _sections.Add(CheckContent, _playTakeButton);
 
         BuildOffAirResults();
+
+        // A tabbable Close, last in the ring (#835, fix round 2026-10-28; Noel
+        // 20:36). It takes the title bar's route: closing this window, by any
+        // route, stops a running check and puts back what it changed. Not a
+        // cancel button, so Escape keeps its two-stage route. Outside every section,
+        // so F6 does not count it.
+        _closeButton = new Button
+        {
+            Content = "Close",
+            Padding = new Thickness(16, 4, 16, 4),
+            MinWidth = 80,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(2, 12, 2, 2)
+        };
+        AutomationProperties.SetName(_closeButton, "Close");
+        // DRAFT PROSE (#835): awaiting Noel.
+        JJFlexHelp.SetText(_closeButton,
+            "Closes Check your audio, the same as its title bar. A running check stops, and "
+            + "everything it changed on the radio is put back.");
+        _closeButton.Click += (s, e) => Close();
+        CheckContent.Children.Add(_closeButton);
 
         // Follow local playback so the button says what pressing it will do.
         RecordingPlayer.StateChanged += OnTakePlaybackStateChanged;
