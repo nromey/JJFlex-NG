@@ -123,8 +123,17 @@ namespace Radios.ChainChecks
         /// stopped it. Never shorten it without treating that as a safety
         /// change.
         /// </para>
+        /// <para>
+        /// <b>Raised from 2000 to 3000 with the countdown setting (#835, fix
+        /// round 2026-10-28).</b> The countdown's length is now the operator's,
+        /// 2 to 10 seconds with 5 the default, and the Fix tool follows it. At
+        /// the default the rule keys 3000 ms in, so 2000 had become EARLY, the
+        /// one direction this must not be. It matches the default now; a host
+        /// always passes the derived value, so this is reached only by a host
+        /// that reports nothing.
+        /// </para>
         /// </remarks>
-        public const int DefaultCountdownKeyUpMs = 2000;
+        public const int DefaultCountdownKeyUpMs = 3000;
 
         /// <summary>
         /// The beat of silence between the countdown's last sound and the
@@ -137,9 +146,11 @@ namespace Radios.ChainChecks
         /// How long the countdown SOUND lasts, when the host does not say.
         /// Deliberately the full transmit figure at the shipping timings, so a
         /// host that reports nothing still waits the sound out rather than
-        /// talking over it.
+        /// talking over it. The figure at the default countdown length of five
+        /// seconds (#835): four counting beats and the 600 ms long tone. It
+        /// was 3700, the four-second figure, until the length became a setting.
         /// </summary>
-        public const int DefaultCountdownDurationMs = 3700;
+        public const int DefaultCountdownDurationMs = 4600;
 
         private readonly FixerTransmitGate _gate;
         private readonly FixerTransmitBoundary.RadioSource _radio;

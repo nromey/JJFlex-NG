@@ -89,12 +89,19 @@ namespace Radios.Tests
         /// figure cannot be read, and a fallback that disagrees is a second
         /// answer wearing a safety label.
         /// </summary>
+        /// <remarks>
+        /// Pinned 2000 until #835's fix round made the countdown's length the
+        /// operator's (2 to 10 seconds, default 5). The rule at the default is
+        /// now the start of the fourth beat, 3000 ms. Derived here from the
+        /// settings rather than restated, so the next change to the default
+        /// moves this test with it; <c>CountdownTests</c> holds the same rule.
+        /// </remarks>
         [Fact]
         public void TheConservativeFallbackAgreesWithTheRule()
         {
-            Assert.Equal(
-                2000,
-                Radios.ChainChecks.FixerTransmitAudioBoundary.DefaultCountdownKeyUpMs);
+            int lastCountingPip = Radios.CountdownPlan.FixerCounts(new Radios.CountdownSettings()) - 1;
+            int rule = lastCountingPip * Radios.CountdownSettings.BeatMs;
+            Assert.Equal(Radios.ChainChecks.FixerTransmitAudioBoundary.DefaultCountdownKeyUpMs, rule);
         }
 
         /// <summary>

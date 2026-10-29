@@ -598,5 +598,15 @@ namespace Radios.Speech
         /// it. What a send DID is <see cref="MessageKey"/>'s, not this.
         /// </summary>
         public const string VoxSendBox = "vox-send-box";
+
+        /// <summary>
+        /// The spoken countdown before a check keys (#835): the lead-in and the
+        /// numbers. Each is queued, not interrupting, so no number cuts the one
+        /// before it. A later number DOES cover an unheard earlier one: a "4"
+        /// salvaged after "3" had been said would count backwards. And all of
+        /// it is worthless once the countdown has been cancelled, which the
+        /// emitter says through its still-valid test.
+        /// </summary>
+        public const string CheckCountdown = "check-countdown";
     }
 }
