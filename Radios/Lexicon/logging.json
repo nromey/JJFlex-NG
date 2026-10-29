@@ -198,7 +198,7 @@
   "logging.no_log_file.heading": {"text": "No log file was found.", "delivery": null},
   "logging.no_log_file.open_button": {"text": "&Open an existing log", "delivery": null},
   "logging.no_log_file.open_title": {"text": "Open a Log File", "delivery": null},
-  "logging.no_log_file.title": {"text": "No Log File", "delivery": null},
+  "logging.no_log_file.title": {"text": "Log File Does Not Exist", "delivery": null},
   "logging.full_form.opening": "Opening the full log form",
   "logging.problems.copied": "Problems copied.",
   "logging.problems.copy_failed": "The problems could not be copied to the clipboard.",
