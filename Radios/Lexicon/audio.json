@@ -1381,6 +1381,7 @@
   "audio.countdown.method.off_air": {"text": "the off-air take", "delivery": null},
   "audio.countdown.method.loopback": {"text": "the loopback check", "delivery": null},
   "audio.countdown.method.other": {"text": "the check", "delivery": null},
+  "audio.countdown.method.computer_mic": {"text": "the computer microphone check", "delivery": null},
   "audio.countdown.group": {"text": "Countdown", "delivery": null},
   "audio.countdown.enabled_label": {"text": "Count down before Check your audio transmits", "delivery": null},
   "audio.countdown.enabled_help": {"text": "On, Check your audio counts you in before it keys the radio, and sets the check up while it counts; if the setup takes longer, the last beat waits for it. The Fix tool counts down before its tests either way, at the length, pitch and pip length set here.", "delivery": null},

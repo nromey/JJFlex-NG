@@ -1958,6 +1958,7 @@ namespace Radios.Tests
                 "audio.countdown.method.off_air",
                 "audio.countdown.method.loopback",
                 "audio.countdown.method.other",
+                "audio.countdown.method.computer_mic",
                 "audio.countdown.group",
                 "audio.countdown.enabled_label",
                 "audio.countdown.enabled_help",

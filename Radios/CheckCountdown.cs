@@ -29,6 +29,7 @@ namespace Radios
             AudioCheckListenMethods.RecordPlayback => "audio.countdown.method.record",
             AudioCheckListenMethods.OffAir => "audio.countdown.method.off_air",
             AudioCheckListenMethods.Loopback => "audio.countdown.method.loopback",
+            AudioCheckListenMethods.ComputerMic => "audio.countdown.method.computer_mic",
             _ => "audio.countdown.method.other",
         };
 
