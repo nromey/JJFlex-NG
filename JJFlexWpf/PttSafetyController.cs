@@ -77,6 +77,37 @@ namespace JJFlexWpf
         /// <summary>The Audio Check supplies its own short keying narration.</summary>
         public bool AudioCheckNarration { get; set; }
 
+        /// <summary>
+        /// The first thing a key-down that starts a transmission says. When the
+        /// press took a box send over (#835; Noel, 2026-10-28 16:55), that news
+        /// leads the line, "cq stopped. Transmitting.", as ONE utterance: it is
+        /// the only one spoken before a held key's auto-repeat starts cutting
+        /// speech, and a second sentence was heard only after the operator
+        /// let go. The takeover part is spoken even with push to talk's own
+        /// speech off, because it is about the send, not about keying.
+        /// </summary>
+        private void SpeakKeyDownFirstLine(string keyingLine)
+        {
+            string? takeover = null;
+            try { takeover = VoiceMessageSender.TakeOverAtKeyDown(); }
+            catch (Exception ex)
+            {
+                // Never let a send's bookkeeping break keying; the send's own
+                // tick still takes it over a moment later.
+                Tracing.TraceLine("PTT: send takeover at key-down failed: " + ex.Message, TraceLevel.Warning);
+            }
+            bool speakKeying = _config.SpeechEnabled && !AudioCheckNarration;
+            if (string.IsNullOrEmpty(takeover))
+            {
+                if (speakKeying)
+                    ScreenReaderOutput.Speak(keyingLine, VerbosityLevel.Critical, interrupt: true);
+                return;
+            }
+            ScreenReaderOutput.Speak(speakKeying ? takeover + " " + keyingLine + "." : takeover,
+                Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.MessageKey);
+        }
+
         private static void SpeakKeyDownExtra()
         {
             string? extra = null;
@@ -882,8 +913,7 @@ namespace JJFlexWpf
                 StartFreshAudioSample();
                 if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
                 _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_transmitting"));
-                if (_config.SpeechEnabled && !AudioCheckNarration)
-                    ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.announce_transmitting"), VerbosityLevel.Critical, interrupt: true);
+                SpeakKeyDownFirstLine(Lexicon.Get("audio.ptt.announce_transmitting"));
                 if (!AudioCheckNarration) SpeakKeyDownExtra();
                 _healthReflectedWarned = false;
                 _reflectedRun.Reset();
@@ -993,6 +1023,7 @@ namespace JJFlexWpf
                 return;
             }
 
+            bool fromIdle = State == PttState.Idle;
             State = PttState.Locked;
             // From Idle this starts a transmission; from a held PTT it keeps
             // one on, and the episode must NOT change — a reflected-power
@@ -1015,7 +1046,8 @@ namespace JJFlexWpf
             StartFreshAudioSample(); // SC_MIC peak-hold and LUFS sample both start here
 
             _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_locked"));
-            if (_config.SpeechEnabled && !AudioCheckNarration)
+            if (fromIdle) SpeakKeyDownFirstLine(Lexicon.Get("audio.ptt.announce_locked"));
+            else if (_config.SpeechEnabled && !AudioCheckNarration)
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.announce_locked"), VerbosityLevel.Critical, interrupt: true);
             if (!AudioCheckNarration) SpeakKeyDownExtra();
             Tracing.TraceLine("PTT: Locked", TraceLevel.Info);

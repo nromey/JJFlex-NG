@@ -709,6 +709,24 @@ namespace Radios
         public void Stop() => Finish(VoiceMessageOutcome.Stopped);
 
         /// <summary>
+        /// The operator's push to talk or lock, through the controller, took a
+        /// box send at the moment of its key-down (#835 fix round, 2026-10-28;
+        /// Noel 16:55). The same ending the tick gives
+        /// <see cref="BoxTakeover.Controller"/>: the recording stops, the
+        /// microphone comes back, and the key is the operator's, so it is not
+        /// dropped. Done at the key-down rather than on the next tick so that
+        /// push to talk's first sentence can say it, before the held key's
+        /// auto-repeat starts cutting speech. False, and nothing done, for a
+        /// send that is not a box send or has already ended.
+        /// </summary>
+        public bool TakeOverByController()
+        {
+            if (Finished || _box == null) return false;
+            Finish(VoiceMessageOutcome.TakenOver);
+            return true;
+        }
+
+        /// <summary>
         /// The operator pressed Play while it was going out (#835; Noel,
         /// 2026-10-27 20:51: <i>"That's how you pause normally"</i>): stop at a
         /// place the host can carry on from. The microphone comes back, and

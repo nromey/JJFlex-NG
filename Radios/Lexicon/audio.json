@@ -1317,5 +1317,7 @@
   "audio.send.resume_refused": {"text": "Did not carry on with {what}. {reason} It is still paused.", "delivery": null},
   "audio.send.resume_refused_ended": {"text": "Could not carry on with {what}, so it has ended. {reason}", "delivery": null},
   "audio.send.stopped_paused": {"text": "Stopped {what}, which was paused.", "delivery": null},
-  "audio.send.paused_disconnected": {"text": "Ended {what}, which was paused, because the radio disconnected.", "delivery": null}
+  "audio.send.paused_disconnected": {"text": "Ended {what}, which was paused, because the radio disconnected.", "delivery": null},
+  "audio.send.message_taken_over_ptt": {"text": "{label} stopped.", "delivery": null},
+  "audio.send.taken_over_ptt": {"text": "Stopped sending {what}.", "delivery": null}
 }

@@ -99,6 +99,8 @@ internal static class VoiceMessageSender
         public bool Resuming;
         /// <summary>What the running piece holds on the radio, given back when it settles.</summary>
         public PieceHolds? Holds;
+        /// <summary>Push to talk's first sentence already said this send stopped, so Settle says nothing.</summary>
+        public bool TakeoverSpoken;
     }
 
     /// <summary>
@@ -757,6 +759,7 @@ internal static class VoiceMessageSender
         // defect, and go now rather than leak.
         ReleaseHolds(info);
         info.Holds = holds ?? PieceHolds.Take(rig, Name(info));
+        info.TakeoverSpoken = false;
         PttSafetyController? ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
         _send = send;
         _current = info;
@@ -1061,6 +1064,40 @@ internal static class VoiceMessageSender
         if (send.Finished) Settle();
     }
 
+    /// <summary>
+    /// Push to talk or the lock is about to start a transmission (#835 fix
+    /// round; Noel, 2026-10-28 16:55, <i>"yes, that's how it should be"</i>). A
+    /// box send going out is taken over NOW, exactly as the next tick would
+    /// take it (the recording stops, the microphone comes back, the key is the
+    /// operator's), and the sentence saying so is returned for push to talk to
+    /// speak as the FIRST part of its own line. Null when no box send is going
+    /// out, and then nothing changes.
+    /// </summary>
+    /// <remarks>
+    /// At the bench the takeover sentence was queued about half a second after
+    /// "Transmitting", and the held Ctrl+Space's auto-repeat cut it at every
+    /// repeat until the key was released: the operator heard that the send had
+    /// stopped only after he had finished talking. Only push to talk's first
+    /// line is spoken before the repeat begins, so the news has to ride in it.
+    /// A hardware line taking over is still told by Settle: there is no
+    /// keyboard repeat to cut it.
+    /// </remarks>
+    internal static string? TakeOverAtKeyDown()
+    {
+        VoiceMessageSend? send = _send;
+        SendInfo? info = _current;
+        if (send == null || info == null || send.Finished || !send.Boxed) return null;
+        if (!send.TakeOverByController()) return null;
+        // DRAFT PROSE (#835): awaiting Noel
+        string line = info.Kind == SendKind.VoiceMessage
+            ? Lexicon.Get("audio.send.message_taken_over_ptt", ("label", info.Label))
+            : Lexicon.Get("audio.send.taken_over_ptt", ("what", info.What));
+        info.TakeoverSpoken = true;
+        Tracing.TraceLine("VoiceMessageSender: " + Name(info) + " taken over at push to talk's key-down", TraceLevel.Info);
+        Settle();
+        return line;
+    }
+
     /// <summary>The send has ended. Stop watching, give VOX back, say how it ended, forget it.</summary>
     private static void Settle()
     {
@@ -1107,6 +1144,7 @@ internal static class VoiceMessageSender
             SpeakPaused(info);
             return;
         }
+        if (send.Outcome == VoiceMessageOutcome.TakenOver && info.TakeoverSpoken) return;
         bool trouble = send.Outcome == VoiceMessageOutcome.RadioDidNotKey
                     || send.Outcome == VoiceMessageOutcome.VoxDidNotKey
                     || send.Outcome == VoiceMessageOutcome.RanLong

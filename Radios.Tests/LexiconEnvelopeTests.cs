@@ -1858,6 +1858,11 @@ namespace Radios.Tests
                 "audio.send.resume_refused_ended",
                 "audio.send.stopped_paused",
                 "audio.send.paused_disconnected",
+                // Check your audio Track B, fix round 2026-10-28 (#835): push to
+                // talk's first line says a box send it took over has stopped.
+                // Draft prose, awaiting Noel.
+                "audio.send.message_taken_over_ptt",
+                "audio.send.taken_over_ptt",
             };
 
             Assert.Equal(3140, unclassified);
