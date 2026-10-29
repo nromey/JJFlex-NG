@@ -161,8 +161,8 @@ namespace Radios.Tests
                 }
 
                 Assert.NotEqual(connected[i], disconnected[i]);
-                Assert.Contains(AudioMenuLayout.NeedsRadioSuffix, disconnected[i]);
-                Assert.DoesNotContain(AudioMenuLayout.NeedsRadioSuffix, connected[i]);
+                Assert.Contains(AudioMenuLayout.ConnectRadioSuffix, disconnected[i]);
+                Assert.DoesNotContain(AudioMenuLayout.ConnectRadioSuffix, connected[i]);
             }
         }
 
@@ -191,7 +191,7 @@ namespace Radios.Tests
                 .First(e => e.NeedsRadio && e.Accelerator.Length > 0);
 
             string label = AudioMenuLayout.LabelFor(gatedWithKey, radioConnected: false);
-            int suffixAt = label.IndexOf(AudioMenuLayout.NeedsRadioSuffix, StringComparison.Ordinal);
+            int suffixAt = label.IndexOf(AudioMenuLayout.ConnectRadioSuffix, StringComparison.Ordinal);
             int tabAt = label.IndexOf('\t');
 
             Assert.True(suffixAt >= 0);
@@ -229,7 +229,7 @@ namespace Radios.Tests
             foreach (var entry in AudioMenuLayout.Entries)
             {
                 Assert.DoesNotContain("\t", entry.Label);
-                Assert.DoesNotContain(AudioMenuLayout.NeedsRadioSuffix, entry.Label);
+                Assert.DoesNotContain(AudioMenuLayout.ConnectRadioSuffix, entry.Label);
                 if (entry.Kind == AudioMenuEntryKind.Separator)
                     Assert.Equal("", entry.Label);
                 else

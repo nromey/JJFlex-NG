@@ -142,9 +142,9 @@ namespace Radios.Tests
             const string row = "Noise Blanker (NB)\tCtrl+J, N, B";
 
             Assert.Equal(row, AudioMenuLayout.MarkNeedsRadio(row, radioConnected: true));
-            Assert.Equal("Noise Blanker (NB)" + AudioMenuLayout.NeedsRadioSuffix + "\tCtrl+J, N, B",
+            Assert.Equal("Noise Blanker (NB)" + AudioMenuLayout.ConnectRadioSuffix + "\tCtrl+J, N, B",
                 AudioMenuLayout.MarkNeedsRadio(row, radioConnected: false));
-            Assert.Equal("Legacy NR" + AudioMenuLayout.NeedsRadioSuffix,
+            Assert.Equal("Legacy NR" + AudioMenuLayout.ConnectRadioSuffix,
                 AudioMenuLayout.MarkNeedsRadio("Legacy NR", radioConnected: false));
         }
 
@@ -154,11 +154,11 @@ namespace Radios.Tests
             // LabelFor now routes through MarkNeedsRadio. Pin the two shapes it
             // produced before, so the refactor cannot have moved a reason.
             var levels = AudioMenuLayout.Entries.Single(e => e.Id == "pc-audio-levels");
-            Assert.Equal("PC Audio Levels (this computer) - needs a radio\tCtrl+J, V",
+            Assert.Equal("PC Audio Levels (this computer) - connect a radio\tCtrl+J, V",
                 AudioMenuLayout.LabelFor(levels, radioConnected: false));
 
             var mute = AudioMenuLayout.Entries.Single(e => e.Id == "mute-slice");
-            Assert.Equal("Mute/Unmute Slice - needs a radio", AudioMenuLayout.LabelFor(mute, radioConnected: false));
+            Assert.Equal("Mute/Unmute Slice - connect a radio", AudioMenuLayout.LabelFor(mute, radioConnected: false));
             Assert.Equal("Mute/Unmute Slice", AudioMenuLayout.LabelFor(mute, radioConnected: true));
         }
 

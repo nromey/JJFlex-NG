@@ -694,7 +694,7 @@ public class NativeMenuBar : IDisposable
     /// </para>
     /// <para>
     /// So the rows are the same in both states, and a row that needs the radio
-    /// is greyed and carries " - needs a radio" in its own label when there is
+    /// is greyed and carries " - connect a radio" in its own label when there is
     /// none, through <see cref="Radios.AudioMenuLayout.MarkNeedsRadio"/>: the
     /// Audio menu's existing treatment, not a new one. Rows whose work happens
     /// on this computer stay live (PC noise reduction's two switches and the
