@@ -157,8 +157,11 @@ namespace Radios
         /// </summary>
         public Func<bool>? SourceFailed { get; init; }
 
-        /// <summary>Called once, on the tick that first sees the radio transmitting.</summary>
-        public Action? Keyed { get; init; }
+        // There was a Keyed hook here, called on the tick that first saw the
+        // radio transmitting, for the box send's local copy to start on. The
+        // local copy went in the 2026-10-28 fix round (every send is heard
+        // through the transmit monitor, held from before the key), and a hook
+        // nothing assigns is a defect class here, so the hook went with it.
     }
 
     /// <summary>
@@ -608,8 +611,6 @@ namespace Radios
                     _sawTransmit = true;
                     _keyedAtMs = nowMs;
                     if (_sourceStarted) _sourcePlayingSinceMs = nowMs;
-                    try { box.Keyed?.Invoke(); }
-                    catch { /* hearing the send is a courtesy; it must never stop the send */ }
                 }
                 else if (nowMs - _startedMs > KeyUpWaitMs)
                 {

@@ -214,20 +214,6 @@ namespace Radios.Tests
             Assert.Equal("Transmit=false", rig.Calls[^1]);
         }
 
-        [Fact]
-        public void TheKeyedHookRunsOnceWhenTheRadioFirstReportsTransmitting()
-        {
-            int keyed = 0;
-            var rig = new FakeRig();
-            var send = VoiceMessageSend.BeginKeyed(rig, "CQ", 0, new KeyedSendOptions { Keyed = () => keyed++ });
-            send.Tick(50);
-            Assert.Equal(0, keyed);
-            rig.RadioSaysTransmitting = true;
-            send.Tick(100);
-            send.Tick(150);
-            Assert.Equal(1, keyed);
-        }
-
         // ── A recording that starts only once keyed: the radio's slice playback ──
 
         /// <summary>
