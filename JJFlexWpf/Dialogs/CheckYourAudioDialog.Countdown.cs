@@ -51,6 +51,7 @@ public partial class CheckYourAudioDialog
     {
         HookCountdownSkipKeys();
         _startCountdown?.Cancel();
+        _countdownStartedTick = Environment.TickCount64;
         var plan = CheckCountdown.PlanFor(method, CountdownSettings.Current,
             EarconPlayer.IsOn(EarconPlayer.EarconCategory.Transmit),
             ScreenReaderOutput.CurrentVerbosity);
@@ -85,33 +86,63 @@ public partial class CheckYourAudioDialog
         return go;
     }
 
-    /// <summary>
-    /// Recognises the bare Control that skips the count, told also of every
-    /// key this app's low-level hooks swallow before the window sees it (Codex
-    /// round 1, B1: the system-wide JJ key eats a chord's letter and passes its
-    /// Control).
-    /// </summary>
-    private readonly BareControlPress _bareControl = new(() => WithheldKeyCounter.Shared.Downs);
+    // ── The bare Control that skips the count ─────────────────────────────
+    //
+    // Two sources, never both (Codex rounds 1 and 2, B1). While this app's
+    // system-wide hook is installed it swallows a JJ chord's letter and
+    // passes its Control, and it runs on its own thread, so this window can
+    // neither see those letters nor know where they fell between its own
+    // Control press and release. Then ONLY the hook's verdict counts: it sees
+    // every edge in order (BareControlGestures). The window's own recogniser
+    // decides only when no hook is installed, when nothing is swallowed. A
+    // Control the deciding side did not see as bare never skips.
+
+    /// <summary>When the count now playing began, on the hook's clock, so a Control held from before it skips nothing.</summary>
+    private long _countdownStartedTick;
+
+    /// <summary>Pairs a hook verdict with this window and this count, once per gesture.</summary>
+    private readonly CountdownSkipGate _skipGate = new();
+
+    /// <summary>The window's own recogniser, used only when no hook is installed.</summary>
+    private readonly BareControlPress _bareControl = new();
 
     /// <summary>The count that was running when the Control now held went down; only that count is skipped by it.</summary>
     private CountdownRun? _controlPressedDuring;
 
+    /// <summary>Whether the system-wide hook was installed when the Control now held went down.</summary>
+    private bool _hookAtControlDown;
+
     private bool _countdownSkipKeysHooked;
 
     /// <summary>
-    /// Watch every key the window sees, handled or not, so a Control held as
-    /// part of Ctrl+Enter (which the window handles itself) is known to be a
-    /// chord. Hooked at the first count rather than in the constructor so this
-    /// seam stays in this file; a Control already held then is simply not seen,
-    /// which cannot fire a skip.
+    /// Listen for the hook's verdicts, and watch every key the window sees,
+    /// handled or not, so a Control held as part of Ctrl+Enter (which the
+    /// window handles itself) is known to be a chord. Hooked at the first
+    /// count rather than in the constructor so this seam stays in this file; a
+    /// Control already held then is simply not seen, which cannot fire a skip.
     /// </summary>
     private void HookCountdownSkipKeys()
     {
         if (_countdownSkipKeysHooked) return;
         _countdownSkipKeysHooked = true;
+        SystemWideKeys.BareControlReleased += OnHookBareControl;
+        Closed += (s, e) => SystemWideKeys.BareControlReleased -= OnHookBareControl;
         AddHandler(PreviewKeyDownEvent, new KeyEventHandler(CountdownSkipKeyDown), handledEventsToo: true);
         AddHandler(PreviewKeyUpEvent, new KeyEventHandler(CountdownSkipKeyUp), handledEventsToo: true);
         Deactivated += (s, e) => { _bareControl.Reset(); _controlPressedDuring = null; };
+    }
+
+    /// <summary>
+    /// The hook saw a bare Control. It skips this count only if this window is
+    /// the active one, the count is running, and Control went down after the
+    /// count began.
+    /// </summary>
+    private void OnHookBareControl(BareControlRelease verdict)
+    {
+        var run = _startCountdown;
+        if (run == null || !_skipGate.HookVerdictSkips(verdict, SystemWideKeys.Installed, IsActive,
+                run.IsRunning, _countdownStartedTick)) return;
+        run.Skip();
     }
 
     private static bool IsControlKey(KeyEventArgs e)
@@ -127,7 +158,10 @@ public partial class CheckYourAudioDialog
     {
         bool control = IsControlKey(e);
         if (control && !e.IsRepeat && _controlPressedDuring == null)
+        {
             _controlPressedDuring = StartCountdownRunning ? _startCountdown : null;
+            _hookAtControlDown = SystemWideKeys.Installed;
+        }
         bool otherModifier = (Keyboard.Modifiers & (ModifierKeys.Shift | ModifierKeys.Alt | ModifierKeys.Windows)) != 0;
         _bareControl.KeyDown(KeyIdentity(e), control, e.IsRepeat, otherModifier);
     }
@@ -141,6 +175,9 @@ public partial class CheckYourAudioDialog
         var pressedDuring = _controlPressedDuring;
         _controlPressedDuring = null;
         if (!bare) return;
+        // With the hook installed at either end of the press, its verdict
+        // decides, not this window.
+        if (!CountdownSkipGate.WindowMayDecide(_hookAtControlDown, SystemWideKeys.Installed)) return;
         // Only the count that was running when Control went down, and only
         // while it is still running: a Control held from before the count
         // began, or across its end, skips nothing.

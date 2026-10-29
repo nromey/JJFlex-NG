@@ -19,8 +19,10 @@ namespace Radios.Tests
     /// What they cannot see: which keys WPF actually delivers to the window
     /// under each screen reader, and the hook's live thread; that is a bench
     /// step. The composition below runs the REAL hook decider, the real
-    /// withheld-key counter and the real recogniser, wired the way the hook
-    /// and the window wire them.
+    /// gesture tracker the hook feeds in order, and the real gate the window
+    /// applies, with the window's own events delivered late (the queued
+    /// schedule Codex showed in round 2), wired the way the hook and the
+    /// window wire them.
     /// </para>
     /// </remarks>
     public sealed class BareControlPressTests
@@ -145,59 +147,95 @@ namespace Radios.Tests
 
         /// <summary>
         /// The window must see every key, INCLUDING the ones it has already
-        /// handled. Ctrl+Enter's Enter is handled by the window's own key
-        /// handler (it is the cancel); a tracker that did not see it would read
-        /// the Control release that follows as bare, and turn the cancel into a
-        /// transmission. And the window must count the keys this app's hooks
-        /// swallow before WPF sees them. Source rules, because the window and
-        /// the hook are never built here.
+        /// handled (Ctrl+Enter's Enter is handled by the window itself; a
+        /// tracker that missed it would turn the cancel into a transmission).
+        /// And while the system-wide hook is installed, only the hook's
+        /// verdict may skip, because only the hook sees every edge in order
+        /// (Codex round 2). Source rules, because the window and the hook are
+        /// never built here.
         /// </summary>
         [Fact]
-        public void Check_your_audio_feeds_the_tracker_every_key_and_the_hooks_report_what_they_swallow()
+        public void Check_your_audio_takes_the_hooks_verdict_and_decides_alone_only_without_a_hook()
         {
             string src = Read("JJFlexWpf", "Dialogs", "CheckYourAudioDialog.Countdown.cs");
             Assert.Contains("AddHandler(PreviewKeyDownEvent, new KeyEventHandler(CountdownSkipKeyDown), handledEventsToo: true)", src);
             Assert.Contains("AddHandler(PreviewKeyUpEvent, new KeyEventHandler(CountdownSkipKeyUp), handledEventsToo: true)", src);
-            Assert.Contains("BareControlPress _bareControl = new(() => WithheldKeyCounter.Shared.Downs);", src);
-            // And the skip is reached only from the bare release.
-            int up = src.IndexOf("private void CountdownSkipKeyUp", System.StringComparison.Ordinal);
-            Assert.True(up > 0);
-            Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(src, @"\.Skip\(\)").Count);
-            Assert.True(src.IndexOf(".Skip()", System.StringComparison.Ordinal) > up);
-            Assert.True(src.IndexOf("if (!bare) return;", up, System.StringComparison.Ordinal) > up);
+            Assert.Contains("SystemWideKeys.BareControlReleased += OnHookBareControl;", src);
+            Assert.Contains("SystemWideKeys.BareControlReleased -= OnHookBareControl;", src);
+            // Exactly two ways to skip: the hook's verdict through the gate,
+            // and the window's own bare release, only when no hook is installed.
+            Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(src, @"\.Skip\(\)").Count);
+            string hookPath = Body(src, "private void OnHookBareControl");
+            Assert.Contains("_skipGate.HookVerdictSkips(verdict, SystemWideKeys.Installed, IsActive,", hookPath);
+            Assert.Contains("run.Skip();", hookPath);
+            string windowPath = Body(src, "private void CountdownSkipKeyUp");
+            int bare = windowPath.IndexOf("if (!bare) return;", System.StringComparison.Ordinal);
+            int may = windowPath.IndexOf("CountdownSkipGate.WindowMayDecide(_hookAtControlDown, SystemWideKeys.Installed)", System.StringComparison.Ordinal);
+            int skip = windowPath.IndexOf(".Skip()", System.StringComparison.Ordinal);
+            Assert.True(bare > 0 && may > bare && skip > may, "the window's skip must sit behind both its own bare test and the no-hook test");
 
-            // Every place a hook swallows a key reports it first.
+            // The hook feeds EVERY edge, passed or swallowed, to the gesture
+            // tracker, inside its lock, right after deciding, before any return.
             string hook = Read("JJFlexWpf", "SystemWideKeys.cs");
-            Assert.Matches(@"WithheldKeyCounter\.Shared\.Report\(data\.vkCode, isDown, d\);\s*\r?\n\s*if \(d\.Swallow\)\s*\r?\n\s*return \(IntPtr\)1;", hook);
-            string help = Read("JJFlexWpf", "HelpLauncher.cs");
-            Assert.Matches(@"WithheldKeyCounter\.Shared\.NoteWithheldDown\(\);\s*\r?\n\s*return \(IntPtr\)1;", help);
+            string callback = Body(hook, "private static IntPtr HookCallback");
+            int decide = callback.IndexOf("d = _decider.Decide(data.vkCode, isDown, held);", System.StringComparison.Ordinal);
+            int observe = callback.IndexOf("bare = _bareGestures.Observe(data.vkCode, isDown, now);", System.StringComparison.Ordinal);
+            int swallow = callback.IndexOf("if (d.Swallow)", System.StringComparison.Ordinal);
+            Assert.True(decide > 0 && observe > decide && swallow > observe, "every edge must reach the gesture tracker, before the swallow");
+            Assert.Contains("BareControlReleased?.Invoke(verdict)", callback);
         }
 
-        // ── The real hook decider, composed with the recogniser (Codex B1) ──
+        // ── The real hook, composed with the gesture tracker and the gate ──
 
-        private const uint VCtl = 0xA2, VShift = 0xA0, VJ = 0x4A, VK = 0x4B, VEsc = 0x1B, VSpace = 0x20, VAlt = 0xA4;
+        private const uint VCtl = 0xA2, VShift = 0xA0, VJ = 0x4A, VK = 0x4B, VEsc = 0x1B, VSpace = 0x20, VAlt = 0xA4, VEnter = 0x0D;
 
         /// <summary>
-        /// Replay key events through the real system-wide decider and the real
-        /// withheld-key counter, handing the recogniser only what the hook lets
-        /// through, the way the window receives it. True when any release
-        /// reads as a bare Control.
+        /// Replay key events the way the app routes them (Codex round 2's
+        /// queued schedule). With the hook installed: every edge goes through
+        /// the real decider and, in order, the real gesture tracker on the
+        /// "hook thread"; the window's events are QUEUED and delivered only
+        /// after the whole gesture, and the hook's verdicts after that, through
+        /// the real gate, for a running count in the active window that began
+        /// before the gesture. With no hook: nothing is swallowed, and the
+        /// window's own recogniser decides from its (equally late) events.
+        /// True when the count would be skipped.
         /// </summary>
         private static bool Replay(bool systemWide, params (uint vk, bool down, bool ctrl, bool alt, bool shift)[] keys)
         {
+            const long countStarted = 1000;
+            long tick = countStarted;
+            var passed = new System.Collections.Generic.List<(uint vk, bool down, bool alt, bool shift)>();
+            var verdicts = new System.Collections.Generic.List<BareControlRelease>();
             var decider = new SystemWideKeyDecider { Set = systemWide ? SystemWideKeySet.Defaults : SystemWideKeySet.Off };
-            var counter = new WithheldKeyCounter();
-            var press = new BareControlPress(() => counter.Downs);
-            bool skipped = false;
+            var gestures = new BareControlGestures();
             foreach (var k in keys)
             {
+                tick += 50;
                 var d = decider.Decide(k.vk, k.down, new SystemWideModifiers(k.ctrl, k.alt, k.shift));
-                counter.Report(k.vk, k.down, d);
-                if (d.Swallow) continue;
-                bool control = k.vk == 0xA2 || k.vk == 0xA3;
-                if (k.down) press.KeyDown((int)k.vk, control, false, k.alt || k.shift);
-                else skipped |= press.KeyUp((int)k.vk, control);
+                if (systemWide)
+                {
+                    var v = gestures.Observe(k.vk, k.down, tick);
+                    if (v != null) verdicts.Add(v.Value);
+                }
+                if (!d.Swallow) passed.Add((k.vk, k.down, k.alt, k.shift));
             }
+
+            // The window, late. It may decide alone only with no hook.
+            bool skipped = false;
+            var press = new BareControlPress();
+            bool hookInstalled = systemWide;
+            foreach (var k in passed)
+            {
+                bool control = BareControlGestures.IsControlVirtualKey(k.vk);
+                if (k.down) press.KeyDown((int)k.vk, control, false, k.alt || k.shift);
+                else if (press.KeyUp((int)k.vk, control) && CountdownSkipGate.WindowMayDecide(hookInstalled, hookInstalled))
+                    skipped = true;
+            }
+
+            // The hook's verdicts, later still.
+            var gate = new CountdownSkipGate();
+            foreach (var v in verdicts)
+                skipped |= gate.HookVerdictSkips(v, hookInstalled, windowActive: true, countRunning: true, countStartedTick: countStarted);
             return skipped;
         }
 
@@ -219,10 +257,15 @@ namespace Radios.Tests
             // still not read as bare.
             Assert.False(Replay(true, Concat(JJKey, ctrlK)), "a JJ chord's swallowed second key let Control read as bare");
             // Positive controls, on the same composition: an ordinary Ctrl+K
-            // with the hook off is a chord, and a real bare Control with the
-            // hook ON still skips.
+            // with the hook off is a chord, and a real bare Control skips with
+            // the hook on (through its verdict) and with it off (through the
+            // window's own recogniser).
             Assert.False(Replay(false, ctrlK));
             Assert.True(Replay(true, (VCtl, true, true, false, false), (VCtl, false, false, false, false)));
+            Assert.True(Replay(false, (VCtl, true, true, false, false), (VCtl, false, false, false, false)));
+            // And the cancel stays a cancel with the hook on.
+            Assert.False(Replay(true, (VCtl, true, true, false, false), (VEnter, true, true, false, false),
+                (VEnter, false, true, false, false), (VCtl, false, false, false, false)));
         }
 
         [Fact]
@@ -250,6 +293,72 @@ namespace Radios.Tests
             Assert.False(Replay(true,
                 (VCtl, true, true, false, false), (VSpace, true, true, true, false),
                 (VSpace, false, true, false, false), (VCtl, false, false, false, false)));
+        }
+
+        // ── The gate: which count, which window, once ──────────────────────
+
+        [Fact]
+        public void A_hook_verdict_skips_only_this_windows_running_count_pressed_during_it_and_only_once()
+        {
+            var during = new BareControlRelease(Gesture: 1, DownTick: 2000, UpTick: 2100);
+            Assert.True(new CountdownSkipGate().HookVerdictSkips(during, true, true, true, countStartedTick: 1000));
+
+            // Control went down before the count began (the Ctrl+Enter that started it).
+            Assert.False(new CountdownSkipGate().HookVerdictSkips(during with { DownTick = 900 }, true, true, true, 1000));
+            // Another program was in front.
+            Assert.False(new CountdownSkipGate().HookVerdictSkips(during, true, windowActive: false, true, 1000));
+            // No count running.
+            Assert.False(new CountdownSkipGate().HookVerdictSkips(during, true, true, countRunning: false, 1000));
+            // The hook is gone: a stale verdict is not trusted.
+            Assert.False(new CountdownSkipGate().HookVerdictSkips(during, hookInstalled: false, true, true, 1000));
+
+            // One gesture, one skip; an older one never.
+            var gate = new CountdownSkipGate();
+            Assert.True(gate.HookVerdictSkips(during, true, true, true, 1000));
+            Assert.False(gate.HookVerdictSkips(during, true, true, true, 1000));
+            Assert.False(gate.HookVerdictSkips(during with { Gesture = 0 }, true, true, true, 1000));
+            Assert.True(gate.HookVerdictSkips(during with { Gesture = 2 }, true, true, true, 1000));
+        }
+
+        [Fact]
+        public void The_window_decides_alone_only_when_no_hook_was_installed_at_either_end()
+        {
+            Assert.True(CountdownSkipGate.WindowMayDecide(false, false));
+            Assert.False(CountdownSkipGate.WindowMayDecide(true, false));
+            Assert.False(CountdownSkipGate.WindowMayDecide(false, true));
+            Assert.False(CountdownSkipGate.WindowMayDecide(true, true));
+        }
+
+        [Fact]
+        public void The_hook_tracker_numbers_each_bare_press_and_dates_it_from_Controls_press()
+        {
+            var g = new BareControlGestures();
+            Assert.Null(g.Observe(VCtl, true, 100));
+            Assert.Null(g.Observe(VCtl, true, 130));   // a repeat keeps the first press's time
+            var first = g.Observe(VCtl, false, 400);
+            Assert.Equal(new BareControlRelease(1, 100, 400), first);
+
+            Assert.Null(g.Observe(VCtl, true, 500));
+            Assert.Null(g.Observe(VK, true, 520));      // swallowed or not, the hook sees it
+            Assert.Null(g.Observe(VK, false, 540));
+            Assert.Null(g.Observe(VCtl, false, 600));   // a chord: no verdict
+
+            Assert.Null(g.Observe(VCtl, true, 700));
+            Assert.Equal(new BareControlRelease(2, 700, 800), g.Observe(VCtl, false, 800));
+        }
+
+        private static string Body(string source, string signature)
+        {
+            int at = source.IndexOf(signature, System.StringComparison.Ordinal);
+            Assert.True(at >= 0, "Could not find " + signature + "; the rule built on it proves nothing.");
+            int open = source.IndexOf('{', at);
+            int depth = 0;
+            for (int i = open; i < source.Length; i++)
+            {
+                if (source[i] == '{') depth++;
+                else if (source[i] == '}' && --depth == 0) return source.Substring(at, i - at + 1);
+            }
+            throw new System.InvalidOperationException("Unbalanced braces after " + signature);
         }
 
         private static (uint, bool, bool, bool, bool)[] Concat(
