@@ -151,10 +151,19 @@ namespace Radios
                     TraceLevel.Info);
                 return;
             }
+            // The radio does not echo this raw write, so FlexLib's cache would
+            // still say the monitor is on; write the acknowledged value into it
+            // the way the take's restores do (round 1029 merge, #835).
+            var monitorOff = new Listenback.SavedRadioSetting("monitor", "0", "transmit set mon=0", "transmit", "sb_monitor");
+            string cachedBefore = Listenback.FlexLibRestoreCache.Read(radio, monitorOff);
             string? refused = SendRadioCommandWithReply(radio, "transmit set mon=0", reply =>
             {
                 Tracing.TraceLine("SendMonitor: monitor put-back for an earlier disconnect " + reply, TraceLevel.Info);
-                if (reply.Acknowledged) store.Remove(serial);
+                if (reply.Acknowledged)
+                {
+                    store.Remove(serial);
+                    Tracing.TraceLine("SendMonitor: cache " + Listenback.FlexLibRestoreCache.Accept(radio, monitorOff, cachedBefore), TraceLevel.Info);
+                }
             });
             if (refused != null)
                 Tracing.TraceLine("SendMonitor: monitor put-back for an earlier disconnect not sent: " + refused
