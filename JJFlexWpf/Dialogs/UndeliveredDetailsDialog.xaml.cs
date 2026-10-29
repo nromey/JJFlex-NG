@@ -64,7 +64,9 @@ namespace JJFlexWpf.Dialogs
 
             Title = Lexicon.Get("facts.window.title");
             PendingView.Content = Lexicon.Get("facts.window.pending_label");
+            AutomationProperties.SetName(PendingView, Lexicon.Get("facts.window.pending_label"));
             HistoryView.Content = Lexicon.Get("facts.window.history_label");
+            AutomationProperties.SetName(HistoryView, Lexicon.Get("facts.window.history_label"));
             ReadButton.Content = Lexicon.Get("facts.action.read");
             ReviewedButton.Content = Lexicon.Get("facts.action.reviewed");
             ResumeButton.Content = Lexicon.Get("facts.action.resume");

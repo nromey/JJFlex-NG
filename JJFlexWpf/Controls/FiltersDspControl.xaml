@@ -181,7 +181,7 @@
                     <Button x:Name="TNFButton" Content="TNF" Margin="4,2" Padding="6,2"
                             AutomationProperties.Name="Tracking Notch Filter" />
                     <Button x:Name="ESCButton" Content="ESC" Margin="4,2" Padding="6,2"
-                            AutomationProperties.Name="Emergency Signal Cancel" />
+                            AutomationProperties.Name="Enhanced Signal Clarity (ESC)" />
                     <Button x:Name="InfoButton" Content="Info" Margin="4,2" Padding="6,2"
                             AutomationProperties.Name="Feature Availability" />
                 </WrapPanel>

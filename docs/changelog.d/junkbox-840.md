@@ -1,0 +1,1 @@
+Buttons that change their label partway through are now announced by the label they show: the connection tester's Start button says Stop while a test runs, and the LoTW merge's Cancel button says Done once the merge finishes.

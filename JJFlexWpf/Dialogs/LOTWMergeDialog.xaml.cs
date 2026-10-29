@@ -116,6 +116,9 @@ namespace JJFlexWpf.Dialogs
                     ProgressBox.ScrollToEnd();
                     _mergeRunning = false;
                     CancelCloseButton.Content = Radios.Lexicon.Get("logging.lotw.done_button");
+                    // #840: it was still announced "Cancel" once it showed Done.
+                    System.Windows.Automation.AutomationProperties.SetName(CancelCloseButton,
+                        Radios.Lexicon.Get("logging.lotw.done_button").Replace("_", ""));
                     ProgressBox.Focus();
                 });
             }
