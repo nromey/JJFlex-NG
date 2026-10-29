@@ -287,7 +287,7 @@ namespace JJFlexWpf
             var config = live ?? Load(configDir);
             config.OfferStationSaveOnDisconnect = false;
             config.Save(configDir);
-            Trace.WriteLine("AudioOutputConfig: the operator turned off the offer to save the station on disconnect (#759)");
+            Trace.WriteLine("AudioOutputConfig: the operator turned off the offer to save the station on disconnect");
         }
 
         /// <summary>Whether braille status line is enabled.</summary>
