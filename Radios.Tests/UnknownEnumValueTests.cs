@@ -368,3 +368,45 @@ namespace Radios.Tests
         }
     }
 }
+
+namespace Radios.Tests
+{
+    /// <summary>
+    /// #847 repair, round two: clearing the local transmit-audio choice
+    /// leaves the profile intent exactly as it is, including an intent a
+    /// newer build saved, which this build reads as NotAnswered.
+    /// </summary>
+    [Collection(RadioConfigStaticsCollection.Name)]
+    public sealed class LocalTransmitAudioClearTests : IDisposable
+    {
+        private const string Serial = "1234-5678-6300-0848";
+        private readonly RadioConfigStaticsScope _scope = new(nameof(LocalTransmitAudioClearTests));
+        private string PathToConfig => _scope.PathTo("radios", Serial, "config.xml");
+
+        public void Dispose() => _scope.Dispose();
+
+        [Fact]
+        public void Clearing_the_choice_keeps_an_intent_a_newer_build_saved()
+        {
+            Assert.True(RadioConfig.RecordLocalTransmitAudioChoice(Serial, "My TX"));
+            Assert.True(RadioConfig.Update(Serial, c => { c.ProfileIntentXml = "FromANewerBuild"; }));
+
+            Assert.True(RadioConfig.RecordLocalTransmitAudioChoice(Serial, ""));
+
+            string written = File.ReadAllText(PathToConfig);
+            Assert.Contains("<ProfileIntent>FromANewerBuild</ProfileIntent>", written, StringComparison.Ordinal);
+            Assert.Equal("", RadioConfig.LoadForRadio(Serial).LocalTransmitAudioProfile);
+        }
+
+        [Fact]
+        public void Choosing_a_preset_still_declares_the_intent()
+        {
+            // The positive control: a real choice is a decision and replaces
+            // whatever intent was there, a newer build's included.
+            Assert.True(RadioConfig.Update(Serial, c => { c.ProfileIntentXml = "FromANewerBuild"; }));
+            Assert.True(RadioConfig.RecordLocalTransmitAudioChoice(Serial, "My TX"));
+            Assert.Equal(ProfileGuestIntent.UseMyTransmitAudio, RadioConfig.ProfileIntentOf(Serial));
+            Assert.DoesNotContain("FromANewerBuild", File.ReadAllText(PathToConfig), StringComparison.Ordinal);
+        }
+    }
+}

@@ -1597,7 +1597,9 @@ namespace Radios
                     + "could be recorded; the profile question stays unanswered.", TraceLevel.Info);
                 return false;
             }
-            RadioConfig.RecordProfileIntent(serial, pre.Value);
+            // Never over an intent a newer build saved: it reads here as
+            // NotAnswered, but it is an answer (#847 repair, round two).
+            if (!RadioConfig.RecordPreAnsweredProfileIntent(serial, pre.Value)) return false;
             Tracing.TraceLine(
                 "ProfileStewardship: this radio is marked yours and has a connection history, "
                 + "so its profile question was pre-answered '" + pre.Value + "' rather than asked "

@@ -656,7 +656,10 @@ namespace Radios
             });
         }
 
-        public static bool RecordAudioCheckPrefs(string radioId,
+        // Private since the #847 repair, round two: it assigns every value it
+        // is given, which is how the Workshop saved displayed fallbacks over
+        // real values. RecordAudioCheckPref is the entry point.
+        private static bool RecordAudioCheckPrefs(string radioId,
             AudioCheckListenMethods? method, AudioCheckPowerModes? power, int? watts,
             bool? compareWithLastTake = null)
         {
@@ -1032,6 +1035,15 @@ namespace Radios
         public string ProfileIntentXml { get => _profileIntent.Text; set => _profileIntent.Text = value; }
         private readonly TolerantXmlEnum<ProfileGuestIntent> _profileIntent = new(nameof(ProfileIntent), ProfileGuestIntent.NotAnswered);
 
+        /// <summary>
+        /// True when the saved profile intent is a value a newer build wrote,
+        /// which this build reads as <see cref="ProfileGuestIntent.NotAnswered"/>
+        /// but must not treat as unanswered: it IS an answer, just one this
+        /// build cannot read (#847 repair, round two).
+        /// </summary>
+        [XmlIgnore]
+        public bool ProfileIntentIsFromANewerBuild => _profileIntent.UnknownText != null;
+
         /// <summary>The global profile to load on THIS radio. Empty means no
         /// per-radio choice; the operator's default list is used instead.</summary>
         public string ProfileChoiceGlobal { get; set; } = "";
@@ -1121,8 +1133,20 @@ namespace Radios
             if (string.IsNullOrEmpty(radioId)) return false;
             string value = presetName ?? "";
             return Update(radioId, cfg => {
-                var intent = string.IsNullOrWhiteSpace(value)
-                    ? cfg.ProfileIntent : ProfileGuestIntent.UseMyTransmitAudio;
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    // Clearing leaves the intent exactly as it is, by not
+                    // assigning it at all: assigning the value just read would
+                    // replace an intent a newer build saved with this build's
+                    // fallback (#847 repair, round two).
+                    if (cfg.LocalTransmitAudioProfile == value) return false;
+                    cfg.LocalTransmitAudioProfile = value;
+                    Tracing.TraceLine(
+                        $"RadioConfig: local transmit-audio profile for {radioId} cleared by the operator.",
+                        System.Diagnostics.TraceLevel.Info);
+                    return true;
+                }
+                var intent = ProfileGuestIntent.UseMyTransmitAudio;
                 if (cfg.LocalTransmitAudioProfile == value && cfg.ProfileIntent == intent) return false;
                 cfg.LocalTransmitAudioProfile = value;
                 cfg.ProfileIntent = intent;
@@ -1238,6 +1262,36 @@ namespace Radios
         /// not reach disk — callers should still honour the answer for this
         /// session, per <see cref="SaveForRadio"/>'s contract.
         /// </summary>
+        /// <summary>
+        /// The automatic pre-answer (<c>FlexBase.MigrateProfileIntentForKnownRadio</c>):
+        /// like <see cref="RecordProfileIntent"/>, but it never replaces an
+        /// intent a newer build saved. That build's answer reads here as
+        /// NotAnswered, and pre-answering it would overwrite an answer the
+        /// operator did give with one nobody gave (#847 repair, round two,
+        /// found by the Codex check). Checked inside the locked update, so the
+        /// file cannot change between the decision and the write.
+        /// </summary>
+        public static bool RecordPreAnsweredProfileIntent(string radioId, ProfileGuestIntent value)
+        {
+            if (string.IsNullOrEmpty(radioId)) return false;
+            bool written = false;
+            Update(radioId, cfg => {
+                if (cfg.ProfileIntentIsFromANewerBuild)
+                {
+                    Tracing.TraceLine(
+                        $"RadioConfig: profile intent for {radioId} was saved by a newer build; "
+                        + "not pre-answering over it.",
+                        System.Diagnostics.TraceLevel.Info);
+                    return false;
+                }
+                if (cfg.ProfileIntent == value) return false;
+                cfg.ProfileIntent = value;
+                written = true;
+                return true;
+            });
+            return written;
+        }
+
         public static bool RecordProfileIntent(string radioId, ProfileGuestIntent value)
         {
             if (string.IsNullOrEmpty(radioId)) return false;
