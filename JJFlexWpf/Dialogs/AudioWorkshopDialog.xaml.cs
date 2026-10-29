@@ -164,7 +164,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         _categories = CategoryNavigator.Attach(this, MainTabs, CategoryListBox);
 
         _gain = new TransmitGainControls(Dispatcher, () => _rig, () => _polling,
-            () => AudioDevicesPath?.Invoke());
+            () => AudioDevicesPath?.Invoke(), host: "Audio Workshop");
         BuildTxAudioTab();
         ApplyTxAudioTabOrder();
         BuildLiveMetersTab();

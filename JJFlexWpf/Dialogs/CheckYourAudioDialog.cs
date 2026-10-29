@@ -134,7 +134,7 @@ public partial class CheckYourAudioDialog : JJFlexDialog
         };
 
         _gain = new TransmitGainControls(Dispatcher, () => _rig, () => _polling,
-            () => AudioWorkshopDialog.AudioDevicesPath?.Invoke());
+            () => AudioWorkshopDialog.AudioDevicesPath?.Invoke(), host: "Check your audio");
 
         BuildCheckDialog();
         UpdateRadioControlAvailability();

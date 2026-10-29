@@ -278,7 +278,14 @@ namespace JJFlexWpf.Dialogs
                 // the note could describe it; leaving it applied after Cancel
                 // would make Cancel a lie. The audio system needs no undo — it
                 // is pending state (#207), applied only on OK.
-                if (DialogResult == true) return;
+                if (DialogResult == true)
+                {
+                    Tracing.TraceLine("Audio Devices: closed with OK" + (_savedOnOk.Count > 0
+                        ? "; saved: " + string.Join("; ", _savedOnOk) : "; nothing changed"), TraceLevel.Info);
+                    return;
+                }
+                Tracing.TraceLine("Audio Devices: closed WITHOUT saving (Escape, Cancel or the title bar); the chosen devices are unchanged",
+                    TraceLevel.Info);
                 Radios.FlexBase.OpusTxSampleRateSetting = _txRateOnEntry;
             };
 
@@ -2723,9 +2730,19 @@ namespace JJFlexWpf.Dialogs
                     : Lexicon.Get("audio.device.saved"),
                 VerbosityLevel.Terse, true);
 
+            // Whichever door opened this picker, every open window's Windows
+            // input level follows the saved choice now (#835, fix round
+            // 2026-10-28). Only the Workshop's own button used to say so; the
+            // Audio menu's door left each window to notice the file on its poll.
+            _savedOnOk.AddRange(saved);
+            TransmitGainControls.MicrophoneChoiceMayHaveChanged(null);
+
             DialogResult = true;
             Close();
         }
+
+        /// <summary>What OK saved, for the closing trace line.</summary>
+        private readonly List<string> _savedOnOk = new();
 
         /// <summary>
         /// True when this list's selection is something the engine can open.
@@ -2953,6 +2970,15 @@ namespace JJFlexWpf.Dialogs
         {
             var dlg = new AudioDevicesDialog(audioDevicesFile, audioConfig, persistAudioConfig);
             if (owner != null) dlg.Owner = owner;
+            // Which window opened it (#835, fix round 2026-10-28): a bench
+            // could not tell, and "the microphone changed in one window and not
+            // the other" turned on exactly that. The window active when the
+            // picker opens is the one whose button or menu opened it.
+            string from = owner?.Title
+                ?? System.Windows.Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive)?.Title
+                ?? "no active window (the main window or a menu)";
+            Tracing.TraceLine("Audio Devices: opened from \"" + from + "\"" + (startMicCheck ? ", with the microphone check running" : ""),
+                TraceLevel.Info);
             if (startMicCheck) dlg._startCheckOnOpen = true;
             bool ok = dlg.ShowDialog() == true;
             return ok && dlg.RadioAudioConfigured;

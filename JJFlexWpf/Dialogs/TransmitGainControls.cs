@@ -76,6 +76,12 @@ internal sealed class TransmitGainControls
     /// </summary>
     public TextBox PcLevelNote { get; }
 
+    /// <summary>The window this binding lives in, for the trace.</summary>
+    public string Host { get; }
+
+    /// <summary>How many times this binding has bound the Windows level. For the tests.</summary>
+    internal int Binds { get; private set; }
+
     /// <summary>True while the radio's transmit source is this computer and the Windows level is standing in for Mic Gain.</summary>
     public bool PcSourceActive { get; private set; }
 
@@ -83,10 +89,12 @@ internal sealed class TransmitGainControls
     /// <param name="rig">The host's current radio, read at the moment of each write.</param>
     /// <param name="polling">The host's "I am writing controls from radio state" flag, so a poll never writes back to the radio.</param>
     /// <param name="audioDevicesPath">Where audioDevices.xml lives, read at each bind.</param>
+    /// <param name="host">The window this binding lives in, named in the trace so a bench can tell the two apart.</param>
     public TransmitGainControls(Dispatcher dispatcher, Func<FlexBase?> rig, Func<bool> polling,
-        Func<string?> audioDevicesPath)
+        Func<string?> audioDevicesPath, string host = "a window")
     {
         _dispatcher = dispatcher;
+        Host = host;
         _rig = rig;
         _polling = polling;
         _audioDevicesPath = audioDevicesPath;
@@ -164,7 +172,7 @@ internal sealed class TransmitGainControls
             // The microphone can also be changed where neither window hears
             // about it (Audio Devices from the Audio menu). The saved choice is
             // a file, so its write time says when to rebind: one stat per poll.
-            if (pcSource && DeviceFileStamp() != _boundFileStamp) BindPcLevel();
+            if (pcSource && DeviceFileStamp() != _boundFileStamp) BindPcLevel("the saved microphone file changed");
             return false;
         }
         PcSourceActive = pcSource;
@@ -177,7 +185,7 @@ internal sealed class TransmitGainControls
         MicGain.Visibility = pcSource ? Visibility.Collapsed : Visibility.Visible;
         if (pcSource)
         {
-            BindPcLevel();
+            BindPcLevel("the transmit source became this computer");
             // Never leave a hidden control holding focus — and the operator
             // standing on Mic Gain was adjusting their transmit gain, so hand
             // them the gain that now applies.
@@ -208,7 +216,9 @@ internal sealed class TransmitGainControls
         // an endpoint nothing will ever release (fix round 2).
         if (_disposed) return;
         DeviceChangesSeen++;
-        if (PcSourceActive) BindPcLevel();
+        if (PcSourceActive) BindPcLevel("a microphone change notice");
+        else JJTrace.Tracing.TraceLine("Transmit gain (" + Host + "): microphone change notice; nothing to rebind, the radio's transmit source is not this computer",
+            System.Diagnostics.TraceLevel.Info);
     }
 
     /// <summary>How many device-change notices this binding has had. For the test that proves a notice reaches every live binding.</summary>
@@ -233,6 +243,9 @@ internal sealed class TransmitGainControls
     {
         TransmitGainControls[] all;
         lock (Live) all = Live.ToArray();
+        JJTrace.Tracing.TraceLine("Transmit gain: microphone choice may have changed (from " + (origin?.Host ?? "Audio Devices")
+            + "); telling " + all.Length + " open window(s): " + string.Join(", ", System.Linq.Enumerable.Select(all, b => b.Host)),
+            System.Diagnostics.TraceLevel.Info);
         origin?.DeviceSelectionMayHaveChanged();
         foreach (var binding in all)
         {
@@ -260,9 +273,10 @@ internal sealed class TransmitGainControls
     /// Bind the Windows input level to the computer's chosen microphone, or show
     /// the focusable note with the reason no confident match exists.
     /// </summary>
-    private void BindPcLevel()
+    private void BindPcLevel(string why)
     {
         if (_disposed) return;
+        Binds++;
         Release();
         _boundFileStamp = DeviceFileStamp();
 
@@ -296,6 +310,10 @@ internal sealed class TransmitGainControls
             return;
         }
 
+        // Names the window and the reason, so the WindowsMicLevel line that
+        // follows can be told from the picker's own and from the other window's.
+        JJTrace.Tracing.TraceLine("Transmit gain (" + Host + "): binding the Windows level to \"" + name + "\" because " + why,
+            System.Diagnostics.TraceLevel.Info);
         var level = WindowsMicLevel.TryFindByName(name, savedHostApiTypeId, out string whyNot);
         if (level == null)
         {
