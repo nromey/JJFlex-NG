@@ -190,7 +190,7 @@
   "logging.problem.unnamed": "Something went wrong",
   "logging.pane.log_entry": "Log entry pane",
   "logging.pane.only_in_logging_mode": "Switching log panes only works in Logging mode.",
-  "logging.full_form.no_log_file": "You cannot add contacts or other log data until a log file is open. Please create a log file by accessing the Log Characteristics window under the Log menu to continue.",
+  "logging.full_form.no_log_file": {"text": "You cannot add contacts or other log data until a log file is open. Please create a log file by accessing the Log Characteristics window under the Log menu to continue.", "delivery": null},
   "logging.no_log_file.body": {"text": "Logging needs a file to contain your contacts. Open a log you already have, or create a new one to proceed.", "delivery": null},
   "logging.no_log_file.create_button": {"text": "&Create a new log", "delivery": null},
   "logging.no_log_file.create_title": {"text": "Create a New Log File", "delivery": null},

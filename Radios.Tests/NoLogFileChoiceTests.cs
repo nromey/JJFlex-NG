@@ -115,6 +115,7 @@ namespace Radios.Tests
             string owner = Between(log, "Private Shared Function LogDialogOwner(", "End Function");
             Assert.Contains("AppShellForm", owner);
             Assert.Contains("InvokeRequired", owner);
+            Assert.Contains("Return shell", owner);
         }
 
         [Fact]

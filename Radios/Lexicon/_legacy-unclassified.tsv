@@ -1998,7 +1998,6 @@ logging.export.overwrite_confirm	ea3a58f4d13c451d
 logging.export.overwrite_title	23d038d51304374e
 logging.find.none_found	e766b0ce184de978
 logging.find.none_found_title	0b0981297170606d
-logging.full_form.no_log_file	3a67174744ea53eb
 logging.full_form.opening	add69ff956e22072
 logging.import.failed	ea5f17a57ec88b46
 logging.import.failed_title	f1f14ba348face55
