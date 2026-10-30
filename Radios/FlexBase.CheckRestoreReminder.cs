@@ -461,12 +461,11 @@ namespace Radios
             // Sent: wait for the radio's own answer to this command.
             var answered = await Task.WhenAny(reply.Task, Task.Delay(RestoreWriteWait)).ConfigureAwait(false);
             if (!ReferenceEquals(answered, reply.Task))
-                return (PutBackSend.Unanswered, "'" + detail + "' went out and the radio did not answer it");
+                return (PutBackSend.Unanswered, WriteNotAnswered(detail));
             CommandReply r = reply.Task.Result;
             return r.Acknowledged
                 ? (PutBackSend.Accepted, "'" + detail + "'")
-                : (PutBackSend.Rejected, "the radio rejected '" + detail + "' (" + r.Code.ToString("X8", CultureInfo.InvariantCulture)
-                    + (r.Text.Length > 0 ? " " + r.Text : "") + ")");
+                : (PutBackSend.Rejected, WriteRejected(detail, r));
         }
 
         /// <summary>

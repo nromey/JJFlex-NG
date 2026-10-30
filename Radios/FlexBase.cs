@@ -10787,7 +10787,8 @@ namespace Radios
                 // choice is newer, so the old intent goes (Codex round 3).
                 System.Threading.Interlocked.Increment(ref _monitorOperatorWrites);
                 SupersedeOwedMonitorPutBack();
-                q.Enqueue((FunctionDel)(() => { theRadio.TXMonitor = val; }));
+                // Inside a check's restore the write carries its own reply (round 1030 repairs).
+                EnqueueSettingWrite((FunctionDel)(() => { theRadio.TXMonitor = val; }), "transmit set mon=" + (val ? "1" : "0"));
             }
         }
 
@@ -11116,7 +11117,10 @@ namespace Radios
                     && opusOutputChannel.Started
                     && string.Equals(value, "PC", StringComparison.OrdinalIgnoreCase);
                 _pcMicDiverged = false;
-                q.Enqueue((FunctionDel)(() => { theRadio.MicInput = value; }), "MicInput");
+                // Inside a check's restore the write carries its own reply (round 1030 repairs).
+                if (value != null)
+                    EnqueueSettingWrite((FunctionDel)(() => { theRadio.MicInput = value; }), "mic input " + value.ToUpperInvariant(), "MicInput");
+                else q.Enqueue((FunctionDel)(() => { theRadio.MicInput = value; }), "MicInput");
             }
         }
 
@@ -11738,12 +11742,12 @@ namespace Radios
             }
             steps.AddRange(new[]
             {
-                owner.Register("loopback: transmit antenna", () =>
-                {
-                    if (!Same()) return Task.FromResult(false);
-                    TXAntennaName = savedTxAnt;
-                    return Task.FromResult(true);
-                }),
+                // Through the restore path since round 1030's repairs: asked
+                // at its run like the others, and restored only on the radio's
+                // reply. It used to write directly and return true unasked.
+                owner.Register("loopback: transmit antenna", () => Same()
+                    ? RestoreWritesAtReceiveAsync("loopback transmit antenna", () => TXAntennaName = savedTxAnt)
+                    : Task.FromResult(RestoreOutcome.Failed)),
                 owner.Register("loopback: power", () => Same()
                     ? RestoreWritesAtReceiveAsync("loopback power", () => XmitPower = savedPower)
                     : Task.FromResult(RestoreOutcome.Failed)),
@@ -11774,7 +11778,9 @@ namespace Radios
                     var band = driveBand;
                     double dbm = savedDriveDbm;
                     return RestoreWritesAtReceiveAsync("loopback transverter drive",
-                        () => q.Enqueue((FunctionDel)(() => { band.MaxPower = dbm; }), "LoopbackDriveRestore"));
+                        () => EnqueueSettingWrite((FunctionDel)(() => { band.MaxPower = dbm; }),
+                            "xvtr set " + band.Index.ToString(System.Globalization.CultureInfo.InvariantCulture) + " max_power="
+                                + dbm.ToString("F2", System.Globalization.CultureInfo.InvariantCulture), "LoopbackDriveRestore"));
                 }),
                 owner.Register("loopback: forget the arrangement", () =>
                 {
@@ -11942,7 +11948,9 @@ namespace Radios
             set
             {
                 NoteRadioSettingWritten("XmitPower", value.ToString());   // the hold after a cut needs to know whose write this is (#571)
-                q.Enqueue((FunctionDel)(() => { theRadio.RFPower = value; }));
+                // Inside a check's restore the write carries its own reply (round 1030 repairs).
+                EnqueueSettingWrite((FunctionDel)(() => { theRadio.RFPower = value; }),
+                    "transmit set rfpower=" + Math.Clamp(value, 0, 100).ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
         }
 
@@ -12006,7 +12014,9 @@ namespace Radios
             set
             {
                 NoteRadioSettingWritten("TunePower", value.ToString());   // the hold after a cut needs to know whose write this is (#571)
-                q.Enqueue((FunctionDel)(() => { theRadio.TunePower = value; }));
+                // Inside a check's restore the write carries its own reply (round 1030 repairs).
+                EnqueueSettingWrite((FunctionDel)(() => { theRadio.TunePower = value; }),
+                    "transmit set tunepower=" + Math.Clamp(value, 0, 100).ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
         }
 
