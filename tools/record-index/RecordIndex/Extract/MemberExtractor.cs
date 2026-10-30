@@ -32,12 +32,12 @@ public static class MemberExtractor
         return s;
     }
 
-    /// <summary>Copies the whole member to a file. Refuses a path inside a git working tree: the record is private.</summary>
+    /// <summary>Copies the whole member to a file. Refuses any folder that syncs, is backed up, or is a repository: the record is private.</summary>
     public static long ToFile(string recordRoot, string archive, string member, string outPath)
     {
         var full = Path.GetFullPath(outPath);
-        if (Repository.IsInsideGitWorkTree(Path.GetDirectoryName(full)!))
-            throw new IOException($"Not writing private record content inside a git working tree ({full}). Choose a folder outside any repository.");
+        try { LocalOnly.Refuse(full, "private record content"); }
+        catch (UnlockException e) { throw new IOException(e.Message, e); }
         if (File.Exists(full)) throw new IOException($"{full} already exists.");
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         var s = OpenMember(recordRoot, archive, member, out var done);

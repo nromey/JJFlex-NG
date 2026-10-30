@@ -176,6 +176,11 @@ public class KeyTests
         Assert.Throws<UnlockException>(() => RecoveryHandoff.Hand("x", @"file:" + Path.Combine(AppContext.BaseDirectory, "leak.txt"), p));
         Assert.Throws<UnlockException>(() => RecoveryHandoff.Hand("x", @"file:\\nas.example\share\leak.txt", p));
         Assert.Throws<UnlockException>(() => RecoveryHandoff.Hand("x", @"file:" + Environment.ExpandEnvironmentVariables(@"%USERPROFILE%\JJFlex-private\leak.txt"), p));
+        // On this machine the Desktop is inside OneDrive: "the Desktop" would upload it.
+        var oneDrive = Environment.GetEnvironmentVariable("OneDrive") ?? Environment.ExpandEnvironmentVariables(@"%USERPROFILE%\OneDrive");
+        var e = Assert.Throws<UnlockException>(() => RecoveryHandoff.Hand("x", "file:" + Path.Combine(oneDrive, "Desktop", "leak-test-never-written.txt"), p));
+        Assert.Contains("synced", e.Message);
+        Assert.False(File.Exists(Path.Combine(oneDrive, "Desktop", "leak-test-never-written.txt")));
         Assert.False(File.Exists(Path.Combine(AppContext.BaseDirectory, "leak.txt")));
     }
 }
