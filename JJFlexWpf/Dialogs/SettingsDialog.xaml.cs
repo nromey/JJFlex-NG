@@ -220,6 +220,9 @@ namespace JJFlexWpf.Dialogs
             // The one countdown (#835): Audio tab, Countdown. See SettingsDialog.Countdown.cs.
             InitializeCountdown();
 
+            // The alert sound delay (#855): Audio tab, Alerts. See SettingsDialog.AlertBuffer.cs.
+            InitializeAlertBuffer();
+
             // The reflected cut's full explanation is Ctrl+F1, on demand —
             // NOT AutomationProperties.HelpText, which NVDA recites as the
             // control's description on every focus (#91).
@@ -1508,6 +1511,8 @@ namespace JJFlexWpf.Dialogs
                 OfferStationSaveOnDisconnectCheck.IsChecked == true;
             // The one countdown (#835), made live by Apply() below.
             CommitCountdown();
+            // The alert sound delay (#855), likewise: Apply() reopens the alert device with it.
+            CommitAlertBuffer();
 
             // #116 / #384 — the duck and the per-sound trims apply LIVE (they
             // are found by ear; see InitializeSoundAdjustments), so by now the

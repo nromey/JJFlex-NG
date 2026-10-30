@@ -339,7 +339,11 @@ namespace JJFlexWpf
                 if (Radios.OutputChannelRecorder.RenderEnabled)
                 {
                     // Create alert channel (earcons, beeps, PTT tones)
-                    _alertChannel = new AudioChannel();
+                    _alertChannel = new AudioChannel
+                    {
+                        BufferMs = _alertBufferMs,
+                        BufferCount = _alertBufferCount,
+                    };
                     _alertChannel.Initialize(_alertDeviceNumber);
                     var alert = _alertChannel;
                     SoundTiming.AlertDevice = alert.Snapshot;
@@ -4045,6 +4049,21 @@ namespace JJFlexWpf
         /// </summary>
         private class AudioChannel : IDisposable
         {
+            /// <summary>
+            /// Milliseconds per device buffer and how many, used whenever this
+            /// channel opens its device. The alert channel's are the operator's
+            /// setting (#855); the meter channel keeps 100 by 2.
+            /// </summary>
+            public int BufferMs { get; set; } = 100;
+            public int BufferCount { get; set; } = 2;
+
+            private WaveOutEvent NewWaveOut(int deviceNumber) => new WaveOutEvent
+            {
+                DeviceNumber = deviceNumber,
+                BufferMilliseconds = BufferMs,
+                NumberOfBuffers = BufferCount,
+            };
+
             private WaveOutEvent? _waveOut;
             private VolumeSampleProvider? _volume;
             private CountingSampleProvider? _counter;
@@ -4130,11 +4149,7 @@ namespace JJFlexWpf
 
                 try
                 {
-                    _waveOut = new WaveOutEvent
-                    {
-                        DeviceNumber = deviceNumber,
-                        BufferMilliseconds = 100
-                    };
+                    _waveOut = NewWaveOut(deviceNumber);
                     _waveOut.Init(_counter);
                     _waveOut.Play();
                     return true;
@@ -4145,7 +4160,7 @@ namespace JJFlexWpf
                     // Fall back to default device
                     try
                     {
-                        _waveOut = new WaveOutEvent { BufferMilliseconds = 100 };
+                        _waveOut = NewWaveOut(-1);
                         _counter.Reset();
                         _waveOut.Init(_counter);
                         _waveOut.Play();
@@ -4170,11 +4185,7 @@ namespace JJFlexWpf
                     _waveOut?.Stop();
                     _waveOut?.Dispose();
 
-                    _waveOut = new WaveOutEvent
-                    {
-                        DeviceNumber = deviceNumber,
-                        BufferMilliseconds = 100
-                    };
+                    _waveOut = NewWaveOut(deviceNumber);
                     _counter.Reset();
                     _waveOut.Init(_counter);
                     _waveOut.Play();
@@ -4185,7 +4196,7 @@ namespace JJFlexWpf
                     // Fall back to default device
                     try
                     {
-                        _waveOut = new WaveOutEvent { BufferMilliseconds = 100 };
+                        _waveOut = NewWaveOut(-1);
                         _counter.Reset();
                         _waveOut.Init(_counter);
                         _waveOut.Play();
@@ -4193,6 +4204,19 @@ namespace JJFlexWpf
                     }
                     catch { }
                 }
+            }
+
+            /// <summary>
+            /// New buffer geometry, applied at once by reopening the same
+            /// device (#855: the setting changes live, no restart). A sound in
+            /// the mixer carries on through the new device.
+            /// </summary>
+            public void Rebuffer(int bufferMs, int bufferCount)
+            {
+                if (bufferMs == BufferMs && bufferCount == BufferCount) return;
+                BufferMs = bufferMs;
+                BufferCount = bufferCount;
+                if (_waveOut != null) SetDevice(_deviceNumber);
             }
 
             public void Dispose()

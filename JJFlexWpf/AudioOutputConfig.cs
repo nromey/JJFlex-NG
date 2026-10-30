@@ -16,6 +16,15 @@ namespace JJFlexWpf
         /// <summary>NAudio device number for earcon output. -1 = Windows default.</summary>
         public int EarconDeviceNumber { get; set; } = -1;
 
+        /// <summary>
+        /// The alert channel's output buffer, milliseconds per buffer and how
+        /// many (#855, ruled 2026-10-30: an operator setting, the default by
+        /// measurement). Clamped by <see cref="EarconPlayer.SetAlertBuffer"/>,
+        /// so a hand-edited file cannot set one that stalls the device.
+        /// </summary>
+        public int AlertBufferMs { get; set; } = EarconPlayer.DefaultAlertBufferMs;
+        public int AlertBufferCount { get; set; } = EarconPlayer.DefaultAlertBufferCount;
+
         /// <summary>Master earcon volume 0–100. Kept for backward compatibility with old configs.</summary>
         public int MasterEarconVolume { get; set; } = 80;
 
@@ -800,6 +809,8 @@ namespace JJFlexWpf
 
             EarconPlayer.MasterVolume = MasterVolume;
             EarconPlayer.AlertVolume = AlertVolume;
+            // Before the device, so a reopened device opens with the new buffer.
+            EarconPlayer.SetAlertBuffer(AlertBufferMs, AlertBufferCount);
             EarconPlayer.SetAlertDevice(EarconDeviceNumber);
             EarconPlayer.SetMeterDevice(MeterDeviceNumber);
 
@@ -890,6 +901,7 @@ namespace JJFlexWpf
             AlertVolume = EarconPlayer.AlertVolume;
             MasterEarconVolume = (int)(EarconPlayer.AlertVolume * 100);
             EarconDeviceNumber = EarconPlayer.GetAlertDeviceNumber();
+            (AlertBufferMs, AlertBufferCount) = EarconPlayer.AlertBuffer;
             MeterDeviceNumber = EarconPlayer.GetMeterDeviceNumber();
             Meters = MeterToneEngine.ExportDefinitions();
             UserVoices = MeterVoiceLibrary.GetUserVoices();
