@@ -23,6 +23,10 @@ using System.IO;
 //       Research: each output device's shared-mode engine periods
 //       (IAudioClient3) and the ASIO drivers registered. Queries only.
 //
+//   soundtiming selftest [<dir>]
+//       The analyser's positive control: a made-up recording with sounds,
+//       a hole, a spoken burst and a click at known places. No device.
+//
 //   Options for analyze and synth: --voice-set rich|simple renders the
 //   sounds in that alert tone set (the operator's Settings choice), so the
 //   detector matches what was played.
@@ -75,6 +79,8 @@ try
         }
         case "devices":
             return Devices.Run(Console.Out);
+        case "selftest":
+            return SelfTest.Run(rest.Count > 1 ? rest[1] : Path.Combine(Path.GetTempPath(), "soundtiming-selftest"));
     }
 }
 catch (Exception ex)
@@ -87,4 +93,5 @@ Console.WriteLine("usage: soundtiming record <seconds> <outDir> [--device <name>
 Console.WriteLine("       soundtiming analyze <outDir> <trace> [<trace>...] [--window <ms>] [--voice-set rich|simple]");
 Console.WriteLine("       soundtiming synth [--runs <n>] [--out <file>] [--voice-set rich|simple]");
 Console.WriteLine("       soundtiming devices");
+Console.WriteLine("       soundtiming selftest [<dir>]");
 return 2;

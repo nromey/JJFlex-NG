@@ -53,19 +53,27 @@ internal static class Analyzer
             events.Add(e);
         }
 
-        // Speech: on the recording with every located sound subtracted, so a
+        // Speech: the recording's energy in excess of every located sound's
+        // own (in energy, not samples, so a fraction of a sample's
+        // misalignment cannot leave a tone behind looking like a voice), so a
         // number spoken over a pip is still found.
-        var residual = (float[])cap.Samples.Clone();
+        var sounds = new float[cap.Samples.Length];
         foreach (var e in events.Where(e => e.Template != null && e.BufferStartIndex >= 0))
         {
             var w = e.Template!.Whole;
             for (int i = 0; i < w.Length; i++)
             {
                 long k = e.BufferStartIndex + i;
-                if (k >= 0 && k < residual.Length) residual[k] -= (float)(e.Gain * w[i]);
+                if (k >= 0 && k < sounds.Length) sounds[k] += (float)(e.Gain * w[i]);
             }
         }
-        var speech = SpeechOnsets(residual);
+        var speech = SpeechOnsets(cap.Samples, sounds);
+        // A hole's edges are broadband steps, which read as a voice starting;
+        // the hole is already reported as a dropout, so they are not speech.
+        var holes = events.SelectMany(e => e.Dropouts.Select(d =>
+            (from: cap.IndexOf(e.HeardQpc) + (long)((d.atMs - 40) * Dsp.AnalysisRate / 1000),
+             to: cap.IndexOf(e.HeardQpc) + (long)((d.atMs + d.lengthMs + 40) * Dsp.AnalysisRate / 1000)))).ToList();
+        speech.RemoveAll(s => holes.Any(h => s >= h.from && s <= h.to));
         var clicks = Clicks(cap);
 
         var sb = new StringBuilder();
@@ -181,14 +189,21 @@ internal static class Analyzer
                 double max = ncc.Max();
                 if (max >= 0.5)
                 {
-                    // The earliest strong peak, not simply the highest: a pip
-                    // repeated a second later can score a hair higher.
-                    int best = -1;
-                    for (int i = 0; i < ncc.Length; i++)
+                    // The highest peak, unless a separate occurrence nearly as
+                    // strong comes earlier (a pip repeated a second later can
+                    // score a hair higher than the one asked for). "Separate"
+                    // matters: a tone correlates with itself one period off
+                    // almost as well as at zero, so a near-equal peak within a
+                    // few milliseconds is the same sound, not an earlier one.
+                    int best = Array.IndexOf(ncc, max);
+                    int sep = Dsp.AnalysisRate / 20;   // 50 ms
+                    for (int i = 0; i < best - sep; i++)
                     {
-                        if (ncc[i] < 0.85 * max) continue;
-                        while (i + 1 < ncc.Length && ncc[i + 1] >= ncc[i]) i++;
-                        best = i;
+                        if (ncc[i] < 0.95 * max) continue;
+                        int j = i;
+                        int end = Math.Min(ncc.Length, i + sep);
+                        for (int k = i; k < end; k++) if (ncc[k] > ncc[j]) j = k;
+                        best = j;
                         break;
                     }
                     long onset = from + best;
@@ -279,28 +294,67 @@ internal static class Analyzer
     /// from the recording itself, after 200 ms below it, and staying up for
     /// most of the next 50 ms.
     /// </summary>
-    private static List<long> SpeechOnsets(float[] residual)
+    private static List<long> SpeechOnsets(float[] recording, float[] sounds)
     {
-        int win = Dsp.AnalysisRate / 100;
-        var hp1 = Dsp.Biquad.HighPass(Dsp.AnalysisRate, 300);
-        var hp2 = Dsp.Biquad.HighPass(Dsp.AnalysisRate, 300);
-        var f = new float[residual.Length];
-        for (int i = 0; i < f.Length; i++) f[i] = (float)hp2.Run(hp1.Run(residual[i]));
-        var db = Dsp.Rms(f, 0, f.Length, win).Select(Dsp.Db).ToArray();
+        // Per frequency, not per frame: a sound is a handful of harmonics and
+        // a voice is spread across the band, so subtracting the located
+        // sounds' own spectrum (with a margin, since the rendered and the
+        // recorded sound differ a little) leaves a voice standing even when it
+        // is quieter than the pip it overlaps. Above 300 Hz only.
+        int hop = Dsp.AnalysisRate / 500, size = 512;   // 2 ms steps, 32 ms window
+        int frames = Math.Max((recording.Length - size) / hop, 0);
+        var window = new double[size];
+        for (int i = 0; i < size; i++) window[i] = 0.5 - 0.5 * Math.Cos(2 * Math.PI * i / (size - 1));
+        int lowBin = 300 * size / Dsp.AnalysisRate;
+        var re1 = new double[size]; var im1 = new double[size];
+        var re2 = new double[size]; var im2 = new double[size];
+        var db = new double[frames];
+        for (int f = 0; f < frames; f++)
+        {
+            int o = f * hop;
+            bool anySound = false;
+            for (int i = 0; i < size; i++)
+            {
+                re1[i] = recording[o + i] * window[i]; im1[i] = 0;
+                re2[i] = sounds[o + i] * window[i]; im2[i] = 0;
+                if (sounds[o + i] != 0) anySound = true;
+            }
+            Dsp.Fft(re1, im1);
+            if (anySound) Dsp.Fft(re2, im2);
+            double excess = 0;
+            for (int b = lowBin; b < size / 2; b++)
+            {
+                double x = re1[b] * re1[b] + im1[b] * im1[b];
+                double sn = anySound ? re2[b] * re2[b] + im2[b] * im2[b] : 0;
+                excess += Math.Max(x - 2.0 * sn, 0);
+            }
+            // Digital silence reads as -120 dB, so a quiet machine's floor is
+            // a floor and not minus infinity.
+            db[f] = Math.Max(10 * Math.Log10(excess / (size * size) + 1e-24), -120);
+        }
         if (db.Length == 0) return new List<long>();
         double floor = Dsp.Percentile(db, 0.10), peak = Dsp.Percentile(db, 0.995);
         double thr = Math.Max(floor + 15, peak - 40);
+        int win = hop;
         var res = new List<long>();
-        int quiet = 20;
+        // After 200 ms below the threshold, above it for most of the next 50 ms.
+        int quietFrames = 200 / 2, holdFrames = 50 / 2;
+        int quiet = quietFrames;
         for (int i = 0; i < db.Length; i++)
         {
             if (db[i] > thr)
             {
-                if (quiet >= 20)
+                if (quiet >= quietFrames)
                 {
                     int held = 0;
-                    for (int k = i; k < Math.Min(i + 5, db.Length); k++) if (db[k] > thr) held++;
-                    if (held >= 3) res.Add((long)i * win);
+                    for (int k = i; k < Math.Min(i + holdFrames, db.Length); k++) if (db[k] > thr) held++;
+                    if (held >= holdFrames * 3 / 5)
+                    {
+                        // The threshold sits 40 dB under the loudest speech,
+                        // so a voice trips it within a couple of milliseconds
+                        // of entering the analysis window's leading edge.
+                        res.Add((long)i * win + size - Dsp.AnalysisRate / 500);
+                    }
                 }
                 quiet = 0;
             }
@@ -321,6 +375,7 @@ internal static class Analyzer
         int rate = cap.FullRateHz, win = Math.Max(rate / 500, 1);
         int frames = x.Length / win;
         var peak = new float[frames];
+        var where = new int[frames];
         for (int fr = 0; fr < frames; fr++)
         {
             float m = 0;
@@ -328,7 +383,7 @@ internal static class Analyzer
             for (int i = Math.Max(o, 1); i < Math.Min(o + win, x.Length - 1); i++)
             {
                 float d = Math.Abs(x[i + 1] - 2 * x[i] + x[i - 1]);
-                if (d > m) m = d;
+                if (d > m) { m = d; where[fr] = i; }
             }
             peak[fr] = m;
         }
@@ -344,7 +399,7 @@ internal static class Analyzer
             float med = window[window.Count / 2];
             if (peak[fr] > 10 * Math.Max(med, 1e-4f))
             {
-                long qpc = cap.StartQpc100ns + (long)((double)fr * win * 10_000_000.0 / rate);
+                long qpc = cap.StartQpc100ns + (long)((double)where[fr] * 10_000_000.0 / rate);
                 if (res.Count == 0 || qpc - res[^1] > 200_000) res.Add(qpc);
             }
         }

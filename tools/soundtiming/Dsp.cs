@@ -132,6 +132,38 @@ internal static class Dsp
         return r;
     }
 
+    /// <summary>In-place radix-2 FFT; the length must be a power of two.</summary>
+    public static void Fft(double[] re, double[] im)
+    {
+        int n = re.Length;
+        for (int i = 1, j = 0; i < n; i++)
+        {
+            int bit = n >> 1;
+            for (; (j & bit) != 0; bit >>= 1) j ^= bit;
+            j ^= bit;
+            if (i < j) { (re[i], re[j]) = (re[j], re[i]); (im[i], im[j]) = (im[j], im[i]); }
+        }
+        for (int len = 2; len <= n; len <<= 1)
+        {
+            double ang = -2 * Math.PI / len;
+            double wr = Math.Cos(ang), wi = Math.Sin(ang);
+            for (int i = 0; i < n; i += len)
+            {
+                double cr = 1, ci = 0;
+                for (int k = 0; k < len / 2; k++)
+                {
+                    int a = i + k, b = a + len / 2;
+                    double tr = re[b] * cr - im[b] * ci, ti = re[b] * ci + im[b] * cr;
+                    re[b] = re[a] - tr; im[b] = im[a] - ti;
+                    re[a] += tr; im[a] += ti;
+                    double nr = cr * wr - ci * wi;
+                    ci = cr * wi + ci * wr;
+                    cr = nr;
+                }
+            }
+        }
+    }
+
     public static double Db(double v) => 20 * Math.Log10(v + 1e-12);
 
     public static double Median(IEnumerable<double> v)

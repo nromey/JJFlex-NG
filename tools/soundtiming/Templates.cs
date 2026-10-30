@@ -17,7 +17,7 @@ internal sealed class Template
     /// <summary>Where the sound first becomes audible within <see cref="Whole"/> (leading silence skipped).</summary>
     public int OnsetIndex;
 
-    /// <summary>The part the detector slides: from the onset, up to 80 ms.</summary>
+    /// <summary>The part the detector slides: from the onset, up to 500 ms.</summary>
     public float[] Head = Array.Empty<float>();
 
     /// <summary>Extra lead the sound starts with on purpose (CW's leading space), in ms, added back to "heard".</summary>
@@ -116,7 +116,11 @@ internal static class Templates
         var at = Dsp.ToAnalysisRate(mono, EarconPlayer.MixerSampleRate);
         int onset = Dsp.FirstAbove(at, 0.05);
         if (onset < 0) return null;
-        int headLen = Math.Min(Dsp.AnalysisRate * 80 / 1000, at.Length - onset);
+        // Up to half a second from the onset: long enough to carry the
+        // sound's rhythm, so a figure of repeated identical notes cannot match
+        // its own second note, and a hole in one note cannot hand the match
+        // to the next.
+        int headLen = Math.Min(Dsp.AnalysisRate / 2, at.Length - onset);
         if (headLen < Dsp.AnalysisRate / 200) return null;
         return new Template
         {
