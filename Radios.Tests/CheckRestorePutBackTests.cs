@@ -327,6 +327,28 @@ public sealed class CheckRestorePutBackTests : IDisposable
     }
 
     [Fact]
+    public async Task A_setting_that_cannot_be_read_is_kept_and_a_transverter_band_that_is_gone_is_left_alone()
+    {
+        var store = new CheckRestoreReminderStore(Folder());
+        store.AddPutBacks("unread-serial", new[] { CheckPutBack.Antenna("ANT1", "XVT-A"), CheckPutBack.Drive(7, -2.0, -10.0) });
+        store.Add("unread-serial", FlexBase.CheckRestoreWithheld);
+        var (briefing, said, _) = OwnBriefing();
+        using var c = RadioHoldingTheChecksValues("unread-serial", store, briefing);
+        // No transmit slice and no selected slice yet: the antenna cannot be read.
+        Field(c.Tx, "_isTransmitSlice", false);
+        Field(c.Tx, "_active", false);
+
+        Announce(c.F.Rig);
+        await PutBackFinishes(c);
+
+        Assert.DoesNotContain(c.F.Vendor.Transport.Commands, x => x.Contains("txant=", StringComparison.Ordinal)
+            || x.StartsWith("xvtr set", StringComparison.Ordinal));
+        Assert.Single(said, u => u.Text == "When this radio was last disconnected, an audio check had not put its settings back. "
+            + "Already changed by something else, so left alone: transverter drive. Not confirmed, so check the transmit antenna.");
+        Assert.Equal(new[] { CheckPutBack.Antenna("ANT1", "XVT-A") }, store.PutBacksFor("unread-serial"));
+    }
+
+    [Fact]
     public async Task A_connect_that_fails_before_its_briefing_is_spoken_says_the_put_back_at_the_next_one()
     {
         var store = new CheckRestoreReminderStore(Folder());

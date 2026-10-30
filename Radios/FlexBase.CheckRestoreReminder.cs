@@ -220,6 +220,18 @@ namespace Radios
                             + "; already holds its original, nothing to write", TraceLevel.Info);
                         continue;
                     }
+                    if (now == null && !(item.Setting == CheckPutBack.XvtrDrive && DriveBand(radio, item) == null))
+                    {
+                        // Not read is not "changed by something else": no
+                        // transmit slice yet, or the read threw. Kept, and said,
+                        // so the next connect tries again. A transverter band
+                        // that no longer exists has no drive left to put back,
+                        // and is left alone below.
+                        notDone.Add(item);
+                        Tracing.TraceLine("Check put-back " + item + ": could not be read; kept for the next connect",
+                            TraceLevel.Warning);
+                        continue;
+                    }
                     if (now == null || !item.Same(now, item.CheckSet))
                     {
                         store.RemovePutBack(serial, item);
