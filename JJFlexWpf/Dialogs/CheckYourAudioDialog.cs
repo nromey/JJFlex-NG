@@ -286,7 +286,17 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             var result = work.IsCompletedSuccessfully ? work.Result : new AudioCheckTeardownResult(false, "did-not-finish");
             JJTrace.Tracing.TraceLine("Check your audio teardown: " + (result.Completed ? "completed" : "NOT confirmed at " + result.Stage),
                 result.Completed ? System.Diagnostics.TraceLevel.Info : System.Diagnostics.TraceLevel.Warning);
-            if (!result.Completed)
+            if (!result.Completed && !rig.CheckRestoreStillOwed())
+            {
+                // Round 1030 repair TD (D2): the words come from what is owed, not
+                // from the stage. Every restore that is not done is known to owe
+                // nothing (on Noel's bench 2026-10-30 the withheld entry was an
+                // off-air take the radio had already confirmed restored), so
+                // nothing is said now and nothing is kept for the next connect.
+                JJTrace.Tracing.TraceLine("Check your audio teardown: not confirmed at " + result.Stage
+                    + ", but nothing is owed; nothing is said or kept", System.Diagnostics.TraceLevel.Info);
+            }
+            else if (!result.Completed)
             {
                 // Withheld because the radio kept transmitting is the correct
                 // outcome, and is said as itself, not as a restore.

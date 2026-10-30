@@ -11853,7 +11853,12 @@ namespace Radios
                     LoopbackEndOutcome.Drive when driveBand != null => CheckPutBack.Drive(driveBand.Index, savedDriveDbm, -10.0),
                     _ => null,
                 };
-                if (item != null) DescribeCheckPutBack(step, item);
+                // Every step is described, the slice-only ones and an unchanged
+                // part with nothing in the list (round 1030 repair TD, D2): after a
+                // disconnect they owe the station nothing, for the reason above,
+                // so a teardown that leaves only them unfinished is not said as
+                // power and antenna not put back.
+                DescribeCheckPutBack(step, item != null ? new[] { item } : Array.Empty<CheckPutBack>());
             }
         }
 

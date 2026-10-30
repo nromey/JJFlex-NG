@@ -590,10 +590,20 @@ public partial class FlexBase
                 if (!SameConnection()) throw new InvalidOperationException("arrangement-connection-ended");
                 if (!FullDuplexState(radio, connection)) throw new InvalidOperationException("full-duplex-setup-unconfirmed");
             }
+            // The restore may run more than once (#835, round 1030 repair TD): a
+            // first attempt the radio's transmit held back is tried again by the
+            // restore owner at receive. The take's lease goes with the first
+            // attempt, exactly once; the record it leaves still blocks a new take.
+            int leaseReleased = 0;
             run = new ListenbackRun(capture, async () =>
             {
-                try { return SameConnection() && await RestoreListenbackSnapshotAsync(snapshot, true, identities).ConfigureAwait(false); }
-                finally { _iqLease.Release(); }
+                try
+                {
+                    return SameConnection()
+                        ? await RestoreListenbackSnapshotOutcomeAsync(snapshot, true, identities).ConfigureAwait(false)
+                        : RestoreOutcome.Failed;
+                }
+                finally { if (Interlocked.Exchange(ref leaseReleased, 1) == 0) _iqLease.Release(); }
             }, () => { TransmitChange -= edge; if (ownedLoopback != null && ReferenceEquals(_lbResources, ownedLoopback)) { _loopbackArranged = false; _lbResources = null; _lbDriveBand = null; } });
             if (heardKeying) run.NoteRadioKeying();
             leaseTransferred = true;
@@ -623,7 +633,11 @@ public partial class FlexBase
                     bool restored = false;
                     try { restored = SameConnection() && await RestoreListenbackSnapshotAsync(snapshot, true, identities).ConfigureAwait(false); }
                     catch (Exception rollback) { JJTrace.Tracing.TraceLine("StartListenbackAsync rollback: " + rollback, System.Diagnostics.TraceLevel.Error); }
-                    if (!restored) CheckRestorations.RecordFailure("IQ take start rollback");
+                    // A rollback that did not finish leaves the take's own record
+                    // on disk, never deleted unconfirmed: that record is what is
+                    // owed, and the next connect takes it (round 1030 repair TD).
+                    if (!restored) DescribeCheckRestoreOwedElsewhere(CheckRestorations.RecordFailure("IQ take start rollback"),
+                        () => IqRecovery.Find(snapshot.Serial) != null);
                 }
             }
             throw;
@@ -648,13 +662,46 @@ public partial class FlexBase
                 ? _pendingListenbackIdentities : null);
 
     private async Task<bool> RestoreListenbackSnapshotAsync(RadioRecoverySnapshot snapshot, bool operatorApproved,
+        Dictionary<string, object> identities) =>
+        await RestoreListenbackSnapshotOutcomeAsync(snapshot, operatorApproved, identities).ConfigureAwait(false) == RestoreOutcome.Done;
+
+    /// <summary>
+    /// Put a take's snapshot back. Done when every item is confirmed and the
+    /// record cleared; Retry when the radio was transmitting, so nothing more
+    /// was written and the record stays, on a connection still live (the
+    /// restore owner tries again at receive); Failed otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <b>The transmit question is the restore owner's own, asked before the
+    /// restore starts, before each item and again when each queued write runs</b>
+    /// (#835, round 1030 repair TD, D1): our Mox OR the radio's interlock
+    /// (<see cref="RestoreRefusalAtRun"/>), as every Loopback restore asks since
+    /// round 1030. Until this it asked only our cached Mox. On Noel's bench
+    /// 2026-10-30 06:11 a hand mic (PTT source RCA) held the 8600 keyed through
+    /// a Disconnect, Mox stayed false, and this restore switched the transmit
+    /// antenna, raised the power, turned the monitor on and dropped full duplex
+    /// under RF, while the restore owner's entry for the same take was rightly
+    /// withheld: the window's own stop runs this directly, not through the owner.
+    /// <para>
+    /// Once the radio is found transmitting, no later item is sent either, the
+    /// take's receive-side objects included (its stream, pan, listening slice and
+    /// the mutes). Those are not transmit settings, but the mutes would let the
+    /// operator's receiver into the room during a full-duplex transmission, the
+    /// active-slice move a removal makes is a station change, and nothing is lost
+    /// by waiting: the restore owner runs the whole set again at receive, every
+    /// item is safe to repeat, and if the connection ends first the radio removes
+    /// a client's slices, pans and streams itself. The Loopback ending's listening
+    /// slice removal waits the same way (Codex round 2, R2-B1).
+    /// </para>
+    /// </remarks>
+    private async Task<RestoreOutcome> RestoreListenbackSnapshotOutcomeAsync(RadioRecoverySnapshot snapshot, bool operatorApproved,
         Dictionary<string, object> identities)
     {
         var trace = new ListenbackRestoreTrace(snapshot);
-        bool Refuse(string reason)
+        RestoreOutcome Refuse(string reason, RestoreOutcome outcome = RestoreOutcome.Failed)
         {
             foreach (var item in snapshot.Settings) trace.Write("verdict", new { item.Name, Sent = false, Confirmed = false, Reason = reason });
-            return false;
+            return outcome;
         }
         if (!operatorApproved || snapshot.UnreadableHash != null) return Refuse("not-approved-or-unreadable");
         var radio = theRadio;
@@ -665,10 +712,29 @@ public partial class FlexBase
         if (!Connected()) return Refuse("connection-ended");
         // ForceEnd sends unkey but cannot synchronously receive its status.
         // Wait only for radio-reported state; never send another keying command.
+        // Both signals must say receive (round 1030 repair TD): a hand mic keys
+        // the radio with our Mox false, and only the interlock reports it.
         long deadline = Environment.TickCount64 + (long)ListenbackUnkeyWait.TotalMilliseconds;
-        while (Transmit && Connected() && Environment.TickCount64 < deadline) await Task.Delay(20).ConfigureAwait(false);
-        if (!Connected() || Transmit) return Refuse("connection-ended-or-still-transmitting");
-        bool Live() => Connected() && !Transmit;
+        while (RestoreRefusalAtRun() != null && Connected() && Environment.TickCount64 < deadline) await Task.Delay(20).ConfigureAwait(false);
+        if (!Connected()) return Refuse("connection-ended");
+        if (RestoreRefusalAtRun() is string keyed)
+        {
+            JJTrace.Tracing.TraceLine("Listenback restore: held, nothing written: " + keyed + "; the take's record is kept", System.Diagnostics.TraceLevel.Warning);
+            return Refuse("still-transmitting; held for receive", RestoreOutcome.Retry);
+        }
+        // Set the first time any item, or any queued write at its run, meets a
+        // transmitting radio; from then on nothing more is sent.
+        bool heldByTransmit = false;
+        bool Live() => Connected() && RestoreRefusalAtRun() == null;
+        bool HoldIfTransmitting()
+        {
+            if (!Connected() || RestoreRefusalAtRun() is not string why) return false;
+            if (!heldByTransmit)
+                JJTrace.Tracing.TraceLine("Listenback restore: held at a write, nothing more written: " + why + "; the take's record is kept",
+                    System.Diagnostics.TraceLevel.Warning);
+            heldByTransmit = true;
+            return true;
+        }
         using var status = new RadioStatusTap(radio);
         bool WasPreexisting(string kind, uint id)
         {
@@ -758,7 +824,15 @@ public partial class FlexBase
             {
                 await IqQueue(() =>
                 {
-                    if (!Live()) { reply.TrySetResult(false); return; }
+                    // Asked again at the write's run (round 1030 repair TD): a key
+                    // that lands after the item's own question still stops it.
+                    if (heldByTransmit || !Live())
+                    {
+                        if (heldByTransmit || HoldIfTransmitting())
+                            trace.Write("no-command", new { setting.Name, Reason = "transmitting-at-the-writes-run; held for receive" });
+                        reply.TrySetResult(false);
+                        return;
+                    }
                     if (!RequiresWriteProof(setting) && !NeedsReadback(setting) && AlreadyRestored(setting, Current(setting)))
                     {
                         trace.Write("no-command", new { setting.Name, Reason = "already-restored-at-send" });
@@ -822,7 +896,8 @@ public partial class FlexBase
                 return result;
             }
             trace.Write("item", new { setting.Name, setting.RestoreCommand, setting.Value, setting.ResourceKind, setting.ResourceId });
-            if (!Live()) return Verdict(false, "connection-ended-or-transmitting");
+            if (heldByTransmit) return Verdict(false, "held for receive; not sent");
+            if (!Live()) return Verdict(false, HoldIfTransmitting() ? "transmitting; held for receive" : "connection-ended");
             object current = Current(setting);
             if (setting.Name.StartsWith("ears-", StringComparison.Ordinal) && current == null)
                 return Verdict(true, "created-listener-already-removed; no surviving ears setting");
@@ -872,9 +947,11 @@ public partial class FlexBase
                  !(setting.Name == "created-pan" && current is Panadapter targetPan &&
                     (PanBusy(targetPan) || targetPan.DAXIQChannel != 0 || radio.SliceList.Any(s => ReferenceEquals(s.Panadapter, current)))))).ConfigureAwait(false);
             return Verdict(confirmed, confirmed ?
-                (RequiresWriteProof(setting) ? "reply-confirmed; see confirmation basis" : "reply-and-status-confirmed") : "command-not-confirmed");
+                (RequiresWriteProof(setting) ? "reply-confirmed; see confirmation basis" : "reply-and-status-confirmed")
+                : heldByTransmit ? "transmitting at its write; held for receive" : "command-not-confirmed");
         }, true).ConfigureAwait(false);
-        trace.Write("complete", new { Confirmed = restored, snapshot.ResourceCreationPending });
+        bool held = !restored && heldByTransmit && Connected();
+        trace.Write("complete", new { Confirmed = restored, HeldForReceive = held, snapshot.ResourceCreationPending });
         if (restored && identities != null && Connected())
         {
             _lastReplyRestoredRadio = radio;
@@ -882,6 +959,52 @@ public partial class FlexBase
             _lastReplyRestoredTake = snapshot;
             _lastReplyRestoredIdentities = new Dictionary<string, object>(identities);
         }
-        return restored;
+        return restored ? RestoreOutcome.Done : held ? RestoreOutcome.Retry : RestoreOutcome.Failed;
+    }
+
+    /// <summary>
+    /// Give an IQ take's restore to this radio's restore owner, held until the
+    /// window that started the take lets it go, so a teardown still stops the
+    /// take and waits for its restore after the window has closed (#835, fix
+    /// round 3). The owner runs it only while the radio reports receive; a
+    /// restore the radio's transmit held back is run again there (round 1030
+    /// repair TD, D1), and <paramref name="restoredLater"/> is told when that
+    /// later attempt puts the take back. What it owes after a disconnect is the
+    /// take's own record, which the next connect takes over, so it is
+    /// described as owed elsewhere for as long as the take is not restored (D2).
+    /// </summary>
+    public CheckRestorations.Entry TrackListenbackRunRestore(ListenbackRun run, string name, Action restoredLater = null)
+    {
+        var entry = CheckRestorations.Register(name, async () =>
+        {
+            // The stop is idempotent: a window's own stop and this one share one run.
+            await run.StopAsync("connection-ending").ConfigureAwait(false);
+            bool wasHeld = run.RestoreHeldByTransmit;
+            var outcome = await run.RestoreAgainIfHeldAsync().ConfigureAwait(false);
+            if (wasHeld && outcome == RestoreOutcome.Done)
+            {
+                JJTrace.Tracing.TraceLine("Listenback restore: " + name + " put back once the radio received", System.Diagnostics.TraceLevel.Info);
+                try { restoredLater?.Invoke(); }
+                catch (Exception ex) { JJTrace.Tracing.TraceLine("Listenback restore: the later notice threw: " + ex.Message, System.Diagnostics.TraceLevel.Error); }
+            }
+            return outcome;
+        }, held: true);
+        DescribeCheckRestoreOwedElsewhere(entry, () => !run.Restored);
+        return entry;
+    }
+
+    /// <summary>
+    /// The window stopped the take itself. A take the radio confirmed restored
+    /// leaves the owner as done, with no transmit question still to come (round
+    /// 1030 repair TD, D2: a key landing before the owner reached it read as
+    /// "withheld" at a disconnect, and the next connect said power and antenna
+    /// were not put back after the radio had confirmed both). Anything else is
+    /// released to the owner, which puts it back at receive.
+    /// </summary>
+    public void ListenbackRunStoppedByItsWindow(CheckRestorations.Entry entry, ListenbackRun run)
+    {
+        if (entry == null) return;
+        if (run?.Restored == true) CheckRestorations.PutBackElsewhere(entry);
+        else CheckRestorations.Release(entry);
     }
 }

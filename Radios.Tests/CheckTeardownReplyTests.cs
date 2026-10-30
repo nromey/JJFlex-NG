@@ -275,6 +275,36 @@ public sealed class CheckTeardownReplyTests : IDisposable
     }
 
     [Fact]
+    public async Task A_Loopback_whose_only_failure_is_a_slice_mute_owes_nothing_after_the_disconnect()
+    {
+        // Round 1030 repair TD, D2's class: the slices belong to the connection
+        // (DescribeLoopbackPutBacks), so a failed mute is not a station setting
+        // the next connect must claim was not put back.
+        using var c = new RadioCase("lb-mute-serial");
+        c.F.Rig.RestoreWriteWait = TimeSpan.FromMilliseconds(600);
+        var store = new CheckRestoreReminderStore(Path.Combine(RadioConfig.AppDataRoot, "lb-mute-" + Guid.NewGuid().ToString("N")));
+        c.F.Rig.CheckRestoreRemindersOverride = store;
+        var outcome = await LoopbackEndedWith(c, command =>
+        {
+            if (command.Contains("audio_mute=0", StringComparison.Ordinal))
+                c.F.Vendor.Reply(c.F.Vendor.LastSequence, 0x50000016, "refused");
+            else c.Respond(command);
+        });
+        Assert.Contains(LoopbackEndOutcome.Mutes, outcome.NotRestored); // positive control: a step really failed
+        Assert.Empty(c.F.Rig.CheckPutBacksOwed());
+
+        c.F.Rig.BeginCheckTeardown();
+        AudioCheckTeardownResult result;
+        try { result = await c.Pump(c.F.Rig.SettleChecksForTeardownAsync(TimeSpan.FromSeconds(2))); }
+        finally { c.F.Rig.EndCheckTeardown(); }
+        Assert.False(result.Completed);
+
+        Assert.False(c.F.Rig.CheckRestoreStillOwed());
+        c.F.Rig.NoteCheckRestoreReminder(FlexBase.CheckRestoreUnconfirmed);
+        Assert.Null(store.ReasonFor(c.F.Vendor.Radio.Serial));
+    }
+
+    [Fact]
     public async Task Control_a_Loopback_the_radio_accepts_restores_everything()
     {
         using var c = new RadioCase("lb-ok-serial");

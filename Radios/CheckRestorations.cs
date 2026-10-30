@@ -212,6 +212,35 @@ namespace Radios
             Kick();
         }
 
+        /// <summary>
+        /// The change was put back by its own owner, outside this pump, and the
+        /// radio confirmed it (#835, round 1030 repair TD): it leaves as Done
+        /// without being run. Without this, an entry whose work was already done
+        /// waited for the transmit question like any other, and a key landing in
+        /// between read as "withheld" at a teardown, which the next connect then
+        /// said as settings not put back (Noel's bench, 2026-10-30, D2). Only for
+        /// a change whose owner HAS confirmed it; anything else is
+        /// <see cref="Release"/>.
+        /// </summary>
+        public void PutBackElsewhere(Entry? entry)
+        {
+            if (entry == null || entry.Finished) return;
+            lock (_gate) { _entries.Remove(entry); _generation++; }
+            entry.Done.TrySetResult(true);
+            Kick();
+        }
+
+        /// <summary>
+        /// What is not put back right now: every entry still waiting, running or
+        /// failed (a Done entry has already left), and whether a start is still in
+        /// flight, whose restores are not registered yet (round 1030 repair TD).
+        /// For the teardown, which reads it before it forgets the failed ones.
+        /// </summary>
+        public (IReadOnlyList<Entry> Entries, bool StartInFlight) NotPutBackNow()
+        {
+            lock (_gate) return (_entries.Where(e => !(e.Task.IsCompletedSuccessfully && e.Task.Result)).ToList(), _starts.Count > 0);
+        }
+
         /// <summary>Release everything held; a teardown is ending the check whatever its state.</summary>
         public void ReleaseAll()
         {

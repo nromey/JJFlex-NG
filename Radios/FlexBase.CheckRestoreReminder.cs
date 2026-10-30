@@ -83,8 +83,99 @@ namespace Radios
             {
                 // An entry that has put its setting back owes nothing any more.
                 _checkPutBackPlan.RemoveAll(p => PutBackDone(p.Entry));
+                _checkPutBackDescribed.RemoveWhere(PutBackDone);
                 foreach (var item in items)
                     if (item != null && item.Changed) _checkPutBackPlan.Add((entry, item));
+                // Described, even when nothing in it really changed: what it
+                // owes after a disconnect is exactly the list above (round 1030
+                // repair TD, D2), so it is never "a restore nobody can name".
+                _checkPutBackDescribed.Add(entry);
+            }
+        }
+
+        /// <summary>
+        /// Say that <paramref name="entry"/> owes the station nothing this
+        /// reminder must record after a disconnect, because what it owes is
+        /// carried somewhere else or ends with the connection (#835, round 1030
+        /// repair TD, D2). <paramref name="stillOwed"/> answers, at the
+        /// disconnect, whether anything is still owed there: the off-air take's
+        /// own record, which the next connect's put-back takes over, answers
+        /// true until the take is restored; a restore of the connection's own
+        /// slices answers false, since the radio removes a client's slices when
+        /// it goes. Never throws.
+        /// </summary>
+        public void DescribeCheckRestoreOwedElsewhere(CheckRestorations.Entry? entry, Func<bool> stillOwed)
+        {
+            if (entry == null || stillOwed == null) return;
+            lock (_checkPutBackGate)
+            {
+                _checkOwedElsewhere.RemoveAll(p => PutBackDone(p.Entry));
+                _checkOwedElsewhere.Add((entry, stillOwed));
+            }
+        }
+
+        /// <summary>Entries whose station-wide debt is their <see cref="DescribeCheckPutBack"/> list, empty or not.</summary>
+        private readonly HashSet<CheckRestorations.Entry> _checkPutBackDescribed = new();
+
+        /// <summary>Entries whose debt after a disconnect is carried elsewhere, with the question whether any is left there.</summary>
+        private readonly List<(CheckRestorations.Entry Entry, Func<bool> StillOwed)> _checkOwedElsewhere = new();
+
+        /// <summary>The last teardown settle's reading of what was not put back, taken before it forgot the failed entries; null until one is taken.</summary>
+        private (IReadOnlyList<CheckRestorations.Entry> Entries, bool StartInFlight)? _settleNotPutBack;
+
+        /// <summary>
+        /// After a teardown that did not complete: is anything really owed?
+        /// True when a described setting is owed, when something else still owes
+        /// (an off-air take's own record), or when anything not put back cannot
+        /// be named: a restore nobody described, a start still in flight, or no
+        /// reading from the teardown at all. False only when every restore that
+        /// is not done is known to owe nothing (#835, round 1030 repair TD, D2).
+        /// </summary>
+        /// <remarks>
+        /// Until this, what the disconnect and the next connect said was chosen
+        /// from the teardown's STAGE: "still-transmitting" said "held back your
+        /// power and antenna settings" and kept that reminder for the next
+        /// connect, which said it again because nothing was recorded to put back.
+        /// On Noel's bench 2026-10-30 06:11 the radio had confirmed every one of
+        /// those settings; the only thing withheld was the off-air take's entry,
+        /// whose work was already done.
+        /// </remarks>
+        public bool CheckRestoreStillOwed() => CheckRestoreDebtNow(out _);
+
+        private bool CheckRestoreDebtNow(out string why)
+        {
+            try
+            {
+                var owed = CheckPutBacksOwed();
+                if (owed.Count > 0) { why = owed.Count + " described setting(s) owed"; return true; }
+                (IReadOnlyList<CheckRestorations.Entry> Entries, bool StartInFlight)? reading;
+                List<CheckRestorations.Entry> described;
+                List<(CheckRestorations.Entry Entry, Func<bool> StillOwed)> elsewhere;
+                lock (_checkPutBackGate)
+                {
+                    reading = _settleNotPutBack;
+                    described = _checkPutBackDescribed.ToList();
+                    elsewhere = _checkOwedElsewhere.ToList();
+                }
+                if (reading is not { } r) { why = "no teardown reading of what was not put back"; return true; }
+                if (r.StartInFlight) { why = "a check was still starting"; return true; }
+                foreach (var entry in r.Entries.Where(e => !PutBackDone(e)))
+                {
+                    if (described.Contains(entry)) continue;
+                    var carried = elsewhere.Where(p => ReferenceEquals(p.Entry, entry)).ToList();
+                    if (carried.Count == 0) { why = "'" + entry.Name + "' is not put back and says nothing of what it owes"; return true; }
+                    bool still;
+                    try { still = carried.Any(p => p.StillOwed()); }
+                    catch { still = true; }
+                    if (still) { why = "'" + entry.Name + "' still owes, carried by its own record"; return true; }
+                }
+                why = "every restore not done is known to owe nothing";
+                return false;
+            }
+            catch (Exception ex)
+            {
+                why = "could not be read: " + ex.Message;
+                return true;
             }
         }
 
@@ -117,6 +208,14 @@ namespace Radios
                 Tracing.TraceLine("Check restore reminder: no radio serial, so nothing can be kept for the next connect", TraceLevel.Warning);
                 return;
             }
+            // From what is owed, not from the teardown's stage (round 1030 repair
+            // TD, D2): with nothing owed, the next connect says nothing.
+            if (!CheckRestoreDebtNow(out string debt))
+            {
+                Tracing.TraceLine("Check restore reminder (" + reason + ") for " + serial + " not kept: " + debt
+                    + ", so nothing is owed and the next connect says nothing about it", TraceLevel.Info);
+                return;
+            }
             var store = CheckRestoreReminders;
             var owed = CheckPutBacksOwed();
             if (owed.Count > 0)
@@ -126,7 +225,7 @@ namespace Radios
                     Tracing.TraceLine("Check put-back recorded for the next connect to " + serial + ": " + item, TraceLevel.Info);
             }
             else
-                Tracing.TraceLine("Check put-back: no station setting is recorded as owed to " + serial, TraceLevel.Info);
+                Tracing.TraceLine("Check put-back: no station setting is recorded as owed to " + serial + " (" + debt + ")", TraceLevel.Info);
             store.Add(serial, reason);
             Tracing.TraceLine("Check restore reminder (" + reason + ") kept for the next connect to " + serial, TraceLevel.Info);
         }
