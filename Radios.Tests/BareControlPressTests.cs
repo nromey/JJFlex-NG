@@ -174,7 +174,9 @@ namespace Radios.Tests
             Assert.Contains("run.Skip();", hookPath);
             string windowPath = Body(src, "private void CountdownSkipKeyUp");
             int bare = windowPath.IndexOf("if (!bare) return;", System.StringComparison.Ordinal);
-            int may = windowPath.IndexOf("CountdownSkipGate.WindowMayDecide(_hookAtControlDown, SystemWideKeys.EverInstalled)", System.StringComparison.Ordinal);
+            int may = windowPath.IndexOf("CountdownSkipGate.WindowMayDecide(SystemWideKeys.EverSawAKey, SystemWideKeys.LastKeyTime, _controlDownTime)", System.StringComparison.Ordinal);
+            // The press's stamp is the Windows stamp on the Control press itself.
+            Assert.Contains("_controlDownTime = e.Timestamp;", src);
             int skip = windowPath.IndexOf(".Skip()", System.StringComparison.Ordinal);
             Assert.True(bare > 0 && may > bare && skip > may, "the window's skip must sit behind both its own bare test and the no-hook test");
 
@@ -187,6 +189,9 @@ namespace Radios.Tests
             int swallow = callback.IndexOf("if (d.Swallow)", System.StringComparison.Ordinal);
             Assert.True(decide > 0 && observe > decide && swallow > observe, "every edge must reach the gesture tracker, before the swallow");
             Assert.Contains("BareControlReleased?.Invoke(verdict)", callback);
+            // Every key edge is stamped as seen before anything can swallow it.
+            int stamp = callback.IndexOf("System.Threading.Volatile.Write(ref _lastKeyTime, unchecked((int)data.time));", System.StringComparison.Ordinal);
+            Assert.True(stamp > 0 && stamp < decide, "the hook must note every key it sees before deciding or swallowing it");
         }
 
         // ── The real hook, composed with the gesture tracker and the gate ──
@@ -204,35 +209,51 @@ namespace Radios.Tests
         /// window's own recogniser decides from its (equally late) events.
         /// True when the count would be skipped.
         /// </summary>
-        private static bool Replay(bool systemWide, params (uint vk, bool down, bool ctrl, bool alt, bool shift)[] keys)
+        private static bool Replay(bool systemWide, params (uint vk, bool down, bool ctrl, bool alt, bool shift)[] keys) =>
+            Replay(systemWide, hookDead: false, keys);
+
+        /// <summary>
+        /// As above; with <paramref name="hookDead"/>, a hook that installed and
+        /// saw keys earlier and has since faulted, been unhooked or been removed
+        /// by Windows: it sees, swallows and decides nothing now.
+        /// </summary>
+        private static bool Replay(bool systemWide, bool hookDead, params (uint vk, bool down, bool ctrl, bool alt, bool shift)[] keys)
         {
             const long countStarted = 1000;
             long tick = countStarted;
-            var passed = new System.Collections.Generic.List<(uint vk, bool down, bool alt, bool shift)>();
+            bool hookAlive = systemWide && !hookDead;
+            bool hookEverSaw = systemWide;                       // a dead hook saw keys before it died
+            uint hookLast = (uint)(countStarted - 500);
+            var passed = new System.Collections.Generic.List<(uint vk, bool down, bool alt, bool shift, long at)>();
             var verdicts = new System.Collections.Generic.List<BareControlRelease>();
             var decider = new SystemWideKeyDecider { Set = systemWide ? SystemWideKeySet.Defaults : SystemWideKeySet.Off };
             var gestures = new BareControlGestures();
             foreach (var k in keys)
             {
                 tick += 50;
+                if (!hookAlive) { passed.Add((k.vk, k.down, k.alt, k.shift, tick)); continue; }
+                hookLast = (uint)tick;
                 var d = decider.Decide(k.vk, k.down, new SystemWideModifiers(k.ctrl, k.alt, k.shift));
-                if (systemWide)
-                {
-                    var v = gestures.Observe(k.vk, k.down, tick, Own);
-                    if (v != null) verdicts.Add(v.Value);
-                }
-                if (!d.Swallow) passed.Add((k.vk, k.down, k.alt, k.shift));
+                var v = gestures.Observe(k.vk, k.down, tick, Own);
+                if (v != null) verdicts.Add(v.Value);
+                if (!d.Swallow) passed.Add((k.vk, k.down, k.alt, k.shift, tick));
             }
 
-            // The window, late. It may decide alone only with no hook.
+            // The window, late. It may decide alone only when the hook saw no
+            // key of the press, by the Windows stamp each side reads.
             bool skipped = false;
             var press = new BareControlPress();
-            bool hookInstalled = systemWide;
+            bool hookInstalled = hookAlive;
+            int controlDownAt = 0;
             foreach (var k in passed)
             {
                 bool control = BareControlGestures.IsControlVirtualKey(k.vk);
-                if (k.down) press.KeyDown((int)k.vk, control, false, k.alt || k.shift);
-                else if (press.KeyUp((int)k.vk, control) && CountdownSkipGate.WindowMayDecide(hookInstalled, hookInstalled))
+                if (k.down)
+                {
+                    if (control && !press.ControlDown) controlDownAt = (int)k.at;
+                    press.KeyDown((int)k.vk, control, false, k.alt || k.shift);
+                }
+                else if (press.KeyUp((int)k.vk, control) && CountdownSkipGate.WindowMayDecide(hookEverSaw, hookLast, controlDownAt))
                     skipped = true;
             }
 
@@ -381,12 +402,40 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_window_decides_alone_only_when_no_hook_has_ever_been_installed()
+        public void The_window_decides_alone_only_when_the_hook_saw_no_key_of_the_press()
         {
-            Assert.True(CountdownSkipGate.WindowMayDecide(false, false));
-            Assert.False(CountdownSkipGate.WindowMayDecide(true, false));
-            Assert.False(CountdownSkipGate.WindowMayDecide(false, true));
-            Assert.False(CountdownSkipGate.WindowMayDecide(true, true));
+            // No hook has seen anything this session: the window decides.
+            Assert.True(CountdownSkipGate.WindowMayDecide(false, 0, 5000));
+            // The hook saw only keys from before Control went down (it has since
+            // died): the window decides.
+            Assert.True(CountdownSkipGate.WindowMayDecide(true, 4999, 5000));
+            // The hook saw Control's own press (same stamp) or anything after:
+            // its verdict decides, the window does not.
+            Assert.False(CountdownSkipGate.WindowMayDecide(true, 5000, 5000));
+            Assert.False(CountdownSkipGate.WindowMayDecide(true, 5050, 5000));
+            // Across the 32-bit wrap the order still holds.
+            Assert.False(CountdownSkipGate.WindowMayDecide(true, 10, unchecked((int)0xFFFFFFF0u)));
+            Assert.True(CountdownSkipGate.WindowMayDecide(true, 0xFFFFFFE0u, unchecked((int)0xFFFFFFF0u)));
+        }
+
+        /// <summary>
+        /// Codex round 4's follow-up: with "no hook EVER installed" as the
+        /// rule, a hook that installed and then died left the Control skip dead
+        /// for the session. A dead hook sees nothing now, so the window decides,
+        /// and it still tells a chord from a bare Control.
+        /// </summary>
+        [Fact]
+        public void After_the_hook_dies_the_window_skips_on_a_bare_Control_and_not_on_a_chord()
+        {
+            var bareCtl = new[] { (VCtl, true, true, false, false), (VCtl, false, false, false, false) };
+            var ctrlK = new[] { (VCtl, true, true, false, false), (VK, true, true, false, false),
+                                (VK, false, true, false, false), (VCtl, false, false, false, false) };
+            Assert.True(Replay(true, hookDead: true, bareCtl));
+            Assert.False(Replay(true, hookDead: true, ctrlK));
+            Assert.False(Replay(true, hookDead: true, (VCtl, true, true, false, false), (VEnter, true, true, false, false),
+                (VEnter, false, true, false, false), (VCtl, false, false, false, false)));
+            // Positive control: the same bare press with the hook alive skips by the hook's verdict alone.
+            Assert.True(Replay(true, hookDead: false, bareCtl));
         }
 
         [Fact]

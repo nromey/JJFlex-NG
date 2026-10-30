@@ -119,8 +119,8 @@ public partial class CheckYourAudioDialog
     /// <summary>The count that was running when the Control now held went down; only that count is skipped by it.</summary>
     private CountdownRun? _controlPressedDuring;
 
-    /// <summary>Whether the system-wide hook had ever been installed when the Control now held went down.</summary>
-    private bool _hookAtControlDown;
+    /// <summary>The Windows stamp on the press of the Control now held, to ask the hook whether it saw that press.</summary>
+    private int _controlDownTime;
 
     private bool _countdownSkipKeysHooked;
 
@@ -176,7 +176,7 @@ public partial class CheckYourAudioDialog
         if (control && !e.IsRepeat && _controlPressedDuring == null)
         {
             _controlPressedDuring = StartCountdownRunning ? _startCountdown : null;
-            _hookAtControlDown = SystemWideKeys.EverInstalled;
+            _controlDownTime = e.Timestamp;
         }
         bool otherModifier = (Keyboard.Modifiers & (ModifierKeys.Shift | ModifierKeys.Alt | ModifierKeys.Windows)) != 0;
         _bareControl.KeyDown(KeyIdentity(e), control, e.IsRepeat, otherModifier);
@@ -191,9 +191,10 @@ public partial class CheckYourAudioDialog
         var pressedDuring = _controlPressedDuring;
         _controlPressedDuring = null;
         if (!bare) return;
-        // With the hook installed at either end of the press, its verdict
-        // decides, not this window.
-        if (!CountdownSkipGate.WindowMayDecide(_hookAtControlDown, SystemWideKeys.EverInstalled)) return;
+        // If the hook saw any key of this press, its verdict decides, not
+        // this window; only a hook that saw nothing (none, or a dead one)
+        // leaves the decision here.
+        if (!CountdownSkipGate.WindowMayDecide(SystemWideKeys.EverSawAKey, SystemWideKeys.LastKeyTime, _controlDownTime)) return;
         // Only the count that was running when Control went down, and only
         // while it is still running: a Control held from before the count
         // began, or across its end, skips nothing.

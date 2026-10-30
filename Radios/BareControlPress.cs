@@ -213,14 +213,38 @@ namespace Radios
         }
 
         /// <summary>
-        /// The window's own recogniser decides only when no hook had EVER been
-        /// installed by Control's press AND by its release: then nothing can
-        /// have been swallowed between them. "Is a hook installed now" at the
-        /// two ends is not enough (Codex round 3, F2): a hook can install,
-        /// swallow and unhook between two delayed samples. With a hook, ever,
-        /// only its verdict counts.
+        /// The window's own recogniser decides only when the hook saw NO key
+        /// from Control's press onward: then the hook can have swallowed
+        /// nothing in that press, so the window has seen every key of it, and
+        /// the hook will give no verdict on it. A live hook always sees
+        /// Control's own press, so while it runs only its verdict counts.
         /// </summary>
-        public static bool WindowMayDecide(bool hookInstalledAtDown, bool hookInstalledAtUp) =>
-            !hookInstalledAtDown && !hookInstalledAtUp;
+        /// <remarks>
+        /// <para>
+        /// Compared on the time Windows stamps on each key event, which the
+        /// hook (<c>KBDLLHOOKSTRUCT.time</c>) and the window
+        /// (<c>KeyEventArgs.Timestamp</c>) both read from the same event, so a
+        /// late UI thread cannot reorder them, and Control's own press carries
+        /// the same stamp on both sides. The stamp is 32-bit milliseconds;
+        /// every ambiguity (wraparound, equal stamps) falls to "the hook saw
+        /// it", which skips nothing.
+        /// </para>
+        /// <para>
+        /// <b>Replaced "no hook EVER installed" (Codex round 4 follow-up,
+        /// 2026-10-29).</b> That rule was safe but left the skip dead for the
+        /// rest of the session once a hook had installed and then faulted, been
+        /// unhooked, or been removed by Windows for answering too slowly: the
+        /// window abstained and the hook gave no verdict. Its reason still
+        /// holds (Codex round 3, F2: a hook can install, swallow and unhook
+        /// between two samples of "installed now"), and this rule keeps it: a
+        /// hook that swallowed a key in this press saw that key, at or after
+        /// Control's stamp.
+        /// </para>
+        /// </remarks>
+        /// <param name="hookEverSawAKey">The hook has seen at least one key this session.</param>
+        /// <param name="hookLastKeyTime">The Windows stamp of the last key the hook saw.</param>
+        /// <param name="windowControlDownTime">The Windows stamp of the Control press this window saw.</param>
+        public static bool WindowMayDecide(bool hookEverSawAKey, uint hookLastKeyTime, int windowControlDownTime) =>
+            !hookEverSawAKey || unchecked((int)(hookLastKeyTime - (uint)windowControlDownTime)) < 0;
     }
 }

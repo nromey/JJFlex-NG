@@ -178,6 +178,20 @@ namespace JJFlexWpf
         private static volatile bool _everInstalled;
 
         /// <summary>
+        /// The hook has seen a key this session, and <see cref="LastKeyTime"/>
+        /// is the Windows stamp of the latest. A window asks these whether the
+        /// hook saw any key of a press it is deciding (#835, Codex round 4
+        /// follow-up): a hook that faulted, was unhooked, or was removed by
+        /// Windows sees nothing, and then the window may decide for itself.
+        /// </summary>
+        public static bool EverSawAKey => _everSawAKey;
+        private static volatile bool _everSawAKey;
+
+        /// <summary>The Windows time stamp (<c>KBDLLHOOKSTRUCT.time</c>) of the last key edge the hook saw.</summary>
+        public static uint LastKeyTime => unchecked((uint)System.Threading.Volatile.Read(ref _lastKeyTime));
+        private static int _lastKeyTime;
+
+        /// <summary>
         /// A bare Control (pressed and released with no other key, the hook's
         /// swallowed keys included) was just released, anywhere (#835). Raised
         /// on the UI dispatcher. Check your audio's countdown skip listens; it
@@ -433,6 +447,10 @@ namespace JJFlexWpf
                     return CallNextHookEx(_hookHandle, nCode, wParam, lParam);
 
                 var data = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+                // Seen, before anything can swallow it: the stamp first, then
+                // the flag, so a reader that sees the flag sees a stamp.
+                System.Threading.Volatile.Write(ref _lastKeyTime, unchecked((int)data.time));
+                _everSawAKey = true;
                 // Live modifier state from Windows, read only to recognise a
                 // DOWN. Injected input counts (JAWS re-injects), as it does
                 // for CwCtrlInterrupt: filtering it would exempt our audience.
