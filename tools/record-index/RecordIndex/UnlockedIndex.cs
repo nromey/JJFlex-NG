@@ -277,9 +277,9 @@ public sealed class UnlockedIndex : IDisposable
     {
         var r = Ring.Recipients.FirstOrDefault(x => x.Id.Equals(id, StringComparison.OrdinalIgnoreCase))
             ?? throw new UnlockException($"No key with id {id} is enrolled. Run record-index keys list.");
+        if (Ring.Recipients.Count == 1) throw new UnlockException("That is the only key. Removing it would lock the index for good.");
         if (r.Id == UnlockedBy.Id)
             throw new UnlockException("That is the key you unlocked with. Unlock with a different key to remove this one, so you know another key still works.");
-        if (Ring.Recipients.Count == 1) throw new UnlockException("That is the only key. Removing it would lock the index for good.");
         Ring.Recipients.Remove(r);
         Ring.Save(_home.KeyringPath);
         return r;
