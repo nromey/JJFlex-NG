@@ -68,6 +68,9 @@ internal static class FlexLibRestoreCache
                 {
                     "sb_monitor" => Flag(radio.TXMonitor),
                     "rfpower" => radio.RFPower.ToString(CultureInfo.InvariantCulture),
+                    // Added for the check's own restores and put-back (round 1030 repairs).
+                    "tunepower" => radio.TunePower.ToString(CultureInfo.InvariantCulture),
+                    "mic_selection" => radio.MicInput,
                     _ => null
                 };
             case "radio":

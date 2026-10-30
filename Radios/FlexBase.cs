@@ -10788,7 +10788,8 @@ namespace Radios
                 System.Threading.Interlocked.Increment(ref _monitorOperatorWrites);
                 SupersedeOwedMonitorPutBack();
                 // Inside a check's restore the write carries its own reply (round 1030 repairs).
-                EnqueueSettingWrite((FunctionDel)(() => { theRadio.TXMonitor = val; }), "transmit set mon=" + (val ? "1" : "0"));
+                EnqueueSettingWrite((FunctionDel)(() => { theRadio.TXMonitor = val; }),
+                    RadioWrite("monitor", "transmit set mon=" + (val ? "1" : "0"), "transmit", "sb_monitor", val ? "1" : "0"));
             }
         }
 
@@ -11119,7 +11120,8 @@ namespace Radios
                 _pcMicDiverged = false;
                 // Inside a check's restore the write carries its own reply (round 1030 repairs).
                 if (value != null)
-                    EnqueueSettingWrite((FunctionDel)(() => { theRadio.MicInput = value; }), "mic input " + value.ToUpperInvariant(), "MicInput");
+                    EnqueueSettingWrite((FunctionDel)(() => { theRadio.MicInput = value; }),
+                        RadioWrite("mic-input", "mic input " + value.ToUpperInvariant(), "transmit", "mic_selection", value.ToUpperInvariant()), "MicInput");
                 else q.Enqueue((FunctionDel)(() => { theRadio.MicInput = value; }), "MicInput");
             }
         }
@@ -11779,8 +11781,10 @@ namespace Radios
                     double dbm = savedDriveDbm;
                     return RestoreWritesAtReceiveAsync("loopback transverter drive",
                         () => EnqueueSettingWrite((FunctionDel)(() => { band.MaxPower = dbm; }),
-                            "xvtr set " + band.Index.ToString(System.Globalization.CultureInfo.InvariantCulture) + " max_power="
-                                + dbm.ToString("F2", System.Globalization.CultureInfo.InvariantCulture), "LoopbackDriveRestore"));
+                            RadioWrite("xvtr-drive", "xvtr set " + band.Index.ToString(System.Globalization.CultureInfo.InvariantCulture) + " max_power="
+                                + dbm.ToString("F2", System.Globalization.CultureInfo.InvariantCulture),
+                                "xvtr " + band.Index.ToString(System.Globalization.CultureInfo.InvariantCulture), "max_power",
+                                dbm.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)), "LoopbackDriveRestore"));
                 }),
                 owner.Register("loopback: forget the arrangement", () =>
                 {
@@ -11897,13 +11901,34 @@ namespace Radios
         private bool _dummyLoadMode;
         private int _savedRFPower;
         private int _savedTunePower;
+        // A release made inside a check's restore whose power writes have not
+        // yet been accepted (Codex round 2, 2026-10-30).
+        private volatile bool _dummyLoadReleaseUnconfirmed;
 
         public bool DummyLoadMode
         {
             get => _dummyLoadMode;
             set
             {
-                if (value == _dummyLoadMode) return;
+                if (value == _dummyLoadMode)
+                {
+                    // A release whose power writes were refused at their run
+                    // (the radio keyed before the loop reached them) leaves the
+                    // flag already false, so the restore's retry used to find
+                    // nothing to do and report Done with RF and tune still at 0
+                    // (Codex round 2, 2026-10-30). Inside a restore, a release
+                    // not yet seen through is sent again.
+                    if (!value && _dummyLoadReleaseUnconfirmed && RestoreWriteReplies.Ambient is { } again)
+                    {
+                        using (AppInitiatedSettingChanges())
+                        {
+                            XmitPower = _savedRFPower;
+                            TunePower = _savedTunePower;
+                        }
+                        again.OnDone(() => _dummyLoadReleaseUnconfirmed = false);
+                    }
+                    return;
+                }
 
                 // The zero-and-restore pair is mechanical, not an operator
                 // settings change — it must not arm the provisional-change
@@ -11918,6 +11943,7 @@ namespace Radios
                 {
                     if (value)
                     {
+                        _dummyLoadReleaseUnconfirmed = false;
                         _savedRFPower = XmitPower;
                         _savedTunePower = TunePower;
                         XmitPower = 0;
@@ -11929,6 +11955,13 @@ namespace Radios
                         _dummyLoadMode = false;
                         XmitPower = _savedRFPower;
                         TunePower = _savedTunePower;
+                        // Inside a restore the release is seen through only when
+                        // that restore is Done; until then a retry sends it again.
+                        if (RestoreWriteReplies.Ambient is { } replies)
+                        {
+                            _dummyLoadReleaseUnconfirmed = true;
+                            replies.OnDone(() => _dummyLoadReleaseUnconfirmed = false);
+                        }
                     }
                 }
             }
@@ -11949,8 +11982,9 @@ namespace Radios
             {
                 NoteRadioSettingWritten("XmitPower", value.ToString());   // the hold after a cut needs to know whose write this is (#571)
                 // Inside a check's restore the write carries its own reply (round 1030 repairs).
+                string rf = Math.Clamp(value, 0, 100).ToString(System.Globalization.CultureInfo.InvariantCulture);
                 EnqueueSettingWrite((FunctionDel)(() => { theRadio.RFPower = value; }),
-                    "transmit set rfpower=" + Math.Clamp(value, 0, 100).ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    RadioWrite("rf-power", "transmit set rfpower=" + rf, "transmit", "rfpower", rf));
             }
         }
 
@@ -12015,8 +12049,9 @@ namespace Radios
             {
                 NoteRadioSettingWritten("TunePower", value.ToString());   // the hold after a cut needs to know whose write this is (#571)
                 // Inside a check's restore the write carries its own reply (round 1030 repairs).
+                string tune = Math.Clamp(value, 0, 100).ToString(System.Globalization.CultureInfo.InvariantCulture);
                 EnqueueSettingWrite((FunctionDel)(() => { theRadio.TunePower = value; }),
-                    "transmit set tunepower=" + Math.Clamp(value, 0, 100).ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    RadioWrite("tune-power", "transmit set tunepower=" + tune, "transmit", "tunepower", tune));
             }
         }
 
