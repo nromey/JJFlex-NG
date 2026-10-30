@@ -199,21 +199,30 @@ public partial class CheckYourAudioDialog
     /// for the restore) after this window has closed (fix round 3). The stop is
     /// idempotent, so FinishIqAsync's own stop and this one share one run.
     /// </summary>
+    /// <remarks>
+    /// Since round 1030 repair TD the take's restore writes nothing while our
+    /// Mox or the radio's interlock says transmit (a hand mic keys the radio
+    /// with Mox false), and the owner runs a held restore again once the radio
+    /// receives; <see cref="FlexBase.TrackListenbackRunRestore"/> owns that.
+    /// When that later attempt puts the take back, the take's own existing
+    /// sentence says so, since this window last said it was not confirmed.
+    /// </remarks>
     private void TrackOffAirRun(FlexBase rig, ListenbackRun run) =>
-        _iqRunRestore = rig.CheckRestorations.Register("off-air take", async () =>
-        {
-            // The stop completes normally even when the snapshot could not be
-            // put back; Restored is the real answer (fix round 4).
-            await run.StopAsync("connection-ending");
-            return run.Restored;
-        }, held: true);
+        _iqRunRestore = rig.TrackListenbackRunRestore(run, "off-air take",
+            restoredLater: () => Dispatcher.BeginInvoke(new Action(() =>
+            {
+                // An existing sentence, not a new one: the take's own "restored".
+                if (_iqClosing || !ReferenceEquals(rig, _rig)) AnnounceClosedRecovery(true);
+                else { IqStatus(Lexicon.Get("audio.iq.restored")); ApplyMethodLayout(); }
+            })));
 
     /// <summary>The take's entry in the radio's restore owner; released once this window has stopped the take itself.</summary>
     private CheckRestorations.Entry? _iqRunRestore;
 
     private void ReleaseOffAirRun(FlexBase rig)
     {
-        rig.CheckRestorations.Release(_iqRunRestore);
+        // As FinishIqAsync does: a take its own stop restored leaves the owner as done.
+        if (_iqRunRestore != null) rig.ListenbackRunStoppedByItsWindow(_iqRunRestore, _iqRun);
         _iqRunRestore = null;
     }
 
@@ -232,8 +241,10 @@ public partial class CheckYourAudioDialog
         try
         {
             await run.StopAsync(reason);
-            // Stopped here; the owner's own stop of the same run now just joins it.
-            runRig?.CheckRestorations.Release(_iqRunRestore);
+            // Stopped here; the owner's own stop of the same run now just joins
+            // it. A take the radio confirmed restored leaves the owner as done
+            // (round 1030 repair TD, D2); a held one waits there for receive.
+            if (_iqRunRestore != null) runRig?.ListenbackRunStoppedByItsWindow(_iqRunRestore, run);
             _iqRunRestore = null;
             if (!ReferenceEquals(runRig, _rig)) return;
             // A take ending because the radio is about to go restores and

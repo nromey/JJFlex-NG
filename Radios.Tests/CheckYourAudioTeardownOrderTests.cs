@@ -160,9 +160,16 @@ namespace Radios.Tests
             string finish = Body(offAir, "private async Task FinishIqAsync(string reason)");
             Assert.Contains("if (_iqClosing || _tearingDown) { AnnounceClosedRecovery(run.Restored); return; }", finish);
             // And the take is the owner's too, so a closed window's take is still stopped and waited for.
-            Assert.Contains("rig.CheckRestorations.Register(\"off-air take\"", offAir);
-            // Fix round 4: its result is the take's own Restored, not "the stop returned".
-            Assert.Contains("return run.Restored;", offAir);
+            // Since round 1030 repair TD the registration lives in FlexBase, which also
+            // runs a restore the radio's transmit held back again at receive.
+            Assert.Contains("rig.TrackListenbackRunRestore(run, \"off-air take\"", offAir);
+            // Fix round 4: its result is the take's own restore, not "the stop returned":
+            // RestoreAgainIfHeldAsync answers Done only when the run is Restored.
+            string listenback = Read("Radios/FlexBase.Listenback.cs");
+            string track = Body(listenback, "public CheckRestorations.Entry TrackListenbackRunRestore(");
+            Assert.Contains("await run.StopAsync(\"connection-ending\")", track);
+            Assert.Contains("await run.RestoreAgainIfHeldAsync()", track);
+            Assert.Contains("if (Restored) return RestoreOutcome.Done;", Read("Radios/Listenback/ListenbackRun.cs"));
         }
     }
 }

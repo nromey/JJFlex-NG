@@ -158,6 +158,9 @@ public partial class FlexBase
     private async Task RunSettleAsync(TimeSpan bound, TaskCompletionSource<AudioCheckTeardownResult> run)
     {
         AudioCheckTeardownResult result;
+        // This settle's own reading of what is not put back; until it is taken,
+        // nothing can be said to be owed or not (round 1030 repair TD, D2).
+        lock (_checkPutBackGate) _settleNotPutBack = null;
         try
         {
             await Task.Yield();
@@ -173,6 +176,10 @@ public partial class FlexBase
                     confirm: ConfirmWritesReachedRadioAsync).ConfigureAwait(false);
             }
             finally { owner.EndReleasingEverything(); }
+            // Read before ClearFinished forgets the failed entries: the reminder
+            // at the disconnect decides from what is owed, not from the stage.
+            var notPutBack = owner.NotPutBackNow();
+            lock (_checkPutBackGate) _settleNotPutBack = notPutBack;
             owner.ClearFinished();
         }
         catch (Exception ex)
