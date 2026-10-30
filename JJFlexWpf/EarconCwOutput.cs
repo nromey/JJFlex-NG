@@ -329,6 +329,19 @@ namespace JJFlexWpf
             IDisposable handle;
             try
             {
+                // #855: one timing record per string, asked when it was queued.
+                // The recipe is what the analyser needs to rebuild the first
+                // mark, which is where the string is heard to start.
+                int firstMarkMs = 0, leadMs = 0;
+                foreach (var el in item.Elements)
+                {
+                    if (el.DurationMs <= 0) continue;
+                    if (el.Type == CwElementType.Mark) { firstMarkMs = el.DurationMs; break; }
+                    leadMs += el.DurationMs;
+                }
+                SoundTiming.Begin("Cw", "elements=" + item.Elements.Count + " ms=" + totalMs, item.EnqueuedTs);
+                SoundTiming.Recipe("cw:hz=" + item.SidetoneHz + ",mark=" + firstMarkMs + ",lead=" + leadMs
+                    + ",rf=" + item.RiseFallMs + ",voice=" + (item.MarkVoice?.Name ?? "Sine").Replace(' ', '_').Replace(',', '_'));
                 handle = EarconPlayer.SubmitCwSequence(concat, closePoints);
             }
             catch (Exception ex)
@@ -501,7 +514,11 @@ namespace JJFlexWpf
                 CallerToken = callerToken;
                 Completion = completion;
                 Protected = isProtected;
+                EnqueuedTs = System.Diagnostics.Stopwatch.GetTimestamp();
             }
+
+            /// <summary>#855: when the string was asked for, so its timing counts the queue wait.</summary>
+            public long EnqueuedTs { get; }
 
             /// <summary>
             /// #182's exempt list: true for the session prosigns and the SK
