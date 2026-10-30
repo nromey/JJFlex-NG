@@ -133,7 +133,8 @@ namespace Radios
                 // out through FlexLib's setter, as it always has.
                 if (RestoreWriteReplies.Ambient != null && value != null)
                     EnqueueSettingWrite((FunctionDel)(() => { s.TXAnt = value; }),
-                        "slice set " + s.Index.ToString(System.Globalization.CultureInfo.InvariantCulture) + " txant=" + value, "TXAntennaName");
+                        RadioWrite("tx-antenna", "slice set " + s.Index.ToString(System.Globalization.CultureInfo.InvariantCulture) + " txant=" + value,
+                            "slice " + s.Index.ToString(System.Globalization.CultureInfo.InvariantCulture), "txant", value), "TXAntennaName");
                 else
                     s.TXAnt = value;
             }

@@ -285,4 +285,157 @@ public sealed class CheckTeardownReplyTests : IDisposable
         Assert.Contains(LoopbackEndOutcome.Power, outcome.Restored);
         Assert.Empty(c.F.Rig.CheckPutBacksOwed());
     }
+
+    // ── Codex round 2 (2026-10-30), two findings in this area ──────────
+
+    /// <summary>The radio acknowledges every command and echoes no status at all, as it does for the monitor.</summary>
+    private static void AcknowledgesWithoutEcho(RadioCase c) =>
+        c.F.Vendor.Transport.CommandWritten = command => c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
+
+    [Fact]
+    public async Task Round2_a_dummy_load_release_refused_at_its_run_sends_the_powers_when_retried()
+    {
+        // Codex's schedule: DummyLoadMode = false flips the flag, its two power
+        // writes are queued, the radio keys before the loop reaches them, both
+        // are refused (Retry); the radio unkeys and the restore runs again.
+        using var c = Radio("dummy-retry");
+        var rig = c.F.Rig;
+        Field(rig, "_dummyLoadMode", true);
+        Field(rig, "_savedRFPower", 80);
+        Field(rig, "_savedTunePower", 40);
+        Field(c.F.Vendor.Radio, "_rfPower", 0);
+        Field(c.F.Vendor.Radio, "_tunePower", 0);
+        c.F.Vendor.Transport.Written.Clear();
+
+        var first = rig.RestoreWritesAtReceiveAsync("dummy load", () => rig.DummyLoadMode = false);
+        Assert.True(rig.q.Count > 0, "the release's writes were never queued, so the schedule proves nothing");
+        c.F.Vendor.Status("interlock state=TRANSMITTING source=RCA");
+        Assert.Equal(RestoreOutcome.Retry, await c.Pump(first));
+        Assert.Empty(c.F.Vendor.Transport.Commands);
+
+        c.F.Vendor.Status("interlock state=READY source=NONE");
+        var second = await c.Pump(rig.RestoreWritesAtReceiveAsync("dummy load", () => rig.DummyLoadMode = false));
+
+        Assert.Equal(RestoreOutcome.Done, second);
+        Assert.Contains("transmit set rfpower=80", c.F.Vendor.Transport.Commands);
+        Assert.Contains("transmit set tunepower=40", c.F.Vendor.Transport.Commands);
+        Assert.Equal(80, c.F.Vendor.Radio.RFPower);
+        Assert.Equal(40, c.F.Vendor.Radio.TunePower);
+    }
+
+    [Fact]
+    public async Task Round2_control_a_dummy_load_release_that_went_out_is_not_sent_again()
+    {
+        using var c = Radio("dummy-once");
+        var rig = c.F.Rig;
+        Field(rig, "_dummyLoadMode", true);
+        Field(rig, "_savedRFPower", 80);
+        Field(rig, "_savedTunePower", 40);
+        Assert.Equal(RestoreOutcome.Done, await c.Pump(rig.RestoreWritesAtReceiveAsync("dummy load", () => rig.DummyLoadMode = false)));
+        c.F.Vendor.Transport.Written.Clear();
+
+        Assert.Equal(RestoreOutcome.Done, await c.Pump(rig.RestoreWritesAtReceiveAsync("dummy load", () => rig.DummyLoadMode = false)));
+        Assert.Empty(c.F.Vendor.Transport.Commands);
+    }
+
+    [Fact]
+    public async Task Round2_an_acknowledged_monitor_restore_with_no_echo_leaves_FlexLibs_cache_true_and_the_next_send_keeps_it_on()
+    {
+        // Codex's schedule: the radio holds the monitor off; the restore turns it
+        // ON, the radio acknowledges and sends no status. Then a send holds the
+        // monitor and lets go: it must find the monitor already on and leave it.
+        using var c = Radio("monitor-cache");
+        var rig = c.F.Rig;
+        Field(rig, "_IsConnected", true);
+        Field(c.F.Vendor.Radio, "_txMonitor", false);
+        bool held = false;
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command.StartsWith("transmit set mon=", StringComparison.Ordinal))
+            {
+                held = command.EndsWith("1", StringComparison.Ordinal);
+                c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
+            }
+            else c.Respond(command);
+        };
+
+        var restored = await c.Pump(rig.RestoreWritesAtReceiveAsync("monitor", () => rig.Monitor = FlexBase.OffOnValues.on));
+        Assert.Equal(RestoreOutcome.Done, restored);
+        Assert.True(held);
+        Assert.True(c.F.Vendor.Radio.TXMonitor, "FlexLib still caches the monitor off though the radio took ON");
+
+        c.F.Vendor.Transport.Written.Clear();
+        var hold = rig.HoldMonitorForSend("after the restore");
+        while (rig.q.Count > 0) if (rig.q.Dequeue().Item is FlexBase.FunctionDel a) a();
+        hold.Dispose();
+        while (rig.q.Count > 0) if (rig.q.Dequeue().Item is FlexBase.FunctionDel a) a();
+
+        Assert.True(held, "the send turned off the monitor the operator had on");
+        Assert.DoesNotContain("transmit set mon=0", c.F.Vendor.Transport.Commands);
+    }
+
+    [Theory]
+    [InlineData("power")]
+    [InlineData("tune")]
+    [InlineData("monitor")]
+    [InlineData("mic")]
+    [InlineData("antenna")]
+    public async Task Round2_every_raw_restore_write_leaves_FlexLibs_cache_true_when_the_radio_accepts_without_an_echo(string what)
+    {
+        using var c = Radio("cache-" + what);
+        var rig = c.F.Rig;
+        Field(c.Tx, "_txant", "XVT-A");
+        AcknowledgesWithoutEcho(c);
+        Action restore = what == "antenna" ? () => rig.TXAntennaName = "ANT1" : Restore(rig, what);
+
+        Assert.Equal(RestoreOutcome.Done, await c.Pump(rig.RestoreWritesAtReceiveAsync(what, restore)));
+
+        var r = c.F.Vendor.Radio;
+        switch (what)
+        {
+            case "power": Assert.Equal(80, r.RFPower); break;
+            case "tune": Assert.Equal(40, r.TunePower); break;
+            case "monitor": Assert.False(r.TXMonitor); break;
+            case "mic": Assert.Equal("PC", r.MicInput); break;
+            case "antenna": Assert.Equal("ANT1", c.Tx.TXAnt); break;
+        }
+    }
+
+    [Theory]
+    [InlineData("monitor")]
+    [InlineData("power")]
+    [InlineData("antenna")]
+    public async Task Round2_the_put_backs_raw_writes_also_leave_the_cache_true_when_accepted_without_an_echo(string what)
+    {
+        string serial = "putback-cache-" + what;
+        var store = new CheckRestoreReminderStore(Path.Combine(RadioConfig.AppDataRoot, "pb-cache-" + Guid.NewGuid().ToString("N")));
+        var item = what switch
+        {
+            "monitor" => CheckPutBack.MonitorOn(true, false),
+            "power" => CheckPutBack.Power(80, 1),
+            _ => CheckPutBack.Antenna("ANT1", "XVT-A"),
+        };
+        store.AddPutBacks(serial, new[] { item });
+        store.Add(serial, FlexBase.CheckRestoreWithheld);
+        using var c = Radio(serial);
+        var rig = c.F.Rig;
+        rig.CheckRestoreRemindersOverride = store;
+        rig.CheckRestoreBriefingOverride = new ConnectBriefing(_ => { }, () => { });
+        rig.RestoreWriteWait = TimeSpan.FromSeconds(2);
+        Field(c.F.Vendor.Radio, "_txMonitor", false);
+        Field(c.Tx, "_txant", "XVT-A");
+        AcknowledgesWithoutEcho(c);
+
+        typeof(FlexBase).GetMethod("AnnounceCheckRestoreReminder", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(rig, null);
+        await c.Pump(rig.CheckPutBackTask.ContinueWith(_ => true));
+
+        Assert.Empty(store.PutBacksFor(serial));
+        var r = c.F.Vendor.Radio;
+        switch (what)
+        {
+            case "monitor": Assert.True(r.TXMonitor); break;
+            case "power": Assert.Equal(80, r.RFPower); break;
+            case "antenna": Assert.Equal("ANT1", c.Tx.TXAnt); break;
+        }
+    }
 }

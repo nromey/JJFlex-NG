@@ -495,23 +495,31 @@ namespace Radios
             string? command = null;
             Action? announce = null;
             Action? accepted = null;
+            // The status form the radio would echo the write in: on acceptance
+            // its value goes into FlexLib's cache (Codex round 2, 2026-10-30;
+            // the radio does not echo every write to the client that made it).
+            Listenback.SavedRadioSetting? echo = null;
             switch (item.Setting)
             {
                 case CheckPutBack.RfPower when Int(v, out int power):
                     command = "transmit set rfpower=" + power.ToString(CultureInfo.InvariantCulture);
+                    echo = RadioWrite(item.Setting, command, "transmit", "rfpower", power.ToString(CultureInfo.InvariantCulture));
                     announce = () => NoteRadioSettingWritten("XmitPower", v);
                     break;
                 case CheckPutBack.TunePower when Int(v, out int tune):
                     command = "transmit set tunepower=" + tune.ToString(CultureInfo.InvariantCulture);
+                    echo = RadioWrite(item.Setting, command, "transmit", "tunepower", tune.ToString(CultureInfo.InvariantCulture));
                     announce = () => NoteRadioSettingWritten("TunePower", v);
                     break;
                 case CheckPutBack.Monitor:
                     command = "transmit set mon=" + (v == "1" ? "1" : "0");
+                    echo = RadioWrite(item.Setting, command, "transmit", "sb_monitor", v == "1" ? "1" : "0");
                     break;
                 case CheckPutBack.TxAntenna when v.Length > 0:
                     if (SliceForTransmitSetting(out string basis) is not { } slice)
                         return (PutBackSend.Unread, "at the write's run there was no transmit slice; nothing sent");
                     command = "slice set " + slice.Index.ToString(CultureInfo.InvariantCulture) + " txant=" + v;
+                    echo = RadioWrite(item.Setting, command, "slice " + slice.Index.ToString(CultureInfo.InvariantCulture), "txant", v);
                     announce = () =>
                     {
                         Tracing.TraceLine($"Antenna:TX request slice {slice.Index} ({basis}): '{slice.TXAnt}' -> '{v}' (check put-back)", TraceLevel.Info);
@@ -530,13 +538,20 @@ namespace Radios
                     double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out double dbm):
                     command = "xvtr set " + band.Index.ToString(CultureInfo.InvariantCulture) + " max_power="
                         + dbm.ToString("F2", CultureInfo.InvariantCulture);
+                    echo = RadioWrite(item.Setting, command, "xvtr " + band.Index.ToString(CultureInfo.InvariantCulture), "max_power",
+                        dbm.ToString("F2", CultureInfo.InvariantCulture));
                     break;
             }
             if (command == null) return (PutBackSend.NotSent, "nothing here can write it");
             if (announce != null) using (AppInitiatedSettingChanges()) announce();
+            string? cachedBefore = echo != null ? Listenback.FlexLibRestoreCache.Read(radio, echo) : null;
             string? refusal = SendRadioCommandWithReply(radio, command, r =>
             {
-                if (r.Acknowledged) accepted?.Invoke();
+                if (r.Acknowledged)
+                {
+                    accepted?.Invoke();
+                    if (echo != null) AcceptIntoFlexLibCache(radio, echo, cachedBefore!, "Check put-back");
+                }
                 reply.TrySetResult(r);
             });
             return refusal == null ? (PutBackSend.Accepted, command) : (PutBackSend.NotSent, "'" + command + "' was not sent: " + refusal);

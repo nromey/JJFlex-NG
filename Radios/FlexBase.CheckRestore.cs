@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Flex.Smoothlake.FlexLib;
 using JJTrace;
 
 namespace Radios;
@@ -237,6 +238,7 @@ public partial class FlexBase
             Tracing.TraceLine("Check restore " + name + ": NOT restored, " + failure, System.Diagnostics.TraceLevel.Warning);
             return RestoreOutcome.Failed;
         }
+        replies.RunDone();
         return RestoreOutcome.Done;
     }
 
@@ -251,20 +253,50 @@ public partial class FlexBase
     /// success; the raw command leaves FlexLib's cache to the radio's own
     /// report. The queue's run-time transmit refusal applies either way.
     /// </summary>
-    private void EnqueueSettingWrite(FunctionDel viaSetter, string command, string name = null)
+    /// <remarks>
+    /// <paramref name="write"/> carries the command and the status form the
+    /// radio would echo it in. On the radio's success reply that value goes into
+    /// FlexLib's cache through <see cref="Listenback.FlexLibRestoreCache"/>, as
+    /// the take's restores do (fix round 2026-10-29, item 1): the radio does not
+    /// echo every write to the client that made it, and a raw write leaves
+    /// FlexLib's cache where it was. Codex's round-2 check (2026-10-30) found the
+    /// cost: a monitor restored ON with no echo still read OFF, so the next send
+    /// "found" it off, turned it on, and at its end turned it OFF.
+    /// </remarks>
+    private void EnqueueSettingWrite(FunctionDel viaSetter, Listenback.SavedRadioSetting write, string name = null)
     {
         var replies = RestoreWriteReplies.Ambient;
         if (replies == null) { q.Enqueue(viaSetter, name); return; }
-        q.Enqueue((FunctionDel)(() => SendRestoreWrite(replies, command)), name);
+        q.Enqueue((FunctionDel)(() => SendRestoreWrite(replies, write)), name);
     }
 
-    /// <summary>On the command loop: send one restore write with its reply, and give the reply to the restore waiting for it.</summary>
-    private void SendRestoreWrite(RestoreWriteReplies replies, string command)
+    /// <summary>A write's command and the status form the radio echoes it in, for <see cref="EnqueueSettingWrite"/> and the put-back.</summary>
+    private static Listenback.SavedRadioSetting RadioWrite(string name, string command, string statusPrefix, string statusKey, string value) =>
+        new(name, value, command, statusPrefix, statusKey);
+
+    /// <summary>On the command loop: send one restore write with its reply, make FlexLib's cache true on acceptance, and give the reply to the restore waiting for it.</summary>
+    private void SendRestoreWrite(RestoreWriteReplies replies, Listenback.SavedRadioSetting write)
     {
+        var radio = theRadio;
         var reply = new TaskCompletionSource<StationConnect.CommandReply>(TaskCreationOptions.RunContinuationsAsynchronously);
-        string refusal = SendRadioCommandWithReply(theRadio, command, r => reply.TrySetResult(r));
+        string command = write.RestoreCommand;
+        string cachedBefore = Listenback.FlexLibRestoreCache.Read(radio, write);
+        string refusal = SendRadioCommandWithReply(radio, command, r =>
+        {
+            if (r.Acknowledged) AcceptIntoFlexLibCache(radio, write, cachedBefore, "Check restore");
+            reply.TrySetResult(r);
+        });
         if (refusal != null) replies.NotSent(command, refusal);
         else replies.Sent(command, reply.Task);
+    }
+
+    /// <summary>After the radio accepted <paramref name="write"/>: its value into FlexLib's cache, traced. Never throws.</summary>
+    private static void AcceptIntoFlexLibCache(Radio radio, Listenback.SavedRadioSetting write, string cachedBefore, string who)
+    {
+        string note;
+        try { note = Listenback.FlexLibRestoreCache.Accept(radio, write, cachedBefore); }
+        catch (Exception ex) { note = "cache-update-failed: " + ex.Message; }
+        Tracing.TraceLine(who + " '" + write.RestoreCommand + "' accepted; FlexLib cache " + note, System.Diagnostics.TraceLevel.Info);
     }
 
     /// <summary>
@@ -286,6 +318,19 @@ public partial class FlexBase
         public void Dispose() { if (ReferenceEquals(t_ambient, this)) t_ambient = _previous; }
 
         internal void Sent(string command, Task<StationConnect.CommandReply> reply) { lock (_gate) _sent.Add((command, reply)); }
+
+        private Action _done;
+
+        /// <summary>Run <paramref name="action"/> only if this restore ends Done: every write sent and accepted.</summary>
+        internal void OnDone(Action action) { lock (_gate) _done += action; }
+
+        internal void RunDone()
+        {
+            Action done;
+            lock (_gate) done = _done;
+            try { done?.Invoke(); }
+            catch (Exception ex) { Tracing.TraceLine("Check restore: an on-done action threw: " + ex.Message, System.Diagnostics.TraceLevel.Error); }
+        }
         internal void NotSent(string command, string why) { lock (_gate) _notSent ??= "'" + command + "' was not sent: " + why; }
 
         /// <summary>Null when every write was sent and the radio acknowledged each; otherwise the first reason it was not.</summary>
