@@ -20,13 +20,15 @@ namespace Radios
     {
         public const string Antenna = "antenna";
         public const string Power = "power";
+        /// <summary>Tune power: not a Loopback part, but a part an audio check's dummy load changes, named by the next connect's put-back (fix round 1030).</summary>
+        public const string TunePower = "tune-power";
         public const string Monitor = "monitor";
         public const string Duplex = "duplex";
         public const string Drive = "drive";
         public const string Mutes = "mutes";
 
         /// <summary>The order the parts are named in: the transmit chain first, the slices last.</summary>
-        internal static readonly string[] Order = { Antenna, Power, Monitor, Duplex, Drive, Mutes };
+        internal static readonly string[] Order = { Antenna, Power, TunePower, Monitor, Duplex, Drive, Mutes };
 
         public LoopbackEndOutcome(IReadOnlyList<string> restored, IReadOnlyList<string> notRestored, string notes, string trouble)
         {
@@ -86,11 +88,15 @@ namespace Radios
         {
             Antenna => "audio.check.loopback_part.antenna",
             Power => "audio.check.loopback_part.power",
+            TunePower => "audio.check.loopback_part.tune_power",
             Monitor => "audio.check.loopback_part.monitor",
             Duplex => "audio.check.loopback_part.duplex",
             Drive => "audio.check.loopback_part.drive",
             _ => "audio.check.loopback_part.mutes",
         });
+
+        /// <summary>The parts, in <see cref="Order"/>, named and joined the way the ending names them; the next connect's put-back says its parts with it too (fix round 1030).</summary>
+        internal static string NameParts(IEnumerable<string> parts) => Join(InOrder(parts?.Distinct().ToList()));
 
         private static string Join(IReadOnlyList<string> parts)
         {

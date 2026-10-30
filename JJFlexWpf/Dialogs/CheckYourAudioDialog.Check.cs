@@ -1342,7 +1342,7 @@ public partial class CheckYourAudioDialog
                                 rig.XmitPower = rf;
                                 rig.TunePower = tune;
                             }
-                        });
+                        }, CheckPutBack.Power(rf, 0), CheckPutBack.Tune(tune, 0));
                     }
                 }
                 else if (!rig.DummyLoadMode && currentPower > _lowPowerWatts)
@@ -1357,14 +1357,15 @@ public partial class CheckYourAudioDialog
                     Remember(rig, "audio check: power", () =>
                     {
                         using (rig.AppInitiatedSettingChanges()) rig.XmitPower = saved;
-                    });
+                    }, CheckPutBack.Power(saved, _lowPowerWatts));
                 }
 
                 if (_method == AudioCheckListenMethods.Monitor &&
                     rig.Monitor != FlexBase.OffOnValues.on)
                 {
                     rig.Monitor = FlexBase.OffOnValues.on;
-                    Remember(rig, "audio check: monitor", () => rig.Monitor = FlexBase.OffOnValues.off);
+                    Remember(rig, "audio check: monitor", () => rig.Monitor = FlexBase.OffOnValues.off,
+                        CheckPutBack.MonitorOn(false, true));
                 }
             }
 
@@ -1759,9 +1760,17 @@ public partial class CheckYourAudioDialog
         /// meets a keyed radio makes the owner run the whole restore again at
         /// receive, so every restore given here must be safe to repeat.
         /// </summary>
-        private void Remember(FlexBase rig, string name, Action restore) =>
-            _restores.Add(rig.CheckRestorations.Register(name,
-                () => rig.RestoreWritesAtReceiveAsync(name, restore), held: true));
+        /// <remarks><paramref name="putBacks"/> say which station-wide settings the
+        /// restore puts back, their original values and what the check set, so a
+        /// disconnect that comes before the restore has run can put them back at
+        /// the next connect (#835, fix round 1030).</remarks>
+        private void Remember(FlexBase rig, string name, Action restore, params CheckPutBack[] putBacks)
+        {
+            var entry = rig.CheckRestorations.Register(name,
+                () => rig.RestoreWritesAtReceiveAsync(name, restore), held: true);
+            _restores.Add(entry);
+            rig.DescribeCheckPutBack(entry, putBacks);
+        }
 
         /// <summary>
         /// Hand this check's changes to the radio's owner to put back (fix

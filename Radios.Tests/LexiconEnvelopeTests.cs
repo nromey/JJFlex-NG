@@ -2007,6 +2007,15 @@ namespace Radios.Tests
                 "audio.check.loopback_part.and",
                 "audio.check.teardown_withheld_reminder",
                 "audio.check.teardown_unconfirmed_reminder",
+                // Check your audio put-back track, fix round 1030 (#835): the next
+                // connect puts back what the check left and says what it did.
+                // Draft prose, awaiting Noel.
+                "audio.check.loopback_part.tune_power",
+                "audio.check.putback_lead",
+                "audio.check.putback_done",
+                "audio.check.putback_left",
+                "audio.check.putback_not",
+                "audio.check.putback_already",
                 // Check your audio Track C, fix round 2026-10-29 (#835): the
                 // countdown's pip sound, ruled 00:51. Draft prose, awaiting Noel.
                 "audio.countdown.pip_sound_label",
