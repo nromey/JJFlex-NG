@@ -168,6 +168,100 @@ namespace Radios.Tests
             SetTransmit(f.Rig, false);
         }
 
+        // ── Codex round 1030, B5: "receive" is the radio's word, not our cache ──
+
+        private static void PlantNewConnection(RigOnVendorRadio f) =>
+            typeof(Flex.Smoothlake.FlexLib.Radio).GetField("_commandCommunication", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(f.Vendor.Radio, new FakeCommandTransport());
+
+        /// <summary>
+        /// Codex's schedule (round 1030, B5): after a hardware takeover the
+        /// software key is dropped, so our cached Transmit is already false
+        /// while the radio's interlock still reports TRANSMITTING. The hold
+        /// must stay until the radio itself reports receive, and go once it
+        /// does (Noel, 2026-10-29 23:57: wait until unkey).
+        /// </summary>
+        [Fact]
+        public async Task Cached_receive_is_not_enough_the_hold_waits_for_the_interlock_to_leave_transmit()
+        {
+            using var f = new RigOnVendorRadio("sends-1030-monitor-interlock");
+            SetTransmit(f.Rig, false);
+            f.Vendor.Status("interlock state=TRANSMITTING source=RCA");
+            Assert.True(f.Rig.RadioInterlockReportsTransmit, "positive control: the fixture's interlock report reached the radio");
+
+            var hold = new Lease();
+            f.Rig.ReleaseMonitorHoldAtUnkey(hold, "the computer recording bench");
+            Assert.False(await Within(() => hold.Disposed, 300),
+                "cached Transmit is false but the radio still transmits: the monitor stays as the send left it");
+
+            f.Vendor.Status("interlock state=UNKEY_REQUESTED source=RCA");
+            Assert.False(await Within(() => hold.Disposed, 200), "on its way out of transmit is still transmit");
+
+            f.Vendor.Status("interlock state=READY");
+            Assert.True(await Within(() => hold.Disposed, 2_000), "the radio reports receive: the send's hold ends");
+        }
+
+        /// <summary>
+        /// The other half: the radio's interlock reads ready but our own key is
+        /// still down. Both must say receive before the hold goes.
+        /// </summary>
+        [Fact]
+        public async Task Interlock_ready_while_our_cache_still_transmits_the_hold_waits_for_both()
+        {
+            using var f = new RigOnVendorRadio("sends-1030-monitor-both");
+            f.Vendor.Status("interlock state=READY");
+            SetTransmit(f.Rig, true);
+            var hold = new Lease();
+            f.Rig.ReleaseMonitorHoldAtUnkey(hold, "a send");
+            Assert.False(await Within(() => hold.Disposed, 300));
+            SetTransmit(f.Rig, false);
+            Assert.True(await Within(() => hold.Disposed, 2_000));
+        }
+
+        /// <summary>
+        /// Pinned to the connection it was taken on: a new connection is the
+        /// old one gone, so the hold ends (the monitor owner records the
+        /// put-back as for any lost connection), even though the radio object
+        /// still reads connected and the interlock still reads transmitting.
+        /// </summary>
+        [Fact]
+        public async Task A_replaced_connection_ends_the_wait_as_a_disconnect_does()
+        {
+            using var f = new RigOnVendorRadio("sends-1030-monitor-reconnect");
+            SetTransmit(f.Rig, false);
+            f.Vendor.Status("interlock state=TRANSMITTING source=RCA");
+            var hold = new Lease();
+            f.Rig.ReleaseMonitorHoldAtUnkey(hold, "a send");
+            Assert.False(await Within(() => hold.Disposed, 300));
+
+            PlantNewConnection(f);
+            Assert.True(await Within(() => hold.Disposed, 2_000), "the connection the hold was taken on is gone");
+        }
+
+        /// <summary>
+        /// B4's connection identity, which the speaker playback's carry-on
+        /// compares across its wait (the UI test stands it in): stable while
+        /// the connection lasts, a different object on a new connection, and
+        /// null with none.
+        /// </summary>
+        [Fact]
+        public void The_live_connection_identity_changes_with_the_connection_and_is_null_without_one()
+        {
+            using var f = new RigOnVendorRadio("sends-1030-connection-identity");
+            object? first = f.Rig.LiveConnectionIdentity;
+            Assert.NotNull(first);
+            Assert.Same(first, f.Rig.LiveConnectionIdentity);
+
+            PlantNewConnection(f);
+            object? second = f.Rig.LiveConnectionIdentity;
+            Assert.NotNull(second);
+            Assert.NotSame(first, second);
+
+            typeof(Flex.Smoothlake.FlexLib.Radio).GetProperty(nameof(Flex.Smoothlake.FlexLib.Radio.Connected))!
+                .GetSetMethod(nonPublic: true)!.Invoke(f.Vendor.Radio, new object[] { false });
+            Assert.Null(f.Rig.LiveConnectionIdentity);
+        }
+
         /// <summary>
         /// Pin: the send host hands a taken-over piece's monitor to the wait,
         /// and every other ending lets it go at once as before.

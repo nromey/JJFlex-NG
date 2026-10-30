@@ -52,6 +52,26 @@ public partial class FlexBase
     }
 
     /// <summary>
+    /// The radio's live command connection, as an opaque identity for a
+    /// caller outside this assembly that saves something now and acts on it
+    /// later, or null when no radio is connected. Compare with
+    /// <see cref="object.ReferenceEquals"/>: a reconnect, even to the same
+    /// radio, is a different connection. Added for a speaker playback's
+    /// carry-on, which waits for the radio to confirm VOX off and must resume
+    /// nothing if the connection changed meanwhile (#835, Codex round 1030, B4).
+    /// </summary>
+    public object? LiveConnectionIdentity
+    {
+        get
+        {
+            var radio = theRadio;
+            if (radio?.Connected != true) return null;
+            try { return (object?)radio.CurrentCommandConnection ?? radio; }
+            catch (NullReferenceException) { return radio; }
+        }
+    }
+
+    /// <summary>
     /// Pause whichever autonomous-keying setting the transmit slice's mode uses
     /// (VOX in a voice mode, break-in in CW) for a playback on this computer's
     /// speakers, through the radio's one VOX owner, and wait for the radio to

@@ -47,26 +47,37 @@ namespace Radios
         /// then the hold ends, and a monitor the send turned on goes back off
         /// by <see cref="SendMonitorOwner"/>'s usual rules. The same wait the
         /// box send's VOX pause makes after a takeover
-        /// (<c>ReleaseVoxWhenReceive</c>): the radio's own transmit report, or
-        /// the connection going away. Not transmitting now, it is let go now.
+        /// (<c>ReleaseVoxWhenReceive</c>), or the connection going away. Not
+        /// transmitting now, it is let go now.
         /// </summary>
+        /// <remarks>
+        /// The wait is <see cref="WhenRadioReallyReceives"/> (Codex round 1030,
+        /// B5): cached Transmit false AND the radio's interlock out of transmit,
+        /// pinned to the radio and command connection it began on. After a
+        /// hardware takeover the send drops its software key, so cached Transmit
+        /// alone read receive while the hand mic still keyed the radio. A lost or
+        /// replaced connection ends it as a disconnect, and the monitor owner's
+        /// lost-connection rule records the put-back.
+        /// </remarks>
         public void ReleaseMonitorHoldAtUnkey(IDisposable? hold, string who)
         {
             if (hold == null) return;
-            if (!_Transmit || theRadio?.Connected != true)
+            bool waited = false;
+            WhenRadioReallyReceives(sameConnection =>
             {
+                if (waited)
+                    Tracing.TraceLine(sameConnection
+                        ? "SendMonitor: the operator unkeyed after taking over " + who
+                            + " (Transmit False, interlock " + theRadio?.InterlockState + "); the send's hold on the transmit monitor ends"
+                        : "SendMonitor: the connection " + who + " was taken over on went away before the unkey; the send's hold on the transmit monitor ends",
+                        TraceLevel.Info);
                 hold.Dispose();
-                return;
-            }
-            Tracing.TraceLine("SendMonitor: " + who + " was taken over; the transmit monitor stays as it is until the operator unkeys",
-                TraceLevel.Info);
-            _ = System.Threading.Tasks.Task.Run(async () =>
+            }, beforeWaiting: () =>
             {
-                while (_Transmit && theRadio?.Connected == true)
-                    await System.Threading.Tasks.Task.Delay(20).ConfigureAwait(false);
-                Tracing.TraceLine("SendMonitor: the operator unkeyed after taking over " + who
-                    + "; the send's hold on the transmit monitor ends", TraceLevel.Info);
-                hold.Dispose();
+                waited = true;
+                Tracing.TraceLine("SendMonitor: " + who + " was taken over; the transmit monitor stays as it is until the operator unkeys"
+                    + " (Transmit " + _Transmit + ", interlock " + theRadio?.InterlockState + ")",
+                    TraceLevel.Info);
             });
         }
 

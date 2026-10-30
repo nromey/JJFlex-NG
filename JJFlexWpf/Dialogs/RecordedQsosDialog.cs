@@ -764,6 +764,9 @@ public sealed class RecordedQsosDialog : JJFlexDialog
                 case LocalPlaybackVox.CarryOn.VoxUnconfirmed:
                     Refuse(Lexicon.Get("audio.qsos.resume_vox_unconfirmed"));
                     break;
+                // Superseded (Codex round 1030, B4), Busy, NothingPaused: the
+                // preview, radio or connection changed under the carry-on and
+                // that change spoke for itself; nothing resumed, nothing to say.
             }
         }
         else if (RecordingPlayer.Pause())

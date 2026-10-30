@@ -56,9 +56,16 @@ public sealed class SendsRound1030WindowlessTests : IDisposable
 
     public void Dispose()
     {
+        // A red test can leave a carry-on waiting for a confirmation it will
+        // never get, which holds the carry-on's static "under way" flag and
+        // turns every later test's carry-on into Busy. Answer them, so one
+        // red cannot paint the rest.
+        foreach (var pending in _confirmations) pending.TrySetResult((null, LocalPlaybackVox.CarryOn.VoxUnconfirmed));
+        foreach (var carry in _carries) { try { carry.Wait(2_000); } catch (AggregateException) { } }
         RecordingPlayer.StopWithoutSpeaking();
         LocalPlaybackVox.PauseForCarryOnOverride = null;
         LocalPlaybackVox.SpeakerTailMsOverride = null;
+        LocalPlaybackVox.ConnectionOfOverride = null;
         RecordedQsosDialog.SendDoors = _savedDoors;
         try { Directory.Delete(_dir, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
@@ -137,6 +144,25 @@ public sealed class SendsRound1030WindowlessTests : IDisposable
         public void Dispose() => Interlocked.Exchange(ref _disposed, 1);
     }
 
+    private readonly List<TaskCompletionSource<(IDisposable? Pause, LocalPlaybackVox.CarryOn Refusal)>> _confirmations = new();
+    private readonly List<Task> _carries = new();
+
+    /// <summary>A radio confirmation the test answers by hand, released at Dispose if it never does.</summary>
+    private TaskCompletionSource<(IDisposable? Pause, LocalPlaybackVox.CarryOn Refusal)> HeldConfirmation()
+    {
+        var confirm = new TaskCompletionSource<(IDisposable? Pause, LocalPlaybackVox.CarryOn Refusal)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _confirmations.Add(confirm);
+        return confirm;
+    }
+
+    private Task<LocalPlaybackVox.CarryOn> StartCarryOn()
+    {
+        Task<LocalPlaybackVox.CarryOn> carrying = LocalPlaybackVox.CarryOnAsync();
+        _carries.Add(carrying);
+        return carrying;
+    }
+
     private string Wav(double seconds, int rate = 44100)
     {
         string path = Path.Combine(_dir, "take-" + Guid.NewGuid().ToString("N") + ".wav");
@@ -172,11 +198,10 @@ public sealed class SendsRound1030WindowlessTests : IDisposable
         Assert.False(LocalPlaybackVox.Holding);
         Assert.True(LocalPlaybackVox.Owning, "paused is not over: carrying on must pause VOX again");
 
-        var confirm = new TaskCompletionSource<(IDisposable? Pause, LocalPlaybackVox.CarryOn Refusal)>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
+        var confirm = HeldConfirmation();
         int asked = 0;
         LocalPlaybackVox.PauseForCarryOnOverride = _ => { asked++; return confirm.Task; };
-        Task<LocalPlaybackVox.CarryOn> carrying = LocalPlaybackVox.CarryOnAsync();
+        Task<LocalPlaybackVox.CarryOn> carrying = StartCarryOn();
         Assert.Equal(1, asked);
         Assert.True(RecordingPlayer.IsPaused, "nothing may sound before the radio confirms VOX off");
         Assert.Equal(LocalPlaybackVox.CarryOn.Busy, await LocalPlaybackVox.CarryOnAsync());
@@ -212,6 +237,119 @@ public sealed class SendsRound1030WindowlessTests : IDisposable
         Assert.Equal(LocalPlaybackVox.CarryOn.VoxUnconfirmed, await LocalPlaybackVox.CarryOnAsync());
         Assert.True(RecordingPlayer.IsPaused);
         Assert.False(LocalPlaybackVox.Holding);
+    }
+
+    /// <summary>
+    /// Codex round 1030, B4, his schedule: pause A; ask to carry on and hold
+    /// the radio's confirmation; stop A; start and pause B; then let A's
+    /// confirmation arrive. The carry-on was asked for A, so it resumes
+    /// nothing, B stays paused, and the pause it was handed is given back
+    /// rather than kept.
+    /// </summary>
+    [Fact]
+    public async Task A_carry_on_asked_for_one_playback_does_not_resume_its_replacement()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        LocalPlaybackVox.SpeakerTailMsOverride = 0;
+        StartLookedAfterPlayback(new Lease());
+        Assert.True(RecordingPlayer.Pause());
+
+        var confirm = HeldConfirmation();
+        LocalPlaybackVox.PauseForCarryOnOverride = _ => confirm.Task;
+        Task<LocalPlaybackVox.CarryOn> carrying = StartCarryOn();
+        Assert.False(carrying.IsCompleted, "the carry-on waits for the radio");
+
+        RecordingPlayer.StopWithoutSpeaking();
+        var bPause = new Lease();
+        StartLookedAfterPlayback(bPause);
+        Assert.True(RecordingPlayer.Pause());
+        Assert.True(bPause.Disposed, "B is paused, so its own VOX pause has been given back");
+
+        var aConfirmed = new Lease();
+        confirm.SetResult((aConfirmed, LocalPlaybackVox.CarryOn.Resumed));
+        LocalPlaybackVox.CarryOn answer = await carrying;
+
+        Assert.True(RecordingPlayer.IsPaused, "B was never asked to carry on; it must stay paused");
+        Assert.Equal(LocalPlaybackVox.CarryOn.Superseded, answer);
+        Assert.True(aConfirmed.Disposed, "the pause confirmed for A is obsolete and must be given back, not kept");
+        Assert.False(LocalPlaybackVox.Holding, "nothing sounds, so nothing is held");
+
+        // Positive control: B's own carry-on still works.
+        var bAgain = new Lease();
+        LocalPlaybackVox.PauseForCarryOnOverride = _ => Task.FromResult<(IDisposable?, LocalPlaybackVox.CarryOn)>(
+            (bAgain, LocalPlaybackVox.CarryOn.Resumed));
+        Assert.Equal(LocalPlaybackVox.CarryOn.Resumed, await LocalPlaybackVox.CarryOnAsync());
+        Assert.False(RecordingPlayer.IsPaused);
+        Assert.False(bAgain.Disposed);
+    }
+
+    /// <summary>
+    /// The same deferred state, one door over: while a carry-on waits for the
+    /// radio, a resume by some other door still finds no VOX pause held, and
+    /// is paused again. The wait is not a licence to sound.
+    /// </summary>
+    [Fact]
+    public async Task A_resume_by_another_door_while_a_carry_on_waits_is_paused_again()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        LocalPlaybackVox.SpeakerTailMsOverride = 0;
+        StartLookedAfterPlayback(new Lease());
+        Assert.True(RecordingPlayer.Pause());
+
+        var confirm = HeldConfirmation();
+        LocalPlaybackVox.PauseForCarryOnOverride = _ => confirm.Task;
+        Task<LocalPlaybackVox.CarryOn> carrying = StartCarryOn();
+
+        Assert.True(RecordingPlayer.Resume());
+        Assert.True(RecordingPlayer.IsPaused, "the radio has not confirmed VOX off; nothing may sound yet");
+
+        var confirmed = new Lease();
+        confirm.SetResult((confirmed, LocalPlaybackVox.CarryOn.Resumed));
+        Assert.Equal(LocalPlaybackVox.CarryOn.Resumed, await carrying);
+        Assert.False(RecordingPlayer.IsPaused);
+        Assert.False(confirmed.Disposed);
+    }
+
+    /// <summary>
+    /// B4's other two identities: the radio's connection changes while the
+    /// carry-on waits (a reconnect, even to the same radio). Nothing resumes
+    /// and the confirmed pause is given back; the same playback can then be
+    /// carried on again on the new connection.
+    /// </summary>
+    [Fact]
+    public async Task A_carry_on_across_a_connection_change_resumes_nothing_and_gives_its_pause_back()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        LocalPlaybackVox.SpeakerTailMsOverride = 0;
+        using var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+        object connection = new();
+        LocalPlaybackVox.ConnectionOfOverride = r => ReferenceEquals(r, rig) ? connection : null;
+        Assert.True(RecordingPlayer.PlayWithMixer(Wav(3), "A test recording.", null, false, _ => true));
+        LocalPlaybackVox.HoldUntilPlaybackEnds(rig, new Lease());
+        Assert.True(RecordingPlayer.Pause());
+
+        var confirm = HeldConfirmation();
+        FlexBase? asked = null;
+        LocalPlaybackVox.PauseForCarryOnOverride = r => { asked = r; return confirm.Task; };
+        Task<LocalPlaybackVox.CarryOn> carrying = StartCarryOn();
+        Assert.Same(rig, asked);
+
+        connection = new object(); // reconnected while the radio was confirming
+        var confirmed = new Lease();
+        confirm.SetResult((confirmed, LocalPlaybackVox.CarryOn.Resumed));
+
+        Assert.Equal(LocalPlaybackVox.CarryOn.Superseded, await carrying);
+        Assert.True(RecordingPlayer.IsPaused);
+        Assert.True(confirmed.Disposed, "a pause confirmed on the old connection is obsolete");
+        Assert.False(LocalPlaybackVox.Holding);
+
+        // Positive control: on the new connection, carrying on works.
+        var fresh = new Lease();
+        LocalPlaybackVox.PauseForCarryOnOverride = _ => Task.FromResult<(IDisposable?, LocalPlaybackVox.CarryOn)>(
+            (fresh, LocalPlaybackVox.CarryOn.Resumed));
+        Assert.Equal(LocalPlaybackVox.CarryOn.Resumed, await LocalPlaybackVox.CarryOnAsync());
+        Assert.False(RecordingPlayer.IsPaused);
+        Assert.False(fresh.Disposed);
     }
 
     /// <summary>
