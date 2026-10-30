@@ -3133,8 +3133,12 @@ namespace Radios.Tests
             Assert.True(escape >= 0);
             string escapeBody = main.Substring(escape, 400);
             Assert.Contains("_pttController.EscapeUnlock();", escapeBody);
+            // The session moved into Check your audio in #835; the Workshop's
+            // property forwards there, so the wiring above did not move.
             string workshop = ReadSource("JJFlexWpf/Dialogs/AudioWorkshopDialog.xaml.cs");
-            Assert.Contains("internal static bool AnAudioCheckIsActive => _instance?._session?.Active == true;", workshop);
+            Assert.Contains("internal static bool AnAudioCheckIsActive => CheckYourAudioDialog.AnAudioCheckIsActive;", workshop);
+            string check = ReadSource("JJFlexWpf/Dialogs/CheckYourAudioDialog.cs");
+            Assert.Contains("internal static bool AnAudioCheckIsActive => _instance?._session?.Active == true;", check);
 
             // Repair round two (Noel 09:51, "simplify yes").
             // Codex B1 by class: every path that ends a transmission OUTSIDE
@@ -3186,6 +3190,9 @@ namespace Radios.Tests
             // pointer only when it is the tracked workshop.
             Assert.Contains("if (ReferenceEquals(_instance, this)) _instance = null;", workshop);
             Assert.DoesNotContain("            _instance = null;\n", workshop.Replace("\r\n", "\n"));
+            // And the window that holds the session now (#835).
+            Assert.Contains("if (ReferenceEquals(_instance, this)) _instance = null;", check);
+            Assert.DoesNotContain("            _instance = null;\n", check.Replace("\r\n", "\n"));
 
             // The door itself never touches the controller or the rig: it only
             // calls its three delegates. Nothing in it names PttSafetyController

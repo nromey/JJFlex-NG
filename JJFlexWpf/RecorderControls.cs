@@ -24,10 +24,12 @@ namespace JJFlexWpf;
 /// sentence.
 /// </para>
 /// <para>
-/// <b>Play never requests keying.</b> Slice playback joins an existing owned
-/// transmission or listens locally with VOX off, using intent fixed at the press.
-/// Computer playback still refuses while transmitting; its FLAC engine has
-/// no direct route into the voice-message transmit stream.
+/// <b>Play never requests keying, except under the VOX send box (#835).</b> Slice
+/// playback joins an existing owned transmission or listens locally with VOX
+/// off, using intent fixed at the press. Computer playback, keyed, now sends
+/// to the air through the voice message's transmit-file path
+/// (<see cref="VoiceMessageSender.SendComputerRecording"/>). With the box
+/// ticked and VOX on, both key the radio themselves through the one box send.
 /// </para>
 /// </remarks>
 public static class RecorderControls
@@ -165,10 +167,37 @@ public static class RecorderControls
         return outcome;
     }
 
-    /// <summary>Play the target slice's recording, or stop it playing.</summary>
+    /// <summary>
+    /// A Play press that a send now answers (#835): the send says what it is
+    /// doing itself, under the message key's subject, so the door says nothing.
+    /// </summary>
+    private static RecorderOutcome HandedToSend(string subject) => new(true, "", subject);
+
+    /// <summary>
+    /// Play the target slice's recording, or stop it playing.
+    /// </summary>
+    /// <remarks>
+    /// <b>The VOX send box (#835).</b> With the box ticked and VOX on, Play IS the
+    /// send (Noel, 2026-10-27 15:22): the radio is keyed, the recording goes
+    /// out whole and the operator hears it, then VOX comes back. Not for a door
+    /// that tags its work (<paramref name="owner"/>, the Audio Workshop's
+    /// listen-back buttons), whose Play is a check you listen to, never a send.
+    /// Pressed again while the send is going out, Play stops it.
+    /// </remarks>
     public static async Task<RecorderOutcome> ToggleSlicePlayAsync(FlexBase? rig, SliceRecorderTarget target,
         Action<RecorderOutcome>? speak = null, object? owner = null)
     {
+        if (owner == null && VoiceMessageSender.InFlightFromPlay)
+        {
+            VoiceMessageSender.Stop();
+            return HandedToSend(SpeechSubject.SliceRecorder(""));
+        }
+        if (owner == null && rig != null && !rig.IsSlicePlaying(target)
+            && VoiceMessageSender.RouteFor(rig) == SendRoute.Box)
+        {
+            VoiceMessageSender.SendSliceRecording(rig, target);
+            return HandedToSend(SpeechSubject.SliceRecorder(""));
+        }
         Observe(rig);
         if (rig != null && !rig.IsSlicePlaying(target)) PlayStartClick();
         var outcome = rig == null
@@ -176,6 +205,80 @@ public static class RecorderControls
             : await Guarded(() => rig.ToggleSlicePlayAsync(target, owner), SpeechSubject.SliceRecorder(""));
         (speak ?? Speak)(outcome);
         return outcome;
+    }
+
+    /// <summary>
+    /// The slice's playback into a transmission the operator is holding, as
+    /// Play did before the box (#835): the box send hands back to this when it
+    /// finds the radio held by someone other than VOX once VOX is off.
+    /// </summary>
+    internal static async Task<RecorderOutcome> StartSliceOnAirAsync(FlexBase rig, SliceRecorderTarget target)
+    {
+        Observe(rig);
+        var outcome = await Guarded(() => rig.StartSlicePlayAsync(target), SpeechSubject.SliceRecorder(""));
+        Speak(outcome);
+        return outcome;
+    }
+
+    /// <summary>
+    /// Play from computer pressed while a recording plays on the speakers
+    /// (#835 fix round; Noel, 2026-10-28 21:20): pause it where it is, or carry
+    /// a paused one on from there. The same words the Recorded QSOs window
+    /// says for the same act. VOX comes back while it is paused, and carrying
+    /// on pauses VOX again before it sounds, as for that window's preview
+    /// (<see cref="LocalPlaybackVox"/>; Noel, 2026-10-29 23:58).
+    /// </summary>
+    private static async Task<RecorderOutcome> PauseOrCarryOnSpeakersAsync()
+    {
+        if (RecordingPlayer.IsPaused)
+        {
+            // VOX came back while the recording was paused; carrying on pauses
+            // it again, confirmed by the radio, before a sample sounds (#835,
+            // fix round 2026-10-30; Noel, 2026-10-29 23:58).
+            double at = RecordingPlayer.PositionSeconds ?? 0;
+            // DRAFT PROSE (#835): awaiting Noel (the two refusals)
+            return await LocalPlaybackVox.CarryOnAsync() switch
+            {
+                LocalPlaybackVox.CarryOn.Resumed => new(true,
+                    Lexicon.Get("audio.qsos.resumed", ("position", RecordedQsoWords.Position(at, null))),
+                    SpeechSubject.ComputerRecorder),
+                LocalPlaybackVox.CarryOn.Transmitting => new(false,
+                    Lexicon.Get("audio.qsos.resume_refused_transmitting"), SpeechSubject.ComputerRecorder),
+                LocalPlaybackVox.CarryOn.VoxUnconfirmed => new(false,
+                    Lexicon.Get("audio.qsos.resume_vox_unconfirmed"), SpeechSubject.ComputerRecorder),
+                // A carry-on already under way: this press adds nothing, and says nothing.
+                LocalPlaybackVox.CarryOn.Busy => new(true, "", SpeechSubject.ComputerRecorder),
+                // The playback, radio or connection it was for changed while the
+                // radio confirmed VOX off (Codex round 1030, B4); whatever changed
+                // it has spoken for itself, and nothing resumed.
+                LocalPlaybackVox.CarryOn.Superseded => new(true, "", SpeechSubject.ComputerRecorder),
+                _ => new(false, Lexicon.Get("audio.recorder.failed"), SpeechSubject.ComputerRecorder),
+            };
+        }
+        if (!RecordingPlayer.Pause())
+            return new(false, Lexicon.Get("audio.recorder.failed"), SpeechSubject.ComputerRecorder);
+        double pausedAt = RecordingPlayer.PositionSeconds ?? 0;
+        return new(true, Lexicon.Get("audio.qsos.paused", ("position", RecordedQsoWords.Position(pausedAt, null))),
+            SpeechSubject.ComputerRecorder);
+    }
+
+    /// <summary>
+    /// Escape in the main window while a computer recording plays or is paused
+    /// on the speakers: stop it (#835 fix round; Noel, 2026-10-28 21:20). True
+    /// when there was one to stop. A send to the air has its own Escape, asked
+    /// first (<see cref="VoiceMessageSender.InFlight"/>).
+    /// </summary>
+    internal static bool StopSpeakersOnEscape()
+    {
+        if (!ComputerRecorder.Current.IsPlaying) return false;
+        _ = StopSpeakersAsync();
+        return true;
+    }
+
+    private static async Task StopSpeakersAsync()
+    {
+        var outcome = await Guarded(() => ComputerRecorder.Current.StopPlaybackAsync(), SpeechSubject.ComputerRecorder);
+        Speak(outcome);
     }
 
     /// <summary>
@@ -192,13 +295,77 @@ public static class RecorderControls
 
     /// <summary>
     /// Play the last computer recording, or the one chosen in the recordings
-    /// dialog, to the speakers; or stop it playing. Needs no radio. Refused
-    /// while transmitting, in ComputerRecorder.TogglePlaybackAsync, before the engine is asked.
+    /// dialog, to the speakers; or stop it playing. Needs no radio. While
+    /// transmitting it is a send to the air instead, routed before the engine
+    /// is asked, so ComputerRecorder.TogglePlaybackAsync's refusal while
+    /// transmitting stays as the engine's own guard and is no longer what this
+    /// door says.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Tape Deck phase 2 (#835).</b> Keyed, Play sends the chosen or last
+    /// recording to the air through the transmit-file path, and never touches
+    /// the key (Noel, 2026-10-21 10:57). With the VOX send box ticked and VOX on, Play
+    /// keys the radio itself, sends it whole and hands back to VOX (2026-10-27
+    /// 14:54). Either way the operator hears it through the radio's transmit
+    /// monitor, switched on for the send if it was off and put back after
+    /// (2026-10-28 16:47). Unkeyed with the box unticked, Play listens, as it
+    /// always has.
+    /// </para>
+    /// <para>
+    /// Pressed again while the send is going out, Play PAUSES it, unkeying only
+    /// what the send keyed and holding its place; pressed once more it carries
+    /// on from there (Noel, 2026-10-27 20:51: <i>"That's how you pause
+    /// normally"</i>). Escape ends it. At ten minutes the send pauses by itself
+    /// so the operator can identify (20:48, 20:50).
+    /// </para>
+    /// <para>
+    /// <b>On the speakers too</b> (2026-10-28 21:20): pressed while a recording
+    /// plays here, Play pauses it, and pressed again carries it on; Escape in
+    /// the main window stops it (<see cref="StopSpeakersOnEscape"/>).
+    /// </para>
+    /// </remarks>
     public static async Task<RecorderOutcome> ToggleComputerPlayAsync(FlexBase? rig,
         Action<RecorderOutcome>? speak = null)
     {
+        // A send in hand answers first (#835, 20:51): a computer recording
+        // going out pauses, a paused one carries on, any other send stops.
+        if (VoiceMessageSender.AnswerPlayFromComputer())
+            return HandedToSend(SpeechSubject.ComputerRecorder);
+        // A recording paused on the speakers carries on the way a press now
+        // would go (Noel, 2026-10-30 05:56: "If you've paused and you turn send
+        // on, say you didn't realize you did, it should send"): the box ticked
+        // with VOX on, or the operator keyed, sends it from where it paused.
+        if (rig != null && RecordingPlayer.IsPaused
+            && VoiceMessageSender.SendPausedSpeakerPlayback(rig, VoiceMessageSender.RouteFor(rig)))
+            return HandedToSend(SpeechSubject.ComputerRecorder);
+        // On the speakers too, Play pauses and Play again carries on; Escape
+        // stops (Noel, 2026-10-28 21:20: one meaning for the key everywhere).
+        if (ComputerRecorder.Current.IsPlaying)
+        {
+            var paused = await PauseOrCarryOnSpeakersAsync();
+            (speak ?? Speak)(paused);
+            return paused;
+        }
         bool starting = !ComputerRecorder.Current.IsPlaying;
+        if (starting && rig != null)
+        {
+            SendRoute route = VoiceMessageSender.RouteFor(rig);
+            if (route != SendRoute.AsBefore)
+            {
+                string? path = ComputerRecorder.ChosenForPlayback();
+                if (string.IsNullOrEmpty(path))
+                {
+                    // DRAFT PROSE (#835): awaiting Noel
+                    var none = new RecorderOutcome(false, Lexicon.Get("audio.send.no_computer_recording"),
+                        SpeechSubject.ComputerRecorder);
+                    (speak ?? Speak)(none);
+                    return none;
+                }
+                VoiceMessageSender.SendComputerRecording(rig, path, route);
+                return HandedToSend(SpeechSubject.ComputerRecorder);
+            }
+        }
         bool transmitting = rig?.Transmit == true;
         FlexBase.LocalPlaybackVoxPause? pause = null;
         if (starting && !transmitting)
@@ -223,7 +390,7 @@ public static class RecorderControls
             SpeechSubject.ComputerRecorder);
         if (pause != null)
         {
-            if (outcome.Success && ComputerRecorder.Current.IsPlaying) LocalPlaybackVox.HoldUntilPlaybackEnds(pause);
+            if (outcome.Success && ComputerRecorder.Current.IsPlaying) LocalPlaybackVox.HoldUntilPlaybackEnds(rig, pause);
             else pause.Dispose();
         }
         (speak ?? Speak)(outcome);

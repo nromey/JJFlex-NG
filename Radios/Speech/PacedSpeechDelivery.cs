@@ -159,6 +159,25 @@ namespace Radios.Speech
         /// <summary>How many utterances wait behind the one in flight.</summary>
         public int QueuedCount { get { lock (_lock) { return _queue.Count; } } }
 
+        /// <summary>
+        /// Whether the reader has reached the FIRST WORD of
+        /// <paramref name="ticket"/>: it is the item in flight and the channel
+        /// has reported at least one word mark for it. Read by the countdown
+        /// before a check keys (#835), whose pip must not sound before its own
+        /// number has started.
+        /// </summary>
+        /// <remarks>
+        /// Handed to the reader is NOT started (Codex round 3): the reader can
+        /// hold a call behind its own announcements, so only a mark says a word
+        /// has begun. False while queued, while in flight with no mark yet, and
+        /// once it has finished or is unknown; the countdown reads a finished
+        /// piece from the arbiter's ledger instead.
+        /// </remarks>
+        public bool HasReachedFirstWord(long ticket)
+        {
+            lock (_lock) { return _inFlight != null && _inFlight.Ticket == ticket && _inFlight.Marks > 0; }
+        }
+
         /// <summary>True while the reader has one of ours.</summary>
         public bool InFlight { get { lock (_lock) { return _inFlight != null; } } }
 

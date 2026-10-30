@@ -1503,6 +1503,8 @@ namespace Radios
         /// </summary>
         public bool TxToneStart()
         {
+            // #835: no transmit source is armed during an Audio Check teardown.
+            if (RefusedForCheckTeardown("test tone")) return false;
             lock (_voxPauseGate)
             {
                 if (txToneGen.Engaged) return true;
@@ -1518,6 +1520,7 @@ namespace Radios
         /// <summary>Wait for the radio to confirm VOX off before a tone can reach its transmit input.</summary>
         public async Task<bool> TxToneStartAsync()
         {
+            if (RefusedForCheckTeardown("test tone")) return false;
             Flex.Smoothlake.FlexLib.Radio radio;
             VoxPauseOwner.Lease lease;
             lock (_voxPauseGate)
@@ -1666,16 +1669,25 @@ namespace Radios
             });
         }
 
-        private void ReleaseVoxWhenReceive(VoxPauseOwner.Lease lease, bool playbackTail = false)
-        {
-            if (!_Transmit) { ReleaseVoxAfterTransmitDrain(lease, playbackTail); return; }
-            _ = Task.Run(async () =>
-            {
-                while (_Transmit && theRadio?.Connected == true)
-                    await Task.Delay(20).ConfigureAwait(false);
-                ReleaseVoxAfterTransmitDrain(lease, playbackTail);
-            });
-        }
+        /// <summary>
+        /// Give a VOX pause back once the radio is really receiving, then after
+        /// the transmit path's drain. Every VOX pause ends here: the test tone,
+        /// slice playback, a speaker playback (<see cref="LocalPlaybackVoxPause"/>)
+        /// and a box send after a takeover.
+        /// </summary>
+        /// <remarks>
+        /// Until round 1030 this waited on cached <see cref="Transmit"/> alone,
+        /// which after a hardware takeover reads receive while the hand mic still
+        /// keys the radio, so VOX came back on a keyed radio. It now waits through
+        /// <see cref="WhenRadioReallyReceives"/>, the same wait the send's
+        /// monitor uses (Codex round 1030, B5 and its sibling; Noel's rule that
+        /// VOX is never live while the operator keys the radio). A lost or
+        /// replaced connection ends the wait as a disconnect always has.
+        /// </remarks>
+        private void ReleaseVoxWhenReceive(VoxPauseOwner.Lease lease, bool playbackTail = false) =>
+            WhenRadioReallyReceives(_ => ReleaseVoxAfterTransmitDrain(lease, playbackTail),
+                beforeWaiting: () => Tracing.TraceLine("VOX pause: the radio is still transmitting (Transmit " + _Transmit
+                    + ", interlock " + theRadio?.InterlockState + "); VOX comes back once it receives", TraceLevel.Info));
 
         /// <summary>The Workshop reference has an active VOX lease.</summary>
         public bool TxReferenceArmed
@@ -1750,6 +1762,7 @@ namespace Radios
         /// </remarks>
         public void TxFileStart()
         {
+            if (RefusedForCheckTeardown("a recording")) return;   // #835, see FlexBase.CheckRestore.cs
             Tracing.TraceLine("TxFileStart: \"" + txFilePlayer.ContentName + "\", "
                 + txFilePlayer.ContentSeconds.ToString("F1") + " s at "
                 + txFilePlayer.ContentSampleRate + " Hz", TraceLevel.Info);
@@ -1789,6 +1802,7 @@ namespace Radios
         /// </remarks>
         public void TxFileStartForVox()
         {
+            if (RefusedForCheckTeardown("a recording for VOX")) return;   // #835, see FlexBase.CheckRestore.cs
             Tracing.TraceLine("TxFileStartForVox: \"" + txFilePlayer.ContentName + "\", "
                 + txFilePlayer.ContentSeconds.ToString("F1") + " s at "
                 + txFilePlayer.ContentSampleRate + " Hz — reaching the radio while receiving so VOX can key on it",

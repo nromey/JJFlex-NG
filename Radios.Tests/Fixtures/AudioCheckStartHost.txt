@@ -15,19 +15,31 @@ public class Host
     private Control _iqRate, _iqHearSelfDuringTake, _takeStatus;
     private Watcher _iqWatch = new();
     private void IqFailure(Exception ex) { }
+    private void TrackOffAirRun(FlexBase rig, FakeRun run) { }
+    private void ReleaseOffAirRun(FlexBase rig) { }
+    private static IDisposable TrackStart(FlexBase rig, string name) => new Empty();
     /*StartOffAirAsync*/
     private FlexBase _rig = new();
     private string _lastAudioCheckSource;
     private AudioCheckSession _session;
     private Control _micGainControl;
+    private void FocusGain() { }
     private PttSafetyController ptt = new();
     private Func<PttSafetyController> PttControllerSource => () => ptt;
-    private void IqStatus(string s, bool b=false, string subject=null) { }
+    private void IqStatus(string s, bool b=false, string subject=null, bool speak=true) { }
     private void SetLoopbackButtonLabel(bool stopping) { }
     private void SetStartButtonLabel(string s) { }
     private string BuildToneAnnouncement() => null;
     private readonly AudioCheckStartGate _checkStarts = new();
-    private void CancelCheckStart() { _checkStarts.Cancel(); }
+    private void CancelCheckStart() { _checkStarts.Cancel(); Countdown?.TrySetResult(false); }
+    // The countdown seam (#835, Track C): null is a countdown turned off; a
+    // scenario that sets it holds the count open until it says.
+    public TaskCompletionSource<bool> Countdown;
+    public int CountdownsBegun, CountdownsEnded;
+    private void BeginStartCountdown(AudioCheckListenMethods method) { CountdownsBegun++; }
+    private bool StartCountdownRunning => Countdown != null && !Countdown.Task.IsCompleted;
+    private Task<bool> CountdownLetsKeyAsync() => Countdown?.Task ?? Task.FromResult(true);
+    private void EndStartCountdown() { CountdownsEnded++; Countdown?.TrySetResult(false); }
     private void OnSessionEnded() { CancelCheckStart(); }
     /*StartLoopbackCheckAsync*/
     /*StartAudioCheckSessionAsync*/
@@ -35,6 +47,68 @@ public class Host
     {
         RecorderControls.Spoken = 0;
         var h = new Host();
+        // The countdown seam (#835, Track C): [keys while the count still
+        // plays, keys at the end, 1 if a count was begun without being ended,
+        // stale recorder speech].
+        if (scenario is "countdown-holds-key" or "countdown-cancelled")
+        {
+            h.Countdown = new TaskCompletionSource<bool>();
+            var s = new AudioCheckSession(h, h._rig, h.ptt, AudioCheckListenMethods.Monitor, AudioCheckPowerModes.LowPower, 1);
+            var pending = h.StartAudioCheckSessionAsync(s);
+            await Task.Delay(20);
+            int whileCounting = h.ptt.Keys;
+            if (scenario == "countdown-cancelled") h.CancelCheckStart(); else h.Countdown.SetResult(true);
+            await pending;
+            return new[] { whileCounting, h.ptt.Keys, h.CountdownsBegun == h.CountdownsEnded ? 0 : 1, RecorderControls.Spoken };
+        }
+        if (scenario == "countdown-before-setup")
+        {
+            h.Countdown = new TaskCompletionSource<bool>();
+            h.Countdown.SetResult(true);
+            var s = new AudioCheckSession(h, h._rig, h.ptt, AudioCheckListenMethods.RecordPlayback, AudioCheckPowerModes.LowPower, 1);
+            var pending = h.StartAudioCheckSessionAsync(s);
+            await Task.Delay(20);
+            int whileSettingUp = h.ptt.Keys;
+            h._rig.Record.SetResult(new(true, "recorded", "slice"));
+            await pending;
+            return new[] { whileSettingUp, h.ptt.Keys, h.CountdownsBegun == h.CountdownsEnded ? 0 : 1, RecorderControls.Spoken };
+        }
+        if (scenario == "countdown-records-after-count")
+        {
+            // [recorder arms asked for while the count plays, keys at the end, ...]
+            h.Countdown = new TaskCompletionSource<bool>();
+            var s = new AudioCheckSession(h, h._rig, h.ptt, AudioCheckListenMethods.RecordPlayback, AudioCheckPowerModes.LowPower, 1);
+            var pending = h.StartAudioCheckSessionAsync(s);
+            await Task.Delay(20);
+            int armedWhileCounting = h._rig.RecordStarts;
+            h.Countdown.SetResult(true);
+            h._rig.Record.SetResult(new(true, "recorded", "slice"));
+            await pending;
+            return new[] { armedWhileCounting, h.ptt.Keys, h.CountdownsBegun == h.CountdownsEnded ? 0 : 1, RecorderControls.Spoken };
+        }
+        if (scenario == "countdown-loopback")
+        {
+            h.Countdown = new TaskCompletionSource<bool>();
+            var pending = h.StartLoopbackCheckAsync();
+            h._rig.Arrange.SetResult(true);
+            h._rig.Record.SetResult(new(true, "recorded", "slice"));
+            await Task.Delay(20);
+            int whileCounting = h.ptt.Keys;
+            h.Countdown.SetResult(true);
+            await pending;
+            return new[] { whileCounting, h.ptt.Keys, h.CountdownsBegun == h.CountdownsEnded ? 0 : 1, RecorderControls.Spoken };
+        }
+        if (scenario == "countdown-off-air")
+        {
+            h.Countdown = new TaskCompletionSource<bool>();
+            var pending = h.StartOffAirAsync(h.ptt);
+            h._rig.OffAir.SetResult(new FakeRun());
+            await Task.Delay(20);
+            int whileCounting = h.ptt.Keys;
+            h.Countdown.SetResult(true);
+            await pending;
+            return new[] { whileCounting, h.ptt.Keys, h.CountdownsBegun == h.CountdownsEnded ? 0 : 1, RecorderControls.Spoken };
+        }
         if (scenario is "cancel-off-air" or "off-air-excludes-ordinary")
         {
             var pending = h.StartOffAirAsync(h.ptt);
@@ -82,10 +156,14 @@ public class Host
         private Phase _phase;
         private Watcher _watcher = new();
         public bool Active;
+        public AudioCheckListenMethods Method => _method;
+        private bool Records => _method == AudioCheckListenMethods.RecordPlayback || _method == AudioCheckListenMethods.Loopback;
         public AudioCheckSession(Host owner, FlexBase rig, PttSafetyController ptt, AudioCheckListenMethods method,
             AudioCheckPowerModes powerMode, int lowPowerWatts, bool loopback = false)
         { _owner=owner; _ptt=ptt; _method=method; _powerMode=powerMode; _lowPowerWatts=lowPowerWatts; _loopback=loopback; }
         private void RestoreChangedState(FlexBase rig, bool speak) { }
+        private void RestoreWhenReceiving(FlexBase rig) { }
+        private void Remember(FlexBase rig, string name, Action restore, params CheckPutBack[] putBacks) { }
         private static string FormatMHz(double f) => f.ToString();
         private static string SourceFriendlyName(string s) => s;
         private void HandleUnkey(bool external) { _ptt.EscapeUnlock(); Active=false; _owner.OnSessionEnded(); }
@@ -104,10 +182,11 @@ public class FlexBase
     public string OffAirListenbackRefusalReason => "";
     public object CaptureListenbackRecoveryReader() => null;
     public Task<FakeRun> StartListenbackAsync(ListenbackOptions options, CancellationToken token) => OffAir.Task;
-    public bool LoopbackArranged, Transmit, DummyLoadMode, RemoteRig, LoopbackDriveManaged;
+    public bool LoopbackArranged, Transmit, DummyLoadMode, RemoteRig, LoopbackDriveManaged, TeardownInProgress;
     private int _power=20;
     public Action PowerChanged;
     public int XmitPower { get => _power; set { _power=value; PowerChanged?.Invoke(); } }
+    public int TunePower;
     public double TXFrequency;
     public string MicSource;
     public bool TxToneEngaged, TxFilePlaying;
@@ -115,7 +194,8 @@ public class FlexBase
     public OffOnValues Monitor;
     public string LoopbackUnavailableReason => "";
     public string SliceRecorderLetter(SliceRecorderTarget t) => "A";
-    public Task<RecorderOutcome> StartSliceRecordAsync(SliceRecorderTarget t) => Record.Task;
+    public int RecordStarts;
+    public Task<RecorderOutcome> StartSliceRecordAsync(SliceRecorderTarget t) { RecordStarts++; return Record.Task; }
     public Task<RecorderOutcome> StopSliceRecordAsync(SliceRecorderTarget t) => Task.FromResult(new RecorderOutcome(true, "stopped", "slice"));
     public async Task<bool> StartLoopbackArrangementAsync() { LoopbackArranged = await Arrange.Task; return LoopbackArranged; }
     public Task<string> EndLoopbackArrangementAsync() { LoopbackArranged=false; return Task.FromResult(""); }
@@ -130,7 +210,7 @@ public record ListenbackOptions(int Rate, bool OffAir, bool HearSelfDuringOffAir
 public static class EarconPlayer { public static void FeatureOnTone() { } }
 public class PttSafetyController { public bool IsTransmitting; public int Keys; public int? SessionTimeoutOverrideSeconds; public bool AudioCheckNarration; public int? PlannedStopSeconds;
     public void ToggleLock() { Keys++; IsTransmitting=true; } public void EscapeUnlock() { IsTransmitting=false; } }
-public enum AudioCheckListenMethods { Monitor, RecordPlayback, OffAir }
+public enum AudioCheckListenMethods { Monitor, RecordPlayback, OffAir, MicTest, Loopback }
 public enum AudioCheckPowerModes { DummyLoad, LowPower }
 public enum VerbosityLevel { Terse, Critical }
 public static class Lexicon { public static string Get(string s, params (string, object)[] args) => s; }

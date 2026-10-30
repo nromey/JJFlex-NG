@@ -1215,6 +1215,9 @@ public class NativeMenuBar : IDisposable
                 case "meter-tones":
                     BuildMeterToneItems(AddSubmenu(parent, label));
                     break;
+                case "check-your-audio":
+                    AddWired(parent, label, () => Dialogs.CheckYourAudioDialog.ShowOrFocus(Rig), enabled);
+                    break;
                 default:
                     // A layout row nobody wired. Say so rather than dropping it:
                     // a silently missing row moves every position after it, which
@@ -3643,7 +3646,15 @@ public class NativeMenuBar : IDisposable
         // connection state -- this is how user-global preferences (calibration
         // unlocks, typing sound) stay visible in Settings even when no radio
         // is connected.
-        string? rootConfigDir = handlers?.GetConfigDirectory?.Invoke();
+        //
+        // #856, 2026-10-30: it does NOT, on a launch with no radio. FreqHandlers
+        // is built only at power-on (MainWindow.EnsureFreqOutHandlers), so the
+        // delegate was null, the dialog opened on DEFAULTS, OK pushed those
+        // defaults live (verbosity back to Chatty, volumes, devices), and the
+        // root save below never ran. Broken since 82fe262b (2026-04-17). The
+        // settings root itself is known from startup, and honours
+        // JJFLEX_CONFIG_DIR, so it is the fallback.
+        string? rootConfigDir = handlers?.GetConfigDirectory?.Invoke() ?? Radios.RadioConfig.AppDataRoot;
 
         AudioOutputConfig audioConfig;
         if (_window.OpenParms != null)
@@ -3765,6 +3776,10 @@ public class NativeMenuBar : IDisposable
                 rootConfig.CwPitchFollowsRadio = audioConfig.CwPitchFollowsRadio;
                 rootConfig.CwWaveform = audioConfig.CwWaveform;
                 rootConfig.EarconVoiceSet = audioConfig.EarconVoiceSet;
+                // #835, round 1030 (#856): the countdown is this operator's
+                // too, set in the same dialog, and without this line a change
+                // made with no radio connected applied live and was then lost.
+                rootConfig.Countdown = audioConfig.Countdown.Clone();
                 rootConfig.Save(rootConfigDir);
             }
         };

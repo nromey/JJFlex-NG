@@ -361,4 +361,31 @@ internal sealed class RecordedQsoBrowser
                     return i;
         return rows.Count > 0 ? 0 : -1;
     }
+
+    /// <summary>
+    /// Which row the dialog opens on, so that the row shown selected is the
+    /// file Play from computer sends (#835 fix round; bench 2026-10-28, step
+    /// 27). Pass what Play plays NOW (<see cref="ComputerRecorder.ChosenForPlayback"/>):
+    /// the choice, else the session's last recording, else the newest
+    /// recorder-named file. The dialog opens on that row and changes nothing.
+    /// Only when Play has nothing to send, or sends a file this list does not
+    /// hold, does the row the dialog opens on become Play's choice
+    /// (<c>NewChoice</c>), because otherwise the two would disagree.
+    /// </summary>
+    /// <remarks>
+    /// The choice used to be read alone (<see cref="Opening"/> with
+    /// <c>ChosenRecording</c>), so with nothing chosen the dialog opened on the
+    /// top row, which can be a copied-in file, while Play sent the session's
+    /// last recording: Noel heard a 1.3 second QSO go out twice with a
+    /// 2 minute 50 second recording shown selected. No sentence is added for
+    /// this: the one that announced a choice was ruled out on 2026-10-25.
+    /// </remarks>
+    internal static (int Index, string? NewChoice) OpeningAgreeingWithPlay(IReadOnlyList<RecordedQso> rows,
+        string? playsNow)
+    {
+        int index = Opening(rows, playsNow);
+        if (index < 0) return (-1, null);
+        string row = rows[index].Path;
+        return string.Equals(row, playsNow, StringComparison.OrdinalIgnoreCase) ? (index, null) : (index, row);
+    }
 }

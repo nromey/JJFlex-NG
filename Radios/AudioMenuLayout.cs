@@ -282,6 +282,15 @@ namespace Radios
             // The in-file precedent is "A&ntenna" (NativeMenuBar.cs), same
             // collision, same fix, already shipping.
             new("audio-workshop", "Audio &Workshop", AudioMenuEntryKind.Command, false, "Ctrl+Shift+W"),
+
+            // #835: Check your audio, beside the Workshop whose Hear Yourself
+            // page it was (Noel, 2026-10-27 14:59: "I'm guessing we'd put check
+            // audio in the audio menu as well?"). No other row here starts with
+            // C, so its first letter reaches it in one press and no ampersand
+            // is needed. It opens with no radio: the window says so itself.
+            // The accelerator column names the JJ key chord, as the levels rows
+            // above do for theirs.
+            new("check-your-audio", "Check Your Audio", AudioMenuEntryKind.Command, false, "Ctrl+J, Alt+C"),
         };
 
         /// <summary>

@@ -112,6 +112,7 @@ namespace Radios
         private static readonly object Gate = new object();
 
         private static int _arms;
+        private static int _escapeArms;
         private static FlexBase _rig;
         private static string _what = "";
         private static bool _carrierRaised;
@@ -216,12 +217,32 @@ namespace Radios
         public static bool Armed { get { lock (Gate) { return _arms > 0; } } }
 
         /// <summary>
+        /// True while at least one armed transmit wants Escape, pressed
+        /// anywhere, to stop it: the transmit checks, which block the UI
+        /// thread. A box send (#835) arms without it, because its Escape is the
+        /// main window's and Escape pressed in the operator's logger must not
+        /// end their message.
+        /// </summary>
+        public static bool WatchesEscape { get { lock (Gate) { return _escapeArms > 0; } } }
+
+        /// <summary>
         /// How many kills have fired in this process. Reported in the check
         /// evidence and watched on the bench: like the controller's implausible
         /// release counter, a number that is expected to stay at zero is only
         /// worth anything if somebody can see it.
         /// </summary>
         public static long KillCount => Interlocked.Read(ref _killCount);
+
+        /// <summary>
+        /// How many times every transmit source has been disarmed by a kill
+        /// (<see cref="DisarmSources"/>, which every kill route calls). A send
+        /// that is still getting ready to key — the VOX send box waiting for the radio
+        /// to confirm VOX off (#835) — reads this at the press and refuses to
+        /// key if it has moved: a kill cancels every key after it, including
+        /// one not yet made.
+        /// </summary>
+        public static long DisarmGeneration => Interlocked.Read(ref _disarmGeneration);
+        private static long _disarmGeneration;
 
         /// <summary>What is currently armed, in words, or empty.</summary>
         public static string WhatIsArmed { get { lock (Gate) { return _what; } } }
@@ -254,9 +275,21 @@ namespace Radios
         /// to drop and no meters to read.</param>
         /// <param name="what">What is transmitting, in the operator's words,
         /// for the trace.</param>
-        public static IDisposable Arm(FlexBase rig, string what)
+        public static IDisposable Arm(FlexBase rig, string what) => Arm(rig, what, escapeStops: true);
+
+        /// <summary>
+        /// <see cref="Arm(FlexBase, string)"/>, saying whether Escape pressed
+        /// ANYWHERE stops this transmit. The transmit checks need that, because
+        /// they block the UI thread. A send keyed from the UI thread with the
+        /// dispatcher free (the VOX send box, #835) passes false: its Escape is the main
+        /// window's, and the process-wide poll would let Escape in another
+        /// program end it. Everything else is identical: the reflected-power
+        /// watch and its cut, the hold after it, and the refusal to raise a
+        /// carrier once a stop has been asked for.
+        /// </summary>
+        public static IDisposable Arm(FlexBase rig, string what, bool escapeStops)
         {
-            if (rig == null) return new Registration(false);
+            if (rig == null) return new Registration(false, false);
 
             lock (Gate)
             {
@@ -271,19 +304,22 @@ namespace Radios
                     _armedFor = Stopwatch.StartNew();
                 }
                 _arms++;
+                if (escapeStops) _escapeArms++;
             }
 
             StartWatcher();
             Tracing.TraceLine("TransmitKillSwitch: armed for " + WhatIsArmed
-                              + " — Escape stops it, from anywhere", TraceLevel.Info);
-            return new Registration(true);
+                              + (escapeStops ? " — Escape stops it, from anywhere"
+                                             : " — reflected-power cut armed; Escape is the window's"), TraceLevel.Info);
+            return new Registration(true, escapeStops);
         }
 
-        private static void Release()
+        private static void Release(bool escapeStops)
         {
             bool last;
             lock (Gate)
             {
+                if (escapeStops && _escapeArms > 0) _escapeArms--;
                 if (_arms > 0) _arms--;
                 last = _arms == 0;
                 if (last)
@@ -307,13 +343,14 @@ namespace Radios
         private sealed class Registration : IDisposable
         {
             private bool _live;
-            internal Registration(bool live) { _live = live; }
+            private readonly bool _escapeStops;
+            internal Registration(bool live, bool escapeStops) { _live = live; _escapeStops = escapeStops; }
 
             public void Dispose()
             {
                 if (!_live) return;
                 _live = false;
-                Release();
+                Release(_escapeStops);
             }
         }
 
@@ -438,6 +475,9 @@ namespace Radios
         /// </remarks>
         public static void DisarmSources(FlexBase rig)
         {
+            // First, and even with no rig: a send still getting ready to key
+            // (the VOX send box, #835) must find the kill when it next looks.
+            Interlocked.Increment(ref _disarmGeneration);
             if (rig == null) return;
             try { rig.CancelSlicePlayback(); }
             catch (Exception ex)
@@ -701,7 +741,7 @@ namespace Radios
                         if (!_watching || _watchGeneration != generation) break;
                     }
 
-                    if (PhysicalKeyState.IsDown(VkEscape))
+                    if (WatchesEscape && PhysicalKeyState.IsDown(VkEscape))
                         Request(Source.EscapeKey);
 
                     sinceMeters += KeyPollMs;
@@ -973,6 +1013,7 @@ namespace Radios
             lock (Gate)
             {
                 _arms = 0;
+                _escapeArms = 0;
                 _rig = null;
                 _what = "";
                 _carrierRaised = false;

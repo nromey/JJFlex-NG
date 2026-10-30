@@ -171,6 +171,14 @@
                               Margin="0,8,0,0"
                               AutomationProperties.Name="Play chirp tones on transmit and receive"/>
 
+                    <!-- The VOX send box (#835): with VOX on, sends key the radio. An
+                         operator preference saved with the audio settings,
+                         off by default. Its label, name and Ctrl+F1 text are
+                         set in code from the Lexicon (audio.send.box_*), the
+                         same words Home's Transmission group uses. -->
+                    <CheckBox x:Name="VoxSendBoxCheckbox"
+                              Margin="0,8,0,0"/>
+
                     <!-- The reflected-power cut's off switch (#224). Default ON,
                          ruled by Noel 2026-08-26; defeatable, ruled 2026-08-30.
                          Committed on OK like its neighbours, NOT applied live —
@@ -595,6 +603,15 @@
                                           local:JJFlexHelp.Text="Sets how much the radio's audio on this computer is lowered while a recording plays back, or mutes it. Audio from the radio's own speaker is not affected."/>
                             </StackPanel>
                         </StackPanel>
+                    </GroupBox>
+
+                    <Separator Margin="0,4,0,8"/>
+
+                    <!-- Countdown (#835): the one countdown, for Check your audio and
+                         the Fix tool. Its header and controls are built in code from
+                         the Lexicon (audio.countdown.*), in SettingsDialog.Countdown.cs. -->
+                    <GroupBox x:Name="CountdownGroup" Margin="0,4,0,8">
+                        <StackPanel x:Name="CountdownPanel" Margin="4"/>
                     </GroupBox>
 
                     <Separator Margin="0,4,0,8"/>

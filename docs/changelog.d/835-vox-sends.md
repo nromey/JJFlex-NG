@@ -1,0 +1,5 @@
+Play from computer now sends your recording over the air when you press it while transmitting, and you hear it through your radio's transmit monitor as it goes, which JJ Flexible switches on for the send and back off afterwards. If you work VOX, a new box, Sends key the radio when VOX is on, lets a voice message or a played recording key the radio itself and go out whole, without VOX dropping out in its pauses. Ctrl+J then Ctrl+K turns that box on or off.
+
+A recording longer than three minutes now asks before it goes out, and after ten minutes on the air a send pauses itself so you can identify, then carries on from the same place when you press Play. Play from computer and a voice message's own key now pause and carry on, on your speakers as well as on the air, and Escape stops. Long recordings are never cut short any more.
+
+Pressing push to talk, or the push to talk on your microphone, while a send is going out takes over at once, and the first thing you hear says the send has stopped.

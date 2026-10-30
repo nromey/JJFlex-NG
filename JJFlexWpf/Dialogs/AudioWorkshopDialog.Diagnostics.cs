@@ -128,6 +128,23 @@ public partial class AudioWorkshopDialog
         // paragraph in a different tab, silently, with nothing failing.
         DiagnosticsContent.Children.Add(orient);
 
+        // The Fix tool, from here too (Noel 2026-10-28 21:43: "it should be
+        // linked to workshop somehow as well"; confirmed 21:46, both windows).
+        // Straight under the paragraph that names it, by the same route as
+        // Tools, Fix, "Transmit problems...". Short label; Ctrl+F1 explains.
+        var fixTool = new Button
+        {
+            Content = Lexicon.Get("audio.fix_tool.label"),
+            Padding = new Thickness(8, 4, 8, 4),
+            Margin = new Thickness(2, 0, 2, 10),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        AutomationProperties.SetName(fixTool, Lexicon.Get("audio.fix_tool.label"));
+        // DRAFT PROSE (#835): awaiting Noel. His words, 21:46.
+        JJFlexHelp.SetText(fixTool, Lexicon.Get("audio.fix_tool.help"));
+        fixTool.Click += (s, e) => OpenFixTool();
+        DiagnosticsContent.Children.Add(fixTool);
+
         AddSectionHeader(DiagnosticsContent, "Why is my radio silent");
 
         var rxIntro = new TextBlock
@@ -158,6 +175,7 @@ public partial class AudioWorkshopDialog
         AddToSection(DiagnosticsContent, rxButton);
 
         _rxAdvisoryBox = MakeReportBox("Receive audio test result", 3, 12);
+        JJFlexHelp.SetText(_rxAdvisoryBox, Lexicon.Get("audio.diagnostics.help.rx_result"));
         AddToSection(DiagnosticsContent, _rxAdvisoryBox);
 
         AddSectionHeader(DiagnosticsContent, "Why can nobody hear me");
@@ -193,6 +211,7 @@ public partial class AudioWorkshopDialog
         AddToSection(DiagnosticsContent, txButton);
 
         _txReportBox = MakeReportBox("Transmit chain test result", 8, 20);
+        JJFlexHelp.SetText(_txReportBox, Lexicon.Get("audio.diagnostics.help.tx_result"));
         _txReportBox.Text = NoTxReportYet;
         AddToSection(DiagnosticsContent, _txReportBox);
 
@@ -209,6 +228,7 @@ public partial class AudioWorkshopDialog
         AddToSection(DiagnosticsContent, evIntro);
 
         _evidenceBox = MakeReportBox("Evidence to send to Flex support", 8, 24);
+        JJFlexHelp.SetText(_evidenceBox, Lexicon.Get("audio.diagnostics.help.evidence"));
         _evidenceBox.Text = NoEvidenceYet;
         AddToSection(DiagnosticsContent, _evidenceBox);
 
@@ -226,6 +246,9 @@ public partial class AudioWorkshopDialog
             + "does the same thing. This is here for when that is not to hand.");
         _copyEvidenceButton.Click += (s, e) => CopyEvidence();
         AddToSection(DiagnosticsContent, _copyEvidenceButton);
+
+        // #835: the bench tools from the Hear Yourself page, ruled here 13:42.
+        BuildBenchToolsSection();
 
         _rxAdvisoryBox.Text = "Choose Test My Receive Audio above.";
 
@@ -257,6 +280,21 @@ public partial class AudioWorkshopDialog
         // The inventory subscription must not outlive the window. Added as its
         // own handler rather than by editing the shell's Closed lambda.
         Closed += (s, e) => UnwatchInventory();
+    }
+
+    /// <summary>
+    /// Open the Fix tool from the Diagnostics page, the way Tools, Fix,
+    /// "Transmit problems..." does. Not while a check in Check your audio or
+    /// this page's diagnostic take is running: the Fix tool keys the radio for
+    /// tests of its own.
+    /// </summary>
+    private void OpenFixTool()
+    {
+        // The one hand-off both doors share (Codex round 1): it refuses for a
+        // check, a take or this page's diagnostic take, and stops a computer
+        // microphone check listening in Check your audio.
+        if (!CheckYourAudioDialog.HandOffToFixTool("the Audio Workshop's Diagnostics page")) return;
+        FixerDialog.Show(() => _rig ?? CheckYourAudioDialog.RigSource?.Invoke(), this);
     }
 
     /// <summary>

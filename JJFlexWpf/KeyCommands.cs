@@ -55,6 +55,10 @@ public class KeyCommands
     // while _leaderHelpArmed is true, and overwritten at every arming —
     // Keys.None after an unknown key — so a stale value can never fire.
     private Keys _leaderNearMissChord;
+    // The second chord a near miss named, when a bare letter has both a Ctrl
+    // and an Alt chord (#835 fix round, 2026-10-28 21:25); Keys.None otherwise.
+    // Set and cleared with _leaderNearMissChord, everywhere it is.
+    private Keys _leaderNearMissSecondChord;
 
     // ── Value sub-layer state (Sprint 37 Track C, #305 — pan was the first
     // consumer, #304; Sprint 44 Track I put the audio layer (#514) and the
@@ -472,9 +476,10 @@ public class KeyCommands
                 { Keywords = new[] { "alarm", "alarms", "temperature", "pa", "patemp", "voltage", "volts", "supply",
                                      "threshold", "warning", "warn", "meter", "monitor", "hot", "overheat", "baseline" },
                   ShortActionLabel = "open operator alarms" },
-            // Audio Check: "check my transmit audio" — opens the workshop and
-            // keys through the PTT safety controller with the safety line
-            // first. Command Finder only, no key binding (QB Track G).
+            // Audio Check: "check my transmit audio" — opens Check your audio
+            // (the Audio Workshop until #835) and starts the method shown,
+            // keying through the PTT safety controller. Command Finder only, no
+            // key binding (QB Track G).
             new(CommandValues.StartAudioCheck, KeyTypes.Command, StartAudioCheckHandler,
                 "Check my transmit audio (Audio Check session)", "Audio Check", false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "audio", "check", "monitor", "hear", "myself", "transmit", "tx", "test" }, ShortActionLabel = "start audio check" },
@@ -618,13 +623,13 @@ public class KeyCommands
                 "Start or stop the radio's recorder on the active slice", "Record Active Slice", false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "record", "recording", "recorder", "slice", "active", "capture", "tape", "save", "listen", "back", "buddy", "radio", "f11" }, ShortActionLabel = "record active slice" },
             new(CommandValues.PlayActiveSlice, KeyTypes.Command, PlayActiveSliceHandler,
-                "Start or stop playing the active slice's recording through your speakers", "Play Active Slice", false, FunctionGroups.Audio, KeyScope.Radio)
+                "Start or stop playing the active slice's recording — through your speakers, or on the air while you transmit", "Play Active Slice", false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "play", "playback", "replay", "recording", "recorder", "slice", "active", "listen", "back", "hear", "radio", "f11" }, ShortActionLabel = "play active slice" },
             new(CommandValues.RecordToFile, KeyTypes.Command, RecordToFileHandler,
                 "Start or stop recording the radio's audio to a file on this computer", "Record to File", false, FunctionGroups.Audio, KeyScope.Global)
                 { Keywords = new[] { "record", "recording", "file", "computer", "save", "conversation", "qso", "capture", "tape", "audio", "f11", "alt" }, ShortActionLabel = "record to file" },
             new(CommandValues.PlayFromComputer, KeyTypes.Command, PlayFromComputerHandler,
-                "Start or stop playing your last computer recording through your speakers", "Play from Computer", false, FunctionGroups.Audio, KeyScope.Global)
+                "Start or stop playing your last computer recording — through your speakers, or on the air while you transmit", "Play from Computer", false, FunctionGroups.Audio, KeyScope.Global)
                 { Keywords = new[] { "play", "playback", "replay", "recording", "file", "computer", "last", "listen", "back", "audio", "f11", "ctrl", "alt" }, ShortActionLabel = "play from computer" },
             // Tape Deck track 4: the recordings dialog, where those recordings
             // are listed, previewed, trimmed, saved as other formats, deleted
@@ -637,6 +642,18 @@ public class KeyCommands
                                      "manage", "play", "preview", "trim", "cut", "edit", "save", "as", "export", "convert",
                                      "mp3", "flac", "wav", "opus", "m4a", "delete", "prune", "clean", "recycle", "tape", "f11" },
                   ShortActionLabel = "open recorded QSOs" },
+            // Check your audio Track B (#835): the VOX send box. With it on and VOX
+            // on, a voice message or a played recording keys the radio itself
+            // and hands back to VOX. Home's Transmission group and Settings,
+            // PTT, carry the same box; every door goes through
+            // VoxSendBoxControl. Its JJ key chord is Ctrl+K, K for key (Noel,
+            // 2026-10-27 20:49: "ctrl+k is fine").
+            new(CommandValues.ToggleVoxSendBox, KeyTypes.Command, ToggleVoxSendBoxHandler,
+                "Turn on or off whether sends key the radio when VOX is on",
+                "Sends key the radio with VOX", false, FunctionGroups.Audio, KeyScope.Global)
+                { Keywords = new[] { "vox", "send", "sends", "key", "keys", "keying", "ptt", "push", "talk", "transmit",
+                                     "play", "recording", "message", "voice", "air", "dropout", "clip", "box" },
+                  ShortActionLabel = "toggle sends key the radio with VOX" },
 
             // ── Former hard-wired meta-commands (QB Track H, 2026-08-07) ──
             // These lived as hard-wired chords in MainWindow_PreviewKeyDown,
@@ -1278,7 +1295,18 @@ public class KeyCommands
     {
         var rig = _context.GetRigControl();
         var mw = _context.GetMainWindow();
-        mw?.Dispatcher.Invoke(() => Dialogs.AudioWorkshopDialog.ShowOrFocusAndStartCheck(rig));
+        mw?.Dispatcher.Invoke(() => Dialogs.CheckYourAudioDialog.ShowOrFocusAndStartCheck(rig));
+    }
+
+    /// <summary>
+    /// Ctrl+J, Alt+C (#835): open Check your audio. Opens only; a check starts
+    /// from inside the window, with Start or Ctrl+Enter.
+    /// </summary>
+    private void OpenCheckYourAudioHandler()
+    {
+        var rig = _context.GetRigControl();
+        var mw = _context.GetMainWindow();
+        mw?.Dispatcher.Invoke(() => Dialogs.CheckYourAudioDialog.ShowOrFocus(rig));
     }
 
     /// <summary>
@@ -1372,6 +1400,9 @@ public class KeyCommands
         _ = RecorderControls.ToggleComputerRecordAsync(_context.GetRigControl());
     private void PlayFromComputerHandler() =>
         _ = RecorderControls.ToggleComputerPlayAsync(_context.GetRigControl());
+
+    /// <summary>The VOX send box (#835): the one door the other doors share.</summary>
+    private void ToggleVoxSendBoxHandler() => VoxSendBoxControl.Toggle();
 
     /// <summary>
     /// The recordings dialog (#787, Tape Deck track 4). Opens with no radio:
@@ -1935,10 +1966,17 @@ public class KeyCommands
             "Tools menu, Operator alarms. Command Finder finds it by alarm, temperature, voltage "
             + "or warning, and the Hotkey Editor can bind it; no default chord, because the JJ key "
             + "letter for alarms is Noel's to allocate."),
+        // Check your audio Track B (#835). Home's Transmission group and
+        // Settings, PTT, carry the box too; the Command Finder runs this
+        // command and the Hotkey Editor can bind it a flat key.
+        [CommandValues.ToggleVoxSendBox] = new(UnboundReason.LeaderLayer,
+            "Ctrl+J, Ctrl+K turns on or off whether sends key the radio when VOX is on; K for key. "
+            + "The same box is in Home's Transmission group, after VOX gain and delay, and in Settings, PTT."),
         [CommandValues.StartAudioCheck] = new(UnboundReason.CommandFinderOnly,
-            "Starts the Audio Check. Ctrl+Enter does it from inside the Audio Workshop, which "
-            + "is where you are when you want it; a global chord that keys the transmitter "
-            + "from anywhere is not something to hand out by default."),
+            "Starts the Audio Check. Ctrl+Enter does it from inside Check your audio, which "
+            + "is where you are when you want it, and Ctrl+J, Alt+C opens that window without "
+            + "starting anything; a global chord that keys the transmitter from anywhere is "
+            + "not something to hand out by default."),
         [CommandValues.GatherDebug] = new(UnboundReason.CommandFinderOnly,
             "Collects a debug snapshot. Settings, Diagnostics is the fuller route now — it "
             + "records sessions and builds problem-report bundles — so this stays available "
@@ -2130,6 +2168,7 @@ public class KeyCommands
         new(Keys.W | Keys.Control | Keys.Shift, CommandValues.OpenAudioWorkshop, KeyScope.Global),
         new(Keys.None, CommandValues.OpenOperatorAlarms, KeyScope.Global), // unbound: MenuOrDialog — Tools menu, Operator alarms
         new(Keys.None, CommandValues.StartAudioCheck, KeyScope.Radio), // unbound: CommandFinderOnly
+        new(Keys.None, CommandValues.ToggleVoxSendBox, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, Ctrl+K
         new(Keys.T | Keys.Control | Keys.Shift, CommandValues.TuneToggle, KeyScope.Radio),
         new(Keys.T | Keys.Control, CommandValues.ATUTune, KeyScope.Radio),
         new(Keys.M | Keys.Control, CommandValues.ToggleMeters, KeyScope.Global),
@@ -3173,6 +3212,7 @@ public class KeyCommands
                 // #693: the chord the near miss just named. The operator
                 // pressed it, so it runs exactly as Ctrl+J then that chord.
                 _leaderNearMissChord = Keys.None;
+                _leaderNearMissSecondChord = Keys.None;
                 return DoLeaderCommand(k);
             }
             if (IsLeaderHelpKey(k))
@@ -4230,6 +4270,13 @@ public class KeyCommands
                 PlayFromComputerHandler();
                 break;
 
+            // Ctrl+K = the VOX send box on or off (#835; Noel, 2026-10-27
+            // 20:49: "ctrl+k is fine"). K for key: with it on and VOX on, a
+            // send keys the radio itself. A toggle, so the Ctrl tier.
+            case Keys.K | Keys.Control:
+                ToggleVoxSendBoxHandler();
+                break;
+
             // Ctrl+T = meter tones on or off (Sprint 24 Phase 6). A toggle on
             // its own initial (Sprint 48 Track C; it was plain T). The flat
             // Ctrl+Alt+M is the same switch and says the same words.
@@ -4329,6 +4376,19 @@ public class KeyCommands
             // example; see the Ctrl+F arm above. Works with no radio.
             case Keys.F | Keys.Alt:
                 OpenRecordedQsosHandler();
+                break;
+
+            // #835: C for Check — Check your audio, every way of hearing how
+            // you sound. Ruled by Noel 2026-10-27 14:59 ("yep that's exactly
+            // what I was thinking"). Opening a window is an action, so the Alt
+            // tier, beside Alt+M's memories and Alt+W's window list (#515).
+            // IT OPENS THE WINDOW AND NEVER STARTS THE CHECK (13:57): a chord
+            // that keys the transmitter from anywhere is not something to hand
+            // out by default, which is why StartAudioCheck stays unbound.
+            // Works with no radio: the window says so, and its sources and
+            // levels are reachable regardless.
+            case Keys.C | Keys.Alt:
+                OpenCheckYourAudioHandler();
                 break;
 
             // The two help doors every layer has (#514, #519): H lists this
@@ -4431,7 +4491,8 @@ public class KeyCommands
                 // the key did nothing a moment earlier. The engine was
                 // describing itself, which is the same defect as "nothing
                 // picked" and the pan words scale.
-                if (KeyInventory.TryFindLeaderNearMiss(k, out Keys nearChord, out string nearKey, out string nearWhat))
+                if (KeyInventory.TryFindLeaderNearMiss(k, out Keys nearChord, out string nearKey, out string nearWhat,
+                        out Keys secondChord, out string secondKey, out string secondWhat))
                 {
                     // #693: the layer STAYS ARMED after a near miss, for H, the
                     // slash key, Escape and the chord it named, so recovering
@@ -4443,13 +4504,17 @@ public class KeyCommands
                     // gate: verbosity changes what is said, never what happens.
                     _leaderHelpArmed = true;
                     _leaderNearMissChord = nearChord;
+                    _leaderNearMissSecondChord = secondChord;
 
                     if (!nearMissToneStandsAlone)
                     {
+                        // DRAFT PROSE (#835): awaiting Noel (the two-chord form;
+                        // naming both is ruled, 2026-10-28 21:25).
                         Radios.ScreenReaderOutput.Speak(
-                            Radios.Lexicon.Get("leader.near_miss", verbosity,
+                            Radios.Lexicon.Get(secondChord != Keys.None ? "leader.near_miss_two" : "leader.near_miss", verbosity,
                                 ("pressed", KeyManifest.FormatKey(k)),
-                                ("alt", nearKey), ("what", nearWhat)),
+                                ("alt", nearKey), ("what", nearWhat),
+                                ("alt2", secondKey), ("what2", secondWhat)),
                             Radios.Speech.SpeechIntent.Interrupt,
                             Radios.VerbosityLevel.Critical,
                             subject: Radios.Speech.SpeechSubject.JjKeyHelp);
@@ -4464,6 +4529,7 @@ public class KeyCommands
                     // key names no chord, so none is accepted.
                     _leaderHelpArmed = true;
                     _leaderNearMissChord = Keys.None;
+                    _leaderNearMissSecondChord = Keys.None;
 
                     // Verbosity picks the wording. Terse: "H for the list."
                     // Chatty adds the slash key and what it opens. Both name
@@ -6445,7 +6511,8 @@ public class KeyCommands
     /// after it. False after an unknown key, which names no chord.
     /// </summary>
     private bool IsNearMissChord(Keys k) =>
-        _leaderNearMissChord != Keys.None && k == _leaderNearMissChord;
+        (_leaderNearMissChord != Keys.None && k == _leaderNearMissChord)
+        || (_leaderNearMissSecondChord != Keys.None && k == _leaderNearMissSecondChord);
 
     /// <summary>
     /// Close the leader layer the way Escape closes it: descending tone, then
@@ -6621,6 +6688,7 @@ public class KeyCommands
         _leaderKeyActive = false;
         _leaderHelpArmed = false;
         _leaderNearMissChord = Keys.None;
+        _leaderNearMissSecondChord = Keys.None;
     }
 
     /// <summary>For the window-free tests: is the JJ key waiting for its second key?</summary>
@@ -6631,6 +6699,9 @@ public class KeyCommands
 
     /// <summary>For the window-free tests: the chord a near miss named, while it is honoured (#693).</summary>
     internal Keys LeaderNearMissChordHonoured => _leaderHelpArmed ? _leaderNearMissChord : Keys.None;
+
+    /// <summary>For the window-free tests: the second chord a near miss named, while it is honoured (#835).</summary>
+    internal Keys LeaderNearMissSecondChordHonoured => _leaderHelpArmed ? _leaderNearMissSecondChord : Keys.None;
 
     /// <summary>
     /// The key after the system-wide JJ key, with its modifiers.
@@ -6661,7 +6732,8 @@ public class KeyCommands
             // now waiting for H, slash or Escape (#303) — it is the hook that
             // sees those keys next, not this window.
             SystemWideKeys.NoteHelpArmed(kc._leaderHelpArmed,
-                kc._leaderHelpArmed ? kc._leaderNearMissChord : Keys.None);
+                kc._leaderHelpArmed ? kc._leaderNearMissChord : Keys.None,
+                kc._leaderHelpArmed ? kc._leaderNearMissSecondChord : Keys.None);
         }
 
         if (fromOutside && !layerBefore && kc._valueLayer != null)

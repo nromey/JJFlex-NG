@@ -79,6 +79,28 @@ namespace Radios
 
         /// <summary>Receive raw IQ, then demodulate and play after unkey.</summary>
         OffAir = 2,
+
+        // #835: new values go at the END, so every saved value keeps its
+        // meaning. The order the operator meets them in is
+        // AudioCheckMethods.DisplayOrder, not this one.
+
+        /// <summary>"Test your microphone, nothing goes on the air": key at
+        /// zero power into the dummy load, measure the microphone across the
+        /// keyed window, play nothing back (ruled 2026-10-27 14:57).</summary>
+        MicTest = 3,
+
+        /// <summary>"Hear your real signal, looped back through the transverter
+        /// port": the Loopback Check, as a method that records its listening
+        /// slice and plays it back after you stop. Local only (15:32).</summary>
+        Loopback = 4,
+
+        /// <summary>"Is Windows hearing my microphone? No radio involved" (renamed
+        /// 2026-10-29 00:45): listen to the PC
+        /// microphone through Windows with the Audio Devices check's probe and
+        /// words. No radio, nothing keyed; the first step of the escalation, and
+        /// the only method offered with no radio connected (ruled by Noel
+        /// 2026-10-28 20:30 and 20:34).</summary>
+        ComputerMic = 5,
     }
 
     /// <summary>The last take this app made in one of the radio's slice buffers.</summary>
@@ -506,6 +528,16 @@ namespace Radios
         public string AudioCheckListenMethodXml { get => _audioCheckListenMethod.Text; set => _audioCheckListenMethod.Text = value; }
         private readonly TolerantXmlEnum<AudioCheckListenMethods> _audioCheckListenMethod = new(nameof(AudioCheckListenMethod), AudioCheckListenMethods.Monitor);
 
+        /// <summary>
+        /// True once the operator has chosen a listen method for this radio
+        /// (#835). Lets Check your audio tell a chosen Monitor from the file's
+        /// default, so a SmartLink connection can start on its own default,
+        /// Record and play back (ruled 2026-10-22 08:08). Files written before
+        /// this existed read false; <see cref="AudioCheckMethods.WasChosen"/>
+        /// still treats any saved method other than Monitor as chosen.
+        /// </summary>
+        public bool AudioCheckListenMethodChosen { get; set; }
+
         /// <summary>App-made slice take times. A time is usable only while the radio
         /// reports the same recorded duration; another client can replace a take.</summary>
         public List<SliceTakeStamp> SliceTakeStamps { get; set; } = new();
@@ -664,7 +696,11 @@ namespace Radios
             bool? compareWithLastTake = null)
         {
             return Update(radioId, cfg => {
-                if (method.HasValue) cfg.AudioCheckListenMethod = method.Value;
+                if (method.HasValue)
+                {
+                    cfg.AudioCheckListenMethod = method.Value;
+                    cfg.AudioCheckListenMethodChosen = true;
+                }
                 if (power.HasValue) cfg.AudioCheckPowerMode = power.Value;
                 if (watts.HasValue) cfg.AudioCheckLowPowerWatts = watts.Value;
                 if (compareWithLastTake.HasValue)

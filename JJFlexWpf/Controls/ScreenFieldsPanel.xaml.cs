@@ -130,6 +130,7 @@ public partial class ScreenFieldsPanel : UserControl
     private CheckBox _voxCheck = null!;
     private ValueFieldControl _voxGainControl = null!;
     private ValueFieldControl _voxDelayControl = null!;
+    private CheckBox _voxSendBoxCheck = null!;
     private ValueFieldControl _tunePowerControl = null!;
     private ValueFieldControl _micGainControl = null!;
     private CheckBox _micBoostCheck = null!;
@@ -759,6 +760,26 @@ public partial class ScreenFieldsPanel : UserControl
         };
         AudioContent.Children.Add(_micVerdictDisplay);
 
+        // Check your audio, straight after the verdict it explains (Noel
+        // 2026-10-28 19:52: "Recommend adding check your audio to the audio
+        // expander as well for completeness"; the placement is Claude's
+        // proposal). It opens the same window by the same route as the JJ
+        // key's Alt+C and the Audio menu: one window, several doors, and
+        // opening it never starts a check.
+        var checkYourAudio = new Button
+        {
+            Content = Lexicon.Get("audio.fields.check_your_audio"),
+            Margin = new Thickness(0, 2, 0, 2),
+            Padding = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left
+        };
+        System.Windows.Automation.AutomationProperties.SetName(
+            checkYourAudio, Lexicon.Get("audio.fields.check_your_audio"));
+        // DRAFT PROSE (#835): awaiting Noel.
+        JJFlexHelp.SetText(checkYourAudio, Lexicon.Get("audio.fields.check_your_audio_help"));
+        checkYourAudio.Click += (s, e) => Dialogs.CheckYourAudioDialog.ShowOrFocus(_rig);
+        AudioContent.Children.Add(checkYourAudio);
+
         // Record to file and play from computer (#787), with the rest of
         // what this computer does with the radio's audio.
         BuildComputerRecorderControls();
@@ -1039,6 +1060,18 @@ public partial class ScreenFieldsPanel : UserControl
         _voxDelayControl.FineStep = FlexBase.VoxDelayMS;
         _voxDelayControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.VoxDelay = v; };
         TxContent.Children.Add(_voxDelayControl);
+
+        // The VOX send box (#835), straight after gain and delay (Noel, 2026-10-27
+        // 15:36: "to the right of the delay and gain"), and NOT beside the VOX
+        // checkbox (15:32). An operator preference, not a radio setting: it is
+        // saved with the operator's audio settings, so it is not ToggleRig.
+        // PollTX collapses it in CW with gain and delay, since it only acts
+        // with VOX. DRAFT PROSE (#835): awaiting Noel
+        _voxSendBoxCheck = MakeToggle(Lexicon.Get("audio.send.box_label"));
+        JJFlexHelp.SetText(_voxSendBoxCheck, Lexicon.Get("audio.send.box_help"));
+        _voxSendBoxCheck.Checked += (s, e) => { if (!_polling) VoxSendBoxControl.Set(true, announce: true); };
+        _voxSendBoxCheck.Unchecked += (s, e) => { if (!_polling) VoxSendBoxControl.Set(false, announce: true); };
+        TxContent.Children.Add(_voxSendBoxCheck);
 
         _tunePowerControl = MakeValue(Lexicon.Get("audio.fields.tune_power"), 0, 100, 1);
         _tunePowerControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.TunePower = v; };
@@ -1724,6 +1757,8 @@ public partial class ScreenFieldsPanel : UserControl
         var voxSettingsVisibility = txIsCW ? Visibility.Collapsed : Visibility.Visible;
         _voxGainControl.Visibility = voxSettingsVisibility;
         _voxDelayControl.Visibility = voxSettingsVisibility;
+        _voxSendBoxCheck.Visibility = voxSettingsVisibility;
+        _voxSendBoxCheck.IsChecked = VoxSendBox.Ticked;
         if (!txIsCW)
         {
             _voxGainControl.Value = _rig.VoxGain;

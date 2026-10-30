@@ -10,9 +10,9 @@ using Radios;
 namespace JJFlexWpf.Dialogs;
 
 /// <summary>
-/// Audio Workshop, TX Audio tab: the reference audio section — a known
-/// recording sent in place of the microphone, and the recorder that makes one
-/// (Sprint 33 Track I).
+/// Check your audio: the reference audio section — a known recording sent in
+/// place of the microphone, and the recorder that makes one (Sprint 33 Track
+/// I; moved from the Audio Workshop's Hear Yourself page in #835).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -39,7 +39,7 @@ namespace JJFlexWpf.Dialogs;
 /// <c>MicRecorder</c> itself.
 /// </para>
 /// </remarks>
-public partial class AudioWorkshopDialog
+public partial class CheckYourAudioDialog
 {
     #region Reference Audio Section (Sprint 33 Track I)
 
@@ -61,7 +61,7 @@ public partial class AudioWorkshopDialog
 
     private void BuildReferenceAudioSection()
     {
-        AddRadioSection(HearYourselfContent, "Reference Audio");
+        _sections.OpenRadio(CheckContent, "Reference Audio");
 
         _refPickControl = new ComboBox
         {
@@ -82,7 +82,7 @@ public partial class AudioWorkshopDialog
             + "reference for YOUR station — your microphone, your room, your "
             + "voice — and is the one to use when you want to know whether "
             + "your audio is better than it was last month.");
-        AddToSection(HearYourselfContent, _refPickControl);
+        _sections.Add(CheckContent, _refPickControl);
 
         _refArmCheck = MakeToggle("Send the reference instead of my microphone");
         _refArmCheck.Checked += (s, e) => ReferenceArmChanged(true);
@@ -93,7 +93,7 @@ public partial class AudioWorkshopDialog
             + "of your microphone, through exactly the same processing your "
             + "voice goes through. It starts from the beginning each time you "
             + "key, and your microphone comes back when it finishes.");
-        AddToSection(HearYourselfContent, _refArmCheck);
+        _sections.Add(CheckContent, _refArmCheck);
 
         _refRecordButton = new Button
         {
@@ -112,7 +112,7 @@ public partial class AudioWorkshopDialog
             + "this computer — never on the radio. Read the shipped script and "
             + "say the same words if you want your take to compare with "
             + "everyone else's.");
-        AddToSection(HearYourselfContent, _refRecordButton);
+        _sections.Add(CheckContent, _refRecordButton);
 
         _refFolderButton = new Button
         {
@@ -134,7 +134,7 @@ public partial class AudioWorkshopDialog
             + "rename, share or delete them with the tools you already use. "
             + "A WAV file you drop in there yourself shows up in the list "
             + "above with no importing.");
-        AddToSection(HearYourselfContent, _refFolderButton);
+        _sections.Add(CheckContent, _refFolderButton);
 
         _refInfo = new TextBlock
         {
@@ -145,7 +145,7 @@ public partial class AudioWorkshopDialog
         };
         AutomationProperties.SetName(_refInfo, "Reference audio status");
         AutomationProperties.SetLiveSetting(_refInfo, AutomationLiveSetting.Polite);
-        AddToSection(HearYourselfContent, _refInfo);
+        _sections.Add(CheckContent, _refInfo);
 
         RecordingNarrator.StateChanged += OnRecordingStateChanged;
         RecordingNarrator.RecordingSaved += OnRecordingSaved;

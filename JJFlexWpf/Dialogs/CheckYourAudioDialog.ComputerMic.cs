@@ -1,0 +1,220 @@
+using System;
+using System.Threading.Tasks;
+using System.Windows.Threading;
+using JJPortaudio;
+using Radios;
+
+namespace JJFlexWpf.Dialogs;
+
+/// <summary>
+/// Check your audio's first method: check this computer's microphone through
+/// Windows, with no radio involved and nothing keyed (ruled by Noel 2026-10-28
+/// 20:30, and 20:34 for the no-radio case).
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>One probe, one set of words.</b> It runs the same <see cref="MicProbe"/>
+/// the Audio Devices window's microphone check runs, on the microphone the
+/// voice-note recorder and the Fix tool resolve (<c>RecordingNarrator.ResolveMicrophone</c>),
+/// and says what it hears in <see cref="MicCheckWords"/>, the words that check
+/// says. The Audio Workshop's "Check Microphone..." button, which opened that
+/// check in the Audio Devices window, is gone: this is where it lives now.
+/// </para>
+/// <para>
+/// <b>An escalation's first step.</b> Arrowing down from here goes one step
+/// further each time: the radio's microphone at zero power, hearing yourself
+/// live, recording and playing back, then the off-air take and Loopback.
+/// </para>
+/// <para>
+/// Start starts it and starts it again stops it, the way Start runs every
+/// method; Ctrl+Enter does the same; Escape while it runs stops it and stays,
+/// so the verdict is heard before anything closes. Changing the method,
+/// closing the window or a teardown stops it silently.
+/// </para>
+/// </remarks>
+public partial class CheckYourAudioDialog
+{
+    private MicProbe? _computerMicProbe;
+    private DispatcherTimer? _computerMicTimer;
+    private bool _computerMicPrivacyChecked;
+    private bool _computerMicPrivacyBlocked;
+    private string _computerMicPrivacyWhy = "";
+
+    /// <summary>The last thing the computer microphone check said, shown in the reading box while that method is chosen.</summary>
+    private string _computerMicReading = "";
+
+    /// <summary>
+    /// How long after the start tone the check's levels start again: the tone
+    /// is two 55 ms pips 35 ms apart, and this leaves room for the output's own
+    /// latency and the room.
+    /// </summary>
+    internal static readonly TimeSpan StartToneSettle = TimeSpan.FromMilliseconds(450);
+
+    /// <summary>True while the computer microphone check is listening.</summary>
+    internal bool ComputerMicCheckRunning => _computerMicProbe != null;
+
+    /// <summary>Start or stop the computer microphone check. Nothing is keyed and no radio is needed.</summary>
+    private void ToggleComputerMicCheck()
+    {
+        if (_computerMicProbe != null) { StopComputerMicCheck(speak: true); return; }
+        _ = StartComputerMicCheckAsync();
+    }
+
+    /// <summary>
+    /// Count down, then start listening (#835, ruled by Noel 2026-10-29 23:59:
+    /// "Each check counts down unless that function is turned off"; Codex
+    /// round 1030, B6). It keys nothing, but it is a check like the others: it
+    /// takes the same start admission, so Start, Ctrl+Enter and Escape during
+    /// the count cancel it the same way, and a bare Control skips the rest.
+    /// With the countdown off it starts at once, as before.
+    /// </summary>
+    private async Task StartComputerMicCheckAsync()
+    {
+        using var start = _checkStarts.TryBegin();
+        if (start == null) return;
+        SetStartButtonLabel("Stop Audio Check");
+        BeginStartCountdown(AudioCheckListenMethods.ComputerMic);
+        try
+        {
+            // Nothing to set up: the count runs out, or is skipped or cancelled.
+            if (!await CountdownLetsKeyAsync() || !start.IsCurrent || _closing) return;
+            StartComputerMicProbeNow();
+        }
+        finally
+        {
+            EndStartCountdown();
+            if (_computerMicProbe == null) SetStartButtonLabel("Start Audio Check");
+        }
+    }
+
+    /// <summary>Open the microphone and start listening, once any count has run out.</summary>
+    private void StartComputerMicProbeNow()
+    {
+        Devices.DeviceInfo? row = RecordingNarrator.ResolveMicrophone(out string trouble);
+        if (row == null)
+        {
+            string unresolved = trouble + " " + Lexicon.Get("audio.fix_tool.pointer");
+            ShowComputerMicReading(unresolved);
+            ScreenReaderOutput.Speak(unresolved, VerbosityLevel.Critical, interrupt: true);
+            return;
+        }
+
+        // The privacy switches are context, never a gate, as in Audio Devices:
+        // a registry read is evidence about a switch, not about a microphone.
+        bool blocked = false;
+        string why = "";
+        try { blocked = MicrophonePrivacy.IsBlocked(MicrophonePrivacy.Check(out why)); }
+        catch (Exception) { /* unknown stays unknown */ }
+
+        var probe = new MicProbe();
+        var outcome = probe.Start(row, out string failure);
+        if (outcome != MicProbe.StartOutcome.Started)
+        {
+            probe.Dispose();
+            string couldNotStart = Lexicon.Get("audio.device.mic_check_could_not_start",
+                ("reason", blocked && why.Length > 0 ? why + " " + failure : failure))
+                + " " + Lexicon.Get("audio.fix_tool.pointer");
+            ShowComputerMicReading(couldNotStart);
+            ScreenReaderOutput.Speak(couldNotStart, VerbosityLevel.Critical, interrupt: true);
+            return;
+        }
+
+        _computerMicProbe = probe;
+        _computerMicPrivacyChecked = false;
+        _computerMicPrivacyBlocked = blocked;
+        _computerMicPrivacyWhy = why;
+        JJTrace.Tracing.TraceLine("Check your audio: computer microphone check started on \"" + row.Name + "\"",
+            System.Diagnostics.TraceLevel.Info);
+        SetStartButtonLabel("Stop Audio Check");
+        ShowComputerMicReading(Lexicon.Get("audio.device.mic_check_listening"));
+        _computerMicTimer ??= new DispatcherTimer(TimeSpan.FromMilliseconds(500), DispatcherPriority.Normal,
+            (s, e) => UpdateComputerMicReading(), Dispatcher);
+        _computerMicTimer.Start();
+        // The start tone (ruled 2026-10-29 01:22: "there's no tones to tell you
+        // that the thing's started"), the recorder's own, so it already means
+        // "listening". The microphone is open while it plays and may hear it
+        // through the speakers, so the levels start again once it has finished:
+        // the verdict is about you, not the tone.
+        EarconPlayer.RecorderStartBeep();
+        var listening = probe;
+        var settle = new DispatcherTimer(StartToneSettle, DispatcherPriority.Normal, (s, e) =>
+        {
+            ((DispatcherTimer)s!).Stop();
+            if (ReferenceEquals(_computerMicProbe, listening)) listening.ResetLevels();
+        }, Dispatcher);
+        settle.Start();
+        ScreenReaderOutput.Speak(blocked
+            ? Lexicon.Get("audio.device.mic_check_started_but_blocked", ("reason", why))
+            : Lexicon.Get("audio.device.mic_check_started", ("device", row.Name)),
+            blocked ? VerbosityLevel.Critical : VerbosityLevel.Terse);
+    }
+
+    /// <summary>Stop the check and close the device; with <paramref name="speak"/>, say the verdict. Idempotent.</summary>
+    private void StopComputerMicCheck(bool speak)
+    {
+        _computerMicTimer?.Stop();
+        var probe = _computerMicProbe;
+        _computerMicProbe = null;
+        if (probe == null) return;
+        MicProbe.Reading final = probe.Read();
+        probe.Stop();
+        probe.Dispose();
+        // The stop tone, the recorder's own, played once the microphone is
+        // closed (ruled 2026-10-29 01:22).
+        EarconPlayer.RecorderStopBeep();
+        // No Windows level control sits beside this reading for the advice to
+        // point at, so it points at Windows Sound settings.
+        string summary = MicCheckWords.Final(final, levelHere: null);
+        // A check that heard nothing, or only the interface's own noise, is a
+        // failed check: its verdict names the Fix tool (ruled 21:41).
+        if (!final.AnySound || final.HoldPeakDb <= MicCheckWords.NoiseFloorDb)
+            summary += " " + Lexicon.Get("audio.fix_tool.pointer");
+        JJTrace.Tracing.TraceLine("Check your audio: computer microphone check stopped: " + summary,
+            System.Diagnostics.TraceLevel.Info);
+        ShowComputerMicReading(summary);
+        if (!_closing) SetStartButtonLabel("Start Audio Check");
+        if (speak) ScreenReaderOutput.Speak(summary, VerbosityLevel.Terse, interrupt: true);
+    }
+
+    private void UpdateComputerMicReading()
+    {
+        var probe = _computerMicProbe;
+        if (probe == null) { _computerMicTimer?.Stop(); return; }
+        MicProbe.Reading r = probe.Read();
+        if (r.Faulted)
+        {
+            string fault = r.FaultMessage;
+            StopComputerMicCheck(speak: false);
+            string stopped = Lexicon.Get("audio.device.mic_check_stopped_faulted", ("reason", fault))
+                + " " + Lexicon.Get("audio.fix_tool.pointer");
+            ShowComputerMicReading(stopped);
+            ScreenReaderOutput.Speak(stopped, VerbosityLevel.Critical, interrupt: true);
+            return;
+        }
+        // Privacy read once, and only after a second of nothing.
+        if (!r.AnySound && r.Seconds >= 1.0 && !_computerMicPrivacyChecked)
+        {
+            _computerMicPrivacyChecked = true;
+            try { _computerMicPrivacyBlocked = MicrophonePrivacy.IsBlocked(MicrophonePrivacy.Check(out _computerMicPrivacyWhy)); }
+            catch (Exception) { /* unknown stays unknown */ }
+        }
+        ShowComputerMicReading(MicCheckWords.Live(r, _computerMicPrivacyBlocked, _computerMicPrivacyWhy));
+    }
+
+    /// <summary>Put the check's words in the reading box, where every method's verdict appears. Assigned only on change, so a review cursor is not reset twice a second.</summary>
+    private void ShowComputerMicReading(string text)
+    {
+        _computerMicReading = text;
+        if (_micReadingBox != null && SelectedMethod == AudioCheckListenMethods.ComputerMic && _micReadingBox.Text != text)
+            _micReadingBox.Text = text;
+    }
+
+    /// <summary>The reading box while the computer microphone method is chosen: its own words, never the radio's mic meter.</summary>
+    private bool ShowingComputerMicReading()
+    {
+        if (SelectedMethod != AudioCheckListenMethods.ComputerMic || _micReadingBox == null) return false;
+        string text = _computerMicReading.Length > 0 ? _computerMicReading : Lexicon.Get("audio.check.computer_mic.idle");
+        if (_micReadingBox.Text != text) _micReadingBox.Text = text;
+        return true;
+    }
+}

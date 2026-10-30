@@ -606,5 +606,46 @@ namespace Radios.Speech
         /// newer covers an unheard older one.
         /// </summary>
         public const string NoLogFile = "no-log-file";
+
+        /// <summary>
+        /// Whether the VOX send box is ticked (#835): with VOX on, sends key the radio
+        /// themselves. Spoken when the operator toggles it from Home, Settings
+        /// or the command. The next toggle's answer covers an unheard one, and
+        /// nothing else says anything about the box, so no other subject retires
+        /// it. What a send DID is <see cref="MessageKey"/>'s, not this.
+        /// </summary>
+        public const string VoxSendBox = "vox-send-box";
+
+        /// <summary>
+        /// The spoken countdown before a check keys (#835): the lead-in and the
+        /// numbers. Each is queued, not interrupting, so no number cuts the one
+        /// before it, and ADDITIVE (Codex round 1): a number extends the count
+        /// rather than restating it, so a new one never retires, or pulls out
+        /// of the delivery queue, one not yet said. The count itself waits for
+        /// each to be said before the next, so none can be left behind. All of
+        /// it is withdrawn, through <see cref="ScreenReaderOutput.Supersede"/>
+        /// on this subject, when the count is called off. See
+        /// <see cref="CountdownSpeech"/>.
+        /// </summary>
+        public const string CheckCountdown = "check-countdown";
+
+        /// <summary>
+        /// An audio check could not put the power and antenna settings back
+        /// because the radio was still transmitting when it was disconnected
+        /// (#835, 2026-10-29). Said at the disconnect, and again at the next
+        /// connect to that radio, because a window change at the disconnect can
+        /// flush it unheard. The newer saying covers an unheard older one, and
+        /// nothing else speaks to it.
+        /// </summary>
+        public const string CheckSettingsNotRestored = "check-settings-not-restored";
+
+        /// <summary>
+        /// The Fix tool's injected transmit stage has keyed with the countdown
+        /// switched off (#835, fix round 1030 P2): it is transmitting, and
+        /// nothing is wanted of the operator. With the count on, the count's
+        /// landing marks the key and this is not said. The next such saying
+        /// covers an unheard older one.
+        /// </summary>
+        public const string FixToolInjectedKeyed = "fix-tool-injected-keyed";
     }
 }

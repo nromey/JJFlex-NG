@@ -1,13 +1,16 @@
 using System;
+using System.Diagnostics;
 using System.Threading.Tasks;
+using JJTrace;
 using Radios;
 
 namespace JJFlexWpf;
 
 /// <summary>
-/// Holds VOX (or CW break-in) off while a computer recording plays on this
+/// Holds VOX (or CW break-in) off while a computer recording SOUNDS on this
 /// computer's speakers, and lets it go when the playback ends however it ends
-/// (#787, Tape Deck track 4). Shared by "play from computer"
+/// (#787, Tape Deck track 4), and while the playback is paused (#835, fix
+/// round 2026-10-30). Shared by "play from computer"
 /// (<see cref="RecorderControls.ToggleComputerPlayAsync"/>) and the recordings
 /// dialog's preview, which both play through <see cref="RecordingPlayer"/>.
 /// </summary>
@@ -23,18 +26,97 @@ namespace JJFlexWpf;
 /// only ties its lifetime to the player's.
 /// </para>
 /// <para>
+/// <b>VOX comes back while the playback is paused</b> (Noel, 2026-10-29 23:58:
+/// <i>"A ham might play a recording, pause it, talk about the previous bit on
+/// vox, start playback again etc."</i>). A pause gives VOX back once the
+/// recording's fade has left the speakers; carrying on goes through
+/// <see cref="CarryOnAsync"/>, which pauses VOX again and waits for the radio
+/// to confirm it off BEFORE a sample sounds. If the radio does not confirm, or
+/// the operator is transmitting, the recording stays paused and the caller
+/// says why. The rule is that VOX is never live while audio is coming out of
+/// the speakers: a resume that bypasses <see cref="CarryOnAsync"/> is paused
+/// again on the spot rather than allowed to sound with VOX on.
+/// </para>
+/// <para>
 /// <b>Ending is the player's StateChanged</b>, which fires on a stop, on the
-/// natural end of the file, on a failure to start, and when another playback
-/// replaces this one. Whichever it is, once nothing is playing the pause goes.
-/// A pause or resume also raises StateChanged; the player is still playing
-/// then, so nothing is released.
+/// natural end of the file, on a failure to start, on a pause and a resume,
+/// and when another playback replaces this one. Once nothing is playing the
+/// pause goes and the playback is forgotten.
+/// </para>
+/// <para>
+/// <b>The speakers' tail.</b> A pause or a stop fades the recording out over
+/// <see cref="RecordingPlayer.TransportSampleProvider.FadeOutSeconds"/>, and the
+/// output device is still playing what it was given for its own latency after
+/// that, so VOX is given back only once both have passed
+/// (<see cref="SpeakerTailMs"/>). Until 2026-10-30 a stop gave it back at
+/// once, while the fade was still audible.
 /// </para>
 /// </remarks>
 internal static class LocalPlaybackVox
 {
     private static readonly object Gate = new();
-    private static FlexBase.LocalPlaybackVoxPause? _held;
+    /// <summary>The VOX pause held while the recording sounds; null while it is paused.</summary>
+    private static IDisposable? _held;
+    /// <summary>The radio whose VOX the playback paused, kept so carrying on can pause it again.</summary>
+    private static FlexBase? _rig;
+    /// <summary>A playback this class looks after, sounding or paused.</summary>
+    private static bool _owning;
+    /// <summary>
+    /// Which playback that is (<see cref="RecordingPlayer.CurrentPlayback"/>),
+    /// so a carry-on that waited for the radio resumes only the one it was
+    /// asked for (Codex round 1030, B4).
+    /// </summary>
+    private static object? _playback;
+    /// <summary>A carry-on is getting its pause; a second press meanwhile is ignored.</summary>
+    private static bool _carryingOn;
     private static bool _subscribed;
+
+    /// <summary>Why a carry-on did or did not happen.</summary>
+    internal enum CarryOn
+    {
+        /// <summary>VOX is paused again and the recording sounds.</summary>
+        Resumed,
+        /// <summary>Nothing was paused (or it stopped while VOX was being paused).</summary>
+        NothingPaused,
+        /// <summary>The radio is transmitting, so the recording stays paused.</summary>
+        Transmitting,
+        /// <summary>The radio did not confirm VOX off, so the recording stays paused.</summary>
+        VoxUnconfirmed,
+        /// <summary>A carry-on was already under way; this press did nothing.</summary>
+        Busy,
+        /// <summary>
+        /// While the radio confirmed VOX off, the paused playback was replaced
+        /// by another, or the radio or its connection changed: the carry-on
+        /// was for a world that has gone, so nothing resumed (Codex round 1030,
+        /// B4). Not the operator's error; whatever replaced it spoke for itself.
+        /// </summary>
+        Superseded,
+    }
+
+    /// <summary>
+    /// For tests: stands in for pausing the radio's VOX before a carry-on, so
+    /// the order (pause confirmed, THEN sound) can be held without a radio.
+    /// </summary>
+    internal static Func<FlexBase?, Task<(IDisposable? Pause, CarryOn Refusal)>>? PauseForCarryOnOverride { get; set; }
+
+    /// <summary>
+    /// For tests: stands in for <see cref="FlexBase.LiveConnectionIdentity"/>,
+    /// so a connection change during a carry-on can be held without a radio.
+    /// </summary>
+    internal static Func<FlexBase?, object?>? ConnectionOfOverride { get; set; }
+
+    private static object? ConnectionOf(FlexBase? rig) =>
+        ConnectionOfOverride != null ? ConnectionOfOverride(rig) : rig?.LiveConnectionIdentity;
+
+    /// <summary>For tests: the wait before VOX is given back after a pause or a stop.</summary>
+    internal static int? SpeakerTailMsOverride { get; set; }
+
+    /// <summary>
+    /// How long after a pause or a stop the recording can still be heard: its
+    /// fade, then the output's own latency, then a margin.
+    /// </summary>
+    internal static int SpeakerTailMs => SpeakerTailMsOverride
+        ?? (int)(RecordingPlayer.TransportSampleProvider.FadeOutSeconds * 1000) + EarconPlayer.AlertOutputLatencyMs + 50;
 
     /// <summary>
     /// Pause VOX for a local playback about to start. Null means the radio did
@@ -45,13 +127,16 @@ internal static class LocalPlaybackVox
         rig == null ? FlexBase.LocalPlaybackVoxPause.NotNeeded : await rig.PauseVoxForLocalPlaybackAsync();
 
     /// <summary>
-    /// Keep <paramref name="pause"/> until the player stops. Call after the
-    /// playback has started; if it has already ended, the pause goes at once.
+    /// Keep <paramref name="pause"/> while the player sounds, and look after the
+    /// playback from here on: a pause gives VOX back, and carrying on pauses
+    /// it again (<see cref="CarryOnAsync"/>). Call after the playback has
+    /// started; if it has already ended, the pause goes at once.
+    /// <paramref name="rig"/> is the radio whose VOX was paused, or null with none.
     /// </summary>
-    internal static void HoldUntilPlaybackEnds(FlexBase.LocalPlaybackVoxPause? pause)
+    internal static void HoldUntilPlaybackEnds(FlexBase? rig, IDisposable? pause)
     {
         if (pause == null) return;
-        FlexBase.LocalPlaybackVoxPause? previous;
+        IDisposable? previous;
         lock (Gate)
         {
             if (!_subscribed)
@@ -61,31 +146,207 @@ internal static class LocalPlaybackVox
             }
             previous = _held;
             _held = pause;
+            _rig = rig;
+            _owning = true;
+            _playback = RecordingPlayer.CurrentPlayback;
         }
         if (!ReferenceEquals(previous, pause)) previous?.Dispose();
         if (!RecordingPlayer.IsPlaying) Release();
+        else if (RecordingPlayer.IsPaused) GiveBackForPause();
     }
 
-    /// <summary>Let the pause go now. Safe when none is held.</summary>
+    /// <summary>
+    /// Carry a paused playback on (#835, 2026-10-29 23:58): pause VOX again,
+    /// wait for the radio to confirm it off and for any VOX tail to drop, and
+    /// only then let the recording sound. A playback this class does not look
+    /// after resumes as before. The caller speaks the answer.
+    /// </summary>
+    /// <remarks>
+    /// <b>The answer is for the playback it was asked about</b> (Codex round
+    /// 1030, B4; <c>feedback_deferred_state_carries_its_session</c>). The
+    /// playback, its radio and that radio's command connection are taken
+    /// before the wait and compared after it. If the paused playback is now a
+    /// different one, or the radio or connection changed, nothing resumes and
+    /// the pause the radio confirmed is given back at once: it belongs to a
+    /// carry-on nobody is waiting for, and keeping it would hold VOX off on
+    /// the old radio while the new playback's radio has none.
+    /// </remarks>
+    internal static async Task<CarryOn> CarryOnAsync()
+    {
+        FlexBase? rig;
+        object? playback;
+        object? connection;
+        lock (Gate)
+        {
+            if (!RecordingPlayer.IsPaused) return CarryOn.NothingPaused;
+            if (!_owning)
+                return RecordingPlayer.Resume() ? CarryOn.Resumed : CarryOn.NothingPaused;
+            if (_carryingOn) return CarryOn.Busy;
+            _carryingOn = true;
+            rig = _rig;
+            playback = _playback;
+        }
+        connection = ConnectionOf(rig);
+        try
+        {
+            var source = PauseForCarryOnOverride ?? PauseForCarryOnLiveAsync;
+            (IDisposable? pause, CarryOn refusal) = await source(rig);
+            if (pause == null)
+            {
+                Tracing.TraceLine("LocalPlaybackVox: the paused recording did not carry on: " + refusal, TraceLevel.Info);
+                return refusal;
+            }
+            string? gone;
+            lock (Gate)
+            {
+                gone = !_owning || !RecordingPlayer.IsPaused ? null
+                    : playback == null || !ReferenceEquals(_playback, playback)
+                        || !ReferenceEquals(RecordingPlayer.CurrentPlayback, playback)
+                        ? "another playback replaced it"
+                    : !ReferenceEquals(_rig, rig) ? "the radio changed"
+                    : !ReferenceEquals(ConnectionOf(rig), connection) ? "the radio's connection changed"
+                    : null;
+                // Stopped while VOX was being paused: as before.
+                if (gone == null && (!_owning || !RecordingPlayer.IsPaused))
+                {
+                    pause.Dispose();
+                    return CarryOn.NothingPaused;
+                }
+                if (gone == null) _held = pause;
+            }
+            if (gone != null)
+            {
+                pause.Dispose();
+                Tracing.TraceLine("LocalPlaybackVox: a carry-on came back after " + gone
+                    + "; nothing resumed and its VOX pause is given back", TraceLevel.Info);
+                return CarryOn.Superseded;
+            }
+            if (!RecordingPlayer.ResumeIf(playback!))
+            {
+                // Replaced or stopped between the check and the resume. Give
+                // back only this carry-on's own pause: a playback that replaced
+                // it is not this carry-on's to forget.
+                IDisposable? ours = null;
+                lock (Gate)
+                {
+                    if (ReferenceEquals(_held, pause)) { _held = null; ours = pause; }
+                }
+                ours?.Dispose();
+                Tracing.TraceLine("LocalPlaybackVox: the paused recording changed as it was about to carry on; nothing resumed",
+                    TraceLevel.Info);
+                return CarryOn.Superseded;
+            }
+            Tracing.TraceLine("LocalPlaybackVox: VOX paused again and confirmed off; the recording carries on",
+                TraceLevel.Info);
+            return CarryOn.Resumed;
+        }
+        finally
+        {
+            lock (Gate) _carryingOn = false;
+        }
+    }
+
+    /// <summary>
+    /// The live pause for a carry-on: refused while the operator holds the
+    /// transmitter; otherwise VOX off, confirmed by the radio, and then the
+    /// tail of VOX's own hold on the operator's last words allowed to drop,
+    /// the same wait a box send makes (<see cref="VoxSendBox.VoxTailDropWait"/>).
+    /// A radio still transmitting after that stays the operator's, and the
+    /// recording stays paused.
+    /// </summary>
+    private static async Task<(IDisposable? Pause, CarryOn Refusal)> PauseForCarryOnLiveAsync(FlexBase? rig)
+    {
+        if (rig == null) return (FlexBase.LocalPlaybackVoxPause.NotNeeded, CarryOn.Resumed);
+        if (VoiceMessageSender.OperatorHolds(rig, Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke()))
+            return (null, CarryOn.Transmitting);
+        FlexBase.LocalPlaybackVoxPause? pause = await rig.PauseVoxForLocalPlaybackAsync();
+        if (pause == null) return (null, CarryOn.VoxUnconfirmed);
+        long until = Environment.TickCount64 + (long)VoxSendBox.VoxTailDropWait.TotalMilliseconds;
+        while (rig.Transmit && Environment.TickCount64 < until
+               && !VoiceMessageSender.OperatorHolds(rig, Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke()))
+            await Task.Delay(50);
+        if (rig.Transmit)
+        {
+            pause.Dispose();
+            return (null, CarryOn.Transmitting);
+        }
+        return (pause, CarryOn.Resumed);
+    }
+
+    /// <summary>Let the pause go (after the speakers' tail) and forget the playback. Safe when none is held.</summary>
     internal static void Release()
     {
-        FlexBase.LocalPlaybackVoxPause? held;
+        IDisposable? held;
+        lock (Gate)
+        {
+            held = _held;
+            _held = null;
+            _rig = null;
+            _owning = false;
+            _playback = null;
+        }
+        GiveBackAfterTail(held);
+    }
+
+    /// <summary>True while a sounding playback holds a pause. For tests.</summary>
+    internal static bool Holding
+    {
+        get
+        {
+            lock (Gate)
+                return _held is FlexBase.LocalPlaybackVoxPause p ? p.Holding : _held != null;
+        }
+    }
+
+    /// <summary>True while this class looks after a playback, sounding or paused. For tests.</summary>
+    internal static bool Owning
+    {
+        get { lock (Gate) return _owning; }
+    }
+
+    /// <summary>The playback paused: give VOX back once the fade has left the speakers.</summary>
+    private static void GiveBackForPause()
+    {
+        IDisposable? held;
         lock (Gate)
         {
             held = _held;
             _held = null;
         }
-        held?.Dispose();
+        if (held == null) return;
+        Tracing.TraceLine("LocalPlaybackVox: the recording is paused, so VOX comes back until it carries on",
+            TraceLevel.Info);
+        GiveBackAfterTail(held);
     }
 
-    /// <summary>True while a playback holds a pause. For tests.</summary>
-    internal static bool Holding
+    private static void GiveBackAfterTail(IDisposable? held)
     {
-        get { lock (Gate) return _held?.Holding == true; }
+        if (held == null) return;
+        int tail = SpeakerTailMs;
+        if (tail <= 0) { held.Dispose(); return; }
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(tail).ConfigureAwait(false);
+            held.Dispose();
+        });
     }
 
     private static void OnPlayerStateChanged()
     {
-        if (!RecordingPlayer.IsPlaying) Release();
+        if (!RecordingPlayer.IsPlaying) { Release(); return; }
+        if (RecordingPlayer.IsPaused) { GiveBackForPause(); return; }
+        // Sounding. A playback this class looks after must hold VOX off while
+        // it sounds; a resume that came by some other door than CarryOnAsync
+        // finds none held, and is paused again rather than sounding with VOX on.
+        // A carry-on under way is NOT an exemption (Codex round 1030, B4): it
+        // holds its confirmed pause before it resumes, so its own resume never
+        // finds none held, while another door's resume during its wait would
+        // sound before the radio had confirmed anything.
+        bool bypassed;
+        lock (Gate) bypassed = _owning && _held == null;
+        if (!bypassed) return;
+        Tracing.TraceLine("LocalPlaybackVox: a paused recording resumed without VOX being paused again; paused it",
+            TraceLevel.Warning);
+        RecordingPlayer.Pause();
     }
 }

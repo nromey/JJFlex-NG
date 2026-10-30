@@ -81,6 +81,18 @@ namespace JJFlexWpf
             { "ScreenFieldsReceiver", "pages/Receiver/FiltersAndDsp.htm" },
             { "ScreenFieldsAntenna", "pages/Receiver/FiltersAndDsp.htm" },
             { "AudioWorkshop", "pages/AudioWorkshop/AudioWorkshop.htm" },
+            // #835: Check your audio is described on the Audio Workshop's page
+            // until the help rework gives it a page of its own.
+            { "CheckYourAudio", "pages/AudioWorkshop/AudioWorkshop.htm" },
+            // F1 in Check your audio opens the section of the method shown
+            // (AudioCheckMethods.HelpContext). Plain page-plus-anchor entries,
+            // so a launcher that replaces this one carries them over unchanged.
+            { "CheckYourAudioComputerMic", "pages/AudioWorkshop/AudioWorkshop.htm#check-audio-computer-mic" },
+            { "CheckYourAudioMicTest", "pages/AudioWorkshop/AudioWorkshop.htm#check-audio-mic-test" },
+            { "CheckYourAudioMonitor", "pages/AudioWorkshop/AudioWorkshop.htm#check-audio-monitor" },
+            { "CheckYourAudioRecord", "pages/AudioWorkshop/AudioWorkshop.htm#check-audio-record" },
+            { "CheckYourAudioOffAir", "pages/AudioWorkshop/AudioWorkshop.htm#check-audio-off-air" },
+            { "CheckYourAudioLoopback", "pages/AudioWorkshop/AudioWorkshop.htm#check-audio-loopback" },
             { "EarconExplorer", "pages/Sounds/EarconExplorer.htm" },
             { "MeterTones", "pages/Sounds/MeterTones.htm" },
             { "LogPanel", "pages/Logging/Logging.htm" },

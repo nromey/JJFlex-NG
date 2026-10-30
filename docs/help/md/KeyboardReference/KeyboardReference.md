@@ -58,7 +58,7 @@ The JJ Key, `Ctrl+J` in JJ Flexible Radio Access, can be used to activate variou
 
 Press `Ctrl+J` and then release it to enter the JJ key layer. You'll hear a rising tone to let you know that you've opened the layer and it's ready for you to press one of these keys to perform an action in the app.
 
-The second key follows a grammar, and the grammar is the point: you work out a chord instead of memorising it. Four rules cover nearly everything. A plain letter opens a layer — a set of keys about one thing, like the filter or your audio, with arrows to adjust and Escape to put things back. Shift plus a letter jumps to that slice, from anywhere, even from inside a layer: `Shift+C` is slice C and never anything else. Ctrl plus a letter switches on or off the thing whose initial it is — `Ctrl+G` is the test tone, `Ctrl+T` meter tones, `Ctrl+E` the alert sounds, `Ctrl+D` a detailed capture. Alt plus a letter does something that is neither a layer nor a switch — `Alt+V` speaks the version, `Alt+K` is the mic check, `Alt+M` opens the memories. Inside any layer, `H` reads that layer's keys and the slash key opens the JJ key explorer. If you knew the old map: the noise switches moved into the noise layer in this release, so `B` for the blanker is `N` then `B` now, and the one-shots moved one modifier over, so `K` is `Alt+K`, and so on. Press an old one-shot key and the layer names the new chord; press an old noise key and it names the nearest chord it still has, which may not be the one you wanted — `N` then `H` is the surer road to a noise switch. The one switch that has not found its place yet is listed last, with the reason.
+The second key follows a grammar, and the grammar is the point: you work out a chord instead of memorising it. Four rules cover nearly everything. A plain letter opens a layer — a set of keys about one thing, like the filter or your audio, with arrows to adjust and Escape to put things back. Shift plus a letter jumps to that slice, from anywhere, even from inside a layer: `Shift+C` is slice C and never anything else. Ctrl plus a letter switches on or off the thing whose initial it is — `Ctrl+G` is the test tone, `Ctrl+T` meter tones, `Ctrl+E` the alert sounds, `Ctrl+D` a detailed capture. Alt plus a letter does something that is neither a layer nor a switch — `Alt+V` speaks the version, `Alt+K` is the mic check, `Alt+M` opens the memories. Inside any layer, `H` reads that layer's keys and the slash key opens the JJ key explorer. If you knew the old map: the noise switches moved into the noise layer in this release, so `B` for the blanker is `N` then `B` now, and the one-shots moved one modifier over, so `K` is `Alt+K`, and so on. Press an old one-shot key and the layer names the new chord; if that letter now has a Ctrl chord of its own as well, it names both: `K` names `Ctrl+K`, the switch for **Sends key the radio when VOX is on**, and `Alt+K`, the mic check, and `Q` and `E` name `Ctrl+Q` and `Alt+Q`, and `Ctrl+E` and `Alt+E`; press an old noise key and it names the nearest chord it still has, which may not be the one you wanted — `N` then `H` is the surer road to a noise switch. The one switch that has not found its place yet is listed last, with the reason.
 
 <!-- LEADER-KEY-TABLE: every key line from here to the END marker is checked against KeyInventory.LeaderCommands by Radios.Tests/LeaderDocCoverageTests. Add a chord to the layer and this list fails until it has a line; delete a chord and a leftover line fails too. The wording is yours — only the set of keys is checked. The groups below are the tiers of the grammar (#515) — layers, slices, toggles, actions, the ones still finding a layer, then help — in the same order as KeyInventory.LeaderCommands and JJKey.md: it is one map read three ways, so it should be the same walk three times.
 
@@ -93,9 +93,10 @@ Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it
 - **Ctrl+X** — Toggle full duplex for the whole radio. The new state is announced when the radio reports it. Home, Transmit and the Transmit menu show the same control. If the radio has not reported full duplex, the control says so.
 - **Ctrl+G** — Arm or disarm the TX test tone (it replaces your microphone while transmitting)
 - **Ctrl+R** — Record the active slice, or stop recording it — the radio's own recorder keeps one recording per slice, up to the last two minutes
-- **Ctrl+P** — Play the active slice's recording, or stop it. During a transmission, playback goes over the air until you unkey; otherwise it plays through your speakers. Play does not key the radio itself
+- **Ctrl+P** — Play the active slice's recording, or stop it. During a transmission, playback goes over the air until you unkey; otherwise it plays through your speakers. Play does not key the radio itself, unless VOX is on and **Sends key the radio when VOX is on** is checked: then it keys the radio, sends the whole recording, and hands back to VOX
 - **Ctrl+Shift+R** — Record to file: record what the radio plays through this computer, or stop — the Shift form of Ctrl+R, the other recorder
-- **Ctrl+Shift+P** — Play from computer: play your last recording on this computer, or stop — the Shift form of Ctrl+P
+- **Ctrl+Shift+P** — Play from computer: play your last recording on this computer — the Shift form of Ctrl+P. While you are transmitting it sends the recording over the air, and with VOX on and **Sends key the radio when VOX is on** checked it keys the radio itself. Pressed again, on your speakers or on the air, it pauses the recording; once more and it carries on from the same place. Escape stops it
+- **Ctrl+K** — Turn **Sends key the radio when VOX is on** on or off — K for key. It says which way it went; the same box is in Home's Transmission group after VOX gain and delay, and in Settings on the PTT tab
 - **Ctrl+T** — Toggle meter tones on/off
 - **Ctrl+E** — Toggle alert sounds (earcons) on/off — E for earcons; it was `Shift+T`
 - **Ctrl+Q** — Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all (see "QSO signal analyzer" below)
@@ -115,6 +116,7 @@ Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it
 - **Alt+W** — Open a list of every window on your screen — the one with the keyboard first, then this program's own windows, then the rest — with the program that owns each and whether it is still running (see "What is on my screen" below)
 - **Alt+N** — Open the tracking notch filters, where you place a notch yourself instead of letting Auto Notch hunt for one (see "Tracking notch filters" below)
 - **Alt+F** — Open Recorded QSOs, your computer recordings — F for files. Play one, trim it, save it as another format, delete it or prune old ones (see "Recorded QSOs" below)
+- **Alt+C** — Open Check your audio — C for Check. It opens the window and never starts a check by itself (see "Check your audio" below)
 
 ### Still finding their layer
 
@@ -639,25 +641,42 @@ The Audio menu's **PC Audio Levels** and **On-Radio Levels** items each open a d
 
 The previous `Alt+Page Up`, `Alt+Shift+Page Up`, and `Shift+Page Up` shortcuts (and their `Page Down` counterparts) no longer adjust audio. The slots are reserved on purpose so a future feature can claim them deliberately.
 
-Two rows on the Audio menu start with "Audio", which is one row too many for a single letter to sort out. So Audio Workshop now has a mnemonic of its own: with the Audio menu open, `A` goes to **Audio Devices** and `W` goes to **Audio Workshop**. Nothing is renamed, and `Ctrl+Shift+W` still opens the workshop from anywhere without visiting the menu at all.
+Two rows on the Audio menu start with "Audio", which is one row too many for a single letter to sort out. So Audio Workshop now has a mnemonic of its own: with the Audio menu open, `A` goes to **Audio Devices** and `W` goes to **Audio Workshop**. Nothing is renamed, and `Ctrl+Shift+W` still opens the workshop from anywhere without visiting the menu at all. **Check Your Audio** sits right after it, and `C` reaches it, since nothing else on the menu starts with C.
 
 ## Audio Workshop
 
 These keys are active anywhere inside the Audio Workshop window (`Ctrl+Shift+W` opens it). They are workshop-only accelerators; they do not work from other JJ Flexible windows or other programs.
 
-- **Ctrl+Enter** — Start the Audio Check, or stop the one that's running
 - **Ctrl+S** — Save an audio preset
 - **Ctrl+O** — Load an audio preset
 - **Alt+E** — Export a preset to a file you can share
 - **Alt+I** — Import a preset from a file (it joins your saved presets — nothing changes on the radio until you load it)
 - **Alt+R** — Reset the TX audio chain to defaults
+- **Alt+C** — Open Check your audio, the same window `Ctrl+J`, then `Alt+C` opens from anywhere
 - **F6 / Shift+F6** — Move between the sections in the current category and hear each section's name. The keys wrap at both ends and skip hidden sections
 - **Ctrl+Tab / Ctrl+Shift+Tab** — Move between workshop categories. Use F6 to move among the sections within the selected category
-- **Escape** — While an Audio Check or Loopback Check is running, stop it and stay in the workshop; press again after it ends to close. Stopping unkeys the radio
+
+The **Close** button, last in the tab order, closes the workshop the way its title bar does: a check running in Check your audio carries on.
+
+The Audio Check used to live here, on the Hear Yourself category, with `Ctrl+Enter` to start it and a two-press Escape. It has a window of its own now, Check your audio, and those keys went with it. The **Check your audio** button at the end of the workshop's toolbar opens it.
 
 Inside the Load Preset picker, the `Delete` key (or the Delete button) deletes the preset you're on — it asks before doing anything, and deleting never touches the radio.
 
 A note for anyone whose fingers learned the old way: Save Preset used to respond to its `Alt+S` button mnemonic, which also swallowed `Alt+Shift+S` — the Speak Transmit Status key that works anywhere inside JJ Flexible — while the workshop was focused. That mnemonic is gone; `Ctrl+S` is the Save key now, and the transmit status query is no longer blocked by the workshop.
+
+## Check your audio
+
+These keys work anywhere inside the Check your audio window (`Ctrl+J`, then `Alt+C` opens it, and so do the Audio menu and the button in the Audio Workshop). They do not work from other windows.
+
+- **Ctrl+Enter** — Start the check with the method shown, or stop the one that's running
+- **Escape** — While a check is transmitting, the first press unkeys and stays in the window; press again to close. Escape never leaves you transmitting. While the check of this computer's microphone is listening, the first press stops it and you hear the verdict; press again to close
+- **Control**, pressed and let go on its own, during the countdown — Skip the rest of the count and transmit now. Escape, Start and `Ctrl+Enter` during the count still stop the check without transmitting. Control is only a skip when no other key goes with it, so `Ctrl+Enter` stays a stop. A screen reader command pressed with Control during the count, such as one of NVDA's, can also skip it, because the screen reader keeps the rest of its command to itself
+- **F6 / Shift+F6** — Move between the sections of the window and hear each section's name. The keys wrap at both ends and skip hidden sections
+
+- **Down Arrow / Up Arrow** on the method — The next method, or the one before. The methods run in order from checking whether Windows hears your microphone to the most involved, and do not wrap: you hear the boundary sound as you arrive at the first or the last method, and a further press there stays put and plays the sound alone
+- **Home / End** on the method — The first method, or the last
+
+Focus lands on the method when the window opens, and `Shift+Tab` from there reaches the Start button. The **Close** button, last in the tab order, closes the window the way its title bar does, which stops a running check and puts back what it changed.
 
 ## Transmit tests
 
@@ -685,7 +704,7 @@ Start scan, saved scan, and memory scan have no default keys — find them in th
 
 Your messages — a CQ, your exchange, a sign-off — live in one list, and one key sends each of them whatever mode the radio is in. By convention they sit on `Ctrl+1` through `Ctrl+9` and `Ctrl+0`; the editor offers the next free one of those when you add a message, and you can press any other free key instead.
 
-A message can carry CW text, a recording, or both. In CW the key hands the text to the radio's keyer. In a voice mode it sends the recording in place of your microphone: the radio keys, the recording goes out, and the radio unkeys when it ends. If you are already transmitting — holding PTT, or on VOX — the recording simply replaces your microphone for its length and your microphone comes back afterwards. Press the same key again, or Escape, to stop a recording early. A message that has nothing for the mode you are in says so rather than doing nothing.
+A message can carry CW text, a recording, or both. In CW the key hands the text to the radio's keyer. In a voice mode it sends the recording in place of your microphone: the radio keys, the recording goes out, and the radio unkeys when it ends. If you are already transmitting — holding PTT, or on VOX — the recording simply replaces your microphone for its length and your microphone comes back afterwards. Press the same key again to pause a recording where it is, and once more to carry on from there; Escape stops it. A message that has nothing for the mode you are in says so rather than doing nothing.
 
 Recordings come from your recordings folder, the same one the Audio Workshop records into, so a take you made there is ready to choose with no extra step. To add, change or remove messages, open Tools, then Manage Messages. Each message has a label, the key that sends it, its CW text and its recording; a key already used by something else is refused, so pick a free one. The list is where you land: arrow through your messages, Tab to reach the Add, Update, Delete and Close buttons, and press Escape to close. Every change is saved as you make it, so there is nothing to confirm on the way out. With no messages yet, the list says so. Ctrl+F1 on the list says all of this again whenever you want it; nothing is read out when you simply land there.
 
@@ -799,8 +818,8 @@ Editor.
 **Waiting in the Command Finder on purpose.** Start scan, saved scan,
 collect debug info, start audio check, and undelivered details.
 Most of these are either rare, or better reached where you already are — the
-Audio Check has `Ctrl+Enter` inside the Audio Workshop, which is where you are
-when you want it. Undelivered details is the odd one out: it is new, and it has
+Audio Check has `Ctrl+Enter` inside Check your audio, which is where you are
+when you want it, and `Ctrl+J`, `Alt+C` opens that window from anywhere. Undelivered details is the odd one out: it is new, and it has
 no key yet because which chord it deserves is still being decided rather than
 because it does not want one. It opens the list of things the radio told you
 that did not land — a warning that got cut off, something that arrived while
@@ -856,8 +875,9 @@ These keys are active when focus is on the row list in Saved Diagnostic Logs. Op
 
 - On each slice's **Record** field, **Space** or **Enter** starts or stops recording that slice. The next field plays its recording with **Space** or **Enter**, and shows the length when known. Press again to stop playback.
 - **Ctrl+Tab / Ctrl+Shift+Tab** includes the Home slice strip as well as the field-group headers.
-- **Ctrl+J, Ctrl+R** records the active slice; **Ctrl+J, Ctrl+P** plays it. Play pressed during your transmission sends the recording over the air until you unkey; otherwise it plays locally. JJ Flexible pauses VOX or CW break-in for local playback and restores it when playback stops. Play never keys or selects a transmit slice.
-- **Ctrl+J, Ctrl+Shift+R** records to a computer file; **Ctrl+J, Ctrl+Shift+P** plays the selected or last computer recording locally. Computer playback to air is not available yet.
+- **Ctrl+J, Ctrl+R** records the active slice; **Ctrl+J, Ctrl+P** plays it. Play pressed during your transmission sends the recording over the air until you unkey; otherwise it plays locally. JJ Flexible pauses VOX or CW break-in for local playback and restores it when playback stops. Play never selects a transmit slice, and it never keys the radio unless VOX is on and **Sends key the radio when VOX is on** is checked.
+- **Ctrl+J, Ctrl+Shift+R** records to a computer file; **Ctrl+J, Ctrl+Shift+P** plays the selected or last computer recording. Unkeyed it plays on your speakers; pressed during your transmission it sends the recording over the air, you hear it through the radio's transmit monitor as it goes, and your microphone comes back when it ends. Pressed again, on your speakers or on the air, it pauses, holding its place, and once more it carries on; Escape stops it. A recording longer than three minutes asks first, and a send pauses by itself after ten minutes so you can identify.
+- With VOX on and **Sends key the radio when VOX is on** checked, either Play keys the radio itself, sends the whole recording so VOX cannot drop out in its pauses, unkeys, and hands back to VOX. Pressing push to talk while it goes out stops the recording and leaves you transmitting. See Push to Talk and Transmission for the whole story.
 - **F11** records the active slice; **Ctrl+F11** plays it. **Alt+F11** records to a file; **Ctrl+Alt+F11** plays from the computer. These are flat keys for the same four JJ key commands above.
 - **Ctrl+Alt+Shift+F11** opens Recorded QSOs, the list of your computer recordings. **Ctrl+J, Alt+F** opens it too. Computer playback pauses VOX or CW break-in while it plays, the same as slice playback.
 

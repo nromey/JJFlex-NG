@@ -64,7 +64,10 @@ internal static class FixerCountdown
     /// <summary>The count-in before a stage that listens: stage 1's
     /// microphone check. Four events, ending on the octave up.</summary>
     public static void RecordTone()
-        => Guarded(EarconPlayer.CountdownRecordTone, "CountdownRecordTone");
+    {
+        if (!On) { Off("CountdownRecordTone"); return; }
+        Guarded(EarconPlayer.CountdownRecordTone, "CountdownRecordTone");
+    }
 
     /// <summary>The count-in before a stage that keys the transmitter:
     /// stages 2, 3 and 4 — the same sound for all three until Noel rules on a
@@ -72,7 +75,34 @@ internal static class FixerCountdown
     /// Four events, ending on the octave — which means the radio is ON.
     /// Ruled 2026-08-30; it was five, ending on a rising pair.</summary>
     public static void TransmitTone()
-        => Guarded(EarconPlayer.CountdownTransmitTone, "CountdownTransmitTone");
+    {
+        if (!On) { Off("CountdownTransmitTone"); return; }
+        Guarded(EarconPlayer.CountdownTransmitTone, "CountdownTransmitTone");
+    }
+
+    /// <summary>
+    /// Whether the operator's countdown is on: the one switch, in Settings'
+    /// Countdown group, for every countdown in the app (#835, ruled by Noel
+    /// 2026-10-29 23:59: "Each check counts down unless that function is turned
+    /// off, then no countdown would count."). Until fix round 1030 P2 it
+    /// covered Check your audio only, and the Fix tool always counted. The Fix
+    /// tool's stages ask it when they are about to key, so with it off they
+    /// key without a count, the way Check your audio does; the two tones above
+    /// ask it too, so no caller can sound a count it has switched off. The
+    /// Countdown settings' Play sample does not ask: it plays a choice before
+    /// it is switched on.
+    /// </summary>
+    public static bool On
+    {
+        get
+        {
+            try { return Radios.CountdownSettings.Current.Enabled; }
+            catch { return true; }   // counting is the safe side
+        }
+    }
+
+    private static void Off(string name) =>
+        Tracing.TraceLine("FixerCountdown: " + name + " not played: the countdown is switched off", TraceLevel.Info);
 
     /// <summary>The end of ANY test — keying or not. Ruled 2026-08-30: the
     /// same sequence for all tests, and it ends on a fall. Guarded like the
@@ -80,6 +110,54 @@ internal static class FixerCountdown
     /// stage from finishing.</summary>
     public static void StageDone()
         => Guarded(EarconPlayer.FixerStageDoneTone, "FixerStageDoneTone");
+
+    /// <summary>
+    /// One beat of the countdown, for a count played a beat at a time (#835):
+    /// Check your audio's, whose last beat waits for the setup, and the
+    /// Countdown settings' Play sample. The same sound as the figure above,
+    /// through the same seam, so there is one countdown in the app.
+    /// </summary>
+    public static void Beat(Radios.CountdownBeat beat)
+        => Guarded(() => EarconPlayer.CountdownBeatTone(beat.Hz, beat.Ms, beat.IsLanding, beat.Sound),
+                   beat.IsLanding ? "CountdownBeatTone landing" : "CountdownBeatTone count");
+
+    /// <summary>
+    /// Where a running <see cref="Radios.CountdownRun"/> plays and speaks:
+    /// tones through <see cref="Beat"/>, words through the screen reader.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Critical, because sounds-off makes the words the only warning.</b>
+    /// With the transmit sounds switched off the spoken count is all that
+    /// stands between an operator and a keying radio, so it is not left to the
+    /// verbosity filter. Which pieces are spoken at all is the plan's decision
+    /// (sounds off, or sounds on and Chatty), made before it starts.
+    /// </para>
+    /// <para>
+    /// <b>Queued, not interrupting, and followed to delivery (Codex round 1).</b>
+    /// The words go through <see cref="Radios.ScreenReaderOutput.CountdownSpeech"/>:
+    /// additive on <see cref="Radios.Speech.SpeechSubject.CheckCountdown"/> so
+    /// no number retires another, asked after so the count waits for them, and
+    /// taken back out of the delivery queue when the count is called off.
+    /// </para>
+    /// </remarks>
+    public sealed class Voice : Radios.ICountdownOutput
+    {
+        /// <summary>The one instance; it holds no state.</summary>
+        public static Voice Instance { get; } = new();
+
+        private Voice() { }
+
+        /// <inheritdoc/>
+        public void Tone(Radios.CountdownBeat beat) => Beat(beat);
+
+        /// <inheritdoc/>
+        public Radios.ICountdownWords Say(string text, bool onlyWarning) =>
+            Radios.ScreenReaderOutput.CountdownSpeech.Say(text, onlyWarning);
+
+        /// <inheritdoc/>
+        public void WithdrawSpeech(string why) => Radios.ScreenReaderOutput.CountdownSpeech.Withdraw(why);
+    }
 
     private static void Guarded(Action tone, string name)
     {

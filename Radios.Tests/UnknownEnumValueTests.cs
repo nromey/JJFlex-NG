@@ -36,7 +36,11 @@ namespace Radios.Tests
         /// scalar enum fields are absent here; each one gets its own unknown
         /// token in <see cref="Each_enum_setting_keeps_its_own_unknown_value_and_the_rest_of_the_file"/>.
         /// </summary>
-        private void WriteNewerBuildsConfig(string listenMethod = "Loopback", string pathKind = "Connect",
+        // "EchoRelay" stands for a listen method a newer build wrote that this
+        // build does not know. These tests said "Loopback" until Check your audio
+        // made Loopback a real method (merged to main 2026-10-30); a name no
+        // build has ever used keeps them about the unknown value.
+        private void WriteNewerBuildsConfig(string listenMethod = "EchoRelay", string pathKind = "Connect",
                                             string mute = "Muted")
         {
             Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
@@ -87,7 +91,7 @@ namespace Radios.Tests
             Assert.True(cfg.Save(_dir, RadioId));
 
             string written = File.ReadAllText(ConfigPath);
-            Assert.Contains("<AudioCheckListenMethod>Loopback</AudioCheckListenMethod>", written, StringComparison.Ordinal);
+            Assert.Contains("<AudioCheckListenMethod>EchoRelay</AudioCheckListenMethod>", written, StringComparison.Ordinal);
             Assert.Contains("<ConnectPathKind>Connect</ConnectPathKind>", written, StringComparison.Ordinal);
             Assert.Contains("<Ownership>Mine</Ownership>", written, StringComparison.Ordinal);
         }
@@ -103,7 +107,7 @@ namespace Radios.Tests
             Assert.True(RadioConfig.Update(_dir, RadioId, c => { c.Nickname = "Renamed"; }));
 
             string written = File.ReadAllText(ConfigPath);
-            Assert.Contains("<AudioCheckListenMethod>Loopback</AudioCheckListenMethod>", written, StringComparison.Ordinal);
+            Assert.Contains("<AudioCheckListenMethod>EchoRelay</AudioCheckListenMethod>", written, StringComparison.Ordinal);
             Assert.Contains("<Nickname>Renamed</Nickname>", written, StringComparison.Ordinal);
         }
 
@@ -118,7 +122,7 @@ namespace Radios.Tests
             Assert.True(cfg.Save(_dir, RadioId));
 
             string written = File.ReadAllText(ConfigPath);
-            Assert.DoesNotContain("Loopback", written, StringComparison.Ordinal);
+            Assert.DoesNotContain("EchoRelay", written, StringComparison.Ordinal);
             Assert.DoesNotContain(">Connect<", written, StringComparison.Ordinal);
             Assert.Equal(AudioCheckListenMethods.Monitor, RadioConfig.Load(_dir, RadioId).AudioCheckListenMethod);
         }
@@ -252,9 +256,9 @@ namespace Radios.Tests
     /// #847 repair, found by the Codex check: the Audio Workshop saves its
     /// Audio Check preferences through <see cref="RadioConfig.RecordAudioCheckPref"/>,
     /// and a change to one of them must not save the DISPLAYED value of the
-    /// others. With a listen method a newer build wrote (Loopback), the
+    /// others. With a listen method a newer build wrote (EchoRelay), the
     /// Workshop displays its fallback, Monitor; toggling only "Compare with
-    /// previous take" used to save Monitor over Loopback.
+    /// previous take" used to save Monitor over EchoRelay.
     /// </summary>
     [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class AudioCheckPrefPreservationTests : IDisposable
@@ -273,7 +277,7 @@ namespace Radios.Tests
                 + "<RadioConfig xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\">\r\n"
                 + "  <Version>1</Version>\r\n"
                 + "  <RadioId>" + Serial + "</RadioId>\r\n"
-                + "  <AudioCheckListenMethod>Loopback</AudioCheckListenMethod>\r\n"
+                + "  <AudioCheckListenMethod>EchoRelay</AudioCheckListenMethod>\r\n"
                 + "  <AudioCheckPowerMode>" + power + "</AudioCheckPowerMode>\r\n"
                 + "  <AudioCheckLowPowerWatts>10</AudioCheckLowPowerWatts>\r\n"
                 + "  <Ownership>Mine</Ownership>\r\n"
@@ -284,7 +288,7 @@ namespace Radios.Tests
         private static RadioConfig Shown() => RadioConfig.LoadForRadio(Serial);
 
         [Fact]
-        public void A_comparison_only_change_keeps_Loopback()
+        public void A_comparison_only_change_keeps_EchoRelay()
         {
             WriteNewerBuildsConfig();
             var shown = Shown();
@@ -292,12 +296,12 @@ namespace Radios.Tests
                 shown.AudioCheckListenMethod, shown.AudioCheckPowerMode, shown.AudioCheckLowPowerWatts, true));
 
             string written = File.ReadAllText(PathToConfig);
-            Assert.Contains("<AudioCheckListenMethod>Loopback</AudioCheckListenMethod>", written, StringComparison.Ordinal);
+            Assert.Contains("<AudioCheckListenMethod>EchoRelay</AudioCheckListenMethod>", written, StringComparison.Ordinal);
             Assert.True(RadioConfig.LoadForRadio(Serial).AudioCheckCompareWithLastTake);
         }
 
         [Fact]
-        public void A_watts_only_change_keeps_Loopback()
+        public void A_watts_only_change_keeps_EchoRelay()
         {
             WriteNewerBuildsConfig();
             var shown = Shown();
@@ -305,7 +309,7 @@ namespace Radios.Tests
                 shown.AudioCheckListenMethod, shown.AudioCheckPowerMode, 3, shown.AudioCheckCompareWithLastTake));
 
             string written = File.ReadAllText(PathToConfig);
-            Assert.Contains("<AudioCheckListenMethod>Loopback</AudioCheckListenMethod>", written, StringComparison.Ordinal);
+            Assert.Contains("<AudioCheckListenMethod>EchoRelay</AudioCheckListenMethod>", written, StringComparison.Ordinal);
             Assert.Equal(3, RadioConfig.LoadForRadio(Serial).AudioCheckLowPowerWatts);
         }
 
@@ -321,11 +325,11 @@ namespace Radios.Tests
 
             string written = File.ReadAllText(PathToConfig);
             Assert.Contains("<AudioCheckPowerMode>Spectacle</AudioCheckPowerMode>", written, StringComparison.Ordinal);
-            Assert.Contains("<AudioCheckListenMethod>Loopback</AudioCheckListenMethod>", written, StringComparison.Ordinal);
+            Assert.Contains("<AudioCheckListenMethod>EchoRelay</AudioCheckListenMethod>", written, StringComparison.Ordinal);
         }
 
         [Fact]
-        public void Editing_the_listen_method_itself_replaces_Loopback()
+        public void Editing_the_listen_method_itself_replaces_EchoRelay()
         {
             WriteNewerBuildsConfig();
             var shown = Shown();
@@ -334,21 +338,22 @@ namespace Radios.Tests
                 shown.AudioCheckCompareWithLastTake));
 
             string written = File.ReadAllText(PathToConfig);
-            Assert.DoesNotContain("Loopback", written, StringComparison.Ordinal);
+            Assert.DoesNotContain("EchoRelay", written, StringComparison.Ordinal);
             Assert.Contains("<AudioCheckListenMethod>Monitor</AudioCheckListenMethod>", written, StringComparison.Ordinal);
         }
 
         /// <summary>
-        /// The Workshop's four handlers each name the preference they edit, so
-        /// none of them saves the others' displayed values. Read from source:
-        /// the Workshop is a window.
+        /// The four handlers each name the preference they edit, so none of
+        /// them saves the others' displayed values. They live in Check your
+        /// audio since its Track A moved the Hear Yourself page out of the
+        /// Workshop. Read from source: it is a window.
         /// </summary>
         [Theory]
-        [InlineData("AudioWorkshopDialog.AudioCheck.cs", "_listenMethodControl.SelectionChanged", "AudioCheckPref.ListenMethod")]
-        [InlineData("AudioWorkshopDialog.AudioCheck.cs", "_checkPowerControl.SelectionChanged", "AudioCheckPref.PowerMode")]
-        [InlineData("AudioWorkshopDialog.AudioCheck.cs", "_checkWattsControl.ValueChanged", "AudioCheckPref.LowPowerWatts")]
-        [InlineData("AudioWorkshopDialog.Listenback.cs", "_iqAutoCompare.Checked", "AudioCheckPref.CompareWithLastTake")]
-        [InlineData("AudioWorkshopDialog.Listenback.cs", "_iqAutoCompare.Unchecked", "AudioCheckPref.CompareWithLastTake")]
+        [InlineData("CheckYourAudioDialog.Check.cs", "_listenMethodControl.SelectionChanged", "AudioCheckPref.ListenMethod")]
+        [InlineData("CheckYourAudioDialog.Check.cs", "_checkPowerControl.SelectionChanged", "AudioCheckPref.PowerMode")]
+        [InlineData("CheckYourAudioDialog.Check.cs", "_checkWattsControl.ValueChanged", "AudioCheckPref.LowPowerWatts")]
+        [InlineData("CheckYourAudioDialog.OffAir.cs", "_iqAutoCompare.Checked", "AudioCheckPref.CompareWithLastTake")]
+        [InlineData("CheckYourAudioDialog.OffAir.cs", "_iqAutoCompare.Unchecked", "AudioCheckPref.CompareWithLastTake")]
         public void Each_Workshop_handler_saves_only_the_preference_it_edits(string file, string handler, string edited)
         {
             string code = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "JJFlexWpf", "Dialogs", file));
@@ -359,7 +364,7 @@ namespace Radios.Tests
             int close = code.IndexOf(')', save);
             Assert.Equal("SavePerRadioPrefs(" + edited, code.Substring(save, close - save));
 
-            string dialog = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "JJFlexWpf", "Dialogs", "AudioWorkshopDialog.xaml.cs"));
+            string dialog = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.Check.cs"));
             int body = dialog.IndexOf("private void SavePerRadioPrefs(AudioCheckPref edited)", StringComparison.Ordinal);
             Assert.True(body >= 0);
             string saver = dialog.Substring(body, dialog.IndexOf("\n    }", body, StringComparison.Ordinal) - body);

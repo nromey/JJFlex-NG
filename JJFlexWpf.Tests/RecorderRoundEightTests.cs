@@ -24,7 +24,9 @@ public sealed class RecorderRoundEightTests
             try
             {
                 using var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
-                var dialog = (AudioWorkshopDialog)RuntimeHelpers.GetUninitializedObject(typeof(AudioWorkshopDialog));
+                // Check your audio since #835, which took the two arms with the
+                // rest of the Hear Yourself page.
+                var dialog = (CheckYourAudioDialog)RuntimeHelpers.GetUninitializedObject(typeof(CheckYourAudioDialog));
                 Put(dialog, "_rig", rig);
                 var reference = new CheckBox { IsChecked = true };
                 var tone = new CheckBox { IsChecked = true };
@@ -67,7 +69,7 @@ public sealed class RecorderRoundEightTests
                 var owner = new VoxPauseOwner(_ => false, (_, _, _) => true);
                 var lease = owner.Acquire(FlexBase.VoxSetting.SimpleVox);
                 typeof(FlexBase).GetField("_referenceVoxLease", Private)!.SetValue(rig, lease);
-                var dialog = (AudioWorkshopDialog)RuntimeHelpers.GetUninitializedObject(typeof(AudioWorkshopDialog));
+                var dialog = (CheckYourAudioDialog)RuntimeHelpers.GetUninitializedObject(typeof(CheckYourAudioDialog));
                 var reference = new CheckBox { IsChecked = true };
                 Put(dialog, "_rig", rig);
                 Put(dialog, "_refArmCheck", reference);
@@ -97,7 +99,7 @@ public sealed class RecorderRoundEightTests
     public void PendingStateSpansTheRadioVoxReply(string part, string call)
     {
         string source = File.ReadAllText(Path.Combine(SourceRoot(),
-            "JJFlexWpf", "Dialogs", "AudioWorkshopDialog." + part + ".cs"));
+            "JJFlexWpf", "Dialogs", "CheckYourAudioDialog." + part + ".cs"));
         Assert.Contains("_injectionArmPending = true;\n        try { started = await rig." + call + "(); }",
             source.Replace("\r\n", "\n"), StringComparison.Ordinal);
         Assert.Contains("finally { _injectionArmPending = false; }", source, StringComparison.Ordinal);
@@ -111,32 +113,24 @@ public sealed class RecorderRoundEightTests
         Assert.Equal(20, new FrequencyDisplay.DisplayField("Other", 52, "", "").Length);
     }
 
-    [Theory]
-    [InlineData(false, "Record from active slice",
-        "Play active slice recording", "Play active slice recording, 12 seconds")]
-    [InlineData(true, "Record from listening slice",
-        "Play listening slice recording", "Play listening slice recording, 12 seconds")]
-    public void WorkshopRecorderLabelsNameTheSliceTheyActOn(bool listeningSlice,
-        string record, string play, string playWithLength)
-    {
-        var target = listeningSlice ? SliceRecorderTarget.LoopbackEars : SliceRecorderTarget.ActiveSlice;
-        Assert.Equal(record, AudioWorkshopDialog.WorkshopSliceRecordLabel(target));
-        Assert.Equal(play, AudioWorkshopDialog.WorkshopSlicePlayLabel(target, null));
-        Assert.Equal(playWithLength, AudioWorkshopDialog.WorkshopSlicePlayLabel(target, "12 seconds"));
-        Assert.Equal("Play slice recording", Lexicon.Get("audio.recorder.play_button"));
-    }
+    // WorkshopRecorderLabelsNameTheSliceTheyActOn pinned the labels of the
+    // Workshop's Record and Play active-slice buttons. Those buttons were
+    // removed in #835 (ruled 13:57): the recorder has its own doors, and their
+    // one unique job, the Loopback Check's listening slice, belongs to the
+    // Loopback method now. Radios.Tests.CheckYourAudioWiringTests pins that
+    // nothing else names the listening slice.
 
     private static void Put(object target, string name, object? value) =>
-        typeof(AudioWorkshopDialog).GetField(name, Private)!.SetValue(target, value);
+        typeof(CheckYourAudioDialog).GetField(name, Private)!.SetValue(target, value);
 
     private static void Invoke(object target, string name) =>
-        typeof(AudioWorkshopDialog).GetMethod(name, Private)!.Invoke(target, null);
+        typeof(CheckYourAudioDialog).GetMethod(name, Private)!.Invoke(target, null);
 
     private static string SourceRoot()
     {
         for (DirectoryInfo? d = new DirectoryInfo(AppContext.BaseDirectory); d != null; d = d.Parent)
             if (File.Exists(Path.Combine(d.FullName, "JJFlexWpf", "Dialogs",
-                "AudioWorkshopDialog.ReferenceAudio.cs"))) return d.FullName;
+                "CheckYourAudioDialog.ReferenceAudio.cs"))) return d.FullName;
         throw new DirectoryNotFoundException("The recorder source tree was not found.");
     }
 }

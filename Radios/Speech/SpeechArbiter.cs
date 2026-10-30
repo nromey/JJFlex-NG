@@ -610,6 +610,15 @@ namespace Radios.Speech
             public DateTime EstFinishUtc;
 
             /// <summary>
+            /// When the reader is estimated to START saying it: the believed
+            /// busy-until it was stacked behind. Meaningful only for an
+            /// UNTRACKED entry; a tracked one says when it starts by leaving
+            /// the pump. Read by the countdown before a check keys (#835), whose
+            /// pip must not sound ahead of its own number.
+            /// </summary>
+            public DateTime EstStartUtc;
+
+            /// <summary>
             /// The completion channel's ticket, or 0 when nobody will report
             /// on this entry and the estimate governs it. Renewed on every
             /// hand-over, because each hand-over is a new question to the
@@ -1178,6 +1187,67 @@ namespace Radios.Speech
             lock (_lock)
             {
                 MarkSupersededLocked(subject, by, origin, _clock.UtcNow);
+            }
+        }
+
+        /// <summary>
+        /// One queued piece of speech a caller is following to delivery: the
+        /// countdown before a check keys (#835, Codex rounds 1 and 2). Opaque
+        /// to the caller; <see cref="Inspect"/> reads it.
+        /// </summary>
+        internal sealed class FollowedPiece
+        {
+            // The ledger entry, held as object because its type is private to the arbiter.
+            internal FollowedPiece(object entry) => Entry = entry;
+            internal object Entry { get; }
+        }
+
+        /// <summary>What the arbiter knows about a followed piece, right now.</summary>
+        /// <param name="InLedger">Still owed in some sense: queued, being said, or cut and unresolved. False once
+        /// the reader finished it, or an untracked estimate ran out, or it was withdrawn.</param>
+        /// <param name="Tracked">The reader will answer for it (a completion channel); false on the estimate path.</param>
+        /// <param name="Ticket">Its delivery ticket while tracked, else 0.</param>
+        /// <param name="State">The ledger's account of it.</param>
+        /// <param name="Superseded">Retired by supersession: it will not be said.</param>
+        /// <param name="EstStartUtc">Untracked only: when the reader is estimated to start it.</param>
+        /// <param name="EstFinishUtc">Untracked only: when the reader is estimated to finish it.</param>
+        /// <param name="NowUtc">The arbiter's clock, for comparing with the two estimates.</param>
+        internal readonly record struct FollowedView(bool InLedger, bool Tracked, long Ticket, Owed State,
+            bool Superseded, DateTime EstStartUtc, DateTime EstFinishUtc, DateTime NowUtc);
+
+        /// <summary>
+        /// Queue one utterance exactly as a queued <see cref="Emit"/> does, with
+        /// no verbosity gate (the caller speaks at Critical), and hand back a
+        /// handle to follow it by, or null when the reader was not reached and
+        /// nothing entered the ledger.
+        /// </summary>
+        /// <remarks>
+        /// Added for the countdown before a check keys (#835). With sounds off
+        /// its numbers are the only warning, so it must know, per number,
+        /// whether the reader has started it and finished it, and must not read
+        /// "never reached the reader" as "said" (Codex round 2, follow-up 3).
+        /// </remarks>
+        internal FollowedPiece? EmitQueued(string message, VerbosityLevel level, string origin,
+            string subject, bool additive)
+        {
+            lock (_lock)
+            {
+                var now = _clock.UtcNow;
+                PruneLedgerLocked(now);
+                var made = EmitQueuedLocked(message, SpeechIntent.Queue, level, origin, subject, additive, now);
+                return made == null ? null : new FollowedPiece(made);
+            }
+        }
+
+        /// <summary>Read where a followed piece stands. Read-only: no pruning, no tracing.</summary>
+        internal FollowedView Inspect(FollowedPiece piece)
+        {
+            lock (_lock)
+            {
+                var e = (BelievedQueued)piece.Entry;
+                bool inLedger = _believedQueued.Contains(e) || _held.Contains(e);
+                return new FollowedView(inLedger, e.Ticket != 0, e.Ticket, e.State, e.SupersededBy != null,
+                    e.EstStartUtc, e.EstFinishUtc, _clock.UtcNow);
             }
         }
 
@@ -2246,6 +2316,20 @@ namespace Radios.Speech
 
             if (!interrupt)
             {
+                EmitQueuedLocked(message, intent, level, origin, subject, additive, now);
+                return;
+            }
+
+            EmitInterruptingLocked(message, intent, level, origin, subject, additive, now);
+        }
+
+        /// <summary>The queued branch of <see cref="EmitLocked"/>, unchanged; it
+        /// now also hands back the ledger entry it made, or null when the
+        /// reader was not reached, for <see cref="EmitQueued"/>.</summary>
+        private BelievedQueued? EmitQueuedLocked(string message, SpeechIntent? intent, VerbosityLevel? level,
+            string? origin, string? subject, bool additive, DateTime now)
+        {
+                BelievedQueued? made = null;
                 var handoff = _sink(message, false, intent, level, origin, salvaged: false);
                 if (handoff.Reached)
                 {
@@ -2258,16 +2342,19 @@ namespace Radios.Speech
                     // marks nothing — it extends its subject, it does not
                     // restate it.
                     if (!additive) MarkSupersededLocked(subject, $"'{message}'", origin, now);
-                    LedgerAddLocked(message, intent, level, origin, subject, now, handoff.Ticket);
+                    made = LedgerAddLocked(message, intent, level, origin, subject, now, handoff.Ticket);
 
                     // Given to the reader while a train is held: this is one
                     // of the follow-ups the hold exists to let through first,
                     // and the release trace will name it.
                     if (_holdTimer != null) _wentFirst.Add(message);
                 }
-                return;
-            }
+                return made;
+        }
 
+        private void EmitInterruptingLocked(string message, SpeechIntent? intent, VerbosityLevel? level,
+            string? origin, string? subject, bool additive, DateTime now)
+        {
             if (intent == SpeechIntent.Urgent)
             {
                 // Urgent reaches here only through Urgent(), which has already
@@ -3230,7 +3317,7 @@ namespace Radios.Speech
         /// went with it rather than staying here as parameters no caller
         /// ever sets.</para>
         /// </summary>
-        private void LedgerAddLocked(string message,
+        private BelievedQueued LedgerAddLocked(string message,
             SpeechIntent? intent, VerbosityLevel? level, string? origin, string? subject, DateTime now,
             long ticket)
         {
@@ -3248,6 +3335,7 @@ namespace Radios.Speech
                 QuietGeneration = _safety.QuietGeneration,
             };
             LedgerEnterLocked(entry, now);
+            return entry;
         }
 
         /// <summary>
@@ -3273,12 +3361,14 @@ namespace Radios.Speech
             if (entry.Ticket != 0)
             {
                 entry.EstFinishUtc = DateTime.MaxValue;
+                entry.EstStartUtc = now;
             }
             else
             {
                 var start = _readerBusyUntilUtc > now ? _readerBusyUntilUtc : now;
                 var finish = start.AddMilliseconds(EstimateLocked(entry.Message));
                 _readerBusyUntilUtc = finish;
+                entry.EstStartUtc = start;
                 entry.EstFinishUtc = finish;
             }
 
@@ -3584,6 +3674,7 @@ namespace Radios.Speech
                         var start = _readerBusyUntilUtc > now ? _readerBusyUntilUtc : now;
                         var finish = start.AddMilliseconds(EstimateLocked(message));
                         _readerBusyUntilUtc = finish;
+                        entry.EstStartUtc = start;
                         entry.EstFinishUtc = finish;
                         Tracing.TraceLine(
                             $"SpeechArbiter: delivery #{ticket} {outcome} — '{message}' is back on the ESTIMATE: "

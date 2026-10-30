@@ -238,8 +238,8 @@ namespace Radios.Tests
             // The scope is opened in exactly one production place, the menu.
             int opens = 0;
             foreach (string file in new[] { "JJFlexWpf/NativeMenuBar.cs", "JJFlexWpf/KeyCommands.cs", "JJFlexWpf/MainWindow.xaml.cs",
-                                            "JJFlexWpf/PttSafetyController.cs", "JJFlexWpf/Dialogs/AudioWorkshopDialog.AudioCheck.cs",
-                                            "JJFlexWpf/Dialogs/AudioWorkshopDialog.InjectionPath.cs", "Radios/FlexBase.cs",
+                                            "JJFlexWpf/PttSafetyController.cs", "JJFlexWpf/Dialogs/CheckYourAudioDialog.Check.cs",
+                                            "JJFlexWpf/Dialogs/CheckYourAudioDialog.InjectionPath.cs", "Radios/FlexBase.cs",
                                             "Radios/FlexBase.MultiUser.cs", "Radios/FlexBase.Antennas.cs", "Radios/FlexBase.VoxHold.cs" })
                 opens += Regex.Matches(ReadSource(file), @"OperatorChoseThisChange\(\)\)").Count;
             Assert.Equal(1, opens);

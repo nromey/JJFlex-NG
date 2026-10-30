@@ -200,26 +200,9 @@ namespace JJFlexWpf.Dialogs
         // just read straight back to Windows.
         private bool _micLevelUpdatingUi;
 
-        /// <summary>
-        /// Below this peak, in dBFS, what we are hearing is the interface's own
-        /// electronics rather than a room. Chosen from a bench measurement, not
-        /// from a table: an Audient interface with nothing plugged in read a
-        /// steady -105 dBFS across a four-second check. A live microphone in a
-        /// quiet room runs tens of decibels above that, so there is a wide gap
-        /// to sit in and -75 sits in it.
-        /// </summary>
-        private const float NoiseFloorDb = -75f;
-
-        /// <summary>
-        /// At or above this peak, in dBFS, the capture has clipped — samples
-        /// slammed into full scale. Loudness figures are withheld from that
-        /// reading: clipping raises RMS energy, so a loudness measured through
-        /// it reads HIGHER than the true program loudness, and reporting a
-        /// number the clipping corrupted would be worse than reporting none.
-        /// -1 rather than exactly 0 because drivers hand back peaks a hair
-        /// under full scale for a signal that already hit the rail.
-        /// </summary>
-        private const float ClippedDb = -1f;
+        // The noise-floor and clipping thresholds live with the words
+        // (MicCheckWords), shared with Check your audio's computer microphone
+        // method (#835, fix round 2026-10-28).
 
         /// <summary>
         /// True when both radio-audio devices are configured and present after
@@ -278,7 +261,14 @@ namespace JJFlexWpf.Dialogs
                 // the note could describe it; leaving it applied after Cancel
                 // would make Cancel a lie. The audio system needs no undo — it
                 // is pending state (#207), applied only on OK.
-                if (DialogResult == true) return;
+                if (DialogResult == true)
+                {
+                    Tracing.TraceLine("Audio Devices: closed with OK" + (_savedOnOk.Count > 0
+                        ? "; saved: " + string.Join("; ", _savedOnOk) : "; nothing changed"), TraceLevel.Info);
+                    return;
+                }
+                Tracing.TraceLine("Audio Devices: closed WITHOUT saving (Escape, Cancel or the title bar); the chosen devices are unchanged",
+                    TraceLevel.Info);
                 Radios.FlexBase.OpusTxSampleRateSetting = _txRateOnEntry;
             };
 
@@ -1992,28 +1982,9 @@ namespace JJFlexWpf.Dialogs
                 AutomationProperties.SetName(MicCheckButton, "Start microphone check");
             }
 
-            string summary;
-            if (!final.AnySound)
-            {
-                summary = Lexicon.Get("audio.device.mic_check_nothing_heard");
-            }
-            else if (final.HoldPeakDb <= NoiseFloorDb)
-            {
-                summary = Lexicon.Get("audio.device.mic_check_only_noise_floor",
-                    ("peak", PeakText(final.HoldPeakDb)));
-            }
-            else
-            {
-                // The advice sentence rides along whatever the output mode is:
-                // it is the one part that is neither a figure nor a verdict but
-                // a direction, and an operator who suppressed the coaching
-                // still needs to be told which knob to move. Its absence is
-                // what made "coming in hot" a dead end.
-                summary = Reading(Lexicon.Get("audio.device.mic_check_loudest_heard"),
-                    final.HoldPeakDb, final.IntegratedLufs,
-                    withAdvice: true,
-                    advice: LevelAdvice(MicAudioReport.Verdict(final.HoldPeakDb)));
-            }
+            // The words are shared with Check your audio's computer microphone
+            // method (#835, fix round 2026-10-28): one probe, one set of words.
+            string summary = MicCheckWords.Final(final, _micLevel);
             if (!string.IsNullOrEmpty(reason)) summary = reason + " " + summary;
 
             SetMicReading(summary);
@@ -2044,72 +2015,14 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
-            string text;
-            if (!r.AnySound)
+            // Privacy is read here, once per check, only when the device has
+            // given nothing for a second; the words are shared (#835).
+            if (r.AnySound == false && r.Seconds >= 1.0)
             {
-                // Give the device a moment before passing judgement — some
-                // interfaces hand over their first buffers late.
-                if (r.Seconds < 1.0)
-                {
-                    // Same key as the line StartMicCheck shows, because it is
-                    // the same sentence: two copies of it would age apart.
-                    text = Lexicon.Get("audio.device.mic_check_listening");
-                }
-                else
-                {
-                    CheckPrivacyOnce(force: false);
-                    if (_privacyBlocked)
-                    {
-                        ShowPrivacyOffer(true);
-                        text = "No sound at all. " + _privacyExplanation;
-                    }
-                    else
-                    {
-                        // Not "quiet" — exactly zero, every sample. A real
-                        // microphone always has a noise floor, so this is
-                        // Windows handing us silence rather than a quiet room,
-                        // and saying so points at the right place to look.
-                        text = "No sound at all — every sample is digital silence. The device is open, "
-                            + "but nothing is coming through it. Check that the microphone is not muted "
-                            + "in Windows, and that anything with its own mute button is unmuted.";
-                    }
-                }
+                CheckPrivacyOnce(force: false);
+                if (_privacyBlocked) ShowPrivacyOffer(true);
             }
-            else if (r.RecentPeakDb <= MicProbe.SilenceDb)
-            {
-                // The gated whole-check figure, not the 3 s window: the last
-                // three seconds are the quiet this branch is reporting, while
-                // the integrated figure still describes the speech before it.
-                text = Reading("Mic audio: quiet right now. Loudest so far:",
-                    r.HoldPeakDb, r.IntegratedLufs, withAdvice: false, advice: "");
-            }
-            else
-            {
-                // Same vocabulary the Audio Workshop and the Home fields use,
-                // reading the same kind of number, so one level never gets two
-                // different verdicts depending on where you asked. Loudness
-                // rides along (Mic Level Track, 2026-08-13): peak answers "am
-                // I clipping", but this check is the one place the operator is
-                // actually SETTING a level, and peak cannot tell them when
-                // they have stopped being too quiet — that is loudness's job.
-                text = Reading("Mic audio now:", r.RecentPeakDb, r.ShortTermLufs,
-                        withAdvice: false, advice: "")
-                    + $" Loudest so far {PeakText(r.HoldPeakDb)}.";
-
-                // A fact, not a second verdict. Measured on the bench: an audio
-                // interface with nothing plugged into it reads about -105 dBFS
-                // — its own electrical noise floor, real non-zero samples, so
-                // the digital-silence test above does not fire and the verdict
-                // says "turn it up". True, and not the useful sentence. A live
-                // microphone in a quiet room sits far above this, so a peak
-                // down here means nothing is arriving at the interface at all.
-                if (r.HoldPeakDb <= NoiseFloorDb)
-                {
-                    text += " That is only the electrical noise floor — no sound is reaching the "
-                        + "microphone. Check that it is plugged in, and that any gain knob on the "
-                        + "interface is turned up.";
-                }
-            }
+            string text = MicCheckWords.Live(r, _privacyBlocked, _privacyExplanation);
 
             SetMicReading(text);
         }
@@ -2146,148 +2059,9 @@ namespace JJFlexWpf.Dialogs
             Announce(failure, VerbosityLevel.Critical);
         }
 
-        /// <summary>
-        /// ", loudness N LUFS" — or empty when there is no honest figure:
-        /// nothing has gated in yet, or the capture clipped (see
-        /// <see cref="ClippedDb"/>). Display carries both numbers whenever
-        /// both are honest; the verdict vocabulary stays peak's, from the
-        /// same frozen <see cref="MicAudioReport.Verdict"/> every other
-        /// surface uses.
-        /// </summary>
-        /// <summary>
-        /// A reading, numbers first and coaching after, honouring the
-        /// operator's verdict-output preference.
-        /// </summary>
-        /// <remarks>
-        /// Noel, 2026-08-13, after setting a level with it for real: "I'd read
-        /// the level number first and then the coaching... it's easier if
-        /// you're adjusting to hear a level and then coaching."
-        ///
-        /// <para>
-        /// The verdict used to lead. That was built so a fast listener could
-        /// hear one token and stop — and it is the right instinct aimed at the
-        /// wrong target. While ADJUSTING, the number IS the thing being
-        /// tracked, and it is strictly more informative than the token that
-        /// summarises it. Leading with it serves the same goal better: the
-        /// earliest word out is now the most precise one, and the coaching is
-        /// what you stay for rather than what you sit through.
-        /// </para>
-        ///
-        /// <para>
-        /// Also honours MicVerdictOutputMode, which this dialog previously
-        /// ignored -- it called Verdict directly, so an operator who had
-        /// chosen "Decibels only" in Settings still got the full coaching
-        /// here. A preference that does not reach every surface is not a
-        /// preference.
-        /// </para>
-        /// </remarks>
-        private static string Reading(string lead, float peakDb, float lufs, bool withAdvice,
-                                      string advice)
-        {
-            var mode = MicAudioReport.VerdictMode;
-            string numbers = PeakText(peakDb) + LoudnessPart(lufs, peakDb);
-            string verdict = MicAudioReport.Verdict(peakDb);
-
-            // Plain English only: the operator asked not to hear figures.
-            if (mode == MicVerdictOutputMode.Plain)
-                return Lexicon.Get("audio.device.reading_plain",
-                    ("lead", lead), ("verdict", verdict)) + (withAdvice ? advice : "");
-
-            // Decibels only: the figures, and the direction to move them,
-            // without the coaching sentence around it.
-            if (mode == MicVerdictOutputMode.Numbers)
-                return Lexicon.Get("audio.device.reading_numbers",
-                    ("lead", lead), ("numbers", numbers)) + (withAdvice ? advice : "");
-
-            return Lexicon.Get("audio.device.reading_full",
-                ("lead", lead), ("numbers", numbers), ("verdict", verdict))
-                + (withAdvice ? advice : "");
-        }
-
-        /// <summary>
-        /// A level, in words that cannot lie about which end of the scale it
-        /// is at.
-        /// </summary>
-        /// <remarks>
-        /// Noel, 2026-08-13: "when it's peaking or when it's at 0% -140 dbfs,
-        /// it's speaking that it's -0 or 0 which both say it's clipping which
-        /// is wrong."
-        ///
-        /// <para>
-        /// Two separate ways plain "F0" formatting misreports a level, and
-        /// both land on the same wrong answer:
-        /// </para>
-        ///
-        /// <para>
-        /// Anything between -0.5 and 0 renders as "-0", which a screen reader
-        /// says as zero. Zero dBFS is FULL SCALE — the ceiling — so a value
-        /// just under it and a value at the floor can both be spoken as the
-        /// loudest possible reading. Silence reported as clipping is the worst
-        /// direction this can fail in, because the operator's correct response
-        /// to each is the exact opposite of the other.
-        /// </para>
-        ///
-        /// <para>
-        /// So: at or under the floor there is no number worth saying, and the
-        /// words say so. Near the ceiling a decimal place is kept, because
-        /// -0.3 and -0.0 are genuinely different situations there. Everywhere
-        /// in between, whole decibels are what an operator can act on.
-        /// </para>
-        /// </remarks>
-        private static string PeakText(float db)
-        {
-            if (db <= MicProbe.SilenceDb) return Lexicon.Get("audio.device.peak_nothing_at_all");
-            if (db > -1f) return Lexicon.Get("audio.device.peak_dbfs", ("db", $"{db:F1}"));
-            return Lexicon.Get("audio.device.peak_dbfs", ("db", $"{db:F0}"));
-        }
-
-        private static string LoudnessPart(float lufs, float peakDb)
-        {
-            if (lufs <= LufsMeter.Floor || peakDb >= ClippedDb) return "";
-            return Lexicon.Get("audio.device.loudness_lufs", ("lufs", $"{lufs:F0}"));
-        }
-
-        /// <summary>
-        /// What to do about an off-target verdict, and where. Direction and
-        /// stage, never just a state: this check measures stage one — the
-        /// level Windows captures at — so the remedy names the Windows input
-        /// level, not the radio. Turning the radio's mic gain down on a
-        /// capture that clipped here yields quieter distortion, not clean
-        /// audio. Empty for "just right", which needs no help.
-        /// </summary>
-        private string LevelAdvice(string verdict)
-        {
-            // The two poles come from the same function that produced the
-            // verdict, so a vocabulary change there cannot silently strand
-            // this branch on a stale string.
-            string hot = MicAudioReport.Verdict(0f);
-            string quiet = MicAudioReport.Verdict(-100f);
-            if (verdict != hot && verdict != quiet) return "";
-
-            var level = _micLevel;
-
-            if (verdict == hot)
-            {
-                // A boost left up is the likeliest culprit for a pinned
-                // reading, and it is the control Windows Settings does not
-                // show — name it first when it is actually turned up.
-                float boost = 0f;
-                try { boost = (level != null && level.HasBoost) ? level.BoostDb : 0f; }
-                catch { /* device gone; the plain advice still stands */ }
-                if (boost > 0f)
-                {
-                    return " " + Lexicon.Get("audio.device.advice_lower_boost",
-                        ("boost", $"{boost:F0}"));
-                }
-                return " " + (level != null
-                    ? Lexicon.Get("audio.device.advice_lower_slider")
-                    : Lexicon.Get("audio.device.advice_lower_in_windows"));
-            }
-
-            return " " + (level != null
-                ? Lexicon.Get("audio.device.advice_raise_slider")
-                : Lexicon.Get("audio.device.advice_raise_in_windows"));
-        }
+        // Reading, PeakText, LoudnessPart and LevelAdvice moved to MicCheckWords
+        // (#835, fix round 2026-10-28), so Check your audio says what this
+        // check says, in the same words.
 
         // ------------------------------------------------ windows input level
 
@@ -2723,9 +2497,19 @@ namespace JJFlexWpf.Dialogs
                     : Lexicon.Get("audio.device.saved"),
                 VerbosityLevel.Terse, true);
 
+            // Whichever door opened this picker, every open window's Windows
+            // input level follows the saved choice now (#835, fix round
+            // 2026-10-28). Only the Workshop's own button used to say so; the
+            // Audio menu's door left each window to notice the file on its poll.
+            _savedOnOk.AddRange(saved);
+            TransmitGainControls.MicrophoneChoiceMayHaveChanged(null);
+
             DialogResult = true;
             Close();
         }
+
+        /// <summary>What OK saved, for the closing trace line.</summary>
+        private readonly List<string> _savedOnOk = new();
 
         /// <summary>
         /// True when this list's selection is something the engine can open.
@@ -2953,6 +2737,15 @@ namespace JJFlexWpf.Dialogs
         {
             var dlg = new AudioDevicesDialog(audioDevicesFile, audioConfig, persistAudioConfig);
             if (owner != null) dlg.Owner = owner;
+            // Which window opened it (#835, fix round 2026-10-28): a bench
+            // could not tell, and "the microphone changed in one window and not
+            // the other" turned on exactly that. The window active when the
+            // picker opens is the one whose button or menu opened it.
+            string from = owner?.Title
+                ?? System.Windows.Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive)?.Title
+                ?? "no active window (the main window or a menu)";
+            Tracing.TraceLine("Audio Devices: opened from \"" + from + "\"" + (startMicCheck ? ", with the microphone check running" : ""),
+                TraceLevel.Info);
             if (startMicCheck) dlg._startCheckOnOpen = true;
             bool ok = dlg.ShowDialog() == true;
             return ok && dlg.RadioAudioConfigured;
@@ -2960,7 +2753,8 @@ namespace JJFlexWpf.Dialogs
 
         /// <summary>
         /// Set by a caller that opened this dialog specifically to check a
-        /// microphone — the Audio Workshop's "Check Microphone" button — so the
+        /// microphone (the Audio Workshop's "Check Microphone" button did, until
+        /// it was removed in favour of Check your audio's first method) so the
         /// operator does not arrive at a dialog they asked a question of and
         /// have to ask it a second time. Runs on Loaded, after the device lists
         /// are populated and a row is selected.

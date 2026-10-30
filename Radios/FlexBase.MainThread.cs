@@ -126,6 +126,16 @@ namespace Radios
                     q.Enqueue((FunctionDel)ApplyDeferredGuestTransmitAudio, "deferred guest transmit audio");
                 }
 
+                // A transmit monitor a send turned on and could not put back at an
+                // earlier disconnect (#835): queue work now, after the station's
+                // profile load, and only now that the loop will run it.
+                ApplyPendingMonitorPutBack();
+
+                // An audio check that did not put this radio's power and
+                // antenna back at an earlier disconnect (it was still
+                // transmitting, or it could not confirm) (#835, 2026-10-29): say so again now.
+                AnnounceCheckRestoreReminder();
+
                 cwx = theRadio.GetCWX();
                 cwx.Delay = theRadio.CWDelay;
                 cwx.Speed = theRadio.CWSpeed;
@@ -857,6 +867,7 @@ namespace Radios
         {
             if (theRadio == null) return;
             if (CwKeyingHeldSilently()) return;   // #571: a character already queued when the cut landed goes nowhere
+            if (TeardownHeldSilently("CW typing")) return;   // #835: nor one queued before an Audio Check teardown
             // send only if in transmit mode or VOX is on
             if (!Transmit & (Vox == OffOnValues.off)) return;
 
@@ -872,6 +883,7 @@ namespace Radios
         {
             if ((theRadio == null) | string.IsNullOrEmpty(str)) return;
             if (CwKeyingHeldSilently()) return;   // #571: a message already queued when the cut landed goes nowhere
+            if (TeardownHeldSilently("a CW message")) return;   // #835: nor one queued before an Audio Check teardown
             // send only if in transmit mode or VOX is on
             if (!Transmit & (Vox == OffOnValues.off)) return;
 

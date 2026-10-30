@@ -252,6 +252,42 @@ public sealed class RecordedQsoBrowserTests
         Assert.Equal(-1, RecordedQsoBrowser.Opening(new List<RecordedQso>(), null));
     }
 
+    /// <summary>
+    /// Bench 2026-10-28, step 27 (#835): the window opened with the newest row
+    /// selected, a copied-in file, while Play from computer kept sending the
+    /// session's last recording, a different file. The row shown selected and
+    /// the file Play sends must agree. The window opens on what Play plays NOW,
+    /// and only when that is not a row it can show does the row it opens on
+    /// become Play's choice.
+    /// </summary>
+    [Fact]
+    public void The_dialog_opens_on_the_row_play_from_computer_will_send()
+    {
+        var copiedIn = Qso(Now.AddMinutes(-1));
+        var lastRecorded = Qso(Now.AddHours(-1));
+        var older = Qso(Now.AddHours(-2));
+        var rows = new List<RecordedQso> { copiedIn, lastRecorded, older };
+
+        // Play would send the session's last recording: open there, change nothing.
+        var opening = RecordedQsoBrowser.OpeningAgreeingWithPlay(rows, lastRecorded.Path.ToUpperInvariant());
+        Assert.Equal(1, opening.Index);
+        Assert.Null(opening.NewChoice);
+
+        // Play has nothing to send, or a file this list does not hold: the row
+        // the window opens on becomes what Play sends, so the two agree.
+        opening = RecordedQsoBrowser.OpeningAgreeingWithPlay(rows, null);
+        Assert.Equal(0, opening.Index);
+        Assert.Equal(copiedIn.Path, opening.NewChoice);
+        opening = RecordedQsoBrowser.OpeningAgreeingWithPlay(rows, @"C:\elsewhere\gone.flac");
+        Assert.Equal(0, opening.Index);
+        Assert.Equal(copiedIn.Path, opening.NewChoice);
+
+        // No rows: nothing selected, nothing chosen.
+        opening = RecordedQsoBrowser.OpeningAgreeingWithPlay(new List<RecordedQso>(), lastRecorded.Path);
+        Assert.Equal(-1, opening.Index);
+        Assert.Null(opening.NewChoice);
+    }
+
     [Fact]
     public void A_recording_still_being_made_has_a_sentence_for_its_selection_not_length_unknown_long()
     {

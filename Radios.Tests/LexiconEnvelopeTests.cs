@@ -113,7 +113,9 @@ namespace Radios.Tests
             // sentence, a ladder like the audio and filter layers' (#518).
             // Nineteen from junkbox #693: the JJ key near miss, Noel's ruled
             // Chatty and Terse sentences (2026-10-06).
-            Assert.Equal(19, ladders);
+            // Twenty from the Check your audio Track B fix round (#835): the
+            // near miss that names two chords, ruled 2026-10-28 21:25.
+            Assert.Equal(20, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -1390,7 +1392,6 @@ namespace Radios.Tests
                 "audio.recorder.record_to_file_button",
                 "audio.recorder.stop_record_to_file_button",
                 "audio.recorder.play_from_computer_button",
-                "audio.recorder.stop_play_from_computer_button",
                 "audio.fields.computer_recorder_help",
 
                 // DRAFT PROSE (#787): pending-start cancellation confirmation.
@@ -1701,6 +1702,11 @@ namespace Radios.Tests
                 "audio.qsos.still_recording",
                 "audio.qsos.play_refused_transmitting",
                 "audio.qsos.vox_unconfirmed",
+                // #835 fix round 2026-10-30 (Sends): a paused speaker playback
+                // carrying on pauses VOX again first, and stays paused when it
+                // cannot. Draft prose, awaiting Noel.
+                "audio.qsos.resume_refused_transmitting",
+                "audio.qsos.resume_vox_unconfirmed",
                 "audio.qsos.trim_start_set",
                 "audio.qsos.trim_end_set",
                 "audio.qsos.trim_start_refused",
@@ -1835,12 +1841,227 @@ namespace Radios.Tests
                 // Reworded by Noel 2026-10-29 (#814/#850 wording), so it is
                 // classified and leaves the legacy manifest.
                 "logging.full_form.no_log_file",
+                // #835, Check your audio (Track A): the five ruled method
+                // names, the method's help and status line, the one-sentence
+                // reasons a method is missing, Off the air's readings in the
+                // reading box, the tone's refusal while the reference is armed,
+                // and the Workshop's bench-tools lines. TextOnly on the #456
+                // reasoning above: control labels and status values the dialog
+                // shows, echoed through its existing speech path where it
+                // speaks at all. Draft wording awaits Noel.
+                "audio.check.method.mic_test",
+                "audio.check.method.monitor",
+                "audio.check.method.record",
+                "audio.check.method.off_air",
+                "audio.check.method.loopback",
+                "audio.check.method_help",
+                "audio.check.method_status_label",
+                "audio.check.status.mic_test",
+                "audio.check.status.monitor",
+                "audio.check.status.record",
+                "audio.check.status.off_air",
+                "audio.check.status.loopback",
+                "audio.check.missing.smartlink",
+                "audio.check.missing.one_receiver",
+                "audio.check.missing.no_transverter",
+                "audio.check.offair_this_take",
+                "audio.check.offair_last_take",
+                "audio.check.offair_measures",
+                "audio.check.offair_no_take",
+                "audio.check.offair_unavailable",
+                "audio.check.offair_sent_heard",
+                "audio.tone.reference_already_armed",
+                "audio.diagnostics.bench_idle",
+                "audio.diagnostics.bench_smartlink",
+                // Track A fix round 2: the sentence for Escape when the radio
+                // is keyed by something other than this app.
+                "audio.check.escape_radio_still_transmitting",
+                // Track A fix round 2: a teardown that could not be confirmed
+                // before the radio went.
+                "audio.check.teardown_unconfirmed",
+                // Track A fix round 3: restores withheld because the radio kept
+                // transmitting, and the refusal while a teardown holds admission.
+                "audio.check.teardown_withheld",
+                "audio.check.teardown_refuses",
+                // Track A fix round 4: an IQ take refused while a teardown holds admission.
+                "audio.iq.reason.teardown-in-progress",
+                // Check your audio Track B (#835): the VOX send box and the sends that
+                // key the radio with VOX on, including a computer recording to
+                // the air (Tape Deck phase 2). Draft prose, awaiting Noel.
+                "audio.send.box_label",
+                "audio.send.box_help",
+                "audio.send.box_on",
+                "audio.send.box_off",
+                "audio.send.what_computer",
+                "audio.send.what_slice",
+                "audio.send.sending",
+                "audio.send.sent",
+                "audio.send.stopped",
+                "audio.send.interrupted",
+                "audio.send.ran_long",
+                "audio.send.taken_over",
+                "audio.send.source_stopped",
+                "audio.send.not_sent",
+                "audio.send.message_taken_over",
+                "audio.send.message_source_stopped",
+                "audio.send.vox_unconfirmed",
+                "audio.send.no_computer_recording",
+                "audio.send.not_yet_transmitting",
+                "audio.send.command_help",
+                // Check your audio Track B, round 2 (#835): the long-send warning,
+                // the ten-minute pause, and Play pausing and carrying on a send;
+                // and the loader refusing a file rather than shortening it.
+                // Draft prose, awaiting Noel.
+                "audio.send.file_too_long",
+                "audio.send.long_title",
+                "audio.send.long_message",
+                "audio.send.long_pause_play",
+                "audio.send.long_pause_message",
+                "audio.send.long_id",
+                "audio.send.long_question",
+                "audio.send.long_yes",
+                "audio.send.long_no",
+                "audio.send.cancelled",
+                "audio.send.nothing_keys_now",
+                "audio.send.resume_play",
+                "audio.send.resume_message",
+                "audio.send.paused_unkeyed",
+                "audio.send.paused_mic",
+                "audio.send.paused_id_unkeyed",
+                "audio.send.paused_id_mic",
+                "audio.send.resuming",
+                "audio.send.resume_needs_key",
+                "audio.send.resume_refused",
+                "audio.send.resume_refused_ended",
+                "audio.send.stopped_paused",
+                "audio.send.paused_disconnected",
+                // Track A, fix round 2026-10-28: the one short sentence the
+                // "About this method" line shows per method (ruled 21:20), and
+                // how its accessible name joins the label to it.
+                "audio.check.about.mic_test",
+                "audio.check.about.monitor",
+                "audio.check.about.record",
+                "audio.check.about.off_air",
+                "audio.check.about.loopback",
+                "audio.check.about_named",
+                // Track A, fix round 2026-10-28: the new first method, checking
+                // this computer's microphone (ruled 20:30): its name, its
+                // description and short sentence, and the reading box before it runs.
+                "audio.check.method.computer_mic",
+                "audio.check.status.computer_mic",
+                "audio.check.about.computer_mic",
+                "audio.check.computer_mic.idle",
+                // Track A, fix round 2026-10-28: Ctrl+F1 for every control on
+                // the Workshop's Diagnostics page that had none (ruled 20:48:
+                // short labels, and Ctrl+F1 explains them).
+                "audio.diagnostics.help.diagnostic_take",
+                "audio.diagnostics.help.capacity",
+                "audio.diagnostics.help.detune_plus",
+                "audio.diagnostics.help.detune_minus",
+                "audio.diagnostics.help.recovery",
+                "audio.diagnostics.help.separate_pan",
+                "audio.diagnostics.help.full_duplex",
+                "audio.diagnostics.help.bench_status",
+                "audio.diagnostics.help.rx_result",
+                "audio.diagnostics.help.tx_result",
+                "audio.diagnostics.help.evidence",
+                "audio.diagnostics.help.bench_smartlink",
+                // Track A, fix round 2026-10-28: the Fix tool button in both
+                // windows (ruled 21:41 and 21:46), and the three failure
+                // sentences that now name it, classified as they changed.
+                "audio.fix_tool.label",
+                "audio.fix_tool.help",
+                "audio.fix_tool.pointer",
+                "audio.fix_tool.wait_for_check",
+                "audio.check.could_not_start",
+                "audio.check.no_recording_available",
+                "audio.check.radio_did_not_key",
+                // Track A, fix round 2026-10-28: the Check your audio button in
+                // Home's Audio and Slice expander (Noel's request, 19:52).
+                "audio.fields.check_your_audio",
+                "audio.fields.check_your_audio_help",
+                // Check your audio Track C, fix round 2026-10-28 (#835): the one
+                // countdown, its spoken count and lead-in, and the Countdown group
+                // in Settings. Draft prose, awaiting Noel.
+                "audio.countdown.count",
+                "audio.countdown.lead_in",
+                "audio.countdown.method.mic_test",
+                "audio.countdown.method.monitor",
+                "audio.countdown.method.record",
+                "audio.countdown.method.off_air",
+                "audio.countdown.method.loopback",
+                "audio.countdown.method.other",
+                "audio.countdown.method.computer_mic",
+                "audio.countdown.group",
+                "audio.countdown.enabled_label",
+                "audio.countdown.enabled_help",
+                "audio.countdown.seconds_label",
+                "audio.countdown.seconds_help",
+                "audio.countdown.pitch_label",
+                "audio.countdown.pitch_preset",
+                "audio.countdown.pitch_preset_default",
+                "audio.countdown.pitch_custom",
+                "audio.countdown.custom_pitch_label",
+                "audio.countdown.pitch_help",
+                "audio.countdown.pip_ms_label",
+                "audio.countdown.pip_ms_help",
+                "audio.countdown.lead_in_label",
+                "audio.countdown.lead_in_help",
+                "audio.countdown.sample_label",
+                "audio.countdown.sample_help",
+                // Codex round 1: a count whose words could not be delivered stops.
+                "audio.countdown.not_heard",
+                // Check your audio Track B, fix round 2026-10-28 (#835): push to
+                // talk's first line says a box send it took over has stopped.
+                // Draft prose, awaiting Noel.
+                "audio.send.message_taken_over_ptt",
+                "audio.send.taken_over_ptt",
+                // The same round: Play from computer pauses on the speakers too,
+                // so its Home button says pause or carry on. Draft prose.
+                "audio.recorder.pause_play_from_computer_button",
+                "audio.recorder.carry_on_play_from_computer_button",
+                // The same round: a slipped bare letter with both a Ctrl and an
+                // Alt chord names both (ruled 2026-10-28 21:25). TextOnly on
+                // leader.near_miss's reasoning, beside which it sits. Draft prose.
+                "leader.near_miss_two",
+                // Check your audio Track A, fix round 2026-10-29 (#835): a Loopback
+                // ending names only what it put back, and a check that did not
+                // put the radio back at a disconnect says so again at the next
+                // connect. Draft prose, awaiting Noel.
+                "audio.check.loopback_ended_partly_restored",
+                "audio.check.loopback_ended_nothing_restored",
+                "audio.check.loopback_part.antenna",
+                "audio.check.loopback_part.power",
+                "audio.check.loopback_part.monitor",
+                "audio.check.loopback_part.duplex",
+                "audio.check.loopback_part.drive",
+                "audio.check.loopback_part.mutes",
+                "audio.check.loopback_part.and",
+                "audio.check.teardown_withheld_reminder",
+                "audio.check.teardown_unconfirmed_reminder",
+                // Check your audio put-back track, fix round 1030 (#835): the next
+                // connect puts back what the check left and says what it did.
+                // Draft prose, awaiting Noel.
+                "audio.check.loopback_part.tune_power",
+                "audio.check.putback_lead",
+                "audio.check.putback_done",
+                "audio.check.putback_left",
+                "audio.check.putback_not",
+                "audio.check.putback_already",
+                // Check your audio Track C, fix round 2026-10-29 (#835): the
+                // countdown's pip sound, ruled 00:51. Draft prose, awaiting Noel.
+                "audio.countdown.pip_sound_label",
+                "audio.countdown.pip_sound_default",
+                "audio.countdown.pip_sound_help",
+                // Check your audio fix round 1030 P2 (#835): the Fix tool's
+                // injected stage, keyed with the countdown off, says it is
+                // transmitting. Draft prose, awaiting Noel.
+                "audio.fixer.inject_now",
             };
 
-            // 3,138, not 3,140: settings.sound.trim_master_off (the #810 repair)
-            // and logging.full_form.no_log_file (Noel's 2026-10-29 wording) were
-            // reworded and classified, so both left the frozen set.
-            Assert.Equal(3138, unclassified);
+            // 3,133: main's junk box classified two (3,140 to 3,138) and Check
+            // your audio five (3,140 to 3,135); the two sets are disjoint.
+            Assert.Equal(3133, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

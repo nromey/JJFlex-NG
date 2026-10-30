@@ -69,7 +69,11 @@ namespace Radios.Tests.StationConnect
             var text = Read("Radios/FlexBase.cs");
             int at = text.IndexOf("public void Disconnect()", StringComparison.Ordinal);
             Assert.True(at >= 0);
-            string body = text.Substring(at, 3500);
+            // To the next member, not a fixed 3,500 characters: the method grew
+            // past that when Check your audio merged (2026-10-30), with the order
+            // this pins unchanged.
+            int next = text.IndexOf("\n        public ", at + 1, StringComparison.Ordinal);
+            string body = text.Substring(at, (next > at ? next : text.Length) - at);
             int teardown = body.IndexOf("BeginTeardownOperation(\"Disconnect\");", StringComparison.Ordinal);
             int create = body.IndexOf("saveNewGlobalProfile();", StringComparison.Ordinal);
             int putBack = body.IndexOf("PutProfilesBackOnDisconnect();", StringComparison.Ordinal);

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using JJPortaudio;
@@ -52,10 +53,41 @@ public sealed class SsbDemodulator
     }
 }
 
-public sealed record TakeRenderResult(string Path, int Rate, long Samples, double RmsDb, double PeakDb, long MeasuredKeyedSamples);
+public sealed record TakeRenderResult(string Path, int Rate, long Samples, double RmsDb, double PeakDb, long MeasuredKeyedSamples)
+{
+    /// <summary>
+    /// What to PLAY: the render from just before the first keyed mark to the
+    /// end (#835, fix round 2026-10-28). <see cref="Path"/> keeps every sample
+    /// on the IQ clock, which the analysis and the alignment read by index;
+    /// this one starts where the operator started talking. The same as
+    /// <see cref="Path"/> for a take that never keyed.
+    /// </summary>
+    public string PlaybackPath { get; init; } = "";
+
+    /// <summary>The playback's length in seconds: what "Take complete, N seconds" says.</summary>
+    public double PlaybackSeconds { get; init; }
+}
 
 public static class SsbTakeRenderer
 {
+    /// <summary>
+    /// How much of the take before the first keyed mark the playback keeps.
+    /// The mark is the radio's report of its key arriving here; a quarter of a
+    /// second ahead of it keeps a first syllable that the report lagged.
+    /// </summary>
+    public const double PlaybackLeadSeconds = 0.25;
+
+    /// <summary>
+    /// Where the playback starts, in IQ pairs: a little ahead of the first
+    /// keyed mark, or the start of the take when it never keyed (#835, fix
+    /// round 2026-10-28). Track C's countdown runs while an off-air take sets
+    /// up, and the capture starts during setup, so every take now opens with
+    /// seconds of receiver hiss before the key; playing them, and counting
+    /// them in the take's length, presents the countdown as the take.
+    /// </summary>
+    public static long PlaybackStart(IReadOnlyList<TakeSpan> keyedSpans, int rate) =>
+        keyedSpans.Count == 0 ? 0 : Math.Max(0, keyedSpans[0].Start - (long)Math.Round(rate * PlaybackLeadSeconds));
+
     // Optional sample stage is the future playback AGC insertion point. Null
     // is deliberately pass-through; this build supplies no AGC implementation.
     public static TakeRenderResult Render(string directory, int detuneHz = 0, Action<float[], int, int> sampleStage = null)
@@ -68,10 +100,14 @@ public static class SsbTakeRenderer
         double centreOffset = (Read("tx-frequency-mhz") - Read("pan-centre-mhz")) * 1e6;
         var demod = new SsbDemodulator(rate, take.Get("mode"), Read("tx-filter-low"), Read("tx-filter-high"), centreOffset + detuneHz);
         string path = System.IO.Path.Combine(directory, detuneHz == 0 ? "heard.wav" : $"heard-detune-{detuneHz}.wav");
+        string playPath = System.IO.Path.ChangeExtension(path, null) + "-play.wav";
         using var input = new BinaryReader(File.OpenRead(System.IO.Path.Combine(directory, "rf.iq")));
         using var output = new WavWriter(path, rate, 1);
         long pairs = input.BaseStream.Length / 8, written = 0;
         var gaps = TakeTimeline.Gaps(take);
+        long playFrom = PlaybackStart(TakeTimeline.KeyedSpans(take, pairs), rate);
+        using var play = new WavWriter(playPath, rate, 1);
+        var playBuffer = new float[4096];
         var spans = TakeTimeline.WithoutGaps(TakeTimeline.KeyedSpans(take, pairs), gaps);
         int gapIndex = 0;
         long measured = 0; int spanIndex = 0;
@@ -89,7 +125,16 @@ public static class SsbTakeRenderer
                 if (spanIndex >= spans.Count || at < spans[spanIndex].Start + demod.Delay) continue;
                 square += buffer[j] * (double)buffer[j]; peak = Math.Max(peak, Math.Abs(buffer[j])); measured++;
             }
-            output.Write(buffer, count); written += count; count = 0;
+            output.Write(buffer, count);
+            // The playback copy: the same samples, from playFrom on.
+            long skip = Math.Max(0, playFrom - written);
+            if (skip < count)
+            {
+                int n = count - (int)skip;
+                Array.Copy(buffer, skip, playBuffer, 0, n);
+                play.Write(playBuffer, n);
+            }
+            written += count; count = 0;
         }
         // Compensate the FIR's known delay; sample indices remain the IQ clock.
         for (long i = 0; i < pairs + demod.Delay; ++i)
@@ -101,10 +146,15 @@ public static class SsbTakeRenderer
         }
         if (count > 0) Flush();
         output.Finish();
+        play.Finish();
         var result = new TakeRenderResult(path, rate, written, 10 * Math.Log10(Math.Max(1e-20, square / Math.Max(1, measured))),
-            20 * Math.Log10(Math.Max(1e-10, peak)), measured);
+            20 * Math.Log10(Math.Max(1e-10, peak)), measured)
+        {
+            PlaybackPath = playPath,
+            PlaybackSeconds = Math.Max(0, written - playFrom) / (double)rate,
+        };
         File.WriteAllText(System.IO.Path.Combine(directory, detuneHz == 0 ? "render.txt" : $"render-detune-{detuneHz}.txt"),
-            FormattableString.Invariant($"format=jjflex-render-1\nscale=1/32768\nnormalization=no\nagc-stage={(sampleStage == null ? "none" : "supplied")}\nrate={rate}\ndetune-hz={detuneHz}\nfir-delay-compensated={demod.Delay}\nsamples={written}\nlevel-scope=gap-free-radio-keyed-spans-with-filter-edges-excluded\nmeasured-keyed-samples={measured}\nrms-dbfs={(measured > 0 ? result.RmsDb.ToString("R", CultureInfo.InvariantCulture) : "unavailable")}\npeak-dbfs={(measured > 0 ? result.PeakDb.ToString("R", CultureInfo.InvariantCulture) : "unavailable")}\n"));
+            FormattableString.Invariant($"format=jjflex-render-1\nscale=1/32768\nnormalization=no\nagc-stage={(sampleStage == null ? "none" : "supplied")}\nrate={rate}\ndetune-hz={detuneHz}\nfir-delay-compensated={demod.Delay}\nsamples={written}\nlevel-scope=gap-free-radio-keyed-spans-with-filter-edges-excluded\nplayback-from-pair={playFrom}\nplayback-file={System.IO.Path.GetFileName(playPath)}\nmeasured-keyed-samples={measured}\nrms-dbfs={(measured > 0 ? result.RmsDb.ToString("R", CultureInfo.InvariantCulture) : "unavailable")}\npeak-dbfs={(measured > 0 ? result.PeakDb.ToString("R", CultureInfo.InvariantCulture) : "unavailable")}\n"));
         return result;
     }
 }

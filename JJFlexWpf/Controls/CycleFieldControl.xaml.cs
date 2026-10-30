@@ -15,7 +15,7 @@ namespace JJFlexWpf.Controls;
 ///
 /// Track Speech (2026-08-13): the control announces itself through the
 /// accessibility tree, not through Speak() calls. The automation peer is a
-/// UIA Spinner whose Name is the label and whose Value pattern carries the
+/// UIA combo box whose Name is the label and whose Value pattern carries the
 /// current option; changing the option raises a Value property-changed
 /// event, so the screen reader announces the new value natively — in the
 /// operator's own voice, rate and verbosity, and on the braille display too.
@@ -131,7 +131,7 @@ public partial class CycleFieldControl : UserControl
     /// <summary>
     /// Refresh the visual text and the accessible name. The name is the label
     /// alone — the current option rides the UIA Value pattern instead, so the
-    /// screen reader composes "label, spin button, value" itself and there is
+    /// screen reader composes "label, combo box, value" itself and there is
     /// exactly one source of truth for each piece.
     /// </summary>
     private void UpdateDisplay()
@@ -156,22 +156,94 @@ public partial class CycleFieldControl : UserControl
                 ValuePatternIdentifiers.ValueProperty, oldValue, newValue);
     }
 
+    // ── Options for a field that is a SEQUENCE rather than a cycle (#835,
+    // fix round 2026-10-28). Every default is the behaviour this control has
+    // always had, so the other users of it do not move under the operator:
+    // Up forward, Down backward, wrapping at both ends, Home and End untouched.
+    // Check your audio's method field sets all four, because its methods are an
+    // escalation with a first and a last step (ruled by Noel 20:32 and 21:20).
+
+    /// <summary>When false, an arrow at either end stays put and <see cref="AtBoundary"/> is told. Default true: wrap.</summary>
+    public bool Wraps { get; set; } = true;
+
+    /// <summary>When true, Down goes to the NEXT option and Up back. Default false: Up goes forward.</summary>
+    public bool DownMovesForward { get; set; }
+
+    /// <summary>When true, Home goes to the first option and End to the last. Default false: they pass through.</summary>
+    public bool HomeEndJump { get; set; }
+
+    /// <summary>
+    /// Called when a key would move past an end and the field does not wrap,
+    /// with true at the first option and false at the last. The owner plays the
+    /// boundary sound; the control knows no sounds.
+    /// </summary>
+    public Action<bool>? AtBoundary { get; set; }
+
+    /// <summary>
+    /// When true, a key that ARRIVES at the first or the last option also
+    /// tells <see cref="AtBoundary"/>, after the option has changed, so the end
+    /// is heard on the way in and not only on the press that cannot move
+    /// (#835, ruled by Noel 2026-10-29 01:17). Default false.
+    /// </summary>
+    public bool BoundaryOnArrival { get; set; }
+
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (_options.Length == 0) return;
+        if (HandleKey(e.Key)) e.Handled = true;
+    }
 
-        switch (e.Key)
+    /// <summary>The key handling itself, separate from the event so it can be driven without a window. True when the key was the field's.</summary>
+    internal bool HandleKey(Key key)
+    {
+        if (_options.Length == 0) return false;
+
+        switch (key)
         {
             case Key.Up:
-                CycleForward();
-                e.Handled = true;
-                break;
+                if (DownMovesForward) Step(-1); else Step(+1);
+                return true;
 
             case Key.Down:
-                CycleBackward();
-                e.Handled = true;
-                break;
+                if (DownMovesForward) Step(+1); else Step(-1);
+                return true;
+
+            case Key.Home when HomeEndJump:
+                if (_selectedIndex == 0) AtBoundary?.Invoke(true);
+                else { SetIndex(0); NoteArrival(); }
+                return true;
+
+            case Key.End when HomeEndJump:
+                if (_selectedIndex == _options.Length - 1) AtBoundary?.Invoke(false);
+                else { SetIndex(_options.Length - 1); NoteArrival(); }
+                return true;
         }
+        return false;
+    }
+
+    /// <summary>One option along: +1 is the next, -1 the previous.</summary>
+    private void Step(int direction)
+    {
+        if (Wraps)
+        {
+            if (direction > 0) CycleForward(); else CycleBackward();
+            return;
+        }
+        int target = _selectedIndex + direction;
+        if (target < 0 || target >= _options.Length)
+        {
+            AtBoundary?.Invoke(target < 0);
+            return;
+        }
+        SetIndex(target);
+        NoteArrival();
+    }
+
+    /// <summary>With <see cref="BoundaryOnArrival"/>, a key that has just landed on an end says so.</summary>
+    private void NoteArrival()
+    {
+        if (!BoundaryOnArrival || _options.Length < 2) return;
+        if (_selectedIndex == 0) AtBoundary?.Invoke(true);
+        else if (_selectedIndex == _options.Length - 1) AtBoundary?.Invoke(false);
     }
 
     private void CycleForward()
@@ -204,10 +276,20 @@ public partial class CycleFieldControl : UserControl
     }
 
     /// <summary>
-    /// UIA peer: a Spinner (screen readers say "spin button") exposing the
-    /// current option through the Value pattern. Children are hidden so the
-    /// display TextBlock is not read in addition to the Name/Value this peer
-    /// reports.
+    /// UIA peer: a combo box exposing the current option through the Value
+    /// pattern. Children are hidden so the display TextBlock is not read in
+    /// addition to the Name/Value this peer reports.
+    ///
+    /// A combo box, NOT a Spinner (#853, measured 2026-10-29). As a Spinner,
+    /// JAWS 2026 called the field an "edit spin box" and on every arrow spoke
+    /// the value from BEFORE the press, then nothing: it read its own cached
+    /// value at the keystroke and did not speak the change event that updates
+    /// it, so it was always one step behind. Read-only, a Slider role, a
+    /// delayed event and an extra notification were each measured and none
+    /// cured it (the notification made JAWS say the old value AND the new).
+    /// As a combo box JAWS speaks the change event, so every arrow reads the
+    /// new value once. NVDA reads it correctly either way. Measured through
+    /// JAWS's own speech history and NVDA's, not by ear.
     /// </summary>
     protected override AutomationPeer OnCreateAutomationPeer()
     {
@@ -224,7 +306,7 @@ public partial class CycleFieldControl : UserControl
         protected override List<AutomationPeer>? GetChildrenCore() => null;
 
         protected override AutomationControlType GetAutomationControlTypeCore()
-            => AutomationControlType.Spinner;
+            => AutomationControlType.ComboBox;
 
         protected override string GetClassNameCore() => nameof(CycleFieldControl);
 

@@ -565,9 +565,19 @@ public static class KeyInventory
         new("Leader", "JJ key", "Ctrl+J, Ctrl+R", "Record the active slice, or stop recording it — the radio's own recorder keeps one recording per slice, up to the last two minutes",
             new[] { "record", "recording", "recorder", "slice", "active", "capture", "tape", "save",
                     "buddy", "listen", "back", "radio", "leader", "toggle" }, "Radio", "Slice"),
-        new("Leader", "JJ key", "Ctrl+J, Ctrl+P", "Play the active slice's recording, or stop it — locally while receiving, or on the air when already keyed",
+        // Check your audio Track B (#835): with VOX on and the VOX send box ticked,
+        // Play keys the radio itself. DRAFT PROSE (#835): awaiting Noel
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+P", "Play the active slice's recording, or stop it — locally while receiving, on the air when already keyed, or keying the radio itself when VOX is on and sends key the radio",
             new[] { "play", "playback", "replay", "recording", "recorder", "slice", "active", "hear",
                     "listen", "back", "radio", "leader", "toggle" }, "Radio", "Slice"),
+        // Check your audio Track B (#835): the VOX send box, on its JJ key chord
+        // (Noel, 2026-10-27 20:49: "ctrl+k is fine"). K for key. Group
+        // "Audio", where the command is filed; Global, because the box is an
+        // operator preference that needs no radio to change.
+        // DRAFT PROSE (#835): awaiting Noel
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+K", "Sends key the radio with VOX, on or off — with it on and VOX on, a voice message or a played recording keys the radio itself, goes out whole, and hands back to VOX",
+            new[] { "vox", "send", "sends", "key", "keys", "keying", "box", "play", "recording", "message",
+                    "voice", "air", "transmit", "dropout", "leader", "toggle" }, "Global", "Audio"),
         new("Leader", "JJ key", "Ctrl+J, Ctrl+T", "Toggle meter tones",
             new[] { "meter", "tones", "leader", "toggle" }, "Global", "Audio"),
         // E for Earcons, the feature's own name; A for alert is Auto Notch.
@@ -615,7 +625,9 @@ public static class KeyInventory
         new("Leader", "JJ key", "Ctrl+J, Ctrl+Shift+R", "Record to file: record what the radio plays through this computer, or stop",
             new[] { "record", "recording", "file", "computer", "save", "conversation", "qso", "capture",
                     "tape", "audio", "leader", "toggle" }, "Radio", "Audio"),
-        new("Leader", "JJ key", "Ctrl+J, Ctrl+Shift+P", "Play from computer: play your last recording on this computer, or stop — never on the air",
+        // Tape Deck phase 2 (#835): keyed, it goes to the air.
+        // DRAFT PROSE (#835): awaiting Noel
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+Shift+P", "Play from computer: play your last computer recording, or pause it and carry it on — on your speakers while receiving, on the air when already keyed, or keying the radio itself when VOX is on and sends key the radio; Escape stops it",
             new[] { "play", "playback", "replay", "recording", "file", "computer", "last", "listen",
                     "back", "audio", "leader", "toggle" }, "Global", "Audio"),
 
@@ -695,6 +707,14 @@ public static class KeyInventory
         new("Leader", "JJ key", "Ctrl+J, Alt+F", "Recorded QSOs: your computer recordings, to play, trim, save as another format, delete or prune",
             new[] { "recorded", "recordings", "recording", "qso", "qsos", "files", "file", "list", "trim",
                     "save", "export", "mp3", "delete", "prune", "computer", "leader" },
+            "Global", "Audio"),
+        // #835: C for Check, ruled by Noel 2026-10-27 14:59. Opening a window
+        // is an action. It opens Check your audio and never starts the check
+        // (13:57). Keywords are the words an operator hunting "how do I sound"
+        // would try, including the method names' own words.
+        new("Leader", "JJ key", "Ctrl+J, Alt+C", "Check your audio: test your microphone, hear yourself, or record and play back. Opening it never keys the radio",
+            new[] { "check", "audio", "hear", "myself", "yourself", "sound", "microphone", "mic", "test",
+                    "monitor", "record", "playback", "loopback", "off-air", "verdict", "level", "leader" },
             "Global", "Audio"),
 
         // ── Not yet in the grammar — each with the reason, and a home ──
@@ -846,6 +866,38 @@ public static class KeyInventory
             }
         }
         return false;
+    }
+
+    /// <summary>
+    /// The near miss, and a SECOND chord to name beside it (#835 fix round;
+    /// Noel, 2026-10-28 21:25, "the slipped-K near-miss names BOTH Ctrl+K and
+    /// Alt+K"). When a bare letter's near miss is its Ctrl chord and the same
+    /// letter also has an Alt chord, both are named: the one-shots moved to
+    /// Alt (K the mic check, Q the noise profile, E the CW re-send), and a
+    /// letter that has since gained a Ctrl switch would otherwise point only
+    /// at the switch, away from the thing an operator with the old map was
+    /// reaching for. <paramref name="secondChord"/> is <c>Keys.None</c> when
+    /// there is no second.
+    /// </summary>
+    public static bool TryFindLeaderNearMiss(WinFormsKeys pressed,
+        out WinFormsKeys altChord, out string altKeyName, out string altDescription,
+        out WinFormsKeys secondChord, out string secondKeyName, out string secondDescription)
+    {
+        secondChord = WinFormsKeys.None;
+        secondKeyName = "";
+        secondDescription = "";
+        if (!TryFindLeaderNearMiss(pressed, out altChord, out altKeyName, out altDescription)) return false;
+
+        WinFormsKeys code = pressed & WinFormsKeys.KeyCode;
+        bool bare = (pressed & WinFormsKeys.Modifiers) == WinFormsKeys.None;
+        if (bare && altChord == (code | WinFormsKeys.Control)
+            && LeaderChords().TryGetValue(code | WinFormsKeys.Alt, out var hit))
+        {
+            secondChord = code | WinFormsKeys.Alt;
+            secondKeyName = hit.KeyName;
+            secondDescription = ShortDescription(hit.Description);
+        }
+        return true;
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -1160,9 +1212,6 @@ public static class KeyInventory
     // ────────────────────────────────────────────────────────────────
     private static readonly FixedKeyEntry[] AudioWorkshopKeys =
     {
-        new("AudioWorkshop", "Audio Workshop", "Ctrl+Enter", "Start the Audio Check, or stop the one that's running",
-            new[] { "audio", "check", "start", "stop", "transmit", "mic", "microphone",
-                    "hear", "test", "workshop", "levels" }, "Global", "Audio"),
         new("AudioWorkshop", "Audio Workshop", "Ctrl+S", "Save an audio preset (your TX audio chain settings)",
             new[] { "save", "preset", "profile", "audio", "chain", "settings", "workshop" }, "Global", "Audio"),
         new("AudioWorkshop", "Audio Workshop", "Ctrl+O", "Load an audio preset",
@@ -1175,8 +1224,6 @@ public static class KeyInventory
             new[] { "reset", "default", "audio", "chain", "transmit", "workshop" }, "Global", "Audio"),
         new("AudioWorkshop", "Load Audio Preset picker", "Delete", "Delete the selected preset (asks first)",
             new[] { "delete", "remove", "preset", "audio", "workshop" }, "Global", "Audio"),
-        new("AudioWorkshop", "Audio Workshop", "Escape", "While a check is transmitting: first press unkeys and stays, second press closes. Escape never leaves you transmitting",
-            new[] { "escape", "stop", "unkey", "transmit", "close", "workshop" }, "Global", "Audio"),
         // F6 has moved between the Workshop's SECTIONS since 2026-08-13 and was
         // never registered here, so it appeared in neither the Keys dialog nor
         // the exported key list — a working key nobody could discover. Closed
@@ -1191,6 +1238,24 @@ public static class KeyInventory
             new[] { "section", "next", "move", "navigate", "group", "jump", "workshop" }, "Global", "Audio"),
         new("AudioWorkshop", "Audio Workshop", "Shift+F6", "Move to the previous section within this category",
             new[] { "section", "previous", "back", "move", "navigate", "group", "workshop" }, "Global", "Audio"),
+    };
+
+    // ────────────────────────────────────────────────────────────────
+    //  Check your audio local keys (#835). The Audio Check's Ctrl+Enter and
+    //  two-stage Escape moved here from the Audio Workshop with the check
+    //  itself. Dialog-local, handled in CheckYourAudioDialog.OnPreviewKeyDown.
+    // ────────────────────────────────────────────────────────────────
+    private static readonly FixedKeyEntry[] CheckYourAudioKeys =
+    {
+        new("CheckYourAudio", "Check your audio", "Ctrl+Enter", "Start the check with the method shown, or stop the one that's running",
+            new[] { "audio", "check", "start", "stop", "transmit", "mic", "microphone",
+                    "hear", "test", "levels" }, "Global", "Audio"),
+        new("CheckYourAudio", "Check your audio", "Escape", "While a check is transmitting: first press unkeys and stays, second press closes. Escape never leaves you transmitting",
+            new[] { "escape", "stop", "unkey", "transmit", "close", "check" }, "Global", "Audio"),
+        new("CheckYourAudio", "Check your audio", "F6", "Move to the next section of the window, and say which one",
+            new[] { "section", "next", "move", "navigate", "group", "jump", "check" }, "Global", "Audio"),
+        new("CheckYourAudio", "Check your audio", "Shift+F6", "Move to the previous section of the window",
+            new[] { "section", "previous", "back", "move", "navigate", "group", "check" }, "Global", "Audio"),
     };
 
     // ────────────────────────────────────────────────────────────────
@@ -1430,6 +1495,7 @@ public static class KeyInventory
         foreach (var e in FilterLayerCommands) yield return e;
         foreach (var e in NoiseLayerCommands) yield return e;
         foreach (var e in AudioWorkshopKeys) yield return e;
+        foreach (var e in CheckYourAudioKeys) yield return e;
         foreach (var e in CategoryNavigationKeys) yield return e;
         foreach (var e in OtherKeys) yield return e;
         foreach (var e in SystemWideKeyRows) yield return e;

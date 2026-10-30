@@ -77,6 +77,37 @@ namespace JJFlexWpf
         /// <summary>The Audio Check supplies its own short keying narration.</summary>
         public bool AudioCheckNarration { get; set; }
 
+        /// <summary>
+        /// The first thing a key-down that starts a transmission says. When the
+        /// press took a box send over (#835; Noel, 2026-10-28 16:55), that news
+        /// leads the line, "cq stopped. Transmitting.", as ONE utterance: it is
+        /// the only one spoken before a held key's auto-repeat starts cutting
+        /// speech, and a second sentence was heard only after the operator
+        /// let go. The takeover part is spoken even with push to talk's own
+        /// speech off, because it is about the send, not about keying.
+        /// </summary>
+        private void SpeakKeyDownFirstLine(string keyingLine)
+        {
+            string? takeover = null;
+            try { takeover = VoiceMessageSender.TakeOverAtKeyDown(); }
+            catch (Exception ex)
+            {
+                // Never let a send's bookkeeping break keying; the send's own
+                // tick still takes it over a moment later.
+                Tracing.TraceLine("PTT: send takeover at key-down failed: " + ex.Message, TraceLevel.Warning);
+            }
+            bool speakKeying = _config.SpeechEnabled && !AudioCheckNarration;
+            if (string.IsNullOrEmpty(takeover))
+            {
+                if (speakKeying)
+                    ScreenReaderOutput.Speak(keyingLine, VerbosityLevel.Critical, interrupt: true);
+                return;
+            }
+            ScreenReaderOutput.Speak(speakKeying ? takeover + " " + keyingLine + "." : takeover,
+                Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.MessageKey);
+        }
+
         private static void SpeakKeyDownExtra()
         {
             string? extra = null;
@@ -115,8 +146,11 @@ namespace JJFlexWpf
         private DispatcherTimer? _hardKillTimer;
         private DispatcherTimer? _alcTimer;
 
-        // TX lock start time for timeout calculation
-        private DateTime _lockStartTime;
+        // The lock's timeout clock: time held by hand, which stands still while
+        // a recording's send rides the lock (#835; Noel, 2026-10-30 00:00).
+        private readonly Radios.LockTimeoutClock _lockClock = new();
+        private string _rideWhat = "";
+        private Func<bool>? _rideStillGoing;
 
         // ALC zero-signal tracking
         private int _alcZeroConsecutiveSeconds;
@@ -724,7 +758,7 @@ namespace JJFlexWpf
                 return Lexicon.Get("audio.ptt.status_hold");
 
             // Locked or warning states — calculate time remaining
-            var elapsed = (DateTime.UtcNow - _lockStartTime).TotalSeconds;
+            var elapsed = _lockClock.ElapsedSeconds(Environment.TickCount64);
             var remaining = Math.Max(0, EffectiveTimeoutSeconds - elapsed);
 
             string timeLeft;
@@ -756,8 +790,23 @@ namespace JJFlexWpf
             return _getRadioPowerOn() && _getRigControl() != null;
         }
 
+        /// <summary>
+        /// The radio is being torn down and is putting an Audio Check's changes
+        /// back (#835, fix round 3): nothing new keys until that has finished.
+        /// Only ever refuses a press that would START a transmission; an unkey
+        /// is never refused. Said, not silent.
+        /// </summary>
+        private bool RefusedForTeardown()
+        {
+            if (_getRigControl()?.TeardownInProgress != true) return false;
+            // DRAFT PROSE (#835): awaiting Noel.
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.teardown_refuses"), VerbosityLevel.Critical, interrupt: true);
+            return true;
+        }
+
         /// <summary>Admission for a recording joining an existing transmission; never requests keying.</summary>
         public bool AllowsRecorderPlayback(FlexBase rig) => ReferenceEquals(_getRigControl(), rig) &&
+            _getRigControl()?.TeardownInProgress != true &&
             CanTransmit() && !RefuseIfHeldAfterCut("slice playback") &&
             (CanTransmitHereCheck?.Invoke() ?? true);
 
@@ -860,6 +909,7 @@ namespace JJFlexWpf
         public void PttDown()
         {
             if (!CanTransmit()) return;
+            if (State == PttState.Idle && RefusedForTeardown()) return;
 
             // The hold after a reflected-power cut (#571): a press that would
             // start a transmission does not, and says why. Only from Idle —
@@ -882,8 +932,7 @@ namespace JJFlexWpf
                 StartFreshAudioSample();
                 if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
                 _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_transmitting"));
-                if (_config.SpeechEnabled && !AudioCheckNarration)
-                    ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.announce_transmitting"), VerbosityLevel.Critical, interrupt: true);
+                SpeakKeyDownFirstLine(Lexicon.Get("audio.ptt.announce_transmitting"));
                 if (!AudioCheckNarration) SpeakKeyDownExtra();
                 _healthReflectedWarned = false;
                 _reflectedRun.Reset();
@@ -921,6 +970,7 @@ namespace JJFlexWpf
         public void ToggleLock()
         {
             if (!CanTransmit() && State == PttState.Idle) return;
+            if (State == PttState.Idle && RefusedForTeardown()) return;
 
             // The hold after a reflected-power cut (#571): from Idle this press
             // would key, so it is refused and repeats why the transmission was
@@ -950,6 +1000,56 @@ namespace JJFlexWpf
             {
                 GoIdle(Lexicon.Get("audio.ptt.announce_receiving"));
             }
+        }
+
+        /// <summary>
+        /// A recording's send began going out on the operator's transmission
+        /// (#835; Noel, 2026-10-30 00:00: <i>"we have a ten minute for longer
+        /// recordings, I'm thinking amateur radio news line or another
+        /// bulletin"</i>). Under the lock, the timeout's warning ladder stands
+        /// down and its clock stands still until <see cref="EndRecordingSendRide"/>;
+        /// a warning already sounding stops. The send's own ten-minute limit and
+        /// its pause govern it instead, and the 15-minute hard kill is untouched.
+        /// Harmless when not locked: a lock begun during the send rides from then.
+        /// <paramref name="stillGoing"/> is asked at every tick of the ladder: a
+        /// ride whose send has ended without saying so is ended there, so the
+        /// lock's timeout can never be left standing down by a lost end.
+        /// </summary>
+        public void BeginRecordingSendRide(string what, Func<bool>? stillGoing = null)
+        {
+            if (!_lockClock.BeginSendRide(Environment.TickCount64)) return;
+            _rideWhat = what;
+            _rideStillGoing = stillGoing;
+            bool locked = State is PttState.Locked or PttState.Warning1 or PttState.Warning2 or PttState.OhCrap;
+            Tracing.TraceLine("PTT: " + what + " rides the transmission"
+                + (locked ? "; the lock's timeout stands still while it goes out (its own ten-minute limit governs it)" : ""),
+                TraceLevel.Info);
+            if (State is PttState.Warning1 or PttState.Warning2 or PttState.OhCrap)
+            {
+                State = PttState.Locked;
+                _beepTimer?.Stop();
+                Tracing.TraceLine("PTT: the timeout warnings stand down for the recording", TraceLevel.Info);
+            }
+        }
+
+        /// <summary>
+        /// The recording stopped riding the transmission (sent, stopped, paused,
+        /// taken over). The lock's clock carries on from where it stood, so the
+        /// operator's own time by hand is counted exactly as before.
+        /// </summary>
+        public void EndRecordingSendRide(string what)
+        {
+            long now = Environment.TickCount64;
+            if (!_lockClock.EndSendRide(now)) return;
+            _rideStillGoing = null;
+            if (State == PttState.Idle)
+            {
+                Tracing.TraceLine("PTT: " + what + " no longer rides the transmission", TraceLevel.Info);
+                return;
+            }
+            double left = Math.Max(0, EffectiveTimeoutSeconds - _lockClock.ElapsedSeconds(now));
+            Tracing.TraceLine("PTT: " + what + " no longer rides the transmission; the lock's timeout carries on with "
+                + left.ToString("F0") + " s left", TraceLevel.Info);
         }
 
         /// <summary>The planned recorder stop: one cue and one outcome, without the timeout ladder.</summary>
@@ -993,6 +1093,7 @@ namespace JJFlexWpf
                 return;
             }
 
+            bool fromIdle = State == PttState.Idle;
             State = PttState.Locked;
             // From Idle this starts a transmission; from a held PTT it keeps
             // one on, and the episode must NOT change — a reflected-power
@@ -1001,7 +1102,7 @@ namespace JJFlexWpf
             // which of the two this was (Astra's Track IJK2 review, blocker 1).
             SetTx(true);
             if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
-            _lockStartTime = DateTime.UtcNow;
+            _lockClock.Start(Environment.TickCount64);
             _alcZeroConsecutiveSeconds = 0;
             _healthSilentMicWarned = false;
             _healthAlcHighWarned = false;
@@ -1015,7 +1116,8 @@ namespace JJFlexWpf
             StartFreshAudioSample(); // SC_MIC peak-hold and LUFS sample both start here
 
             _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_locked"));
-            if (_config.SpeechEnabled && !AudioCheckNarration)
+            if (fromIdle) SpeakKeyDownFirstLine(Lexicon.Get("audio.ptt.announce_locked"));
+            else if (_config.SpeechEnabled && !AudioCheckNarration)
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.announce_locked"), VerbosityLevel.Critical, interrupt: true);
             if (!AudioCheckNarration) SpeakKeyDownExtra();
             Tracing.TraceLine("PTT: Locked", TraceLevel.Info);
@@ -1049,6 +1151,7 @@ namespace JJFlexWpf
             string levelAdvice = forceSpeech || AudioCheckNarration ? "" : MicLevelAdviceOrEmpty(_getRigControl(), wasState);
 
             StopAllTimers();
+            _lockClock.Reset();
             _alcZeroConsecutiveSeconds = 0;
             _healthSilentMicWarned = false;
             _healthAlcHighWarned = false;
@@ -1119,8 +1222,22 @@ namespace JJFlexWpf
             // a later timeout would only be noise. A shorter operator timeout
             // still wins, and the 15-minute hard kill runs regardless.
             if (PlannedStopSeconds is int planned && EffectiveTimeoutSeconds > planned) return;
+            // A recording riding the lock is governed by its own ten-minute
+            // limit, not the lock's timeout (#835; Noel, 2026-10-30 00:00), and
+            // the clock stands still under it. The 15-minute hard kill is its
+            // own timer and runs regardless.
+            if (_lockClock.SendRiding)
+            {
+                bool going = true;
+                try { going = _rideStillGoing?.Invoke() ?? true; }
+                catch { going = false; }
+                if (going) return;
+                Tracing.TraceLine("PTT: the riding recording ended without saying so; the lock's timeout carries on",
+                    TraceLevel.Warning);
+                EndRecordingSendRide(_rideWhat);
+            }
 
-            var elapsed = (DateTime.UtcNow - _lockStartTime).TotalSeconds;
+            var elapsed = _lockClock.ElapsedSeconds(Environment.TickCount64);
             var timeout = EffectiveTimeoutSeconds;
 
             // Check escalation thresholds (most urgent first)

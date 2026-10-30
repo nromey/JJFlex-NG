@@ -143,6 +143,7 @@ namespace JJFlexWpf
         /// </summary>
         private static readonly object _gate = new object();
         private static readonly SystemWideKeyDecider _decider = new SystemWideKeyDecider();
+        private static readonly BareControlGestures _bareGestures = new BareControlGestures();
         private static readonly SystemWidePttWatch _watch = new SystemWidePttWatch();
 
         /// <summary>
@@ -166,6 +167,52 @@ namespace JJFlexWpf
 
         /// <summary>True once the hook is actually installed (set on the hook thread).</summary>
         public static bool Installed => _hookHandle != IntPtr.Zero;
+
+        /// <summary>
+        /// True from the first moment the hook was installed, for the rest of
+        /// the process, through any fault or unhook. A window deciding a key
+        /// gesture by itself may do so only while this is false: once a hook
+        /// has run, it may have swallowed a key the window never saw (#835).
+        /// </summary>
+        public static bool EverInstalled => _everInstalled;
+        private static volatile bool _everInstalled;
+
+        /// <summary>
+        /// The hook has seen a key this session, and <see cref="LastKeyTime"/>
+        /// is the Windows stamp of the latest. A window asks these whether the
+        /// hook saw any key of a press it is deciding (#835, Codex round 4
+        /// follow-up): a hook that faulted, was unhooked, or was removed by
+        /// Windows sees nothing, and then the window may decide for itself.
+        /// </summary>
+        public static bool EverSawAKey => _everSawAKey;
+        private static volatile bool _everSawAKey;
+
+        /// <summary>The Windows time stamp (<c>KBDLLHOOKSTRUCT.time</c>) of the last key edge the hook saw.</summary>
+        public static uint LastKeyTime => unchecked((uint)System.Threading.Volatile.Read(ref _lastKeyTime));
+        private static int _lastKeyTime;
+
+        /// <summary>
+        /// The hook has seen a Control press this session, and
+        /// <see cref="LastControlDownTime"/> is the Windows stamp of the latest.
+        /// A window's Control press carrying that same stamp is the press the
+        /// hook saw (Codex round 1030, F1), whatever stamp an injector supplied.
+        /// </summary>
+        public static bool EverSawControlDown => _everSawControlDown;
+        private static volatile bool _everSawControlDown;
+
+        /// <summary>The Windows stamp of the last Control press the hook saw.</summary>
+        public static uint LastControlDownTime => unchecked((uint)System.Threading.Volatile.Read(ref _lastControlDownTime));
+        private static int _lastControlDownTime;
+
+        /// <summary>
+        /// A bare Control (pressed and released with no other key, the hook's
+        /// swallowed keys included) was just released, anywhere (#835). Raised
+        /// on the UI dispatcher. Check your audio's countdown skip listens; it
+        /// decides for itself whether the press was in its window and during
+        /// its count. Decided here because only the hook sees every key edge in
+        /// order (see <see cref="BareControlGestures"/>).
+        /// </summary>
+        public static event Action<BareControlRelease>? BareControlReleased;
 
         // ── what the host wires. All run on the UI dispatcher. ───────────
 
@@ -277,11 +324,19 @@ namespace JJFlexWpf
         /// The same, after a near miss (#693): the layer also waits for the
         /// chord the near miss named, so the hook claims that chord too.
         /// </summary>
-        public static void NoteHelpArmed(bool armed, WinFormsKeys nearMissChord)
+        public static void NoteHelpArmed(bool armed, WinFormsKeys nearMissChord) =>
+            NoteHelpArmed(armed, nearMissChord, WinFormsKeys.None);
+
+        /// <summary>
+        /// The same, after a near miss that named TWO chords (#835 fix round:
+        /// a bare letter with both a Ctrl and an Alt chord), so the hook claims
+        /// both, from another program as in the window.
+        /// </summary>
+        public static void NoteHelpArmed(bool armed, WinFormsKeys nearMissChord, WinFormsKeys secondChord)
         {
             lock (_gate)
             {
-                _decider.SetHelpArmed(armed, nearMissChord);
+                _decider.SetHelpArmed(armed, nearMissChord, secondChord);
                 if (armed)
                 {
                     // "H for the list, Escape to cancel" is a bare waiting
@@ -329,6 +384,7 @@ namespace JJFlexWpf
                 }
                 else
                 {
+                    _everInstalled = true;
                     Tracing.TraceLine("SystemWideKeys: hook installed on the dedicated hook thread", TraceLevel.Info);
                 }
             }
@@ -365,6 +421,7 @@ namespace JJFlexWpf
             {
                 releasePtt = _decider.PttHeld;
                 _decider.Reset();
+                _bareGestures.Reset();
                 if (releasePtt)
                 {
                     _watch.HandOffHold(Environment.TickCount64);
@@ -403,6 +460,15 @@ namespace JJFlexWpf
                     return CallNextHookEx(_hookHandle, nCode, wParam, lParam);
 
                 var data = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+                // Seen, before anything can swallow it: the stamp first, then
+                // the flag, so a reader that sees the flag sees a stamp.
+                System.Threading.Volatile.Write(ref _lastKeyTime, unchecked((int)data.time));
+                _everSawAKey = true;
+                if (isDown && BareControlGestures.IsControlVirtualKey(data.vkCode))
+                {
+                    System.Threading.Volatile.Write(ref _lastControlDownTime, unchecked((int)data.time));
+                    _everSawControlDown = true;
+                }
                 // Live modifier state from Windows, read only to recognise a
                 // DOWN. Injected input counts (JAWS re-injects), as it does
                 // for CwCtrlInterrupt: filtering it would exempt our audience.
@@ -412,10 +478,15 @@ namespace JJFlexWpf
                     (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0);
 
                 SystemWideDecision d;
+                BareControlRelease? bare;
                 long now = Environment.TickCount64;
                 lock (_gate)
                 {
                     d = _decider.Decide(data.vkCode, isDown, held);
+                    // Every edge, passed or swallowed, in the order it came: the
+                    // one place a bare Control can be told from a chord whose
+                    // letter this hook eats (#835, Codex round 2, B1).
+                    bare = _bareGestures.Observe(data.vkCode, isDown, now, (long)GetForegroundWindow());
                     switch (d.Action)
                     {
                         case SystemWideAction.PttDown:
@@ -474,6 +545,12 @@ namespace JJFlexWpf
                         break;
                 }
 
+                if (bare != null && BareControlReleased != null)
+                {
+                    var verdict = bare.Value;
+                    Post(() => BareControlReleased?.Invoke(verdict));
+                }
+
                 if (d.Swallow)
                     return (IntPtr)1;
             }
@@ -512,6 +589,7 @@ namespace JJFlexWpf
             {
                 releasePtt = _decider.PttHeld;
                 _decider.Reset();
+                _bareGestures.Reset();
                 if (releasePtt)
                 {
                     _watch.HandOffHold(Environment.TickCount64);

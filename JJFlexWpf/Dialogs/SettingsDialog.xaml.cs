@@ -217,11 +217,20 @@ namespace JJFlexWpf.Dialogs
             // for the same reason the radio output levels are.
             InitializeSoundAdjustments();
 
+            // The one countdown (#835): Audio tab, Countdown. See SettingsDialog.Countdown.cs.
+            InitializeCountdown();
+
             // The reflected cut's full explanation is Ctrl+F1, on demand —
             // NOT AutomationProperties.HelpText, which NVDA recites as the
             // control's description on every focus (#91).
             JJFlexHelp.SetText(ReflectedCutCheckbox,
                 Lexicon.Get("settings.ptt.reflected_cut_help"));
+
+            // The VOX send box (#835). DRAFT PROSE (#835): awaiting Noel
+            VoxSendBoxCheckbox.Content = Lexicon.Get("audio.send.box_label");
+            System.Windows.Automation.AutomationProperties.SetName(VoxSendBoxCheckbox,
+                Lexicon.Get("audio.send.box_label"));
+            JJFlexHelp.SetText(VoxSendBoxCheckbox, Lexicon.Get("audio.send.box_help"));
 
             LoadSettings();
         }
@@ -242,6 +251,7 @@ namespace JJFlexWpf.Dialogs
             PttAlcBox.Text = _pttConfig.AlcAutoReleaseSeconds.ToString();
             PttSpeechCheckbox.IsChecked = _pttConfig.SpeechEnabled;
             ChirpEnabledCheckbox.IsChecked = _pttConfig.ChirpEnabled;
+            VoxSendBoxCheckbox.IsChecked = _audioConfig.VoxSendKeysRadio;
 
             // Suppressed like every other programmatic load in this dialog: an
             // operator who saved the cut OFF has already heard the warning and
@@ -1359,6 +1369,9 @@ namespace JJFlexWpf.Dialogs
             _pttConfig.AlcAutoReleaseSeconds = alc;
             _pttConfig.SpeechEnabled = PttSpeechCheckbox.IsChecked == true;
             _pttConfig.ChirpEnabled = ChirpEnabledCheckbox.IsChecked == true;
+            // The VOX send box (#835): saved with the audio settings, made live by
+            // _audioConfig.Apply() below.
+            _audioConfig.VoxSendKeysRadio = VoxSendBoxCheckbox.IsChecked == true;
             _pttConfig.CutTransmitOnReflectedAlarm = ReflectedCutCheckbox.IsChecked == true;
             _pttConfig.Validate();
 
@@ -1493,6 +1506,8 @@ namespace JJFlexWpf.Dialogs
             _audioConfig.SpeakConnectionProgress = SpeakConnectionProgressCheck.IsChecked == true;
             _audioConfig.OfferStationSaveOnDisconnect =
                 OfferStationSaveOnDisconnectCheck.IsChecked == true;
+            // The one countdown (#835), made live by Apply() below.
+            CommitCountdown();
 
             // #116 / #384 — the duck and the per-sound trims apply LIVE (they
             // are found by ear; see InitializeSoundAdjustments), so by now the

@@ -63,8 +63,10 @@ namespace JJFlexWpf;
 /// 07:37).</b> While the controller is transmitting, Escape in a dialog
 /// unkeys and is consumed; the dialog stays open and a second Escape closes
 /// it, matching Home's step 3. An Audio Check session keeps its own two-stage
-/// Escape: while one is active this door declines Escape and
-/// <c>AudioWorkshopDialog.OnPreviewKeyDown</c> takes it.
+/// Escape: while one is active this door declines Escape in the window that
+/// runs it, and <c>CheckYourAudioDialog.OnPreviewKeyDown</c> takes it; in any
+/// other window, Escape while the check transmits stops the check and the
+/// window stays open (#835, fix round 2).
 /// </para>
 /// <para>
 /// <b>An Audio Check owns the transmitter (B3; ruled by Noel 2026-10-21
@@ -156,6 +158,13 @@ internal static class DialogTransmitKeys
     {
         event EventHandler? Deactivated;
         event EventHandler? Closed;
+
+        /// <summary>
+        /// True for the one window that runs the Audio Check and handles its
+        /// own two-stage Escape (Check your audio, #835). Every other window
+        /// sends Escape-while-the-check-transmits to <see cref="CheckEscapeElsewhere"/>.
+        /// </summary>
+        bool HandlesAudioCheckEscape { get; }
     }
 
     // ── what MainWindow wires, beside the system-wide hooks ──────────────
@@ -174,6 +183,16 @@ internal static class DialogTransmitKeys
 
     /// <summary>An Audio Check session is active, in any phase, and owns the transmitter.</summary>
     internal static Func<bool>? SessionOwnsTransmitter { get; set; }
+
+    /// <summary>Is this the window that runs the Audio Check? Wired by MainWindow (#835, fix round 2).</summary>
+    internal static Func<Window, bool>? WindowHandlesCheckEscape { get; set; }
+
+    /// <summary>
+    /// Escape in some OTHER window while the check is transmitting: stop the
+    /// check, which unkeys and restores through its own session. True when it
+    /// did, so the key is consumed and that window stays open.
+    /// </summary>
+    internal static Func<bool>? CheckEscapeElsewhere { get; set; }
 
     // ── the decision ─────────────────────────────────────────────────────
 
@@ -244,9 +263,17 @@ internal static class DialogTransmitKeys
 
         if (verdict == Verdict.Escape)
         {
-            // An active Audio Check keeps its own two-stage Escape; the
-            // workshop's handler runs after this one and must see the key.
-            if (SessionOwnsTransmitter?.Invoke() == true) return false;
+            // An active Audio Check keeps its own two-stage Escape, but only in
+            // the window that runs it (Check your audio since #835), whose
+            // handler runs after this one and must see the key. Anywhere else
+            // the door used to decline too, and that window's own Escape then
+            // closed it with the check still keyed (fix round 2): there,
+            // Escape while the check transmits stops the check and is consumed.
+            if (SessionOwnsTransmitter?.Invoke() == true)
+            {
+                if (window.HandlesAudioCheckEscape) return false;
+                return CheckEscapeElsewhere?.Invoke() == true;
+            }
             if (EscapeUnkey?.Invoke() != true) return false;
             EndHold();
             return true;
@@ -408,11 +435,16 @@ internal static class DialogTransmitKeys
 
         private WindowHold(Window w)
         {
+            _window = w;
             w.Deactivated += (s, e) => Deactivated?.Invoke(this, e);
             w.Closed += (s, e) => Closed?.Invoke(this, e);
         }
 
+        private readonly Window _window;
+
         public event EventHandler? Deactivated;
         public event EventHandler? Closed;
+
+        public bool HandlesAudioCheckEscape => WindowHandlesCheckEscape?.Invoke(_window) == true;
     }
 }

@@ -193,8 +193,12 @@ public partial class ScreenFieldsPanel
         }
         Relabel(_recordToFileButton, Lexicon.Get(recorder.IsRecording
             ? "audio.recorder.stop_record_to_file_button" : "audio.recorder.record_to_file_button"));
-        Relabel(_playFromComputerButton, Lexicon.Get(recorder.IsPlaying
-            ? "audio.recorder.stop_play_from_computer_button" : "audio.recorder.play_from_computer_button"));
+        // DRAFT PROSE (#835): awaiting Noel. Play pauses and carries on now,
+        // so the button says what pressing it does.
+        Relabel(_playFromComputerButton, Lexicon.Get(!recorder.IsPlaying
+            ? "audio.recorder.play_from_computer_button"
+            : RecordingPlayer.IsPaused ? "audio.recorder.carry_on_play_from_computer_button"
+            : "audio.recorder.pause_play_from_computer_button"));
     }
 
     private void UpdateSliceRecorderButtons()

@@ -121,6 +121,10 @@ namespace Radios
                 {
                     Tracing.TraceLine($"Antenna:TX request '{value}' dropped — no slice to apply it to",
                                       TraceLevel.Warning);
+                    // Inside a check's restore a dropped write is a write that
+                    // was not made, never a restore that succeeded (Codex round
+                    // 2, R2-B2): the restore reads Failed and the debt is kept.
+                    RestoreWriteReplies.Ambient?.NotSent("slice set ? txant=" + value, "no transmit slice to apply it to");
                     return;
                 }
                 Tracing.TraceLine($"Antenna:TX request slice {s.Index} ({basis}): '{s.TXAnt}' -> '{value}'",
@@ -128,7 +132,15 @@ namespace Radios
                 NoteRadioSettingWritten("TXAntennaName", value);   // the hold after a cut needs to know whose write this is (#571)
                 _txAntRequested = value;
                 _txAntRequestedSlice = s.Index;
-                s.TXAnt = value;
+                // Inside a check's restore the write is queued with its own
+                // reply (round 1030 repairs); everywhere else it goes straight
+                // out through FlexLib's setter, as it always has.
+                if (RestoreWriteReplies.Ambient != null && value != null)
+                    EnqueueSettingWrite((FunctionDel)(() => { s.TXAnt = value; }),
+                        RadioWrite("tx-antenna", "slice set " + s.Index.ToString(System.Globalization.CultureInfo.InvariantCulture) + " txant=" + value,
+                            "slice " + s.Index.ToString(System.Globalization.CultureInfo.InvariantCulture), "txant", value), "TXAntennaName");
+                else
+                    s.TXAnt = value;
             }
         }
 

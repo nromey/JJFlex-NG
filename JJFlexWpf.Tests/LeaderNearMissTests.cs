@@ -68,15 +68,20 @@ namespace JJFlexWpf.Tests
         [Fact]
         public void A_bare_letter_whose_only_chord_is_Alt_recovers_to_it()
         {
-            // K carries nothing at bare, Ctrl or Shift; Alt+K is the mic
-            // check. Before Sprint 48 Track C the candidate list had no Alt
-            // tier at all, so an operator who pressed K — which WAS the mic
-            // check until that track — would have heard only "Unknown key".
-            bool found = KeyInventory.TryFindLeaderNearMiss(Keys.K, out string key, out string what);
+            // O carries nothing at bare, Ctrl or Shift; Alt+O says what is
+            // still running. Before Sprint 48 Track C the candidate list had no
+            // Alt tier at all, so an operator who pressed O — which WAS this
+            // until that track — would have heard only "Unknown key".
+            //
+            // This was K, the mic check, until #835 bound Ctrl+K to the VOX send
+            // box (Noel, 2026-10-27 20:49). K now has a Ctrl chord, which the
+            // candidate order tries before Alt, so it is no longer an example of
+            // a letter whose only chord is Alt; O still is.
+            bool found = KeyInventory.TryFindLeaderNearMiss(Keys.O, out string key, out string what);
 
             Assert.True(found);
-            Assert.Equal("Alt+K", key);
-            Assert.Contains("mic check", what, System.StringComparison.OrdinalIgnoreCase);
+            Assert.Equal("Alt+O", key);
+            Assert.Contains("still running", what, System.StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -87,24 +92,79 @@ namespace JJFlexWpf.Tests
             // the two must agree. The assembled sentences are read here as
             // the operator hears them, from the real table and the shipped
             // lexicon.
-            bool found = KeyInventory.TryFindLeaderNearMiss(Keys.K, out Keys chord, out string key, out string what);
+            // O, not K: see A_bare_letter_whose_only_chord_is_Alt_recovers_to_it.
+            bool found = KeyInventory.TryFindLeaderNearMiss(Keys.O, out Keys chord, out string key, out string what);
 
             Assert.True(found);
-            Assert.Equal(Keys.K | Keys.Alt, chord);
+            Assert.Equal(Keys.O | Keys.Alt, chord);
             Assert.Equal(KeyManifest.FormatKey(chord), key);
+            Assert.Equal("Say what is still running and what it is costing", what);
 
             Radios.Lexicon.Forget();
             Radios.Lexicon.Load(Radios.Lexicon.Partitions);
-            var args = new (string, object?)[] { ("pressed", KeyManifest.FormatKey(Keys.K)), ("alt", key), ("what", what) };
-            Assert.Equal("Alt+K launches Mic check, not K.",
+            var args = new (string, object?)[] { ("pressed", KeyManifest.FormatKey(Keys.O)), ("alt", key), ("what", what) };
+            Assert.Equal("Alt+O launches Say what is still running and what it is costing, not O.",
                 Radios.Lexicon.Get("leader.near_miss", Radios.VerbosityLevel.Terse, args));
-            Assert.Equal("You pressed K which isn't assigned. Pressing Alt+K launches Mic check if that was what you "
-                + "were looking for, otherwise use JJ H to hear keys you can use with the JJ key.",
+            Assert.Equal("You pressed O which isn't assigned. Pressing Alt+O launches Say what is still running and "
+                + "what it is costing if that was what you were looking for, otherwise use JJ H to hear keys you "
+                + "can use with the JJ key.",
                 Radios.Lexicon.Get("leader.near_miss", Radios.VerbosityLevel.Chatty, args));
 
             // A chord that is bound gives back nothing to wait for.
-            Assert.False(KeyInventory.TryFindLeaderNearMiss(Keys.K | Keys.Alt, out Keys none, out _, out _));
+            Assert.False(KeyInventory.TryFindLeaderNearMiss(Keys.O | Keys.Alt, out Keys none, out _, out _));
             Assert.Equal(Keys.None, none);
+        }
+
+        /// <summary>
+        /// #835 fix round (Noel, 2026-10-28 21:25): the slipped K names BOTH
+        /// Ctrl+K, the VOX send box switch, and Alt+K, the mic check that bare K
+        /// used to be. So does every bare letter whose near miss is its Ctrl
+        /// chord while it also has an Alt chord: Q and E today.
+        /// </summary>
+        [Theory]
+        [InlineData(Keys.K)]
+        [InlineData(Keys.Q)]
+        [InlineData(Keys.E)]
+        public void A_bare_letter_with_both_a_ctrl_and_an_alt_chord_names_both(Keys letter)
+        {
+            bool found = KeyInventory.TryFindLeaderNearMiss(letter, out Keys first, out string firstKey, out _,
+                out Keys second, out string secondKey, out string secondWhat);
+
+            Assert.True(found);
+            Assert.Equal(letter | Keys.Control, first);
+            Assert.Equal(KeyManifest.FormatKey(first), firstKey);
+            Assert.Equal(letter | Keys.Alt, second);
+            Assert.Equal(KeyManifest.FormatKey(second), secondKey);
+            Assert.False(string.IsNullOrEmpty(secondWhat));
+        }
+
+        [Fact]
+        public void The_slipped_K_is_told_both_chords_in_one_sentence()
+        {
+            Assert.True(KeyInventory.TryFindLeaderNearMiss(Keys.K, out _, out string key, out string what,
+                out _, out string key2, out string what2));
+            Radios.Lexicon.Forget();
+            Radios.Lexicon.Load(Radios.Lexicon.Partitions);
+            var args = new (string, object?)[]
+            {
+                ("pressed", KeyManifest.FormatKey(Keys.K)), ("alt", key), ("what", what), ("alt2", key2), ("what2", what2),
+            };
+            string terse = Radios.Lexicon.Get("leader.near_miss_two", Radios.VerbosityLevel.Terse, args);
+            Assert.StartsWith(key + " launches " + what + "; " + key2 + " launches Mic check", terse);
+            Assert.EndsWith("; not K.", terse);
+            Assert.DoesNotContain("{", terse);
+            Assert.DoesNotContain("{", Radios.Lexicon.Get("leader.near_miss_two", Radios.VerbosityLevel.Chatty, args));
+        }
+
+        [Fact]
+        public void A_letter_with_only_an_alt_chord_or_a_modified_press_names_one()
+        {
+            Assert.True(KeyInventory.TryFindLeaderNearMiss(Keys.O, out _, out _, out _, out Keys none, out _, out _));
+            Assert.Equal(Keys.None, none);
+            // A pressed chord that already has a modifier names its one nearest, as before.
+            Assert.True(KeyInventory.TryFindLeaderNearMiss(Keys.K | Keys.Shift, out _, out _, out _,
+                out Keys alsoNone, out _, out _));
+            Assert.Equal(Keys.None, alsoNone);
         }
 
         [Fact]
