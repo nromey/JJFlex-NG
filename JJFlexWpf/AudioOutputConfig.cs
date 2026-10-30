@@ -16,6 +16,15 @@ namespace JJFlexWpf
         /// <summary>NAudio device number for earcon output. -1 = Windows default.</summary>
         public int EarconDeviceNumber { get; set; } = -1;
 
+        /// <summary>
+        /// The alert channel's output buffer, milliseconds per buffer and how
+        /// many (#855, ruled 2026-10-30: an operator setting, the default by
+        /// measurement). Clamped by <see cref="EarconPlayer.SetAlertBuffer"/>,
+        /// so a hand-edited file cannot set one that stalls the device.
+        /// </summary>
+        public int AlertBufferMs { get; set; } = EarconPlayer.DefaultAlertBufferMs;
+        public int AlertBufferCount { get; set; } = EarconPlayer.DefaultAlertBufferCount;
+
         /// <summary>Master earcon volume 0–100. Kept for backward compatibility with old configs.</summary>
         public int MasterEarconVolume { get; set; } = 80;
 
@@ -667,6 +676,61 @@ namespace JJFlexWpf
             return new AudioOutputConfig();
         }
 
+        /// <summary>
+        /// Settings OK or Apply: carry the user-scope fields of the config the
+        /// dialog committed into the root config on disk, leaving the rest of
+        /// the root file as it was. Moved here from the menu bar's Settings
+        /// handler verbatim (#855) so a test can run the path Settings runs.
+        /// </summary>
+        /// <remarks>
+        /// <para>With no radio connected this is the ONLY persistence a
+        /// Settings change gets (the full capture-and-save in
+        /// MainWindow.ApplySettingsChanges runs only when connected), so a
+        /// field missing from this list is applied and then lost at the next
+        /// start, and the next Settings OK commits the old value back over the
+        /// live one.</para>
+        /// <para>CW fields matter at app startup BEFORE any connect: the
+        /// MainWindow constructor loads these from root so CW delegates are
+        /// live and CwNotificationsEnabled is set in time for AS to fire at
+        /// connect-start.</para>
+        /// </remarks>
+        public static void PersistUserScope(AudioOutputConfig chosen, string rootConfigDir)
+        {
+            var rootConfig = Load(rootConfigDir);
+            rootConfig.TuningHash = chosen.TuningHash;
+            rootConfig.TypingSound = chosen.TypingSound;
+            rootConfig.CwNotificationsEnabled = chosen.CwNotificationsEnabled;
+            rootConfig.CwModeAnnounce = chosen.CwModeAnnounce;
+            rootConfig.CwSidetoneHz = chosen.CwSidetoneHz;
+            rootConfig.CwSpeedWpm = chosen.CwSpeedWpm;
+            // Sprint 33 Track K. Settings are intents, not commands: the
+            // operator may well turn this on while disconnected — it is a
+            // preference ABOUT disconnecting — and without this line it
+            // would be accepted, announced, and silently lost, which is the
+            // exact defect class the intents rule exists to prevent.
+            rootConfig.OfferStationSaveOnDisconnect = chosen.OfferStationSaveOnDisconnect;
+            // Sprint 33 Track F: the pitch source, the keying waveform and
+            // the alert voice set are user-scope for the same reason the four
+            // above are — they describe this operator's ears, not this radio.
+            // Left out of this list they would apply until the next restart
+            // and then quietly revert, which is worse than not offering them.
+            rootConfig.CwPitchFollowsRadio = chosen.CwPitchFollowsRadio;
+            rootConfig.CwWaveform = chosen.CwWaveform;
+            rootConfig.EarconVoiceSet = chosen.EarconVoiceSet;
+            // #855: the alert sound delay describes this computer's sound output,
+            // not the radio. Missing from this list it applied live, then came
+            // back as the default on reopening Settings, and the next OK put the
+            // default back over the live choice (found by the 2026-10-30 harness run).
+            rootConfig.AlertBufferMs = chosen.AlertBufferMs;
+            rootConfig.AlertBufferCount = chosen.AlertBufferCount;
+            // #835, round 1030 (#856): the countdown is this operator's too, set in
+            // the same dialog; missing here, a change made with no radio connected
+            // applied live and was then lost. (Carried in when sound timing
+            // moved this list out of the menu bar and met Check your audio on main.)
+            rootConfig.Countdown = chosen.Countdown.Clone();
+            rootConfig.Save(rootConfigDir);
+        }
+
         public void Save(string configDir)
         {
             // Canonical root only. The legacy Radios\ copy is deliberately
@@ -828,7 +892,12 @@ namespace JJFlexWpf
 
             EarconPlayer.MasterVolume = MasterVolume;
             EarconPlayer.AlertVolume = AlertVolume;
+            // Before the device, so a reopened device opens with the new buffer.
+            EarconPlayer.SetAlertBuffer(AlertBufferMs, AlertBufferCount);
             EarconPlayer.SetAlertDevice(EarconDeviceNumber);
+            // #855: the held sounds follow the switches, the voice set and the
+            // countdown just applied above.
+            EarconPlayer.PrewarmSoon();
             EarconPlayer.SetMeterDevice(MeterDeviceNumber);
 
             // Verbosity
@@ -918,6 +987,7 @@ namespace JJFlexWpf
             AlertVolume = EarconPlayer.AlertVolume;
             MasterEarconVolume = (int)(EarconPlayer.AlertVolume * 100);
             EarconDeviceNumber = EarconPlayer.GetAlertDeviceNumber();
+            (AlertBufferMs, AlertBufferCount) = EarconPlayer.AlertBuffer;
             MeterDeviceNumber = EarconPlayer.GetMeterDeviceNumber();
             Meters = MeterToneEngine.ExportDefinitions();
             UserVoices = MeterVoiceLibrary.GetUserVoices();

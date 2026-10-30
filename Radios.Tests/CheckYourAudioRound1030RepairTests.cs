@@ -69,9 +69,12 @@ namespace Radios.Tests
         [Fact]
         public void The_countdown_is_saved_by_Settings_with_no_radio_connected()
         {
-            string src = Source("JJFlexWpf/NativeMenuBar.cs");
-            int list = src.IndexOf("var rootConfig = AudioOutputConfig.Load(rootConfigDir);", StringComparison.Ordinal);
-            int countdown = src.IndexOf("rootConfig.Countdown = audioConfig.Countdown.Clone();", list, StringComparison.Ordinal);
+            // Sound timing (#855) moved the user-scope list out of the menu bar
+            // into AudioOutputConfig.PersistUserScope, which the menu bar calls.
+            Assert.Contains("AudioOutputConfig.PersistUserScope(audioConfig, rootConfigDir);", Source("JJFlexWpf/NativeMenuBar.cs"));
+            string src = Source("JJFlexWpf/AudioOutputConfig.cs");
+            int list = src.IndexOf("var rootConfig = Load(rootConfigDir);", StringComparison.Ordinal);
+            int countdown = src.IndexOf("rootConfig.Countdown = chosen.Countdown.Clone();", list, StringComparison.Ordinal);
             int save = src.IndexOf("rootConfig.Save(rootConfigDir);", list, StringComparison.Ordinal);
             Assert.True(list >= 0 && countdown > list && save > countdown,
                 "the countdown must be copied into the root audio file before the disconnected save");

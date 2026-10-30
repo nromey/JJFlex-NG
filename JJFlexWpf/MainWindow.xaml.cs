@@ -395,6 +395,11 @@ public partial class MainWindow : UserControl
                 // without this a session that never connects used the
                 // defaults instead of the operator's countdown.
                 Radios.CountdownSettings.Current = userConfig.Countdown;
+                // #855, for the same reason as the tone set: the alert sound
+                // delay describes this computer, and Apply() waits for a
+                // connect, so a session that never connects would otherwise
+                // play every sound at the default whatever was chosen.
+                EarconPlayer.SetAlertBuffer(userConfig.AlertBufferMs, userConfig.AlertBufferCount);
             }
         }
         catch (Exception ex)

@@ -3750,38 +3750,10 @@ public class NativeMenuBar : IDisposable
             // live + CwNotificationsEnabled is set in time for AS to fire at
             // connect-start. Without these being in root, AS was silently
             // skipping because the flag was false until per-radio PowerOn.
+            // The list of what is carried lives with the config now (#855),
+            // so a test can run the same path: AudioOutputConfig.PersistUserScope.
             if (!string.IsNullOrEmpty(rootConfigDir))
-            {
-                var rootConfig = AudioOutputConfig.Load(rootConfigDir);
-                rootConfig.TuningHash = audioConfig.TuningHash;
-                rootConfig.TypingSound = audioConfig.TypingSound;
-                rootConfig.CwNotificationsEnabled = audioConfig.CwNotificationsEnabled;
-                rootConfig.CwModeAnnounce = audioConfig.CwModeAnnounce;
-                rootConfig.CwSidetoneHz = audioConfig.CwSidetoneHz;
-                rootConfig.CwSpeedWpm = audioConfig.CwSpeedWpm;
-                // Sprint 33 Track K. Settings are intents, not commands: the
-                // operator may well turn this on while disconnected — it is a
-                // preference ABOUT disconnecting — and without this line it
-                // would be accepted, announced, and silently lost, which is the
-                // exact defect class the intents rule exists to prevent.
-                rootConfig.OfferStationSaveOnDisconnect =
-                    audioConfig.OfferStationSaveOnDisconnect;
-                // Sprint 33 Track F: the pitch source, the keying
-                // waveform and the alert voice set are user-scope for
-                // the same reason the four above are — they describe
-                // this operator's ears, not this radio. Left out of
-                // this list they would apply until the next restart
-                // and then quietly revert, which is worse than not
-                // offering them.
-                rootConfig.CwPitchFollowsRadio = audioConfig.CwPitchFollowsRadio;
-                rootConfig.CwWaveform = audioConfig.CwWaveform;
-                rootConfig.EarconVoiceSet = audioConfig.EarconVoiceSet;
-                // #835, round 1030 (#856): the countdown is this operator's
-                // too, set in the same dialog, and without this line a change
-                // made with no radio connected applied live and was then lost.
-                rootConfig.Countdown = audioConfig.Countdown.Clone();
-                rootConfig.Save(rootConfigDir);
-            }
+                AudioOutputConfig.PersistUserScope(audioConfig, rootConfigDir);
         };
 
         dialog.ShowDialog();

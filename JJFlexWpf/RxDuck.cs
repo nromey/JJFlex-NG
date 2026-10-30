@@ -338,6 +338,9 @@ namespace JJFlexWpf
         public static void RequestFor(int earconMs)
         {
             if (!_enabled || earconMs <= 0) return;
+            // #855: a sound made offline (the startup warm-up, a tool, a test)
+            // is heard by nobody, so it has nothing to make room for.
+            if (EarconPlayer.RenderingOffline) return;
 
             long until = DateTime.UtcNow.Ticks
                 + TimeSpan.TicksPerMillisecond * (earconMs + HoldMs);

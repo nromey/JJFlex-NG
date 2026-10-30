@@ -449,11 +449,13 @@
                          switch that uses it should read as one thing. -->
                     <GroupBox Header="Alerts and CW Notifications" Margin="0,4,0,8"
                               AutomationProperties.Name="Alerts and CW Notifications">
-                        <StackPanel Margin="4">
+                        <StackPanel x:Name="AlertsPanel" Margin="4">
                             <controls:ValueFieldControl x:Name="EarconVolumeControl"
                                 Margin="0,0,0,8"
                                 AutomationProperties.Name="Alert volume, 0 to 100"/>
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <!-- The alert sound delay (#855) is inserted after this row
+                                 by SettingsDialog.AlertBuffer.cs. -->
+                            <StackPanel x:Name="AlertDeviceRow" Orientation="Horizontal" Margin="0,0,0,8">
                                 <controls:DecorativeText Text="Alert device:"
                                            VerticalAlignment="Center"
                                            Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>

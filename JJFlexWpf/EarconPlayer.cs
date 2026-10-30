@@ -15,7 +15,7 @@ namespace JJFlexWpf
     /// Meter (continuous meter tones) channels with independent volume and device control.
     /// Each channel has its own WaveOutEvent + MixingSampleProvider for isolation.
     /// </summary>
-    public static class EarconPlayer
+    public static partial class EarconPlayer
     {
         private static AudioChannel? _alertChannel;
         private static AudioChannel? _meterChannel;
@@ -265,7 +265,7 @@ namespace JJFlexWpf
         #endregion
 
         // Convenience accessors for the channel mixers
-        private static MixingSampleProvider? AlertMixer => TestAlertMixer ?? _alertChannel?.Mixer;
+        private static MixingSampleProvider? AlertMixer => TestAlertMixer ?? _captureMixer ?? _alertChannel?.Mixer;
 
         /// <summary>
         /// Whether the alert channel has a live mixer (a real audio device is
@@ -323,6 +323,16 @@ namespace JJFlexWpf
             _currentTrimDb = GetLevelTrimDb(earconName);
 
             bool on = On(category);
+
+            // An offline render (tools, tests, pre-rendering) plays the sound
+            // into a private mixer: it is not a sound the operator asked for,
+            // so it leaves no Earcon line, no transcript event and no timing.
+            if (_captureMixer != null) return on;
+
+            // #855: the ASKED stamp. Begin always, so a record left over from a
+            // sound that never handed off cannot be claimed by this one.
+            SoundTiming.Begin(earconName, detail);
+            if (!on) SoundTiming.Cancel();
 
             // #369 — trace the PLAY, not only the failure. Until 2026-08-28 no
             // earcon left any record when it succeeded, so "the tone was
@@ -400,8 +410,14 @@ namespace JJFlexWpf
                 if (Radios.OutputChannelRecorder.RenderEnabled)
                 {
                     // Create alert channel (earcons, beeps, PTT tones)
-                    _alertChannel = new AudioChannel();
+                    _alertChannel = new AudioChannel
+                    {
+                        BufferMs = _alertBufferMs,
+                        BufferCount = _alertBufferCount,
+                    };
                     _alertChannel.Initialize(_alertDeviceNumber);
+                    var alert = _alertChannel;
+                    SoundTiming.AlertDevice = alert.Snapshot;
 
                     // Create meter channel (continuous tones from MeterToneEngine)
                     // If meter device is -1 (same as alerts), use alert device
@@ -416,7 +432,34 @@ namespace JJFlexWpf
                     Trace.WriteLine("EarconPlayer: render disabled - audio channels not created, earcons diverted to transcript");
                 }
 
-                // Load embedded sounds
+                LoadSounds();
+
+                _initialized = true;
+
+                // #855: the frequent sounds made once, on a pool thread, and
+                // played from memory from then on.
+                if (Radios.OutputChannelRecorder.RenderEnabled) PrewarmSoon();
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.Initialize failed: {ex.Message}");
+            }
+        }
+
+        private static readonly object _soundsLoadLock = new();
+        private static bool _soundsLoaded;
+
+        /// <summary>
+        /// Load the embedded and file-based sounds, once. Split out of
+        /// <see cref="Initialize"/> (#855) so an offline render, which opens no
+        /// device, takes the same wav-or-synthesised branch production takes.
+        /// </summary>
+        private static void LoadSounds()
+        {
+            lock (_soundsLoadLock)
+            {
+                if (_soundsLoaded) return;
+                _soundsLoaded = true;
                 _clickSound = LoadEmbeddedSound("JJFlexWpf.Sounds.click.wav");
                 _confirmSound = LoadEmbeddedSound("JJFlexWpf.Sounds.confirm.wav");
                 _filterEdgeMoveSound = LoadEmbeddedSound("JJFlexWpf.Sounds.filter-edge-move.wav");
@@ -440,12 +483,6 @@ namespace JJFlexWpf
                 {
                     Trace.WriteLine($"EarconPlayer: failed to load typewriter bell: {ex.Message}");
                 }
-
-                _initialized = true;
-            }
-            catch (Exception ex)
-            {
-                Trace.WriteLine($"EarconPlayer.Initialize failed: {ex.Message}");
             }
         }
 
@@ -467,6 +504,7 @@ namespace JJFlexWpf
             _atuProgressProvider = null;
             _txToneMonitorProvider = null;
             _txToneMonitorWrapper = null;
+            SoundTiming.AlertDevice = null;
             _alertChannel?.Dispose();
             _meterChannel?.Dispose();
             _alertChannel = null;
@@ -778,6 +816,7 @@ namespace JJFlexWpf
         /// </summary>
         public static void Beep(int frequencyHz = 800, int durationMs = 150)
         {
+            BeginUngated(nameof(Beep), "hz=" + frequencyHz + " ms=" + durationMs);
             PlayTone(frequencyHz, durationMs, VolumeStrong);
         }
 
@@ -793,6 +832,7 @@ namespace JJFlexWpf
         public static void RecorderStartBeep()
         {
             if (!RecorderBeepsEnabled) return;
+            BeginUngated(nameof(RecorderStartBeep));
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (400, 55), (0, 35), (400, 55) }, VolumeNormal);
         }
@@ -800,6 +840,7 @@ namespace JJFlexWpf
         public static void RecorderStopBeep()
         {
             if (!RecorderBeepsEnabled) return;
+            BeginUngated(nameof(RecorderStopBeep));
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (800, 55), (0, 35), (800, 55) }, VolumeNormal);
         }
@@ -1364,6 +1405,9 @@ namespace JJFlexWpf
             if (!GateDetailed(EarconCategory.Transmit,
                     (landing ? "beat=landing" : "beat=count") + " sound=" + Radios.CountdownSettings.KnownPipSound(sound),
                     nameof(CountdownTransmitTone))) return;
+            // #855: one beat is not the whole figure its name says, so the
+            // analyser is told what to rebuild.
+            SoundTiming.Recipe("beat:hz=" + hz + ",ms=" + ms + ",sound=" + Radios.CountdownSettings.KnownPipSound(sound));
             PlayVoicedDecaySequence(CountdownVoiceFor(sound), new[] { (hz, ms) }, VolumeStrong);
         }
 
@@ -1825,11 +1869,27 @@ namespace JJFlexWpf
         private static void PlayLaterVoiced(MeterVoice voice, (int freq, int ms)[] steps,
             float volume, int delayMs)
         {
+            if (_captureMixer != null)
+            {
+                // An offline render (#855) is on this thread only, so the
+                // figure is placed in the private mixer at its delay rather
+                // than played later from a pool thread, where it would reach
+                // the live channel instead.
+                if (!EarconsEnabled) return;
+                var later = new OffsetSampleProvider(new RenderedSampleProvider(RenderVoiced(voice, steps, volume)))
+                {
+                    DelayBySamples = SampleRate * Math.Max(delayMs, 0) / 1000,
+                };
+                AddToMixer(later);
+                return;
+            }
+
             _ = System.Threading.Tasks.Task.Run(async () =>
             {
                 try
                 {
                     await System.Threading.Tasks.Task.Delay(delayMs).ConfigureAwait(false);
+                    BeginUngated(nameof(PlayLaterVoiced), "delayMs=" + delayMs);   // #855: its own sound
                     PlayVoicedSequence(voice, steps, volume);
                 }
                 catch (Exception ex)
@@ -1862,6 +1922,7 @@ namespace JJFlexWpf
         /// <summary>Play a frequency sweep (chirp) from startHz to endHz.</summary>
         public static void Chirp(int startHz, int endHz, int durationMs)
         {
+            BeginUngated(nameof(Chirp), "from=" + startHz + " to=" + endHz + " ms=" + durationMs);
             PlayChirp(startHz, endHz, durationMs, 0.6f);
         }
 
@@ -2140,7 +2201,9 @@ namespace JJFlexWpf
             if (!GateDetailed(EarconCategory.CommandsAndConfirmations,
                 "voxRestored=" + voxRestored + " delayMs=" + delayMs) || AlertMixer == null)
                 return NullCancellable.Instance;
+            long synth = SoundTiming.SynthStart();
             var buffer = RenderCutHoldEnded(voxRestored, delayMs);
+            SoundTiming.SynthEnd(synth);
             var cancellable = new CancellableCwProvider(new RenderedSampleProvider(buffer));
             AddToMixer(cancellable);
             return cancellable;
@@ -2413,6 +2476,7 @@ namespace JJFlexWpf
             // is armed by Gate for every other earcon, so it is set explicitly
             // here rather than left holding whatever the previous sound used.
             _currentTrimDb = GetLevelTrimDb(nameof(SpeechUnavailableAlarm));
+            if (_captureMixer == null) SoundTiming.Begin(nameof(SpeechUnavailableAlarm));
             // It skips the gate, and so the switches, by design; the mixer
             // must not apply the master mute either, or on a live alert
             // channel this alarm is silenced the moment alert sounds are off
@@ -3306,7 +3370,10 @@ namespace JJFlexWpf
             if (!EarconsEnabled || AlertMixer == null) return;
             try
             {
+                BeginUngated(nameof(PlayStreamAsWav));
+                long t = SoundTiming.SynthStart();
                 var sound = new CachedSound(wavStream);
+                SoundTiming.SynthEnd(t, "decoded");
                 PlayCachedSound(sound);
             }
             catch (Exception ex)
@@ -3509,6 +3576,7 @@ namespace JJFlexWpf
         private static bool BenchGate([CallerMemberName] string earconName = "")
         {
             _currentTrimDb = GetLevelTrimDb(earconName);
+            if (_captureMixer == null) SoundTiming.Begin(earconName);
             return EarconsEnabled;
         }
 
@@ -3516,7 +3584,23 @@ namespace JJFlexWpf
         /// Declare that what follows is not a named earcon and must not be
         /// trimmed — the scratchpad's raw tones and voice auditions.
         /// </summary>
-        private static void NoTrim() => _currentTrimDb = 0f;
+        /// <summary>
+        /// #855: the ASKED stamp for a sound that has no gate of its own (the
+        /// recorder cues, the plain beep, CW, typing). Not during an offline render.
+        /// </summary>
+        private static void BeginUngated(string name, string? detail = null)
+        {
+            if (_captureMixer == null) SoundTiming.Begin(name, detail);
+        }
+
+        private static void NoTrim([CallerMemberName] string caller = "")
+        {
+            _currentTrimDb = 0f;
+            // #855: these are auditions, not named earcons, but they are still
+            // sounds someone asked for, so they get a timing record under the
+            // method that played them.
+            if (_captureMixer == null) SoundTiming.Begin(caller);
+        }
 
         /// <summary>
         /// Bench gain and per-sound trim for a provider going into the alert
@@ -3550,10 +3634,19 @@ namespace JJFlexWpf
                 return;
             }
             if (monoSource.WaveFormat.Channels == 1)
-                AlertMixer.AddMixerInput(ApplyPreviewGain(new MonoToStereoSampleProvider(monoSource)));
+                AlertMixer.AddMixerInput(Timed(ApplyPreviewGain(new MonoToStereoSampleProvider(monoSource))));
             else
-                AlertMixer.AddMixerInput(ApplyPreviewGain(monoSource));
+                AlertMixer.AddMixerInput(Timed(ApplyPreviewGain(monoSource)));
         }
+
+        /// <summary>
+        /// #855: the HANDOFF stamp. Every one-shot reaches the alert mixer
+        /// through the three AddToMixer methods, so this is the single point
+        /// that wraps a sound in its timing probe. An offline render is never
+        /// timed. With timing off it returns the provider it was given.
+        /// </summary>
+        private static ISampleProvider Timed(ISampleProvider provider) =>
+            _captureMixer != null ? provider : SoundTiming.AtHandoff(provider);
 
         /// <summary>Add a mono source to the alert channel stereo mixer with panning (-1 left, 0 center, +1 right).</summary>
         private static void AddToMixerPanned(ISampleProvider monoSource, float pan)
@@ -3564,7 +3657,7 @@ namespace JJFlexWpf
                 monoSource = monoSource.ToMono();
             if (_previewActive) pan = Math.Clamp(pan + _previewPan, -1f, 1f);
             var panned = new PanningSampleProvider(monoSource) { Pan = pan };
-            AlertMixer.AddMixerInput(ApplyPreviewGain(panned));
+            AlertMixer.AddMixerInput(Timed(ApplyPreviewGain(panned)));
         }
 
         /// <summary>Add a mono source with panning that sweeps from startPan to endPan over durationMs.</summary>
@@ -3579,7 +3672,7 @@ namespace JJFlexWpf
             // gap: the bench gain never reached the swept-pan sounds either,
             // so auditioning an expand or collapse sweep at a bench gain moved
             // nothing.
-            AlertMixer.AddMixerInput(ApplyPreviewGain(swept));
+            AlertMixer.AddMixerInput(Timed(ApplyPreviewGain(swept)));
         }
 
         internal static void PlayTone(int frequencyHz, int durationMs, float volume)
@@ -3737,6 +3830,13 @@ namespace JJFlexWpf
         /// </summary>
         internal static float[] RenderVoiced(MeterVoice voice, (int freq, int ms)[] steps, float volume)
         {
+            long synth = SoundTiming.SynthStart();
+            try { return RenderVoicedCore(voice, steps, volume); }
+            finally { SoundTiming.SynthEnd(synth); }
+        }
+
+        private static float[] RenderVoicedCore(MeterVoice voice, (int freq, int ms)[] steps, float volume)
+        {
             int totalMs = 0;
             foreach (var s in steps) totalMs += Math.Max(s.ms, 0);
 
@@ -3844,7 +3944,7 @@ namespace JJFlexWpf
             }
             try
             {
-                var rendered = RenderVoiced(voice, steps, volume);
+                var rendered = RenderVoicedHeld(voice, steps, volume);   // #855: from memory when held
                 var provider = new RenderedSampleProvider(rendered);
                 if (Math.Abs(pan) < 0.01f)
                     AddToMixer(provider);
@@ -3881,26 +3981,9 @@ namespace JJFlexWpf
             if (AlertMixer == null) { PlayVoicedSequence(voice, steps, volume, pan); return; }
             try
             {
-                int totalMs = 0;
-                foreach (var s in steps) totalMs += Math.Max(s.ms, 0);
-                int totalSamples = SampleRate * (totalMs + VoicedTailMs) / 1000 + 1;
-                var buffer = new float[Math.Max(totalSamples, 1)];
-
-                int cursor = 0;
-                foreach (var (freq, ms) in steps)
-                {
-                    int stepSamples = SampleRate * Math.Max(ms, 0) / 1000;
-                    if (freq > 0 && ms > 0)
-                    {
-                        var shaped = EarconVoices.DecayingOver(voice, ms);
-                        var mono = RenderStep(shaped, freq, ms, volume);
-                        int n = Math.Min(mono.Length, buffer.Length - cursor);
-                        for (int i = 0; i < n; i++)
-                            buffer[cursor + i] += mono[i];
-                    }
-                    cursor += stepSamples;
-                }
-
+                // #855: from memory when held; the render below is unchanged.
+                var buffer = HeldOrRender(VoicedKey("decay", voice, steps, volume),
+                    () => RenderVoicedDecayCore(voice, steps, volume));
                 var provider = new RenderedSampleProvider(buffer);
                 if (Math.Abs(pan) < 0.01f)
                     AddToMixer(provider);
@@ -3911,6 +3994,31 @@ namespace JJFlexWpf
             {
                 Trace.WriteLine($"EarconPlayer.PlayVoicedDecaySequence failed: {ex.Message}");
             }
+        }
+
+        /// <summary>The decaying cadence's samples: each note shaped to decay inside its own step, summed.</summary>
+        private static float[] RenderVoicedDecayCore(MeterVoice voice, (int freq, int ms)[] steps, float volume)
+        {
+            int totalMs = 0;
+            foreach (var s in steps) totalMs += Math.Max(s.ms, 0);
+            int totalSamples = SampleRate * (totalMs + VoicedTailMs) / 1000 + 1;
+            var buffer = new float[Math.Max(totalSamples, 1)];
+
+            int cursor = 0;
+            foreach (var (freq, ms) in steps)
+            {
+                int stepSamples = SampleRate * Math.Max(ms, 0) / 1000;
+                if (freq > 0 && ms > 0)
+                {
+                    var shaped = EarconVoices.DecayingOver(voice, ms);
+                    var mono = RenderStep(shaped, freq, ms, volume);
+                    int n = Math.Min(mono.Length, buffer.Length - cursor);
+                    for (int i = 0; i < n; i++)
+                        buffer[cursor + i] += mono[i];
+                }
+                cursor += stepSamples;
+            }
+            return buffer;
         }
 
         #endregion
@@ -3929,7 +4037,8 @@ namespace JJFlexWpf
             if (AlertMixer == null) { FallbackBeep((startHz + endHz) / 2, durationMs); return; }
             try
             {
-                var chirp = new ChirpSampleProvider(SampleRate, startHz, endHz, durationMs, volume);
+                // #855: made in full (from memory when held); the same samples the chirp reads out.
+                var chirp = new RenderedSampleProvider(RenderChirpHeld(startHz, endHz, durationMs, volume));
                 AddToMixer(chirp);
             }
             catch (Exception ex)
@@ -3944,7 +4053,7 @@ namespace JJFlexWpf
             if (AlertMixer == null) { FallbackBeep((startHz + endHz) / 2, durationMs); return; }
             try
             {
-                var chirp = new ChirpSampleProvider(SampleRate, startHz, endHz, durationMs, volume);
+                var chirp = new RenderedSampleProvider(RenderChirpHeld(startHz, endHz, durationMs, volume));
                 AddToMixerPanned(chirp, pan);
             }
             catch (Exception ex)
@@ -3959,6 +4068,7 @@ namespace JJFlexWpf
             try
             {
                 var provider = new CachedSoundSampleProvider(sound);
+                SoundTiming.Source("wav");
                 AddToMixer(provider);
             }
             catch (Exception ex)
@@ -3973,6 +4083,7 @@ namespace JJFlexWpf
             try
             {
                 var provider = new CachedSoundSampleProvider(sound);
+                SoundTiming.Source("wav");
                 AddToMixerPanned(provider, pan);
             }
             catch (Exception ex)
@@ -3987,6 +4098,7 @@ namespace JJFlexWpf
             try
             {
                 var provider = new ReversedCachedSoundSampleProvider(sound);
+                SoundTiming.Source("wav");
                 AddToMixerPanned(provider, pan);
             }
             catch (Exception ex)
@@ -4034,9 +4146,50 @@ namespace JJFlexWpf
         /// </summary>
         private class AudioChannel : IDisposable
         {
+            /// <summary>
+            /// Milliseconds per device buffer and how many, used whenever this
+            /// channel opens its device. The alert channel's are the operator's
+            /// setting (#855); the meter channel keeps 100 by 2.
+            /// </summary>
+            public int BufferMs { get; set; } = 100;
+            public int BufferCount { get; set; } = 2;
+
+            private WaveOutEvent NewWaveOut(int deviceNumber) => new WaveOutEvent
+            {
+                DeviceNumber = deviceNumber,
+                BufferMilliseconds = BufferMs,
+                NumberOfBuffers = BufferCount,
+            };
+
             private WaveOutEvent? _waveOut;
             private VolumeSampleProvider? _volume;
+            private CountingSampleProvider? _counter;
             private int _deviceNumber = -1;
+
+            /// <summary>
+            /// #855: the device's state at this instant, for a sound's timing
+            /// probe: frames the mixer has handed the device so far against
+            /// frames the device says it has played. Called on the device's own
+            /// thread from inside a mixer read, where the count is exact: the
+            /// read in progress has not been added yet.
+            /// </summary>
+            public SoundTiming.DeviceSnapshot Snapshot()
+            {
+                long produced = _counter?.Frames ?? 0;
+                long playedBytes = PlayedBytes;
+                long played = playedBytes >= 0 ? playedBytes / (MixerChannels * sizeof(float)) : -1;
+                // waveOutGetPosition counts in 32 bits; bring a wrapped count
+                // back beside the 64-bit production count.
+                if (played >= 0)
+                {
+                    const long wrapFrames = (1L << 32) / (MixerChannels * sizeof(float));
+                    while (produced - played > wrapFrames / 2) played += wrapFrames;
+                }
+                var wo = _waveOut;
+                int per = wo != null && wo.BufferMilliseconds > 0 ? wo.BufferMilliseconds : 100;
+                int count = wo != null && wo.NumberOfBuffers > 0 ? wo.NumberOfBuffers : 2;
+                return new SoundTiming.DeviceSnapshot(produced, played, per, count, SampleRate);
+            }
 
             public MixingSampleProvider? Mixer { get; private set; }
 
@@ -4089,15 +4242,12 @@ namespace JJFlexWpf
                     ReadFully = true
                 };
                 _volume = new VolumeSampleProvider(Mixer);
+                _counter = new CountingSampleProvider(_volume);
 
                 try
                 {
-                    _waveOut = new WaveOutEvent
-                    {
-                        DeviceNumber = deviceNumber,
-                        BufferMilliseconds = 100
-                    };
-                    _waveOut.Init(_volume);
+                    _waveOut = NewWaveOut(deviceNumber);
+                    _waveOut.Init(_counter);
                     _waveOut.Play();
                     return true;
                 }
@@ -4107,8 +4257,9 @@ namespace JJFlexWpf
                     // Fall back to default device
                     try
                     {
-                        _waveOut = new WaveOutEvent { BufferMilliseconds = 100 };
-                        _waveOut.Init(_volume);
+                        _waveOut = NewWaveOut(-1);
+                        _counter.Reset();
+                        _waveOut.Init(_counter);
                         _waveOut.Play();
                         _deviceNumber = -1;
                         return true;
@@ -4125,17 +4276,15 @@ namespace JJFlexWpf
             {
                 _deviceNumber = deviceNumber;
                 if (Mixer == null || _volume == null) return;
+                _counter ??= new CountingSampleProvider(_volume);
                 try
                 {
                     _waveOut?.Stop();
                     _waveOut?.Dispose();
 
-                    _waveOut = new WaveOutEvent
-                    {
-                        DeviceNumber = deviceNumber,
-                        BufferMilliseconds = 100
-                    };
-                    _waveOut.Init(_volume);
+                    _waveOut = NewWaveOut(deviceNumber);
+                    _counter.Reset();
+                    _waveOut.Init(_counter);
                     _waveOut.Play();
                 }
                 catch (Exception ex)
@@ -4144,13 +4293,27 @@ namespace JJFlexWpf
                     // Fall back to default device
                     try
                     {
-                        _waveOut = new WaveOutEvent { BufferMilliseconds = 100 };
-                        _waveOut.Init(_volume);
+                        _waveOut = NewWaveOut(-1);
+                        _counter.Reset();
+                        _waveOut.Init(_counter);
                         _waveOut.Play();
                         _deviceNumber = -1;
                     }
                     catch { }
                 }
+            }
+
+            /// <summary>
+            /// New buffer geometry, applied at once by reopening the same
+            /// device (#855: the setting changes live, no restart). A sound in
+            /// the mixer carries on through the new device.
+            /// </summary>
+            public void Rebuffer(int bufferMs, int bufferCount)
+            {
+                if (bufferMs == BufferMs && bufferCount == BufferCount) return;
+                BufferMs = bufferMs;
+                BufferCount = bufferCount;
+                if (_waveOut != null) SetDevice(_deviceNumber);
             }
 
             public void Dispose()
@@ -4159,7 +4322,36 @@ namespace JJFlexWpf
                 _waveOut?.Dispose();
                 _waveOut = null;
                 _volume = null;
+                _counter = null;
                 Mixer = null;
+            }
+        }
+
+        /// <summary>
+        /// Passes the channel's output through unchanged and counts the frames
+        /// handed to the device (#855), so a sound's timing probe can say how
+        /// much audio was queued ahead of it. One add per device buffer.
+        /// </summary>
+        private sealed class CountingSampleProvider : ISampleProvider
+        {
+            private readonly ISampleProvider _source;
+            private long _frames;
+
+            public CountingSampleProvider(ISampleProvider source) { _source = source; }
+
+            public WaveFormat WaveFormat => _source.WaveFormat;
+
+            /// <summary>Frames handed to the device since the last reset.</summary>
+            public long Frames => System.Threading.Interlocked.Read(ref _frames);
+
+            /// <summary>Back to zero, for a new device whose played count starts at zero.</summary>
+            public void Reset() => System.Threading.Interlocked.Exchange(ref _frames, 0);
+
+            public int Read(Span<float> buffer)
+            {
+                int n = _source.Read(buffer);
+                if (n > 0) System.Threading.Interlocked.Add(ref _frames, n / WaveFormat.Channels);
+                return n;
             }
         }
 

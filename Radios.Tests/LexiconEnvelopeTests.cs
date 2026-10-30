@@ -2057,6 +2057,16 @@ namespace Radios.Tests
                 // injected stage, keyed with the countdown off, says it is
                 // transmitting. Draft prose, awaiting Noel.
                 "audio.fixer.inject_now",
+                // Sound timing #855, step 4: the alert sound delay, its four
+                // choices, the hand-edited one and its Ctrl+F1 text. Window
+                // text (delivery null). Draft prose, awaiting Noel.
+                "audio.alert_buffer.label",
+                "audio.alert_buffer.shortest",
+                "audio.alert_buffer.short_default",
+                "audio.alert_buffer.medium",
+                "audio.alert_buffer.long",
+                "audio.alert_buffer.custom",
+                "audio.alert_buffer.help",
             };
 
             // 3,133: main's junk box classified two (3,140 to 3,138) and Check
