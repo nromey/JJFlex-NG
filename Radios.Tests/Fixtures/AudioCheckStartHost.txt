@@ -163,7 +163,7 @@ public class Host
         { _owner=owner; _ptt=ptt; _method=method; _powerMode=powerMode; _lowPowerWatts=lowPowerWatts; _loopback=loopback; }
         private void RestoreChangedState(FlexBase rig, bool speak) { }
         private void RestoreWhenReceiving(FlexBase rig) { }
-        private void Remember(FlexBase rig, string name, Action restore) { }
+        private void Remember(FlexBase rig, string name, Action restore, params CheckPutBack[] putBacks) { }
         private static string FormatMHz(double f) => f.ToString();
         private static string SourceFriendlyName(string s) => s;
         private void HandleUnkey(bool external) { _ptt.EscapeUnlock(); Active=false; _owner.OnSessionEnded(); }

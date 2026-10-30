@@ -1414,6 +1414,12 @@
   "audio.check.loopback_part.and": {"text": "and", "delivery": null},
   "audio.check.teardown_withheld_reminder": {"text": "When this radio was last disconnected it was still transmitting, so the audio check did not put back your power and antenna settings. Check transmit power, the transmit antenna, transverter drive, the monitor, full duplex and your slices.", "delivery": null},
   "audio.check.teardown_unconfirmed_reminder": {"text": "When this radio was last disconnected, the audio check could not confirm it had put the radio back. Check transmit power, the transmit antenna, transverter drive, the monitor, full duplex and your slices.", "delivery": null},
+  "audio.check.loopback_part.tune_power": {"text": "tune power", "delivery": null},
+  "audio.check.putback_lead": {"text": "When this radio was last disconnected, an audio check had not put its settings back.", "delivery": null},
+  "audio.check.putback_done": {"text": "Put back: {parts}.", "delivery": null},
+  "audio.check.putback_left": {"text": "Already changed by something else, so left alone: {parts}.", "delivery": null},
+  "audio.check.putback_not": {"text": "Not confirmed, so check {parts}.", "delivery": null},
+  "audio.check.putback_already": {"text": "They were already back.", "delivery": null},
   "audio.countdown.pip_sound_label": {"text": "Countdown beep or pip sound", "delivery": null},
   "audio.countdown.pip_sound_default": {"text": "{sound}, the default", "delivery": null},
   "audio.countdown.pip_sound_help": {"text": "The sound of the counting pips and the long tone at the end: the same six sounds CW notifications offer. Play sample plays your choice before you keep it, and the Fix tool's countdown uses it too.", "delivery": null}

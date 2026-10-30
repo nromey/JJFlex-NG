@@ -11172,6 +11172,8 @@ namespace Radios
         private bool _loopbackArranged;
         private bool _lbSavedFdx;
         private string _lbSavedTxAnt = "";
+        /// <summary>The transverter port the arrangement moved the transmit antenna to: the value the next connect's put-back looks for (#835, fix round 1030).</summary>
+        private string _lbArrangedTxAnt = "";
         private bool _lbSavedMonitor;
         private int _lbSavedPower;
         private LoopbackSliceResources _lbResources;
@@ -11291,6 +11293,7 @@ namespace Radios
             _lbSavedFdx = confirmedPriorFullDuplex ?? FullDuplexState(arrangementRadio, arrangementConnection);
             var tx = SliceForTransmitSetting();
             _lbSavedTxAnt = ListenbackPrior("tx-antenna", TXAntennaName, tx);
+            _lbArrangedTxAnt = xvt;
             _lbSavedMonitor = ListenbackPrior("monitor", theRadio.TXMonitor ? "1" : "0") == "1";
             _lbSavedPower = int.Parse(ListenbackPrior("rf-power", XmitPower.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                 System.Globalization.CultureInfo.InvariantCulture);
@@ -11593,6 +11596,7 @@ namespace Radios
             var arrangementRadio = _lbArrangementRadio;
             var arrangementConnection = _lbArrangementConnection;
             string savedTxAnt = _lbSavedTxAnt;
+            string arrangedTxAnt = _lbArrangedTxAnt;
             int savedPower = _lbSavedPower;
             bool savedMonitor = _lbSavedMonitor;
             bool savedFdx = _lbSavedFdx;
@@ -11782,7 +11786,38 @@ namespace Radios
                     if (ReferenceEquals(_lbArrangementConnection, arrangementConnection)) _lbArrangementConnection = null;
                 }),
             });
+            DescribeLoopbackPutBacks(steps, savedTxAnt, arrangedTxAnt, savedPower, savedMonitor, savedFdx, driveBand, savedDriveDbm);
             return FinishLoopbackEndAsync(steps, trouble, notes, driveBand != null);
+        }
+
+        /// <summary>
+        /// What each station-wide Loopback restore puts back, and what the
+        /// arrangement had set (Loopback arranged: the transmit antenna on the
+        /// transverter port, 1 watt, the monitor off, full duplex on, the
+        /// transverter drive at -10 dBm), so a disconnect that comes before a
+        /// restore has run can put it back at the next connect (#835, fix round
+        /// 1030). The slices' mutes and the listening slice are left out on
+        /// purpose: slices belong to the connection, the radio removes a
+        /// client's slices when it goes, and the reconnect's station restore
+        /// makes them again with their own mutes, so there is nothing of the
+        /// check's left on them to put back.
+        /// </summary>
+        private void DescribeLoopbackPutBacks(List<CheckRestorations.Entry> steps, string savedTxAnt, string arrangedTxAnt,
+            int savedPower, bool savedMonitor, bool savedFdx, Xvtr driveBand, double savedDriveDbm)
+        {
+            foreach (var step in steps)
+            {
+                CheckPutBack item = LoopbackPartOf(step.Name) switch
+                {
+                    LoopbackEndOutcome.Antenna when !string.IsNullOrEmpty(arrangedTxAnt) => CheckPutBack.Antenna(savedTxAnt, arrangedTxAnt),
+                    LoopbackEndOutcome.Power => CheckPutBack.Power(savedPower, 1),
+                    LoopbackEndOutcome.Monitor => CheckPutBack.MonitorOn(savedMonitor, false),
+                    LoopbackEndOutcome.Duplex => CheckPutBack.Duplex(savedFdx, true),
+                    LoopbackEndOutcome.Drive when driveBand != null => CheckPutBack.Drive(driveBand.Index, savedDriveDbm, -10.0),
+                    _ => null,
+                };
+                if (item != null) DescribeCheckPutBack(step, item);
+            }
         }
 
         /// <summary>
