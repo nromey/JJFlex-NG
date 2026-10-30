@@ -248,6 +248,10 @@ public static class RecorderControls
                     Lexicon.Get("audio.qsos.resume_vox_unconfirmed"), SpeechSubject.ComputerRecorder),
                 // A carry-on already under way: this press adds nothing, and says nothing.
                 LocalPlaybackVox.CarryOn.Busy => new(true, "", SpeechSubject.ComputerRecorder),
+                // The playback, radio or connection it was for changed while the
+                // radio confirmed VOX off (Codex round 1030, B4); whatever changed
+                // it has spoken for itself, and nothing resumed.
+                LocalPlaybackVox.CarryOn.Superseded => new(true, "", SpeechSubject.ComputerRecorder),
                 _ => new(false, Lexicon.Get("audio.recorder.failed"), SpeechSubject.ComputerRecorder),
             };
         }

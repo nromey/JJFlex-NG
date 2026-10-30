@@ -239,6 +239,30 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// B4's connection identity, which the speaker playback's carry-on
+        /// compares across its wait (the UI test stands it in): stable while
+        /// the connection lasts, a different object on a new connection, and
+        /// null with none.
+        /// </summary>
+        [Fact]
+        public void The_live_connection_identity_changes_with_the_connection_and_is_null_without_one()
+        {
+            using var f = new RigOnVendorRadio("sends-1030-connection-identity");
+            object? first = f.Rig.LiveConnectionIdentity;
+            Assert.NotNull(first);
+            Assert.Same(first, f.Rig.LiveConnectionIdentity);
+
+            PlantNewConnection(f);
+            object? second = f.Rig.LiveConnectionIdentity;
+            Assert.NotNull(second);
+            Assert.NotSame(first, second);
+
+            typeof(Flex.Smoothlake.FlexLib.Radio).GetProperty(nameof(Flex.Smoothlake.FlexLib.Radio.Connected))!
+                .GetSetMethod(nonPublic: true)!.Invoke(f.Vendor.Radio, new object[] { false });
+            Assert.Null(f.Rig.LiveConnectionIdentity);
+        }
+
+        /// <summary>
         /// Pin: the send host hands a taken-over piece's monitor to the wait,
         /// and every other ending lets it go at once as before.
         /// </summary>

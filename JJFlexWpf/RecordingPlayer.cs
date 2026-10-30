@@ -133,6 +133,37 @@ public static class RecordingPlayer
     }
 
     /// <summary>
+    /// The playback now loaded, playing or paused, as an opaque identity, or
+    /// null with none. Every <see cref="Play"/> makes a new one, so a caller
+    /// that waits (a carry-on waiting for the radio to confirm VOX off) can
+    /// tell the playback it was asked about from one that replaced it (#835,
+    /// Codex round 1030, B4).
+    /// </summary>
+    internal static object? CurrentPlayback
+    {
+        get { lock (Gate) return _provider; }
+    }
+
+    /// <summary>
+    /// <see cref="Resume"/>, but only if <paramref name="playback"/> (from
+    /// <see cref="CurrentPlayback"/>) is still the one loaded. Checked and
+    /// unpaused under the player's lock, so a stop or a new playback cannot
+    /// slip in between. False when it was replaced, ended, or is not paused.
+    /// </summary>
+    internal static bool ResumeIf(object playback)
+    {
+        lock (Gate)
+        {
+            if (!ReferenceEquals(_provider, playback) || _transport == null || !_transport.Paused) return false;
+            _transport.Paused = false;
+        }
+        // Outside the lock, as Resume does it.
+        RxPlaybackLevel.SetPaused(false);
+        StateChanged?.Invoke();
+        return true;
+    }
+
+    /// <summary>
     /// Move the recording that is playing or paused to another point. Paused,
     /// the next Resume carries on from there; sounding, playback jumps once
     /// the audio already queued for the speakers has played out.
