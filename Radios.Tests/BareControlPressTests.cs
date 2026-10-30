@@ -174,7 +174,8 @@ namespace Radios.Tests
             Assert.Contains("run.Skip();", hookPath);
             string windowPath = Body(src, "private void CountdownSkipKeyUp");
             int bare = windowPath.IndexOf("if (!bare) return;", System.StringComparison.Ordinal);
-            int may = windowPath.IndexOf("CountdownSkipGate.WindowMayDecide(SystemWideKeys.EverSawAKey, SystemWideKeys.LastKeyTime, _controlDownTime)", System.StringComparison.Ordinal);
+            int may = windowPath.IndexOf("CountdownSkipGate.WindowMayDecide(SystemWideKeys.EverSawAKey, SystemWideKeys.LastKeyTime, _controlDownTime,", System.StringComparison.Ordinal);
+            Assert.Contains("SystemWideKeys.EverSawControlDown, SystemWideKeys.LastControlDownTime)) return;", windowPath);
             // The press's stamp is the Windows stamp on the Control press itself.
             Assert.Contains("_controlDownTime = e.Timestamp;", src);
             int skip = windowPath.IndexOf(".Skip()", System.StringComparison.Ordinal);
@@ -416,6 +417,30 @@ namespace Radios.Tests
             // Across the 32-bit wrap the order still holds.
             Assert.False(CountdownSkipGate.WindowMayDecide(true, 10, unchecked((int)0xFFFFFFF0u)));
             Assert.True(CountdownSkipGate.WindowMayDecide(true, 0xFFFFFFE0u, unchecked((int)0xFFFFFFF0u)));
+        }
+
+        /// <summary>
+        /// Codex round 1030, F1: the hook saw Control (stamp 1000), swallowed a
+        /// re-injected key whose SUPPLIED stamp is older (999), then died. By
+        /// "last key" alone the hook looks as if it saw nothing of the press and
+        /// the window would skip. The hook's own record of THIS Control press,
+        /// same event and same stamp, keeps the decision with the hook.
+        /// </summary>
+        [Fact]
+        public void A_swallowed_key_with_an_older_supplied_stamp_does_not_hand_the_decision_to_the_window()
+        {
+            // The counterexample, by the last-key rule alone: the window decides.
+            Assert.True(CountdownSkipGate.WindowMayDecide(true, 999, 1000));
+            // With the hook's last Control press at the window's stamp: it does not.
+            Assert.False(CountdownSkipGate.WindowMayDecide(true, 999, 1000, hookEverSawControlDown: true, hookLastControlDownTime: 1000));
+            // A dead hook whose last Control press was an earlier one: the window decides.
+            Assert.True(CountdownSkipGate.WindowMayDecide(true, 900, 1000, hookEverSawControlDown: true, hookLastControlDownTime: 880));
+            // The exact half-range is ambiguous and falls to the hook.
+            Assert.False(CountdownSkipGate.WindowMayDecide(true, 0x80000000u, 0));
+            // The hook notes Control presses, by their own stamp, before anything can swallow them.
+            string hook = Read("JJFlexWpf", "SystemWideKeys.cs");
+            string callback = Body(hook, "private static IntPtr HookCallback");
+            Assert.Contains("System.Threading.Volatile.Write(ref _lastControlDownTime, unchecked((int)data.time));", callback);
         }
 
         /// <summary>

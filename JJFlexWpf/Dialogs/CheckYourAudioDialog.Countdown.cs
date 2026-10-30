@@ -194,7 +194,8 @@ public partial class CheckYourAudioDialog
         // If the hook saw any key of this press, its verdict decides, not
         // this window; only a hook that saw nothing (none, or a dead one)
         // leaves the decision here.
-        if (!CountdownSkipGate.WindowMayDecide(SystemWideKeys.EverSawAKey, SystemWideKeys.LastKeyTime, _controlDownTime)) return;
+        if (!CountdownSkipGate.WindowMayDecide(SystemWideKeys.EverSawAKey, SystemWideKeys.LastKeyTime, _controlDownTime,
+            SystemWideKeys.EverSawControlDown, SystemWideKeys.LastControlDownTime)) return;
         // Only the count that was running when Control went down, and only
         // while it is still running: a Control held from before the count
         // began, or across its end, skips nothing.

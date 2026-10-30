@@ -192,6 +192,19 @@ namespace JJFlexWpf
         private static int _lastKeyTime;
 
         /// <summary>
+        /// The hook has seen a Control press this session, and
+        /// <see cref="LastControlDownTime"/> is the Windows stamp of the latest.
+        /// A window's Control press carrying that same stamp is the press the
+        /// hook saw (Codex round 1030, F1), whatever stamp an injector supplied.
+        /// </summary>
+        public static bool EverSawControlDown => _everSawControlDown;
+        private static volatile bool _everSawControlDown;
+
+        /// <summary>The Windows stamp of the last Control press the hook saw.</summary>
+        public static uint LastControlDownTime => unchecked((uint)System.Threading.Volatile.Read(ref _lastControlDownTime));
+        private static int _lastControlDownTime;
+
+        /// <summary>
         /// A bare Control (pressed and released with no other key, the hook's
         /// swallowed keys included) was just released, anywhere (#835). Raised
         /// on the UI dispatcher. Check your audio's countdown skip listens; it
@@ -451,6 +464,11 @@ namespace JJFlexWpf
                 // the flag, so a reader that sees the flag sees a stamp.
                 System.Threading.Volatile.Write(ref _lastKeyTime, unchecked((int)data.time));
                 _everSawAKey = true;
+                if (isDown && BareControlGestures.IsControlVirtualKey(data.vkCode))
+                {
+                    System.Threading.Volatile.Write(ref _lastControlDownTime, unchecked((int)data.time));
+                    _everSawControlDown = true;
+                }
                 // Live modifier state from Windows, read only to recognise a
                 // DOWN. Injected input counts (JAWS re-injects), as it does
                 // for CwCtrlInterrupt: filtering it would exempt our audience.

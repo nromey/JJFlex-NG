@@ -244,7 +244,27 @@ namespace Radios
         /// <param name="hookEverSawAKey">The hook has seen at least one key this session.</param>
         /// <param name="hookLastKeyTime">The Windows stamp of the last key the hook saw.</param>
         /// <param name="windowControlDownTime">The Windows stamp of the Control press this window saw.</param>
-        public static bool WindowMayDecide(bool hookEverSawAKey, uint hookLastKeyTime, int windowControlDownTime) =>
-            !hookEverSawAKey || unchecked((int)(hookLastKeyTime - (uint)windowControlDownTime)) < 0;
+        /// <param name="hookEverSawControlDown">The hook has seen at least one Control press this session.</param>
+        /// <param name="hookLastControlDownTime">The Windows stamp of the last Control press the hook saw.</param>
+        /// <remarks>
+        /// <b>Also: the hook saw THIS Control press (Codex round 1030, F1).</b>
+        /// A program that injects keys may supply its own stamp, so a key the
+        /// hook swallowed during the press can carry a stamp OLDER than
+        /// Control's, and "the last key the hook saw" then reads as before the
+        /// press. But the window's Control press and the hook's are the same
+        /// event with the same stamp, whatever was supplied: when the hook's
+        /// last Control press carries the window's stamp, the hook saw this
+        /// press and its verdict decides. The window decides only when the hook
+        /// saw neither this Control press nor any key stamped after it. Equal
+        /// stamps, wraparound and the exact half-range all fall to the hook.
+        /// </remarks>
+        public static bool WindowMayDecide(bool hookEverSawAKey, uint hookLastKeyTime, int windowControlDownTime,
+            bool hookEverSawControlDown = false, uint hookLastControlDownTime = 0)
+        {
+            if (!hookEverSawAKey) return true;
+            if (hookEverSawControlDown && hookLastControlDownTime == unchecked((uint)windowControlDownTime)) return false;
+            int sinceDown = unchecked((int)(hookLastKeyTime - (uint)windowControlDownTime));
+            return sinceDown < 0 && sinceDown != int.MinValue;
+        }
     }
 }
