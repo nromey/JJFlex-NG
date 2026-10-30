@@ -42,6 +42,7 @@ Session transcripts are indexed by their decoded string values, not their raw JS
 - The unlocking key pairs are a YubiKey (a P-256 key generated inside its PIV applet, slot 9D by default, which cannot be copied out) and a recovery key whose private half lives in 1Password. No key is held by the TPM or by Windows.
 - Adding or removing an unlocking key re-wraps the 32-byte database key; the database is not touched. `keys rotate` replaces the database key itself, for when a key may have been exposed.
 - The seal's hook stages an archive to a staging public key. Its private half is stored inside the encrypted database, so a stage is readable only by an unlocked index, and staging never needs the YubiKey or the recovery key.
+- A stage cannot see the index, so it compares against the previous archive in the same series, read straight from the record, and records unchanged members by reference instead of reading them. The merge resolves those references; if the previous archive is not in the index, the stage is set aside and the archive is indexed from the record instead.
 
 ## Tests
 
