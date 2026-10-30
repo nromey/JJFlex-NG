@@ -357,4 +357,52 @@ public sealed class CheckPutBackSendRepairTests : IDisposable
         Assert.True(Wrote(c, "transmit set rfpower=25"));
         Assert.Contains(store.PutBacksFor(serial), p => p.Setting == CheckPutBack.RfPower && p.Original == "25" && p.CheckSet == "1");
     }
+
+    // ── The same question for the check's own restores ────────────────
+    //
+    // Not one of Codex's findings: the same class. The check's own restores
+    // (a teardown, a check ending) queue ordinary setters under
+    // RestoreWritesAtReceiveAsync, whose run-time question asked only our
+    // cached Mox. The owner (CheckRestorations) waits on Mox OR the radio's
+    // interlock before it starts an entry, so the two disagreed exactly where
+    // FlexBase.CheckRestore.cs says they can: a hardware key between the
+    // owner's question and the queued write's run.
+
+    [Fact]
+    public async Task A_checks_own_queued_restore_meets_the_radios_interlock_at_its_run_and_waits()
+    {
+        using var c = new RadioCase("own-restore-serial");
+        Field(c.F.Vendor.Radio, "_rfPower", 1);
+        c.F.Vendor.Transport.Written.Clear();
+        var rig = c.F.Rig;
+
+        var restore = rig.RestoreWritesAtReceiveAsync("transmit power", () =>
+        {
+            using (rig.AppInitiatedSettingChanges()) rig.XmitPower = 80;
+        });
+        // The write is queued; before the loop reaches it the radio keys on its own.
+        c.F.Vendor.Status("interlock state=TRANSMITTING source=RCA");
+        var outcome = await c.Pump(restore);
+
+        Assert.False(rig.Transmit);
+        Assert.Equal(RestoreOutcome.Retry, outcome);
+        Assert.False(Wrote(c, "transmit set rfpower"), "a check's restore wrote while the radio's interlock said transmitting");
+    }
+
+    [Fact]
+    public async Task Control_a_checks_own_queued_restore_in_receive_goes_out()
+    {
+        using var c = new RadioCase("own-restore-rx-serial");
+        Field(c.F.Vendor.Radio, "_rfPower", 1);
+        c.F.Vendor.Transport.Written.Clear();
+        var rig = c.F.Rig;
+
+        var outcome = await c.Pump(rig.RestoreWritesAtReceiveAsync("transmit power", () =>
+        {
+            using (rig.AppInitiatedSettingChanges()) rig.XmitPower = 80;
+        }));
+
+        Assert.Equal(RestoreOutcome.Done, outcome);
+        Assert.True(Wrote(c, "transmit set rfpower=80"));
+    }
 }
