@@ -332,6 +332,13 @@ public static class RecorderControls
         // going out pauses, a paused one carries on, any other send stops.
         if (VoiceMessageSender.AnswerPlayFromComputer())
             return HandedToSend(SpeechSubject.ComputerRecorder);
+        // A recording paused on the speakers carries on the way a press now
+        // would go (Noel, 2026-10-30 05:56: "If you've paused and you turn send
+        // on, say you didn't realize you did, it should send"): the box ticked
+        // with VOX on, or the operator keyed, sends it from where it paused.
+        if (rig != null && RecordingPlayer.IsPaused
+            && VoiceMessageSender.SendPausedSpeakerPlayback(rig, VoiceMessageSender.RouteFor(rig)))
+            return HandedToSend(SpeechSubject.ComputerRecorder);
         // On the speakers too, Play pauses and Play again carries on; Escape
         // stops (Noel, 2026-10-28 21:20: one meaning for the key everywhere).
         if (ComputerRecorder.Current.IsPlaying)

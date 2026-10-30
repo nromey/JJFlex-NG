@@ -82,6 +82,7 @@ public sealed class SendsRound1030WindowlessTests : IDisposable
         public void SendComputerRecording(FlexBase rig, string path, SendRoute route) => Sent.Add((path, route));
         public bool AnswerPlayFromComputer() => false;
         public void Stop() { }
+        public bool SendPausedPlayback(FlexBase rig, SendRoute route) => false;
     }
 
     [Fact]

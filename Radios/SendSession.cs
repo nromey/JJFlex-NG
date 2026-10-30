@@ -91,6 +91,17 @@ namespace Radios
             TotalSeconds = Math.Max(0, totalSeconds);
         }
 
+        /// <summary>
+        /// A send that starts part-way into the recording: a recording paused
+        /// on the speakers that a press now sends from where it was paused
+        /// (#835; Noel, 2026-10-30 05:56). The first piece must have been
+        /// loaded from <paramref name="startAtSeconds"/>.
+        /// </summary>
+        public SendSession(double totalSeconds, double startAtSeconds) : this(totalSeconds)
+        {
+            HeldAtSeconds = Math.Min(TotalSeconds, Math.Max(0, startAtSeconds));
+        }
+
         /// <summary>The whole recording's length, in seconds.</summary>
         public double TotalSeconds { get; }
 

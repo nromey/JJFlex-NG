@@ -419,6 +419,46 @@ internal static class VoiceMessageSender
     /// keys the radio itself.
     /// </summary>
     public static void SendComputerRecording(FlexBase rig, string path, SendRoute route)
+        => SendComputerRecording(rig, path, route, 0);
+
+    /// <summary>
+    /// A recording paused on the speakers, when a press now would send (#835;
+    /// Noel, 2026-10-30 05:56: <i>"If you've paused and you turn send on, say
+    /// you didn't realize you did, it should send"</i>). The route is chosen as
+    /// a fresh press would choose it: the box ticked with VOX on, or the
+    /// operator keyed. The speakers' playback ends without a word and the
+    /// recording goes to the air from where it was paused, saying so as any
+    /// send does. False, touching nothing, when the press would not send or
+    /// there is nothing paused, so the caller carries on on the speakers.
+    /// </summary>
+    internal static bool SendPausedSpeakerPlayback(FlexBase rig, SendRoute route)
+    {
+        if (rig == null) throw new ArgumentNullException(nameof(rig));
+        if (route == SendRoute.AsBefore || _confirming || InFlight || !RecordingPlayer.IsPaused) return false;
+        string path = RecordingPlayer.CurrentPath;
+        // Only a recorded QSO, the thing Play from computer sends. The same
+        // player plays Check your audio's takes, and a paused take is never
+        // something to put on the air.
+        if (!IsRecordedQso(path)) return false;
+        double at = RecordingPlayer.PositionSeconds ?? 0;
+        Tracing.TraceLine("VoiceMessageSender: the recording paused on the speakers at " + at.ToString("F1")
+            + " s goes to the air instead, " + route + ": a press now sends", TraceLevel.Info);
+        RecordingPlayer.StopWithoutSpeaking();
+        SendComputerRecording(rig, path, route, at);
+        return true;
+    }
+
+    /// <summary>True when the file is in the Recorded QSOs folder.</summary>
+    internal static bool IsRecordedQso(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return false;
+        string folder = Path.GetFullPath(RecordedQsoCatalog.FolderPath)
+            .TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        try { return Path.GetFullPath(path).StartsWith(folder, StringComparison.OrdinalIgnoreCase); }
+        catch (Exception) { return false; }
+    }
+
+    private static void SendComputerRecording(FlexBase rig, string path, SendRoute route, double fromSeconds)
     {
         if (rig == null) throw new ArgumentNullException(nameof(rig));
         if (_confirming) return;
@@ -446,7 +486,7 @@ internal static class VoiceMessageSender
             Refuse(info, trouble);
             return;
         }
-        if (!LengthAgreed(rig, info, route, out TxAudioFile.Loaded? loaded, out route)) return;
+        if (!LengthAgreed(rig, info, route, out TxAudioFile.Loaded? loaded, out route, fromSeconds)) return;
         if (route == SendRoute.AsBefore)
         {
             // The radio changed while the question was open: nobody is keying
@@ -456,13 +496,13 @@ internal static class VoiceMessageSender
         }
         if (loaded == null)
         {
-            if (!TxAudioFile.TryLoadPieceInto(rig, path, 0, out loaded, out string loadTrouble) || loaded == null)
+            if (!TxAudioFile.TryLoadPieceInto(rig, path, fromSeconds, out loaded, out string loadTrouble) || loaded == null)
             {
                 Refuse(info, loadTrouble);
                 return;
             }
         }
-        info.Session = new SendSession(loaded.LengthSeconds);
+        info.Session = new SendSession(loaded.LengthSeconds, fromSeconds);
         StartComputerPiece(rig, info, loaded, route);
     }
 
@@ -496,20 +536,22 @@ internal static class VoiceMessageSender
     /// reflected-power cut are asked again for the same reason.
     /// </remarks>
     private static bool LengthAgreed(FlexBase rig, SendInfo info, SendRoute route,
-        out TxAudioFile.Loaded? loaded, out SendRoute routeAfter)
+        out TxAudioFile.Loaded? loaded, out SendRoute routeAfter, double fromSeconds = 0)
     {
         loaded = null;
         routeAfter = route;
         string path = info.Path ?? "";
         if (!TxAudioFile.TryMeasureSeconds(path, out double length))
         {
-            if (!TxAudioFile.TryLoadPieceInto(rig, path, 0, out loaded, out string loadTrouble) || loaded == null)
+            if (!TxAudioFile.TryLoadPieceInto(rig, path, fromSeconds, out loaded, out string loadTrouble) || loaded == null)
             {
                 Refuse(info, loadTrouble);
                 return false;
             }
             length = loaded.LengthSeconds;
         }
+        // A send from a paused place is as long as what is left of it.
+        length = Math.Max(0, length - fromSeconds);
         if (!VoiceMessageSend.NeedsLengthWarning(length, route)) return true;
 
         if (!ConfirmLongSend(info, length))

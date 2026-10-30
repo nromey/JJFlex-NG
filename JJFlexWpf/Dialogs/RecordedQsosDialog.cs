@@ -610,6 +610,12 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         /// <summary>Pause, carry on, or stop the send in hand, as Play from computer does.</summary>
         bool AnswerPlayFromComputer();
         void Stop();
+        /// <summary>
+        /// Send the paused preview from where it paused, on <paramref name="route"/>
+        /// (<see cref="VoiceMessageSender.SendPausedSpeakerPlayback"/>). False,
+        /// touching nothing, when it would not send.
+        /// </summary>
+        bool SendPausedPlayback(FlexBase rig, SendRoute route);
     }
 
     private sealed class LiveSendDoors : ISendDoors
@@ -621,6 +627,8 @@ public sealed class RecordedQsosDialog : JJFlexDialog
             VoiceMessageSender.SendComputerRecording(rig, path, route);
         public bool AnswerPlayFromComputer() => VoiceMessageSender.AnswerPlayFromComputer();
         public void Stop() => VoiceMessageSender.Stop();
+        public bool SendPausedPlayback(FlexBase rig, SendRoute route) =>
+            VoiceMessageSender.SendPausedSpeakerPlayback(rig, route);
     }
 
     internal static ISendDoors SendDoors { get; set; } = new LiveSendDoors();
@@ -638,6 +646,12 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         /// Play from computer chose (<see cref="SendRoute"/>).
         /// </summary>
         Send,
+        /// <summary>
+        /// This window's preview is PAUSED and a press now would send (the box
+        /// ticked with VOX on, or the operator keyed): send the recording from
+        /// where it paused (Noel, 2026-10-30 05:56).
+        /// </summary>
+        SendFromPause,
         /// <summary>Everything else: preview on this computer's speakers, as before the box.</summary>
         Preview,
     }
@@ -662,9 +676,15 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     /// <see cref="SendRoute.AsBefore"/> is a send. Until then this refused,
     /// "A recording cannot play here while you are transmitting."
     /// </remarks>
-    internal static EnterAct ChooseEnter(bool previewActive, bool computerSendInHand, SendRoute? route)
+    internal static EnterAct ChooseEnter(bool previewActive, bool computerSendInHand, SendRoute? route,
+        bool previewPaused = false)
     {
-        if (previewActive) return EnterAct.PreviewTransport;
+        // A paused preview carries on the way a press now would go (Noel,
+        // 2026-10-30 05:56: "If you've paused and you turn send on, say you
+        // didn't realize you did, it should send"). A playing one still pauses.
+        if (previewActive)
+            return previewPaused && route is SendRoute.Box or SendRoute.JoinTransmission
+                ? EnterAct.SendFromPause : EnterAct.PreviewTransport;
         if (computerSendInHand) return EnterAct.AnswerSend;
         if (route is SendRoute.Box or SendRoute.JoinTransmission) return EnterAct.Send;
         return EnterAct.Preview;
@@ -728,9 +748,17 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         // Play from computer asks, read live once per press.
         var doors = SendDoors;
         bool previewActive = PreviewActive;
-        SendRoute? route = !previewActive && _rig != null ? doors.RouteFor(_rig) : null;
-        switch (ChooseEnter(previewActive, doors.ComputerRecordingInHand, route))
+        bool previewPaused = previewActive && RecordingPlayer.IsPaused;
+        SendRoute? route = (!previewActive || previewPaused) && _rig != null ? doors.RouteFor(_rig) : null;
+        switch (ChooseEnter(previewActive, doors.ComputerRecordingInHand, route, previewPaused))
         {
+            case EnterAct.SendFromPause:
+                Tracing.TraceLine("RecordedQsosDialog: Enter sends the paused preview from where it paused"
+                    + (route == SendRoute.Box ? ", under the VOX send box" : ", on the operator's transmission"), TraceLevel.Info);
+                if (!doors.SendPausedPlayback(_rig!, route!.Value))
+                    await CarryOnPausedPreviewAsync();
+                RefreshControls();
+                return;
             case EnterAct.AnswerSend:
                 doors.AnswerPlayFromComputer();
                 if (_stop != null) RefreshControls();
@@ -746,28 +774,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         }
         if (RecordingPlayer.IsPaused)
         {
-            // VOX came back while the preview was paused; carrying on pauses it
-            // again, confirmed by the radio, before a sample sounds (#835, fix
-            // round 2026-10-30; Noel, 2026-10-29 23:58).
-            double at = RecordingPlayer.PositionSeconds ?? _browser.Cursor;
-            LocalPlaybackVox.CarryOn answer = await LocalPlaybackVox.CarryOnAsync();
-            if (_closed) return;
-            // DRAFT PROSE (#835): awaiting Noel (the two refusals)
-            switch (answer)
-            {
-                case LocalPlaybackVox.CarryOn.Resumed:
-                    Say(Lexicon.Get("audio.qsos.resumed", ("position", RecordedQsoWords.Position(at, _browser.Duration))));
-                    break;
-                case LocalPlaybackVox.CarryOn.Transmitting:
-                    Refuse(Lexicon.Get("audio.qsos.resume_refused_transmitting"));
-                    break;
-                case LocalPlaybackVox.CarryOn.VoxUnconfirmed:
-                    Refuse(Lexicon.Get("audio.qsos.resume_vox_unconfirmed"));
-                    break;
-                // Superseded (Codex round 1030, B4), Busy, NothingPaused: the
-                // preview, radio or connection changed under the carry-on and
-                // that change spoke for itself; nothing resumed, nothing to say.
-            }
+            await CarryOnPausedPreviewAsync();
         }
         else if (RecordingPlayer.Pause())
         {
@@ -776,6 +783,33 @@ public sealed class RecordedQsosDialog : JJFlexDialog
             Say(Lexicon.Get("audio.qsos.paused", ("position", RecordedQsoWords.Position(at, _browser.Duration))));
         }
         RefreshControls();
+    }
+
+    /// <summary>Carry the paused preview on through the speakers.</summary>
+    private async Task CarryOnPausedPreviewAsync()
+    {
+        // VOX came back while the preview was paused; carrying on pauses it
+        // again, confirmed by the radio, before a sample sounds (#835, fix
+        // round 2026-10-30; Noel, 2026-10-29 23:58).
+        double at = RecordingPlayer.PositionSeconds ?? _browser.Cursor;
+        LocalPlaybackVox.CarryOn answer = await LocalPlaybackVox.CarryOnAsync();
+        if (_closed) return;
+        // DRAFT PROSE (#835): awaiting Noel (the two refusals)
+        switch (answer)
+        {
+            case LocalPlaybackVox.CarryOn.Resumed:
+                Say(Lexicon.Get("audio.qsos.resumed", ("position", RecordedQsoWords.Position(at, _browser.Duration))));
+                break;
+            case LocalPlaybackVox.CarryOn.Transmitting:
+                Refuse(Lexicon.Get("audio.qsos.resume_refused_transmitting"));
+                break;
+            case LocalPlaybackVox.CarryOn.VoxUnconfirmed:
+                Refuse(Lexicon.Get("audio.qsos.resume_vox_unconfirmed"));
+                break;
+            // Superseded (Codex round 1030, B4), Busy, NothingPaused: the
+            // preview, radio or connection changed under the carry-on and
+            // that change spoke for itself; nothing resumed, nothing to say.
+        }
     }
 
     private async Task StartPreviewAsync()

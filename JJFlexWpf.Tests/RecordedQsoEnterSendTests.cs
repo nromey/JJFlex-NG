@@ -54,6 +54,8 @@ public sealed class RecordedQsoEnterSendTests
         public void SendComputerRecording(FlexBase rig, string path, SendRoute route) => Sent.Add((path, route));
         public bool AnswerPlayFromComputer() { Answered++; return true; }
         public void Stop() => Stopped++;
+        public readonly List<SendRoute> SentFromPause = new();
+        public bool SendPausedPlayback(FlexBase rig, SendRoute route) { SentFromPause.Add(route); return true; }
     }
 
     [Theory]
@@ -80,6 +82,25 @@ public sealed class RecordedQsoEnterSendTests
         // A string, because the act is internal to the app and a public test
         // method cannot take it as a parameter.
         Assert.Equal(expected, RecordedQsosDialog.ChooseEnter(previewActive, computerSendInHand, route).ToString());
+    }
+
+    /// <summary>
+    /// A PAUSED preview carries on the way a press now would go (Noel,
+    /// 2026-10-30 05:56: "If you've paused and you turn send on ... it should
+    /// send"): from where it paused, under the box or on the operator's
+    /// transmission. A playing preview still pauses, and with nothing to send
+    /// a paused one still carries on through the speakers.
+    /// </summary>
+    [Theory]
+    [InlineData(SendRoute.Box, "SendFromPause")]
+    [InlineData(SendRoute.JoinTransmission, "SendFromPause")]
+    [InlineData(SendRoute.AsBefore, "PreviewTransport")]
+    [InlineData(null, "PreviewTransport")]
+    public void A_paused_preview_follows_the_box_as_it_is_now(SendRoute? route, string expected)
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Assert.Equal(expected, RecordedQsosDialog.ChooseEnter(true, false, route, previewPaused: true).ToString());
+        Assert.Equal("PreviewTransport", RecordedQsosDialog.ChooseEnter(true, false, route, previewPaused: false).ToString());
     }
 
     [Fact]
