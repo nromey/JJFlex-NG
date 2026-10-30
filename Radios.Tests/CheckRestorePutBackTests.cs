@@ -215,8 +215,8 @@ public sealed class CheckRestorePutBackTests : IDisposable
         Assert.DoesNotContain(commands, x => x.StartsWith("ping ", StringComparison.Ordinal));
         Assert.Equal(25, c.F.Vendor.Radio.RFPower);
 
-        string expected = "When this radio was last disconnected, an audio check had not put its settings back. "
-            + "Put back: the transmit antenna, transmit power and full duplex.";
+        string expected = "When this radio was last disconnected, an audio check had not restored its settings. "
+            + "Restored: the transmit antenna, transmit power and full duplex.";
         Assert.Single(said, u => u.Text == expected && u.Subject == Radios.Speech.SpeechSubject.CheckSettingsNotRestored);
         Assert.Equal(1, alarms());
         Assert.False(store.Contains("putback-serial"), "everything was put back and said");
@@ -242,8 +242,8 @@ public sealed class CheckRestorePutBackTests : IDisposable
         Assert.DoesNotContain(commands, x => x.Contains("txant=", StringComparison.Ordinal));
         Assert.Contains("radio set full_duplex_enabled=0", commands);
         Assert.Equal(50, c.F.Vendor.Radio.RFPower);
-        Assert.Single(said, u => u.Text == "When this radio was last disconnected, an audio check had not put its settings back. "
-            + "Put back: full duplex. Already changed by something else, so left alone: transmit power.");
+        Assert.Single(said, u => u.Text == "When this radio was last disconnected, an audio check had not restored its settings. "
+            + "Restored: full duplex. Already changed by something else, so left alone: transmit power.");
         Assert.False(store.Contains("left-serial"));
     }
 
@@ -266,7 +266,7 @@ public sealed class CheckRestorePutBackTests : IDisposable
         var commands = c.F.Vendor.Transport.Commands;
         Assert.DoesNotContain(commands, x => x.StartsWith("transmit set", StringComparison.Ordinal)
             || x.StartsWith("radio set", StringComparison.Ordinal) || x.Contains("txant=", StringComparison.Ordinal));
-        Assert.Single(said, u => u.Text == "When this radio was last disconnected, an audio check had not put its settings back. They were already back.");
+        Assert.Single(said, u => u.Text == "When this radio was last disconnected, an audio check had not restored its settings. They were already restored.");
         Assert.Equal(1, alarms());
         Assert.False(store.Contains("already-serial"));
     }
@@ -326,8 +326,8 @@ public sealed class CheckRestorePutBackTests : IDisposable
         await PutBackFinishes(c);
 
         Assert.Contains("transmit set rfpower=25", c.F.Vendor.Transport.Commands);
-        Assert.Single(said, u => u.Text == "When this radio was last disconnected, an audio check had not put its settings back. "
-            + "Put back: transmit power.");
+        Assert.Single(said, u => u.Text == "When this radio was last disconnected, an audio check had not restored its settings. "
+            + "Restored: transmit power.");
         Assert.Empty(store.PutBacksFor("silent-serial"));
     }
 
@@ -348,7 +348,7 @@ public sealed class CheckRestorePutBackTests : IDisposable
 
         Assert.DoesNotContain(c.F.Vendor.Transport.Commands, x => x.Contains("txant=", StringComparison.Ordinal)
             || x.StartsWith("xvtr set", StringComparison.Ordinal));
-        Assert.Single(said, u => u.Text == "When this radio was last disconnected, an audio check had not put its settings back. "
+        Assert.Single(said, u => u.Text == "When this radio was last disconnected, an audio check had not restored its settings. "
             + "Already changed by something else, so left alone: transverter drive. Not confirmed, so check the transmit antenna.");
         Assert.Equal(new[] { CheckPutBack.Antenna("ANT1", "XVT-A") }, store.PutBacksFor("unread-serial"));
     }
@@ -361,7 +361,7 @@ public sealed class CheckRestorePutBackTests : IDisposable
         store.Add("failed-serial", FlexBase.CheckRestoreWithheld);
         var (briefing, said, _) = OwnBriefing();
         using var c = RadioHoldingTheChecksValues("failed-serial", store, briefing);
-        string sentence = "When this radio was last disconnected, an audio check had not put its settings back. Put back: transmit power.";
+        string sentence = "When this radio was last disconnected, an audio check had not restored its settings. Restored: transmit power.";
 
         // The connect collects the sentence, then fails before its settle.
         briefing.FlowBegan(); briefing.RadioChosen();
@@ -421,8 +421,8 @@ public sealed class CheckRestorePutBackTests : IDisposable
         c.F.Rig.SuppressSpeech = false;
         c.F.Vendor.Transport.Written.Clear();
         Announce(c.F.Rig);
-        Assert.Single(said, u => u.Text == "When this radio was last disconnected, an audio check had not put its settings back. "
-            + "Put back: the transmit antenna, transmit power and full duplex."
+        Assert.Single(said, u => u.Text == "When this radio was last disconnected, an audio check had not restored its settings. "
+            + "Restored: the transmit antenna, transmit power and full duplex."
             && u.Subject == Radios.Speech.SpeechSubject.CheckSettingsNotRestored);
         Assert.Equal(1, alarms());
         Assert.DoesNotContain(c.F.Vendor.Transport.Commands, x => x.StartsWith("transmit set", StringComparison.Ordinal)
@@ -480,8 +480,8 @@ public sealed class CheckRestorePutBackTests : IDisposable
         Announce(c.F.Rig);
         await PutBackFinishes(c);
 
-        Assert.Single(said, u => u.Text == "When this radio was last disconnected, an audio check had not put its settings back. "
-            + "Put back: the transmit antenna, transmit power and full duplex.");
+        Assert.Single(said, u => u.Text == "When this radio was last disconnected, an audio check had not restored its settings. "
+            + "Restored: the transmit antenna, transmit power and full duplex.");
         Assert.Equal(1, alarms());
         Assert.False(store.Contains("two-connect-serial"));
     }
@@ -536,8 +536,8 @@ public sealed class CheckRestorePutBackTests : IDisposable
         Assert.Equal(outcome.PutBack, read.PutBack);
         Assert.Equal(outcome.LeftAlone, read.LeftAlone);
         Assert.Equal(outcome.NotPutBack, read.NotPutBack);
-        Assert.Equal("When this radio was last disconnected, an audio check had not put its settings back. "
-            + "Put back: transmit power and tune power. Already changed by something else, so left alone: the monitor. "
+        Assert.Equal("When this radio was last disconnected, an audio check had not restored its settings. "
+            + "Restored: transmit power and tune power. Already changed by something else, so left alone: the monitor. "
             + "Not confirmed, so check transverter drive.", read.Sentence());
         Assert.False(CheckPutBackOutcome.TryParse(FlexBase.CheckRestoreWithheld, out _));
         Assert.False(CheckPutBackOutcome.TryParse(FlexBase.CheckRestoreUnconfirmed, out _));

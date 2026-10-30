@@ -83,7 +83,7 @@ public sealed class CheckRestoreSpeechTests : IDisposable
         Assert.Contains(LoopbackEndOutcome.Duplex, outcome.NotRestored);
         string said = outcome.Sentence();
         Assert.DoesNotContain("restored", said, StringComparison.OrdinalIgnoreCase);
-        Assert.StartsWith("Loopback ended without putting back the transmit antenna", said);
+        Assert.StartsWith("Loopback ended without restoring the transmit antenna", said);
         Assert.Contains("transmit power", said);
         Assert.Contains("the monitor", said);
         Assert.Contains("full duplex", said);
@@ -109,7 +109,7 @@ public sealed class CheckRestoreSpeechTests : IDisposable
             new[] { LoopbackEndOutcome.Antenna, LoopbackEndOutcome.Power },
             new[] { LoopbackEndOutcome.Monitor, LoopbackEndOutcome.Duplex, LoopbackEndOutcome.Mutes },
             "The listening slice removal was not confirmed.", "");
-        Assert.Equal("Loopback ended. It put back the transmit antenna and transmit power, but not the monitor, full duplex and your slices' mutes. "
+        Assert.Equal("Loopback ended. It restored the transmit antenna and transmit power, but not the monitor, full duplex and your slices' mutes. "
             + "Details are in the trace. The listening slice removal was not confirmed.", outcome.Sentence());
     }
 

@@ -249,7 +249,23 @@ public partial class CheckYourAudioDialog
             if (!ReferenceEquals(runRig, _rig)) return;
             // A take ending because the radio is about to go restores and
             // says so; it does not render and play (fix round 2).
-            if (_iqClosing || _tearingDown) { AnnounceClosedRecovery(run.Restored); return; }
+            if (_iqClosing || _tearingDown || !ReferenceEquals(runRig, _rig))
+            {
+                // A take that ended unrestored while its window or its radio was
+                // going, and whose settings are still owed to a restore that will
+                // run (at receive, or at the next connect), says nothing of its
+                // own: the teardown's one sentence, or the restore when it runs,
+                // says it (Noel, 2026-10-30 10:18: one short sentence). Asked of
+                // what is owed, not of the teardown's flags, which are already
+                // cleared when a held take finishes.
+                if (!run.Restored && runRig != null && runRig.CheckRestoreStillOwed())
+                {
+                    JJTrace.Tracing.TraceLine("Listenback: the take ended unrestored and its settings are owed to a restore that will run; "
+                        + "nothing of its own is said", System.Diagnostics.TraceLevel.Info);
+                    return;
+                }
+                if (_iqClosing || _tearingDown) { AnnounceClosedRecovery(run.Restored); return; }
+            }
             string? previousDirectory = ListenbackTakes.PreviousDirectory(run.DirectoryPath);
             _lastIqDirectory = run.DirectoryPath;
             _iqAnalysisDetails = "";

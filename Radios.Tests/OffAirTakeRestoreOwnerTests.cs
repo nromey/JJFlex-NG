@@ -247,7 +247,7 @@ public sealed class OffAirTakeRestoreOwnerTests : IDisposable
 
         Assert.Contains("slice set 1 txant=ANT1", c.F.Vendor.Transport.Commands);
         Assert.Contains("radio set full_duplex_enabled=0", c.F.Vendor.Transport.Commands);
-        Assert.Single(said, u => u.Text.StartsWith(Lead + "Put back: the transmit antenna", StringComparison.Ordinal));
+        Assert.Single(said, u => u.Text.StartsWith(Lead + "Restored: the transmit antenna", StringComparison.Ordinal));
         Assert.DoesNotContain(said, u => u.Text == Lexicon.Get("audio.check.teardown_withheld_reminder"));
     }
 

@@ -28,7 +28,7 @@ public sealed class OffAirRecoveryPutBackTests : IDisposable
     private readonly RadioConfigStaticsScope _scope = new(nameof(OffAirRecoveryPutBackTests));
     public void Dispose() => _scope.Dispose();
 
-    private const string Lead = "When this radio was last disconnected, an audio check had not put its settings back. ";
+    private const string Lead = "When this radio was last disconnected, an audio check had not restored its settings. ";
 
     private static string Folder() => Path.Combine(RadioConfig.AppDataRoot, "offair-putback-" + Guid.NewGuid().ToString("N"));
 
@@ -123,7 +123,7 @@ public sealed class OffAirRecoveryPutBackTests : IDisposable
             || x.StartsWith("slice remove", StringComparison.Ordinal) || x.StartsWith("display pan", StringComparison.Ordinal)
             || x.StartsWith("stream remove", StringComparison.Ordinal));
 
-        Assert.Single(said, u => u.Text == Lead + "Put back: the transmit antenna, transmit power and full duplex."
+        Assert.Single(said, u => u.Text == Lead + "Restored: the transmit antenna, transmit power and full duplex."
             && u.Subject == Radios.Speech.SpeechSubject.CheckSettingsNotRestored);
         Assert.Equal(1, alarms());
 
@@ -152,7 +152,7 @@ public sealed class OffAirRecoveryPutBackTests : IDisposable
         Assert.DoesNotContain(commands, x => x.Contains("txant=", StringComparison.Ordinal));
         Assert.Contains("radio set full_duplex_enabled=0", commands);
         Assert.Equal(50, c.F.Vendor.Radio.RFPower);
-        Assert.Single(said, u => u.Text == Lead + "Put back: full duplex. Already changed by something else, so left alone: transmit power.");
+        Assert.Single(said, u => u.Text == Lead + "Restored: full duplex. Already changed by something else, so left alone: transmit power.");
         Assert.Null(c.F.Rig.PendingListenbackRecovery);
     }
 

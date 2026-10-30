@@ -140,6 +140,23 @@ namespace Radios.Tests
             Assert.Contains("Dialogs.CheckYourAudioDialog.EndCheckBeforeTeardown(RigControl);", Read("JJFlexWpf/MainWindow.xaml.cs"));
         }
 
+        /// <summary>
+        /// Noel, 2026-10-30 10:18, after a hand mic held through Disconnect: one
+        /// short sentence, not the teardown's plus the take's own "Radio
+        /// restoration is not fully confirmed..." The take asks what is still
+        /// owed before its closed notice, and says nothing when a restore will run.
+        /// </summary>
+        [Fact]
+        public void A_take_that_ends_owed_while_closing_leaves_the_one_sentence_to_the_teardown()
+        {
+            string finish = Body(Read("JJFlexWpf/Dialogs/CheckYourAudioDialog.OffAir.cs"), "private async Task FinishIqAsync(string reason)");
+            int owed = finish.IndexOf("!run.Restored && runRig != null && runRig.CheckRestoreStillOwed()", StringComparison.Ordinal);
+            int closed = finish.IndexOf("AnnounceClosedRecovery(run.Restored)", StringComparison.Ordinal);
+            Assert.True(owed >= 0 && closed > owed, "the take asks what is owed before it announces its own recovery");
+            Assert.Contains("\"audio.check.teardown_withheld\": {\"text\": \"The radio disconnected while you were transmitting. "
+                + "Settings will be restored when you connect.\"", Read("Radios/Lexicon/audio.json"));
+        }
+
         [Fact]
         public void A_new_check_and_app_keying_are_refused_while_a_teardown_holds_admission()
         {

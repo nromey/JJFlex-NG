@@ -45,7 +45,7 @@ public sealed class OffAirTakeRestoreTransmitTests : IDisposable
     private readonly RadioConfigStaticsScope _scope = new(nameof(OffAirTakeRestoreTransmitTests));
     public void Dispose() => _scope.Dispose();
 
-    internal const string Lead = "When this radio was last disconnected, an audio check had not put its settings back. ";
+    internal const string Lead = "When this radio was last disconnected, an audio check had not restored its settings. ";
 
     /// <summary>The commands a take's restore sends that change what the radio transmits, or how.</summary>
     internal static readonly string[] TransmitSettingWrites =
@@ -219,7 +219,7 @@ public sealed class OffAirTakeRestoreTransmitTests : IDisposable
         Assert.Contains("slice set 1 txant=ANT1", commands);
         Assert.Contains("transmit set rfpower=20", commands);
         Assert.Contains("radio set full_duplex_enabled=0", commands);
-        Assert.Single(said, u => u.Text == Lead + "Put back: the transmit antenna, transmit power and full duplex.");
+        Assert.Single(said, u => u.Text == Lead + "Restored: the transmit antenna, transmit power and full duplex.");
         Assert.Equal(1, alarms());
         Assert.Null(c.F.Rig.PendingListenbackRecovery);
     }

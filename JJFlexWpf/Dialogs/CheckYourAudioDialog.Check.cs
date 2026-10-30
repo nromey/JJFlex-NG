@@ -316,7 +316,7 @@ public partial class CheckYourAudioDialog
         // DRAFT PROSE (#835): awaiting Noel.
         JJFlexHelp.SetText(_closeButton,
             "Closes Check your audio, the same as its title bar. A running check stops, and "
-            + "everything it changed on the radio is put back.");
+            + "everything it changed on the radio is restored.");
         _closeButton.Click += (s, e) => Close();
         CheckContent.Children.Add(_closeButton);
 

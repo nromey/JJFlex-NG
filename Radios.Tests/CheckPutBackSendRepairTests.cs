@@ -50,7 +50,7 @@ public sealed class CheckPutBackSendRepairTests : IDisposable
     private readonly RadioConfigStaticsScope _scope = new(nameof(CheckPutBackSendRepairTests));
     public void Dispose() => _scope.Dispose();
 
-    private const string Lead = "When this radio was last disconnected, an audio check had not put its settings back. ";
+    private const string Lead = "When this radio was last disconnected, an audio check had not restored its settings. ";
 
     private static string Folder() => Path.Combine(RadioConfig.AppDataRoot, "putback-repair-" + Guid.NewGuid().ToString("N"));
 
@@ -302,7 +302,7 @@ public sealed class CheckPutBackSendRepairTests : IDisposable
         Assert.True(Wrote(c, "radio set full_duplex_enabled=0"));
         Assert.Equal(80, c.F.Vendor.Radio.RFPower);
         Assert.Empty(store.PutBacksFor(serial));
-        Assert.Single(said, u => u.Text == Lead + "Put back: transmit power and full duplex.");
+        Assert.Single(said, u => u.Text == Lead + "Restored: transmit power and full duplex.");
     }
 
     // ── The off-air take's recovery inherits all three ─────────────────
