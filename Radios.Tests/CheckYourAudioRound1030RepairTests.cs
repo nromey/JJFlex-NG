@@ -76,5 +76,23 @@ namespace Radios.Tests
             Assert.True(list >= 0 && countdown > list && save > countdown,
                 "the countdown must be copied into the root audio file before the disconnected save");
         }
+
+        /// <summary>
+        /// #856's cause: on a launch with no radio, the settings folder came
+        /// from FreqHandlers, which exists only after power-on, so Settings
+        /// opened on defaults and never saved. The settings root is the
+        /// fallback; and the saved countdown is applied at startup, because
+        /// the computer microphone check counts down with no radio at all.
+        /// </summary>
+        [Fact]
+        public void Settings_with_no_radio_reads_and_saves_the_settings_root_and_startup_applies_the_countdown()
+        {
+            string bar = Source("JJFlexWpf/NativeMenuBar.cs");
+            Assert.Contains("string? rootConfigDir = handlers?.GetConfigDirectory?.Invoke() ?? Radios.RadioConfig.AppDataRoot;", bar);
+            string main = Source("JJFlexWpf/MainWindow.xaml.cs");
+            int load = main.IndexOf("var userConfig = AudioOutputConfig.Load(baseConfigDir);", StringComparison.Ordinal);
+            int countdown = main.IndexOf("Radios.CountdownSettings.Current = userConfig.Countdown;", StringComparison.Ordinal);
+            Assert.True(load >= 0 && countdown > load, "startup must apply the saved countdown from the settings root");
+        }
     }
 }

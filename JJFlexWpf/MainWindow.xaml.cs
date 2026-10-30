@@ -390,6 +390,11 @@ public partial class MainWindow : UserControl
                     userConfig.EarconVoiceSet == (int)EarconVoiceSet.Simple
                         ? EarconVoiceSet.Simple
                         : EarconVoiceSet.Rich;
+                // #835/#856, 2026-10-30: the countdown too. The computer
+                // microphone check counts down with no radio at all, and
+                // without this a session that never connects used the
+                // defaults instead of the operator's countdown.
+                Radios.CountdownSettings.Current = userConfig.Countdown;
             }
         }
         catch (Exception ex)
