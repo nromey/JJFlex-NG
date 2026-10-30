@@ -171,6 +171,21 @@ namespace Radios.ChainChecks
         private readonly Action _countdown;
 
         /// <summary>
+        /// Whether the operator's countdown is on, read at the moment a stage
+        /// is about to key (#835, fix round 1030 P2). Null reads as on.
+        /// </summary>
+        private readonly Func<bool> _countdownOn;
+
+        /// <summary>
+        /// Told when the radio has confirmed keying for the injected stage,
+        /// only when that stage keyed without a count (#835, fix round 1030 P2).
+        /// </summary>
+        private readonly Action _injectedKeyedWithoutCount;
+
+        /// <summary>Whether the last <see cref="CountdownThenReadyToKey"/> counted.</summary>
+        private bool _lastCountedDown = true;
+
+        /// <summary>
         /// When to issue the key-up, in milliseconds from the start of the
         /// countdown. Published by the host beside the sound it plays, never
         /// copied from it — see <see cref="DefaultCountdownKeyUpMs"/>.
@@ -224,8 +239,12 @@ namespace Radios.ChainChecks
                                            Action speakDone,
                                            Action countdown,
                                            int countdownKeyUpAtMs,
-                                           int countdownDurationMs)
+                                           int countdownDurationMs,
+                                           Func<bool> countdownOn,
+                                           Action injectedKeyedWithoutCount)
         {
+            _countdownOn = countdownOn;
+            _injectedKeyedWithoutCount = injectedKeyedWithoutCount;
             _gate = gate;
             _radio = radio;
             _prepareVoice = prepareVoice;
@@ -286,6 +305,20 @@ namespace Radios.ChainChecks
         /// RF is imminent, which this tool otherwise does not give (Noel,
         /// 2026-08-26).
         /// </param>
+        /// <param name="countdownOn">
+        /// Whether the operator's countdown is on, asked each time a stage is
+        /// about to key (#835, fix round 1030 P2). Off, no countdown plays and
+        /// the stage keys without a count, the way Check your audio does with
+        /// the countdown off. Null, or a hook that throws, reads as on: counting
+        /// is the safe side.
+        /// </param>
+        /// <param name="injectedKeyedWithoutCount">
+        /// Told when the radio has confirmed keying for the injected stage, and
+        /// only when that stage keyed without a count. The host owns the words:
+        /// that it is transmitting and nothing is wanted of the operator. With
+        /// the count on, the count's landing marks the key (Noel, 2026-08-26),
+        /// so this is not told.
+        /// </param>
         /// <param name="pcChainFacts">
         /// This computer's half of the transmit chain facts, for the walk taken
         /// while keyed (#400). Null leaves the walk's computer-side stages
@@ -304,13 +337,16 @@ namespace Radios.ChainChecks
                                                         int countdownKeyUpAtMs =
                                                             DefaultCountdownKeyUpMs,
                                                         int countdownDurationMs =
-                                                            DefaultCountdownDurationMs)
+                                                            DefaultCountdownDurationMs,
+                                                        Func<bool> countdownOn = null,
+                                                        Action injectedKeyedWithoutCount = null)
         {
             if (gate == null || radio == null) return null;
             return new FixerTransmitAudioBoundary(gate, radio, prepareVoice, pcMicrophone,
                                                   pcChainFacts, stopRequested, speakNow,
                                                   speakDone, countdown, countdownKeyUpAtMs,
-                                                  countdownDurationMs);
+                                                  countdownDurationMs, countdownOn,
+                                                  injectedKeyedWithoutCount);
         }
 
         // ================================================================
@@ -527,6 +563,14 @@ namespace Radios.ChainChecks
                     // Charged when the RADIO confirms, not when the setter
                     // returned — the same rule the transmitter probe follows.
                     _gate.NoteKeyed(stageId);
+
+                    // With the countdown off, this stage would otherwise key in
+                    // total silence: the count was its only cue (#835, fix round
+                    // 1030 P2). So it says it is transmitting, on the radio's
+                    // confirmation, the way Check your audio says "Transmitting"
+                    // and the other two keying stages say their cue. With the
+                    // count on, the landing already marks the key, as ruled.
+                    if (!_lastCountedDown) Witness(_injectedKeyedWithoutCount, "injectedKeyedWithoutCount");
 
                     // ---- probe: the single tone ----
                     (double refDb, bool refRead) = MeasureScMic(
@@ -894,12 +938,17 @@ namespace Radios.ChainChecks
         /// </summary>
         private bool CountdownThenReadyToKey()
         {
+            // Read once, so the sound, the key-up wait and the wait-out below
+            // all agree about whether there is a count (#835, fix round 1030 P2).
+            bool countsDown = CountdownIsOn(_countdownOn);
+            _lastCountedDown = countsDown;
             // Started here rather than inside the helper, because the helper is
             // also called directly by tests and by the tune probe. A stopwatch
             // from the sound's own start is what lets a later stage know how
-            // much of the countdown is still playing.
-            _sinceCountdown = Stopwatch.StartNew();
-            return CountUnkeyedThenReadyToKey(_countdown, _stopRequested, _countdownKeyUpAtMs);
+            // much of the countdown is still playing. With the countdown off
+            // there is no sound to wait out, so it stays null.
+            _sinceCountdown = countsDown ? Stopwatch.StartNew() : null;
+            return CountUnkeyedThenReadyToKey(_countdown, _stopRequested, _countdownKeyUpAtMs, countsDown);
         }
 
         /// <summary>
@@ -1115,10 +1164,31 @@ namespace Radios.ChainChecks
         /// still paces the key-up, so the timing an operator learns does not
         /// change with the sound.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>With the operator's countdown off (<paramref name="countsDown"/>
+        /// false), nothing plays and nothing waits: the caller may key at
+        /// once</b> (#835, ruled by Noel 2026-10-29 23:59: "Each check counts
+        /// down unless that function is turned off, then no countdown would
+        /// count."). That is Check your audio's rule with the countdown off,
+        /// which keys as soon as its setup is confirmed: the operator's own
+        /// press of Run is the warning, as Start is there, and the stage's
+        /// spoken cue follows the radio's confirmation of transmit, as
+        /// "Transmitting" does there. A stop already asked still refuses.
+        /// </para>
+        /// </remarks>
         internal static bool CountUnkeyedThenReadyToKey(Action countdown,
                                                         Func<bool> stopRequested,
-                                                        int keyUpAtMs = DefaultCountdownKeyUpMs)
+                                                        int keyUpAtMs = DefaultCountdownKeyUpMs,
+                                                        bool countsDown = true)
         {
+            if (!countsDown)
+            {
+                Tracing.TraceLine("FixerTransmit: the countdown is off, so the stage keys without a count",
+                                  TraceLevel.Info);
+                return !StopAsked(stopRequested);
+            }
+
             // A caller that names nothing, or names nonsense, waits the
             // fallback. Never zero: the one direction this must not fail in is
             // early.
@@ -1132,6 +1202,24 @@ namespace Radios.ChainChecks
                 Thread.Sleep(25);
             }
             return !StopAsked(stopRequested);
+        }
+
+        /// <summary>
+        /// Whether the operator's countdown is on, read defensively: no hook,
+        /// or a hook that throws, reads as ON, because counting is the side
+        /// that can only make keying later, never earlier (#835, fix round
+        /// 1030 P2).
+        /// </summary>
+        internal static bool CountdownIsOn(Func<bool> countdownOn)
+        {
+            if (countdownOn == null) return true;
+            try { return countdownOn(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("FixerTransmit: the countdown switch could not be read, so the stage counts down: "
+                                  + ex.Message, TraceLevel.Warning);
+                return true;
+            }
         }
 
         /// <summary>A stop hook read defensively: a hook that throws reads as

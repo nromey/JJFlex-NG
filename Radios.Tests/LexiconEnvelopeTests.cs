@@ -2021,6 +2021,10 @@ namespace Radios.Tests
                 "audio.countdown.pip_sound_label",
                 "audio.countdown.pip_sound_default",
                 "audio.countdown.pip_sound_help",
+                // Check your audio fix round 1030 P2 (#835): the Fix tool's
+                // injected stage, keyed with the countdown off, says it is
+                // transmitting. Draft prose, awaiting Noel.
+                "audio.fixer.inject_now",
             };
 
             Assert.Equal(3135, unclassified);   // Track A 2026-10-28: the Workshop's removed Check Microphone button took its two sentences with it, and three failure sentences that now name the Fix tool were classified

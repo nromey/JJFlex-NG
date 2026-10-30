@@ -133,7 +133,11 @@ namespace Radios
         /// </summary>
         public const string DefaultPipSound = "Hollow";
 
-        /// <summary>Whether Check your audio counts down before it keys. Default on.</summary>
+        /// <summary>
+        /// Whether anything counts down before it keys: Check your audio, and
+        /// since fix round 1030 P2 the Fix tool too (ruled by Noel 2026-10-29
+        /// 23:59, "then no countdown would count"). Default on.
+        /// </summary>
         public bool Enabled { get; set; } = true;
 
         /// <summary>The countdown's length in seconds, which is also its number of beats.</summary>

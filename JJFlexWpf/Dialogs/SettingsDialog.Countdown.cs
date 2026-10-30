@@ -71,6 +71,7 @@ namespace JJFlexWpf.Dialogs
                 Margin = new Thickness(0, 0, 0, 8),
             };
             AutomationProperties.SetName(_countdownEnabledCheck, Lexicon.Get("audio.countdown.enabled_label"));
+            // DRAFT PROSE (#835): awaiting Noel. Changed in fix round 1030 P2: the switch now covers the Fix tool too.
             JJFlexHelp.SetText(_countdownEnabledCheck, Lexicon.Get("audio.countdown.enabled_help"));
             CountdownPanel.Children.Add(_countdownEnabledCheck);
 
