@@ -64,7 +64,10 @@ internal static class FixerCountdown
     /// <summary>The count-in before a stage that listens: stage 1's
     /// microphone check. Four events, ending on the octave up.</summary>
     public static void RecordTone()
-        => Guarded(EarconPlayer.CountdownRecordTone, "CountdownRecordTone");
+    {
+        if (!On) { Off("CountdownRecordTone"); return; }
+        Guarded(EarconPlayer.CountdownRecordTone, "CountdownRecordTone");
+    }
 
     /// <summary>The count-in before a stage that keys the transmitter:
     /// stages 2, 3 and 4 — the same sound for all three until Noel rules on a
@@ -72,7 +75,34 @@ internal static class FixerCountdown
     /// Four events, ending on the octave — which means the radio is ON.
     /// Ruled 2026-08-30; it was five, ending on a rising pair.</summary>
     public static void TransmitTone()
-        => Guarded(EarconPlayer.CountdownTransmitTone, "CountdownTransmitTone");
+    {
+        if (!On) { Off("CountdownTransmitTone"); return; }
+        Guarded(EarconPlayer.CountdownTransmitTone, "CountdownTransmitTone");
+    }
+
+    /// <summary>
+    /// Whether the operator's countdown is on: the one switch, in Settings'
+    /// Countdown group, for every countdown in the app (#835, ruled by Noel
+    /// 2026-10-29 23:59: "Each check counts down unless that function is turned
+    /// off, then no countdown would count."). Until fix round 1030 P2 it
+    /// covered Check your audio only, and the Fix tool always counted. The Fix
+    /// tool's stages ask it when they are about to key, so with it off they
+    /// key without a count, the way Check your audio does; the two tones above
+    /// ask it too, so no caller can sound a count it has switched off. The
+    /// Countdown settings' Play sample does not ask: it plays a choice before
+    /// it is switched on.
+    /// </summary>
+    public static bool On
+    {
+        get
+        {
+            try { return Radios.CountdownSettings.Current.Enabled; }
+            catch { return true; }   // counting is the safe side
+        }
+    }
+
+    private static void Off(string name) =>
+        Tracing.TraceLine("FixerCountdown: " + name + " not played: the countdown is switched off", TraceLevel.Info);
 
     /// <summary>The end of ANY test — keying or not. Ruled 2026-08-30: the
     /// same sequence for all tests, and it ends on a fall. Guarded like the

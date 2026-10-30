@@ -97,11 +97,17 @@ namespace Radios.ChainChecks
         /// its own warning. See
         /// <see cref="FixerTransmitAudioBoundary.DefaultCountdownKeyUpMs"/>.
         /// </param>
+        /// <param name="countdownOn">
+        /// Whether the operator's countdown is on, asked when the stage is
+        /// about to key (#835, fix round 1030 P2). Off, the tune carrier keys
+        /// without a count. Null, or a hook that throws, reads as on.
+        /// </param>
         public static Func<TxTuneProbe.Result> ProbeTransmitter(
             FixerTransmitGate gate, RadioSource radio, string stageId,
             Action speakNow = null, Action speakDone = null,
             Action countdown = null, Func<bool> stopRequested = null,
-            int countdownKeyUpAtMs = FixerTransmitAudioBoundary.DefaultCountdownKeyUpMs)
+            int countdownKeyUpAtMs = FixerTransmitAudioBoundary.DefaultCountdownKeyUpMs,
+            Func<bool> countdownOn = null)
         {
             if (gate == null || radio == null || string.IsNullOrWhiteSpace(stageId))
                 return null;
@@ -141,7 +147,8 @@ namespace Radios.ChainChecks
                 // stage got neither. Shared pacing, so the timing an operator
                 // learns on one keying stage holds on all of them.
                 if (!FixerTransmitAudioBoundary.CountUnkeyedThenReadyToKey(
-                        countdown, stopRequested, countdownKeyUpAtMs))
+                        countdown, stopRequested, countdownKeyUpAtMs,
+                        FixerTransmitAudioBoundary.CountdownIsOn(countdownOn)))
                 {
                     return TxTuneProbe.Result.NotRun(
                         TxTuneProbe.SkipReason.Cancelled,

@@ -61,6 +61,25 @@ namespace Radios
         }
 
         /// <summary>
+        /// What an earlier put-back did that nobody has heard yet (a connect with
+        /// speech suppressed, fix round 1030 P2), together with what a later one
+        /// did. A setting the later one examined (<paramref name="examinedNow"/>)
+        /// takes the later one's answer, or none when it already held its
+        /// original; every other setting keeps the earlier answer.
+        /// </summary>
+        public static CheckPutBackOutcome Merge(CheckPutBackOutcome earlier, CheckPutBackOutcome now, IEnumerable<string> examinedNow)
+        {
+            if (earlier == null) return now;
+            if (now == null) return earlier;
+            var examined = new HashSet<string>(examinedNow ?? Array.Empty<string>(), StringComparer.Ordinal);
+            IEnumerable<string> Kept(IEnumerable<string> list) => list.Where(s => !examined.Contains(s));
+            return new CheckPutBackOutcome(
+                Kept(earlier.PutBack).Concat(now.PutBack),
+                Kept(earlier.LeftAlone).Concat(now.LeftAlone),
+                Kept(earlier.NotPutBack).Concat(now.NotPutBack));
+        }
+
+        /// <summary>
         /// The connect briefing's sentence: a lead, then what was put back, what
         /// was left alone and what was not, each only when there is any.
         /// </summary>

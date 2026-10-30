@@ -621,5 +621,14 @@ namespace Radios.Speech
         /// nothing else speaks to it.
         /// </summary>
         public const string CheckSettingsNotRestored = "check-settings-not-restored";
+
+        /// <summary>
+        /// The Fix tool's injected transmit stage has keyed with the countdown
+        /// switched off (#835, fix round 1030 P2): it is transmitting, and
+        /// nothing is wanted of the operator. With the count on, the count's
+        /// landing marks the key and this is not said. The next such saying
+        /// covers an unheard older one.
+        /// </summary>
+        public const string FixToolInjectedKeyed = "fix-tool-injected-keyed";
     }
 }

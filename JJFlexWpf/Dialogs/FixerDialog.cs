@@ -219,7 +219,16 @@ public sealed class FixerDialog : JJFlexDialog
             // And how long that count SOUNDS, which is a different number and
             // 1.8 s later. The spoken stage waits it out before asking anyone
             // to talk — see WaitOutTheCountdown.
-            countdownDurationMs: CountdownDurationMs());
+            countdownDurationMs: CountdownDurationMs(),
+            // Whether there is a count at all (#835, fix round 1030 P2): the
+            // one switch, asked when the stage is about to key.
+            countdownOn: () => FixerCountdown.On,
+            // The injected stage's only cue was its count, so with the count
+            // off it says it is transmitting on the radio's confirmation.
+            // DRAFT PROSE (#835): awaiting Noel.
+            injectedKeyedWithoutCount: () => ScreenReaderOutput.Speak(
+                Lexicon.Get("audio.fixer.inject_now"), Radios.Speech.SpeechIntent.Interrupt,
+                VerbosityLevel.Critical, subject: Radios.Speech.SpeechSubject.FixToolInjectedKeyed));
 
         var hosts = new TransmitStageSet.Hosts
         {
@@ -242,7 +251,8 @@ public sealed class FixerDialog : JJFlexDialog
                 speakDone: Cue("audio.fixer.speak_done"),
                 countdown: FixerCountdown.TransmitTone,
                 stopRequested: StageStopRequested,
-                countdownKeyUpAtMs: CountdownKeyUpMs()),
+                countdownKeyUpAtMs: CountdownKeyUpMs(),
+                countdownOn: () => FixerCountdown.On),
 
             // WIRED. What the operator said the antenna socket is connected to.
             // Read from the gate rather than from our own copy, so the value in
@@ -300,6 +310,7 @@ public sealed class FixerDialog : JJFlexDialog
                 new FixerHostWiring.MicCueHooks
                 {
                     Countdown = FixerCountdown.RecordTone,
+                    CountdownOn = () => FixerCountdown.On,
                     SpeakListenNow = Cue("audio.fixer.listen_now"),
                     SpeakListenDone = Cue("audio.fixer.listen_done"),
                 })),

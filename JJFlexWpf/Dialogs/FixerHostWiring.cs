@@ -399,6 +399,13 @@ internal static class FixerHostWiring
         /// <summary>Starts the record countdown tones. Fire-and-forget.</summary>
         public Action? Countdown { get; set; }
 
+        /// <summary>
+        /// Whether the operator's countdown is on (#835, fix round 1030 P2).
+        /// Off, no count plays and nothing waits for one: "listening" follows
+        /// the quiet window directly. Null, or a hook that throws, reads as on.
+        /// </summary>
+        public Func<bool>? CountdownOn { get; set; }
+
         /// <summary>Spoken when the speech window opens: the moment to talk
         /// has arrived, and a blind operator has no other way to know it.</summary>
         public Action? SpeakListenNow { get; set; }
@@ -458,6 +465,19 @@ internal static class FixerHostWiring
         }
     }
 
+    /// <summary>The countdown switch, read defensively: no hook, or one that throws, reads as on.</summary>
+    private static bool CountsDown(MicCueHooks cues)
+    {
+        if (cues.CountdownOn == null) return true;
+        try { return cues.CountdownOn(); }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("FixerHostWiring: the countdown switch could not be read, so the check counts down — "
+                              + ex.Message, TraceLevel.Warning);
+            return true;
+        }
+    }
+
     private static void MeasureMicrophone(MicCheckFacts facts, MicCueHooks cues)
     {
         // The same resolver the voice-note recorder uses: it distinguishes,
@@ -511,8 +531,13 @@ internal static class FixerHostWiring
         // Count the operator in: three tones, then the ringing "go". Tones,
         // not speech, so the count cannot be flushed by the spoken cue's
         // interrupt. The capture waits out the ring — a ringing tone in the
-        // sample makes a quiet shack read as noisy.
-        if (!faulted)
+        // sample makes a quiet shack read as noisy. With the operator's
+        // countdown off there is no count and no ring to wait out (#835, fix
+        // round 1030 P2, ruled 2026-10-29 23:59).
+        if (!faulted && !CountsDown(cues))
+            Tracing.TraceLine("FixerHostWiring: the countdown is off, so the microphone check listens without a count",
+                              TraceLevel.Info);
+        else if (!faulted)
         {
             Cue(cues.Countdown, "countdown");
             faulted = QuietListen(probe, MicCountdownSoundMs);

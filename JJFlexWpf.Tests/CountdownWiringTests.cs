@@ -63,6 +63,24 @@ public sealed class CountdownWiringTests
     }
 
     [Fact]
+    public void The_fix_tool_asks_the_one_countdown_switch()
+    {
+        // Fix round 1030 P2 (#835, ruled 2026-10-29 23:59): the switch covers
+        // the Fix tool too. Only the answer is read here; the tones are never
+        // called, so a broken guard could not sound on the desk.
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var original = CountdownSettings.Current;
+        try
+        {
+            CountdownSettings.Current = new CountdownSettings { Enabled = false };
+            Assert.False(JJFlexWpf.Dialogs.FixerCountdown.On);
+            CountdownSettings.Current = new CountdownSettings();
+            Assert.True(JJFlexWpf.Dialogs.FixerCountdown.On);
+        }
+        finally { CountdownSettings.Current = original; }
+    }
+
+    [Fact]
     public void The_countdown_is_saved_and_loaded_with_the_audio_settings()
     {
         NoiseReductionPerChannelTests.AssertWindowless();
