@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using System.Windows.Threading;
 using JJPortaudio;
 using Radios;
@@ -56,7 +57,39 @@ public partial class CheckYourAudioDialog
     private void ToggleComputerMicCheck()
     {
         if (_computerMicProbe != null) { StopComputerMicCheck(speak: true); return; }
+        _ = StartComputerMicCheckAsync();
+    }
 
+    /// <summary>
+    /// Count down, then start listening (#835, ruled by Noel 2026-10-29 23:59:
+    /// "Each check counts down unless that function is turned off"; Codex
+    /// round 1030, B6). It keys nothing, but it is a check like the others: it
+    /// takes the same start admission, so Start, Ctrl+Enter and Escape during
+    /// the count cancel it the same way, and a bare Control skips the rest.
+    /// With the countdown off it starts at once, as before.
+    /// </summary>
+    private async Task StartComputerMicCheckAsync()
+    {
+        using var start = _checkStarts.TryBegin();
+        if (start == null) return;
+        SetStartButtonLabel("Stop Audio Check");
+        BeginStartCountdown(AudioCheckListenMethods.ComputerMic);
+        try
+        {
+            // Nothing to set up: the count runs out, or is skipped or cancelled.
+            if (!await CountdownLetsKeyAsync() || !start.IsCurrent || _closing) return;
+            StartComputerMicProbeNow();
+        }
+        finally
+        {
+            EndStartCountdown();
+            if (_computerMicProbe == null) SetStartButtonLabel("Start Audio Check");
+        }
+    }
+
+    /// <summary>Open the microphone and start listening, once any count has run out.</summary>
+    private void StartComputerMicProbeNow()
+    {
         Devices.DeviceInfo? row = RecordingNarrator.ResolveMicrophone(out string trouble);
         if (row == null)
         {

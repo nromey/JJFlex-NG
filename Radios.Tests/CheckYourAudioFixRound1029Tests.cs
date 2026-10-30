@@ -83,7 +83,9 @@ namespace Radios.Tests
         public void The_computer_check_plays_the_recorders_start_tone_when_it_listens_and_its_stop_tone_when_it_ends()
         {
             string mic = Source("JJFlexWpf/Dialogs/CheckYourAudioDialog.ComputerMic.cs");
-            string start = Body(mic, "private void ToggleComputerMicCheck()");
+            // The listening start moved into StartComputerMicProbeNow when the check
+            // began counting down (round 1030, B6); the tone order is unchanged.
+            string start = Body(mic, "private void StartComputerMicProbeNow()");
             int listening = start.IndexOf("_computerMicProbe = probe;", StringComparison.Ordinal);
             int tone = start.IndexOf("EarconPlayer.RecorderStartBeep();", StringComparison.Ordinal);
             int reset = start.IndexOf("listening.ResetLevels();", StringComparison.Ordinal);
