@@ -73,6 +73,8 @@ internal static class VoiceMessageSender
     private static VoiceMessageSend? _send;
     private static DispatcherTimer? _timer;
     private static PttSafetyController? _watchedBy;
+    /// <summary>The controller whose lock timeout stands still while this send rides it (#835, 2026-10-30 00:00).</summary>
+    private static PttSafetyController? _riddenBy;
 
     private enum SendKind { VoiceMessage, ComputerRecording, SliceRecording }
 
@@ -156,15 +158,40 @@ internal static class VoiceMessageSender
             System.Threading.Interlocked.Exchange(ref _monitor, null)?.Dispose();
             System.Threading.Interlocked.Exchange(ref _pttWatch, null)?.Dispose();
         }
+
+        /// <summary>
+        /// The send was taken over by the operator's own key (#835, fix round
+        /// 2026-10-30; Noel, 2026-10-29 23:57): the PTT source watch ends now,
+        /// and the monitor stays as the send left it until the operator
+        /// unkeys (<see cref="FlexBase.ReleaseMonitorHoldAtUnkey"/>).
+        /// </summary>
+        public void ReleaseAtUnkey(FlexBase rig, string who)
+        {
+            System.Threading.Interlocked.Exchange(ref _pttWatch, null)?.Dispose();
+            IDisposable? monitor = System.Threading.Interlocked.Exchange(ref _monitor, null);
+            try { rig.ReleaseMonitorHoldAtUnkey(monitor, who); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("VoiceMessageSender: the monitor could not wait for the unkey: " + ex.Message,
+                    TraceLevel.Warning);
+                monitor?.Dispose();
+            }
+        }
     }
 
-    /// <summary>Give back what a piece held. Safe when it held nothing.</summary>
-    private static void ReleaseHolds(SendInfo? info)
+    /// <summary>
+    /// Give back what a piece held. Safe when it held nothing. A send the
+    /// operator took over keeps the monitor until they unkey
+    /// (<paramref name="takenOver"/>; Noel, 2026-10-29 23:57).
+    /// </summary>
+    private static void ReleaseHolds(SendInfo? info, bool takenOver = false)
     {
         if (info == null) return;
         PieceHolds? holds = info.Holds;
         info.Holds = null;
-        holds?.Dispose();
+        if (holds == null) return;
+        if (takenOver && info.Rig != null) holds.ReleaseAtUnkey(info.Rig, Name(info));
+        else holds.Dispose();
     }
 
     private static SendInfo? _current;
@@ -222,9 +249,10 @@ internal static class VoiceMessageSender
     /// <summary>
     /// The operator is keying the radio themselves: push to talk or the lock
     /// through the controller, a hardware PTT line, or the tune carrier. A
-    /// radio held up only by VOX is NOT this (Noel, 2026-10-27 15:28).
+    /// radio held up only by VOX is NOT this (Noel, 2026-10-27 15:28). Also
+    /// asked by a paused speaker playback carrying on (<see cref="LocalPlaybackVox.CarryOnAsync"/>).
     /// </summary>
-    private static bool OperatorHolds(FlexBase rig, PttSafetyController? ptt)
+    internal static bool OperatorHolds(FlexBase rig, PttSafetyController? ptt)
     {
         if (ptt?.IsTransmitting == true) return true;
         try
@@ -788,6 +816,17 @@ internal static class VoiceMessageSender
             ptt.BeginExternalTransmitWatch();
             _watchedBy = ptt;
         }
+        // A recording riding the operator's transmission: under the lock, the
+        // lock's timeout stands still while it goes out, and the send's own
+        // ten-minute limit governs it (Noel, 2026-10-30 00:00). The ten-minute
+        // pause ends the ride, so the lock's clock runs while the operator
+        // identifies, and the 15-minute hard kill is never touched.
+        if (!_send.WeKeyed && !_send.ViaVox && !_send.Boxed && ptt != null)
+        {
+            VoiceMessageSend riding = _send;
+            ptt.BeginRecordingSendRide(Name(info), () => ReferenceEquals(_send, riding) && !riding.Finished);
+            _riddenBy = ptt;
+        }
 
         Tracing.TraceLine("VoiceMessageSender: sending \"" + Name(info) + "\" from " + path
             + " at " + info.Session.HeldAtSeconds.ToString("F1") + " s of " + info.Session.TotalSeconds.ToString("F1")
@@ -1123,7 +1162,15 @@ internal static class VoiceMessageSender
             _watchedBy.EndExternalTransmitWatch();
             _watchedBy = null;
         }
-        ReleaseHolds(info);
+        if (_riddenBy != null)
+        {
+            _riddenBy.EndRecordingSendRide(info != null ? Name(info) : "a send");
+            _riddenBy = null;
+        }
+        // Taken over by the operator's key: the monitor goes back when THEY
+        // unkey, not now (Noel, 2026-10-29 23:57), by the same rule the VOX
+        // pause below follows.
+        ReleaseHolds(info, takenOver: send?.Outcome == VoiceMessageOutcome.TakenOver);
         // The box's VOX pause: VOX comes back on only once the radio reports
         // receive and the transmit path has drained, so the recording's tail
         // cannot key it again. A send the operator took over gives it back

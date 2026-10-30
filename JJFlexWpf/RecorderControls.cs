@@ -224,19 +224,32 @@ public static class RecorderControls
     /// Play from computer pressed while a recording plays on the speakers
     /// (#835 fix round; Noel, 2026-10-28 21:20): pause it where it is, or carry
     /// a paused one on from there. The same words the Recorded QSOs window
-    /// says for the same act. The VOX pause a local playback holds stays held
-    /// while paused, as it does for that window's preview: the playback has
-    /// not ended (<see cref="LocalPlaybackVox"/>).
+    /// says for the same act. VOX comes back while it is paused, and carrying
+    /// on pauses VOX again before it sounds, as for that window's preview
+    /// (<see cref="LocalPlaybackVox"/>; Noel, 2026-10-29 23:58).
     /// </summary>
-    private static RecorderOutcome PauseOrCarryOnSpeakers()
+    private static async Task<RecorderOutcome> PauseOrCarryOnSpeakersAsync()
     {
         if (RecordingPlayer.IsPaused)
         {
+            // VOX came back while the recording was paused; carrying on pauses
+            // it again, confirmed by the radio, before a sample sounds (#835,
+            // fix round 2026-10-30; Noel, 2026-10-29 23:58).
             double at = RecordingPlayer.PositionSeconds ?? 0;
-            return RecordingPlayer.Resume()
-                ? new(true, Lexicon.Get("audio.qsos.resumed", ("position", RecordedQsoWords.Position(at, null))),
-                    SpeechSubject.ComputerRecorder)
-                : new(false, Lexicon.Get("audio.recorder.failed"), SpeechSubject.ComputerRecorder);
+            // DRAFT PROSE (#835): awaiting Noel (the two refusals)
+            return await LocalPlaybackVox.CarryOnAsync() switch
+            {
+                LocalPlaybackVox.CarryOn.Resumed => new(true,
+                    Lexicon.Get("audio.qsos.resumed", ("position", RecordedQsoWords.Position(at, null))),
+                    SpeechSubject.ComputerRecorder),
+                LocalPlaybackVox.CarryOn.Transmitting => new(false,
+                    Lexicon.Get("audio.qsos.resume_refused_transmitting"), SpeechSubject.ComputerRecorder),
+                LocalPlaybackVox.CarryOn.VoxUnconfirmed => new(false,
+                    Lexicon.Get("audio.qsos.resume_vox_unconfirmed"), SpeechSubject.ComputerRecorder),
+                // A carry-on already under way: this press adds nothing, and says nothing.
+                LocalPlaybackVox.CarryOn.Busy => new(true, "", SpeechSubject.ComputerRecorder),
+                _ => new(false, Lexicon.Get("audio.recorder.failed"), SpeechSubject.ComputerRecorder),
+            };
         }
         if (!RecordingPlayer.Pause())
             return new(false, Lexicon.Get("audio.recorder.failed"), SpeechSubject.ComputerRecorder);
@@ -319,7 +332,7 @@ public static class RecorderControls
         // stops (Noel, 2026-10-28 21:20: one meaning for the key everywhere).
         if (ComputerRecorder.Current.IsPlaying)
         {
-            var paused = PauseOrCarryOnSpeakers();
+            var paused = await PauseOrCarryOnSpeakersAsync();
             (speak ?? Speak)(paused);
             return paused;
         }
@@ -366,7 +379,7 @@ public static class RecorderControls
             SpeechSubject.ComputerRecorder);
         if (pause != null)
         {
-            if (outcome.Success && ComputerRecorder.Current.IsPlaying) LocalPlaybackVox.HoldUntilPlaybackEnds(pause);
+            if (outcome.Success && ComputerRecorder.Current.IsPlaying) LocalPlaybackVox.HoldUntilPlaybackEnds(rig, pause);
             else pause.Dispose();
         }
         (speak ?? Speak)(outcome);

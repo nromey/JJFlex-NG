@@ -72,16 +72,19 @@ namespace JJFlexWpf.Dialogs;
 /// </para>
 /// <para>
 /// <b>VOX.</b> The preview plays to this computer's speakers and pauses VOX,
-/// or CW break-in, for as long as it plays, through the radio's one VOX owner,
-/// exactly as slice playback does (<see cref="LocalPlaybackVox"/>). With no
-/// radio there is nothing to pause.
+/// or CW break-in, while it sounds, through the radio's one VOX owner, exactly
+/// as slice playback does (<see cref="LocalPlaybackVox"/>). With no radio there
+/// is nothing to pause. Paused, VOX comes back, and carrying on pauses it again
+/// before a sample sounds (#835, 2026-10-29 23:58).
 /// </para>
 /// <para>
 /// <b>The VOX send box (#835, fix round 2026-10-29).</b> With the box ticked
 /// and VOX on, Enter is not a preview: it sends the selected recording through
 /// Play from computer's send, keying the radio itself, and Enter again pauses
-/// or carries on that send (<see cref="ChooseEnter"/>). Escape stops any send
-/// in hand before it does anything else here, as in the main window.
+/// or carries on that send (<see cref="ChooseEnter"/>). Holding the
+/// transmitter with the box off, Enter sends it on that transmission, as
+/// Ctrl+Alt+F11 does (fix round 2026-10-30). Escape stops any send in hand
+/// before it does anything else here, as in the main window.
 /// </para>
 /// </remarks>
 public sealed class RecordedQsosDialog : JJFlexDialog
@@ -206,7 +209,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         controls.Children.Add(stepRow);
 
         var transport = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
-        // DRAFT PROSE (#835): awaiting Noel. play_help gained the VOX send box sentence (fix round 2026-10-29).
+        // DRAFT PROSE (#835): awaiting Noel. play_help gained the VOX send box sentence (fix round 2026-10-29). And the push to talk clause (fix round 2026-10-30).
         _play = AddButton(transport, Lexicon.Get("audio.qsos.play"), () => _ = PlayOrPauseAsync(), "audio.qsos.play_help");
         _stop = AddButton(transport, Lexicon.Get("audio.qsos.stop"), () => StopPressed("the Stop button"), "audio.qsos.stop_help"); // DRAFT PROSE (#835): awaiting Noel. stop_help gained the send sentence (Codex round 1).
         controls.Children.Add(transport);
@@ -247,7 +250,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         var listArea = new Grid();
         Grid.SetRow(listArea, 1);
         AutomationProperties.SetName(_list, Lexicon.Get("audio.qsos.list"));
-        // DRAFT PROSE (#835): awaiting Noel. list_help gained the VOX send box sentence (fix round 2026-10-29).
+        // DRAFT PROSE (#835): awaiting Noel. list_help gained the VOX send box sentence (fix round 2026-10-29). And the push to talk clause (fix round 2026-10-30).
         JJFlexHelp.SetText(_list, Lexicon.Get("audio.qsos.list_help"));
         _list.SelectionMode = SelectionMode.Single;
         _list.IsTextSearchEnabled = false; // "S" must never jump to a row (Noel 16:05, then P; S since 2026-10-25).
@@ -629,7 +632,11 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         PreviewTransport,
         /// <summary>A computer recording's send is in hand: pause it, or carry it on, as Play from computer does.</summary>
         AnswerSend,
-        /// <summary>The box is ticked and VOX is on: send the selected recording to the air.</summary>
+        /// <summary>
+        /// The box is ticked and VOX is on, or the operator is holding the
+        /// transmitter: send the selected recording to the air, the way
+        /// Play from computer chose (<see cref="SendRoute"/>).
+        /// </summary>
         Send,
         /// <summary>Everything else: preview on this computer's speakers, as before the box.</summary>
         Preview,
@@ -644,29 +651,42 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     /// started is paused and carried on by Enter, the one meaning the key has
     /// in this window. <paramref name="route"/> is null with no radio.
     /// </summary>
+    /// <remarks>
+    /// <b>Keyed, Enter sends too</b> (Noel, 2026-10-29 23:54: <i>"it would
+    /// standardize send when keyed"</i>). Held push to talk, the lock or a
+    /// hardware PTT line, with the box off, is
+    /// <see cref="SendRoute.JoinTransmission"/>: the recording goes out on the
+    /// operator's transmission and never touches the key, exactly as
+    /// Ctrl+Alt+F11 sends it. The decision is Play from computer's own, read
+    /// through the same <see cref="VoiceMessageSender.RouteFor"/>: anything but
+    /// <see cref="SendRoute.AsBefore"/> is a send. Until then this refused,
+    /// "A recording cannot play here while you are transmitting."
+    /// </remarks>
     internal static EnterAct ChooseEnter(bool previewActive, bool computerSendInHand, SendRoute? route)
     {
         if (previewActive) return EnterAct.PreviewTransport;
         if (computerSendInHand) return EnterAct.AnswerSend;
-        if (route == SendRoute.Box) return EnterAct.Send;
+        if (route is SendRoute.Box or SendRoute.JoinTransmission) return EnterAct.Send;
         return EnterAct.Preview;
     }
 
     /// <summary>
-    /// Send the selected row through Play from computer's send, under the box.
-    /// The send says what it is doing itself, under the message key's subject,
-    /// so this window says nothing unless it refuses. The whole recording goes,
-    /// from its start, as Play from computer sends it: the play head and the
-    /// trim marks are this window's preview and Save As, not the send's.
+    /// Send the selected row through Play from computer's send, on the route
+    /// the press read: under the box, or on the transmission the operator is
+    /// holding. The send says what it is doing itself, under the message key's
+    /// subject, so this window says nothing unless it refuses. The whole
+    /// recording goes, from its start, as Play from computer sends it: the play
+    /// head and the trim marks are this window's preview and Save As, not the
+    /// send's.
     /// </summary>
-    private void SendSelected(ISendDoors doors)
+    private void SendSelected(ISendDoors doors, SendRoute route)
     {
         var q = _browser.Current;
         if (q == null) { Refuse(Lexicon.Get("audio.qsos.nothing_selected")); return; }
         if (CurrentIsStillRecording) { Refuse(Lexicon.Get("audio.qsos.still_recording")); return; }
         Tracing.TraceLine("RecordedQsosDialog: Enter sends " + Path.GetFileName(q.Path)
-            + " under the VOX send box", TraceLevel.Info);
-        doors.SendComputerRecording(_rig!, q.Path, SendRoute.Box);
+            + (route == SendRoute.Box ? " under the VOX send box" : " on the operator's transmission"), TraceLevel.Info);
+        doors.SendComputerRecording(_rig!, q.Path, route);
     }
 
     /// <summary>
@@ -716,7 +736,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
                 if (_stop != null) RefreshControls();
                 return;
             case EnterAct.Send:
-                SendSelected(doors);
+                SendSelected(doors, route!.Value);
                 // Offer Stop at once rather than at the next poll.
                 if (_stop != null) RefreshControls();
                 return;
@@ -726,9 +746,25 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         }
         if (RecordingPlayer.IsPaused)
         {
+            // VOX came back while the preview was paused; carrying on pauses it
+            // again, confirmed by the radio, before a sample sounds (#835, fix
+            // round 2026-10-30; Noel, 2026-10-29 23:58).
             double at = RecordingPlayer.PositionSeconds ?? _browser.Cursor;
-            if (RecordingPlayer.Resume())
-                Say(Lexicon.Get("audio.qsos.resumed", ("position", RecordedQsoWords.Position(at, _browser.Duration))));
+            LocalPlaybackVox.CarryOn answer = await LocalPlaybackVox.CarryOnAsync();
+            if (_closed) return;
+            // DRAFT PROSE (#835): awaiting Noel (the two refusals)
+            switch (answer)
+            {
+                case LocalPlaybackVox.CarryOn.Resumed:
+                    Say(Lexicon.Get("audio.qsos.resumed", ("position", RecordedQsoWords.Position(at, _browser.Duration))));
+                    break;
+                case LocalPlaybackVox.CarryOn.Transmitting:
+                    Refuse(Lexicon.Get("audio.qsos.resume_refused_transmitting"));
+                    break;
+                case LocalPlaybackVox.CarryOn.VoxUnconfirmed:
+                    Refuse(Lexicon.Get("audio.qsos.resume_vox_unconfirmed"));
+                    break;
+            }
         }
         else if (RecordingPlayer.Pause())
         {
@@ -784,7 +820,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
             bool started = RecordingPlayer.PlayFrom(q.Path, from, announcement);
             if (started)
             {
-                LocalPlaybackVox.HoldUntilPlaybackEnds(pause);
+                LocalPlaybackVox.HoldUntilPlaybackEnds(_rig, pause);
                 pause = null;
             }
             else _previewPath = null;

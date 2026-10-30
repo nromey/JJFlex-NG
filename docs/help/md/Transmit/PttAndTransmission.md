@@ -41,7 +41,7 @@ You hear every send through the radio's transmit monitor, at your own monitor le
 
 - If you are already transmitting with push to talk or the transmit lock when you send, the recording goes out on your transmission and you keep the key.
 - If VOX is still holding the radio up on your last words, the send lets it drop and then keys the radio itself, so the recording does not ride on VOX.
-- Press push to talk or the lock while a send is going out and you take over: the recording stops, your microphone comes back, and you are still transmitting until you let go.
+- Press push to talk or the lock while a send is going out and you take over: the recording stops, your microphone comes back, and you are still transmitting until you let go. The transmit monitor stays the way the send left it while you talk, and if the send had turned it on, it goes back off when you let go.
 - Escape stops a send. Pressing the same message key again pauses a voice message, and Play pauses a computer recording (see below); Play again on a slice recording stops it.
 - With the box unchecked, or VOX off, nothing changes: VOX keys a voice message, and Play plays to your speakers until you key the radio yourself.
 - `Ctrl+J` then `Ctrl+K` turns the box on or off from anywhere, and says which way it went.
@@ -57,6 +57,8 @@ After ten minutes of sending, a send pauses by itself, so you can identify. Your
 While a send is paused, nothing keys the radio by itself. Push to talk sends your microphone as usual, and letting go of it does not start the recording again; only Play does. If the radio disconnects, the paused send ends.
 
 A recording of any length goes out whole this way, ten minutes at a time. Nothing is ever cut short to fit.
+
+If you locked the transmitter with `Shift+Space` and send a recording on it, a news bulletin for example, the lock's own time limit (three minutes unless you changed it in Settings) waits while the recording is going out: the ten-minute pause looks after the recording instead. The lock's time counts only the time you hold it yourself, before the recording, while it is paused, and after it ends, and its warnings carry on from where they stood. The fifteen-minute limit on a locked transmission still applies, recording or not.
 
 ## TX Status
 

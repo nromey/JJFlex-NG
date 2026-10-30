@@ -25,6 +25,7 @@ The selected file's full name, with its extension, is in the read-only File name
 - **Home and End** go to the newest and the oldest.
 - **Enter** starts or pauses playback of the selected recording, from the play head.
 - With VOX on and **Sends key the radio when VOX is on** checked, **Enter** sends the selected recording over the air instead, the way Play from computer does, and Enter again pauses or carries on the send. See "Which recording Play from computer plays" below.
+- While you hold push to talk or the transmit lock, **Enter** sends the selected recording on your transmission, again the way Play from computer does: your microphone comes back when it ends, and you keep the key.
 - **S** stops and returns the play head to the beginning of the file.
 - **Space** only selects. It never plays, and Ctrl+Space is still push to talk.
 - **Left and Right** move the play head backward and forward by the selected step size, including during playback, when you are on the list or the position slider. **Ctrl+Left and Ctrl+Right** do it from anywhere in the window.
@@ -38,7 +39,7 @@ Play from computer (Ctrl+Alt+F11, or JJ key Ctrl+Shift+P) plays your newest reco
 
 Press Play from computer while you are transmitting and the same recording goes out over the air, and you hear it through the radio's transmit monitor. Your microphone comes back when it ends, and you keep the key. With VOX on and **Sends key the radio when VOX is on** checked, Play from computer keys the radio itself; see Push to Talk and Transmission.
 
-Press Play from computer again while the recording is playing, on your speakers or over the air, and it pauses, holding its place; press it once more to carry on. Escape in the main window stops it. A recording longer than three minutes asks before it is sent, and after ten minutes on the air a send pauses by itself so you can identify. Long recordings go out whole, ten minutes at a time; see Push to Talk and Transmission.
+Press Play from computer again while the recording is playing, on your speakers or over the air, and it pauses, holding its place; press it once more to carry on. While a recording on your speakers is paused, VOX is back on, so you can talk about what you just heard; see "Listening and stepping" below. Escape in the main window stops it. A recording longer than three minutes asks before it is sent, and after ten minutes on the air a send pauses by itself so you can identify. Long recordings go out whole, ten minutes at a time; see Push to Talk and Transmission.
 
 While a recording plays back on your computer, the radio's audio on your computer drops by 12 dB, so you hear the recording over the band rather than mixed into it. To change that, go to Settings and use **Radio audio during playback**: Unchanged, Lowered 6, 12, 18 or 24 dB, or Muted. It works on the audio you hear through the computer only; the radio's own speaker is untouched.
 
@@ -55,7 +56,9 @@ These keys work from anywhere in the window, even while a recording is playing:
 - **Escape**, **S** and the Stop button stop a recording being sent over the air first, if one is going out or paused; after that, Escape closes the window and S returns the play head to the beginning.
 - **Escape** stops playback while a recording is playing, as S does; press it again to close the window. While playback is paused, Escape closes the window straight away. If you're transmitting, Escape unkeys first, as it does in every window.
 
-Playing a recording here never keys the radio, unless VOX is on and Sends key the radio when VOX is on is checked: then Enter sends it, as above. While a preview plays, VOX (or CW break-in) is paused so your microphone can't key the radio on the sound from your speakers, and it comes back when the recording stops. Closing the window stops the preview too.
+Playing a recording here never keys the radio, unless VOX is on and Sends key the radio when VOX is on is checked: then Enter sends it, as above. While a preview plays, VOX (or CW break-in) is paused so your microphone can't key the radio on the sound from your speakers, and it comes back when the recording stops.
+
+When you pause a preview, VOX comes back on as soon as the recording has faded out of your speakers, so you can talk on VOX about what you just heard. When you carry on, VOX is paused again first, and the recording only starts sounding once the radio has confirmed VOX is off. If you are still transmitting, or the radio does not confirm, the recording stays paused and you hear why; press Enter again when you are ready. Closing the window stops the preview too.
 
 ## Trimming
 
