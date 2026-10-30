@@ -222,6 +222,72 @@ public class IndexingTests
     }
 
     [Fact]
+    public void A_stage_carries_only_what_changed_since_the_previous_snapshot()
+    {
+        using var s = new Sandbox();
+        s.Zip(@"private\private-20260101-010101.zip", ("same.md", "the unchanged pangolin"), ("moves.md", "first heron"));
+        s.Init(withYubiKey: false);
+        using (var ix = s.Home.Open(s.Unlock(), s.Prompt)) ix.CatchUp(s.Prompt);
+
+        var next = s.Zip(@"private\private-20260102-010101.zip", ("same.md", "the unchanged pangolin"), ("moves.md", "second egret"));
+        var stage = s.Home.Stage(s.Record, next, s.Prompt);
+        var manifest = System.Text.Json.JsonSerializer.Deserialize<StageManifest>(File.ReadAllText(stage + ".json"))!;
+        Assert.Equal(@"private\private-20260101-010101.zip", manifest.Predecessor);
+        using (var ix = s.Home.Open(s.Unlock(), s.Prompt))
+        {
+            // The stage holds the changed member's text and not the unchanged one's.
+            var w = ix.Counts().Single(c => c.Name == "distinct chunks").Value;
+            Assert.Equal(1, ix.Merge(s.Prompt));
+            Assert.Equal(w + 1, ix.Counts().Single(c => c.Name == "distinct chunks").Value);
+        }
+        Assert.Equal(2, Assert.Single(Find(s, "pangolin").Hits).Archives);
+        Assert.Single(Find(s, "egret").Hits);
+        Assert.Single(Find(s, "heron").Hits);
+    }
+
+    [Fact]
+    public void Unchanged_members_are_not_read_into_a_stage()
+    {
+        using var s = new Sandbox();
+        var prev = s.Zip(@"private\private-20260101-010101.zip", ("same.md", "the unchanged pangolin"), ("moves.md", "first heron"));
+        var next = s.Zip(@"private\private-20260102-010101.zip", ("same.md", "the unchanged pangolin"), ("moves.md", "second egret"));
+        Assert.Equal(prev, ArchiveIndexer.Predecessor(next));
+        Assert.Null(ArchiveIndexer.Predecessor(prev));
+
+        using var db = JJFlex.RecordIndex.Store.IndexDatabase.Create(Path.Combine(s.Root, "stage.db"), JJFlex.RecordIndex.Crypto.Envelope.NewKey(), withFts: false);
+        using (var w = new JJFlex.RecordIndex.Store.IndexWriter(db))
+        {
+            ArchiveIndexer.Index(w, ArchiveIndexer.Describe(s.Record, next), ArchiveIndexer.Signatures(prev));
+            w.Commit();
+        }
+        using var c = db.Command("SELECT path, body_id IS NULL, note FROM member ORDER BY path");
+        using var r = c.ExecuteReader();
+        Assert.True(r.Read()); Assert.Equal("moves.md", r.GetString(0)); Assert.Equal(0L, r.GetInt64(1));
+        Assert.True(r.Read()); Assert.Equal("same.md", r.GetString(0)); Assert.Equal(1L, r.GetInt64(1)); Assert.Equal(ArchiveIndexer.SameAsPredecessor, r.GetString(2));
+        using var n = db.Command("SELECT count(*) FROM chunk");
+        Assert.Equal(1L, n.ExecuteScalar());
+    }
+
+    [Fact]
+    public void A_stage_whose_predecessor_was_never_indexed_is_set_aside_and_indexed_from_the_record()
+    {
+        using var s = new Sandbox();
+        s.Init(withYubiKey: false);
+        s.Zip(@"private\private-20260101-010101.zip", ("same.md", "the unchanged pangolin"));
+        var next = s.Zip(@"private\private-20260102-010101.zip", ("same.md", "the unchanged pangolin"), ("new.md", "a new kestrel"));
+        s.Home.Stage(s.Record, next, s.Prompt);
+        using (var ix = s.Home.Open(s.Unlock(), s.Prompt))
+        {
+            var rep = ix.CatchUp(s.Prompt);
+            Assert.Equal(0, rep.Merged);
+            Assert.Equal(2, rep.Indexed);
+        }
+        Assert.Empty(s.Home.StagedFiles());
+        Assert.Equal(2, Assert.Single(Find(s, "pangolin").Hits).Archives);
+        Assert.Single(Find(s, "kestrel").Hits);
+    }
+
+    [Fact]
     public void A_grown_transcript_reuses_every_chunk_but_the_last()
     {
         using var s = new Sandbox();

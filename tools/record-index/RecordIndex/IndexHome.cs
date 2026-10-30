@@ -193,9 +193,11 @@ public sealed class IndexHome
         try
         {
             var context = StageContext(ring, name);
+            var predecessor = ArchiveIndexer.Predecessor(full);
             var manifest = new StageManifest
             {
                 ArchivePath = info.RelativePath, Size = info.Size, MtimeUtc = info.MtimeUtc,
+                Predecessor = predecessor is null ? null : Path.GetRelativePath(recordRoot, predecessor),
                 Wrap = WrapJson.From(Envelope.Wrap(key, Convert.FromBase64String(ring.StagingPublicKey), context)),
             };
             if (File.Exists(partial)) File.Delete(partial);
@@ -204,7 +206,7 @@ public sealed class IndexHome
             {
                 db.SetMeta("database_id", ring.DatabaseId);
                 using var w = new IndexWriter(db);
-                result = ArchiveIndexer.Index(w, info);
+                result = ArchiveIndexer.Index(w, info, predecessor is null ? null : ArchiveIndexer.Signatures(predecessor));
                 w.Commit();
             }
             File.WriteAllText(stagePath + ".json", JsonSerializer.Serialize(manifest));
@@ -229,5 +231,7 @@ public sealed class StageManifest
     public string ArchivePath { get; set; } = "";
     public long Size { get; set; }
     public string MtimeUtc { get; set; } = "";
+    /// <summary>The previous archive in the series; members unchanged since it are not in the stage.</summary>
+    public string? Predecessor { get; set; }
     public WrapJson Wrap { get; set; } = new();
 }

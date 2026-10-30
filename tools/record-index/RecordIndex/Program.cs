@@ -198,6 +198,8 @@ internal static class Cli
         "config" => "a settings file",
         "source" => "source code",
         "markdown" => "a document",
+        "html" => "a web page",
+        "binary" => "a binary file",
         _ => "a " + kind + " file",
     };
 

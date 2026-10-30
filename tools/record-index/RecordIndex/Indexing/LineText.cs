@@ -29,7 +29,7 @@ public static partial class LineText
     {
         "uuid", "parentUuid", "leafUuid", "sessionId", "requestId", "id", "tool_use_id", "toolUseID",
         "signature", "timestamp", "type", "version", "gitBranch", "cwd", "userType", "messageId",
-        "stop_reason", "stop_sequence", "media_type", "data", "promptId", "sourceToolUseID", "sourceToolAssistantUUID",
+        "stop_reason", "stop_sequence", "media_type", "data", "role", "promptId", "sourceToolUseID", "sourceToolAssistantUUID",
     };
 
     /// <summary>

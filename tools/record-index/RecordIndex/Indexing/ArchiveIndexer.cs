@@ -27,6 +27,37 @@ public static partial class ArchiveIndexer
             fi.Length, fi.LastWriteTimeUtc.ToString("yyyy-MM-dd HH:mm:ss"));
     }
 
+    /// <summary>
+    /// The archive just before this one in its series: same folder, same
+    /// extension, the greatest name that sorts before it (names carry their
+    /// timestamp). Null when there is none, or for a loose file.
+    /// </summary>
+    public static string? Predecessor(string fullPath)
+    {
+        if (!fullPath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) return null;
+        var dir = Path.GetDirectoryName(fullPath)!;
+        var name = Path.GetFileName(fullPath);
+        var prefix = PrefixBeforeStamp(name);
+        return Directory.EnumerateFiles(dir, "*.zip")
+            .Select(Path.GetFileName)
+            .Where(n => n is not null && string.CompareOrdinal(n, name) < 0 && PrefixBeforeStamp(n) == prefix)
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .LastOrDefault() is string p ? Path.Combine(dir, p) : null;
+    }
+
+    private static string PrefixBeforeStamp(string name)
+    {
+        var m = Stamp().Match(name);
+        return m.Success ? name[..m.Index] : name;
+    }
+
+    public static HashSet<(string Path, uint Crc, long Size)> Signatures(string zipPath)
+    {
+        using var fs = new FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
+        using var zip = new ZipArchive(fs, ZipArchiveMode.Read);
+        return zip.Entries.Select(e => (e.FullName.Replace('\\', '/'), e.Crc32, e.Length)).ToHashSet();
+    }
+
     [GeneratedRegex(@"(?<!\d)(20\d{2})(\d{2})(\d{2})[-_](\d{2})(\d{2})(\d{2})?(?!\d)")]
     private static partial Regex Stamp();
 
@@ -43,7 +74,16 @@ public static partial class ArchiveIndexer
         return null;
     }
 
-    public static IndexResult Index(IndexWriter w, ArchiveInfo a)
+    /// <summary>Marks a staged member as identical to the same member of the previous archive in its series.</summary>
+    public const string SameAsPredecessor = "same as the previous archive";
+
+    /// <param name="predecessor">
+    /// For staging only: (path, CRC-32, size) of every member of the previous
+    /// archive in the same series. A member found there unchanged is recorded as
+    /// <see cref="SameAsPredecessor"/> instead of being read, because a stage
+    /// cannot see the index to de-duplicate against it.
+    /// </param>
+    public static IndexResult Index(IndexWriter w, ArchiveInfo a, IReadOnlySet<(string Path, uint Crc, long Size)>? predecessor = null)
     {
         long archiveId = w.AddArchive(a);
         int members = 0, textMembers = 0, reused = 0;
@@ -62,6 +102,12 @@ public static partial class ArchiveIndexer
                 if (how == Treatment.Skip || e.Length > MaxTextMember)
                 {
                     w.AddMember(archiveId, path, e.Crc32, e.Length, e.LastWriteTime, kind, null, note ?? "too large to index");
+                    continue;
+                }
+                if (predecessor is not null && predecessor.Contains((path, e.Crc32, e.Length)))
+                {
+                    textMembers++;
+                    w.AddMember(archiveId, path, e.Crc32, e.Length, e.LastWriteTime, kind, null, SameAsPredecessor);
                     continue;
                 }
                 if (w.FindBySignature(path, e.Crc32, e.Length) is long known)

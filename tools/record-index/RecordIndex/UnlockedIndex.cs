@@ -169,26 +169,34 @@ public sealed class UnlockedIndex : IDisposable
             var key = Envelope.Unwrap(manifest.Wrap.ToWrapped(), stagingSpki, IndexHome.StageContext(Ring, Path.GetFileName(stagePath)), Envelope.SoftwareAgreement(stagingKey));
             try
             {
+                bool done;
                 using (var stage = IndexDatabase.Open(stagePath, key, readOnly: true))
-                    MergeOne(stage, manifest);
+                    done = MergeOne(stage, manifest);
                 File.Delete(stagePath);
                 File.Delete(stagePath + ".json");
-                merged++;
-                prompt.Say($"Merged the staged {manifest.ArchivePath}.");
+                if (done) { merged++; prompt.Say($"Merged the staged {manifest.ArchivePath}."); }
+                else prompt.Say($"The stage of {manifest.ArchivePath} leaned on {manifest.Predecessor}, which is not in the index, so it was set aside; the archive is indexed straight from the record instead.");
             }
             finally { CryptographicOperations.ZeroMemory(key); }
         }
         return merged;
     }
 
-    private void MergeOne(IndexDatabase stage, StageManifest m)
+    /// <summary>False when the stage refers to a predecessor the index does not hold; nothing is written then.</summary>
+    private bool MergeOne(IndexDatabase stage, StageManifest m)
     {
         if (ArchiveState(m.ArchivePath) is { } s)
         {
-            if (s.Size == m.Size && s.Mtime == m.MtimeUtc) return;
+            if (s.Size == m.Size && s.Mtime == m.MtimeUtc) return true;
             RemoveArchive(s.Id);
         }
+        long? predecessorId = m.Predecessor is null ? null : ArchiveState(m.Predecessor)?.Id;
         using var w = new IndexWriter(Db);
+        using var fromPredecessor = Db.Command("SELECT body_id, kind, note FROM member WHERE archive_id=$a AND path=$p AND crc32=$c AND size=$z LIMIT 1", w.Transaction);
+        fromPredecessor.Parameters.AddWithValue("$a", predecessorId ?? -1);
+        fromPredecessor.Parameters.Add(new Microsoft.Data.Sqlite.SqliteParameter("$p", ""));
+        fromPredecessor.Parameters.Add(new Microsoft.Data.Sqlite.SqliteParameter("$c", 0L));
+        fromPredecessor.Parameters.Add(new Microsoft.Data.Sqlite.SqliteParameter("$z", 0L));
         using (var ca = stage.Command("SELECT id, path, kind, archive_date, size, mtime_utc, member_count, text_members FROM archive"))
         using (var ra = ca.ExecuteReader())
         {
@@ -203,19 +211,34 @@ public sealed class UnlockedIndex : IDisposable
                 while (rm.Read())
                 {
                     long? body = null;
-                    if (!rm.IsDBNull(5))
+                    string kind = rm.GetString(4);
+                    string? note = rm.IsDBNull(6) ? null : rm.GetString(6);
+                    if (note == ArchiveIndexer.SameAsPredecessor)
+                    {
+                        if (predecessorId is null) return false;
+                        fromPredecessor.Parameters["$p"].Value = rm.GetString(0);
+                        fromPredecessor.Parameters["$c"].Value = rm.GetInt64(1);
+                        fromPredecessor.Parameters["$z"].Value = rm.GetInt64(2);
+                        using var rp = fromPredecessor.ExecuteReader();
+                        if (!rp.Read()) return false;
+                        body = rp.IsDBNull(0) ? null : rp.GetInt64(0);
+                        kind = rp.GetString(1);
+                        note = rp.IsDBNull(2) ? null : rp.GetString(2);
+                    }
+                    else if (!rm.IsDBNull(5))
                     {
                         long sb = rm.GetInt64(5);
                         if (!bodyMap.TryGetValue(sb, out var mb)) bodyMap[sb] = mb = CopyBody(stage, w, sb);
                         body = mb;
                     }
                     DateTimeOffset? mt = rm.IsDBNull(3) ? null : DateTimeOffset.Parse(rm.GetString(3), System.Globalization.CultureInfo.InvariantCulture);
-                    w.AddMember(newArchive, rm.GetString(0), rm.IsDBNull(1) ? null : (uint)rm.GetInt64(1), rm.GetInt64(2), mt, rm.GetString(4), body, rm.IsDBNull(6) ? null : rm.GetString(6));
+                    w.AddMember(newArchive, rm.GetString(0), rm.IsDBNull(1) ? null : (uint)rm.GetInt64(1), rm.GetInt64(2), mt, kind, body, note);
                 }
                 w.FinishArchive(newArchive, ra.GetInt32(6), ra.GetInt32(7));
             }
         }
         w.Commit();
+        return true;
     }
 
     private static long CopyBody(IndexDatabase stage, IndexWriter w, long stageBody)
