@@ -68,22 +68,39 @@ public sealed class IndexDatabase : IDisposable
         var cs = new SqliteConnectionStringBuilder { DataSource = path, Mode = mode, Pooling = false }.ToString();
         var c = new SqliteConnection(cs);
         c.Open();
-        ApplyKey(c, key);
-        using var cmd = c.CreateCommand();
-        // Rollback journal, not WAL: WAL needs shared memory and does not work
-        // over a network share, where the index may live.
-        cmd.CommandText = "PRAGMA journal_mode=DELETE; PRAGMA foreign_keys=ON; PRAGMA cache_size=-65536; PRAGMA temp_store=MEMORY;";
-        if (mode != SqliteOpenMode.ReadOnly) cmd.ExecuteNonQuery();
-        else { cmd.CommandText = "PRAGMA cache_size=-65536; PRAGMA temp_store=MEMORY;"; cmd.ExecuteNonQuery(); }
-        return c;
+        try
+        {
+            ApplyKey(c, key);
+            using var cmd = c.CreateCommand();
+            // Rollback journal, not WAL: WAL needs shared memory and does not work
+            // over a network share, where the index may live.
+            cmd.CommandText = mode == SqliteOpenMode.ReadOnly
+                ? "PRAGMA cache_size=-65536; PRAGMA temp_store=MEMORY;"
+                : "PRAGMA journal_mode=DELETE; PRAGMA foreign_keys=ON; PRAGMA cache_size=-65536; PRAGMA temp_store=MEMORY;";
+            cmd.ExecuteNonQuery();
+            return c;
+        }
+        catch (SqliteException e) when (e.SqliteErrorCode == 26)
+        {
+            c.Dispose();
+            throw new CryptographicException("The index database could not be read with that key.", e);
+        }
+        catch
+        {
+            c.Dispose();
+            throw;
+        }
     }
 
     private static void ApplyKey(SqliteConnection c, ReadOnlySpan<byte> key)
     {
         if (key.Length != 32) throw new ArgumentException("The database key is 32 bytes.");
-        // ENCRYPTION NOT YET APPLIED: the tests that prove the file is unreadable
-        // without the key are written first and must be seen to fail.
-        _ = c;
+        // Must be the first statements on the connection. cipher + legacy=4 select
+        // SQLite3 Multiple Ciphers' SQLCipher 4 compatible scheme; x'...' is a raw
+        // key, so no password stretching. The hex string is never logged.
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = $"PRAGMA cipher='sqlcipher'; PRAGMA legacy=4; PRAGMA key=\"x'{Convert.ToHexString(key)}'\";";
+        cmd.ExecuteNonQuery();
     }
 
     public void Exec(string sql) => Exec(Connection, sql);
