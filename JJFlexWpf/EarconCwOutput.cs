@@ -300,7 +300,10 @@ namespace JJFlexWpf
                 long elementSamples = (long)sr * el.DurationMs / 1000;
                 if (el.Type == CwElementType.Mark)
                 {
-                    providers.Add(new CwToneSampleProvider(
+                    // #855: the mark made in full once per setting and copied
+                    // from memory after, rather than synthesised on the output
+                    // device's thread; the same samples either way.
+                    providers.Add(EarconPlayer.CwMark(
                         sr, item.SidetoneHz, el.DurationMs, item.RiseFallMs, item.Volume,
                         item.MarkVoice));
                 }

@@ -812,6 +812,9 @@ namespace JJFlexWpf
             // Before the device, so a reopened device opens with the new buffer.
             EarconPlayer.SetAlertBuffer(AlertBufferMs, AlertBufferCount);
             EarconPlayer.SetAlertDevice(EarconDeviceNumber);
+            // #855: the held sounds follow the switches, the voice set and the
+            // countdown just applied above.
+            EarconPlayer.PrewarmSoon();
             EarconPlayer.SetMeterDevice(MeterDeviceNumber);
 
             // Verbosity

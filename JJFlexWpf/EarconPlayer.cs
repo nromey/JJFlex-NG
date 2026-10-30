@@ -364,6 +364,10 @@ namespace JJFlexWpf
                 LoadSounds();
 
                 _initialized = true;
+
+                // #855: the frequent sounds made once, on a pool thread, and
+                // played from memory from then on.
+                if (Radios.OutputChannelRecorder.RenderEnabled) PrewarmSoon();
             }
             catch (Exception ex)
             {
@@ -3854,7 +3858,7 @@ namespace JJFlexWpf
             }
             try
             {
-                var rendered = RenderVoiced(voice, steps, volume);
+                var rendered = RenderVoicedHeld(voice, steps, volume);   // #855: from memory when held
                 var provider = new RenderedSampleProvider(rendered);
                 if (Math.Abs(pan) < 0.01f)
                     AddToMixer(provider);
@@ -3891,28 +3895,9 @@ namespace JJFlexWpf
             if (AlertMixer == null) { PlayVoicedSequence(voice, steps, volume, pan); return; }
             try
             {
-                long synth = SoundTiming.SynthStart();
-                int totalMs = 0;
-                foreach (var s in steps) totalMs += Math.Max(s.ms, 0);
-                int totalSamples = SampleRate * (totalMs + VoicedTailMs) / 1000 + 1;
-                var buffer = new float[Math.Max(totalSamples, 1)];
-
-                int cursor = 0;
-                foreach (var (freq, ms) in steps)
-                {
-                    int stepSamples = SampleRate * Math.Max(ms, 0) / 1000;
-                    if (freq > 0 && ms > 0)
-                    {
-                        var shaped = EarconVoices.DecayingOver(voice, ms);
-                        var mono = RenderStep(shaped, freq, ms, volume);
-                        int n = Math.Min(mono.Length, buffer.Length - cursor);
-                        for (int i = 0; i < n; i++)
-                            buffer[cursor + i] += mono[i];
-                    }
-                    cursor += stepSamples;
-                }
-                SoundTiming.SynthEnd(synth);
-
+                // #855: from memory when held; the render below is unchanged.
+                var buffer = HeldOrRender(VoicedKey("decay", voice, steps, volume),
+                    () => RenderVoicedDecayCore(voice, steps, volume));
                 var provider = new RenderedSampleProvider(buffer);
                 if (Math.Abs(pan) < 0.01f)
                     AddToMixer(provider);
@@ -3923,6 +3908,31 @@ namespace JJFlexWpf
             {
                 Trace.WriteLine($"EarconPlayer.PlayVoicedDecaySequence failed: {ex.Message}");
             }
+        }
+
+        /// <summary>The decaying cadence's samples: each note shaped to decay inside its own step, summed.</summary>
+        private static float[] RenderVoicedDecayCore(MeterVoice voice, (int freq, int ms)[] steps, float volume)
+        {
+            int totalMs = 0;
+            foreach (var s in steps) totalMs += Math.Max(s.ms, 0);
+            int totalSamples = SampleRate * (totalMs + VoicedTailMs) / 1000 + 1;
+            var buffer = new float[Math.Max(totalSamples, 1)];
+
+            int cursor = 0;
+            foreach (var (freq, ms) in steps)
+            {
+                int stepSamples = SampleRate * Math.Max(ms, 0) / 1000;
+                if (freq > 0 && ms > 0)
+                {
+                    var shaped = EarconVoices.DecayingOver(voice, ms);
+                    var mono = RenderStep(shaped, freq, ms, volume);
+                    int n = Math.Min(mono.Length, buffer.Length - cursor);
+                    for (int i = 0; i < n; i++)
+                        buffer[cursor + i] += mono[i];
+                }
+                cursor += stepSamples;
+            }
+            return buffer;
         }
 
         #endregion
@@ -3941,7 +3951,8 @@ namespace JJFlexWpf
             if (AlertMixer == null) { FallbackBeep((startHz + endHz) / 2, durationMs); return; }
             try
             {
-                var chirp = new ChirpSampleProvider(SampleRate, startHz, endHz, durationMs, volume);
+                // #855: made in full (from memory when held); the same samples the chirp reads out.
+                var chirp = new RenderedSampleProvider(RenderChirpHeld(startHz, endHz, durationMs, volume));
                 AddToMixer(chirp);
             }
             catch (Exception ex)
@@ -3956,7 +3967,7 @@ namespace JJFlexWpf
             if (AlertMixer == null) { FallbackBeep((startHz + endHz) / 2, durationMs); return; }
             try
             {
-                var chirp = new ChirpSampleProvider(SampleRate, startHz, endHz, durationMs, volume);
+                var chirp = new RenderedSampleProvider(RenderChirpHeld(startHz, endHz, durationMs, volume));
                 AddToMixerPanned(chirp, pan);
             }
             catch (Exception ex)
