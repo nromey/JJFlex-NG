@@ -47,25 +47,54 @@ namespace Radios
         /// then the hold ends, and a monitor the send turned on goes back off
         /// by <see cref="SendMonitorOwner"/>'s usual rules. The same wait the
         /// box send's VOX pause makes after a takeover
-        /// (<c>ReleaseVoxWhenReceive</c>): the radio's own transmit report, or
-        /// the connection going away. Not transmitting now, it is let go now.
+        /// (<c>ReleaseVoxWhenReceive</c>), or the connection going away. Not
+        /// transmitting now, it is let go now.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>"Receive" is the radio's word, not only our cache</b> (Codex round
+        /// 1030, B5). After a hardware takeover the send drops its software key,
+        /// so our cached <see cref="Transmit"/> can read false while the radio is
+        /// still keyed by the hand mic; FlexLib's Mox cache also flips the moment
+        /// we ask for an unkey. So both must say receive: cached Transmit false
+        /// AND the radio's interlock no longer in or on its way through transmit
+        /// (<see cref="RadioInterlockReportsTransmit"/>), the same pair the
+        /// check's restores wait for.
+        /// </para>
+        /// <para>
+        /// <b>Pinned to the connection it was taken on</b>
+        /// (<c>feedback_deferred_state_carries_its_session</c>): another radio,
+        /// a new command connection, or a lost one ends the wait as a disconnect,
+        /// and the monitor owner's lost-connection rule records the put-back.
+        /// </para>
+        /// </remarks>
         public void ReleaseMonitorHoldAtUnkey(IDisposable? hold, string who)
         {
             if (hold == null) return;
-            if (!_Transmit || theRadio?.Connected != true)
+            Radio? radio = theRadio;
+            CommandConnection? connection = radio?.Connected == true ? radio.CurrentCommandConnection : null;
+            bool SameConnection() => radio != null && ReferenceEquals(theRadio, radio) && radio.Connected
+                && ReferenceEquals(connection, radio.CurrentCommandConnection);
+            // Read only after SameConnection(), so theRadio is the pinned radio.
+            bool StillTransmitting() => _Transmit || RadioInterlockReportsTransmit;
+            if (!SameConnection() || !StillTransmitting())
             {
                 hold.Dispose();
                 return;
             }
-            Tracing.TraceLine("SendMonitor: " + who + " was taken over; the transmit monitor stays as it is until the operator unkeys",
+            Tracing.TraceLine("SendMonitor: " + who + " was taken over; the transmit monitor stays as it is until the operator unkeys"
+                + " (Transmit " + _Transmit + ", interlock " + radio!.InterlockState + ")",
                 TraceLevel.Info);
             _ = System.Threading.Tasks.Task.Run(async () =>
             {
-                while (_Transmit && theRadio?.Connected == true)
+                bool same;
+                while ((same = SameConnection()) && StillTransmitting())
                     await System.Threading.Tasks.Task.Delay(20).ConfigureAwait(false);
-                Tracing.TraceLine("SendMonitor: the operator unkeyed after taking over " + who
-                    + "; the send's hold on the transmit monitor ends", TraceLevel.Info);
+                Tracing.TraceLine(same
+                    ? "SendMonitor: the operator unkeyed after taking over " + who
+                        + " (Transmit False, interlock " + radio!.InterlockState + "); the send's hold on the transmit monitor ends"
+                    : "SendMonitor: the connection " + who + " was taken over on went away before the unkey; the send's hold on the transmit monitor ends",
+                    TraceLevel.Info);
                 hold.Dispose();
             });
         }
