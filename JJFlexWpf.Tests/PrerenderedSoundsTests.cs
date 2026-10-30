@@ -145,6 +145,30 @@ public sealed class PrerenderedSoundsTests
         Assert.Null(EarconPlayer.VoiceKey(noisy));
     }
 
+    [Fact]
+    public void Making_a_sound_offline_does_not_duck_the_radio()
+    {
+        // The warm-up makes the warning alarm and the problem tone at every
+        // start and every settings Apply. Played live, each ducks the
+        // receive audio to make room for itself; made offline, nothing is
+        // heard, so nothing may duck.
+        NoiseReductionPerChannelTests.AssertWindowless();
+        bool saved = RxDuck.Enabled;
+        try
+        {
+            RxDuck.Enabled = true;
+            var until = DateTime.UtcNow.AddSeconds(5);
+            while (RxDuck.TargetGain < 1f && DateTime.UtcNow < until) System.Threading.Thread.Sleep(20);
+            Assert.Equal(1f, RxDuck.TargetGain);
+
+            EarconPlayer.RenderOffline(EarconPlayer.WarningAlarmTone);
+            EarconPlayer.RenderOffline(EarconPlayer.ProblemRecordedTone);
+            EarconPlayer.Prewarm();
+            Assert.Equal(1f, RxDuck.TargetGain);
+        }
+        finally { RxDuck.Enabled = saved; }
+    }
+
     [Theory]
     [InlineData(700, 60, 5, null)]
     [InlineData(700, 180, 5, null)]

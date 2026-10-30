@@ -2030,6 +2030,16 @@ namespace Radios.Tests
                 // injected stage, keyed with the countdown off, says it is
                 // transmitting. Draft prose, awaiting Noel.
                 "audio.fixer.inject_now",
+                // Sound timing #855, step 4: the alert sound delay, its four
+                // choices, the hand-edited one and its Ctrl+F1 text. Window
+                // text (delivery null). Draft prose, awaiting Noel.
+                "audio.alert_buffer.label",
+                "audio.alert_buffer.shortest",
+                "audio.alert_buffer.short_default",
+                "audio.alert_buffer.medium",
+                "audio.alert_buffer.long",
+                "audio.alert_buffer.custom",
+                "audio.alert_buffer.help",
             };
 
             Assert.Equal(3135, unclassified);   // Track A 2026-10-28: the Workshop's removed Check Microphone button took its two sentences with it, and three failure sentences that now name the Fix tool were classified
