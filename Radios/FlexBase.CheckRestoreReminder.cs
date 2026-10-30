@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Flex.Smoothlake.FlexLib;
+using Radios.StationConnect;
 using JJTrace;
 
 namespace Radios
@@ -184,9 +185,12 @@ namespace Radios
                 TraceLevel.Info);
             // Off this thread: the command loop this connect runs has not
             // started yet, and every write below waits for it.
+            // The connection is pinned here, with the radio: every send below
+            // asks at its run that it is still this one (Codex round 1030, B1).
+            CommandConnection? connection = radio?.CurrentCommandConnection;
             CheckPutBackTask = Task.Run(async () =>
             {
-                try { await PutBackAtConnectAsync(radio!, serial!, reason, owed, store, silent).ConfigureAwait(false); }
+                try { await PutBackAtConnectAsync(radio!, connection, serial!, reason, owed, store, silent).ConfigureAwait(false); }
                 finally { EndPutBack(serial!); }
             });
         }
@@ -208,11 +212,12 @@ namespace Radios
         /// The put-back itself. Waits for the command loop to reach it (so the
         /// station's own queued work has gone out first), refuses to write
         /// anything while the radio reports transmit, reads each setting, and
-        /// writes back only the ones still at the check's value. One ping after
-        /// the writes, which the radio answers in order, confirms them; only
-        /// then does a setting leave the record.
+        /// sends back only the ones still at the check's value. Each send asks
+        /// again at the moment it runs, and a setting leaves the record only on
+        /// its own command's success reply (Codex round 1030, B1 to B3; see
+        /// <see cref="SendCheckPutBackAsync"/>).
         /// </summary>
-        private async Task PutBackAtConnectAsync(Radio radio, string serial, string? reason,
+        private async Task PutBackAtConnectAsync(Radio radio, CommandConnection? connection, string serial, string? reason,
             IReadOnlyList<CheckPutBack> owed, CheckRestoreReminderStore store, bool silent)
         {
             try
@@ -226,7 +231,7 @@ namespace Radios
                     NoteCheckRestoreSentence(serial, store, reason ?? CheckRestoreUnconfirmed, SentenceWhenNothingPutBack(reason, owed));
                     return;
                 }
-                if (!ReferenceEquals(theRadio, radio))
+                if (!PutBackConnectionLive(radio, connection))
                 {
                     Tracing.TraceLine("Check put-back: the connection went before anything was put back; kept for the next connect",
                         TraceLevel.Warning);
@@ -245,11 +250,10 @@ namespace Radios
                 var done = new List<CheckPutBack>();
                 var left = new List<CheckPutBack>();
                 var notDone = new List<CheckPutBack>();
-                var written = new List<CheckPutBack>();
                 bool stopped = false;
                 foreach (var item in owed)
                 {
-                    if (stopped || !ReferenceEquals(theRadio, radio)) { notDone.Add(item); continue; }
+                    if (stopped || !PutBackConnectionLive(radio, connection)) { notDone.Add(item); continue; }
                     string? now = ReadCheckPutBackSetting(radio, item);
                     if (now != null && item.Same(now, item.Original))
                     {
@@ -279,7 +283,7 @@ namespace Radios
                             TraceLevel.Info);
                         continue;
                     }
-                    // Asked again immediately before each write, as the restore owner does.
+                    // An early answer only; the send asks again at its run.
                     if (CheckPutBackTransmitting())
                     {
                         stopped = true;
@@ -288,35 +292,35 @@ namespace Radios
                             TraceLevel.Warning);
                         continue;
                     }
-                    RestoreOutcome outcome = await WriteCheckPutBackAsync(radio, item).ConfigureAwait(false);
-                    Tracing.TraceLine("Check put-back " + item + ": now=" + now + "; write " + outcome, TraceLevel.Info);
-                    if (outcome == RestoreOutcome.Done) written.Add(item);
-                    else
+                    var (sent, detail) = await SendCheckPutBackAsync(radio, connection, item).ConfigureAwait(false);
+                    switch (sent)
                     {
-                        notDone.Add(item);
-                        if (outcome == RestoreOutcome.Retry) stopped = true;
-                    }
-                }
-
-                if (written.Count > 0)
-                {
-                    bool answered = ReferenceEquals(theRadio, radio) &&
-                        await ConfirmWritesReachedRadioAsync(RestoreWriteWait).ConfigureAwait(false);
-                    foreach (var item in written)
-                    {
-                        if (answered)
-                        {
+                        case PutBackSend.Accepted:
                             store.RemovePutBack(serial, item);
                             done.Add(item);
-                            Tracing.TraceLine("Check put-back " + item + ": put back, the radio answered; now reads "
-                                + (ReadCheckPutBackSetting(radio, item) ?? "(could not be read)"), TraceLevel.Info);
-                        }
-                        else
-                        {
+                            Tracing.TraceLine("Check put-back " + item + ": now=" + now + "; put back, the radio accepted " + detail
+                                + "; now reads " + (ReadCheckPutBackSetting(radio, item) ?? "(could not be read)"), TraceLevel.Info);
+                            break;
+                        case PutBackSend.Changed:
+                            store.RemovePutBack(serial, item);
+                            left.Add(item);
+                            Tracing.TraceLine("Check put-back " + item + ": at the write's run it read " + detail
+                                + ", no longer the check's value, so something else changed it after the decision; nothing written, left alone",
+                                TraceLevel.Info);
+                            break;
+                        case PutBackSend.Transmitting:
+                        case PutBackSend.ConnectionGone:
+                        case PutBackSend.Unanswered:
+                            stopped = true;
                             notDone.Add(item);
-                            Tracing.TraceLine("Check put-back " + item + ": written but not confirmed; kept for the next connect",
+                            Tracing.TraceLine("Check put-back " + item + ": " + detail + "; this and the rest are kept for the next connect",
                                 TraceLevel.Warning);
-                        }
+                            break;
+                        default:
+                            notDone.Add(item);
+                            Tracing.TraceLine("Check put-back " + item + ": " + detail + "; not confirmed, kept for the next connect",
+                                TraceLevel.Warning);
+                            break;
                     }
                 }
 
@@ -340,6 +344,11 @@ namespace Radios
                 Tracing.TraceLine("Check put-back failed; the record is kept for the next connect: " + ex, TraceLevel.Error);
             }
         }
+
+        /// <summary>Still the radio and the command connection the put-back started on.</summary>
+        private bool PutBackConnectionLive(Radio radio, CommandConnection? connection) =>
+            radio != null && connection != null && ReferenceEquals(theRadio, radio) && radio.Connected &&
+            ReferenceEquals(radio.CurrentCommandConnection, connection);
 
         /// <summary>The owner's own question: our transmit state or the radio's interlock.</summary>
         private bool CheckPutBackTransmitting()
@@ -377,57 +386,161 @@ namespace Radios
             int.TryParse(item.Target, NumberStyles.Integer, CultureInfo.InvariantCulture, out int index) &&
             radio.FindXvtrByIndex(index) is { Valid: true } band ? band : null;
 
-        /// <summary>
-        /// Write the original back through the same paths the check's own
-        /// restores use: queued setters under <see cref="RestoreWritesAtReceiveAsync"/>,
-        /// which refuses a queued write at its run if the radio then reports
-        /// transmit, and the reply-confirmed full duplex request.
-        /// </summary>
-        private async Task<RestoreOutcome> WriteCheckPutBackAsync(Radio radio, CheckPutBack item)
+        /// <summary>What one put-back send came to.</summary>
+        private enum PutBackSend
         {
-            string name = "check put-back: " + item.Setting;
-            string v = item.Original;
-            static bool Int(string s, out int n) => int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n);
+            /// <summary>The radio answered the setting's own command with success: the only evidence that retires it.</summary>
+            Accepted,
+            /// <summary>The radio answered the command with a failure code.</summary>
+            Rejected,
+            /// <summary>The command went out and no answer came in time.</summary>
+            Unanswered,
+            /// <summary>Never sent: the loop never reached it, the transport refused it, or nothing here can write the setting.</summary>
+            NotSent,
+            /// <summary>At the send's run the setting could not be read; nothing was sent.</summary>
+            Unread,
+            /// <summary>At the send's run our Mox or the radio's interlock said transmit; nothing was sent.</summary>
+            Transmitting,
+            /// <summary>At the send's run the setting no longer held the check's value; nothing was sent.</summary>
+            Changed,
+            /// <summary>At the send's run the radio or the connection was no longer the put-back's; nothing was sent.</summary>
+            ConnectionGone,
+        }
+
+        /// <summary>
+        /// Put one setting back, deciding at the moment the command loop runs
+        /// the send, not before it was queued (Codex round 1030, B1 and B2):
+        /// still the same radio and connection, neither our Mox nor the radio's
+        /// interlock saying transmit, and the setting still at the check's
+        /// value. Only then is the setting's own command sent, through the
+        /// reply-bearing path, and only a success reply to THAT command counts
+        /// as put back (B3). A ping answered after it proves the radio
+        /// processed the command, not that it took it, and FlexLib's getter
+        /// echoes whatever its setter cached, so neither is evidence here.
+        /// Full duplex goes the same way; until this round it had no transmit
+        /// question at its run at all.
+        /// </summary>
+        /// <remarks>
+        /// The command is sent raw, not through FlexLib's setter, because the
+        /// setter discards the reply and caches the requested value first. So
+        /// FlexLib's cache moves only when the radio reports the new value,
+        /// and a rejected write cannot read back as restored. What the setters
+        /// announced is still announced: power, tune power and the antenna are
+        /// marked as the application's own writes
+        /// (<see cref="NoteRadioSettingWritten"/>, for the hold after a
+        /// reflected-power cut), the antenna request is recorded for its
+        /// trace, and an accepted full duplex becomes the reply-proven state
+        /// the full duplex control keeps. Never throws.
+        /// </remarks>
+        private async Task<(PutBackSend Result, string Detail)> SendCheckPutBackAsync(Radio radio, CommandConnection? connection, CheckPutBack item)
+        {
+            var queue = q;
+            if (queue == null || !queue.MainLoop) return (PutBackSend.NotSent, "the command loop is not running");
+            var decided = new TaskCompletionSource<(PutBackSend, string)>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var reply = new TaskCompletionSource<CommandReply>(TaskCreationOptions.RunContinuationsAsynchronously);
+            // 0 waiting; 1 the loop has taken it and decides; 2 too late, so the loop must do nothing.
+            var claim = new int[1];
             try
             {
-                switch (item.Setting)
+                queue.Enqueue((FunctionDel)(() =>
                 {
-                    case CheckPutBack.RfPower when Int(v, out int power):
-                        return await RestoreWritesAtReceiveAsync(name, () =>
-                        {
-                            using (AppInitiatedSettingChanges()) XmitPower = power;
-                        }).ConfigureAwait(false);
-                    case CheckPutBack.TunePower when Int(v, out int tune):
-                        return await RestoreWritesAtReceiveAsync(name, () =>
-                        {
-                            using (AppInitiatedSettingChanges()) TunePower = tune;
-                        }).ConfigureAwait(false);
-                    case CheckPutBack.Monitor:
-                        return await RestoreWritesAtReceiveAsync(name, () =>
-                            Monitor = v == "1" ? OffOnValues.on : OffOnValues.off).ConfigureAwait(false);
-                    case CheckPutBack.TxAntenna when v.Length > 0:
-                        return await RestoreWritesAtReceiveAsync(name, () =>
-                        {
-                            using (AppInitiatedSettingChanges()) TXAntennaName = v;
-                        }).ConfigureAwait(false);
-                    case CheckPutBack.FullDuplex:
-                        return await SetFullDuplexConfirmedAsync(v == "1", radio, radio.CurrentCommandConnection,
-                                note => Tracing.TraceLine("Check put-back full duplex: " + note, TraceLevel.Info)).ConfigureAwait(false)
-                            ? RestoreOutcome.Done : RestoreOutcome.Failed;
-                    case CheckPutBack.XvtrDrive when DriveBand(radio, item) is { } band &&
-                        double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out double dbm):
-                        return await RestoreWritesAtReceiveAsync(name, () =>
-                            q.Enqueue((FunctionDel)(() => { band.MaxPower = dbm; }), "CheckPutBackDrive")).ConfigureAwait(false);
-                    default:
-                        Tracing.TraceLine("Check put-back " + item + ": nothing here can write it", TraceLevel.Warning);
-                        return RestoreOutcome.Failed;
-                }
+                    if (System.Threading.Interlocked.CompareExchange(ref claim[0], 1, 0) != 0) return;
+                    try { decided.TrySetResult(DecideAndSendPutBack(radio, connection, item, reply)); }
+                    catch (Exception ex) { decided.TrySetResult((PutBackSend.NotSent, "the send threw: " + ex.Message)); }
+                }), "CheckPutBack " + item.Setting);
             }
-            catch (Exception ex)
+            catch (Exception ex) { return (PutBackSend.NotSent, "it could not be queued: " + ex.Message); }
+
+            var first = await Task.WhenAny(decided.Task, Task.Delay(RestoreWriteWait)).ConfigureAwait(false);
+            if (!ReferenceEquals(first, decided.Task) &&
+                System.Threading.Interlocked.CompareExchange(ref claim[0], 2, 0) == 0)
+                return (PutBackSend.NotSent, "the command loop did not reach the write in time, and now never will");
+            var (result, detail) = await decided.Task.ConfigureAwait(false);
+            if (result != PutBackSend.Accepted) return (result, detail);
+
+            // Sent: wait for the radio's own answer to this command.
+            var answered = await Task.WhenAny(reply.Task, Task.Delay(RestoreWriteWait)).ConfigureAwait(false);
+            if (!ReferenceEquals(answered, reply.Task))
+                return (PutBackSend.Unanswered, "'" + detail + "' went out and the radio did not answer it");
+            CommandReply r = reply.Task.Result;
+            return r.Acknowledged
+                ? (PutBackSend.Accepted, "'" + detail + "'")
+                : (PutBackSend.Rejected, "the radio rejected '" + detail + "' (" + r.Code.ToString("X8", CultureInfo.InvariantCulture)
+                    + (r.Text.Length > 0 ? " " + r.Text : "") + ")");
+        }
+
+        /// <summary>
+        /// On the command loop: the questions, then the send. Accepted here
+        /// means only that the command went out, carrying its text; the reply
+        /// decides. Anything else says why nothing was sent.
+        /// </summary>
+        private (PutBackSend, string) DecideAndSendPutBack(Radio radio, CommandConnection? connection, CheckPutBack item,
+            TaskCompletionSource<CommandReply> reply)
+        {
+            if (!PutBackConnectionLive(radio, connection))
+                return (PutBackSend.ConnectionGone, "at the write's run the radio or its connection was no longer the one this put-back started on; nothing sent");
+            if (CheckPutBackTransmitting())
+                return (PutBackSend.Transmitting, "at the write's run the radio reported transmit ("
+                    + (Transmit ? "our Mox" : "its interlock " + radio.InterlockState) + "); nothing sent");
+            string? now = ReadCheckPutBackSetting(radio, item);
+            if (now == null)
             {
-                Tracing.TraceLine("Check put-back " + item + ": the write failed: " + ex.Message, TraceLevel.Warning);
-                return RestoreOutcome.Failed;
+                if (item.Setting == CheckPutBack.XvtrDrive && DriveBand(radio, item) == null)
+                    return (PutBackSend.Changed, "no transverter band " + item.Target);
+                return (PutBackSend.Unread, "at the write's run it could not be read; nothing sent");
             }
+            if (!item.Same(now, item.CheckSet)) return (PutBackSend.Changed, now);
+
+            string v = item.Original;
+            static bool Int(string s, out int n) => int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n);
+            string? command = null;
+            Action? announce = null;
+            Action? accepted = null;
+            switch (item.Setting)
+            {
+                case CheckPutBack.RfPower when Int(v, out int power):
+                    command = "transmit set rfpower=" + power.ToString(CultureInfo.InvariantCulture);
+                    announce = () => NoteRadioSettingWritten("XmitPower", v);
+                    break;
+                case CheckPutBack.TunePower when Int(v, out int tune):
+                    command = "transmit set tunepower=" + tune.ToString(CultureInfo.InvariantCulture);
+                    announce = () => NoteRadioSettingWritten("TunePower", v);
+                    break;
+                case CheckPutBack.Monitor:
+                    command = "transmit set mon=" + (v == "1" ? "1" : "0");
+                    break;
+                case CheckPutBack.TxAntenna when v.Length > 0:
+                    if (SliceForTransmitSetting(out string basis) is not { } slice)
+                        return (PutBackSend.Unread, "at the write's run there was no transmit slice; nothing sent");
+                    command = "slice set " + slice.Index.ToString(CultureInfo.InvariantCulture) + " txant=" + v;
+                    announce = () =>
+                    {
+                        Tracing.TraceLine($"Antenna:TX request slice {slice.Index} ({basis}): '{slice.TXAnt}' -> '{v}' (check put-back)", TraceLevel.Info);
+                        NoteRadioSettingWritten("TXAntennaName", v);
+                        _txAntRequested = v;
+                        _txAntRequestedSlice = slice.Index;
+                    };
+                    break;
+                case CheckPutBack.FullDuplex:
+                    bool duplex = v == "1";
+                    command = "radio set full_duplex_enabled=" + (duplex ? "1" : "0");
+                    // As the full duplex control does: the reply-proven state, pinned to this connection.
+                    accepted = () => AcceptFullDuplexReply(radio, connection!, duplex);
+                    break;
+                case CheckPutBack.XvtrDrive when DriveBand(radio, item) is { } band &&
+                    double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out double dbm):
+                    command = "xvtr set " + band.Index.ToString(CultureInfo.InvariantCulture) + " max_power="
+                        + dbm.ToString("F2", CultureInfo.InvariantCulture);
+                    break;
+            }
+            if (command == null) return (PutBackSend.NotSent, "nothing here can write it");
+            if (announce != null) using (AppInitiatedSettingChanges()) announce();
+            string? refusal = SendRadioCommandWithReply(radio, command, r =>
+            {
+                if (r.Acknowledged) accepted?.Invoke();
+                reply.TrySetResult(r);
+            });
+            return refusal == null ? (PutBackSend.Accepted, command) : (PutBackSend.NotSent, "'" + command + "' was not sent: " + refusal);
         }
 
         /// <summary>The sentence a recorded reason calls for when nothing is (or can be) put back.</summary>

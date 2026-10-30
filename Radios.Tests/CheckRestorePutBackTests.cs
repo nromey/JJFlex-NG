@@ -211,7 +211,8 @@ public sealed class CheckRestorePutBackTests : IDisposable
         Assert.Contains("slice set 1 txant=ANT1", commands);
         Assert.Contains("transmit set rfpower=25", commands);
         Assert.Contains("radio set full_duplex_enabled=0", commands);
-        Assert.Contains(commands, x => x.StartsWith("ping ", StringComparison.Ordinal));
+        // Each write is confirmed by its own reply; a ping proves nothing about acceptance (Codex round 1030, B3).
+        Assert.DoesNotContain(commands, x => x.StartsWith("ping ", StringComparison.Ordinal));
         Assert.Equal(25, c.F.Vendor.Radio.RFPower);
 
         string expected = "When this radio was last disconnected, an audio check had not put its settings back. "
@@ -302,15 +303,19 @@ public sealed class CheckRestorePutBackTests : IDisposable
     }
 
     [Fact]
-    public async Task A_put_back_the_radio_never_answers_is_kept_for_the_next_connect()
+    public async Task A_put_back_is_confirmed_by_its_own_reply_and_needs_no_ping()
     {
+        // Until Codex round 1030 (B3) one answered ping retired every written
+        // setting, and an unanswered one kept them all. Now each setting's own
+        // command reply decides: a radio that never answers a ping, but
+        // answers the write, has taken the write. The opposite case, a write
+        // never answered, is CheckPutBackSendRepairTests' B3 pair.
         var store = new CheckRestoreReminderStore(Folder());
         store.AddPutBacks("silent-serial", new[] { CheckPutBack.Power(25, 1) });
         store.Add("silent-serial", FlexBase.CheckRestoreWithheld);
         var (briefing, said, _) = OwnBriefing();
         using var c = RadioHoldingTheChecksValues("silent-serial", store, briefing);
         c.F.Rig.RestoreWriteWait = TimeSpan.FromMilliseconds(400);
-        // The radio takes the write but never answers the ping that confirms it.
         c.F.Vendor.Transport.CommandWritten = command =>
         {
             if (command.StartsWith("ping ", StringComparison.Ordinal)) return;
@@ -322,8 +327,8 @@ public sealed class CheckRestorePutBackTests : IDisposable
 
         Assert.Contains("transmit set rfpower=25", c.F.Vendor.Transport.Commands);
         Assert.Single(said, u => u.Text == "When this radio was last disconnected, an audio check had not put its settings back. "
-            + "Not confirmed, so check transmit power.");
-        Assert.Equal(new[] { CheckPutBack.Power(25, 1) }, store.PutBacksFor("silent-serial"));
+            + "Put back: transmit power.");
+        Assert.Empty(store.PutBacksFor("silent-serial"));
     }
 
     [Fact]
@@ -403,7 +408,8 @@ public sealed class CheckRestorePutBackTests : IDisposable
         Assert.Contains("slice set 1 txant=ANT1", commands);
         Assert.Contains("transmit set rfpower=25", commands);
         Assert.Contains("radio set full_duplex_enabled=0", commands);
-        Assert.Contains(commands, x => x.StartsWith("ping ", StringComparison.Ordinal));
+        // Each write is confirmed by its own reply; a ping proves nothing about acceptance (Codex round 1030, B3).
+        Assert.DoesNotContain(commands, x => x.StartsWith("ping ", StringComparison.Ordinal));
         Assert.Equal(25, c.F.Vendor.Radio.RFPower);
         // Nothing said, no alarm, and nothing left to put back; what it did is kept.
         Assert.Empty(said);

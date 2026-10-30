@@ -201,10 +201,20 @@ public partial class FlexBase
     /// Before this, the owner asked the radio before an entry and the entry's
     /// setters then queued writes that went out unasked, so a hardware line or
     /// VOX keying in between got the operator's power while keyed.
+    /// <para>
+    /// The question at the run is the owner's own: our cached Mox OR the
+    /// radio's interlock (fix round 1030, after Codex's B2 on the put-back).
+    /// Until then it asked only Mox, which FlexLib flips the moment we ask and
+    /// which never sees a key that is not ours, so a write could meet a
+    /// hardware key with Mox still false and go out.
+    /// </para>
     /// </remarks>
     public async Task<RestoreOutcome> RestoreWritesAtReceiveAsync(string name, Action writes)
     {
-        var gate = StationConnect.QueuedWriteGate.Open(() => Transmit ? "the radio reports transmit" : null);
+        var gate = StationConnect.QueuedWriteGate.Open(() =>
+            Transmit ? "the radio reports transmit"
+            : RadioInterlockReportsTransmit ? "the radio's interlock reports transmit"
+            : null);
         try { writes(); }
         finally { gate.Dispose(); }
         if (!await DrainCommandQueueAsync(RestoreWriteWait).ConfigureAwait(false))

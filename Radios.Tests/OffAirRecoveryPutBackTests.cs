@@ -115,7 +115,8 @@ public sealed class OffAirRecoveryPutBackTests : IDisposable
         Assert.Contains("slice set 1 txant=ANT1", commands);
         Assert.Contains("transmit set rfpower=25", commands);
         Assert.Contains("radio set full_duplex_enabled=0", commands);
-        Assert.Contains(commands, x => x.StartsWith("ping ", StringComparison.Ordinal));
+        // Each write is confirmed by its own reply; a ping proves nothing about acceptance (Codex round 1030, B3).
+        Assert.DoesNotContain(commands, x => x.StartsWith("ping ", StringComparison.Ordinal));
         Assert.Equal(25, c.F.Vendor.Radio.RFPower);
         // What belonged to the take's connection is the reconnect's, as for a check.
         Assert.DoesNotContain(commands, x => x.Contains("audio_mute", StringComparison.Ordinal)
