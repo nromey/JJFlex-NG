@@ -38,6 +38,38 @@ namespace Radios
         /// </summary>
         public IDisposable HoldMonitorForSend(string who) => SendMonitor.Hold(who);
 
+        /// <summary>
+        /// A send's monitor hold, let go only when the radio next reports
+        /// receive (#835, fix round 2026-10-30; Noel, 2026-10-29 23:57: after a
+        /// push-to-talk takeover, <i>"I'd wait until unkey, a change could be
+        /// kind of weird"</i>). The operator who took the send over keeps
+        /// hearing the monitor exactly as the send left it until they let go;
+        /// then the hold ends, and a monitor the send turned on goes back off
+        /// by <see cref="SendMonitorOwner"/>'s usual rules. The same wait the
+        /// box send's VOX pause makes after a takeover
+        /// (<c>ReleaseVoxWhenReceive</c>): the radio's own transmit report, or
+        /// the connection going away. Not transmitting now, it is let go now.
+        /// </summary>
+        public void ReleaseMonitorHoldAtUnkey(IDisposable? hold, string who)
+        {
+            if (hold == null) return;
+            if (!_Transmit || theRadio?.Connected != true)
+            {
+                hold.Dispose();
+                return;
+            }
+            Tracing.TraceLine("SendMonitor: " + who + " was taken over; the transmit monitor stays as it is until the operator unkeys",
+                TraceLevel.Info);
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                while (_Transmit && theRadio?.Connected == true)
+                    await System.Threading.Tasks.Task.Delay(20).ConfigureAwait(false);
+                Tracing.TraceLine("SendMonitor: the operator unkeyed after taking over " + who
+                    + "; the send's hold on the transmit monitor ends", TraceLevel.Info);
+                hold.Dispose();
+            });
+        }
+
         /// <summary>True while the monitor is on because a send turned it on. For tests and the trace.</summary>
         internal bool MonitorOnForASend => _sendMonitor?.OnForASend == true;
 

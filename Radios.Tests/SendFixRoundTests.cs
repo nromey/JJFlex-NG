@@ -134,8 +134,10 @@ namespace Radios.Tests
             Assert.True(begin.IndexOf("PieceHolds.Take", StringComparison.Ordinal)
                         < begin.IndexOf("VoiceMessageSend.Begin(", StringComparison.Ordinal));
 
-            // Given back on every settle, paused included.
-            Assert.Contains("ReleaseHolds(info);", Body(host, "private static void Settle()"));
+            // Given back on every settle, paused included; after a takeover
+            // the monitor waits for the operator's unkey (#835, fix round
+            // 2026-10-30; SendsRound1030Tests holds that half).
+            Assert.Contains("ReleaseHolds(info, takenOver:", Body(host, "private static void Settle()"));
 
             // The slice recorder's own playback to the air holds it too, and
             // gives it back with its VOX lease on every road out.
@@ -235,13 +237,16 @@ namespace Radios.Tests
             string controls = ReadSource("JJFlexWpf/RecorderControls.cs");
             string play = Body(controls, "public static async Task<RecorderOutcome> ToggleComputerPlayAsync(");
             int sendFirst = play.IndexOf("VoiceMessageSender.AnswerPlayFromComputer()", StringComparison.Ordinal);
-            int speakers = play.IndexOf("PauseOrCarryOnSpeakers()", StringComparison.Ordinal);
+            int speakers = play.IndexOf("PauseOrCarryOnSpeakersAsync()", StringComparison.Ordinal);
             int engine = play.IndexOf("ComputerRecorder.TogglePlaybackAsync", StringComparison.Ordinal);
             Assert.True(sendFirst >= 0 && speakers > sendFirst && engine > speakers,
                 "a send answers first, then a playing recording pauses, and only then may Play start one");
 
-            string pause = Body(controls, "private static RecorderOutcome PauseOrCarryOnSpeakers()");
-            Assert.Contains("RecordingPlayer.Resume()", pause);
+            // Carrying on goes through LocalPlaybackVox.CarryOnAsync, which pauses
+            // VOX again before the recording sounds (#835, fix round 2026-10-30).
+            string pause = Body(controls, "private static async Task<RecorderOutcome> PauseOrCarryOnSpeakersAsync()");
+            Assert.Contains("LocalPlaybackVox.CarryOnAsync()", pause);
+            Assert.DoesNotContain("RecordingPlayer.Resume()", pause);
             Assert.Contains("RecordingPlayer.Pause()", pause);
             Assert.DoesNotContain("Stop", pause);
 

@@ -1697,6 +1697,11 @@ namespace Radios.Tests
                 "audio.qsos.still_recording",
                 "audio.qsos.play_refused_transmitting",
                 "audio.qsos.vox_unconfirmed",
+                // #835 fix round 2026-10-30 (Sends): a paused speaker playback
+                // carrying on pauses VOX again first, and stays paused when it
+                // cannot. Draft prose, awaiting Noel.
+                "audio.qsos.resume_refused_transmitting",
+                "audio.qsos.resume_vox_unconfirmed",
                 "audio.qsos.trim_start_set",
                 "audio.qsos.trim_end_set",
                 "audio.qsos.trim_start_refused",

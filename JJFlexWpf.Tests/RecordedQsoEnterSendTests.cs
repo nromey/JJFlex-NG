@@ -67,9 +67,12 @@ public sealed class RecordedQsoEnterSendTests
     [InlineData(false, true, SendRoute.JoinTransmission, "AnswerSend")]
     // The box rule: ticked and VOX on, Enter is a send.
     [InlineData(false, false, SendRoute.Box, "Send")]
-    // Otherwise the preview, as before the box (keyed, it still refuses there).
+    // Keyed (push to talk, the lock, a hardware line), Enter sends on that
+    // transmission, as Ctrl+Alt+F11 does (ruled 2026-10-29 23:54; it refused
+    // until the fix round of 2026-10-30, SendsRound1030WindowlessTests).
+    [InlineData(false, false, SendRoute.JoinTransmission, "Send")]
+    // Otherwise the preview, as before the box.
     [InlineData(false, false, SendRoute.AsBefore, "Preview")]
-    [InlineData(false, false, SendRoute.JoinTransmission, "Preview")]
     [InlineData(false, false, null, "Preview")]
     public void Enter_follows_the_box_rule(bool previewActive, bool computerSendInHand, SendRoute? route,
         string expected)

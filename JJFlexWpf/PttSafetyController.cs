@@ -146,8 +146,11 @@ namespace JJFlexWpf
         private DispatcherTimer? _hardKillTimer;
         private DispatcherTimer? _alcTimer;
 
-        // TX lock start time for timeout calculation
-        private DateTime _lockStartTime;
+        // The lock's timeout clock: time held by hand, which stands still while
+        // a recording's send rides the lock (#835; Noel, 2026-10-30 00:00).
+        private readonly Radios.LockTimeoutClock _lockClock = new();
+        private string _rideWhat = "";
+        private Func<bool>? _rideStillGoing;
 
         // ALC zero-signal tracking
         private int _alcZeroConsecutiveSeconds;
@@ -755,7 +758,7 @@ namespace JJFlexWpf
                 return Lexicon.Get("audio.ptt.status_hold");
 
             // Locked or warning states — calculate time remaining
-            var elapsed = (DateTime.UtcNow - _lockStartTime).TotalSeconds;
+            var elapsed = _lockClock.ElapsedSeconds(Environment.TickCount64);
             var remaining = Math.Max(0, EffectiveTimeoutSeconds - elapsed);
 
             string timeLeft;
@@ -999,6 +1002,56 @@ namespace JJFlexWpf
             }
         }
 
+        /// <summary>
+        /// A recording's send began going out on the operator's transmission
+        /// (#835; Noel, 2026-10-30 00:00: <i>"we have a ten minute for longer
+        /// recordings, I'm thinking amateur radio news line or another
+        /// bulletin"</i>). Under the lock, the timeout's warning ladder stands
+        /// down and its clock stands still until <see cref="EndRecordingSendRide"/>;
+        /// a warning already sounding stops. The send's own ten-minute limit and
+        /// its pause govern it instead, and the 15-minute hard kill is untouched.
+        /// Harmless when not locked: a lock begun during the send rides from then.
+        /// <paramref name="stillGoing"/> is asked at every tick of the ladder: a
+        /// ride whose send has ended without saying so is ended there, so the
+        /// lock's timeout can never be left standing down by a lost end.
+        /// </summary>
+        public void BeginRecordingSendRide(string what, Func<bool>? stillGoing = null)
+        {
+            if (!_lockClock.BeginSendRide(Environment.TickCount64)) return;
+            _rideWhat = what;
+            _rideStillGoing = stillGoing;
+            bool locked = State is PttState.Locked or PttState.Warning1 or PttState.Warning2 or PttState.OhCrap;
+            Tracing.TraceLine("PTT: " + what + " rides the transmission"
+                + (locked ? "; the lock's timeout stands still while it goes out (its own ten-minute limit governs it)" : ""),
+                TraceLevel.Info);
+            if (State is PttState.Warning1 or PttState.Warning2 or PttState.OhCrap)
+            {
+                State = PttState.Locked;
+                _beepTimer?.Stop();
+                Tracing.TraceLine("PTT: the timeout warnings stand down for the recording", TraceLevel.Info);
+            }
+        }
+
+        /// <summary>
+        /// The recording stopped riding the transmission (sent, stopped, paused,
+        /// taken over). The lock's clock carries on from where it stood, so the
+        /// operator's own time by hand is counted exactly as before.
+        /// </summary>
+        public void EndRecordingSendRide(string what)
+        {
+            long now = Environment.TickCount64;
+            if (!_lockClock.EndSendRide(now)) return;
+            _rideStillGoing = null;
+            if (State == PttState.Idle)
+            {
+                Tracing.TraceLine("PTT: " + what + " no longer rides the transmission", TraceLevel.Info);
+                return;
+            }
+            double left = Math.Max(0, EffectiveTimeoutSeconds - _lockClock.ElapsedSeconds(now));
+            Tracing.TraceLine("PTT: " + what + " no longer rides the transmission; the lock's timeout carries on with "
+                + left.ToString("F0") + " s left", TraceLevel.Info);
+        }
+
         /// <summary>The planned recorder stop: one cue and one outcome, without the timeout ladder.</summary>
         public void RecorderLimitUnlock()
         {
@@ -1049,7 +1102,7 @@ namespace JJFlexWpf
             // which of the two this was (Astra's Track IJK2 review, blocker 1).
             SetTx(true);
             if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
-            _lockStartTime = DateTime.UtcNow;
+            _lockClock.Start(Environment.TickCount64);
             _alcZeroConsecutiveSeconds = 0;
             _healthSilentMicWarned = false;
             _healthAlcHighWarned = false;
@@ -1098,6 +1151,7 @@ namespace JJFlexWpf
             string levelAdvice = forceSpeech || AudioCheckNarration ? "" : MicLevelAdviceOrEmpty(_getRigControl(), wasState);
 
             StopAllTimers();
+            _lockClock.Reset();
             _alcZeroConsecutiveSeconds = 0;
             _healthSilentMicWarned = false;
             _healthAlcHighWarned = false;
@@ -1168,8 +1222,22 @@ namespace JJFlexWpf
             // a later timeout would only be noise. A shorter operator timeout
             // still wins, and the 15-minute hard kill runs regardless.
             if (PlannedStopSeconds is int planned && EffectiveTimeoutSeconds > planned) return;
+            // A recording riding the lock is governed by its own ten-minute
+            // limit, not the lock's timeout (#835; Noel, 2026-10-30 00:00), and
+            // the clock stands still under it. The 15-minute hard kill is its
+            // own timer and runs regardless.
+            if (_lockClock.SendRiding)
+            {
+                bool going = true;
+                try { going = _rideStillGoing?.Invoke() ?? true; }
+                catch { going = false; }
+                if (going) return;
+                Tracing.TraceLine("PTT: the riding recording ended without saying so; the lock's timeout carries on",
+                    TraceLevel.Warning);
+                EndRecordingSendRide(_rideWhat);
+            }
 
-            var elapsed = (DateTime.UtcNow - _lockStartTime).TotalSeconds;
+            var elapsed = _lockClock.ElapsedSeconds(Environment.TickCount64);
             var timeout = EffectiveTimeoutSeconds;
 
             // Check escalation thresholds (most urgent first)
