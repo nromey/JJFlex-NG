@@ -85,25 +85,27 @@ public partial class FlexBase
     /// operator did not ask to change slices, so the CW slice identity must not
     /// play (Noel, 2026-10-25).
     /// </summary>
-    private async Task<bool> ReturnFromListeningSliceAsync(Radio radio, CommandConnection connection,
+    /// <remarks>A check restore (the Loopback ending): its send is refused while
+    /// the radio transmits, and Retry says so (Codex round 2, R2-B1).</remarks>
+    private async Task<RestoreOutcome> ReturnFromListeningSliceAsync(Radio radio, CommandConnection connection,
         Slice listening, Slice back)
     {
         Slice target;
         lock (mySlices)
             target = back != null && mySlices.Contains(back) && !ReferenceEquals(back, listening)
                 ? back : mySlices.FirstOrDefault(s => !ReferenceEquals(s, listening) && ReferenceEquals(s, SliceForTransmitSetting()));
-        if (target == null) return false;
+        if (target == null) return RestoreOutcome.Failed;
         SilenceNextActivation(target);
         try
         {
-            if (!await LoopbackSliceCommandAsync(radio, connection, target,
-                $"slice set {target.Index} active=1", "return from the listening slice").ConfigureAwait(false))
-                return false;
+            var sent = await LoopbackSliceSendAsync(radio, connection, target,
+                $"slice set {target.Index} active=1", "return from the listening slice", asRestore: true).ConfigureAwait(false);
+            if (sent != RestoreOutcome.Done) return sent;
         }
         catch (InvalidOperationException ex)
         {
             JJTrace.Tracing.TraceLine("Loopback return from the listening slice: " + ex.Message, System.Diagnostics.TraceLevel.Error);
-            return false;
+            return RestoreOutcome.Failed;
         }
         var deadline = DateTime.UtcNow + ListenbackConfirmationWait;
         while (ReferenceEquals(VFOToSlice(RXVFO), listening) && DateTime.UtcNow < deadline)
@@ -111,7 +113,7 @@ public partial class FlexBase
         bool moved = !ReferenceEquals(VFOToSlice(RXVFO), listening);
         JJTrace.Tracing.TraceLine($"Loopback return from the listening slice: slice {target.Index} {(moved ? "active" : "not confirmed active")}",
             moved ? System.Diagnostics.TraceLevel.Info : System.Diagnostics.TraceLevel.Error);
-        return moved;
+        return moved ? RestoreOutcome.Done : RestoreOutcome.Failed;
     }
 
     private RadioRecoveryStore IqRecovery =>new(Path.Combine(RadioConfig.AppDataRoot, "listenback-recovery"));

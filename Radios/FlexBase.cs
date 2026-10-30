@@ -11522,15 +11522,35 @@ namespace Radios
         }
 
         private async Task<bool> LoopbackSliceCommandAsync(Radio radio, CommandConnection connection,
-            Slice slice, string command, string purpose)
+            Slice slice, string command, string purpose) =>
+            await LoopbackSliceSendAsync(radio, connection, slice, command, purpose, asRestore: false).ConfigureAwait(false)
+                == RestoreOutcome.Done;
+
+        /// <summary>
+        /// One Loopback slice command, confirmed by its reply. As a check's
+        /// restore (<paramref name="asRestore"/>), the queued send also asks
+        /// whether the radio transmits, by our Mox or its interlock, and is
+        /// refused then (Retry), as every check restore is (Codex round 2,
+        /// R2-B1: the mute restore used to go out unasked after the owner's
+        /// earlier question). The arrangement's own set-up writes do not ask.
+        /// </summary>
+        private async Task<RestoreOutcome> LoopbackSliceSendAsync(Radio radio, CommandConnection connection,
+            Slice slice, string command, string purpose, bool asRestore)
         {
             var reply = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            bool refused = false;
             await IqQueue(() =>
             {
                 if (!ReferenceEquals(theRadio, radio) || !radio.Connected ||
                     !ReferenceEquals(radio.CurrentCommandConnection, connection) ||
                     !radio.SliceList.Contains(slice) || !mySlices.Contains(slice))
                     throw new InvalidOperationException("loopback-connection-or-slice-changed");
+                if (asRestore && RestoreRefusalAtRun() is string why)
+                {
+                    refused = true;
+                    Tracing.TraceLine($"Loopback {purpose}: refused at its run, {why}; waits for receive", TraceLevel.Warning);
+                    return;
+                }
                 int sent = radio.SendReplyCommand((sequence, code, response) =>
                 {
                     Tracing.TraceLine($"Loopback {purpose}: reply {sequence} {code:X8} {response}", TraceLevel.Info);
@@ -11538,12 +11558,13 @@ namespace Radios
                 }, command);
                 Tracing.TraceLine($"Loopback {purpose}: sent {sent} {command}", TraceLevel.Info);
             }).ConfigureAwait(false);
+            if (refused) return RestoreOutcome.Retry;
             using var timeout = new CancellationTokenSource(ListenbackConfirmationWait);
-            try { return await reply.Task.WaitAsync(timeout.Token).ConfigureAwait(false); }
+            try { return await reply.Task.WaitAsync(timeout.Token).ConfigureAwait(false) ? RestoreOutcome.Done : RestoreOutcome.Failed; }
             catch (OperationCanceledException)
             {
                 Tracing.TraceLine($"Loopback {purpose}: reply timed out for {command}", TraceLevel.Error);
-                return false;
+                return RestoreOutcome.Failed;
             }
         }
 
@@ -11641,20 +11662,21 @@ namespace Radios
                 // again between them (fix round 4).
                 owner.Register("loopback: return from the listening slice", async () =>
                 {
-                    if (!Same()) return false;
+                    if (!Same()) return RestoreOutcome.Failed;
                     // An operator who moved to the listening slice during the check
                     // (Noel did, to find its mute) would otherwise keep it: the
                     // removal refuses the active slice. Go back to where the check
                     // started, silently, so the removal can proceed.
                     if (resources?.Slice != null && ReferenceEquals(resources.Slice, VFOToSlice(RXVFO)) &&
-                        !ReferenceEquals(resources.Slice, SliceForTransmitSetting()))
+                        !ReferenceEquals(resources.Slice, SliceForTransmitSetting()) &&
                         await ReturnFromListeningSliceAsync(arrangementRadio, arrangementConnection,
-                            resources.Slice, savedActive).ConfigureAwait(false);
-                    return true;
+                            resources.Slice, savedActive).ConfigureAwait(false) == RestoreOutcome.Retry)
+                        return RestoreOutcome.Retry;
+                    return RestoreOutcome.Done;
                 }),
                 owner.Register("loopback: listening slice removal", async () =>
                 {
-                    if (!Same()) return false;
+                    if (!Same()) return RestoreOutcome.Failed;
                     bool kept = false;
                     if (resources?.Slice != null &&
                         (ReferenceEquals(resources.Slice, VFOToSlice(RXVFO)) ||
@@ -11670,12 +11692,20 @@ namespace Radios
                     // a changed connection or a radio that never confirms the
                     // slice gone is a failure the owner carries, not a trace.
                     var removed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    bool refusedAtRun = false;
                     q.Enqueue((FunctionDel)(() =>
                     {
                         bool ok = false;
                         try
                         {
                             if (!ReferenceEquals(theRadio, arrangementRadio) || resources == null) return;
+                            // Asked again at its run, as every check restore is (Codex round 2, R2-B1).
+                            if (RestoreRefusalAtRun() is string why)
+                            {
+                                refusedAtRun = true;
+                                Tracing.TraceLine("Loopback ears removal: refused at its run, " + why + "; waits for receive", TraceLevel.Warning);
+                                return;
+                            }
                             bool hadSlice;
                             lock (mySlices)
                             {
@@ -11700,9 +11730,10 @@ namespace Radios
                     bool gone;
                     try { gone = await removed.Task.WaitAsync(ListenbackQueueWait + TimeSpan.FromSeconds(3)).ConfigureAwait(false); }
                     catch (TimeoutException) { gone = false; }
-                    if (kept) return false;
+                    if (refusedAtRun && !kept) return RestoreOutcome.Retry;
+                    if (kept) return RestoreOutcome.Failed;
                     if (!gone) Notice("The listening slice removal was not confirmed. ");
-                    return gone;
+                    return gone ? RestoreOutcome.Done : RestoreOutcome.Failed;
                 }),
             };
             // Each saved mute is its own entry, registered here so the FIFO
@@ -11711,14 +11742,17 @@ namespace Radios
             {
                 steps.Add(owner.Register($"loopback: slice {saved.Slice.Index} mute", async () =>
                 {
-                    if (!Same()) return false;
+                    if (!Same()) return RestoreOutcome.Failed;
                     try
                     {
-                        if (!await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection,
-                            saved.Slice, $"slice set {saved.Slice.Index} audio_mute={(saved.Muted ? 1 : 0)}", "mute restore").ConfigureAwait(false))
+                        var sent = await LoopbackSliceSendAsync(arrangementRadio, arrangementConnection,
+                            saved.Slice, $"slice set {saved.Slice.Index} audio_mute={(saved.Muted ? 1 : 0)}", "mute restore",
+                            asRestore: true).ConfigureAwait(false);
+                        if (sent == RestoreOutcome.Retry) return RestoreOutcome.Retry;
+                        if (sent != RestoreOutcome.Done)
                         {
                             Trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
-                            return false;
+                            return RestoreOutcome.Failed;
                         }
                         // The reply alone left FlexLib's Slice.Mute stale on the
                         // bench, and the station layout and the next check both
@@ -11730,15 +11764,15 @@ namespace Radios
                             saved.Slice).ConfigureAwait(false) is not bool read || read != saved.Muted)
                         {
                             Trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
-                            return false;
+                            return RestoreOutcome.Failed;
                         }
-                        return true;
+                        return RestoreOutcome.Done;
                     }
                     catch (Exception ex)
                     {
                         Tracing.TraceLine("Loopback mute restore: " + ex.Message, TraceLevel.Error);
                         Trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
-                        return false;
+                        return RestoreOutcome.Failed;
                     }
                 }));
             }
@@ -11758,20 +11792,13 @@ namespace Radios
                     : Task.FromResult(RestoreOutcome.Failed)),
                 owner.Register("loopback: full duplex", async () =>
                 {
-                    if (!Same()) return false;
-                    try
-                    {
-                        if (await SetFullDuplexConfirmedAsync(savedFdx, arrangementRadio,
-                            arrangementConnection, note => Tracing.TraceLine("Loopback full duplex restore: " + note, TraceLevel.Info)).ConfigureAwait(false))
-                            return true;
-                        Trouble("Full duplex restoration was not confirmed. ");
-                    }
-                    catch (Exception ex)
-                    {
-                        Tracing.TraceLine("Loopback full duplex restore: " + ex.Message, TraceLevel.Error);
-                        Trouble("Full duplex restoration was not confirmed. ");
-                    }
-                    return false;
+                    if (!Same()) return RestoreOutcome.Failed;
+                    // Asked at its queued run, and refused while the radio
+                    // transmits, as every check restore is (Codex round 2, R2-B1).
+                    var outcome = await RestoreFullDuplexAsync(savedFdx, arrangementRadio, arrangementConnection,
+                        note => Tracing.TraceLine("Loopback full duplex restore: " + note, TraceLevel.Info)).ConfigureAwait(false);
+                    if (outcome == RestoreOutcome.Failed) Trouble("Full duplex restoration was not confirmed. ");
+                    return outcome;
                 }),
                 owner.Register("loopback: transverter drive", () =>
                 {

@@ -121,6 +121,10 @@ namespace Radios
                 {
                     Tracing.TraceLine($"Antenna:TX request '{value}' dropped — no slice to apply it to",
                                       TraceLevel.Warning);
+                    // Inside a check's restore a dropped write is a write that
+                    // was not made, never a restore that succeeded (Codex round
+                    // 2, R2-B2): the restore reads Failed and the debt is kept.
+                    RestoreWriteReplies.Ambient?.NotSent("slice set ? txant=" + value, "no transmit slice to apply it to");
                     return;
                 }
                 Tracing.TraceLine($"Antenna:TX request slice {s.Index} ({basis}): '{s.TXAnt}' -> '{value}'",
