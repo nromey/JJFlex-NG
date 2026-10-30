@@ -219,10 +219,7 @@ public partial class FlexBase
         // had run it, and the teardown's one ping, which proves the radio
         // processed the writes and not that it took them, called it restored.
         var replies = RestoreWriteReplies.Open();
-        var gate = StationConnect.QueuedWriteGate.Open(() =>
-            Transmit ? "the radio reports transmit"
-            : RadioInterlockReportsTransmit ? "the radio's interlock reports transmit"
-            : null);
+        var gate = StationConnect.QueuedWriteGate.Open(RestoreRefusalAtRun);
         try { writes(); }
         finally { gate.Dispose(); replies.Dispose(); }
         if (!await DrainCommandQueueAsync(RestoreWriteWait).ConfigureAwait(false))
@@ -241,6 +238,18 @@ public partial class FlexBase
         replies.RunDone();
         return RestoreOutcome.Done;
     }
+
+    /// <summary>
+    /// The question every check restore asks at the moment its queued write
+    /// runs: our Mox or the radio's interlock (the restore owner's own
+    /// question). Null means the write may go; otherwise why it may not.
+    /// Shared by <see cref="RestoreWritesAtReceiveAsync"/>'s gate and the
+    /// Loopback ending's own queued sends (Codex round 2, R2-B1).
+    /// </summary>
+    private string RestoreRefusalAtRun() =>
+        Transmit ? "the radio reports transmit"
+        : RadioInterlockReportsTransmit ? "the radio's interlock reports transmit"
+        : null;
 
     /// <summary>
     /// Queue a radio write the way a setter always has, through

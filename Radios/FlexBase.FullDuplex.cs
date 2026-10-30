@@ -171,16 +171,26 @@ public partial class FlexBase
         { JJTrace.Tracing.TraceLine("Full duplex property request: " + ex, System.Diagnostics.TraceLevel.Error); }
     }
 
-    private async Task RequestFullDuplexAsync(bool value, ReplyHandler reply, Radio expectedRadio = null, CommandConnection expectedConnection = null)
+    /// <returns>True when the command went out; false when <paramref name="refuseAtRun"/> refused it at its run, so nothing was sent.</returns>
+    private async Task<bool> RequestFullDuplexAsync(bool value, ReplyHandler reply, Radio expectedRadio = null, CommandConnection expectedConnection = null,
+        Func<string> refuseAtRun = null)
     {
         var radio = expectedRadio ?? theRadio;
         var connection = expectedConnection ?? radio?.CurrentCommandConnection;
+        bool sent = false;
         try
         {
             await IqQueue(() =>
             {
                 if (radio == null || !radio.Connected || !ReferenceEquals(theRadio, radio) ||
                     !ReferenceEquals(connection, radio.CurrentCommandConnection)) throw new InvalidOperationException("connection-ended");
+                // A check's restore asks again here, at the run (Codex round 2, R2-B1).
+                if (refuseAtRun?.Invoke() is string why)
+                {
+                    JJTrace.Tracing.TraceLine("Full duplex request refused at its run: " + why, System.Diagnostics.TraceLevel.Warning);
+                    return;
+                }
+                sent = true;
                 string command = "radio set full_duplex_enabled=" + (value ? "1" : "0");
                 // Never update the local state before the reply.
                 radio.SendReplyCommand(reply ?? ((sequence, code, text) =>
@@ -192,6 +202,41 @@ public partial class FlexBase
             JJTrace.Tracing.TraceLine("Full duplex request: " + ex, System.Diagnostics.TraceLevel.Error);
             if (reply != null) throw;
         }
+        return sent;
+    }
+
+    /// <summary>
+    /// A check's restore of full duplex (the Loopback ending): asked at its
+    /// queued run whether the radio transmits, by our Mox or its interlock,
+    /// and refused then as every check restore is, so the owner waits for
+    /// receive and tries again (Retry). Until Codex's round 2 (R2-B1) the
+    /// owner asked before the entry and the queued send went out unasked.
+    /// Done only on the radio's success reply, on the same connection.
+    /// </summary>
+    private async Task<RestoreOutcome> RestoreFullDuplexAsync(bool value, Radio radio, CommandConnection connection, Action<string> log)
+    {
+        var reply = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool sent;
+        try
+        {
+            sent = await RequestFullDuplexAsync(value, (sequence, code, response) =>
+            {
+                log?.Invoke($"set reply {sequence} {code:X8} {response}");
+                if (code == 0) AcceptFullDuplexReply(radio, connection, value);
+                reply.TrySetResult(code == 0);
+            }, radio, connection, RestoreRefusalAtRun).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke("not sent: " + ex.Message);
+            return RestoreOutcome.Failed;
+        }
+        if (!sent) return RestoreOutcome.Retry;
+        bool accepted;
+        try { accepted = await reply.Task.WaitAsync(ListenbackConfirmationWait).ConfigureAwait(false); }
+        catch (TimeoutException) { log?.Invoke("no reply"); return RestoreOutcome.Failed; }
+        return accepted && radio.Connected && ReferenceEquals(radio, theRadio) &&
+            ReferenceEquals(connection, radio.CurrentCommandConnection) ? RestoreOutcome.Done : RestoreOutcome.Failed;
     }
 
     public async Task<string> ToggleFullDuplexAsync()

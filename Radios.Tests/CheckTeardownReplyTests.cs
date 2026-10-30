@@ -237,6 +237,7 @@ public sealed class CheckTeardownReplyTests : IDisposable
         };
         Assert.True(await c.Pump(c.F.Rig.StartLoopbackArrangementAsync()));
         while (c.F.Rig.q.Count > 0) if (c.F.Rig.q.Dequeue().Item is FlexBase.FunctionDel a) a();
+        c.F.Vendor.Transport.Written.Clear();
         c.F.Vendor.Transport.CommandWritten = respond;
         return await c.Pump(c.F.Rig.EndLoopbackArrangementWithOutcomeAsync());
     }
@@ -437,5 +438,177 @@ public sealed class CheckTeardownReplyTests : IDisposable
             case "power": Assert.Equal(80, r.RFPower); break;
             case "antenna": Assert.Equal("ANT1", c.Tx.TXAnt); break;
         }
+    }
+
+    // ── Codex round 2 restarted (2026-10-30): R2-B1 and R2-B2 ──────────
+    //
+    // R2-B1: the Loopback ending's full-duplex and slice-mute restores (and its
+    // listening-slice removal) passed the owner's receive question and then sent
+    // from their queued action without asking again, so a key landing between
+    // the two got the write while the radio's interlock said TRANSMITTING.
+    // R2-B2: an antenna restore with no transmit slice to apply it to sent
+    // nothing and read as Done, so the debt was dropped.
+
+    /// <summary>
+    /// Codex's schedule: a real Loopback start and ending on the in-memory
+    /// transport. The command loop is run here by hand; once <paramref name="marker"/>
+    /// has gone out (or at once, when it is null), the first queued item named <paramref name="boundaryName"/>
+    /// is the restore's own send. When <paramref name="inject"/>, the radio's
+    /// interlock reports TRANSMITTING just before that item runs and READY just
+    /// after it. Returns the ending and, for every <paramref name="target"/>
+    /// command at the wire, whether the interlock said Transmitting then.
+    /// </summary>
+    private static async Task<(LoopbackEndOutcome Outcome, System.Collections.Generic.List<bool> AtWire, bool Reached)> LoopbackKeyedAtTheRestoresRun(
+        RadioCase c, string marker, string target, string boundaryName, bool inject)
+    {
+        var atWire = new System.Collections.Generic.List<bool>();
+        Field(c.Tx.Panadapter, "_rx_antenna_list", new[] { "ANT1", "XVT-A", "XVT-B" });
+        Field(c.F.Rig, "_XmitPower", 25);
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command.StartsWith("display panafall create", StringComparison.Ordinal))
+            {
+                c.Ears = c.Add(0, 1.8);
+                Field(c.F.Rig, "mySliceAdded", true);
+                Field(c.F.Rig, "_RXVFO", 1); Field(c.F.Rig, "_TXVFO", 1);
+                c.F.Vendor.Reply(c.F.Vendor.LastSequence, 0, "0x40000000,0x42000000");
+            }
+            else c.Respond(command);
+        };
+        Assert.True(await c.Pump(c.F.Rig.StartLoopbackArrangementAsync()));
+        while (c.F.Rig.q.Count > 0) if (c.F.Rig.q.Dequeue().Item is FlexBase.FunctionDel a) a();
+        c.F.Vendor.Transport.Written.Clear();
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command == target)
+                lock (atWire) atWire.Add(c.F.Vendor.Radio.InterlockState == Flex.Smoothlake.FlexLib.InterlockState.Transmitting);
+            c.Respond(command);
+        };
+
+        var end = c.F.Rig.EndLoopbackArrangementWithOutcomeAsync();
+        bool reached = false;
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (!end.IsCompleted && DateTime.UtcNow < deadline)
+        {
+            while (c.F.Rig.q.Count > 0)
+            {
+                var item = c.F.Rig.q.Dequeue();
+                bool boundary = !reached && item.Name == boundaryName &&
+                    (marker == null || c.F.Vendor.Transport.Commands.Contains(marker)) && !c.F.Vendor.Transport.Commands.Contains(target);
+                if (boundary)
+                {
+                    reached = true;
+                    if (inject) c.F.Vendor.Status("interlock state=TRANSMITTING source=RCA");
+                }
+                if (item.Item is FlexBase.FunctionDel run) run();
+                if (boundary && inject) c.F.Vendor.Status("interlock state=READY source=NONE");
+            }
+            await Task.Delay(5);
+        }
+        return (await end.WaitAsync(TimeSpan.FromSeconds(1)), atWire, reached);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task R2B1_the_Loopback_full_duplex_restore_waits_out_a_key_that_lands_at_its_run(bool inject)
+    {
+        using var c = new RadioCase("r2b1-duplex-" + inject);
+        c.F.Rig.RestoreWriteWait = TimeSpan.FromMilliseconds(800);
+        var (outcome, atWire, reached) = await LoopbackKeyedAtTheRestoresRun(c,
+            "transmit set mon=0", "radio set full_duplex_enabled=0", "Listenback", inject);
+
+        Assert.True(reached, "the full duplex restore's queued send was never found, so the schedule proves nothing");
+        Assert.DoesNotContain(true, atWire);
+        Assert.NotEmpty(atWire);
+        Assert.Contains(LoopbackEndOutcome.Duplex, outcome.Restored);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task R2B1_the_Loopback_slice_mute_restore_waits_out_a_key_that_lands_at_its_run(bool inject)
+    {
+        using var c = new RadioCase("r2b1-mute-" + inject);
+        c.F.Rig.RestoreWriteWait = TimeSpan.FromMilliseconds(800);
+        var (outcome, atWire, reached) = await LoopbackKeyedAtTheRestoresRun(c,
+            "slice remove 0", "slice set 1 audio_mute=0", "Listenback", inject);
+
+        Assert.True(reached, "the mute restore's queued send was never found, so the schedule proves nothing");
+        Assert.DoesNotContain(true, atWire);
+        Assert.NotEmpty(atWire);
+        Assert.Contains(LoopbackEndOutcome.Mutes, outcome.Restored);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task R2B1_the_Loopback_listening_slice_removal_waits_out_a_key_that_lands_at_its_run(bool inject)
+    {
+        // Codex asked for the removal to be audited too; it was unguarded in source.
+        using var c = new RadioCase("r2b1-removal-" + inject);
+        c.F.Rig.RestoreWriteWait = TimeSpan.FromMilliseconds(800);
+        // The removal is the first Loopback step that writes; it needs no marker.
+        var (_, atWire, reached) = await LoopbackKeyedAtTheRestoresRun(c,
+            null, "slice remove 0", "LoopbackEarsRemove", inject);
+        Assert.True(reached, "the removal's queued action was never found");
+        Assert.DoesNotContain(true, atWire);
+        Assert.NotEmpty(atWire);
+    }
+
+    [Fact]
+    public async Task R2B2_an_antenna_restore_with_no_transmit_slice_is_not_restored()
+    {
+        using var c = Radio("r2b2-no-slice");
+        var rig = c.F.Rig;
+        // Codex's helper schedule: no transmit or active slice at all.
+        lock (((System.Collections.Generic.List<Flex.Smoothlake.FlexLib.Slice>)typeof(FlexBase)
+            .GetField("mySlices", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(rig)!))
+            ((System.Collections.Generic.List<Flex.Smoothlake.FlexLib.Slice>)typeof(FlexBase)
+                .GetField("mySlices", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(rig)!).Clear();
+        c.F.Vendor.Radio.SliceList.Clear();
+
+        var outcome = await c.Pump(rig.RestoreWritesAtReceiveAsync("antenna", () => rig.TXAntennaName = "ANT2"));
+
+        Assert.Empty(c.F.Vendor.Transport.Commands);
+        Assert.Equal(RestoreOutcome.Failed, outcome);
+    }
+
+    [Fact]
+    public async Task R2B2_control_an_antenna_restore_with_its_slice_is_sent_and_restored()
+    {
+        using var c = Radio("r2b2-slice");
+        var outcome = await c.Pump(c.F.Rig.RestoreWritesAtReceiveAsync("antenna", () => c.F.Rig.TXAntennaName = "ANT2"));
+        Assert.Contains("slice set 1 txant=ANT2", c.F.Vendor.Transport.Commands);
+        Assert.Equal(RestoreOutcome.Done, outcome);
+    }
+
+    [Fact]
+    public async Task R2B2_a_Loopback_whose_transmit_slice_went_names_the_antenna_not_restored_and_owes_it()
+    {
+        // Codex's full schedule: while the listening slice's removal completes,
+        // the radio reports the transmit slice gone on the same connection.
+        using var c = new RadioCase("r2b2-loopback");
+        c.F.Rig.RestoreWriteWait = TimeSpan.FromMilliseconds(600);
+        bool removed = false;
+        var mySlices = (System.Collections.Generic.List<Flex.Smoothlake.FlexLib.Slice>)typeof(FlexBase)
+            .GetField("mySlices", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(c.F.Rig)!;
+        var outcome = await LoopbackEndedWith(c, command =>
+        {
+            c.Respond(command);
+            if (command.StartsWith("slice remove ", StringComparison.Ordinal))
+            {
+                c.F.Vendor.Status("slice 1 in_use=0");
+                lock (mySlices) mySlices.Clear();
+                c.F.Vendor.Radio.SliceList.Clear();
+                removed = true;
+            }
+        });
+
+        Assert.True(removed, "the transmit slice never went, so the schedule proves nothing");
+        Assert.DoesNotContain(c.F.Vendor.Transport.Commands, x => x.Contains("txant=", StringComparison.Ordinal));
+        Assert.Contains(LoopbackEndOutcome.Antenna, outcome.NotRestored);
+        Assert.DoesNotContain(LoopbackEndOutcome.Antenna, outcome.Restored);
+        Assert.Contains(c.F.Rig.CheckPutBacksOwed(), p => p.Setting == CheckPutBack.TxAntenna);
     }
 }
