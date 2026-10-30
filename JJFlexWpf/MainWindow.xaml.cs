@@ -390,6 +390,11 @@ public partial class MainWindow : UserControl
                     userConfig.EarconVoiceSet == (int)EarconVoiceSet.Simple
                         ? EarconVoiceSet.Simple
                         : EarconVoiceSet.Rich;
+                // #855, for the same reason as the tone set: the alert sound
+                // delay describes this computer, and Apply() waits for a
+                // connect, so a session that never connects would otherwise
+                // play every sound at the default whatever was chosen.
+                EarconPlayer.SetAlertBuffer(userConfig.AlertBufferMs, userConfig.AlertBufferCount);
             }
         }
         catch (Exception ex)

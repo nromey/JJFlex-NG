@@ -111,6 +111,43 @@ public sealed class AlertBufferSettingTests
     }
 
     [Fact]
+    public void A_choice_made_in_Settings_with_no_radio_connected_survives_a_save_and_reload()
+    {
+        // The harness run of 2026-10-30 found Medium and Long applied live but
+        // gone on reopening Settings: with no radio connected, Settings OK
+        // persists only the user-scope list, and the delay was not on it. This
+        // runs that list's own method against a real file in a temporary
+        // folder, starting from a root file written before the setting existed.
+        NoiseReductionPerChannelTests.AssertWindowless();
+        string dir = Path.Combine(Path.GetTempPath(), "jjflex-alertbuffer-" + System.Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "audioConfig.xml"),
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?><AudioOutputConfig><CwSpeedWpm>25</CwSpeedWpm></AudioOutputConfig>");
+
+            // What the dialog commits: the root file as loaded, Medium chosen.
+            var chosen = AudioOutputConfig.Load(dir);
+            Assert.Equal((30, 3), (chosen.AlertBufferMs, chosen.AlertBufferCount));
+            chosen.AlertBufferMs = 50;
+            chosen.AlertBufferCount = 3;
+            AudioOutputConfig.PersistUserScope(chosen, dir);
+
+            var reopened = AudioOutputConfig.Load(dir);
+            Assert.Equal(50, reopened.AlertBufferMs);
+            Assert.Equal(3, reopened.AlertBufferCount);
+            Assert.Equal(25, reopened.CwSpeedWpm);   // the rest of the root file is left as it was
+            string xml = File.ReadAllText(Path.Combine(dir, "audioConfig.xml"));
+            Assert.Contains("<AlertBufferMs>50</AlertBufferMs>", xml);
+            Assert.Contains("<AlertBufferCount>3</AlertBufferCount>", xml);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, true); } catch { }
+        }
+    }
+
+    [Fact]
     public void The_meter_channel_keeps_its_own_buffer()
     {
         // Only the alert channel was measured and ruled. Meter tones are
