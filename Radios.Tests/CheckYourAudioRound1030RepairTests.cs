@@ -59,5 +59,22 @@ namespace Radios.Tests
             Assert.NotNull(CheckCountdown.PlanFor(AudioCheckListenMethods.ComputerMic, new CountdownSettings(), true, VerbosityLevel.Chatty));
             Assert.Null(CheckCountdown.PlanFor(AudioCheckListenMethods.ComputerMic, new CountdownSettings { Enabled = false }, true, VerbosityLevel.Chatty));
         }
+
+        /// <summary>
+        /// #856, found 2026-10-30: with no radio connected, Settings OK saves
+        /// only a list of the operator's own fields to the root audio file.
+        /// The countdown is one of them, so it is on the list; otherwise a
+        /// countdown set while disconnected applied and was then lost.
+        /// </summary>
+        [Fact]
+        public void The_countdown_is_saved_by_Settings_with_no_radio_connected()
+        {
+            string src = Source("JJFlexWpf/NativeMenuBar.cs");
+            int list = src.IndexOf("var rootConfig = AudioOutputConfig.Load(rootConfigDir);", StringComparison.Ordinal);
+            int countdown = src.IndexOf("rootConfig.Countdown = audioConfig.Countdown.Clone();", list, StringComparison.Ordinal);
+            int save = src.IndexOf("rootConfig.Save(rootConfigDir);", list, StringComparison.Ordinal);
+            Assert.True(list >= 0 && countdown > list && save > countdown,
+                "the countdown must be copied into the root audio file before the disconnected save");
+        }
     }
 }

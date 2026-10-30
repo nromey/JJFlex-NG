@@ -3680,6 +3680,10 @@ public class NativeMenuBar : IDisposable
                 rootConfig.CwPitchFollowsRadio = audioConfig.CwPitchFollowsRadio;
                 rootConfig.CwWaveform = audioConfig.CwWaveform;
                 rootConfig.EarconVoiceSet = audioConfig.EarconVoiceSet;
+                // #835, round 1030 (#856): the countdown is this operator's
+                // too, set in the same dialog, and without this line a change
+                // made with no radio connected applied live and was then lost.
+                rootConfig.Countdown = audioConfig.Countdown.Clone();
                 rootConfig.Save(rootConfigDir);
             }
         };
