@@ -377,20 +377,148 @@ public sealed class CheckRestorePutBackTests : IDisposable
         Assert.False(store.Contains("failed-serial"));
     }
 
+    // ── A connect with speech suppressed (fix round 1030 P2) ──────────
+    //
+    // Ruled by Noel 2026-10-29 23:52: "Easy, put back, even if silent. Why
+    // not, you lose nothing though a profile restore could do it anyway ... I
+    // see no negative with the extra insurance." Until then a silent connect
+    // put nothing back and kept everything (the test this section replaces
+    // pinned exactly that).
+
     [Fact]
-    public void A_connect_that_cannot_speak_puts_nothing_back_and_keeps_everything()
+    public async Task A_connect_that_cannot_speak_puts_back_says_nothing_and_the_next_connect_that_can_says_it()
     {
         var store = new CheckRestoreReminderStore(Folder());
         store.AddPutBacks("quiet-serial", LoopbackLeft);
         store.Add("quiet-serial", FlexBase.CheckRestoreWithheld);
-        var (briefing, said, _) = OwnBriefing();
+        var (briefing, said, alarms) = OwnBriefing();
         using var c = RadioHoldingTheChecksValues("quiet-serial", store, briefing);
         c.F.Rig.SuppressSpeech = true;
+
         Announce(c.F.Rig);
-        Assert.True(c.F.Rig.CheckPutBackTask.IsCompleted);
+        await PutBackFinishes(c);
+
+        // The same writes a speaking connect makes, confirmed the same way.
+        var commands = c.F.Vendor.Transport.Commands;
+        Assert.Contains("slice set 1 txant=ANT1", commands);
+        Assert.Contains("transmit set rfpower=25", commands);
+        Assert.Contains("radio set full_duplex_enabled=0", commands);
+        Assert.Contains(commands, x => x.StartsWith("ping ", StringComparison.Ordinal));
+        Assert.Equal(25, c.F.Vendor.Radio.RFPower);
+        // Nothing said, no alarm, and nothing left to put back; what it did is kept.
         Assert.Empty(said);
-        Assert.Equal(LoopbackLeft, store.PutBacksFor("quiet-serial"));
-        Assert.Equal("withheld", store.ReasonFor("quiet-serial"));
+        Assert.Equal(0, alarms());
+        Assert.Empty(store.PutBacksFor("quiet-serial"));
+        Assert.True(CheckPutBackOutcome.TryParse(store.ReasonFor("quiet-serial"), out _), "the outcome waits to be said");
+
+        // The next connect that can speak writes nothing and says what was done.
+        c.F.Rig.SuppressSpeech = false;
+        c.F.Vendor.Transport.Written.Clear();
+        Announce(c.F.Rig);
+        Assert.Single(said, u => u.Text == "When this radio was last disconnected, an audio check had not put its settings back. "
+            + "Put back: the transmit antenna, transmit power and full duplex."
+            && u.Subject == Radios.Speech.SpeechSubject.CheckSettingsNotRestored);
+        Assert.Equal(1, alarms());
+        Assert.DoesNotContain(c.F.Vendor.Transport.Commands, x => x.StartsWith("transmit set", StringComparison.Ordinal)
+            || x.StartsWith("radio set", StringComparison.Ordinal) || x.Contains("txant=", StringComparison.Ordinal));
+        Assert.False(store.Contains("quiet-serial"));
+    }
+
+    [Fact]
+    public async Task A_silent_connect_while_transmitting_writes_nothing_and_keeps_everything()
+    {
+        var store = new CheckRestoreReminderStore(Folder());
+        store.AddPutBacks("quiet-keyed-serial", LoopbackLeft);
+        store.Add("quiet-keyed-serial", FlexBase.CheckRestoreWithheld);
+        var (briefing, said, alarms) = OwnBriefing();
+        using var c = RadioHoldingTheChecksValues("quiet-keyed-serial", store, briefing);
+        c.F.Rig.SuppressSpeech = true;
+        Mox(c.F.Rig, true);
+
+        Announce(c.F.Rig);
+        await PutBackFinishes(c);
+
+        Assert.DoesNotContain(c.F.Vendor.Transport.Commands, x => x.StartsWith("transmit set", StringComparison.Ordinal)
+            || x.StartsWith("radio set", StringComparison.Ordinal) || x.Contains("txant=", StringComparison.Ordinal));
+        Assert.Empty(said);
+        Assert.Equal(0, alarms());
+        Assert.Equal(LoopbackLeft, store.PutBacksFor("quiet-keyed-serial"));
+        Assert.Equal("withheld", store.ReasonFor("quiet-keyed-serial"));
+    }
+
+    [Fact]
+    public async Task What_a_silent_connect_did_is_said_together_with_what_the_next_one_does()
+    {
+        var store = new CheckRestoreReminderStore(Folder());
+        store.AddPutBacks("two-connect-serial", LoopbackLeft);
+        store.Add("two-connect-serial", FlexBase.CheckRestoreWithheld);
+        var (briefing, said, alarms) = OwnBriefing();
+        using var c = RadioHoldingTheChecksValues("two-connect-serial", store, briefing);
+        c.F.Rig.SuppressSpeech = true;
+        c.F.Rig.RestoreWriteWait = TimeSpan.FromMilliseconds(400);
+        // The silent connect's antenna write is never confirmed: no transmit
+        // slice can be read, so it is kept and named as not confirmed.
+        Field(c.Tx, "_isTransmitSlice", false);
+        Field(c.Tx, "_active", false);
+
+        Announce(c.F.Rig);
+        await PutBackFinishes(c);
+        Assert.Empty(said);
+        Assert.Equal(new[] { CheckPutBack.Antenna("ANT1", "XVT-A") }, store.PutBacksFor("two-connect-serial"));
+
+        // The next connect can speak and can read the antenna: it puts that back,
+        // and says the earlier connect's work with its own, once.
+        c.F.Rig.SuppressSpeech = false;
+        Field(c.Tx, "_isTransmitSlice", true);
+        Field(c.Tx, "_active", true);
+        Announce(c.F.Rig);
+        await PutBackFinishes(c);
+
+        Assert.Single(said, u => u.Text == "When this radio was last disconnected, an audio check had not put its settings back. "
+            + "Put back: the transmit antenna, transmit power and full duplex.");
+        Assert.Equal(1, alarms());
+        Assert.False(store.Contains("two-connect-serial"));
+    }
+
+    [Fact]
+    public async Task Two_connections_to_one_radio_never_put_back_at_once()
+    {
+        var store = new CheckRestoreReminderStore(Folder());
+        store.AddPutBacks("shared-serial", new[] { CheckPutBack.Power(25, 1) });
+        store.Add("shared-serial", FlexBase.CheckRestoreWithheld);
+        var (briefing, _, _) = OwnBriefing();
+        using var first = RadioHoldingTheChecksValues("shared-serial", store, briefing);
+        using var second = RadioHoldingTheChecksValues("shared-serial", store, briefing);
+        second.F.Rig.SuppressSpeech = true;
+
+        // The first connect's put-back is waiting for its command loop.
+        Announce(first.F.Rig);
+        Assert.False(first.F.Rig.CheckPutBackTask.IsCompleted);
+
+        // A second connection to the same radio, a connection tester's say,
+        // leaves it to the first and writes nothing.
+        Announce(second.F.Rig);
+        await second.F.Rig.CheckPutBackTask;
+        RunQueue(second);
+        Assert.DoesNotContain(second.F.Vendor.Transport.Commands, x => x.StartsWith("transmit set", StringComparison.Ordinal));
+
+        await PutBackFinishes(first);
+        Assert.Contains("transmit set rfpower=25", first.F.Vendor.Transport.Commands);
+        Assert.Empty(store.PutBacksFor("shared-serial"));
+    }
+
+    [Fact]
+    public void An_earlier_outcome_merges_with_a_later_one_by_what_the_later_one_examined()
+    {
+        var earlier = new CheckPutBackOutcome(new[] { CheckPutBack.RfPower }, new[] { CheckPutBack.Monitor },
+            new[] { CheckPutBack.TxAntenna, CheckPutBack.FullDuplex });
+        // The later connect examined the antenna and full duplex: it put the
+        // antenna back and found full duplex already at its original.
+        var now = new CheckPutBackOutcome(new[] { CheckPutBack.TxAntenna }, Array.Empty<string>(), Array.Empty<string>());
+        var merged = CheckPutBackOutcome.Merge(earlier, now, new[] { CheckPutBack.TxAntenna, CheckPutBack.FullDuplex });
+        Assert.Equal(new[] { CheckPutBack.RfPower, CheckPutBack.TxAntenna }, merged.PutBack);
+        Assert.Equal(new[] { CheckPutBack.Monitor }, merged.LeftAlone);
+        Assert.Empty(merged.NotPutBack);
     }
 
     [Fact]

@@ -137,9 +137,18 @@ namespace Radios
         /// radio unrestored at an earlier disconnect, put back what it recorded
         /// (fix round 1030), then hand what happened to the connect briefing
         /// with the warning alarm. With nothing recorded to put back, the
-        /// reminder is said as it always was. While the radio layer is silenced
-        /// everything is kept for a connect that can speak.
+        /// reminder is said as it always was.
         /// </summary>
+        /// <remarks>
+        /// <b>A connect with speech suppressed puts back too, and says nothing</b>
+        /// (ruled by Noel 2026-10-29 23:52: "Easy, put back, even if silent. Why
+        /// not, you lose nothing though a profile restore could do it anyway ...
+        /// I see no negative with the extra insurance."). Same reads, same
+        /// transmit question, same confirmation. What it did is kept as the
+        /// reminder's reason, so the next connect that can speak says it, with
+        /// the alarm, as information. Until fix round 1030 P2 a silent connect
+        /// put nothing back and kept everything.
+        /// </remarks>
         private void AnnounceCheckRestoreReminder()
         {
             Radio? radio = theRadio;
@@ -148,24 +157,49 @@ namespace Radios
             string? reason = store.ReasonFor(serial);
             IReadOnlyList<CheckPutBack> owed = store.PutBacksFor(serial);
             if (reason == null && owed.Count == 0) return;
-            if (SuppressSpeech)
-            {
-                Tracing.TraceLine("Check restore reminder for " + serial + " kept: speech is suppressed on this connect"
-                    + (owed.Count > 0 ? ", and nothing is put back on it" : ""), TraceLevel.Info);
-                return;
-            }
+            bool silent = SuppressSpeech;
             if (owed.Count == 0)
             {
+                if (silent)
+                {
+                    Tracing.TraceLine("Check restore reminder (" + reason + ") for " + serial
+                        + " kept: speech is suppressed on this connect, so it is said at the next connect that can speak", TraceLevel.Info);
+                    return;
+                }
                 // DRAFT PROSE (#835): awaiting Noel.
                 NoteCheckRestoreSentence(serial!, store, reason!, SentenceForCheckRestore(reason!));
                 return;
             }
+            if (!BeginPutBack(serial!))
+            {
+                Tracing.TraceLine("Check put-back for " + serial + ": another connection in this process is already putting it back; "
+                    + "this connect leaves it to that one and keeps the record", TraceLevel.Info);
+                return;
+            }
             Tracing.TraceLine("Check put-back: " + owed.Count + " setting(s) recorded for " + serial
-                + " at an earlier disconnect (" + (reason ?? "reminder already said") + "); putting back what still holds the check's value",
+                + " at an earlier disconnect (" + (reason ?? "reminder already said") + "); putting back what still holds the check's value"
+                + (silent ? ", on a connect with speech suppressed: nothing is said now, and what it does is said at the next connect that can speak" : ""),
                 TraceLevel.Info);
             // Off this thread: the command loop this connect runs has not
             // started yet, and every write below waits for it.
-            CheckPutBackTask = Task.Run(() => PutBackAtConnectAsync(radio!, serial!, reason, owed, store));
+            CheckPutBackTask = Task.Run(async () =>
+            {
+                try { await PutBackAtConnectAsync(radio!, serial!, reason, owed, store, silent).ConfigureAwait(false); }
+                finally { EndPutBack(serial!); }
+            });
+        }
+
+        /// <summary>The radios a put-back is running for in this process, so two connections to one radio never put back at once.</summary>
+        private static readonly HashSet<string> s_putBackInFlight = new(StringComparer.OrdinalIgnoreCase);
+
+        private static bool BeginPutBack(string serial)
+        {
+            lock (s_putBackInFlight) return s_putBackInFlight.Add(serial);
+        }
+
+        private static void EndPutBack(string serial)
+        {
+            lock (s_putBackInFlight) s_putBackInFlight.Remove(serial);
         }
 
         /// <summary>
@@ -177,7 +211,7 @@ namespace Radios
         /// then does a setting leave the record.
         /// </summary>
         private async Task PutBackAtConnectAsync(Radio radio, string serial, string? reason,
-            IReadOnlyList<CheckPutBack> owed, CheckRestoreReminderStore store)
+            IReadOnlyList<CheckPutBack> owed, CheckRestoreReminderStore store, bool silent)
         {
             try
             {
@@ -185,8 +219,9 @@ namespace Radios
                 {
                     Tracing.TraceLine("Check put-back: the command loop did not run, so nothing was put back; kept for the next connect",
                         TraceLevel.Warning);
+                    if (silent) { KeptForASpeakingConnect(serial); return; }
                     // DRAFT PROSE (#835): awaiting Noel.
-                    NoteCheckRestoreSentence(serial, store, reason ?? CheckRestoreUnconfirmed, ReminderAsBefore(reason));
+                    NoteCheckRestoreSentence(serial, store, reason ?? CheckRestoreUnconfirmed, SentenceWhenNothingPutBack(reason, owed));
                     return;
                 }
                 if (!ReferenceEquals(theRadio, radio))
@@ -199,8 +234,9 @@ namespace Radios
                 {
                     Tracing.TraceLine("Check put-back: the radio reports transmit at connect, so nothing is put back; "
                         + "the reminder is said as before and the record kept for the next connect", TraceLevel.Warning);
+                    if (silent) { KeptForASpeakingConnect(serial); return; }
                     // DRAFT PROSE (#835): awaiting Noel.
-                    NoteCheckRestoreSentence(serial, store, reason ?? CheckRestoreWithheld, ReminderAsBefore(reason));
+                    NoteCheckRestoreSentence(serial, store, reason ?? CheckRestoreWithheld, SentenceWhenNothingPutBack(reason, owed));
                     return;
                 }
 
@@ -282,10 +318,18 @@ namespace Radios
                     }
                 }
 
-                var result = new CheckPutBackOutcome(done.Select(i => i.Setting), left.Select(i => i.Setting), notDone.Select(i => i.Setting));
-                Tracing.TraceLine("Check put-back for " + serial + " finished: " + result.Reason, TraceLevel.Info);
+                var thisConnect = new CheckPutBackOutcome(done.Select(i => i.Setting), left.Select(i => i.Setting), notDone.Select(i => i.Setting));
+                // A put-back an earlier silent connect did, and nobody has heard
+                // yet, is said together with this one (fix round 1030 P2).
+                var result = CheckPutBackOutcome.TryParse(reason, out var earlier)
+                    ? CheckPutBackOutcome.Merge(earlier, thisConnect, owed.Select(i => i.Setting))
+                    : thisConnect;
+                Tracing.TraceLine("Check put-back for " + serial + " finished: " + thisConnect.Reason
+                    + (ReferenceEquals(result, thisConnect) ? "" : "; with what an earlier connect did and nobody has heard yet: " + result.Reason),
+                    TraceLevel.Info);
                 // The outcome is what is owed to the operator now, until it is said.
                 store.Add(serial, result.Reason);
+                if (silent) { KeptForASpeakingConnect(serial); return; }
                 // DRAFT PROSE (#835): awaiting Noel.
                 NoteCheckRestoreSentence(serial, store, result.Reason, result.Sentence());
             }
@@ -387,6 +431,24 @@ namespace Radios
         /// <summary>The sentence a recorded reason calls for when nothing is (or can be) put back.</summary>
         private static string SentenceForCheckRestore(string reason) =>
             CheckPutBackOutcome.TryParse(reason, out var outcome) ? outcome.Sentence() : ReminderAsBefore(reason);
+
+        /// <summary>
+        /// The sentence when this connect could put nothing back: the reminder as
+        /// before, or, when an earlier silent connect's put-back has not been
+        /// heard yet, what that one did, with what is still owed named as not
+        /// put back (fix round 1030 P2).
+        /// </summary>
+        private static string SentenceWhenNothingPutBack(string? reason, IReadOnlyList<CheckPutBack> owed) =>
+            CheckPutBackOutcome.TryParse(reason, out var earlier)
+                ? CheckPutBackOutcome.Merge(earlier,
+                    new CheckPutBackOutcome(Array.Empty<string>(), Array.Empty<string>(), owed.Select(i => i.Setting)),
+                    owed.Select(i => i.Setting)).Sentence()
+                : ReminderAsBefore(reason);
+
+        /// <summary>A silent connect's put-back is kept, record and outcome, for the next connect that can speak.</summary>
+        private static void KeptForASpeakingConnect(string serial) =>
+            Tracing.TraceLine("Check put-back for " + serial + ": speech is suppressed on this connect, so nothing is said; "
+                + "the next connect that can speak says it, with the alarm", TraceLevel.Info);
 
         /// <summary>The reminder as it was before fix round 1030: check these settings yourself.</summary>
         private static string ReminderAsBefore(string? reason) => Lexicon.Get(reason == CheckRestoreWithheld
