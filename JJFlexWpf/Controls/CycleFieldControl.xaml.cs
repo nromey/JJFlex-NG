@@ -15,7 +15,7 @@ namespace JJFlexWpf.Controls;
 ///
 /// Track Speech (2026-08-13): the control announces itself through the
 /// accessibility tree, not through Speak() calls. The automation peer is a
-/// UIA Spinner whose Name is the label and whose Value pattern carries the
+/// UIA combo box whose Name is the label and whose Value pattern carries the
 /// current option; changing the option raises a Value property-changed
 /// event, so the screen reader announces the new value natively — in the
 /// operator's own voice, rate and verbosity, and on the braille display too.
@@ -131,7 +131,7 @@ public partial class CycleFieldControl : UserControl
     /// <summary>
     /// Refresh the visual text and the accessible name. The name is the label
     /// alone — the current option rides the UIA Value pattern instead, so the
-    /// screen reader composes "label, spin button, value" itself and there is
+    /// screen reader composes "label, combo box, value" itself and there is
     /// exactly one source of truth for each piece.
     /// </summary>
     private void UpdateDisplay()
@@ -276,10 +276,20 @@ public partial class CycleFieldControl : UserControl
     }
 
     /// <summary>
-    /// UIA peer: a Spinner (screen readers say "spin button") exposing the
-    /// current option through the Value pattern. Children are hidden so the
-    /// display TextBlock is not read in addition to the Name/Value this peer
-    /// reports.
+    /// UIA peer: a combo box exposing the current option through the Value
+    /// pattern. Children are hidden so the display TextBlock is not read in
+    /// addition to the Name/Value this peer reports.
+    ///
+    /// A combo box, NOT a Spinner (#853, measured 2026-10-29). As a Spinner,
+    /// JAWS 2026 called the field an "edit spin box" and on every arrow spoke
+    /// the value from BEFORE the press, then nothing: it read its own cached
+    /// value at the keystroke and did not speak the change event that updates
+    /// it, so it was always one step behind. Read-only, a Slider role, a
+    /// delayed event and an extra notification were each measured and none
+    /// cured it (the notification made JAWS say the old value AND the new).
+    /// As a combo box JAWS speaks the change event, so every arrow reads the
+    /// new value once. NVDA reads it correctly either way. Measured through
+    /// JAWS's own speech history and NVDA's, not by ear.
     /// </summary>
     protected override AutomationPeer OnCreateAutomationPeer()
     {
@@ -296,7 +306,7 @@ public partial class CycleFieldControl : UserControl
         protected override List<AutomationPeer>? GetChildrenCore() => null;
 
         protected override AutomationControlType GetAutomationControlTypeCore()
-            => AutomationControlType.Spinner;
+            => AutomationControlType.ComboBox;
 
         protected override string GetClassNameCore() => nameof(CycleFieldControl);
 

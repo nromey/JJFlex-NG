@@ -125,6 +125,28 @@ public sealed class CycleFieldSequenceTests
         });
     }
 
+    /// <summary>
+    /// #853, measured 2026-10-29: as a Spinner, JAWS read every arrow one value
+    /// behind (it spoke its cached value at the keystroke and never the change);
+    /// as a combo box it speaks the new value once. NVDA reads both correctly.
+    /// So the field must stay a combo box with its value on the Value pattern.
+    /// </summary>
+    [Fact]
+    public void TheFieldIsAComboBoxCarryingItsOptionAsTheValue()
+    {
+        Run(() =>
+        {
+            var c = Field(1);
+            var peer = System.Windows.Automation.Peers.UIElementAutomationPeer.CreatePeerForElement(c);
+            Assert.Equal(System.Windows.Automation.Peers.AutomationControlType.ComboBox, peer.GetAutomationControlType());
+            Assert.Equal("Method", peer.GetName());
+            var value = (System.Windows.Automation.Provider.IValueProvider)peer.GetPattern(System.Windows.Automation.Peers.PatternInterface.Value);
+            Assert.Equal("two", value.Value);
+            c.HandleKey(Key.Up);
+            Assert.Equal("three", value.Value);         // the pattern reads the option now, not a copy
+        });
+    }
+
     private static CycleFieldControl Field(int index)
     {
         var c = new CycleFieldControl();
