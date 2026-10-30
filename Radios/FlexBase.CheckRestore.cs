@@ -211,20 +211,112 @@ public partial class FlexBase
     /// </remarks>
     public async Task<RestoreOutcome> RestoreWritesAtReceiveAsync(string name, Action writes)
     {
+        // Each write's own reply decides (round 1030 repairs, after Codex's B3):
+        // while this is open, the setters' writes go out through the
+        // reply-bearing path (EnqueueSettingWrite), and Done needs every one of
+        // them acknowledged. Until then a write counted as done once the queue
+        // had run it, and the teardown's one ping, which proves the radio
+        // processed the writes and not that it took them, called it restored.
+        var replies = RestoreWriteReplies.Open();
         var gate = StationConnect.QueuedWriteGate.Open(() =>
             Transmit ? "the radio reports transmit"
             : RadioInterlockReportsTransmit ? "the radio's interlock reports transmit"
             : null);
         try { writes(); }
-        finally { gate.Dispose(); }
+        finally { gate.Dispose(); replies.Dispose(); }
         if (!await DrainCommandQueueAsync(RestoreWriteWait).ConfigureAwait(false))
         {
             Tracing.TraceLine("Check restore " + name + ": the command queue did not reach its writes", System.Diagnostics.TraceLevel.Warning);
             return RestoreOutcome.Failed;
         }
         if (gate.Refused > 0) return RestoreOutcome.Retry;
-        return gate.Threw > 0 ? RestoreOutcome.Failed : RestoreOutcome.Done;
+        if (gate.Threw > 0) return RestoreOutcome.Failed;
+        string failure = await replies.FirstFailureAsync(RestoreWriteWait).ConfigureAwait(false);
+        if (failure != null)
+        {
+            Tracing.TraceLine("Check restore " + name + ": NOT restored, " + failure, System.Diagnostics.TraceLevel.Warning);
+            return RestoreOutcome.Failed;
+        }
+        return RestoreOutcome.Done;
     }
+
+    /// <summary>
+    /// Queue a radio write the way a setter always has, through
+    /// <paramref name="viaSetter"/>. While a restore is collecting replies on
+    /// this thread (<see cref="RestoreWritesAtReceiveAsync"/>), the write goes
+    /// out instead as <paramref name="command"/>, the command FlexLib's setter
+    /// would send, through the reply-bearing path, and the restore waits for
+    /// that reply. FlexLib's setter discards the reply and caches the value
+    /// before the radio has taken it, so it cannot tell a rejection from a
+    /// success; the raw command leaves FlexLib's cache to the radio's own
+    /// report. The queue's run-time transmit refusal applies either way.
+    /// </summary>
+    private void EnqueueSettingWrite(FunctionDel viaSetter, string command, string name = null)
+    {
+        var replies = RestoreWriteReplies.Ambient;
+        if (replies == null) { q.Enqueue(viaSetter, name); return; }
+        q.Enqueue((FunctionDel)(() => SendRestoreWrite(replies, command)), name);
+    }
+
+    /// <summary>On the command loop: send one restore write with its reply, and give the reply to the restore waiting for it.</summary>
+    private void SendRestoreWrite(RestoreWriteReplies replies, string command)
+    {
+        var reply = new TaskCompletionSource<StationConnect.CommandReply>(TaskCreationOptions.RunContinuationsAsynchronously);
+        string refusal = SendRadioCommandWithReply(theRadio, command, r => reply.TrySetResult(r));
+        if (refusal != null) replies.NotSent(command, refusal);
+        else replies.Sent(command, reply.Task);
+    }
+
+    /// <summary>
+    /// The replies a restore's writes are owed, collected on the restoring
+    /// thread while <see cref="RestoreWritesAtReceiveAsync"/> runs its setters.
+    /// </summary>
+    private sealed class RestoreWriteReplies : IDisposable
+    {
+        [ThreadStatic] private static RestoreWriteReplies t_ambient;
+        private readonly RestoreWriteReplies _previous;
+        private readonly object _gate = new();
+        private readonly System.Collections.Generic.List<(string Command, Task<StationConnect.CommandReply> Reply)> _sent = new();
+        private string _notSent;
+
+        private RestoreWriteReplies() { _previous = t_ambient; t_ambient = this; }
+
+        internal static RestoreWriteReplies Open() => new();
+        internal static RestoreWriteReplies Ambient => t_ambient;
+        public void Dispose() { if (ReferenceEquals(t_ambient, this)) t_ambient = _previous; }
+
+        internal void Sent(string command, Task<StationConnect.CommandReply> reply) { lock (_gate) _sent.Add((command, reply)); }
+        internal void NotSent(string command, string why) { lock (_gate) _notSent ??= "'" + command + "' was not sent: " + why; }
+
+        /// <summary>Null when every write was sent and the radio acknowledged each; otherwise the first reason it was not.</summary>
+        internal async Task<string> FirstFailureAsync(TimeSpan bound)
+        {
+            (string Command, Task<StationConnect.CommandReply> Reply)[] sent;
+            lock (_gate)
+            {
+                if (_notSent != null) return _notSent;
+                sent = _sent.ToArray();
+            }
+            var deadline = DateTime.UtcNow + bound;
+            foreach (var (command, reply) in sent)
+            {
+                var left = deadline - DateTime.UtcNow;
+                if (left > TimeSpan.Zero) await Task.WhenAny(reply, Task.Delay(left)).ConfigureAwait(false);
+                if (!reply.IsCompletedSuccessfully) return WriteNotAnswered(command);
+                var r = reply.Result;
+                if (!r.Acknowledged) return WriteRejected(command, r);
+            }
+            return null;
+        }
+    }
+
+    /// <summary>The trace words for a write the radio never answered; shared by the put-back and the check's own restores.</summary>
+    private static string WriteNotAnswered(string command) => "'" + command + "' went out and the radio did not answer it";
+
+    /// <summary>The trace words for a write the radio rejected, with its code; shared by the put-back and the check's own restores.</summary>
+    private static string WriteRejected(string command, StationConnect.CommandReply reply) =>
+        "the radio rejected '" + command + "' (" + reply.Code.ToString("X8", System.Globalization.CultureInfo.InvariantCulture)
+            + (reply.Text.Length > 0 ? " " + reply.Text : "") + ")";
 
     /// <summary>
     /// An armed test tone or reference moved the transmit input to this

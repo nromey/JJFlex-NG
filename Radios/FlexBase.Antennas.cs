@@ -128,7 +128,14 @@ namespace Radios
                 NoteRadioSettingWritten("TXAntennaName", value);   // the hold after a cut needs to know whose write this is (#571)
                 _txAntRequested = value;
                 _txAntRequestedSlice = s.Index;
-                s.TXAnt = value;
+                // Inside a check's restore the write is queued with its own
+                // reply (round 1030 repairs); everywhere else it goes straight
+                // out through FlexLib's setter, as it always has.
+                if (RestoreWriteReplies.Ambient != null && value != null)
+                    EnqueueSettingWrite((FunctionDel)(() => { s.TXAnt = value; }),
+                        "slice set " + s.Index.ToString(System.Globalization.CultureInfo.InvariantCulture) + " txant=" + value, "TXAntennaName");
+                else
+                    s.TXAnt = value;
             }
         }
 
