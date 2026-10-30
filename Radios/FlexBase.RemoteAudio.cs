@@ -1669,16 +1669,25 @@ namespace Radios
             });
         }
 
-        private void ReleaseVoxWhenReceive(VoxPauseOwner.Lease lease, bool playbackTail = false)
-        {
-            if (!_Transmit) { ReleaseVoxAfterTransmitDrain(lease, playbackTail); return; }
-            _ = Task.Run(async () =>
-            {
-                while (_Transmit && theRadio?.Connected == true)
-                    await Task.Delay(20).ConfigureAwait(false);
-                ReleaseVoxAfterTransmitDrain(lease, playbackTail);
-            });
-        }
+        /// <summary>
+        /// Give a VOX pause back once the radio is really receiving, then after
+        /// the transmit path's drain. Every VOX pause ends here: the test tone,
+        /// slice playback, a speaker playback (<see cref="LocalPlaybackVoxPause"/>)
+        /// and a box send after a takeover.
+        /// </summary>
+        /// <remarks>
+        /// Until round 1030 this waited on cached <see cref="Transmit"/> alone,
+        /// which after a hardware takeover reads receive while the hand mic still
+        /// keys the radio, so VOX came back on a keyed radio. It now waits through
+        /// <see cref="WhenRadioReallyReceives"/>, the same wait the send's
+        /// monitor uses (Codex round 1030, B5 and its sibling; Noel's rule that
+        /// VOX is never live while the operator keys the radio). A lost or
+        /// replaced connection ends the wait as a disconnect always has.
+        /// </remarks>
+        private void ReleaseVoxWhenReceive(VoxPauseOwner.Lease lease, bool playbackTail = false) =>
+            WhenRadioReallyReceives(_ => ReleaseVoxAfterTransmitDrain(lease, playbackTail),
+                beforeWaiting: () => Tracing.TraceLine("VOX pause: the radio is still transmitting (Transmit " + _Transmit
+                    + ", interlock " + theRadio?.InterlockState + "); VOX comes back once it receives", TraceLevel.Info));
 
         /// <summary>The Workshop reference has an active VOX lease.</summary>
         public bool TxReferenceArmed
