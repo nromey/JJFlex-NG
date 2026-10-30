@@ -132,6 +132,12 @@ namespace Radios.ChainChecks
         /// always passes the derived value, so this is reached only by a host
         /// that reports nothing.
         /// </para>
+        /// <para>
+        /// <b>Kept at 3000 when the default length moved to 4 (2026-10-29).</b>
+        /// At four beats the rule keys 2000 ms in, so this is now one beat LATE
+        /// at the default, which is the permitted direction; shortening it is a
+        /// safety change, and nothing asked for one.
+        /// </para>
         /// </remarks>
         public const int DefaultCountdownKeyUpMs = 3000;
 
@@ -146,9 +152,11 @@ namespace Radios.ChainChecks
         /// How long the countdown SOUND lasts, when the host does not say.
         /// Deliberately the full transmit figure at the shipping timings, so a
         /// host that reports nothing still waits the sound out rather than
-        /// talking over it. The figure at the default countdown length of five
-        /// seconds (#835): four counting beats and the 600 ms long tone. It
-        /// was 3700, the four-second figure, until the length became a setting.
+        /// talking over it. The figure at a countdown length of five seconds
+        /// (#835): four counting beats and the 600 ms long tone, kept when the
+        /// default moved to four seconds (3600 ms) on 2026-10-29, because too
+        /// long is the safe side. It was 3700, the four-second figure, until
+        /// the length became a setting.
         /// </summary>
         public const int DefaultCountdownDurationMs = 4600;
 

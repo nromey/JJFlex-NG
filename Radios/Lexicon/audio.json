@@ -1395,7 +1395,7 @@
   "audio.countdown.pip_ms_label": {"text": "Pip length", "delivery": null},
   "audio.countdown.pip_ms_help": {"text": "How long each counting pip sounds, from 50 to 500 milliseconds. The long tone at the end is twice as long, and fades out.", "delivery": null},
   "audio.countdown.lead_in_label": {"text": "Name the check before counting", "delivery": null},
-  "audio.countdown.lead_in_help": {"text": "On, the count starts with the check's name, for example: Starting the microphone test in, 5, 4, 3, 2, 1. Off, it is just the numbers.", "delivery": null},
+  "audio.countdown.lead_in_help": {"text": "On, the count starts with the check's name, for example: Starting the microphone test in, 4, 3, 2, 1. Off, it is just the numbers.", "delivery": null},
   "audio.countdown.sample_label": {"text": "Play sample", "delivery": null},
   "audio.countdown.sample_help": {"text": "Plays the countdown as it is set here, before you keep it, the way Check your audio would play it with your sounds and verbosity as they are now. Nothing is transmitted.", "delivery": null},
   "audio.countdown.not_heard": {"text": "The countdown could not be spoken, so the check did not start, and nothing was transmitted.", "delivery": null},

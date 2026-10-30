@@ -95,13 +95,18 @@ namespace Radios.Tests
         /// now the start of the fourth beat, 3000 ms. Derived here from the
         /// settings rather than restated, so the next change to the default
         /// moves this test with it; <c>CountdownTests</c> holds the same rule.
+        /// When the default moved to 4 (2026-10-29) the rule moved to 2000 and
+        /// the fallback stayed at 3000: shortening it is a safety change, and
+        /// one beat late is the permitted direction. So this asks "not
+        /// earlier", which is the guarantee the fallback exists to give.
         /// </remarks>
         [Fact]
         public void TheConservativeFallbackAgreesWithTheRule()
         {
             int lastCountingPip = Radios.CountdownPlan.FixerCounts(new Radios.CountdownSettings()) - 1;
             int rule = lastCountingPip * Radios.CountdownSettings.BeatMs;
-            Assert.Equal(Radios.ChainChecks.FixerTransmitAudioBoundary.DefaultCountdownKeyUpMs, rule);
+            Assert.True(Radios.ChainChecks.FixerTransmitAudioBoundary.DefaultCountdownKeyUpMs >= rule,
+                "the fallback key-up is earlier than the rule at the default length");
         }
 
         /// <summary>

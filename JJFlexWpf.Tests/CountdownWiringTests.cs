@@ -49,10 +49,10 @@ public sealed class CountdownWiringTests
             Assert.Equal(6 * 1000 + 400, EarconPlayer.CountdownDurationMs(transmit: true));
             Assert.Equal(6 * 1000 + 400, EarconPlayer.CountdownDurationMs(transmit: false));
 
-            // The defaults: five seconds is four pips and the long tone.
+            // The defaults: four seconds is three pips and the long tone (2026-10-29).
             CountdownSettings.Current = new CountdownSettings();
-            Assert.Equal(4, EarconPlayer.CountdownCounts);
-            Assert.Equal(3000, EarconPlayer.CountdownLastDitAtMs);
+            Assert.Equal(3, EarconPlayer.CountdownCounts);
+            Assert.Equal(2000, EarconPlayer.CountdownLastDitAtMs);
 
             // The shortest: one pip, at zero. The Fix tool keys on the landing then.
             CountdownSettings.Current = new CountdownSettings { Seconds = 2 };
@@ -131,6 +131,61 @@ public sealed class CountdownWiringTests
             .Deserialize(new StringReader("<AudioOutputConfig><Countdown><Seconds>6</Seconds></Countdown></AudioOutputConfig>"))!;
         Assert.Equal(CountdownSettings.DefaultPipSound, older.Countdown.PipSound);
     }
+
+    /// <summary>
+    /// The default moved from 5 beats to 4 (Noel, 2026-10-29 20:46). A file
+    /// from before that holds 5 because every save wrote the default, so it
+    /// moves to 4, once. Any other stored length was chosen and stays, and a
+    /// file already brought forward keeps whatever it says, 5 included:
+    /// "We still want to save the value regardless the default" (23:11).
+    /// </summary>
+    [Fact]
+    public void The_old_default_of_five_moves_to_four_once_and_a_chosen_length_stays()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Assert.Equal(4, CountdownSettings.DefaultSeconds);
+
+        // Noel's own file on 2026-10-29: <Seconds>5</Seconds>, no version.
+        var old = Read("<AudioOutputConfig><Countdown><Seconds>5</Seconds></Countdown></AudioOutputConfig>");
+        Assert.Equal(0, old.CountdownDefaultsVersion);
+        old.UpgradeCountdownDefaults();
+        Assert.Equal(4, old.Countdown.Seconds);
+        Assert.Equal(CountdownSettings.CurrentDefaultsVersion, old.CountdownDefaultsVersion);
+
+        // A length someone chose before the move is theirs.
+        var chose = Read("<AudioOutputConfig><Countdown><Seconds>7</Seconds></Countdown></AudioOutputConfig>");
+        chose.UpgradeCountdownDefaults();
+        Assert.Equal(7, chose.Countdown.Seconds);
+
+        // After the move, 5 is a choice, and it is saved and loaded as 5.
+        // (Every save after the move is stamped current: CaptureFromEngine.)
+        var now = new AudioOutputConfig
+        {
+            CountdownDefaultsVersion = CountdownSettings.CurrentDefaultsVersion,
+            Countdown = new CountdownSettings { Seconds = 5 },
+        };
+        var back = RoundTrip(now);
+        Assert.Equal(CountdownSettings.CurrentDefaultsVersion, back.CountdownDefaultsVersion);
+        back.UpgradeCountdownDefaults();
+        Assert.Equal(5, back.Countdown.Seconds);
+        back.UpgradeCountdownDefaults();                    // and again, still 5
+        Assert.Equal(5, back.Countdown.Seconds);
+
+        // And a config built with no version at all (the no-folder fallback in
+        // the menu bar) is stamped when it is written, so a 5 chosen there survives.
+        string dir = Path.Combine(Path.GetTempPath(), "jjf-countdown-" + System.Guid.NewGuid().ToString("N"));
+        try
+        {
+            var bare = new AudioOutputConfig { Countdown = new CountdownSettings { Seconds = 5 } };
+            bare.Save(dir);
+            var loaded = AudioOutputConfig.Load(dir);
+            Assert.Equal(5, loaded.Countdown.Seconds);
+        }
+        finally { try { Directory.Delete(dir, true); } catch { } }
+    }
+
+    private static AudioOutputConfig Read(string xml) =>
+        (AudioOutputConfig)new XmlSerializer(typeof(AudioOutputConfig)).Deserialize(new StringReader(xml))!;
 
     private static AudioOutputConfig RoundTrip(AudioOutputConfig config)
     {

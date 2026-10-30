@@ -14,7 +14,8 @@ namespace Radios
     /// <remarks>
     /// <para>
     /// <b>Ruled by Noel 2026-10-28, 21:32 to 21:40.</b> A countdown that can be
-    /// turned off; its length, 2 to 10 seconds with 5 the default, one pip a
+    /// turned off; its length, 2 to 10 seconds with 4 the default (5 until
+    /// Noel moved it on 2026-10-29, 20:46), one pip a
     /// second and the last beat the long tone; the pip's base frequency, with
     /// presets plus Custom the way the test tone offers them, held to 200 to
     /// 2000 Hz so the long tone an octave above it still plays cleanly; the
@@ -43,8 +44,39 @@ namespace Radios
         public const int MinSeconds = 2;
         /// <summary>Longest countdown, in seconds (beats).</summary>
         public const int MaxSeconds = 10;
-        /// <summary>The default length, ruled 21:34.</summary>
-        public const int DefaultSeconds = 5;
+        /// <summary>
+        /// The default length: four beats, which with the lead-in is five
+        /// seconds before the key. Ruled by Noel 2026-10-29, 20:46: "Should
+        /// default to four pips though, that'd be 5 seconds total." It was 5
+        /// (ruled 2026-10-28, 21:34); <see cref="UpgradeDefaults"/> moves a
+        /// file still carrying that old default.
+        /// </summary>
+        public const int DefaultSeconds = 4;
+
+        /// <summary>The length that was the default until 2026-10-29.</summary>
+        public const int FormerDefaultSeconds = 5;
+
+        /// <summary>
+        /// Which generation of the countdown's defaults a saved file was
+        /// written against. Absent, and so 0, in every file written before the
+        /// default moved to four beats; see <see cref="UpgradeDefaults"/>.
+        /// </summary>
+        public const int CurrentDefaultsVersion = 1;
+
+        /// <summary>
+        /// Bring a loaded countdown's defaults forward. A file from before
+        /// <see cref="CurrentDefaultsVersion"/> 1 that holds the old default
+        /// length, 5, was saving the default rather than a choice (the
+        /// countdown had never shipped, and every save wrote the length), so
+        /// it moves to the new default. Any other length was chosen and stays.
+        /// Returns the version the file is now at; the caller stamps it.
+        /// </summary>
+        public static int UpgradeDefaults(CountdownSettings? settings, int fileVersion)
+        {
+            if (settings == null || fileVersion >= CurrentDefaultsVersion) return Math.Max(fileVersion, CurrentDefaultsVersion);
+            if (settings.Seconds == FormerDefaultSeconds) settings.Seconds = DefaultSeconds;
+            return CurrentDefaultsVersion;
+        }
 
         /// <summary>Lowest pip frequency. The long tone is one octave above.</summary>
         public const int MinPipHz = 200;

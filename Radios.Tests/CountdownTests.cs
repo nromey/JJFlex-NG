@@ -70,7 +70,7 @@ namespace Radios.Tests
         {
             var d = new CountdownSettings();
             Assert.True(d.Enabled);
-            Assert.Equal(5, d.Seconds);
+            Assert.Equal(4, d.Seconds);                     // was 5 until Noel, 2026-10-29 20:46
             Assert.Equal(2, CountdownSettings.MinSeconds);
             Assert.Equal(10, CountdownSettings.MaxSeconds);
             Assert.Equal(200, CountdownSettings.MinPipHz);
@@ -198,7 +198,7 @@ namespace Radios.Tests
             var plan = CheckCountdown.PlanFor(AudioCheckListenMethods.MicTest, on, true, VerbosityLevel.Chatty)!;
             Assert.Equal("Starting the microphone test in", plan.LeadIn);
             Assert.Equal(CountdownVoicing.SpokenAndBeeped, plan.Voicing);
-            Assert.Equal("5", plan.Beats[0].Spoken);
+            Assert.Equal("4", plan.Beats[0].Spoken);         // the default is four beats (2026-10-29)
 
             Assert.Null(CheckCountdown.PlanFor(AudioCheckListenMethods.Monitor,
                 new CountdownSettings { Enabled = false }, true, VerbosityLevel.Chatty));
@@ -569,7 +569,9 @@ namespace Radios.Tests
             var d = new CountdownSettings();
             int keyUp = (CountdownPlan.FixerCounts(d) - 1) * CountdownSettings.BeatMs;
             int duration = CountdownPlan.FixerCounts(d) * CountdownSettings.BeatMs + d.LandingMs;
-            Assert.Equal(Radios.ChainChecks.FixerTransmitAudioBoundary.DefaultCountdownKeyUpMs, keyUp);
+            // Not earlier than the rule; at the four-beat default (2026-10-29)
+            // it is deliberately one beat later, the safe side.
+            Assert.True(Radios.ChainChecks.FixerTransmitAudioBoundary.DefaultCountdownKeyUpMs >= keyUp);
             Assert.True(Radios.ChainChecks.FixerTransmitAudioBoundary.DefaultCountdownDurationMs >= duration);
         }
 

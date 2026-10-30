@@ -332,6 +332,14 @@ namespace JJFlexWpf
         public int MeterConfigVersion { get; set; }
 
         /// <summary>
+        /// Which generation of the countdown's defaults this file carries.
+        /// Absent (0) before the default length moved from 5 beats to 4
+        /// (2026-10-29); <see cref="Radios.CountdownSettings.UpgradeDefaults"/>
+        /// brings it forward on load. Do not bump it by hand.
+        /// </summary>
+        public int CountdownDefaultsVersion { get; set; }
+
+        /// <summary>
         /// User-authored meter voices (Track D2). Built-in voices ship as data
         /// in code (<see cref="MeterVoiceLibrary.BuiltIns"/>) and are never
         /// persisted, so they can improve between versions; only the
@@ -534,7 +542,11 @@ namespace JJFlexWpf
                 // so that the heal-forward path — which copies a legacy file to
                 // the canonical location — writes the migrated shape rather
                 // than immortalising the old one.
-                if (loaded != null) MeterConfigMigration.Migrate(loaded);
+                if (loaded != null)
+                {
+                    MeterConfigMigration.Migrate(loaded);
+                    loaded.UpgradeCountdownDefaults();
+                }
                 return loaded;
             }
             catch (Exception ex)
@@ -561,7 +573,18 @@ namespace JJFlexWpf
             // already, and this call is what catches the default-construction
             // paths below.
             MeterConfigMigration.Migrate(config);
+            config.UpgradeCountdownDefaults();
             return config;
+        }
+
+        /// <summary>Move a countdown still on the old default length to the new one, once (2026-10-29).</summary>
+        internal void UpgradeCountdownDefaults()
+        {
+            int before = CountdownDefaultsVersion;
+            int was = Countdown?.Seconds ?? 0;
+            CountdownDefaultsVersion = Radios.CountdownSettings.UpgradeDefaults(Countdown, before);
+            if (before < Radios.CountdownSettings.CurrentDefaultsVersion && Countdown != null && Countdown.Seconds != was)
+                Trace.WriteLine($"AudioOutputConfig: the countdown was on the old default of {was} beats; it is now {Countdown.Seconds}.");
         }
 
         private static AudioOutputConfig LoadCore(string configDir)
@@ -631,6 +654,10 @@ namespace JJFlexWpf
             {
                 Directory.CreateDirectory(configDir);
                 string path = Path.Combine(configDir, FileName);
+                // Anything this build writes is past the four-beat move, so a 5
+                // saved now is a choice and must not be "upgraded" on the next
+                // load, whichever path built this config (2026-10-29).
+                CountdownDefaultsVersion = Radios.CountdownSettings.CurrentDefaultsVersion;
                 var serializer = new XmlSerializer(typeof(AudioOutputConfig));
                 using var stream = File.Create(path);
                 serializer.Serialize(stream, this);
@@ -887,6 +914,7 @@ namespace JJFlexWpf
             // but an unstamped save would claim the file had never been
             // migrated, which is a lie about the file's own contents.
             MeterConfigVersion = MeterConfigMigration.CurrentVersion;
+            CountdownDefaultsVersion = Radios.CountdownSettings.CurrentDefaultsVersion;
         }
     }
 

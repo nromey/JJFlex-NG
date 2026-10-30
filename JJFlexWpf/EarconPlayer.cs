@@ -1111,7 +1111,7 @@ namespace JJFlexWpf
 
         /// <summary>
         /// How many counting dits precede the landing: one fewer than the
-        /// operator's countdown seconds (#835), so five seconds is four pips
+        /// operator's countdown seconds (#835), so four seconds is three pips
         /// and the long tone. The two Fixer waits below are written in terms of
         /// it. It was a constant 3 until the length became a setting.
         /// </summary>
@@ -1148,7 +1148,7 @@ namespace JJFlexWpf
         /// <remarks>
         /// The whole count is unkeyed before this instant, and that is the
         /// operator's abort window. It is the countdown's seconds less two
-        /// beats wide by construction (three at the default of five), so it
+        /// beats wide by construction (two at the default of four), so it
         /// grows and shrinks with the operator's length instead of having to be
         /// remembered. At the shortest countdown, two seconds, it is ZERO: the
         /// only counting dit is the first. The Fix tool then keys on the
