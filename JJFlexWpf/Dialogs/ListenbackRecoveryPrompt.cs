@@ -60,7 +60,18 @@ internal static class ListenbackRecoveryPrompt
     {
         try
         {
-            if (rig.PendingListenbackRecovery == null) return;
+            var pending = rig.PendingListenbackRecovery;
+            if (pending == null) return;
+            // An off-air take's record is the next connect's put-back now, with
+            // no question asked (#835, fix round 1030 P2, ruled 2026-10-29 23:49).
+            // The put-back reads it at the same connect; whichever runs first,
+            // this offer never shows it.
+            if (FlexBase.OffAirRecoveryGoesToPutBack(pending))
+            {
+                JJTrace.Tracing.TraceLine("Listenback recovery: the off-air take's record goes to the connect's put-back; not offered",
+                    System.Diagnostics.TraceLevel.Info);
+                return;
+            }
             var result = await ReviewAsync(rig);
             if (result is { } notice) AdvisoryDialog.Show(Lexicon.Get("audio.iq.recovery_title"), Lexicon.Get(notice.Key));
         }

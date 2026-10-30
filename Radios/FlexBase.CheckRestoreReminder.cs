@@ -154,6 +154,8 @@ namespace Radios
             Radio? radio = theRadio;
             string? serial = radio?.Serial;
             CheckRestoreReminderStore store = CheckRestoreReminders;
+            // An off-air take's record joins the put-back first (fix round 1030 P2, ruling (a)).
+            TakeOffAirRecoveryIntoPutBack(serial, store);
             string? reason = store.ReasonFor(serial);
             IReadOnlyList<CheckPutBack> owed = store.PutBacksFor(serial);
             if (reason == null && owed.Count == 0) return;

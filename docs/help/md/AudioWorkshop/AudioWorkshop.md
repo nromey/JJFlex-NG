@@ -175,7 +175,7 @@ Both ride the PC audio path, so they need PC audio on and the radio's transmit i
 
 ### Results
 
-Results appear only once there is a take. **Play last take** plays the slice recording with Record yourself, or the off-air take with Hear what you transmitted, and stops a playback in progress. With an off-air take you also get **Play what I sent** and **Tell me how my sound changed compared to my last take**, which compares each new take with the one before it this session. **Review unrestored settings** appears only when a take left radio settings the radio never confirmed putting back.
+Results appear only once there is a take. **Play last take** plays the slice recording with Record yourself, or the off-air take with Hear what you transmitted, and stops a playback in progress. With an off-air take you also get **Play what I sent** and **Tell me how my sound changed compared to my last take**, which compares each new take with the one before it this session. **Review unrestored settings** appears only when a take left radio settings the radio never confirmed putting back. If the radio goes away before they are back, the next connect to it puts back each one still as the take left it, without asking, and tells you what it did.
 
 ### The Fix tool
 
