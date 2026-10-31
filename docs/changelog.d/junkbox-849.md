@@ -1,0 +1,1 @@
+- The first time you enter Logging mode in a session, focus lands in the Call Sign field. It used to rest on a nameless pane, which your screen reader announced as just "pane".

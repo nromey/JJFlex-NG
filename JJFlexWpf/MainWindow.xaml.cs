@@ -2581,9 +2581,10 @@ public partial class MainWindow : UserControl
     /// Enter Logging Mode from either Classic or Modern.
     /// Matches Form1.EnterLoggingMode().
     ///
-    /// In pure WPF, this is beautifully simple:
+    /// In pure WPF, this is simple:
     /// - Set Visibility on the Grid rows (no ElementHost container issues)
-    /// - Focus moves naturally to LogEntryControl.CallSignBox
+    /// - Focus goes to LogEntryControl.CallSignBox, which lays the panel out
+    ///   first: see <see cref="LogEntryControl.FocusCallSign"/>
     /// - No "unknown" announcement (no intermediate containers)
     /// - No focus trapping (Visibility.Collapsed removes from tab order)
     /// </summary>
@@ -2600,7 +2601,6 @@ public partial class MainWindow : UserControl
         LoggingRadioPane.UpdateFromRadio();
 
         // Focus the CallSign field in LogEntryControl.
-        // In pure WPF, this just works — no BeginInvoke, no ElementHost dance.
         LoggingLogEntry.FocusCallSign();
 
         Radios.ScreenReaderOutput.Speak(
