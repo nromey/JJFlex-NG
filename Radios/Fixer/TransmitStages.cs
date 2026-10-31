@@ -72,6 +72,11 @@ namespace Radios.Fixer
         /// <summary>Did the spoken check produce a measurement at all?</summary>
         public bool Attempted { get; set; }
 
+        /// <summary>Did the radio confirm it keyed? True from that moment, so
+        /// a run stopped afterwards still says so: the gate has charged the
+        /// stage, and only the Run again gesture reaches it now.</summary>
+        public bool Keyed { get; set; }
+
         public bool ReachedRadio { get; set; }
         public string Device { get; set; } = "";
         public string HostApi { get; set; } = "";
@@ -131,7 +136,8 @@ namespace Radios.Fixer
             if (!facts.Measured)
             {
                 answer = "The microphone was not measured — the measurement did not produce "
-                       + "a result, so whether sound is arriving cannot be said either way.";
+                       + "a result, so whether sound is arriving cannot be said either way."
+                       + Reason(facts.Detail);
             }
             else if (facts.AudioArrived)
             {
@@ -172,6 +178,7 @@ namespace Radios.Fixer
                 Answer = answer,
                 Findings = findings,
                 Evidence = MicEvidence(facts),
+                NothingMeasured = !facts.Measured,
                 // The whole point of keeping this: stage 4 is read against it.
                 Payload = facts,
             };
@@ -285,6 +292,17 @@ namespace Radios.Fixer
                         "Check what is connected to the antenna port before transmitting "
                         + "again."));
                     break;
+
+                case TxTuneProbe.Verdict.NotRun when probe.Skipped == TxTuneProbe.SkipReason.Cancelled:
+                    // A stop can land before the carrier or during it, and the
+                    // result does not say which. Once it has keyed, the gate
+                    // only takes the Run again gesture, so this stays a Ran
+                    // stage, with a finding so it cannot read "passed".
+                    // DRAFT PROSE.
+                    findings.Add(new FixerFinding("tx-stopped", FixOwner.Operator,
+                        "The test was stopped before it measured anything.",
+                        "Run this test again when you are ready."));
+                    break;
             }
 
             string evidence = TxTuneProbe.EvidenceSection(probe) + LoadLine(loadDeclaration);
@@ -295,6 +313,10 @@ namespace Radios.Fixer
                 Findings = findings,
                 Evidence = evidence,
                 Payload = probe,
+                // Refused before the key. A pass here would tell an operator
+                // whose transmitter was never tried that it works.
+                NothingMeasured = probe.Verdict == TxTuneProbe.Verdict.NotRun
+                                  && probe.Skipped != TxTuneProbe.SkipReason.Cancelled,
             };
         }
 
@@ -328,13 +350,32 @@ namespace Radios.Fixer
             sb.Append(ConditionsLines(facts.Conditions));
             sb.Append(LoadLine(loadDeclaration));
 
+            // The boundary hands over its probes only at the end of a keyed
+            // run, so none at all means it refused or stopped before keying:
+            // the gate, a shut path, the tone refusing to arm under VOX. The
+            // reason is the answer, and it reads "could not run", not "passed".
+            bool neverKeyed = facts.Probes.Count == 0;
+            var findings = new List<FixerFinding>();
+            if (!neverKeyed && TxProbeSet.Judge(facts.Probes) == TxProbeSet.Agreement.NothingToGoOn)
+            {
+                // DRAFT PROSE.
+                findings.Add(new FixerFinding("tx-too-few-probes", FixOwner.Operator,
+                    "The radio keyed, but too few probes finished to say whether audio "
+                    + "reaches it.",
+                    "Run this test again."));
+            }
+            findings.AddRange(WalkFindings(facts.ChainWalk));
+
             return new FixerOutcome
             {
-                Answer = TxProbeSet.OperatorSummary(facts.Probes, facts.ConditioningActive)
+                Answer = (neverKeyed && facts.Detail.Length > 0
+                              ? facts.Detail.Trim()
+                              : TxProbeSet.OperatorSummary(facts.Probes, facts.ConditioningActive))
                        + WalkAnswer(facts.ChainWalk),
-                Findings = WalkFindings(facts.ChainWalk),
+                Findings = findings,
                 Evidence = sb.ToString() + WalkEvidence(facts.ChainWalk),
                 Payload = facts,
+                NothingMeasured = neverKeyed,
             };
         }
 
@@ -361,7 +402,8 @@ namespace Radios.Fixer
             if (!facts.Attempted)
             {
                 answer = "The spoken test did not produce a measurement, so whether your "
-                       + "voice reaches the radio cannot be said either way.";
+                       + "voice reaches the radio cannot be said either way."
+                       + (facts.Keyed ? "" : Reason(facts.Detail));
             }
             else if (facts.ReachedRadio)
             {
@@ -410,14 +452,32 @@ namespace Radios.Fixer
             sb.Append(ConditionsLines(facts.Conditions));
             sb.Append(LoadLine(loadDeclaration));
 
+            var findings = new List<FixerFinding>();
+            if (!facts.Attempted && facts.Keyed)
+            {
+                // DRAFT PROSE.
+                findings.Add(new FixerFinding("tx-spoken-not-measured", FixOwner.Operator,
+                    "The radio keyed, but nothing was measured, so this test cannot say "
+                    + "whether your voice reaches it.",
+                    "Run this test again."));
+            }
+            findings.AddRange(WalkFindings(facts.ChainWalk));
+
             return new FixerOutcome
             {
                 Answer = answer + WalkAnswer(facts.ChainWalk),
-                Findings = WalkFindings(facts.ChainWalk),
+                Findings = findings,
                 Evidence = sb.ToString() + WalkEvidence(facts.ChainWalk),
                 Payload = facts,
+                NothingMeasured = !facts.Attempted && !facts.Keyed,
             };
         }
+
+        /// <summary>A refusal's own words as a second sentence of an answer, or
+        /// nothing. A could-not-run stage's answer is all the page shows of it,
+        /// so a reason left only in the evidence never reaches the operator.</summary>
+        private static string Reason(string detail)
+            => string.IsNullOrWhiteSpace(detail) ? "" : " " + detail.Trim();
 
         // ---- the transmit chain walk, in ONE home for both keying stages ----
         //

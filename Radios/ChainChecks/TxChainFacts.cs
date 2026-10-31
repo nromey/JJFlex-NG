@@ -867,11 +867,10 @@ namespace Radios.ChainChecks
             Probe(f, "tx-slice", "Transmit slice",
                   () => DiagnosticFact.Text("tx-slice", "Transmit slice", rig.TXSliceLetter ?? "", "the radio"));
             // Empty is NOT an observed mode. A slice always has one, so an empty
-            // string here means the app has not yet seen a mode change for a
-            // slice already flagged as the transmit slice — the app not knowing,
-            // not the radio having nothing. This is the opposite case from
-            // mic-profile, where an empty answer IS the pcap-confirmed fault and
-            // is deliberately kept observed.
+            // string here means there is no transmit slice to ask — the app not
+            // knowing, not the radio having nothing. This is the opposite case
+            // from mic-profile, where an empty answer IS the pcap-confirmed
+            // fault and is deliberately kept observed.
             Probe(f, "tx-mode", "Transmit mode", () =>
             {
                 string mode = rig.TXMode ?? "";

@@ -224,6 +224,14 @@ namespace Radios.Fixer
             /// with no stated load cannot be read afterwards by anyone.</summary>
             public Func<string> ReadLoadDeclaration;
 
+            /// <summary>
+            /// Whether the operator's countdown is on, read at RENDER time so a
+            /// stage's "what Run will do" sentence does not promise a count the
+            /// stage will skip. Null, or a throw, reads as on, the same way the
+            /// stages themselves read it.
+            /// </summary>
+            public Func<bool> CountdownOn;
+
             // Fixes stage 0 can offer.
             public FixerFixAction SwitchToWasapi;
             public FixerFixAction UseSuggestedInput;
@@ -284,6 +292,10 @@ namespace Radios.Fixer
                 try { return hosts.ReadStation?.Invoke(); }
                 catch { return null; }
             }
+
+            // The switch the stages themselves key by, so the sentence and the
+            // stage cannot disagree about whether there is a count.
+            bool Counts() => Radios.ChainChecks.FixerTransmitAudioBoundary.CountdownIsOn(hosts.CountdownOn);
 
             // The receive walk, guarded the same way: a throw or a missing
             // delegate leaves stage 0 with only the computer's half, which is
@@ -458,8 +470,8 @@ namespace Radios.Fixer
                     OffUiThread = true,
                     DescribeRunAction = () =>
                         "Running this measures your room's noise in a quiet moment, then "
-                        + "counts you in with three tones and listens while you talk. "
-                        + "Nothing transmits.",
+                        + (Counts() ? "counts you in with three tones and listens" : "listens")
+                        + " while you talk. Nothing transmits.",
                     SkipChoices = new[] { operatorSkip, remoteSkip, noMicSkip },
                     // Stage 0's facts ride along (#241): stage 1's advice must
                     // not send the operator to check a Windows mute that stage
@@ -498,7 +510,8 @@ namespace Radios.Fixer
                     DescribeRunAction = () =>
                     {
                         StationNow s = Station();
-                        return "Running this counts down with three tones, then keys "
+                        return (Counts() ? "Running this counts down with three tones, then keys "
+                                         : "Running this keys ")
                              + "the radio's own tune carrier"
                              + AtInto(s, tuneCarrier: true)
                              + " for about " + SecondsPhrase(TxTuneProbe.TuneMs) + ".";
@@ -559,7 +572,8 @@ namespace Radios.Fixer
                     DescribeRunAction = () =>
                     {
                         StationNow s = Station();
-                        return "Running this counts down with three tones, then keys "
+                        return (Counts() ? "Running this counts down with three tones, then keys "
+                                         : "Running this keys ")
                              + "the transmitter"
                              + AtInto(s, tuneCarrier: false)
                              + " for several seconds and sends tones and a recorded voice "
@@ -620,7 +634,8 @@ namespace Radios.Fixer
                     DescribeRunAction = () =>
                     {
                         StationNow s = Station();
-                        return "Running this counts you in with three tones, then keys "
+                        return (Counts() ? "Running this counts you in with three tones, then keys "
+                                         : "Running this keys ")
                              + "the transmitter"
                              + AtInto(s, tuneCarrier: false)
                              + " for about " + SecondsPhrase(TxAudioProbe.SpokenListenMs)

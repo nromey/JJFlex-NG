@@ -315,6 +315,10 @@ public sealed class FixerDialog : JJFlexDialog
                     SpeakListenDone = Cue("audio.fixer.listen_done"),
                 })),
 
+            // Read each time a stage's sentence renders, so "counts down with
+            // three tones" goes when the countdown does.
+            CountdownOn = () => FixerCountdown.On,
+
             // WIRED. The five fixes stage 0 offers at the point of detection.
             // Each applies its change and then READS IT BACK, reporting what
             // the setting became in the operator's words — never "done". A fix

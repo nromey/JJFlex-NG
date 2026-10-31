@@ -6388,14 +6388,56 @@ namespace Radios
                 {
                     Tracing.TraceLine("sliceAdded:IsTransmitSlice", TraceLevel.Info);
                     _TXVFO = SliceToVFO(slc);
+                    NoteTransmitSliceAsFound(slc);
                 }
                 if (slc.Active)
                 {
                     Tracing.TraceLine("sliceAdded:activeSlice", TraceLevel.Info);
                     _RXVFO = SliceToVFO(slc);
+                    NoteActiveSliceAsFound(slc);
                 }
             }
             else Tracing.TraceLine("sliceAdded:not mine " + slc.ToString(), TraceLevel.Info);
+        }
+
+        // A slice that arrives ALREADY carrying its state raises no change for
+        // that state. FlexLib fires SliceAdded only once the slice is ready, so
+        // every status line has been parsed before this class subscribes, and
+        // the mode has a second way of going quiet: Slice._demodMode starts as
+        // "USB", so a status of mode=USB is not even a change inside FlexLib.
+        // On the bench 8600 a whole session traced no IsTransmit:slice and no
+        // DemodMode:slice line, and the caches below stayed empty until the
+        // operator happened to change mode. So what the change handlers would
+        // have written is read here, once, from the slice as it arrived.
+
+        /// <summary>Fill the transmit caches from the transmit slice as found:
+        /// the frequency, the mode and the XIT that the IsTransmitSlice, Freq,
+        /// DemodMode, XITOn and XITFreq cases would have written.</summary>
+        private void NoteTransmitSliceAsFound(Slice s)
+        {
+            _TXFrequency = LibFreqtoLong(s.Freq);
+            _TXMode = s.DemodMode;
+            lock (_XIT)
+            {
+                _XIT.Active = s.XITOn;
+                _XIT.Value = s.XITFreq;
+            }
+        }
+
+        /// <summary>The same for the active slice: the frequency and mode the
+        /// ActiveSlice case writes, and the RIT that RITOn and RITFreq write.
+        /// The receive side usually has these from ActiveSlice already, but
+        /// that case only takes a slice whose client handle has been parsed by
+        /// the time its active flag is.</summary>
+        private void NoteActiveSliceAsFound(Slice s)
+        {
+            _RXFrequency = LibFreqtoLong(s.Freq);
+            _RXMode = s.DemodMode;
+            lock (_RIT)
+            {
+                _RIT.Active = s.RITOn;
+                _RIT.Value = s.RITFreq;
+            }
         }
 
         private void sliceRemoved(Slice slc, ObservationBinding binding)
@@ -8974,7 +9016,10 @@ namespace Radios
         {
             get
             {
-                return _TXFrequency;
+                // Zero is "no echo seen", not a frequency: ask the slice. The
+                // connect path fills this now (NoteTransmitSliceAsFound), so
+                // this covers a transmit slice designated some other way.
+                return (_TXFrequency != 0UL) ? _TXFrequency : TXFrequencyAsReported;
             }
             set
             {
@@ -9180,7 +9225,9 @@ namespace Radios
         {
             get
             {
-                return _TXMode;
+                // Empty is "no echo seen", never a mode: every slice has one,
+                // so ask the slice. See TXFrequency's getter.
+                return string.IsNullOrEmpty(_TXMode) ? TXModeAsReported : _TXMode;
             }
             set
             {

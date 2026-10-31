@@ -837,6 +837,7 @@ namespace Radios.ChainChecks
                 }
 
                 _gate.NoteKeyed(stageId);
+                facts.Keyed = true;
 
                 // AND ONLY NOW IS THE COUNTDOWN ACTUALLY OVER. The key-up goes
                 // out on the last dit so the radio is up by the landing; the

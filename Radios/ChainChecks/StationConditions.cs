@@ -26,10 +26,11 @@ namespace Radios.ChainChecks
     /// </para>
     /// <para>
     /// <b>The fallback, and why it is labelled rather than silent.</b>
-    /// <c>FlexBase.TXFrequency</c> is a cached echo: it is filled when the radio
-    /// reports a transmit slice or reports that slice's frequency changing, so a
-    /// session where neither event has been seen holds zero — and zero, formatted,
-    /// is "0.000000 MHz", which is a plausible-looking lie. Zero therefore falls
+    /// <c>FlexBase.TXFrequency</c> is a cached echo, filled from the transmit
+    /// slice at connect and on every change, and it asks the slice itself when
+    /// the echo is empty. So it reads zero only with no transmit slice to ask —
+    /// and zero, formatted, is "0.000000 MHz", which is a plausible-looking lie.
+    /// Zero therefore falls
     /// back to the receive slice, <b>and says so in the same breath</b>. On a
     /// station that is not split those are the same slice and the number is the
     /// right one; on a split station they are not, and the reader has been told

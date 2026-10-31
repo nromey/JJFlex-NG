@@ -116,6 +116,17 @@ namespace Radios.Fixer
         /// before interpretation (#217). Goes into the report verbatim.</summary>
         public string Evidence { get; set; } = "";
 
+        /// <summary>
+        /// True when the stage refused, or was stopped, before it measured
+        /// anything and before anything keyed. The engine then records
+        /// <see cref="FixerStageStatus.CouldNotRun"/> rather than Ran: a Ran
+        /// stage with no findings reads "passed", and a stage that never
+        /// measured anything has passed nothing. Leave it false once the radio
+        /// has keyed, because the gate then wants the Run again gesture, which
+        /// only a Ran stage offers.
+        /// </summary>
+        public bool NothingMeasured { get; set; }
+
         /// <summary>Stage-set-typed data a later stage may read as a baseline.
         /// The engine stores it and hands it back; it never interprets it.</summary>
         public object Payload { get; set; }

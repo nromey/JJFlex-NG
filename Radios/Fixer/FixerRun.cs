@@ -20,8 +20,9 @@ namespace Radios.Fixer
         Skipped,
 
         /// <summary>It was attempted and could not run — the host supplied no
-        /// executor, or the executor failed. Distinct from Ran because there
-        /// is no measurement, and distinct from Skipped because nobody chose
+        /// executor, the executor failed, or the stage refused before it
+        /// measured anything. Distinct from Ran because there is no
+        /// measurement, and distinct from Skipped because nobody chose
         /// this.</summary>
         CouldNotRun,
     }
@@ -300,7 +301,8 @@ namespace Radios.Fixer
                         Answer = "The test ran and reported nothing at all, which is itself "
                                + "worth knowing — there is no measurement here.",
                     };
-                    status = FixerStageStatus.Ran;
+                    status = outcome.NothingMeasured ? FixerStageStatus.CouldNotRun
+                                                     : FixerStageStatus.Ran;
                 }
                 catch (Exception ex)
                 {
