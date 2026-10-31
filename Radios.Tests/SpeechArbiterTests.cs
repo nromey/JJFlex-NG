@@ -1118,6 +1118,41 @@ namespace Radios.Tests
                 _calls.Where(c => c.Salvaged).Select(c => c.Message));
         }
 
+        private const string TuneRefusal = "Tune refused, out of band";
+
+        private void TuneRefusalCutByAMeterReading(SpeechArbiter a)
+        {
+            a.Emit(TuneRefusal, TuneAnswer.NotKeyedIntent == SpeechIntent.Interrupt, TuneAnswer.NotKeyedIntent, VerbosityLevel.Critical,
+                "MainWindow", subject: SpeechSubject.TuneNotKeyed);
+            _clock.Advance(100);
+            a.Emit("Forward 10 watts", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "meters");
+        }
+
+        [Fact]
+        public void A_tune_refusal_cut_by_a_meter_reading_comes_back()
+        {
+            var a = NewArbiter();
+
+            TuneRefusalCutByAMeterReading(a);
+            _clock.Advance(Settle);
+
+            Assert.Equal(new[] { TuneRefusal }, _calls.Where(c => c.Salvaged).Select(c => c.Message));
+        }
+
+        [Fact]
+        public void A_tune_refusal_retired_by_a_later_tune_does_not_come_back_behind_Tune_on()
+        {
+            var a = NewArbiter();
+            TuneRefusalCutByAMeterReading(a);
+
+            a.Supersede(SpeechSubject.TuneNotKeyed, "the tune keyed", "MainWindow");
+            a.Emit("Tune on", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "MainWindow");
+            _clock.Advance(Settle * 3);
+
+            Assert.DoesNotContain(_calls.Skip(2), c => c.Message == TuneRefusal);
+            Assert.Empty(_calls.Where(c => c.Salvaged));
+        }
+
         [Fact]
         public void Salvage_ProgressLines_TheControl_UnkeyedTheirOwnArithmeticDecides()
         {

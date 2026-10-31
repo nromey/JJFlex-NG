@@ -3329,6 +3329,7 @@ public partial class MainWindow : UserControl
     private void ConnectionChanged(FlexBase rig)
     {
         if (!ReferenceEquals(rig, RigControl)) return;
+        if (!rig.IsConnected) EndTuneAnswer("the connection fell");
         if (_sessionTitle.OwesNoRadioTitle(rig.IsConnected)) ShowNoRadioTitle();
     }
 
@@ -3950,7 +3951,7 @@ public partial class MainWindow : UserControl
 
         PollTimerEnabled = false;
         _radioPowerOn = false;
-        StopTuneAnswerWatch();
+        EndTuneAnswer("the radio's events were unwired");
         StopWatchingConnection();
 
         // Sprint 42 Track D (#395): a teardown ends any quiet scope a failed
@@ -5787,7 +5788,7 @@ public partial class MainWindow : UserControl
             RigControl.ConnectedEvent -= ConnectedEventHandler;
         }
 
-        StopTuneAnswerWatch();
+        EndTuneAnswer("the radio powered off");
 
         _radioPowerOn = false;
 
@@ -6504,7 +6505,7 @@ public partial class MainWindow : UserControl
         }
         else
         {
-            StopTuneAnswerWatch();
+            EndTuneAnswer("tune off");
             // Stop ATU progress earcon in case auto-ATU started a tune cycle
             EarconPlayer.StopATUProgressEarcon();
             StopATUTimeout();
@@ -6527,13 +6528,22 @@ public partial class MainWindow : UserControl
     /// </summary>
     private void AnnounceTuneWhenTheRadioAnswers()
     {
-        StopTuneAnswerWatch();
+        EndTuneAnswer("a new tune was pressed");
         FlexBase? rig = RigControl;
         if (rig == null) return;
 
-        // Read now, while the carrier is still in the queue: what is on the
-        // air at this moment is not this tune.
+        // As near the press as this can read. What is on the air now is taken
+        // as not this tune; a radio fast enough to have keyed already lands on
+        // the sentence that says it is transmitting, which is still true.
         Radios.TuneReading atPress = rig.ReadTuneStanding();
+
+        // The radio's own source word for the length of the wait: FlexLib's
+        // parse drops a list and keeps a stale value, and one tune's trace has
+        // to settle what a real tune reports. A read of the status stream; the
+        // carrier command is already on its way and is not touched.
+        try { _tuneSourceWatch = rig.WatchPttSource(); }
+        catch (Exception ex) { Tracing.TraceLine("TuneAnswer: no source watch: " + ex.Message, TraceLevel.Warning); }
+
         Tracing.TraceLine("TuneAnswer: asked, the radio reads " + atPress, TraceLevel.Info);
 
         var waited = Stopwatch.StartNew();
@@ -6549,10 +6559,13 @@ public partial class MainWindow : UserControl
             Radios.TuneWatchStep step = answer.Step();
             if (step == Radios.TuneWatchStep.Wait) return;
 
-            StopTuneAnswerWatch();
             Tracing.TraceLine($"TuneAnswer: {step} after {waited.ElapsedMilliseconds} ms, the radio reads {answer.Last}", TraceLevel.Info);
+            StopTuneAnswerWatch();
             if (step == Radios.TuneWatchStep.Keyed)
+            {
+                EndTuneAnswer("the tune keyed");
                 Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.tune_on"), VerbosityLevel.Terse, true);
+            }
             else if (step == Radios.TuneWatchStep.NotKeyed)
                 Radios.ScreenReaderOutput.Speak(Radios.TuneAnswer.NotKeyedSentence(answer.Last), Radios.TuneAnswer.NotKeyedIntent,
                     VerbosityLevel.Critical, subject: Radios.Speech.SpeechSubject.TuneNotKeyed);
@@ -6562,11 +6575,26 @@ public partial class MainWindow : UserControl
     }
 
     private DispatcherTimer? _tuneAnswerWatch;
+    private IDisposable? _tuneSourceWatch;
 
     private void StopTuneAnswerWatch()
     {
         _tuneAnswerWatch?.Stop();
         _tuneAnswerWatch = null;
+        _tuneSourceWatch?.Dispose();
+        _tuneSourceWatch = null;
+    }
+
+    /// <summary>
+    /// This tune's question is over: stop waiting, and retire a not-keyed
+    /// sentence that has not been heard yet. It is queued so that a cut one
+    /// comes back, which is exactly why it has to be withdrawn when it stops
+    /// being true.
+    /// </summary>
+    private void EndTuneAnswer(string why)
+    {
+        StopTuneAnswerWatch();
+        Radios.ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.TuneNotKeyed, why);
     }
 
     /// <summary>

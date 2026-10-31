@@ -124,7 +124,47 @@ namespace Radios.Tests
             clock(TuneAnswer.WaitMs);
 
             Assert.Equal(TuneWatchStep.NotKeyed, w.Step());
-            Assert.Equal(Lexicon.Get("audio.tune.unconfirmed"), TuneAnswer.NotKeyedSentence(w.Last));
+            string said = TuneAnswer.NotKeyedSentence(w.Last);
+            Assert.Contains("the radio is transmitting", said, StringComparison.Ordinal);
+            Assert.DoesNotContain("has not reported", said, StringComparison.Ordinal);
+        }
+
+        public static TheoryData<string, TuneReading> OnTheAirButNotProvablyThisTune() => new()
+        {
+            { "a hardware key", OnTheAir(PTTSource.RCA) },
+            { "the microphone", OnTheAir(PTTSource.Mic) },
+            { "another client", OnTheAir(PTTSource.TUNE, anotherClient: true) },
+            { "a software key already up at the press", OnTheAir(PTTSource.SW) },
+        };
+
+        [Theory]
+        [MemberData(nameof(OnTheAirButNotProvablyThisTune))]
+        public void The_sentence_never_denies_a_transmission_the_radio_reported(string who, TuneReading now)
+        {
+            string said = TuneAnswer.NotKeyedSentence(now);
+
+            Assert.False(string.IsNullOrEmpty(who));
+            Assert.Contains("transmitting", said, StringComparison.Ordinal);
+            Assert.DoesNotContain("has not reported", said, StringComparison.Ordinal);
+            Assert.DoesNotContain("refused", said, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Tune on", said, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void A_radio_that_is_transmitting_is_not_called_a_refusal_whatever_else_it_says()
+        {
+            TuneReading now = OnTheAir(PTTSource.RCA) with
+            {
+                TxAllowed = false, NotReady = true, Reason = InterlockReason.OUT_OF_BAND,
+            };
+
+            Assert.DoesNotContain("refused", TuneAnswer.NotKeyedSentence(now), StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void A_radio_that_is_not_transmitting_is_not_said_to_be()
+        {
+            Assert.DoesNotContain("is transmitting", TuneAnswer.NotKeyedSentence(NotKeyed(allowed: true)), StringComparison.Ordinal);
         }
 
         [Fact]
@@ -190,6 +230,38 @@ namespace Radios.Tests
             // The interlock keeps its last reason; alone it says nothing.
             Assert.Equal(Lexicon.Get("audio.tune.unconfirmed"),
                 TuneAnswer.NotKeyedSentence(NotKeyed(reason: InterlockReason.OUT_OF_BAND)));
+        }
+
+        [Theory]
+        [InlineData("tune off", "EndTuneAnswer(\"tune off\");")]
+        [InlineData("a new press", "EndTuneAnswer(\"a new tune was pressed\");")]
+        [InlineData("a tune that keyed", "EndTuneAnswer(\"the tune keyed\");")]
+        [InlineData("a lost connection", "EndTuneAnswer(\"the connection fell\");")]
+        [InlineData("a radio powered off", "EndTuneAnswer(\"the radio powered off\");")]
+        [InlineData("disconnect and shutdown", "EndTuneAnswer(\"the radio's events were unwired\");")]
+        public void The_not_keyed_sentence_is_retired_at_every_boundary(string boundary, string call)
+        {
+            Assert.False(string.IsNullOrEmpty(boundary));
+            Assert.Contains(call, Read("JJFlexWpf/MainWindow.xaml.cs"), StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void Ending_the_answer_retires_it_by_its_subject()
+        {
+            string main = Read("JJFlexWpf/MainWindow.xaml.cs").Replace("\r\n", "\n");
+            int end = main.IndexOf("private void EndTuneAnswer(string why)", StringComparison.Ordinal);
+            Assert.True(end > 0);
+            Assert.Contains("ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.TuneNotKeyed, why);",
+                main.Substring(end, 220), StringComparison.Ordinal);
+
+            // The one exit that must NOT retire it is the one that said it.
+            int said = main.IndexOf("else if (step == Radios.TuneWatchStep.NotKeyed)", StringComparison.Ordinal);
+            int before = main.LastIndexOf("Radios.TuneWatchStep step = answer.Step();", said, StringComparison.Ordinal);
+            string run = main.Substring(before, said - before);
+            int stop = run.IndexOf("StopTuneAnswerWatch();", StringComparison.Ordinal);
+            int keyedBranch = run.IndexOf("if (step == Radios.TuneWatchStep.Keyed)", StringComparison.Ordinal);
+            Assert.True(stop > 0 && keyedBranch > stop);
+            Assert.DoesNotContain("EndTuneAnswer", run.Substring(0, keyedBranch), StringComparison.Ordinal);
         }
 
         [Fact]
@@ -259,6 +331,13 @@ namespace Radios.Tests
 
             TuneReading mine = _rig.ReadTuneStanding();
             Assert.True(TuneAnswer.ThisTuneKeyed(mine, Idle));
+
+            // The trace line has to settle what a real tune reports.
+            string traced = mine.ToString();
+            Assert.Contains("Source = TUNE", traced, StringComparison.Ordinal);
+            Assert.Contains("TxClient = 7", traced, StringComparison.Ordinal);
+            Assert.Contains("OwnClient = 7", traced, StringComparison.Ordinal);
+            Assert.Contains("RawSource", traced, StringComparison.Ordinal);
 
             Put(radio, "_txClientHandle", 9u);
             TuneReading theirs = _rig.ReadTuneStanding();

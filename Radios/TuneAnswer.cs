@@ -24,8 +24,14 @@ namespace Radios
     /// <param name="Source">The radio's PTT source, as FlexLib parsed it.</param>
     /// <param name="AnotherClient">The radio names a transmitting client that
     /// is not this one.</param>
+    /// <param name="RawSource">The radio's own <c>source=</c> word, for the
+    /// trace, or null when none has been read: FlexLib's parse hides a list.</param>
+    /// <param name="TxClient">The client handle the radio says is transmitting,
+    /// for the trace. Zero when it names none.</param>
+    /// <param name="OwnClient">Ours, for the trace.</param>
     public readonly record struct TuneReading(bool Transmitting, bool Busy, bool? TxAllowed, bool NotReady,
-                                              InterlockReason Reason, PTTSource Source, bool AnotherClient)
+                                              InterlockReason Reason, PTTSource Source, bool AnotherClient,
+                                              string? RawSource = null, uint TxClient = 0, uint OwnClient = 0)
     {
         /// <summary>No radio to ask.</summary>
         public static TuneReading Unknown => new(false, false, null, false, InterlockReason.None, PTTSource.None, false);
@@ -67,7 +73,9 @@ namespace Radios
         /// Queued, not interrupting. An interrupter is never in the speech
         /// ledger, so a meter reading or the next key would cut the reason off
         /// for good, and the reason is the point of the sentence. Queued, a cut
-        /// sentence is held and said again (#447).
+        /// sentence is held and said again (#447). So the host must retire it,
+        /// by its subject, the moment it stops being true: tune off, a new
+        /// press, a tune that keys, a lost radio, shutdown.
         /// </summary>
         public const Speech.SpeechIntent NotKeyedIntent = Speech.SpeechIntent.Queue;
 
@@ -98,9 +106,12 @@ namespace Radios
             return !atPress.Busy && now.Source is PTTSource.SW or PTTSource.None;
         }
 
-        /// <summary>The sentence once the radio has not keyed in time.</summary>
+        /// <summary>The sentence once the radio has not keyed in time, or has
+        /// keyed and we cannot say it was this tune.</summary>
         public static string NotKeyedSentence(TuneReading now)
         {
+            // Never deny what the radio reported: RF is up here, whoever's it is.
+            if (now.Transmitting) return Lexicon.Get("audio.tune.transmitting_unconfirmed");
             if (!now.RadioRefuses) return Lexicon.Get("audio.tune.unconfirmed");
 
             switch (now.Reason)

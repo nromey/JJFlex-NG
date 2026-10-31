@@ -2069,6 +2069,7 @@ namespace Radios.Tests
                 "audio.alert_buffer.help",
                 // The tune answer (#447). Draft prose, awaiting Noel.
                 "audio.tune.unconfirmed",
+                "audio.tune.transmitting_unconfirmed",
                 "audio.tune.refused",
                 "audio.tune.refused_out_of_band",
                 "audio.tune.refused_bad_mode",

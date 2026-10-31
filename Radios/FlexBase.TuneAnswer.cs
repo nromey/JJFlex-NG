@@ -29,7 +29,10 @@ namespace Radios
                 NotReady: state == InterlockState.NotReady,
                 Reason: radio.InterlockReason,
                 Source: radio.PTTSource,
-                AnotherClient: txClient != 0 && txClient != clientHandle);
+                AnotherClient: txClient != 0 && txClient != clientHandle,
+                RawSource: RawPttSource,
+                TxClient: txClient,
+                OwnClient: clientHandle);
         }
     }
 }
