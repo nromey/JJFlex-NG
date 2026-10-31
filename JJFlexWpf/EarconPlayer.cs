@@ -2798,7 +2798,7 @@ namespace JJFlexWpf
 
         /// <summary>ATU tune failed — descending minor E-C-A (~200ms total).</summary>
         [Earcon("ATU tune failed", EarconCategory.Transmit, Order = 33,
-            Description = "Descending minor. The tuner gave up.")]
+            Description = "Descending minor. The tuner gave up, or the radio refused a tune.")]
         public static void ATUFailTone()
         {
             if (!Gate(EarconCategory.Transmit)) return;

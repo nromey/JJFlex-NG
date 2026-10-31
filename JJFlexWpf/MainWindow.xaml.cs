@@ -6567,8 +6567,14 @@ public partial class MainWindow : UserControl
                 Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.tune_on"), VerbosityLevel.Terse, true);
             }
             else if (step == Radios.TuneWatchStep.NotKeyed)
+            {
+                // The on tone stays at the press; a refusal answers it with an
+                // error tone (Noel, 2026-10-31). Only a refusal: "no report
+                // yet" and "transmitting, not provably this tune" are not one.
+                if (answer.Last.RadioRefuses) EarconPlayer.ATUFailTone();
                 Radios.ScreenReaderOutput.Speak(Radios.TuneAnswer.NotKeyedSentence(answer.Last), Radios.TuneAnswer.NotKeyedIntent,
                     VerbosityLevel.Critical, subject: Radios.Speech.SpeechSubject.TuneNotKeyed);
+            }
         };
         _tuneAnswerWatch = watch;
         watch.Start();
