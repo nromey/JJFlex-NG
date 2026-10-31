@@ -24,12 +24,12 @@ namespace JJFlexWpf.Dialogs
             // debugging session (2026-08-14).
             string actionDescription = enabled
                 ? (tcp == udp
-                    ? $"JJ Flex will tell the radio to advertise external port {tcp} (both TCP and UDP) for SmartLink."
-                    : $"JJ Flex will tell the radio to advertise external TCP port {tcp} and UDP port {udp} for SmartLink.")
+                    ? $"JJ Flexible Access will tell the radio to advertise external port {tcp} (both TCP and UDP) for SmartLink."
+                    : $"JJ Flexible Access will tell the radio to advertise external TCP port {tcp} and UDP port {udp} for SmartLink.")
                   + $" Your router must forward that external TCP port to the radio's LAN IP at port " +
                     $"{Radios.FlexBase.SmartLinkRadioTlsPort}, and the external UDP port to port " +
                     $"{Radios.FlexBase.SmartLinkRadioUdpPort}."
-                : "JJ Flex will tell the radio to stop advertising a forwarded port (disable port forwarding).";
+                : "JJ Flexible Access will tell the radio to stop advertising a forwarded port (disable port forwarding).";
 
             BodyText.Text = ScreenReaderText.NormalizeLineBreaks(
                 actionDescription +

@@ -1955,7 +1955,7 @@ namespace Radios
             ChangeNothingActive = active;
             Tracing.TraceLine(
                 "ChangeNothing: " + (active
-                    ? "armed — JJ Flex will not change anything this radio keeps"
+                    ? "armed — JJ Flexible Access will not change anything this radio keeps"
                     : "lifted — this radio may be changed normally"),
                 TraceLevel.Warning);
         }

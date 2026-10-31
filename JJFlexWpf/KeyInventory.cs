@@ -1369,7 +1369,7 @@ public static class KeyInventory
         // vocabularies of the old surface, the new one, and the problem.
         new FixedKeyEntry
         {
-            Description = "Diagnostics settings - what JJ Flex records, how much detail, and where it goes",
+            Description = "Diagnostics settings - what JJ Flexible Access records, how much detail, and where it goes",
             Scope = "Global", Group = "Diagnostics",
             MenuText = "Tools menu, Diagnostics (also Settings, Diagnostics tab)",
             Keywords = new[] { "diagnostic", "diagnostics", "log", "logging", "trace", "tracing",

@@ -201,7 +201,7 @@ namespace Radios
             if (theRadio.IsWan)
             {
                 s.Reason =
-                    "You are connected over SmartLink. The address JJ Flex sees is not the radio's address " +
+                    "You are connected over SmartLink. The address JJ Flexible Access sees is not the radio's address " +
                     "on its own network, so it cannot be used as a static IP. Connect on the same local " +
                     "network as the radio to use this.";
                 return s;

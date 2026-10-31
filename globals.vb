@@ -1279,7 +1279,7 @@ Module globals
             ' the setting is quietly back where it was.
             Radios.OperationFailure.Report(Radios.FailureKind.SettingNotSaved,
                 "Your diagnostic settings could not be saved",
-                "The change is in effect right now, but it will not be there the next time you start JJ Flex. " &
+                "The change is in effect right now, but it will not be there the next time you start JJ Flexible Access. " &
                 "Something stopped the settings file from being written.")
         End If
 
@@ -1379,7 +1379,7 @@ Module globals
         If Not DiagnosticsSettings.Save(BaseConfigDir) Then
             Radios.OperationFailure.Report(Radios.FailureKind.SettingNotSaved,
                 "Your transcript setting could not be saved",
-                "The change is in effect right now, but it will not be there the next time you start JJ Flex. " &
+                "The change is in effect right now, but it will not be there the next time you start JJ Flexible Access. " &
                 "Something stopped the settings file from being written.")
         End If
         Try
@@ -1396,7 +1396,7 @@ Module globals
         If Not DiagnosticsSettings.Save(BaseConfigDir) Then
             Radios.OperationFailure.Report(Radios.FailureKind.SettingNotSaved,
                 "Your meter stream setting could not be saved",
-                "The change is in effect right now, but it will not be there the next time you start JJ Flex. " &
+                "The change is in effect right now, but it will not be there the next time you start JJ Flexible Access. " &
                 "Something stopped the settings file from being written.")
         End If
         Try
@@ -5088,7 +5088,7 @@ Module globals
                     Radios.OperationFailure.Report(
                         Radios.FailureKind.ConnectFailed,
                         $"The connection to {failedName} failed",
-                        "JJ Flex recorded the whole connection attempt. Sending that " &
+                        "JJ Flexible Access recorded the whole connection attempt. Sending that " &
                         "record is the fastest way to find out why.")
                 End If
 

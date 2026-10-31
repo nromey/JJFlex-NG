@@ -714,7 +714,6 @@ audio.mic.transmit_to_measure	b59f5e5b8bf10d65
 audio.mic_profiles.file_unreadable	4ace5ba74f4cd2af
 audio.micprofile.applied	d00aeecd93f246c0
 audio.micprofile.cleanup_needs_a_radio	15b6114f52acc7ec
-audio.micprofile.create_reason	5a32b8b82faa8238
 audio.micprofile.created_on_radio	23134abb982e31ed
 audio.micprofile.delete_body	4f2cf8054791e138
 audio.micprofile.delete_question	d63d6e8be268a32c
@@ -725,7 +724,6 @@ audio.micprofile.deleted_but_not_saved	149710ed68bbde9a
 audio.micprofile.device_mismatch	afed9b5e59bd42e1
 audio.micprofile.device_mismatch_with_cleanup	2727b7ffbcb0507b
 audio.micprofile.level_not_set	774f41875711131b
-audio.micprofile.load_reason	a9c10229e4b0c12d
 audio.micprofile.loaded_on_radio	b96f5fff81ae15af
 audio.micprofile.no_longer_listed	ed95a9c205b500f0
 audio.micprofile.none_saved_yet	8acb82ec57a2f1e4
@@ -1113,7 +1111,6 @@ connect.connecting.still_waiting_chatty	932b1b58b6969198
 connect.connecting.still_waiting_terse	8383f02735c824fe
 connect.connecting.timed_out	8b3fa0a84f04eacb
 connect.connecting.title	c838dc33dcc81306
-connect.dialog.app_error_title	6fd7a2c1007af2c5
 connect.dialog.apply	14fadec6ce72dc21
 connect.dialog.cancel	5d78ae031406177c
 connect.dialog.close	7bf292957817f937
@@ -1215,7 +1212,6 @@ connect.home.tuning_hint_modern_terse	5cd9525a66698cc5
 connect.last_place	891e5cfbc3278442
 connect.multiflex.changed_while_confirming	18e4ba110efd8c3a
 connect.multiflex.client_line	36d205dfdc34ffef
-connect.multiflex.disconnect_body	2a630462a1f2aa12
 connect.multiflex.disconnect_failed	7af43bc1a9d3bb8a
 connect.multiflex.disconnect_question	ad320013bc8479c7
 connect.multiflex.disconnect_requested	0427c70fe79d1b5e
@@ -1236,11 +1232,9 @@ connect.network.already_automatic_speak	53c940cd5ec3649f
 connect.network.cancelled_report	2ede119fa0629856
 connect.network.cancelled_speak	b11ccac4a61e3bfc
 connect.network.confirm_apply_label	14fadec6ce72dc21
-connect.network.confirm_dhcp_body	e728fc03c87adc59
 connect.network.confirm_dhcp_question	374d26f3d26df83d
 connect.network.confirm_dhcp_title	6a0f07fbe0fe6d89
 connect.network.confirm_dhcp_warning_forwarding	a9b15f4530ad7820
-connect.network.confirm_fixed_body	456c1f1c70ba30ca
 connect.network.confirm_fixed_question	41f504da20d746a8
 connect.network.confirm_fixed_title	fca257097b554a8e
 connect.network.dhcp_accepted_report	e854facb541cb3bc
@@ -1264,8 +1258,6 @@ connect.network.no_radio_report	adacc0868b6bb6fb
 connect.network.no_radio_speak	d29848d935afc9c0
 connect.network.sent_waiting_report	54c9189548295780
 connect.network.sent_waiting_speak	c4387d6416fb2852
-connect.network.state_automatic	a25284144d4e04e9
-connect.network.state_fixed	c1482bd4ca294163
 connect.network.unknown_address	cb04bcf46263f89c
 connect.network.use_current_name	41c3b75b7132cc12
 connect.network.use_current_name_remote	5d703e10cde1b281
@@ -1498,7 +1490,6 @@ connect.session.verbosity_changed	2b025cca8a3c789e
 connect.smartlink.account.autostart_off	929e377c54b94ad6
 connect.smartlink.account.autostart_on	5eb121c4a6d511f1
 connect.smartlink.account.default_tag	b6a10a6ad3a99cd0
-connect.smartlink.account.delete_body	1cdd47240e4dd430
 connect.smartlink.account.delete_question	d63d6e8be268a32c
 connect.smartlink.account.delete_title	680777c55d934b69
 connect.smartlink.account.delete_yes	8a27dc0cf19de982
@@ -1512,7 +1503,6 @@ connect.smartlink.account.rename_failed_body	c242674730c053b9
 connect.smartlink.account.rename_failed_title	60369f003ed34e64
 connect.smartlink.account.rename_prompt	5a0e267bb66a2cc3
 connect.smartlink.account.renamed	9ad9801e7084a7ed
-connect.smartlink.account.reset_body	21cae6f19c4d9d6d
 connect.smartlink.account.reset_done	1935ee5bc64a9767
 connect.smartlink.account.reset_failed	fbb6e55fb152d226
 connect.smartlink.account.reset_question	92dff5c17c4e4367
@@ -1603,7 +1593,6 @@ connect.smartlink.other_accounts_note	8c80a6635f0bdb7c
 connect.smartlink.other_accounts_note_switch	e50eaf0181d54ce6
 connect.smartlink.reach_from_away_body	99b38dd7182f07e6
 connect.smartlink.reach_from_away_title	ad2762700f9c420b
-connect.smartlink.setup_body	1a33077963020363
 connect.smartlink.setup_title	69b66d520c9fd293
 connect.smartlink.sign_in_cancelled	8da4d7e99124a0d8
 connect.smartlink.signed_in_not_remembered	335d0047298baf45
@@ -1707,7 +1696,6 @@ connect.tester.user_delay_negative	f13bb4d38c45e75e
 connect.tune.no_radio	465c70c3a1b97a37
 connect.tune.tuned_to	abe7dfa117e1f355
 connect.tx.controls_not_ready	b8857029f5fb19ad
-connect.ui_mode.prompt_body	f8c031846c850a0e
 connect.ui_mode.prompt_title	156d06eb424ef95e
 connect.update.advisory_title	458950a801f9a6d6
 connect.update.available_speech	61d95158d8c2a65a
@@ -1720,12 +1708,9 @@ connect.update.failed_speech	0b69e87150d044c9
 connect.update.failed_status	b42f5bd51d117437
 connect.update.failed_title	db64605b80d5ba37
 connect.update.headline	35937563660364d9
-connect.update.helper_handoff	802cbfe08dfcce3b
-connect.update.installer_running	9b458d92b30abdd8
 connect.update.planning_speech	ba7445e1d058f5ac
 connect.update.planning_status	27b16c1063195b13
 connect.update.size_delta	56b54c8cb1b4b590
-connect.update.size_initial	2c4b6cddf41d9da7
 connect.update.size_speech	471106236680ac61
 connect.update.skipped	3af6731b3a0f65e2
 connect.update.skipped_version	010d91c92970131e
@@ -1734,7 +1719,6 @@ connect.update.up_to_date	602cbf450d2e3a51
 connect.update.up_to_date_speech	1f28c22f37031200
 connect.update.up_to_date_status	e6c6b00d335d261c
 connect.update.versions	e1401ce3efc4965f
-connect.update.while_connected_body	5be72cadfaec66ac
 connect.update.while_connected_question	30433347ee753ccc
 connect.update.while_connected_yes_label	06a02a2b08b198b2
 connect.walk.failed	eacd4060b1f5a068
@@ -1905,7 +1889,6 @@ logging.capture.not_running	6018a3e835ff024e
 logging.capture.save_problem	d5a29f5ed885ff2f
 logging.capture.saved	246f6dbd8ed79e57
 logging.capture.start_failed	58c9ca0acad9a329
-logging.capture.start_failed_detail	eae6b97929a448af
 logging.capture.start_failed_what	bc00d5b7f102ca16
 logging.capture.started	30addbfcf59a07fc
 logging.characteristics.browse_title	eda715e3eb48935b
@@ -2281,7 +2264,6 @@ settings.diagnostics.folder_opened	68ddac7a7c5f39f7
 settings.diagnostics.live_log_path	6143b136759d6fb3
 settings.diagnostics.log_folder_when_running	4590168f41d3a735
 settings.diagnostics.log_location_unavailable	c2b23521759ecc69
-settings.diagnostics.log_off	a3d8424c14fc3edf
 settings.diagnostics.log_on	a75ec705146773c0
 settings.diagnostics.loose_logs_delete_failed	21314a9ee0c7f888
 settings.diagnostics.loose_logs_deleted	f40d93ca56eaf508
@@ -2381,7 +2363,6 @@ settings.guard.firmware_blocked	5ad87425ec525e5e
 settings.guard.layout_save_blocked	219798595dee7e31
 settings.guard.layout_save_roster_unknown	ede3abb0ffe86e84
 settings.guard.mic_stays	5026c938bda08e57
-settings.guard.refused	8a6bb819a9642486
 settings.home.destination_chatty	a90713a910e9b0f6
 settings.home.destination_chatty_with_freq	cd140c5df183db26
 settings.home.destination_terse	3c950013dfde891b
@@ -2610,7 +2591,6 @@ settings.profile.add_failed	86cd73787dcddaa9
 settings.profile.added	37b7a648156362ba
 settings.profile.cannot_delete_current	02b947e4fc61b9cb
 settings.profile.cascade_off_changed_rem_on	5fd813c0c8f77b01
-settings.profile.cascade_off_confirm_body	bc691612c0c9c0f4
 settings.profile.cascade_off_confirm_no	fc84ec5094a1f600
 settings.profile.cascade_off_confirm_question	5c39533a3cc179e1
 settings.profile.cascade_off_confirm_title	39e43bb4e38cd993
@@ -2628,7 +2608,6 @@ settings.profile.cascade_on_already_set	9f4b5950ab4d8d13
 settings.profile.cascade_on_changed_firmware	2bb6694fca2ec269
 settings.profile.cascade_on_changed_port	241c674faa1adad3
 settings.profile.cascade_on_changed_rem_on	607855cf0fa66235
-settings.profile.cascade_on_confirm_body	5febae668199864b
 settings.profile.cascade_on_confirm_no	4ab432e76ba1eb6d
 settings.profile.cascade_on_confirm_question	ef7d5a7bf06899be
 settings.profile.cascade_on_confirm_title	13bdb65b49609d4a
@@ -2642,8 +2621,6 @@ settings.profile.cascade_on_warning_firmware	bdfad0294d37a331
 settings.profile.cascade_on_warning_port	53c8cd1ae30d91fe
 settings.profile.cascade_on_warning_rem_on	0417a2e5abd11188
 settings.profile.cascade_status_tail	bf42de353ba55c71
-settings.profile.change_nothing_off	4455e4f344cbceb8
-settings.profile.change_nothing_on_warning	0bc392ecdc5b2e30
 settings.profile.delete_failed	e02aa28d5f9f7882
 settings.profile.describe	f8b96a59d89bf1f5
 settings.profile.describe_change_nothing	9cb8342fe8721964
@@ -2679,9 +2656,6 @@ settings.profile.no_physical_access_hint_guess_remote	384b99e1da2c5040
 settings.profile.no_physical_access_hint_pending	183f09a22678e141
 settings.profile.no_physical_access_hint_saved	1f8a3e92c52aecaa
 settings.profile.none_known	5149ebd48e99f025
-settings.profile.ownership_mine	ed68fffc8493794b
-settings.profile.ownership_someone_elses	5ec416c152ed8a75
-settings.profile.ownership_unanswered	db9a87ed1c652704
 settings.profile.picker_connected	a9f39c17fff24227
 settings.profile.picker_model	1d1cad22909802e9
 settings.profile.picker_named	75172bed0e858218
@@ -2703,11 +2677,8 @@ settings.profile.rename_queued	784c0e4268c66583
 settings.profile.report_saved	62087d8183edc7bd
 settings.profile.save_failed	1ddf3e3b160d3350
 settings.profile.saved	4118bb00babd4b7e
-settings.profile.saved_change_nothing_off	89c89529af97ed6c
-settings.profile.saved_change_nothing_on	571ad2ab9638a7b7
 settings.profile.saved_connection_settings	f197b27f790b161f
 settings.profile.saved_no_physical_access	4c3fbaaa45c61d0e
-settings.profile.saved_owned_mine	4ae5a4fa2a3ee2c1
 settings.profile.saved_owned_someone_elses	7862e046c623e8b0
 settings.profile.saved_owned_unanswered	008cf0bf023a23e8
 settings.profile.saved_reachable_in_person	4dabd0d3f4a872a9
@@ -2823,7 +2794,6 @@ settings.radio.check.running_spoken	4bd461600a278d36
 settings.radio.connect.done_local	4e10355bc3ffbcb5
 settings.radio.connect.done_over_smartlink	c8bfa422a20b6dc4
 settings.radio.connect.not_done	dea396613af18199
-settings.radio.firmware.bypass_done	9dc206b31cfaa018
 settings.radio.firmware.bypass_done_spoken	2518d534d098f6e8
 settings.radio.firmware.bypass_write_failed	26303825ad3f29a6
 settings.radio.firmware.bypass_write_failed_spoken	18823989df5db37c
@@ -2832,7 +2802,6 @@ settings.radio.firmware.choose_file_filter	3d7acf89230a736c
 settings.radio.firmware.choose_file_title	22c5a8f559585187
 settings.radio.firmware.chosen	0c0369af4274de3a
 settings.radio.firmware.chosen_spoken	319f2680f57690a6
-settings.radio.firmware.differs_from_library	663e2dc9e37b4f8e
 settings.radio.firmware.download_failed	a67a8b70b8eedefc
 settings.radio.firmware.download_failed_spoken	13fa388b0577c8a9
 settings.radio.firmware.download_progress	a1b3507a8020e8f3
@@ -2845,23 +2814,19 @@ settings.radio.firmware.list_unreachable	5db17ddb7275df24
 settings.radio.firmware.list_unreachable_spoken	0af742160c4fcfc7
 settings.radio.firmware.looking	e2bfb15444c47571
 settings.radio.firmware.looking_spoken	7e3c3a9e7c0bd2e6
-settings.radio.firmware.matches	39df28017b6db2c9
 settings.radio.firmware.no_radio	adacc0868b6bb6fb
 settings.radio.firmware.none_for_model	0a35458ce87dba9a
 settings.radio.firmware.none_for_model_spoken	23133bf5996cacf0
 settings.radio.firmware.running	5d57f28d6b18223f
-settings.radio.firmware.send_confirm_body	04e0212b6fd9438d
 settings.radio.firmware.send_confirm_question	374d26f3d26df83d
 settings.radio.firmware.send_confirm_title	ec85eb7e216fa895
 settings.radio.firmware.send_confirm_yes	dc8694d3363dced3
 settings.radio.firmware.send_failed	e3c16b7906aecee5
 settings.radio.firmware.send_failed_spoken	a1dca6d9d14ba7d5
-settings.radio.firmware.sending	e8d204a323013067
 settings.radio.firmware.sending_spoken	87cff43a9af8b5c4
 settings.radio.firmware.smartlink_cannot_carry	0bcacfb5f9abc7a5
 settings.radio.firmware.stepping_stone	f1a683d1177879be
 settings.radio.firmware.stepping_stone_spoken	8673d04f94f84bb7
-settings.radio.firmware.transfer_fault	eb01448b7bf03567
 settings.radio.firmware.up_to_date	a7910c9ce84dc2b9
 settings.radio.firmware.up_to_date_spoken	df654054453d1a62
 settings.radio.firmware.version_unreported	bafa9ad3e1893cc4
@@ -2881,7 +2846,6 @@ settings.radio.register.check_unanswered	c7db2464092456b4
 settings.radio.register.checking	bac1ff2d7978dff4
 settings.radio.register.command_not_sent	dd975b0a6bf77730
 settings.radio.register.command_not_sent_spoken	60eff35bfb5e96e2
-settings.radio.register.confirm_body	5a517205f55eb96d
 settings.radio.register.confirm_question	51079676c1b82197
 settings.radio.register.confirm_title	b928417b91520c47
 settings.radio.register.confirm_yes	2c66a37aa7a07df6
@@ -2893,7 +2857,6 @@ settings.radio.restart.pending	5ed919dd98cb6339
 settings.radio.restart.started	884464c31a6a4974
 settings.radio.steps_refreshed	39dc5588525a1ce2
 settings.radio.unregister.cancelled	a85fb533be703793
-settings.radio.unregister.confirm_body	5217cac3602eb34c
 settings.radio.unregister.confirm_question	bc08b8c9e4f9ecd9
 settings.radio.unregister.confirm_title	6830ce0fa795400b
 settings.radio.unregister.confirm_yes	7a516a7779da45c0
@@ -2904,7 +2867,6 @@ settings.radio.waiting_on_step_1	8d814da552fd2901
 settings.radio.way_in.not_set	8327b25eb994f4ac
 settings.radio.way_in.ports_same	8e2c6ddae5b79b85
 settings.radio.way_in.ports_separate	767b5f17455f277c
-settings.radio.way_in.set	f26a2451088f6375
 settings.radio_info.not_available	22b3126b7eb47422
 settings.repeat.copied	a4f3d8a7d64392e0
 settings.repeat.copy_failed	ef08549c9bf0b241

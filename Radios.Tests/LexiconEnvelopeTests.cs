@@ -2077,11 +2077,51 @@ namespace Radios.Tests
                 "audio.tune.refused_rx_only",
                 "audio.tune.refused_no_tx_slice",
                 "audio.tune.refused_amplifier",
+                // Reworded by the JJ Flex naming sweep (#851), so classified.
+                "audio.micprofile.create_reason",
+                "audio.micprofile.load_reason",
+                "connect.dialog.app_error_title",
+                "connect.multiflex.disconnect_body",
+                "connect.network.confirm_dhcp_body",
+                "connect.network.confirm_fixed_body",
+                "connect.network.state_automatic",
+                "connect.network.state_fixed",
+                "connect.smartlink.account.delete_body",
+                "connect.smartlink.account.reset_body",
+                "connect.smartlink.setup_body",
+                "connect.ui_mode.prompt_body",
+                "connect.update.helper_handoff",
+                "connect.update.installer_running",
+                "connect.update.size_initial",
+                "connect.update.while_connected_body",
+                "logging.capture.start_failed_detail",
+                "settings.diagnostics.log_off",
+                "settings.guard.refused",
+                "settings.profile.cascade_off_confirm_body",
+                "settings.profile.cascade_on_confirm_body",
+                "settings.profile.change_nothing_off",
+                "settings.profile.change_nothing_on_warning",
+                "settings.profile.ownership_mine",
+                "settings.profile.ownership_someone_elses",
+                "settings.profile.ownership_unanswered",
+                "settings.profile.saved_change_nothing_off",
+                "settings.profile.saved_change_nothing_on",
+                "settings.profile.saved_owned_mine",
+                "settings.radio.firmware.bypass_done",
+                "settings.radio.firmware.differs_from_library",
+                "settings.radio.firmware.matches",
+                "settings.radio.firmware.send_confirm_body",
+                "settings.radio.firmware.sending",
+                "settings.radio.firmware.transfer_fault",
+                "settings.radio.register.confirm_body",
+                "settings.radio.unregister.confirm_body",
+                "settings.radio.way_in.set",
             };
 
+            // 3095: the naming sweep classified 38 reworded entries, from
             // 3,133: main's junk box classified two (3,140 to 3,138) and Check
             // your audio five (3,140 to 3,135); the two sets are disjoint.
-            Assert.Equal(3133, unclassified);
+            Assert.Equal(3095, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,
