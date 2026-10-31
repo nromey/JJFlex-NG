@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.IO;
 using System.Reflection;
 using Flex.Smoothlake.FlexLib;
 using Radios.ChainChecks;
@@ -133,6 +135,161 @@ namespace Radios.Tests
             Set(slice, "_demodMode", "CW");
 
             Assert.Equal("USB", rig.TXMode);
+        }
+
+        private static void SliceReports(FlexBase rig, Slice slice, string property)
+            => typeof(FlexBase).GetMethod("slicePropertyChangedHandler", Private)!
+                .Invoke(rig, new object[] { slice, new PropertyChangedEventArgs(property) });
+
+        private static void SliceGoes(FlexBase rig, Slice slice)
+        {
+            var binding = new ObservationBinding(new object(), new ConnectionAttempt("test-serial"));
+            typeof(FlexBase).GetMethod("sliceRemoved", Private)!.Invoke(rig, new object[] { slice, binding });
+        }
+
+        private static void AssertNoTransmitFacts(FlexBase rig)
+        {
+            Assert.Equal("", rig.TXMode);
+            Assert.Equal(0UL, rig.TXFrequency);
+            Assert.Equal(StationConditions.NotReported, StationConditions.Mode(rig));
+        }
+
+        [Fact]
+        public void Clearing_the_transmit_slice_clears_what_was_known_about_it()
+        {
+            FlexBase rig = Rig();
+            SliceArrives(rig, ReadySlice(tx: true, active: true));
+            Assert.Equal("USB", rig.TXMode); // positive control
+
+            rig.ClearTransmitSlice();
+
+            AssertNoTransmitFacts(rig);
+        }
+
+        [Fact]
+        public void A_receive_slice_left_behind_is_not_reported_as_the_transmit_slice()
+        {
+            FlexBase rig = Rig();
+            Slice tx = ReadySlice(tx: true, active: false);
+            Slice rx = ReadySlice(tx: false, active: true, mode: "CW", mhz: 7.03);
+            Set(rx, "_index", 1);
+            SliceArrives(rig, tx);
+            SliceArrives(rig, rx);
+
+            SliceGoes(rig, tx);
+
+            Assert.True(rig.ValidVFO(rig.TXVFO)); // TXVFO fell back to the receive slice
+            AssertNoTransmitFacts(rig);
+        }
+
+        [Fact]
+        public void When_the_transmit_slice_goes_a_slice_still_designated_answers()
+        {
+            FlexBase rig = Rig();
+            Slice a = ReadySlice(tx: true, active: false);
+            Slice b = ReadySlice(tx: false, active: true, mode: "CW", mhz: 7.03);
+            Slice c = ReadySlice(tx: false, active: false, mode: "LSB", mhz: 3.8);
+            Set(b, "_index", 1);
+            Set(c, "_index", 2);
+            SliceArrives(rig, a);
+            SliceArrives(rig, b);
+            SliceArrives(rig, c);
+            Set(c, "_isTransmitSlice", true); // the radio moved it, no report yet
+
+            SliceGoes(rig, a);
+
+            Assert.Equal("LSB", rig.TXMode); // not the slice TXVFO fell back to
+            Assert.Equal(3_800_000UL, rig.TXFrequency);
+        }
+
+        [Fact]
+        public void A_replacement_transmit_slice_takes_over_and_the_old_ones_report_does_not_wipe_it()
+        {
+            FlexBase rig = Rig();
+            typeof(FlexBase).GetProperty("CanTransmit")!.SetValue(rig, true);
+            Slice a = ReadySlice(tx: true, active: true);
+            Slice b = ReadySlice(tx: false, active: false, mode: "LSB", mhz: 7.2);
+            Set(b, "_index", 1);
+            SliceArrives(rig, a);
+            SliceArrives(rig, b);
+
+            Set(b, "_isTransmitSlice", true);
+            SliceReports(rig, b, "IsTransmitSlice");
+            Set(a, "_isTransmitSlice", false);
+            SliceReports(rig, a, "IsTransmitSlice");
+
+            Assert.Equal("LSB", Field(rig, "_TXMode")); // the field: the getter would ask the slice
+            Assert.Equal("LSB", rig.TXMode);
+            Assert.Equal(7_200_000UL, rig.TXFrequency);
+        }
+
+        [Fact]
+        public void The_radio_taking_the_designation_away_forgets_the_values()
+        {
+            FlexBase rig = Rig();
+            Slice a = ReadySlice(tx: true, active: true);
+            SliceArrives(rig, a);
+
+            Set(a, "_isTransmitSlice", false);
+            SliceReports(rig, a, "IsTransmitSlice");
+
+            AssertNoTransmitFacts(rig);
+        }
+
+        [Fact]
+        public void An_object_at_TXVFO_that_is_not_designated_does_not_answer_for_the_transmit_slice()
+        {
+            FlexBase rig = Rig();
+            rig.mySlices.Add(ReadySlice(tx: false, active: true, mode: "CW", mhz: 7.03));
+            rig._TXVFO = 0;
+
+            AssertNoTransmitFacts(rig);
+        }
+
+        [Fact]
+        public void XIT_goes_with_the_slice_it_came_from()
+        {
+            FlexBase rig = Rig();
+            Slice a = ReadySlice(tx: true, active: true);
+            Set(a, "_xitOn", true);
+            Set(a, "_xitFreq", -80);
+            SliceArrives(rig, a);
+            Assert.True(rig.XIT.Active); // positive control
+
+            rig.ClearTransmitSlice();
+
+            Assert.False(rig.XIT.Active);
+            Assert.Equal(0, rig.XIT.Value);
+        }
+
+        [Fact]
+        public void A_written_frequency_stands_optimistically_and_goes_with_its_slice()
+        {
+            FlexBase rig = Rig();
+            Slice a = ReadySlice(tx: true, active: true);
+            SliceArrives(rig, a);
+
+            rig.TXFrequency = 21_300_000UL;
+            Assert.Equal(21_300_000UL, rig.TXFrequency); // the deliberate optimism, unchanged
+
+            SliceGoes(rig, a);
+            AssertNoTransmitFacts(rig);
+        }
+
+        [Fact]
+        public void A_fresh_connection_starts_with_no_transmit_facts()
+        {
+            string connect = File.ReadAllText(Path.Combine(Repo(), "Radios", "FlexBase.cs"));
+            int fresh = connect.IndexOf("_radioReportedAutosave = false;", StringComparison.Ordinal);
+            Assert.True(fresh > 0);
+            Assert.Contains("ForgetTransmitCaches(null);", connect.Substring(fresh, 300), StringComparison.Ordinal);
+        }
+
+        private static string Repo()
+        {
+            var d = new DirectoryInfo(AppContext.BaseDirectory);
+            while (d != null && !File.Exists(Path.Combine(d.FullName, "JJFlexRadio.sln"))) d = d.Parent;
+            return d!.FullName;
         }
 
         [Fact]

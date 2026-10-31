@@ -2655,6 +2655,10 @@ namespace Radios
             // radio that is not ours (#499). See _radioReportedAutosave.
             _radioReportedAutosave = false;
 
+            // Fresh connection: what the old one said about its transmit slice
+            // describes a connection that has gone (#858).
+            ForgetTransmitCaches(null);
+
             // Fresh connection: whatever firmware we once sent is behind us, and
             // this connection falling is a drop again.
             _firmwareUpdateSent = false;
@@ -5324,7 +5328,11 @@ namespace Radios
                         {
                             Tracing.TraceLine("DemodMode:slice " + s.Index.ToString() + " " + s.DemodMode.ToString(), TraceLevel.Info);
                             if (s.Active) _RXMode = s.DemodMode;
-                            if (s.IsTransmitSlice) _TXMode = s.DemodMode;
+                            if (s.IsTransmitSlice)
+                            {
+                                FollowTransmitSlice(s);
+                                _TXMode = s.DemodMode;
+                            }
                             if (s.Active)
                             {
                                 FilterObj.RXFreqChange(s);
@@ -5421,7 +5429,11 @@ namespace Radios
                                 // click.
                                 NoteOperatorPlace(s);
                             }
-                            if (s.IsTransmitSlice && _txFreqEcho.Accept(echoed)) _TXFrequency = echoed;
+                            if (s.IsTransmitSlice)
+                            {
+                                FollowTransmitSlice(s);
+                                if (_txFreqEcho.Accept(echoed)) _TXFrequency = echoed;
+                            }
                         }
                         break;
                     case "IsTransmitSlice":
@@ -5433,9 +5445,12 @@ namespace Radios
                                 if (CanTransmit)
                                 {
                                     _TXVFO = vfo;
-                                    _TXFrequency = LibFreqtoLong(s.Freq);
-                                    _TXMode = s.DemodMode;
+                                    NoteTransmitSliceAsFound(s);
                                 }
+                            }
+                            else
+                            {
+                                ForgetTransmitCaches(s);
                             }
                         }
                         break;
@@ -6420,12 +6435,67 @@ namespace Radios
         /// DemodMode, XITOn and XITFreq cases would have written.</summary>
         private void NoteTransmitSliceAsFound(Slice s)
         {
+            _txCacheSlice = s;
             _TXFrequency = LibFreqtoLong(s.Freq);
             _TXMode = s.DemodMode;
             lock (_XIT)
             {
                 _XIT.Active = s.XITOn;
                 _XIT.Value = s.XITFreq;
+            }
+        }
+
+        /// <summary>
+        /// The slice the transmit caches describe. Filling them at connect made
+        /// every session one that holds them, so they now have to end with the
+        /// designation they came from: a value kept after the slice has gone is
+        /// a confident answer about nothing (#858).
+        /// </summary>
+        private Slice _txCacheSlice;
+
+        /// <summary>
+        /// The transmit caches' slice has stopped being the transmit slice, or
+        /// with null, the transmit designation or the connection has gone
+        /// whichever slice they came from. A slice that is not the source
+        /// changes nothing, so a late "no longer transmit" from the old slice
+        /// cannot wipe what its replacement has just reported.
+        /// </summary>
+        private void ForgetTransmitCaches(Slice gone)
+        {
+            if (gone != null && !ReferenceEquals(gone, _txCacheSlice)) return;
+            _txCacheSlice = null;
+            _TXMode = "";
+            _TXFrequency = 0UL;
+            lock (_XIT)
+            {
+                _XIT.Active = false;
+                _XIT.Value = 0;
+            }
+        }
+
+        /// <summary>A report from the transmit slice, when the caches still
+        /// describe a different one: they move over whole.</summary>
+        private void FollowTransmitSlice(Slice s)
+        {
+            if (!ReferenceEquals(s, _txCacheSlice)) NoteTransmitSliceAsFound(s);
+        }
+
+        /// <summary>
+        /// The slice of ours the radio has designated for transmit, or null. A
+        /// position alone proves nothing: TXVFO falls back to the first slice
+        /// when the transmit slice goes, whatever that slice is.
+        /// </summary>
+        private Slice DesignatedTransmitSlice()
+        {
+            lock (mySlices)
+            {
+                // Cleared by us, with the radio's echo still on its way.
+                int vfo = _TXVFO;
+                if (vfo == noVFO) return null;
+                if (vfo >= 0 && vfo < mySlices.Count && mySlices[vfo].IsTransmitSlice) return mySlices[vfo];
+                foreach (Slice s in mySlices)
+                    if (s.IsTransmitSlice) return s;
+                return null;
             }
         }
 
@@ -6469,6 +6539,7 @@ namespace Radios
 
                         if (removed)
                         {
+                            ForgetTransmitCaches(slc);
                             int oldRX = _RXVFO;
                             int oldTX = _TXVFO;
 
@@ -8732,6 +8803,7 @@ namespace Radios
             if (s != null)
                 q.Enqueue((FunctionDel)(() => { s.IsTransmitSlice = false; }), "ClearTransmitSlice");
             _TXVFO = noVFO;
+            ForgetTransmitCaches(null);
             Tracing.TraceLine($"ClearTransmitSlice: was vfo={vfo}", TraceLevel.Info);
         }
 
@@ -9021,10 +9093,13 @@ namespace Radios
         {
             get
             {
-                // Zero is "no echo seen", not a frequency: ask the slice. The
-                // connect path fills this now (NoteTransmitSliceAsFound), so
-                // this covers a transmit slice designated some other way.
-                return (_TXFrequency != 0UL) ? _TXFrequency : TXFrequencyAsReported;
+                // Zero is "no echo seen", not a frequency: ask the slice the
+                // radio has designated, and only that one. The connect path
+                // fills this now (NoteTransmitSliceAsFound), so this covers a
+                // transmit slice designated some other way.
+                if (_TXFrequency != 0UL) return _TXFrequency;
+                Slice s = DesignatedTransmitSlice();
+                return s != null ? LibFreqtoLong(s.Freq) : 0UL;
             }
             set
             {
@@ -9055,6 +9130,13 @@ namespace Radios
                                       + value + " was NOT applied and was not kept",
                                       TraceLevel.Warning);
                     return;
+                }
+                // The optimistic value belongs to this slice, so it goes when
+                // this slice does.
+                if (!ReferenceEquals(slice, _txCacheSlice))
+                {
+                    _txCacheSlice = slice;
+                    _TXMode = slice.DemodMode;
                 }
                 double freq = LongFreqToLibFreq(value);
                 _txFreqEcho.Requested(replaced, value);
@@ -9231,8 +9313,9 @@ namespace Radios
             get
             {
                 // Empty is "no echo seen", never a mode: every slice has one,
-                // so ask the slice. See TXFrequency's getter.
-                return string.IsNullOrEmpty(_TXMode) ? TXModeAsReported : _TXMode;
+                // so ask the designated slice. See TXFrequency's getter.
+                if (!string.IsNullOrEmpty(_TXMode)) return _TXMode;
+                return DesignatedTransmitSlice()?.DemodMode ?? "";
             }
             set
             {
