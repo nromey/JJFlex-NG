@@ -5,10 +5,11 @@ using Xunit;
 namespace Radios.Tests
 {
     /// <summary>
-    /// #849: the first entry to Logging mode lands on the Call Sign field. A
-    /// control that has never been laid out cannot take focus, and this needs a
-    /// real window to show, so the order is pinned here and the harness reads
-    /// the focused element by UI Automation.
+    /// #849: the first entry to Logging mode lands on the Call Sign field. That
+    /// a control never laid out is what refused the focus is inferred from the
+    /// code until the harness reads it. This needs a real window to show, so the
+    /// order is pinned here and the harness reads the focused element by UI
+    /// Automation.
     /// </summary>
     public sealed class LoggingModeFocusTests
     {

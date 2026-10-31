@@ -155,14 +155,15 @@ public partial class LogEntryControl : UserControl
 
     public void FocusCallSign()
     {
-        // The first time Logging mode opens in a session this control has
-        // never been laid out: it starts collapsed, and a UserControl builds
-        // its visual tree on its first measure. Until then CallSignBox has no
-        // visual parent, so it is not IsVisible, and Focus() refuses without a
-        // word. The field that had focus has just collapsed, so focus then
-        // rests on the host window itself, a nameless pane to a screen reader
-        // (#849). Lay out first; if the panel is not ready even then, ask
-        // again once the dispatcher has finished showing it.
+        // Inferred from the code, not yet read off the running app (#849): the
+        // first time Logging mode opens in a session this control has never
+        // been laid out. It starts collapsed, and a UserControl builds its
+        // visual tree on its first measure, so CallSignBox would have no visual
+        // parent, not be IsVisible, and Focus() would refuse without a word.
+        // The field that had focus has just collapsed, so focus would then rest
+        // on the host window, a nameless pane to a screen reader. Lay out
+        // first; if the panel is not ready even then, ask again once the
+        // dispatcher has finished showing it.
         if (TakeCallSignFocus()) return;
         UpdateLayout();
         if (TakeCallSignFocus()) return;
