@@ -3290,7 +3290,46 @@ public partial class MainWindow : UserControl
             return;
         }
         string? title = NoRadioTitleSource?.Invoke();
-        if (title != null) UpdateTitleBar?.Invoke(title);
+        if (title == null) return;
+        UpdateTitleBar?.Invoke(title);
+        _sessionTitle.NoRadioTitleShown();
+    }
+
+    private readonly Radios.SessionTitle _sessionTitle = new();
+    private Action<bool>? _connectionWatch;
+    private FlexBase? _connectionWatched;
+
+    /// <summary>
+    /// Watch the one notification that means the connection really changed
+    /// (#848). PowerStatus does not: a profile import raises it false on a live
+    /// connection. The legacy ConnectedEvent never fires: its raise is compiled
+    /// out at its source.
+    /// </summary>
+    private void WatchConnection(FlexBase rig)
+    {
+        StopWatchingConnection();
+        _connectionWatched = rig;
+        _connectionWatch = _ => Dispatcher.BeginInvoke(() => ConnectionChanged(rig));
+        rig.ConnectionStateChanged += _connectionWatch;
+    }
+
+    private void StopWatchingConnection()
+    {
+        if (_connectionWatched != null && _connectionWatch != null)
+            _connectionWatched.ConnectionStateChanged -= _connectionWatch;
+        _connectionWatched = null;
+        _connectionWatch = null;
+    }
+
+    /// <summary>
+    /// Read the state again here rather than trust the event, which may have
+    /// waited behind other work: a radio back already owes nothing, and a rig
+    /// that has since been replaced is not the session on the title.
+    /// </summary>
+    private void ConnectionChanged(FlexBase rig)
+    {
+        if (!ReferenceEquals(rig, RigControl)) return;
+        if (_sessionTitle.OwesNoRadioTitle(rig.IsConnected)) ShowNoRadioTitle();
     }
 
     /// <summary>
@@ -3399,6 +3438,7 @@ public partial class MainWindow : UserControl
     {
         HideDisconnectedRecorderStop();
         if (RigControl == null) return;
+        WatchConnection(RigControl);
 
         // Sprint 42 Track D (#395): a connect is genuinely starting — this is
         // the one call every path makes before Start(), including auto-connect
@@ -3911,6 +3951,7 @@ public partial class MainWindow : UserControl
         PollTimerEnabled = false;
         _radioPowerOn = false;
         StopTuneAnswerWatch();
+        StopWatchingConnection();
 
         // Sprint 42 Track D (#395): a teardown ends any quiet scope a failed
         // connect left open. On an ordinary disconnect there is no scope and
@@ -4678,6 +4719,7 @@ public partial class MainWindow : UserControl
                 string mode = RigControl.Mode ?? "";
                 double freqMhz = (RigControl.Transmit ? RigControl.TXFrequency : RigControl.VirtualRXFrequency) / 1_000_000.0;
                 UpdateTitleBar($"JJ Flexible Radio Access — Slice {sliceLetter}, {freqMhz:F3}, {mode}");
+                _sessionTitle.SliceTitleShown();
             }
         }
         catch (Exception ex)
@@ -5747,12 +5789,7 @@ public partial class MainWindow : UserControl
 
         StopTuneAnswerWatch();
 
-        // A lost radio comes this way and never reaches CloseTheRadio. Only a
-        // session that was up: a power report during a connect is not an end,
-        // and a title write there is one more thing spoken over it (#550).
-        bool hadSession = _radioPowerOn;
         _radioPowerOn = false;
-        if (hadSession) ShowNoRadioTitle();
 
         // Dispose PTT safety controller (Sprint 15) — stops TX if active
         _pttController?.Dispose();
