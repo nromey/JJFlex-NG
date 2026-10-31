@@ -3887,6 +3887,7 @@ public partial class MainWindow : UserControl
 
         PollTimerEnabled = false;
         _radioPowerOn = false;
+        StopTuneAnswerWatch();
 
         // Sprint 42 Track D (#395): a teardown ends any quiet scope a failed
         // connect left open. On an ordinary disconnect there is no scope and
@@ -6432,10 +6433,11 @@ public partial class MainWindow : UserControl
         {
             EarconPlayer.TuneOnTone();
             MeterToneEngine.OnTuneStarted();
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.tune_on"), VerbosityLevel.Terse, true);
+            AnnounceTuneWhenTheRadioAnswers();
         }
         else
         {
+            StopTuneAnswerWatch();
             // Stop ATU progress earcon in case auto-ATU started a tune cycle
             EarconPlayer.StopATUProgressEarcon();
             StopATUTimeout();
@@ -6448,6 +6450,50 @@ public partial class MainWindow : UserControl
             // (Don's rooftop unit) get the real final match, not the idle 1.0.
             AnnounceCapturedSwrAfterTune(isFailure: false, capturedSwr);
         }
+    }
+
+    /// <summary>
+    /// Say what the radio did with the tune carrier, not what we asked for
+    /// (#447). The carrier has already been asked for and keeps being asked
+    /// for exactly as before: this only decides the sentence, and it speaks
+    /// the moment the radio reports the key.
+    /// </summary>
+    private void AnnounceTuneWhenTheRadioAnswers()
+    {
+        StopTuneAnswerWatch();
+        Tracing.TraceLine("TuneAnswer: asked, the radio reads " + RigControl?.ReadTuneStanding(), TraceLevel.Info);
+
+        var waited = Stopwatch.StartNew();
+        var watch = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher)
+        {
+            Interval = TimeSpan.FromMilliseconds(25),
+        };
+        watch.Tick += (_, _) =>
+        {
+            FlexBase? rig = RigControl;
+            if (rig == null) { StopTuneAnswerWatch(); return; }
+
+            Radios.TuneReading now = rig.ReadTuneStanding();
+            if (!Radios.TuneAnswer.Settled(now, waited.ElapsedMilliseconds)) return;
+
+            StopTuneAnswerWatch();
+            Tracing.TraceLine($"TuneAnswer: after {waited.ElapsedMilliseconds} ms the radio reads {now}", TraceLevel.Info);
+            if (now.Keyed)
+                Radios.ScreenReaderOutput.Speak(Radios.TuneAnswer.Sentence(now), VerbosityLevel.Terse, true);
+            else
+                Radios.ScreenReaderOutput.Speak(Radios.TuneAnswer.Sentence(now), Radios.Speech.SpeechIntent.Interrupt,
+                    VerbosityLevel.Critical, subject: Radios.Speech.SpeechSubject.TuneNotKeyed);
+        };
+        _tuneAnswerWatch = watch;
+        watch.Start();
+    }
+
+    private DispatcherTimer? _tuneAnswerWatch;
+
+    private void StopTuneAnswerWatch()
+    {
+        _tuneAnswerWatch?.Stop();
+        _tuneAnswerWatch = null;
     }
 
     /// <summary>

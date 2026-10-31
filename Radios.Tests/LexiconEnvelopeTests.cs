@@ -2067,6 +2067,16 @@ namespace Radios.Tests
                 "audio.alert_buffer.long",
                 "audio.alert_buffer.custom",
                 "audio.alert_buffer.help",
+                // The tune answer (#447). Draft prose, awaiting Noel.
+                "audio.tune.unconfirmed",
+                "audio.tune.refused",
+                "audio.tune.refused_out_of_band",
+                "audio.tune.refused_bad_mode",
+                "audio.tune.refused_pa_range",
+                "audio.tune.refused_inhibited",
+                "audio.tune.refused_rx_only",
+                "audio.tune.refused_no_tx_slice",
+                "audio.tune.refused_amplifier",
             };
 
             // 3,133: main's junk box classified two (3,140 to 3,138) and Check

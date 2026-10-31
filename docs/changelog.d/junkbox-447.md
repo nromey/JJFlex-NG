@@ -1,0 +1,1 @@
+- Tune now says what the radio did. "Tune on" comes when the radio reports it is transmitting, and if it stays off the air you hear why, for example "Tune refused, out of band", instead of a cheerful "Tune on" and silence.

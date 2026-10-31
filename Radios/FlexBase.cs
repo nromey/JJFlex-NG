@@ -5252,6 +5252,11 @@ namespace Radios
                     Tracing.TraceLine("TunePower:" + r.TunePower, TraceLevel.Info);
                     _TunePower = r.TunePower;
                     break;
+                case "TXAllowed":
+                    // See _txAllowedReported: this notification is the proof
+                    // the value is the radio's and not FlexLib's initial false.
+                    _txAllowedReported = true;
+                    break;
                 case "TX1Enabled":
                     Tracing.TraceLine("TX1Enabled:" + r.TX1Enabled.ToString(), TraceLevel.Info);
                     break;

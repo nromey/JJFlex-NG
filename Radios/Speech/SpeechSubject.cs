@@ -141,6 +141,14 @@ namespace Radios.Speech
         public const string TransmitKeyRefused = "transmit-key-refused";
 
         /// <summary>
+        /// The radio did not key for the tune carrier (#447): it refused with
+        /// a reason, or the time for it to report has passed. Critical, so it
+        /// reaches every verbosity: the operator is waiting for RF that is not
+        /// coming. A later tune's answer retires an unheard earlier one.
+        /// </summary>
+        public const string TuneNotKeyed = "tune-not-keyed";
+
+        /// <summary>
         /// Reflected power is high enough to warn about, whether or not a cut
         /// follows (#224, #571).
         ///
