@@ -6477,6 +6477,14 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// The caches may be believed only while their slice is still
+        /// designated. Every writer goes through a designated slice and every
+        /// loss of designation forgets them; this is the reader's half of that,
+        /// so a populated cache cannot outlive a designation by a missed report.
+        /// </summary>
+        private bool TransmitCachesStand => _txCacheSlice?.IsTransmitSlice == true;
+
         /// <summary>A report from the transmit slice, when the caches still
         /// describe a different one: they move over whole.</summary>
         private void FollowTransmitSlice(Slice s)
@@ -9101,7 +9109,7 @@ namespace Radios
                 // radio has designated, and only that one. The connect path
                 // fills this now (NoteTransmitSliceAsFound), so this covers a
                 // transmit slice designated some other way.
-                if (_TXFrequency != 0UL) return _TXFrequency;
+                if (_TXFrequency != 0UL && TransmitCachesStand) return _TXFrequency;
                 Slice s = DesignatedTransmitSlice();
                 return s != null ? LibFreqtoLong(s.Freq) : 0UL;
             }
@@ -9136,8 +9144,20 @@ namespace Radios
                     return;
                 }
                 // The optimistic value belongs to this slice, so it goes when
-                // this slice does.
-                if (!ReferenceEquals(slice, _txCacheSlice))
+                // this slice does. Only a slice the radio has designated may
+                // stand in the transmit caches: TXVFO can be a position left
+                // over from a removal, on an ordinary receive slice, and that
+                // slice's frequency and mode are not transmit facts. The write
+                // below still goes where it always went; that positional target
+                // is older than this and is on the register.
+                if (!slice.IsTransmitSlice)
+                {
+                    _TXFrequency = replaced;
+                    Tracing.TraceLine("TXFrequency: the slice at TXVFO is not designated for transmit, "
+                                      + "so the requested " + value + " is not held as a transmit fact",
+                                      TraceLevel.Warning);
+                }
+                else if (!ReferenceEquals(slice, _txCacheSlice))
                 {
                     _txCacheSlice = slice;
                     _TXMode = slice.DemodMode;
@@ -9318,7 +9338,7 @@ namespace Radios
             {
                 // Empty is "no echo seen", never a mode: every slice has one,
                 // so ask the designated slice. See TXFrequency's getter.
-                if (!string.IsNullOrEmpty(_TXMode)) return _TXMode;
+                if (!string.IsNullOrEmpty(_TXMode) && TransmitCachesStand) return _TXMode;
                 return DesignatedTransmitSlice()?.DemodMode ?? "";
             }
             set

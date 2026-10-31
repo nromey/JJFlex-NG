@@ -277,6 +277,53 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void A_frequency_written_after_removal_does_not_promote_the_receive_slice()
+        {
+            FlexBase rig = Rig();
+            Slice tx = ReadySlice(tx: true, active: false);
+            Slice rx = ReadySlice(tx: false, active: true, mode: "CW", mhz: 7.03);
+            Set(rx, "_index", 1);
+            SliceArrives(rig, tx);
+            SliceArrives(rig, rx);
+            SliceGoes(rig, tx);
+            AssertNoTransmitFacts(rig); // positive control: the removal was clean
+
+            rig.TXFrequency = 7_040_000UL;
+
+            AssertNoTransmitFacts(rig);
+            Assert.Equal("", Field(rig, "_TXMode"));
+            Assert.Equal(0UL, Field(rig, "_TXFrequency"));
+            Assert.Equal(1, rig.q.Count); // the write itself still goes, as it always did
+        }
+
+        [Fact]
+        public void A_frequency_written_after_the_radio_took_the_designation_away_is_not_a_transmit_fact()
+        {
+            FlexBase rig = Rig();
+            Slice a = ReadySlice(tx: true, active: true);
+            SliceArrives(rig, a);
+            Set(a, "_isTransmitSlice", false);
+            SliceReports(rig, a, "IsTransmitSlice");
+
+            rig.TXFrequency = 21_300_000UL;
+
+            AssertNoTransmitFacts(rig);
+        }
+
+        [Fact]
+        public void A_populated_cache_does_not_outlive_its_designation_with_no_report()
+        {
+            FlexBase rig = Rig();
+            Slice a = ReadySlice(tx: true, active: true);
+            SliceArrives(rig, a);
+
+            Set(a, "_isTransmitSlice", false); // no notification at all
+
+            Assert.Equal("USB", Field(rig, "_TXMode")); // positive control: still populated
+            AssertNoTransmitFacts(rig);
+        }
+
+        [Fact]
         public void A_fresh_connection_starts_with_no_transmit_facts()
         {
             string connect = File.ReadAllText(Path.Combine(Repo(), "Radios", "FlexBase.cs"));
