@@ -307,17 +307,47 @@ namespace Radios.Fixer
                 catch (Exception ex)
                 {
                     status = FixerStageStatus.CouldNotRun;
+                    // The reason and not the stack. A report is a thing an
+                    // operator sends to someone, and a stack carries this
+                    // machine's paths. The whole of it goes to the trace.
                     outcome = new FixerOutcome
                     {
                         Answer = "This test failed part-way and produced no result: " + ex.Message,
-                        Evidence = ex.ToString(),
                     };
                     Tracing.TraceLine("FixerRun " + RunId + ": stage '" + stage.Id
-                        + "' threw — " + ex.Message, TraceLevel.Error);
+                        + "' threw — " + ex, TraceLevel.Error);
                 }
             }
 
+            // A refusal is not a result. A repeated Run from a stale page, a
+            // refused Run again: the gate said no and nothing happened, so the
+            // measurement that is already here stands, and on a transmit stage
+            // it was paid for with RF.
+            FixerStageResult standing = ResultFor(stage.Id);
+            if (outcome.NothingMeasured && standing?.Status == FixerStageStatus.Ran)
+            {
+                _refusals[stage.Id] = outcome.Answer;
+                Tracing.TraceLine("FixerRun " + RunId + ": stage '" + stage.Id
+                    + "' refused, its earlier result stands", TraceLevel.Info);
+                return standing;
+            }
+
             return Record(stage, status, null, outcome);
+        }
+
+        private readonly Dictionary<string, string> _refusals =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// The refusal <see cref="RunStage"/> just kept out of a stage's record
+        /// because a measurement stands there, once. Null when there was none.
+        /// The host says this rather than repeating the old verdict.
+        /// </summary>
+        public string TakeRefusal(string stageId)
+        {
+            if (stageId == null || !_refusals.TryGetValue(stageId, out string said)) return null;
+            _refusals.Remove(stageId);
+            return said;
         }
 
         /// <summary>

@@ -64,6 +64,11 @@ namespace Radios.Fixer
         public string Conditions { get; set; } = "";
 
         public string Detail { get; set; } = "";
+
+        /// <summary>Did the radio confirm it keyed? True from that moment, so
+        /// a run that fails afterwards still says so: see
+        /// <see cref="SpokenTransmitFacts.Keyed"/>.</summary>
+        public bool Keyed { get; set; }
     }
 
     /// <summary>Stage 4's facts: the operator spoke; did it reach the radio?</summary>
@@ -351,10 +356,11 @@ namespace Radios.Fixer
             sb.Append(LoadLine(loadDeclaration));
 
             // The boundary hands over its probes only at the end of a keyed
-            // run, so none at all means it refused or stopped before keying:
-            // the gate, a shut path, the tone refusing to arm under VOX. The
-            // reason is the answer, and it reads "could not run", not "passed".
-            bool neverKeyed = facts.Probes.Count == 0;
+            // run, so none at all, with no confirmed key, means it refused or
+            // stopped before keying: the gate, a shut path, the tone refusing
+            // to arm under VOX. The reason is the answer, and it reads "could
+            // not run", not "passed".
+            bool neverKeyed = facts.Probes.Count == 0 && !facts.Keyed;
             var findings = new List<FixerFinding>();
             if (!neverKeyed && TxProbeSet.Judge(facts.Probes) == TxProbeSet.Agreement.NothingToGoOn)
             {
@@ -370,7 +376,8 @@ namespace Radios.Fixer
             {
                 Answer = (neverKeyed && facts.Detail.Length > 0
                               ? facts.Detail.Trim()
-                              : TxProbeSet.OperatorSummary(facts.Probes, facts.ConditioningActive))
+                              : TxProbeSet.OperatorSummary(facts.Probes, facts.ConditioningActive)
+                                + (facts.Probes.Count == 0 ? Reason(facts.Detail) : ""))
                        + WalkAnswer(facts.ChainWalk),
                 Findings = findings,
                 Evidence = sb.ToString() + WalkEvidence(facts.ChainWalk),

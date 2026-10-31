@@ -425,9 +425,12 @@ namespace Radios.ChainChecks
 
             return () =>
             {
+                // Out here so the catch keeps what the run established: above
+                // all that it keyed, which a fresh object would forget.
+                var facts = new InjectedTransmitFacts();
                 try
                 {
-                    return RunInjected(stageId);
+                    return RunInjected(stageId, facts);
                 }
                 catch (Exception ex)
                 {
@@ -436,18 +439,14 @@ namespace Radios.ChainChecks
                     // reporting from replacing the diagnosis with a crash.
                     Tracing.TraceLine("FixerTransmitAudioBoundary: injected stage failed — "
                                       + ex.Message, TraceLevel.Error);
-                    return new InjectedTransmitFacts
-                    {
-                        Detail = "The injected check failed unexpectedly: " + ex.Message,
-                    };
+                    facts.Detail = "The injected check failed unexpectedly: " + ex.Message;
+                    return facts;
                 }
             };
         }
 
-        private InjectedTransmitFacts RunInjected(string stageId)
+        private InjectedTransmitFacts RunInjected(string stageId, InjectedTransmitFacts facts)
         {
-            var facts = new InjectedTransmitFacts();
-
             FlexBase rig = FixerTransmitBoundary.Safely(_radio);
 
             // Conditioning is a fact about the software chain, not the radio's
@@ -563,6 +562,7 @@ namespace Radios.ChainChecks
                     // Charged when the RADIO confirms, not when the setter
                     // returned — the same rule the transmitter probe follows.
                     _gate.NoteKeyed(stageId);
+                    facts.Keyed = true;
 
                     // With the countdown off, this stage would otherwise key in
                     // total silence: the count was its only cue (#835, fix round
@@ -727,26 +727,24 @@ namespace Radios.ChainChecks
 
             return () =>
             {
+                // As the injected stage: the catch keeps that it keyed.
+                var facts = new SpokenTransmitFacts();
                 try
                 {
-                    return RunSpoken(stageId);
+                    return RunSpoken(stageId, facts);
                 }
                 catch (Exception ex)
                 {
                     Tracing.TraceLine("FixerTransmitAudioBoundary: spoken stage failed — "
                                       + ex.Message, TraceLevel.Error);
-                    return new SpokenTransmitFacts
-                    {
-                        Detail = "The spoken check failed unexpectedly: " + ex.Message,
-                    };
+                    facts.Detail = "The spoken check failed unexpectedly: " + ex.Message;
+                    return facts;
                 }
             };
         }
 
-        private SpokenTransmitFacts RunSpoken(string stageId)
+        private SpokenTransmitFacts RunSpoken(string stageId, SpokenTransmitFacts facts)
         {
-            var facts = new SpokenTransmitFacts();
-
             FlexBase rig = FixerTransmitBoundary.Safely(_radio);
 
             FixerTransmitGate.Decision d = _gate.Request(
