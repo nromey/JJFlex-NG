@@ -1,37 +1,41 @@
 WHAT IS NEW SINCE THE LAST BUILD
 
-The big one is Recorded QSOs, the window for the recordings you make on
-this computer. The changelog has the full list, under Unreleased. The
-ones you will notice:
+The big one is Check your audio, a window of its own for hearing how
+you sound on the air before anyone else does. The ones you will
+notice:
 
-- Ctrl+Alt+Shift+F11 opens Recorded QSOs. Up and Down pick a recording,
-  Enter plays and pauses it, S stops, and Left and Right (or Ctrl+Left
-  and Ctrl+Right from anywhere in the window) step through it, down to
-  a tenth of a second. [ and ] mark a trim, Save As writes it out as
-  FLAC, MP3, Opus, WAV or M4A, and Delete and Prune send recordings to
-  the Recycle Bin.
-- While a recording plays back on your computer, the band drops behind
-  it and comes back up when you pause or stop, as a smooth crossfade.
-  Settings, Audio, "Radio audio during playback" sets how far, or mutes
-  it.
-- Dialogs play a rising pair of tones when they open and a falling pair
-  when they close. Settings has a switch for them under Dialog and panel
-  sounds.
-- Settings is in proper groups now, so your screen reader names each
-  section as you enter it, and F6 and Shift+F6 jump between sections.
-- The Home slice row has Mode, Mute and Volume, and period and comma
-  create and release a slice from any field on it. Typing a frequency,
-  period is still the decimal point.
-- Shift+S speaks your step sizes from any Home field in Modern tuning.
-- A JJ key near miss tells you the key you pressed isn't assigned, and
-  the JJ key lets go if you switch to another program.
-- Manage Messages says when it is empty and has a Close button, and the
-  Hotkey Editor lets Tab move on while it waits for a key.
+- Ctrl+J, then Alt+C opens Check your audio. Inside it, Ctrl+Enter
+  starts a check. It can record a take off the air and play it back to
+  you, and it puts back every radio setting it changed when the check
+  ends, even if the radio disconnects partway through.
+- Play from computer and Play active slice now send to the air when
+  you are transmitting. Ctrl+J, Ctrl+K turns on a box that lets a send
+  key the radio by itself while VOX is on. The same box is in Home's
+  Transmission group and in Settings, PTT.
+- A send longer than three minutes asks first, and tells you how to
+  pause it so you can identify.
+- If you pause a recording and then press Play with sending turned
+  on, it goes to the air from where you paused it. Saying No to the
+  long-send question leaves it paused.
+- A countdown of tones can play before anything keys. Settings,
+  Audio has its length, pitch and an off switch.
+- Settings, Audio has an "Alert sound delay". Lower it if alert
+  sounds seem to lag behind what they announce.
+- The Audio menu has DSP and Meter Tones. The disconnect question has
+  a box to stop asking. Warning sounds still play with alert sounds
+  turned off, and Logging mode offers a No Log File choice.
+- JAWS reads the value of the number fields now.
 
 KNOWN ISSUES
 
 - Just after you turn VOX on, the radio can key itself for about a
   third of a second. It looks like the radio doing it, not the app; I'm
   still looking into it.
+- A hand mic or footswitch on the radio's own PTT jack keys the radio
+  with the radio's microphone, so your computer microphone is silent
+  on the air, and nothing tells you yet. A fix is planned.
+- The Fix tool's tone ladder can skip itself, saying the radio did not
+  report its mode. With VOX on, its transmit stage can say "passed"
+  when it did not transmit at all.
 - Shift+Space doesn't lock the transmitter inside dialogs yet. Use
   Alt+Shift+Space there.
