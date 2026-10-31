@@ -148,6 +148,57 @@ public sealed class LayerOutsideItsWindowTests : IDisposable
         Assert.NotNull(commands.LiveValueLayer);
     }
 
+    /// <summary>
+    /// A layer whose keys reach us from outside our windows comes through the
+    /// hook as DoCommand on the main route, with no window to name. What this
+    /// proves: the rule does not fire on that route, and focus leaving for
+    /// another program does not fire it either. What it cannot prove: how a
+    /// layer OPENED from another program behaves, because no such layer can
+    /// exist yet. The next test pins that it is refused at opening. A layer
+    /// opened with our window focused, as here, is the closest thing there is.
+    /// </summary>
+    [Fact]
+    public void A_layer_driven_from_the_system_wide_path_is_not_closed_by_the_rule()
+    {
+        var commands = CommandsWithAudioLayerOpenIn(window: null);
+
+        commands.DoCommand(Keys.Z, fromDialog: false);       // as the hook posts it
+        commands.ReleaseOneShotWaits("test: another program took the foreground");
+        commands.DoCommand(Keys.Z, fromDialog: false);
+
+        Assert.NotNull(commands.LiveValueLayer);
+    }
+
+    [Fact]
+    public void A_layer_asked_for_from_another_program_is_still_refused_at_opening()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var commands = new KeyCommands(new KeyCommandContext { GetRigControl = () => _rig, GetPower = () => true }, setDefault: true)
+        {
+            LayerWindowProbe = () => null,
+        };
+        var owner = typeof(KeyCommands).GetField("_globalRoutingOwner",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        object? before = owner.GetValue(null);
+        owner.SetValue(null, commands);
+        try
+        {
+            KeyCommands.SystemWideLeaderKey(Keys.A, fromOutside: false);
+            Assert.NotNull(commands.LiveValueLayer);   // positive control: A opens the layer
+            commands.DoCommand(Keys.Escape, fromDialog: false);
+            Assert.Null(commands.LiveValueLayer);
+
+            string? said = SpokenAfter(() => KeyCommands.SystemWideLeaderKey(Keys.A, fromOutside: true));
+
+            Assert.Null(commands.LiveValueLayer);
+            Assert.Equal(Lexicon.Get("leader.systemwide.layer_needs_window"), said);
+        }
+        finally
+        {
+            owner.SetValue(null, before);
+        }
+    }
+
     [Fact]
     public void With_no_layer_open_nothing_happens()
     {

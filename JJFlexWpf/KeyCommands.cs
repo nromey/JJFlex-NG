@@ -3441,8 +3441,8 @@ public class KeyCommands
             typeof(System.Windows.Window),
             System.Windows.Input.Keyboard.PreviewKeyUpEvent,
             new System.Windows.Input.KeyEventHandler(AnyWindowPreviewKeyUp));
-        // #846: a window of ours taking the keyboard closes a layer left open
-        // underneath it. handledEventsToo, because whether a control marked
+        // #846: a JJ Flexible dialog taking the keyboard closes a layer left
+        // open underneath it. handledEventsToo, because whether a control marked
         // the focus change handled says nothing about where focus went.
         System.Windows.EventManager.RegisterClassHandler(
             typeof(System.Windows.Window),
@@ -3465,9 +3465,10 @@ public class KeyCommands
         KeyHelpSurfaces.IsOpen || (window is System.Windows.Window w && KeyHelpSurfaces.IsSurface(w));
 
     /// <summary>
-    /// A value layer belongs to the window it opened in. Focus anywhere else
-    /// closes it KEEPING its changes (#846), so nothing on the radio moves
-    /// because a dialog opened, and the keys in that dialog are the dialog's.
+    /// A value layer belongs to the window it opened in. A JJ Flexible dialog
+    /// taking the keyboard closes it KEEPING its changes (#846), so nothing on
+    /// the radio moves because a dialog opened, and the keys in that dialog are
+    /// the dialog's.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -3496,10 +3497,17 @@ public class KeyCommands
     /// program that is not ours is not this path: that is #750's timeout.
     /// </para>
     /// <para>
-    /// <b>Not covered:</b> a WinForms dialog, or a native task dialog, over
-    /// Home. Those raise no WPF focus event and their keys never reach this
-    /// class, so the layer takes nothing from them, but it is still open when
-    /// the operator comes back.
+    /// <b>Not covered:</b> the older dialogs, a WinForms form or a native task
+    /// dialog over Home. Those raise no WPF focus event and their keys never
+    /// reach this class, so the layer takes nothing from them, but it is still
+    /// open when the operator comes back.
+    /// </para>
+    /// <para>
+    /// <b>A layer with no window is Home's, today.</b> A layer opened from
+    /// another program is refused at opening
+    /// (<c>leader.systemwide.layer_needs_window</c>), so none exists. The day
+    /// #749 lets one live, it must be stamped as having no window of ours, or
+    /// the first dialog of ours to take the keyboard will close it.
     /// </para>
     /// </remarks>
     /// <param name="window">The window holding the keyboard, null for Home.</param>
@@ -6784,8 +6792,8 @@ public class KeyCommands
     /// </para>
     /// <para>
     /// <b>Value layers are left alone.</b> The audio and filter layers close
-    /// on Enter, Escape or the JJ key (#778's ruling) and when another window
-    /// of OURS takes the keyboard (#846, <see cref="LetGoOfLayerOutsideItsWindow"/>).
+    /// on Enter, Escape or the JJ key (#778's ruling) and when a JJ Flexible
+    /// dialog takes the keyboard (#846, <see cref="LetGoOfLayerOutsideItsWindow"/>).
     /// How long they survive while another program has it is #750's
     /// configurable timeout, ruled and not yet built. This is not that.
     /// </para>

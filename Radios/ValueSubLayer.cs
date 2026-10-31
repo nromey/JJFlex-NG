@@ -1789,7 +1789,7 @@ namespace Radios
         }
 
         /// <summary>
-        /// Another window of ours took the keyboard: keep what is applied, as
+        /// A JJ Flexible dialog took the keyboard: keep what is applied, as
         /// <see cref="Confirm"/> does, and close on the layer's closing tone
         /// alone. A sentence here would be flushed by the window change that
         /// caused it (#846).
