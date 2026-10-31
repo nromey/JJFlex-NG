@@ -137,7 +137,7 @@ public partial class AudioWorkshopDialog
             + "which is what gives transmit audio from this computer a chain to "
             + "travel through. It creates nothing — the profile already exists "
             + "on the radio. It does change a setting the radio shares with "
-            + "every program connected to it, so on a radio JJ Flexible Access does not "
+            + "every program connected to it, so on a radio JJ Flexible Radio Access does not "
             + "know to be yours it asks first.");
         _silentTxFixButton.Click += (s, e) => LoadMicProfileForSilentTx();
         AddToSection(ThisComputerContent, _silentTxFixButton);
@@ -519,7 +519,7 @@ public partial class AudioWorkshopDialog
                     + "current TX settings. Offered because no radio mic profile "
                     + "is loaded right now — done only if you choose it here. "
                     + "A mic profile lives on the radio and is shared with every "
-                    + "program connected to it, so on a radio JJ Flexible Access does not yet "
+                    + "program connected to it, so on a radio JJ Flexible Radio Access does not yet "
                     + "know to be yours, it asks whose it is before creating one.");
                 panel.Children.Add(createOption);
             }

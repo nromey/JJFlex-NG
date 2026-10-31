@@ -361,12 +361,12 @@ namespace Radios
         private const string AdvancedNrHardwareProse =
             "This radio model does not have the DSP hardware for the advanced "
             + "noise reduction family — RNN, spectral NR and the NR filter. Legacy NR "
-            + "and the noise blankers above work on every model, and JJ Flexible Access's own "
+            + "and the noise blankers above work on every model, and JJ Flexible Radio Access's own "
             + "PC-side noise reduction runs on this computer and works on every radio.";
 
         private const string AdvancedNrLicenceProse =
             "Your radio reports that the advanced noise reduction features are not "
-            + "included in its current subscription. JJ Flexible Access's own PC-side noise "
+            + "included in its current subscription. JJ Flexible Radio Access's own PC-side noise "
             + "reduction runs on this computer instead and needs no subscription.";
 
         /// <summary>

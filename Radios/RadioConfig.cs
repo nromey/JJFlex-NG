@@ -1976,7 +1976,7 @@ namespace Radios
                 FailureKind.SettingNotSaved,
                 "A radio setting could not be saved",
                 "The change is in effect right now, but it will not be there the "
-                + "next time you start JJ Flexible Access.");
+                + "next time you start JJ Flexible Radio Access.");
             return false;
         }
 

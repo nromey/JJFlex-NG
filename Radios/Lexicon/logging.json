@@ -81,7 +81,7 @@
   "logging.capture.save_problem": "The capture was stopped, but saving it ran into a problem.",
   "logging.capture.saved": "Capture saved: {started}, {duration}.",
   "logging.capture.start_failed": "The detailed capture could not be started.",
-  "logging.capture.start_failed_detail": {"text": "JJ Flexible Access could not open a new log file for the capture. The ordinary diagnostic log is still running, so there is still a record of what happens next.", "delivery": null},
+  "logging.capture.start_failed_detail": {"text": "JJ Flexible Radio Access could not open a new log file for the capture. The ordinary diagnostic log is still running, so there is still a record of what happens next.", "delivery": null},
   "logging.capture.start_failed_what": "The detailed capture could not be started",
   "logging.capture.started": "Detailed capture started. Reproduce the problem, then stop the capture from this button or the Diagnostics tab.",
   "logging.characteristics.browse_title": "Log Filename",

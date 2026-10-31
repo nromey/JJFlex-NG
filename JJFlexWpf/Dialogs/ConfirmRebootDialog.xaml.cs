@@ -36,7 +36,7 @@ namespace JJFlexWpf.Dialogs
             InitializeComponent();
 
             var body = new System.Text.StringBuilder(
-                "JJ Flexible Access will restart the radio. Any transmission in progress will stop.");
+                "JJ Flexible Radio Access will restart the radio. Any transmission in progress will stop.");
 
             int count = otherStations?.Count ?? 0;
             if (count > 0)
