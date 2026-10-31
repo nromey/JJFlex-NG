@@ -13,6 +13,7 @@ namespace Radios.Tests
     /// with its reason, an unknown reading is never a refusal, and the carrier
     /// command stays unconditional.
     /// </summary>
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class TuneAnswerTests : IDisposable
     {
         private const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
