@@ -1763,7 +1763,7 @@ public partial class MainWindow : UserControl
         // identically, which is the defect this task set out to close. A
         // successful connect replaces the whole title through UpdateTitleBar,
         // so it cannot go stale.
-        UpdateTitleBar?.Invoke("JJ Flexible Radio Access — no radio connected");
+        ShowNoRadioTitle();
 
         ApplyRescueVisibility();
 
@@ -3269,6 +3269,29 @@ public partial class MainWindow : UserControl
     /// Wired by globals.vb to AppShellForm.Text.
     /// </summary>
     public Action<string>? UpdateTitleBar { get; set; }
+
+    /// <summary>
+    /// The no-radio title, from the source a fresh launch uses. Null from it
+    /// means leave the title alone: the application is exiting. Wired by
+    /// globals.vb, which holds the station name.
+    /// </summary>
+    public Func<string?>? NoRadioTitleSource { get; set; }
+
+    /// <summary>
+    /// Put the no-radio title up (#848), so a screen reader reading the window
+    /// on Alt+Tab or on focus does not name a slice and a frequency for a radio
+    /// that has gone.
+    /// </summary>
+    public void ShowNoRadioTitle()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(ShowNoRadioTitle);
+            return;
+        }
+        string? title = NoRadioTitleSource?.Invoke();
+        if (title != null) UpdateTitleBar?.Invoke(title);
+    }
 
     /// <summary>
     /// Callback for VB-side exit sequence. Returns true to proceed, false to cancel.
@@ -5722,7 +5745,12 @@ public partial class MainWindow : UserControl
             RigControl.ConnectedEvent -= ConnectedEventHandler;
         }
 
+        // A lost radio comes this way and never reaches CloseTheRadio. Only a
+        // session that was up: a power report during a connect is not an end,
+        // and a title write there is one more thing spoken over it (#550).
+        bool hadSession = _radioPowerOn;
         _radioPowerOn = false;
+        if (hadSession) ShowNoRadioTitle();
 
         // Dispose PTT safety controller (Sprint 15) — stops TX if active
         _pttController?.Dispose();
