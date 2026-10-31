@@ -5745,6 +5745,8 @@ public partial class MainWindow : UserControl
             RigControl.ConnectedEvent -= ConnectedEventHandler;
         }
 
+        StopTuneAnswerWatch();
+
         // A lost radio comes this way and never reaches CloseTheRadio. Only a
         // session that was up: a power report during a connect is not an end,
         // and a title write there is one more thing spoken over it (#550).
@@ -6489,27 +6491,33 @@ public partial class MainWindow : UserControl
     private void AnnounceTuneWhenTheRadioAnswers()
     {
         StopTuneAnswerWatch();
-        Tracing.TraceLine("TuneAnswer: asked, the radio reads " + RigControl?.ReadTuneStanding(), TraceLevel.Info);
+        FlexBase? rig = RigControl;
+        if (rig == null) return;
+
+        // Read now, while the carrier is still in the queue: what is on the
+        // air at this moment is not this tune.
+        Radios.TuneReading atPress = rig.ReadTuneStanding();
+        Tracing.TraceLine("TuneAnswer: asked, the radio reads " + atPress, TraceLevel.Info);
 
         var waited = Stopwatch.StartNew();
+        var answer = new Radios.TuneAnswerWatch(atPress, rig.ReadTuneStanding,
+            () => ReferenceEquals(RigControl, rig) && _radioPowerOn && rig.IsConnected,
+            () => waited.ElapsedMilliseconds);
         var watch = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher)
         {
             Interval = TimeSpan.FromMilliseconds(25),
         };
         watch.Tick += (_, _) =>
         {
-            FlexBase? rig = RigControl;
-            if (rig == null) { StopTuneAnswerWatch(); return; }
-
-            Radios.TuneReading now = rig.ReadTuneStanding();
-            if (!Radios.TuneAnswer.Settled(now, waited.ElapsedMilliseconds)) return;
+            Radios.TuneWatchStep step = answer.Step();
+            if (step == Radios.TuneWatchStep.Wait) return;
 
             StopTuneAnswerWatch();
-            Tracing.TraceLine($"TuneAnswer: after {waited.ElapsedMilliseconds} ms the radio reads {now}", TraceLevel.Info);
-            if (now.Keyed)
-                Radios.ScreenReaderOutput.Speak(Radios.TuneAnswer.Sentence(now), VerbosityLevel.Terse, true);
-            else
-                Radios.ScreenReaderOutput.Speak(Radios.TuneAnswer.Sentence(now), Radios.Speech.SpeechIntent.Interrupt,
+            Tracing.TraceLine($"TuneAnswer: {step} after {waited.ElapsedMilliseconds} ms, the radio reads {answer.Last}", TraceLevel.Info);
+            if (step == Radios.TuneWatchStep.Keyed)
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.tune_on"), VerbosityLevel.Terse, true);
+            else if (step == Radios.TuneWatchStep.NotKeyed)
+                Radios.ScreenReaderOutput.Speak(Radios.TuneAnswer.NotKeyedSentence(answer.Last), Radios.TuneAnswer.NotKeyedIntent,
                     VerbosityLevel.Critical, subject: Radios.Speech.SpeechSubject.TuneNotKeyed);
         };
         _tuneAnswerWatch = watch;

@@ -7,7 +7,9 @@ namespace Radios
     {
         // FlexLib has no "reported" flag for this. It holds false from
         // construction, so the notification is our only proof the value is the
-        // radio's: the same reasoning as _radioReportedAutosave (#499).
+        // radio's: the same reasoning as _radioReportedAutosave (#499), and like
+        // that one it belongs to a connection. Cleared at Connect, at
+        // RetryConnect and when the connection falls.
         private volatile bool _txAllowedReported;
 
         /// <summary>
@@ -19,11 +21,15 @@ namespace Radios
             Radio radio = theRadio;
             if (radio == null) return TuneReading.Unknown;
             InterlockState state = radio.InterlockState;
+            uint txClient = radio.TXClientHandle;
             return new TuneReading(
-                Keyed: state == InterlockState.Transmitting,
+                Transmitting: state == InterlockState.Transmitting,
+                Busy: RadioInterlockReportsTransmit,
                 TxAllowed: _txAllowedReported ? radio.TXAllowed : (bool?)null,
                 NotReady: state == InterlockState.NotReady,
-                Reason: radio.InterlockReason);
+                Reason: radio.InterlockReason,
+                Source: radio.PTTSource,
+                AnotherClient: txClient != 0 && txClient != clientHandle);
         }
     }
 }

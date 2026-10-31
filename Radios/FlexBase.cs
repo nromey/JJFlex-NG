@@ -2656,8 +2656,10 @@ namespace Radios
             _radioReportedAutosave = false;
 
             // Fresh connection: what the old one said about its transmit slice
-            // describes a connection that has gone (#858).
+            // describes a connection that has gone (#858), and so does what it
+            // said about being allowed to transmit (#447).
             ForgetTransmitCaches(null);
+            _txAllowedReported = false;
 
             // Fresh connection: whatever firmware we once sent is behind us, and
             // this connection falling is a drop again.
@@ -3393,6 +3395,7 @@ namespace Radios
 
             // A retry that opens another transport gets another producer identity.
             rememberCommandRoute(null, null, null);
+            _txAllowedReported = false;
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Tracing.TraceLine($"RetryConnect: BEGIN serial={theRadio.Serial}", TraceLevel.Info);
@@ -4798,6 +4801,7 @@ namespace Radios
             // subscribers see the attempt already ended, as they did when the
             // cancel sat in the switch.
             if (!nowConnected) CancelStationAttempt("connection dropped");
+            if (!nowConnected) _txAllowedReported = false;
             ConnectionStateChanged?.Invoke(nowConnected);
 #if zero
             bool justReconnected = false;

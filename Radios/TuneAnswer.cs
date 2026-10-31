@@ -1,3 +1,4 @@
+using System;
 using Flex.Smoothlake.FlexLib;
 
 namespace Radios
@@ -8,24 +9,32 @@ namespace Radios
     /// FlexLib's setter writes it before the command goes out, so reading it
     /// back only reads ourselves (#164).
     /// </summary>
-    /// <param name="Keyed">The radio's interlock reports it is transmitting.</param>
+    /// <param name="Transmitting">The radio's interlock reports TRANSMITTING. On
+    /// its own this says RF is up, not whose: another client, a MOX or a
+    /// hardware line can be what is transmitting.</param>
+    /// <param name="Busy">The interlock is anywhere in a transmission, on the
+    /// way up or down as well as at TRANSMITTING.</param>
     /// <param name="TxAllowed">
-    /// <c>Radio.TXAllowed</c>, or null until the radio has reported it. FlexLib
-    /// holds false until a status line says otherwise, so a bare false could be
-    /// a radio that has said nothing yet.
+    /// <c>Radio.TXAllowed</c>, or null until the radio has reported it on this
+    /// connection. FlexLib holds false until a status line says otherwise, so a
+    /// bare false could be a radio that has said nothing yet.
     /// </param>
     /// <param name="NotReady">The interlock reports it cannot transmit.</param>
     /// <param name="Reason">The interlock's reason, <c>None</c> when it gave none.</param>
-    public readonly record struct TuneReading(bool Keyed, bool? TxAllowed, bool NotReady, InterlockReason Reason)
+    /// <param name="Source">The radio's PTT source, as FlexLib parsed it.</param>
+    /// <param name="AnotherClient">The radio names a transmitting client that
+    /// is not this one.</param>
+    public readonly record struct TuneReading(bool Transmitting, bool Busy, bool? TxAllowed, bool NotReady,
+                                              InterlockReason Reason, PTTSource Source, bool AnotherClient)
     {
         /// <summary>No radio to ask.</summary>
-        public static TuneReading Unknown => new(false, null, false, InterlockReason.None);
+        public static TuneReading Unknown => new(false, false, null, false, InterlockReason.None, PTTSource.None, false);
 
         /// <summary>
         /// The radio has positively said it will not transmit. An unread
         /// <see cref="TxAllowed"/> never counts: unknown is not a refusal.
         /// </summary>
-        public bool RadioRefuses => !Keyed && (TxAllowed == false || NotReady);
+        public bool RadioRefuses => !Transmitting && (TxAllowed == false || NotReady);
     }
 
     /// <summary>
@@ -54,13 +63,44 @@ namespace Radios
         /// allowance the transmit checks give it.</summary>
         public const int WaitMs = ChainChecks.TxTuneProbeRunner.KeyUpTimeoutMs;
 
-        /// <summary>True once there is something to say.</summary>
-        public static bool Settled(TuneReading now, long elapsedMs) => now.Keyed || elapsedMs >= WaitMs;
+        /// <summary>
+        /// Queued, not interrupting. An interrupter is never in the speech
+        /// ledger, so a meter reading or the next key would cut the reason off
+        /// for good, and the reason is the point of the sentence. Queued, a cut
+        /// sentence is held and said again (#447).
+        /// </summary>
+        public const Speech.SpeechIntent NotKeyedIntent = Speech.SpeechIntent.Queue;
 
-        /// <summary>The sentence for a settled reading.</summary>
-        public static string Sentence(TuneReading now)
+        /// <summary>
+        /// Is what the radio reports THIS tune? <paramref name="now"/> being on
+        /// the air is not enough: a hardware key, a MOX or another client can
+        /// be what is transmitting, and that is RF we did not make.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The radio naming TUNE as the source, on no other client's account,
+        /// is the plain case.
+        /// </para>
+        /// <para>
+        /// <b>The second case is here because no trace yet shows what a real
+        /// tune reports as its source.</b> A radio that was idle at the press,
+        /// and is now transmitting on a software source or none, on no other
+        /// client's account, has done what we asked: nothing else on this
+        /// station was asked to key. If the bench reads TUNE, this case can go.
+        /// A transmission already up at the press never qualifies, so a tune
+        /// pressed over one gets the unconfirmed sentence.
+        /// </para>
+        /// </remarks>
+        public static bool ThisTuneKeyed(TuneReading now, TuneReading atPress)
         {
-            if (now.Keyed) return Lexicon.Get("audio.tune.tune_on");
+            if (!now.Transmitting || now.AnotherClient) return false;
+            if (now.Source == PTTSource.TUNE) return true;
+            return !atPress.Busy && now.Source is PTTSource.SW or PTTSource.None;
+        }
+
+        /// <summary>The sentence once the radio has not keyed in time.</summary>
+        public static string NotKeyedSentence(TuneReading now)
+        {
             if (!now.RadioRefuses) return Lexicon.Get("audio.tune.unconfirmed");
 
             switch (now.Reason)
@@ -74,6 +114,61 @@ namespace Radios
                 case InterlockReason.TGXL: return Lexicon.Get("audio.tune.refused_amplifier");
                 default: return Lexicon.Get("audio.tune.refused");
             }
+        }
+    }
+
+    /// <summary>What a <see cref="TuneAnswerWatch"/> found this time round.</summary>
+    public enum TuneWatchStep
+    {
+        /// <summary>Nothing to say yet.</summary>
+        Wait,
+
+        /// <summary>The radio or the session has gone: say nothing, ever.</summary>
+        Abandon,
+
+        /// <summary>This tune keyed.</summary>
+        Keyed,
+
+        /// <summary>The window has passed without this tune keying.</summary>
+        NotKeyed,
+    }
+
+    /// <summary>
+    /// One tune's wait for the radio's answer, with no timer and no window of
+    /// its own, so the host's tick is all that is left to test on a radio.
+    /// Pinned to the radio it was asked of: an answer from a session that has
+    /// ended is transmit narration about nothing (#447).
+    /// </summary>
+    public sealed class TuneAnswerWatch
+    {
+        private readonly TuneReading _atPress;
+        private readonly Func<TuneReading> _read;
+        private readonly Func<bool> _stillOwed;
+        private readonly Func<long> _elapsedMs;
+
+        /// <param name="atPress">The radio just after the carrier was asked for.</param>
+        /// <param name="read">The radio now.</param>
+        /// <param name="stillOwed">False once the session the tune belonged to
+        /// has ended, however it ended.</param>
+        /// <param name="elapsedMs">Time since the press.</param>
+        public TuneAnswerWatch(TuneReading atPress, Func<TuneReading> read, Func<bool> stillOwed, Func<long> elapsedMs)
+        {
+            _atPress = atPress;
+            _read = read;
+            _stillOwed = stillOwed;
+            _elapsedMs = elapsedMs;
+        }
+
+        /// <summary>The reading the last step decided on.</summary>
+        public TuneReading Last { get; private set; }
+
+        /// <summary>One look at the radio.</summary>
+        public TuneWatchStep Step()
+        {
+            if (!_stillOwed()) return TuneWatchStep.Abandon;
+            Last = _read();
+            if (TuneAnswer.ThisTuneKeyed(Last, _atPress)) return TuneWatchStep.Keyed;
+            return _elapsedMs() >= TuneAnswer.WaitMs ? TuneWatchStep.NotKeyed : TuneWatchStep.Wait;
         }
     }
 }
