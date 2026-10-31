@@ -53,10 +53,31 @@ namespace Radios.Tests
             string body = SendFixRoundTests.Body(sender, "internal static bool SendPausedSpeakerPlayback(");
             int asBefore = body.IndexOf("route == SendRoute.AsBefore", StringComparison.Ordinal);
             int qso = body.IndexOf("IsRecordedQso(path)", StringComparison.Ordinal);
-            int stop = body.IndexOf("RecordingPlayer.StopWithoutSpeaking()", StringComparison.Ordinal);
-            int send = body.IndexOf("SendComputerRecording(rig, path, route, at)", StringComparison.Ordinal);
-            Assert.True(asBefore >= 0 && qso > asBefore && stop > qso && send > stop,
-                "the route and the folder are asked before the speakers stop, and the send starts from the paused place");
+            int send = body.IndexOf("SendComputerRecording(rig, path, route, at, beforeSending: RecordingPlayer.StopWithoutSpeaking)", StringComparison.Ordinal);
+            Assert.True(asBefore >= 0 && qso > asBefore && send > qso,
+                "the route and the folder are asked first, and the send starts from the paused place, handed the speakers' stop");
+            Assert.DoesNotContain("RecordingPlayer.StopWithoutSpeaking();", body);
+        }
+
+        /// <summary>
+        /// Noel, 2026-10-31: saying No to the long-send warning "shouldn't lose
+        /// the pause for sure". The speakers stop after the warning and every
+        /// refusal, just before the piece starts, so anything that turns the
+        /// send away leaves the recording paused where it was.
+        /// </summary>
+        [Fact]
+        public void A_declined_warning_or_a_refusal_leaves_the_speakers_paused()
+        {
+            string sender = SendFixRoundTests.ReadSource("JJFlexWpf/VoiceMessageSender.cs");
+            string body = SendFixRoundTests.Body(sender, "private static void SendComputerRecording(FlexBase rig, string path, SendRoute route, double fromSeconds,");
+            int admitted = body.IndexOf("if (!Admitted(rig, ptt, info, route)) return;", StringComparison.Ordinal);
+            int length = body.IndexOf("if (!LengthAgreed(", StringComparison.Ordinal);
+            int load = body.IndexOf("TxAudioFile.TryLoadPieceInto(", StringComparison.Ordinal);
+            int stop = body.IndexOf("beforeSending?.Invoke();", StringComparison.Ordinal);
+            int start = body.IndexOf("StartComputerPiece(rig, info, loaded, route);", StringComparison.Ordinal);
+            Assert.True(admitted >= 0 && length > admitted && load > length && stop > load && start > stop,
+                "admission, the warning and the load all come before the speakers stop, and the piece starts right after");
+            Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(body, @"beforeSending\?\.Invoke\(\)").Count);
         }
 
         [Fact]

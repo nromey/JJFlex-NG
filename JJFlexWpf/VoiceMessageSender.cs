@@ -431,6 +431,13 @@ internal static class VoiceMessageSender
     /// send does. False, touching nothing, when the press would not send or
     /// there is nothing paused, so the caller carries on on the speakers.
     /// </summary>
+    /// <remarks>
+    /// The speakers stop only once the send will go (Noel, 2026-10-31: saying
+    /// No to the long-send warning "shouldn't lose the pause for sure"). A
+    /// declined warning, or a send refused before it starts, has said so and
+    /// leaves the recording paused where it was; true either way, because the
+    /// press was answered and must not also carry on through the speakers.
+    /// </remarks>
     internal static bool SendPausedSpeakerPlayback(FlexBase rig, SendRoute route)
     {
         if (rig == null) throw new ArgumentNullException(nameof(rig));
@@ -443,8 +450,7 @@ internal static class VoiceMessageSender
         double at = RecordingPlayer.PositionSeconds ?? 0;
         Tracing.TraceLine("VoiceMessageSender: the recording paused on the speakers at " + at.ToString("F1")
             + " s goes to the air instead, " + route + ": a press now sends", TraceLevel.Info);
-        RecordingPlayer.StopWithoutSpeaking();
-        SendComputerRecording(rig, path, route, at);
+        SendComputerRecording(rig, path, route, at, beforeSending: RecordingPlayer.StopWithoutSpeaking);
         return true;
     }
 
@@ -458,7 +464,13 @@ internal static class VoiceMessageSender
         catch (Exception) { return false; }
     }
 
-    private static void SendComputerRecording(FlexBase rig, string path, SendRoute route, double fromSeconds)
+    /// <param name="beforeSending">
+    /// Run once every question and refusal has passed, just before the piece
+    /// starts: the paused speakers stop here, so nothing that turns the send
+    /// away has already lost the operator's place.
+    /// </param>
+    private static void SendComputerRecording(FlexBase rig, string path, SendRoute route, double fromSeconds,
+        Action? beforeSending = null)
     {
         if (rig == null) throw new ArgumentNullException(nameof(rig));
         if (_confirming) return;
@@ -503,6 +515,7 @@ internal static class VoiceMessageSender
             }
         }
         info.Session = new SendSession(loaded.LengthSeconds, fromSeconds);
+        beforeSending?.Invoke();
         StartComputerPiece(rig, info, loaded, route);
     }
 
