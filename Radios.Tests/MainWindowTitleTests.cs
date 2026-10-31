@@ -32,15 +32,15 @@ namespace Radios.Tests
         [Fact]
         public void The_line_reads_as_a_fresh_launch_reads()
         {
-            Assert.Equal("JJ Flexible Radio Access k5ner — no radio connected",
-                         MainWindowTitle.NoRadio("k5ner", 1));
+            Assert.Equal("JJ Flexible Radio Access station — no radio connected",
+                         MainWindowTitle.NoRadio("station", 1));
         }
 
         [Fact]
         public void A_second_copy_carries_its_number_as_the_station_name_does()
         {
-            Assert.Equal("JJ Flexible Radio Access k5ner2 — no radio connected",
-                         MainWindowTitle.NoRadio("k5ner", 2));
+            Assert.Equal("JJ Flexible Radio Access station2 — no radio connected",
+                         MainWindowTitle.NoRadio("station", 2));
         }
 
         [Theory]
