@@ -9,6 +9,38 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-10-31 (COVERS 2026-10-28 TO 2026-10-31) — CHECK YOUR AUDIO, SOUND TIMING, BOTH JUNK BOXES AND THE RECORD INDEX LAND ON MAIN, PUSHED, AND A NIGHTLY GOES OUT
+
+**No seal ran on 10-28, 10-29 or 10-30, so this one covers four days, measured from the 2026-10-27 seal (`f52b3867`).** 152 commits on main in the span (42 on 10-28 and 61 on 10-29, though some of those were dated on their branches; 46 on 10-30; the rest this morning). Main is pushed through `b80f2662` (05:11, on Noel's word, 154 commits), and this seal pushes the rest.
+
+**Check your audio (#835), merged `e31ff124` 2026-10-30 10:46.** Track A (the window, Ctrl+J Alt+C), Track B (every send to the air through one host, and the VOX send box, Ctrl+J Ctrl+K) and Track C (the countdown) went through fix rounds on 10-28, round 1029 (three tracks) and round 1030 (sends, put-back, P2, and repairs RP, RS and TD), with Codex checks each round (`gpt-6.1-sol` high; round 5 MERGE STANDS). TD fixed a transmit-safety defect found on the bench: the off-air take's own restore ran with the radio keyed by the hand mic. The harness bench of 10-30 (Claude driving jjprobe and RigSurface, Noel hands off, keying into the dummy load) passed the paused-recording sends and the Fix tool with the countdown off; Noel did the hand-mic-held-through-Disconnect check himself. His wording ruling: one sentence at a keyed disconnect, and "restore" everywhere for "put back" (`c9daf5f0`). JAWS reads spin fields (#853, merged with it). On 2026-10-31 a declined long-send warning keeps the recording paused (`b80f2662`).
+
+**Sound timing (#855), merged `6e4c6b89`:** every sound writes a timing line, the alert sound delay is an operator setting (30 ms by 3 by default), frequent sounds are made once and played from memory, and `tools/soundtiming` measures what reaches the speakers. No Codex check was run on it before the merge.
+
+**Junk boxes:** the 2026-10-27 batch merged `a7ce59fd` on 10-29 after Noel's bench; the 2026-10-29 batch (eight fixes, each checked by Codex in four parallel lanes) merged and was pushed 10-29 17:07. **#803** (the nightly promote copies and verifies before it purges) merged 10-30.
+
+**Record index (#854), merged `b1114254` this morning:** an encrypted SQLite full-text index of the NAS historical record, unlocked by YubiKey or a recovery key in 1Password; 34 tests pass. Not yet created: Noel's key setup, written out step by step in `planning/for-noel/2026-10-31-record-index-setup-steps.md` (the agent's own summary had only pointed at its report).
+
+**Rulings and new work filed:** #857, a hand mic's PTT on the radio's jack keys with the radio's own mic, so the computer mic is silent; Noel's design: hold, double click and triple click switch between hand mic and computer with a ready tone, plus a mic/computer toggle on all three surfaces (menu, JJ key, Home). #858, the transmit mode is never learned at connect, so the Fix tool's tone ladder skips itself; its VOX refusal reads as "passed". **Noel 05:25: no tester names in the changelog from now on**, and outgoing commit messages are checked before every push (CLAUDE.md changelog conventions, `memory/feedback_no_tester_names_in_public_text.md`). The trigger: this morning's push carried `fbd7cb44`, naming a tester, from a branch the last seal had held for that ruling; Noel ruled to leave it.
+
+**Research and plans written in the span (JJFlex-private):** the sound system plan (`for-noel/2026-10-30-sound-system-plan.md`), the DSP menu proposal, a JAWS speech-completion hook study, and the disconnected Settings save (#856).
+
+**Unmerged, by design:** `help/rewrite-batch1` (Codex batch 1, waiting on Noel's style edits), `help/style-sol61` and `help/style-terra` (samples, kept as record), `probe/746-replies` (never merge). Pushed with this seal as backup.
+
+**Nightly:** 4.1.16.2796 built from `74c2e11b`, archived on the NAS, and promoted to the Dropbox top level; `debug-notes.txt` rewritten for it (it was last written 10-25). Every transmit change in it was exercised on the bench except the one-line pause fix, which only stops the speakers later.
+
+**Seal checks:** no dependency advisories; memory drift's only new flag is a false positive (an entry that quotes a corrupted path as its example); the register holds no control characters; the Codex instruction tests pass (5), Codex loads `AGENTS.md`, and its sandbox is healthy. NVDA logs archived, neither at speech level. Backups: memory (10 projects), Claude state, AppData, private docs (re-run after the AAR) and the dev mirror.
+
+**Memory index:** 15.6 KB after condensing Current State and archiving the junk box entry; still over 12 KB. The remainder is the reflex rules, which need a deliberate pass, not a seal.
+
+**Cross-surface:** JJFlex-private 25 commits (register, briefs, reports). Codex: about twenty runs, all checks or help copy, all logged in `codex-evaluation.md`; two Codex-trailer commits. jjf-data, jjflexible-connect and prism idle. Freight Fate still 16 unpushed on `feat/career-1.9` with one dirty file, Civ VI two dirty files, rigmeter 13 unpushed with no remote; pushing those is Noel's call. **Eye surgery Thursday 2026-11-05:** front-load anything that needs him.
+
+**Carried over:** #857 build (toggle on three surfaces plus gestures), #858 in the next junk box, #835's window-close wording, the record index key setup, a Codex check of sound timing, the stash on main ("main: jaws-spin experiment edit", superseded), the many finished Check your audio worktrees (copy their TRACK-INSTRUCTIONS before removing), and changelog entries for everything in this span: the changelog was not updated for Check your audio, sound timing or either junk box.
+
+### Rigmeter snapshot — end of 2026-10-31
+
+Span since 2026-10-28, main only: 152 commits, 314 files touched, +44,459 / −5,995 (net +38,464); repository size change +38,476. By type: C# +42,508 / −5,111 across 265 files, Markdown +364, JSON +249, PowerShell +215, VB +204, XAML +105. About 259,000 authored words, 28.8 hours read aloud. Snapshot `historical/stats/2026-10-31-74c2e11b.json`.
+
 ## END-OF-DAY SEAL — 2026-10-27 — THE HELP FRAMEWORK LANDS, CODEX CHECKS AND REWRITES THE HELP, DISCLOSURE CLEANUP MERGES, AND TWO BRANCHES WAIT FOR THE BENCH
 
 **Main went from `e3a0a41c` to `0f6b540b` (17 commits) plus this seal, pushed.** Three other windows worked in parallel today; their branches are unmerged and listed below.
