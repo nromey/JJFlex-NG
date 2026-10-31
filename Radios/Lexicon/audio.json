@@ -1427,10 +1427,10 @@
   "audio.countdown.pip_sound_default": {"text": "{sound}, the default", "delivery": null},
   "audio.countdown.pip_sound_help": {"text": "The sound of the counting pips and the long tone at the end: the same six sounds CW notifications offer. Play sample plays your choice before you keep it, and the Fix tool's countdown uses it too.", "delivery": null},
   "audio.alert_buffer.label": {"text": "Alert sound delay", "delivery": null},
-  "audio.alert_buffer.shortest": {"text": "Shortest, up to {ms} milliseconds; can crackle on a busy computer", "delivery": null},
-  "audio.alert_buffer.short_default": {"text": "Short, up to {ms} milliseconds, the default", "delivery": null},
+  "audio.alert_buffer.shortest": {"text": "Shortest, up to {ms} milliseconds", "delivery": null},
+  "audio.alert_buffer.short_default": {"text": "Short, up to {ms} milliseconds", "delivery": null},
   "audio.alert_buffer.medium": {"text": "Medium, up to {ms} milliseconds", "delivery": null},
-  "audio.alert_buffer.long": {"text": "Long, up to {ms} milliseconds, as earlier versions played", "delivery": null},
-  "audio.alert_buffer.custom": {"text": "As set in the settings file, up to {ms} milliseconds", "delivery": null},
+  "audio.alert_buffer.long": {"text": "Long, up to {ms} milliseconds", "delivery": null},
+  "audio.alert_buffer.custom": {"text": "Custom, set manually in the settings file", "delivery": null},
   "audio.alert_buffer.help": {"text": "How much of JJ Flexible's own sound the computer queues ahead of the speakers: alerts, the countdown and CW notifications. Shorter puts each sound nearer the moment it was asked for, so a countdown pip lands closer to its spoken number. If your computer is busy and the sounds crackle or break up, choose a longer one. It changes as soon as you press OK or Apply.", "delivery": null}
 }

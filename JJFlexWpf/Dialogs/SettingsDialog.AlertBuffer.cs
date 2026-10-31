@@ -48,9 +48,9 @@ namespace JJFlexWpf.Dialogs
         /// <summary>Build the field from the saved setting. Called once, from the constructor.</summary>
         private void InitializeAlertBuffer()
         {
-            // DRAFT PROSE (#855): awaiting Noel. The label, the four choices
-            // and the Ctrl+F1 text are in Radios/Lexicon/audio.json under
-            // audio.alert_buffer.
+            // The label, the four choices and the Ctrl+F1 text are in
+            // Radios/Lexicon/audio.json under audio.alert_buffer. The choices'
+            // wording was ruled by Noel 2026-10-31: no trailing clauses.
             var saved = EarconPlayer.ClampAlertBuffer(_audioConfig.AlertBufferMs, _audioConfig.AlertBufferCount);
             var labels = new List<string>();
             _alertBufferChoices = new List<(int, int)>();
