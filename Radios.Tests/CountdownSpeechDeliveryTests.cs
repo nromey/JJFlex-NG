@@ -98,6 +98,39 @@ namespace Radios.Tests
             finally { channel.ReleaseAll(); }
         }
 
+        /// <summary>
+        /// #855, ruled by Noel 2026-10-31: the pump reports progress, so the
+        /// countdown hears NVDA's first word at once instead of at its next
+        /// 25 ms poll. News comes on the first word and on the finish, and not
+        /// on later words, which nothing waits for.
+        /// </summary>
+        [Fact]
+        public void The_real_pump_reports_progress_at_the_first_word_and_at_the_finish_only()
+        {
+            var channel = new FakeCompletionChannel();
+            using var pump = new PacedSpeechDelivery((text, interrupt) => SpeechDelivery.Accepted,
+                (ticket, text, outcome) => { }, _ => 5000);
+            try
+            {
+                var beforeAnything = pump.NextProgress;
+                pump.Enqueue(channel, "three two");
+                var call = channel.WaitForCall();
+                Assert.False(beforeAnything.IsCompleted, "handed to the reader is not progress");
+
+                channel.Mark(call);
+                Assert.True(beforeAnything.Wait(2000), "the first word mark did not report progress");
+
+                var afterFirstWord = pump.NextProgress;
+                Assert.NotSame(beforeAnything, afterFirstWord);
+                channel.Mark(call);
+                Assert.False(afterFirstWord.Wait(150), "a later word reported progress");
+
+                channel.Complete(call);
+                Assert.True(afterFirstWord.Wait(2000), "the finish did not report progress");
+            }
+            finally { channel.ReleaseAll(); }
+        }
+
         // ── The count, and the key, follow delivery ─────────────────────
 
         [Fact]

@@ -39,6 +39,18 @@ namespace Radios
 
         /// <summary>The reader has finished it, as far as can honestly be told. The next beat, and the key, wait for this.</summary>
         bool Finished { get; }
+
+        /// <summary>
+        /// Completes the next time the reader reports progress (a first word,
+        /// or a piece finished), so the count asks again at once instead of at
+        /// its next <see cref="CountdownRun.SpeechPollMs"/> (#855, ruled by
+        /// Noel 2026-10-31). Read BEFORE asking <see cref="Started"/> or
+        /// <see cref="Finished"/>, so news that lands between the question and
+        /// the wait is not lost. A reader with no such signal (JAWS, the
+        /// estimate path) never completes it, and the poll paces the count as
+        /// before. News is only a reason to ask: it is never itself proof.
+        /// </summary>
+        Task NextNews => CountdownWords.NoNews;
     }
 
     /// <summary>Words handles that need no speech layer.</summary>
@@ -49,6 +61,9 @@ namespace Radios
 
         /// <summary>A piece the reader says at once: for tests and for outputs with no reader to wait on.</summary>
         public static ICountdownWords Immediate { get; } = new Fixed(failed: false, done: true);
+
+        /// <summary>News that never comes: for words whose reader cannot report progress.</summary>
+        public static Task NoNews { get; } = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously).Task;
 
         private sealed class Fixed : ICountdownWords
         {
@@ -152,7 +167,7 @@ namespace Radios
         /// <summary>How long a piece of the count may stay unsaid before the count gives up on it.</summary>
         public const int SpeechCeilingMs = 8000;
 
-        /// <summary>How often an unsaid piece is asked about while the count waits for it.</summary>
+        /// <summary>How often an unsaid piece is asked about while the count waits for it, at most; the reader's own report wakes it sooner (<see cref="ICountdownWords.NextNews"/>).</summary>
         public const int SpeechPollMs = 25;
 
         /// <summary>Ends true when the count has run out with the setup confirmed; false when it was cancelled.</summary>
@@ -384,6 +399,9 @@ namespace Radios
                 // failed; it must end this wait as a skip, never as words that
                 // were not delivered.
                 _waits.ThrowIfCancellationRequested();
+                // Taken before the questions, so a mark that lands between
+                // asking and waiting still wakes the wait.
+                Task news = NewsOf(words);
                 bool failed = Ask(() => words.Failed, failedIfThrows: true);
                 bool said = !failed && Ask(() => finished ? words.Finished : words.Started, failedIfThrows: false);
                 // Asked again AFTER every question to the reader (Codex round 1,
@@ -409,8 +427,24 @@ namespace Radios
                         + ", so nothing keys", TraceLevel.Warning);
                     return false;
                 }
-                await _delay(SpeechPollMs, _waits);
+                // Ask again at the reader's next report or at the poll,
+                // whichever comes first (#855): NVDA's first-word mark wakes
+                // the pip about 15 ms sooner on average than the poll alone.
+                Task poll = _delay(SpeechPollMs, _waits);
+                if (await Task.WhenAny(poll, news) == poll) await poll;
                 _waits.ThrowIfCancellationRequested();
+            }
+        }
+
+        /// <summary>The reader's next report on <paramref name="words"/>; never, if asking throws.</summary>
+        private static Task NewsOf(ICountdownWords words)
+        {
+            try { return words.NextNews ?? CountdownWords.NoNews; }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("Countdown: asking for its words' next news threw, so it polls: " + ex.Message,
+                    TraceLevel.Warning);
+                return CountdownWords.NoNews;
             }
         }
 

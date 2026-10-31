@@ -534,6 +534,60 @@ namespace Radios.Tests
             }
         }
 
+        /// <summary>
+        /// #855, ruled by Noel 2026-10-31: the reader's report wakes the pip at
+        /// once. The first number is held unstarted; the count asks, finds it
+        /// unstarted, and waits on its poll. The reader then starts it and
+        /// reports news, and the pip sounds with that poll still pending, so
+        /// the virtual clock has not moved: the poll did not pace it.
+        /// </summary>
+        [Fact]
+        public async Task The_readers_news_sounds_the_pip_without_waiting_for_the_poll()
+        {
+            var clock = new SteppedClock();
+            var output = new GatedFirstNumberOutput(clock);
+            var run = CountdownRun.Start(Plan(seconds: 2), output, "test", clock.NowMs, clock.Delay);
+
+            // With no lead-in the first beat is at 0 ms: the count asks about
+            // "2", finds it unstarted, and polls.
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (!output.Asked || clock.Pending == 0) { Assert.True(DateTime.UtcNow < deadline); await Task.Delay(1); }
+            Assert.Equal(0, clock.Now);
+            Assert.Empty(output.Tones);
+
+            output.Begin();
+            while (output.Tones.Count == 0) { Assert.True(DateTime.UtcNow < deadline, "the news never woke the pip"); await Task.Delay(1); }
+
+            // Stepping the poll would have moved the clock to 25: the news did it.
+            Assert.Equal(0L, output.Tones[0].At);
+            Assert.Equal(0, clock.Now);
+            run.Cancel();
+        }
+
+        /// <summary>A reader that holds the first number unstarted until <see cref="Begin"/>, then reports news; every later piece is said at once.</summary>
+        private sealed class GatedFirstNumberOutput : ICountdownOutput, ICountdownWords
+        {
+            private readonly TaskCompletionSource _news = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly SteppedClock _clock;
+            private volatile bool _started, _given;
+            public volatile bool Asked;
+            public GatedFirstNumberOutput(SteppedClock clock) => _clock = clock;
+            public List<(int Number, long At)> Tones { get; } = new();
+            public void Begin() { _started = true; _news.TrySetResult(); }
+            public void Tone(CountdownBeat beat) { lock (Tones) Tones.Add((beat.Number, _clock.Now)); }
+            public ICountdownWords Say(string text, bool onlyWarning)
+            {
+                if (_given) return CountdownWords.Immediate;
+                _given = true;
+                return this;
+            }
+            public void WithdrawSpeech(string why) { }
+            public bool Failed => false;
+            public bool Started { get { Asked = true; return _started; } }
+            public bool Finished => _started;
+            public Task NextNews => _news.Task;
+        }
+
         /// <summary>A reader that starts every piece and never finishes one.</summary>
         private sealed class StuckOutput : ICountdownOutput
         {
@@ -617,6 +671,7 @@ namespace Radios.Tests
 
             public long Now { get { lock (_sync) return _now; } }
             public long NowMs() => Now;
+            public int Pending { get { lock (_sync) return _pending.Count; } }
             public void Advance(long ms) { lock (_sync) _now += ms; }
 
             public Task Delay(int ms, CancellationToken token)

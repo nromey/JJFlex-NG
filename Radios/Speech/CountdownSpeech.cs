@@ -59,15 +59,21 @@ namespace Radios.Speech
 
         private readonly SpeechArbiter _arbiter;
         private readonly Func<long, bool>? _reachedFirstWord;
+        private readonly Func<System.Threading.Tasks.Task>? _nextProgress;
 
         /// <param name="arbiter">The arbiter the words go through.</param>
         /// <param name="reachedFirstWord">Whether the reader has reported the first
         /// word of a ticket. Null means no such signal: a tracked piece then
         /// counts as started only once it has finished.</param>
-        internal CountdownSpeech(SpeechArbiter arbiter, Func<long, bool>? reachedFirstWord = null)
+        /// <param name="nextProgress">The reader's next report of progress
+        /// (<see cref="PacedSpeechDelivery.NextProgress"/>), which wakes the
+        /// count early (#855). Null means none: the count polls.</param>
+        internal CountdownSpeech(SpeechArbiter arbiter, Func<long, bool>? reachedFirstWord = null,
+            Func<System.Threading.Tasks.Task>? nextProgress = null)
         {
             _arbiter = arbiter;
             _reachedFirstWord = reachedFirstWord;
+            _nextProgress = nextProgress;
         }
 
         /// <summary>
@@ -119,6 +125,9 @@ namespace Radios.Speech
             private SpeechArbiter.FollowedView View => _owner._arbiter.Inspect(_piece);
 
             public bool Failed => View.Superseded;
+
+            public System.Threading.Tasks.Task NextNews =>
+                _owner._nextProgress?.Invoke() ?? Radios.CountdownWords.NoNews;
 
             public bool Started
             {

@@ -279,7 +279,15 @@ namespace Radios
         /// <see cref="Speech.CountdownSpeech"/>.
         /// </summary>
         public static Speech.CountdownSpeech CountdownSpeech =>
-            _countdownSpeech ??= new Speech.CountdownSpeech(_arbiter, PumpReachedFirstWord);
+            _countdownSpeech ??= new Speech.CountdownSpeech(_arbiter, PumpReachedFirstWord, PumpNextProgress);
+
+        /// <summary>The reader's next report of progress (#855); never, with no paced delivery.</summary>
+        private static System.Threading.Tasks.Task PumpNextProgress()
+        {
+            Speech.PacedSpeechDelivery? pump;
+            lock (_backendLock) { pump = _pump; }
+            return pump?.NextProgress ?? CountdownWords.NoNews;
+        }
 
         /// <summary>Whether the reader has reported the first word of a ticket (its first mark).</summary>
         private static bool PumpReachedFirstWord(long ticket)

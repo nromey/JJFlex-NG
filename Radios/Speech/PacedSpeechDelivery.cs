@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
+using System.Threading.Tasks;
 using JJTrace;
 
 namespace Radios.Speech
@@ -177,6 +178,22 @@ namespace Radios.Speech
         {
             lock (_lock) { return _inFlight != null && _inFlight.Ticket == ticket && _inFlight.Marks > 0; }
         }
+
+        private TaskCompletionSource _progress = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>
+        /// Completes the next time the reader reports progress: the first
+        /// word of an utterance, or an utterance's outcome (#855, ruled by
+        /// Noel 2026-10-31). The countdown waits on this beside its poll, so
+        /// a pip sounds when NVDA's mark arrives rather than at the next
+        /// 25 ms poll. Read it before asking <see cref="HasReachedFirstWord"/>.
+        /// </summary>
+        public Task NextProgress => Volatile.Read(ref _progress).Task;
+
+        /// <summary>Wake whatever waits on <see cref="NextProgress"/>, and arm the next one. Never called under the lock.</summary>
+        private void PulseProgress() =>
+            Interlocked.Exchange(ref _progress, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously))
+                .TrySetResult();
 
         /// <summary>True while the reader has one of ours.</summary>
         public bool InFlight { get { lock (_lock) { return _inFlight != null; } } }
@@ -611,18 +628,25 @@ namespace Radios.Speech
             {
                 Tracing.TraceLine($"PacedDelivery: outcome handler threw for #{item.Ticket}: {ex.Message}", TraceLevel.Warning);
             }
+            // After the arbiter has the outcome, so a woken countdown reads the
+            // ledger with this piece already settled.
+            PulseProgress();
         }
 
         // ── Marks and the deadline ──
 
         private void OnMark(Item item, int marks)
         {
+            bool firstWord;
             lock (_lock)
             {
                 if (_inFlight != item) return;
+                firstWord = item.Marks == 0 && marks > 0;
                 item.Marks = marks;
                 item.LastMarkAtMs = item.Started?.ElapsedMilliseconds ?? 0;
             }
+            // Only the first word is news anyone waits on; later marks are not.
+            if (firstWord) PulseProgress();
         }
 
         private void ArmDeadline(Item item)
