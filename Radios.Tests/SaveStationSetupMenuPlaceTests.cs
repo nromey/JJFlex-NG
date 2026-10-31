@@ -42,7 +42,8 @@ namespace Radios.Tests
             Assert.True(submenu > 0 && item > submenu);
 
             // Nothing else lands on the Radio menu between them.
-            string between = menu.Substring(submenu + 10, item - submenu - 10);
+            int after = submenu + "AddSubmenu(radio, ".Length;
+            string between = menu.Substring(after, item - after);
             Assert.DoesNotContain("(radio, ", between, StringComparison.Ordinal);
         }
 
