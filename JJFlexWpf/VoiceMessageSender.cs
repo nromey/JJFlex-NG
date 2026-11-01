@@ -251,6 +251,8 @@ internal static class VoiceMessageSender
     /// through the controller, a hardware PTT line, or the tune carrier. A
     /// radio held up only by VOX is NOT this (Noel, 2026-10-27 15:28). Also
     /// asked by a paused speaker playback carrying on (<see cref="LocalPlaybackVox.CarryOnAsync"/>).
+    /// The tune carrier counts here because the key is held, but nothing joins
+    /// it: <see cref="RouteFor"/> and the doors ask <see cref="TuneDoors"/> first.
     /// </summary>
     internal static bool OperatorHolds(FlexBase rig, PttSafetyController? ptt)
     {
@@ -268,8 +270,16 @@ internal static class VoiceMessageSender
     }
 
     /// <summary>Which way a send pressed now goes. Read live, once per press.</summary>
+    /// <remarks>
+    /// Under tune it is <see cref="SendRoute.AsBefore"/> (#860): the air carries a
+    /// plain carrier, so no route reaches it, and Play and Enter in Recorded
+    /// QSOs fall through to the speakers. A door that would key on its own, a
+    /// voice message or a paused send carrying on, asks <see cref="TuneDoors"/>
+    /// itself and starts nothing.
+    /// </remarks>
     internal static SendRoute RouteFor(FlexBase rig)
     {
+        if (TuneDoors.Up(rig)) return SendRoute.AsBefore;
         PttSafetyController? ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
         bool voiceVoxOn = rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox;
         return VoxSendBox.Choose(VoxSendBox.Ticked, voiceVoxOn, rig.Transmit, OperatorHolds(rig, ptt));
@@ -317,6 +327,13 @@ internal static class VoiceMessageSender
         }
 
         var info = new SendInfo { Kind = SendKind.VoiceMessage, Label = label, Rig = rig };
+
+        // A message would key into, or sit under, a plain carrier (#860).
+        if (TuneDoors.Up(rig))
+        {
+            TuneDoors.RefuseSend();
+            return;
+        }
 
         // The licence-aware lockout PTT applies, applied here too: a key that
         // keys the radio must answer to the same rule as the key that keys it
@@ -679,6 +696,13 @@ internal static class VoiceMessageSender
     /// <summary>The licence lockout and the hold after a reflected-power cut, for a send that may key.</summary>
     private static bool Admitted(FlexBase rig, PttSafetyController? ptt, SendInfo info, SendRoute route)
     {
+        // Asked here as well as at the route: a tune can come up while the
+        // long-send question is open (#860).
+        if (TuneDoors.Up(rig))
+        {
+            TuneDoors.RefuseSend();
+            return false;
+        }
         if (ptt?.CanTransmitHereCheck != null && !ptt.CanTransmitHereCheck())
         {
             Refuse(info, Lexicon.Get("audio.ptt.blocked_by_license"));
@@ -793,6 +817,13 @@ internal static class VoiceMessageSender
         }
 
         PttSafetyController? ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
+        if (TuneDoors.Up(rig))
+        {
+            // A tune came up while we waited: nothing to join (#860).
+            pause.Dispose();
+            TuneDoors.RefuseSend();
+            return false;
+        }
         if (OperatorHolds(rig, ptt) || rig.Transmit)
         {
             // The operator keyed while we waited, or something other than VOX
@@ -1038,6 +1069,13 @@ internal static class VoiceMessageSender
         if (rig == null || !rig.IsConnected)
         {
             EndPausedOnDisconnect(info);
+            return;
+        }
+
+        // A paused send stays paused under tune and keeps its place (#860).
+        if (TuneDoors.Up(rig))
+        {
+            TuneDoors.RefuseSend();
             return;
         }
 

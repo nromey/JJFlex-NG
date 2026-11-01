@@ -157,6 +157,12 @@ namespace Radios.Speech
         public const string TuneStillOn = "tune-still-on";
 
         /// <summary>
+        /// A recorder or send door turned away while tune is up (#860): the
+        /// answer to the key just pressed, out of date the moment tune goes off.
+        /// </summary>
+        public const string TuneRefused = "tune-refused";
+
+        /// <summary>
         /// Reflected power is high enough to warn about, whether or not a cut
         /// follows (#224, #571).
         ///

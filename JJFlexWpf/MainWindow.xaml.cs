@@ -6602,6 +6602,7 @@ public partial class MainWindow : UserControl
     {
         StopTuneAnswerWatch();
         Radios.ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.TuneNotKeyed, why);
+        Radios.ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.TuneRefused, why);
     }
 
     private DispatcherTimer? _tuneReminderTimer;

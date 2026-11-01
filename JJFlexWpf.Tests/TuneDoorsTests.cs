@@ -1,0 +1,290 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using JJFlexWpf.Tests.Infrastructure;
+using Radios;
+using Xunit;
+
+namespace JJFlexWpf.Tests;
+
+/// <summary>
+/// What the recorder and send doors do while a tune carrier is up (#860).
+/// Recording is refused aloud; playing still plays and says it will not go
+/// out; nothing starts a send.
+/// </summary>
+/// <remarks>
+/// Windowless, proved: an MTA thread, an unconnected <see cref="FlexBase"/>
+/// whose writes go nowhere, the radio's report stood in for by
+/// <see cref="TuneDoors.UpOverride"/>, and a stand-in computer recorder. What
+/// these cannot see is the radio: a bench step.
+/// </remarks>
+[Collection(RadioConfigStatics)]
+public sealed class TuneDoorsTests : IDisposable
+{
+    private const string RadioConfigStatics = "TuneDoors";
+
+    private const string Refused = "Tune is on. Turn it off first.";
+    private const string WontGoOut = "Tune is on, so this recording won't go out on the air.";
+
+    private readonly FlexBase _rig = new(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+    private readonly FakeRecorder _engine = new();
+    private bool _boxWas;
+
+    public TuneDoorsTests()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Assert.True(QuietRun.Silenced, "Refusing: " + QuietRun.Describe());
+        Assert.True(TestSettingsRoot.Isolated, "Refusing: " + TestSettingsRoot.Failure);
+        Lexicon.Load(Lexicon.Partitions);
+        _boxWas = VoxSendBox.Ticked;
+        TuneDoors.UpOverride = _ => true;
+        ComputerRecorder.Install(_engine);
+    }
+
+    public void Dispose()
+    {
+        TuneDoors.UpOverride = null;
+        VoxSendBox.Ticked = _boxWas;
+        ComputerRecorder.Install(null);
+        ComputerRecorder.ChosenRecording = null;
+        try { _rig.Dispose(); } catch { }
+    }
+
+    private sealed class FakeRecorder : IComputerRecorder
+    {
+        public bool IsRecording { get; set; }
+        public bool IsPlaying { get; set; }
+        public string LastRecordingPath => null!;
+        public int Starts, Plays;
+        public Task<RecorderOutcome> StartRecordingAsync(FlexBase rig) { Starts++; return Task.FromResult(new RecorderOutcome(true, "Recording", "x")); }
+        public Task<RecorderOutcome> StopRecordingAsync() { IsRecording = false; return Task.FromResult(new RecorderOutcome(true, "Stopped", "x")); }
+        public Task<RecorderOutcome> PlayAsync(string path) { Plays++; return Task.FromResult(new RecorderOutcome(true, "", "x")); }
+        public Task<RecorderOutcome> StopPlaybackAsync() => Task.FromResult(new RecorderOutcome(true, "", "x"));
+    }
+
+    private static string Spoken(Func<Task> press)
+    {
+        string marker = "marker " + Guid.NewGuid().ToString("N");
+        ScreenReaderOutput.Speak(marker, VerbosityLevel.Critical, true);
+        press().GetAwaiter().GetResult();
+        string newest = ScreenReaderOutput.RecentMessages.FirstOrDefault() ?? "";
+        return newest == marker ? "" : newest;
+    }
+
+    // ── Recording is refused ────────────────────────────────────────────
+
+    [Fact]
+    public void Record_to_file_is_refused_aloud_and_nothing_starts()
+    {
+        string said = Spoken(() => RecorderControls.ToggleComputerRecordAsync(_rig));
+        Assert.Equal(Refused, said);
+        Assert.Equal(0, _engine.Starts);
+    }
+
+    [Fact]
+    public void Record_to_file_starts_when_tune_is_off()
+    {
+        TuneDoors.UpOverride = _ => false;     // positive control: the door is reachable
+        RecorderControls.ToggleComputerRecordAsync(_rig).GetAwaiter().GetResult();
+        Assert.Equal(1, _engine.Starts);
+    }
+
+    [Fact]
+    public void A_recording_already_running_can_always_be_stopped()
+    {
+        _engine.IsRecording = true;
+        var stopped = RecorderControls.ToggleComputerRecordAsync(_rig).GetAwaiter().GetResult();
+        Assert.True(stopped.Success);
+        Assert.False(_engine.IsRecording);
+    }
+
+    [Fact]
+    public void Record_active_slice_is_refused_aloud()
+    {
+        string said = Spoken(() => RecorderControls.ToggleSliceRecordAsync(_rig, SliceRecorderTarget.ActiveSlice));
+        Assert.Equal(Refused, said);
+    }
+
+    // ── Playing plays, and says it will not go out ──────────────────────
+
+    [Fact]
+    public void Play_from_computer_plays_on_the_speakers_says_so_and_starts_no_send()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "jjflex-tune-" + Guid.NewGuid().ToString("N") + ".flac");
+        File.WriteAllBytes(path, new byte[8]);
+        try
+        {
+            ComputerRecorder.ChosenRecording = path;
+            string said = Spoken(() => RecorderControls.ToggleComputerPlayAsync(_rig));
+            Assert.Equal(WontGoOut, said);
+            Assert.Equal(1, _engine.Plays);
+            Assert.False(VoiceMessageSender.InFlight);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void A_playback_that_did_not_start_is_not_told_it_wont_go_out()
+    {
+        var refused = new RecorderOutcome(false, "No recording.", "x");
+        Assert.Same(refused, TuneDoors.ForPlay(refused, true));
+        var already = new RecorderOutcome(true, "Playing", "x", AlreadyInState: true);
+        Assert.Same(already, TuneDoors.ForPlay(already, true));
+    }
+
+    [Fact]
+    public void A_playback_that_started_says_it_only_under_tune()
+    {
+        var started = new RecorderOutcome(true, "Playing slice A", "x");
+        Assert.Equal(WontGoOut, TuneDoors.ForPlay(started, true).Message);
+        Assert.Equal("Playing slice A", TuneDoors.ForPlay(started, false).Message);
+    }
+
+    // ── The routes that ask OperatorHolds ───────────────────────────────
+
+    [Fact]
+    public void Under_tune_no_route_is_a_send()
+    {
+        // An unconnected radio reads AsBefore anyway, so this is read from the
+        // source: the question has to be asked first, ahead of OperatorHolds
+        // counting the tune as the operator holding the key.
+        string src = Source("JJFlexWpf", "VoiceMessageSender.cs");
+        int route = src.IndexOf("internal static SendRoute RouteFor(FlexBase rig)", StringComparison.Ordinal);
+        int gate = src.IndexOf("if (TuneDoors.Up(rig)) return SendRoute.AsBefore;", route, StringComparison.Ordinal);
+        int holds = src.IndexOf("OperatorHolds(rig, ptt)", route, StringComparison.Ordinal);
+        Assert.True(route > 0 && gate > route && gate < holds);
+    }
+
+    [Fact]
+    public void A_voice_message_key_under_tune_starts_nothing_and_says_so()
+    {
+        var item = new CWMessageItem { Label = "CQ", Audio = "none" };
+        string said = Spoken(() => { VoiceMessageSender.Send(_rig, item); return Task.CompletedTask; });
+        Assert.Equal(WontGoOut, said);
+        Assert.False(VoiceMessageSender.InFlight);
+    }
+
+    [Fact]
+    public void A_computer_send_that_reaches_the_door_under_tune_starts_nothing()
+    {
+        string said = Spoken(() => { VoiceMessageSender.SendComputerRecording(_rig, "x.flac", SendRoute.JoinTransmission); return Task.CompletedTask; });
+        Assert.Equal(WontGoOut, said);
+        Assert.False(VoiceMessageSender.InFlight);
+    }
+
+    [Fact]
+    public void A_slice_send_that_reaches_the_door_under_tune_starts_nothing()
+    {
+        string said = Spoken(() => { VoiceMessageSender.SendSliceRecording(_rig, SliceRecorderTarget.ActiveSlice); return Task.CompletedTask; });
+        Assert.Equal(WontGoOut, said);
+        Assert.False(VoiceMessageSender.InFlight);
+    }
+
+    [Fact]
+    public void Enter_in_Recorded_QSOs_previews_under_tune()
+    {
+        // AsBefore is what RouteFor answers under tune.
+        Assert.Equal(Dialogs.RecordedQsosDialog.EnterAct.Preview,
+            Dialogs.RecordedQsosDialog.ChooseEnter(false, false, SendRoute.AsBefore));
+        Assert.Equal(Dialogs.RecordedQsosDialog.EnterAct.PreviewTransport,
+            Dialogs.RecordedQsosDialog.ChooseEnter(true, false, SendRoute.AsBefore, previewPaused: true));
+    }
+
+    [Fact]
+    public async Task A_paused_recording_carries_on_through_the_speakers_under_tune_with_VOX_paused()
+    {
+        // The real live pause, past the override: an unconnected radio
+        // answers NotNeeded, and the tune answers before OperatorHolds can.
+        var result = await LocalPlaybackVoxLive(_rig);
+        Assert.Equal(LocalPlaybackVox.CarryOn.Resumed, result.Refusal);
+        Assert.NotNull(result.Pause);
+    }
+
+    private static Task<(IDisposable? Pause, LocalPlaybackVox.CarryOn Refusal)> LocalPlaybackVoxLive(FlexBase rig)
+    {
+        var method = typeof(LocalPlaybackVox).GetMethod("PauseForCarryOnLiveAsync",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        return (Task<(IDisposable?, LocalPlaybackVox.CarryOn)>)method.Invoke(null, new object?[] { rig })!;
+    }
+
+    // ── Read from source: these need a keyed radio or a window ──────────
+
+    private static string Source(params string[] path)
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+        return File.ReadAllText(Path.Combine(dir!.FullName, Path.Combine(path)));
+    }
+
+    [Fact]
+    public void A_carry_on_under_tune_passes_both_transmit_questions()
+    {
+        // An unconnected radio holds nothing, so the two questions are read
+        // from the source: OperatorHolds counts a tune, and rig.Transmit reads
+        // true under one, and either would keep the recording paused.
+        string src = Source("JJFlexWpf", "LocalPlaybackVox.cs");
+        int live = src.IndexOf("PauseForCarryOnLiveAsync(FlexBase? rig)", StringComparison.Ordinal);
+        Assert.Contains("if (!underTune && VoiceMessageSender.OperatorHolds(rig,", src.Substring(live));
+        int early = src.IndexOf("if (underTune) return (pause, CarryOn.Resumed);", live, StringComparison.Ordinal);
+        int wait = src.IndexOf("while (rig.Transmit", live, StringComparison.Ordinal);
+        Assert.True(early > live && early < wait, "a tune must not wait for the carrier to drop");
+    }
+
+    [Fact]
+    public void Play_from_computer_is_not_refused_as_transmitting_under_tune()
+    {
+        string src = Source("JJFlexWpf", "RecorderControls.cs");
+        Assert.Contains("bool transmitting = rig?.Transmit == true && !underTune;", src);
+    }
+
+    [Fact]
+    public void A_preview_is_not_refused_as_transmitting_under_tune()
+    {
+        Assert.Contains("if (_rig?.Transmit == true && !underTune) { Refuse(Lexicon.Get(\"audio.qsos.play_refused_transmitting\")); return; }",
+            Source("JJFlexWpf", "Dialogs", "RecordedQsosDialog.cs"));
+    }
+
+    [Fact]
+    public void A_check_is_refused_before_its_countdown_and_a_take_says_it_wont_go_out()
+    {
+        string check = Source("JJFlexWpf", "Dialogs", "CheckYourAudioDialog.Check.cs");
+        int toggle = check.IndexOf("public void ToggleAudioCheck()", StringComparison.Ordinal);
+        int gate = check.IndexOf("if (TuneDoors.Up(_rig))", toggle, StringComparison.Ordinal);
+        int start = check.IndexOf("_ = StartAudioCheckSessionAsync(", toggle, StringComparison.Ordinal);
+        int offAir = check.IndexOf("_ = StartOffAirAsync(ptt)", toggle, StringComparison.Ordinal);
+        Assert.True(gate > toggle && gate < start && gate < offAir, "the gate must come before every keyed method");
+        Assert.Contains("TuneDoors.ForPlay(Lexicon.Get(\"audio.check.playing_take\"), underTune)", check);
+    }
+
+    [Fact]
+    public void A_box_send_that_met_a_tune_while_it_waited_refuses_instead_of_joining()
+    {
+        string src = Source("JJFlexWpf", "VoiceMessageSender.cs");
+        int gate = src.IndexOf("// A tune came up while we waited", StringComparison.Ordinal);
+        int join = src.IndexOf("joinInstead();", gate, StringComparison.Ordinal);
+        Assert.True(gate > 0 && join > gate);
+    }
+
+    [Fact]
+    public void A_paused_send_stays_paused_under_tune()
+    {
+        string src = Source("JJFlexWpf", "VoiceMessageSender.cs");
+        int resume = src.IndexOf("private static void ResumePaused()", StringComparison.Ordinal);
+        int gate = src.IndexOf("if (TuneDoors.Up(rig))", resume, StringComparison.Ordinal);
+        int key = src.IndexOf("_paused = null;", gate, StringComparison.Ordinal);
+        Assert.True(gate > resume && key > gate);
+    }
+
+    [Fact]
+    public void No_door_touches_the_carrier()
+    {
+        string src = Source("JJFlexWpf", "TuneDoors.cs");
+        Assert.DoesNotContain("TxTune =", src);
+        Assert.DoesNotContain("DropCarrier", src);
+    }
+}
+
+[CollectionDefinition("TuneDoors", DisableParallelization = true)]
+public sealed class TuneDoorsCollection { }

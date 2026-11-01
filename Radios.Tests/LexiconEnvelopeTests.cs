@@ -1398,6 +1398,8 @@ namespace Radios.Tests
                 "settings.dummy_load.unavailable",
                 // The tune reminder (DRAFT, #860).
                 "audio.tune.still_on",
+                "audio.tune.turn_off_first",
+                "audio.tune.wont_go_out",
                 "settings.ptt.tune_reminder_help",
                 "settings.ptt.tune_reminder_out_of_range",
                 "audio.recorder.record_to_file_button",

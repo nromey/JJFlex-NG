@@ -160,6 +160,13 @@ public static class RecorderControls
     public static async Task<RecorderOutcome> ToggleSliceRecordAsync(FlexBase? rig, SliceRecorderTarget target,
         Action<RecorderOutcome>? speak = null, object? owner = null)
     {
+        // Nothing records under tune (#860). A recording already running can
+        // always be stopped.
+        if (rig != null && !rig.IsSliceRecording(target) && TuneDoors.Up(rig))
+        {
+            TuneDoors.RefuseStart();
+            return new(false, "", SpeechSubject.SliceRecorder(""));
+        }
         var outcome = rig == null
             ? NoRadio(SpeechSubject.SliceRecorder(""))
             : await Guarded(() => rig.ToggleSliceRecordAsync(target, owner), SpeechSubject.SliceRecorder(""));
@@ -199,10 +206,14 @@ public static class RecorderControls
             return HandedToSend(SpeechSubject.SliceRecorder(""));
         }
         Observe(rig);
+        // It still plays under tune, as it always has, and says at the press
+        // that it will not go out (#860, Noel 2026-11-01 08:04).
+        bool underTune = rig != null && !rig.IsSlicePlaying(target) && TuneDoors.Up(rig);
         if (rig != null && !rig.IsSlicePlaying(target)) PlayStartClick();
         var outcome = rig == null
             ? NoRadio(SpeechSubject.SliceRecorder(""))
             : await Guarded(() => rig.ToggleSlicePlayAsync(target, owner), SpeechSubject.SliceRecorder(""));
+        outcome = TuneDoors.ForPlay(outcome, underTune);
         (speak ?? Speak)(outcome);
         return outcome;
     }
@@ -240,7 +251,8 @@ public static class RecorderControls
             return await LocalPlaybackVox.CarryOnAsync() switch
             {
                 LocalPlaybackVox.CarryOn.Resumed => new(true,
-                    Lexicon.Get("audio.qsos.resumed", ("position", RecordedQsoWords.Position(at, null))),
+                    TuneDoors.ForPlay(Lexicon.Get("audio.qsos.resumed", ("position", RecordedQsoWords.Position(at, null))),
+                        TuneDoors.Up(LocalPlaybackVox.PausedRig)),
                     SpeechSubject.ComputerRecorder),
                 LocalPlaybackVox.CarryOn.Transmitting => new(false,
                     Lexicon.Get("audio.qsos.resume_refused_transmitting"), SpeechSubject.ComputerRecorder),
@@ -288,6 +300,12 @@ public static class RecorderControls
     public static async Task<RecorderOutcome> ToggleComputerRecordAsync(FlexBase? rig,
         Action<RecorderOutcome>? speak = null)
     {
+        // Nothing records under tune (#860); a running recording can always stop.
+        if (!ComputerRecorder.Current.IsRecording && TuneDoors.Up(rig))
+        {
+            TuneDoors.RefuseStart();
+            return new(false, "", SpeechSubject.ComputerRecorder);
+        }
         var outcome = await Guarded(() => ComputerRecorder.ToggleRecordingAsync(rig), SpeechSubject.ComputerRecorder);
         (speak ?? Speak)(outcome);
         return outcome;
@@ -366,7 +384,11 @@ public static class RecorderControls
                 return HandedToSend(SpeechSubject.ComputerRecorder);
             }
         }
-        bool transmitting = rig?.Transmit == true;
+        // Under tune RouteFor said AsBefore, so this is the speakers, with the
+        // same VOX pause as any speaker playback: a carrier is not the operator
+        // talking, and the speakers must not key VOX when the tune ends (#860).
+        bool underTune = starting && TuneDoors.Up(rig);
+        bool transmitting = rig?.Transmit == true && !underTune;
         FlexBase.LocalPlaybackVoxPause? pause = null;
         if (starting && !transmitting)
         {
@@ -393,6 +415,7 @@ public static class RecorderControls
             if (outcome.Success && ComputerRecorder.Current.IsPlaying) LocalPlaybackVox.HoldUntilPlaybackEnds(rig, pause);
             else pause.Dispose();
         }
+        outcome = TuneDoors.ForPlay(outcome, underTune);
         (speak ?? Speak)(outcome);
         return outcome;
     }

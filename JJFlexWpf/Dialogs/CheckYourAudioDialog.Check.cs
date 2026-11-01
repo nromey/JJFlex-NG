@@ -794,6 +794,14 @@ public partial class CheckYourAudioDialog
             return;
         }
 
+        // A check keys the radio, so it cannot start over a tune carrier. It used
+        // to run its countdown and then stop at the session's own transmit test
+        // without a word (#860).
+        if (TuneDoors.Up(_rig))
+        {
+            TuneDoors.RefuseStart();
+            return;
+        }
         if (_iqRun != null) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
         // The Workshop's diagnostic take is a take too; the radio would refuse
         // the off-air one with "another IQ take is running", but an ordinary
@@ -1013,6 +1021,7 @@ public partial class CheckYourAudioDialog
         if (_closing || !ReferenceEquals(rig, _rig)) return;
         RecorderControls.Observe(rig);
         RecorderControls.PlayStartClick();
+        bool underTune = TuneDoors.Up(rig);
         var outcome = await rig.StartSlicePlayAsync(target);
         if (outcome.Success)
         {
@@ -1022,8 +1031,8 @@ public partial class CheckYourAudioDialog
                 return;
             }
             _checkPlayTargets.Add(target);
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.playing_take"), Radios.Speech.SpeechIntent.Interrupt,
-                VerbosityLevel.Terse, subject: outcome.Subject);
+            ScreenReaderOutput.Speak(TuneDoors.ForPlay(Lexicon.Get("audio.check.playing_take"), underTune),
+                Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Terse, subject: outcome.Subject);
         }
         else RecorderControls.Speak(outcome);
         SyncPlayTakeLabel();
