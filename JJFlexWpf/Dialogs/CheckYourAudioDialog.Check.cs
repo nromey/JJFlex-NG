@@ -1069,9 +1069,16 @@ public partial class CheckYourAudioDialog
         {
             var targets = new List<SliceRecorderTarget>(_checkPlayTargets);
             _checkPlayTargets.Clear();
+            // Nothing takes a Record yourself take off this list when it plays
+            // to its end. So only one still playing counts as stopped: a take
+            // that had finished used to swallow the next Ctrl+Enter whole, with
+            // nothing started and nothing said.
             foreach (var target in targets)
+            {
+                if (!_rig.IsSlicePlaying(target)) continue;
                 _ = RecorderControls.ReportStopFailureAsync(_rig.StopSlicePlayAsync(target));
-            stopped = true;
+                stopped = true;
+            }
         }
         if (_toneMonitorSounding)
         {

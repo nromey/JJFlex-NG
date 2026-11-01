@@ -114,7 +114,8 @@ public partial class PowerDialog : JJFlexDialog
                     decimalPlaces: 0, unit: Lexicon.Get("audio.power.unit_label_watts"));
                 HeaderText.Text =
                     Lexicon.Get("audio.power.header_watts", ("antenna", _rig.TXAntennaName));
-                RangeText.Text = Lexicon.Get("audio.power.range_watts");
+                RangeText.Text = Lexicon.Get(RadioPowerFloor.Applies(_rig.RadioModel)
+                    ? "audio.power.range_watts_floor" : "audio.power.range_watts");
             }
 
             // Tune power stays integer watts in both personalities — the ATU

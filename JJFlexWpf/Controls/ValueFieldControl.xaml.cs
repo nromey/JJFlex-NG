@@ -471,12 +471,19 @@ public partial class ValueFieldControl : UserControl
     }
 
     /// <summary>
+    /// Finish a typed entry as Enter would, for a window that takes the key
+    /// before the field sees it. True when there was none, or it was taken;
+    /// false when it was refused or was not a number, and has said so.
+    /// </summary>
+    internal bool CommitPendingEntry() => !_numberEntryMode || ConfirmNumberEntry();
+
+    /// <summary>
     /// Confirm the number entry buffer and apply the value.
     /// Integer fields parse the buffer directly; decimal fields (DecimalPlaces
     /// &gt; 0) parse a decimal number and scale it to integer units (e.g.
     /// "5.5" dBm → 550 centi-dBm). The sign toggle applies at the end.
     /// </summary>
-    private void ConfirmNumberEntry()
+    private bool ConfirmNumberEntry()
     {
         _numberEntryMode = false;
         bool parsed;
@@ -505,7 +512,7 @@ public partial class ValueFieldControl : UserControl
                 UpdateDisplay();
                 _numberBuffer = "";
                 _numberNegative = false;
-                return;
+                return false;
             }
             val = Math.Clamp(val, _min, _max);
             _value = val;
@@ -537,6 +544,7 @@ public partial class ValueFieldControl : UserControl
         }
         _numberBuffer = "";
         _numberNegative = false;
+        return parsed;
     }
 
     /// <summary>

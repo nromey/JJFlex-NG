@@ -219,6 +219,34 @@ public sealed class RadioPowerFloorTests
         Assert.DoesNotContain("(\"unit\", Unit)", src);
     }
 
+    [Fact]
+    public void The_Power_dialog_says_the_range_this_rig_has()
+    {
+        string src = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs", "PowerDialog.xaml.cs"));
+        Assert.Matches(@"RadioPowerFloor\.Applies\(_rig\.RadioModel\)\s+\? ""audio\.power\.range_watts_floor""", src);
+    }
+
+    // ── Ctrl+Enter on the check's fields ────────────────────────────────
+
+    [Fact]
+    public void Ctrl_Enter_finishes_a_typed_value_before_it_starts_or_stops_anything()
+    {
+        string src = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.cs"));
+        int key = src.IndexOf("Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Enter", StringComparison.Ordinal);
+        int commit = src.IndexOf("typing.CommitPendingEntry()", key, StringComparison.Ordinal);
+        int toggle = src.IndexOf("ToggleAudioCheck();", key, StringComparison.Ordinal);
+        Assert.True(key > 0 && commit > key && commit < toggle);
+    }
+
+    [Fact]
+    public void A_refused_or_unreadable_entry_tells_the_window_not_to_go_on()
+    {
+        string src = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Controls", "ValueFieldControl.xaml.cs"));
+        Assert.Contains("internal bool CommitPendingEntry() => !_numberEntryMode || ConfirmNumberEntry();", src);
+        Assert.Contains("return false;", src.Substring(src.IndexOf("private bool ConfirmNumberEntry()", StringComparison.Ordinal)));
+        Assert.Contains("return parsed;", src);
+    }
+
     // ── The rig ─────────────────────────────────────────────────────────
 
     private static FlexBase RigOf(string model)
@@ -318,14 +346,14 @@ public sealed class RadioPowerFloorTests
     public void A_refused_entry_leaves_before_the_clamp_and_keeps_the_value()
     {
         string src = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Controls", "ValueFieldControl.xaml.cs"));
-        int method = src.IndexOf("private void ConfirmNumberEntry()", StringComparison.Ordinal);
+        int method = src.IndexOf("private bool ConfirmNumberEntry()", StringComparison.Ordinal);
         int asked = src.IndexOf("TypedValueRefusal?.Invoke(val)", method, StringComparison.Ordinal);
         int clamp = src.IndexOf("val = Math.Clamp(val, _min, _max);", method, StringComparison.Ordinal);
         int taken = src.IndexOf("_value = val;", method, StringComparison.Ordinal);
         Assert.True(asked > 0 && asked < clamp && clamp < taken, "the refusal must be asked before the clamp and the value");
         string refused = src.Substring(asked, clamp - asked);
         Assert.Contains("RejectEntryKey(refusal);", refused);
-        Assert.Contains("return;", refused);
+        Assert.Contains("return false;", refused);
         Assert.DoesNotContain("ValueChanged", refused);   // nothing saved
     }
 

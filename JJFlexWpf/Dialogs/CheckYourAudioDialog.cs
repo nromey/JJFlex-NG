@@ -441,6 +441,15 @@ public partial class CheckYourAudioDialog : JJFlexDialog
         }
         if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Enter)
         {
+            // This window takes the key before the field does, so a number
+            // still being typed has to be finished here or the check runs at the
+            // old value. One the field refused stops the press: the operator is
+            // hearing why.
+            if (Keyboard.FocusedElement is Controls.ValueFieldControl typing && !typing.CommitPendingEntry())
+            {
+                e.Handled = true;
+                return;
+            }
             if (_session?.Active == true)
             {
                 ToggleAudioCheck();
