@@ -441,12 +441,14 @@ public partial class CheckYourAudioDialog : JJFlexDialog
         }
         if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Enter)
         {
+            // This press can key the radio, so one press does one thing (#859).
             // This window takes the key before the field does, so a number
             // still being typed has to be finished here or the check runs at the
             // old value. Anything but the number as typed stops the press,
-            // refused or clamped: the operator hears what it is now, and the
-            // next Ctrl+Enter starts. This press can key the radio.
-            if (Keyboard.FocusedElement is Controls.ValueFieldControl typing && !typing.CommitPendingEntry())
+            // refused or clamped: the operator hears what it is now. A held key
+            // does nothing at all, however the reader delivers it.
+            var typing = Keyboard.FocusedElement as Controls.ValueFieldControl;
+            if (!_ctrlEnterPress.GoesOn(Environment.TickCount64, e.IsRepeat, () => typing?.CommitPendingEntry() ?? true))
             {
                 e.Handled = true;
                 return;
@@ -461,6 +463,15 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             return;
         }
         base.OnPreviewKeyDown(e);
+    }
+
+    private readonly FreshPressGate _ctrlEnterPress = new();
+
+    /// <summary>A chord that was refused or changed is over when Control goes up.</summary>
+    protected override void OnPreviewKeyUp(KeyEventArgs e)
+    {
+        if (e.Key is Key.LeftCtrl or Key.RightCtrl) _ctrlEnterPress.NoteControlUp();
+        base.OnPreviewKeyUp(e);
     }
 
     /// <summary>
