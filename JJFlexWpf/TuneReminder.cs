@@ -35,23 +35,22 @@ internal sealed class TuneReminder
     private readonly TuneReminderClock _clock = new();
     private readonly object _gate = new();
     private readonly Action<string, string> _retire;
+    private readonly Action _tone;
     private readonly Action _say;
     private int _ends;
 
     /// <param name="retire">For tests: stands in for the arbiter's withdrawal, so the moment it is called can be held.</param>
-    /// <param name="say">For tests: stands in for the tone and the sentence.</param>
-    internal TuneReminder(Action<string, string>? retire = null, Action? say = null)
+    /// <param name="say">For tests: stands in for the sentence.</param>
+    /// <param name="tone">For tests: stands in for the tone.</param>
+    internal TuneReminder(Action<string, string>? retire = null, Action? say = null, Action? tone = null)
     {
         _retire = retire ?? ((subject, why) => ScreenReaderOutput.Supersede(subject, why));
         _say = say ?? SayIt;
+        _tone = tone ?? EarconPlayer.Warning1Beep;
     }
 
-    private static void SayIt()
-    {
-        EarconPlayer.Warning1Beep();
-        ScreenReaderOutput.Speak(Lexicon.Get("audio.tune.still_on"), SpeechIntent.Queue,
-            VerbosityLevel.Critical, subject: SpeechSubject.TuneStillOn);
-    }
+    private static void SayIt() => ScreenReaderOutput.Speak(Lexicon.Get("audio.tune.still_on"), SpeechIntent.Queue,
+        VerbosityLevel.Critical, subject: SpeechSubject.TuneStillOn);
 
     /// <summary>Called each second, on the UI thread.</summary>
     /// <param name="up">The radio reports this client's tune on the air.</param>
@@ -71,12 +70,18 @@ internal sealed class TuneReminder
         {
             case TuneReminderStep.Remind:
                 Tracing.TraceLine("TuneReminder: the carrier has been up another " + seconds + " s", TraceLevel.Info);
-                _say();
-                // An edge can land between the clock and the sentence. Its
-                // withdrawal came too soon to cover this one, so it goes again.
-                bool overtaken;
-                lock (_gate) overtaken = _ends != ends;
-                if (overtaken) _retire(SpeechSubject.TuneStillOn, "the tune carrier going off as it was said");
+                _tone();    // outside the gate: a first sound can open a device, and End runs on the read loop
+                // The gate is held through the sentence, so an edge cannot finish
+                // between the question and the queueing: it is either already
+                // counted here, or its withdrawal comes after and covers it.
+                // Safe to hold: a queued Speak takes the arbiter's own lock and
+                // returns, with no dispatcher and no call back into this class,
+                // and End lets go of this gate before it touches the arbiter, so
+                // the two locks are never taken the other way round.
+                lock (_gate)
+                {
+                    if (_ends == ends) _say();
+                }
                 break;
             case TuneReminderStep.Over:
                 _retire(SpeechSubject.TuneStillOn, "the tune carrier going off");

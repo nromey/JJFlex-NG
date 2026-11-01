@@ -126,7 +126,7 @@ public sealed class TuneReminderTests
     public void It_says_what_was_ruled_under_its_own_subject()
     {
         string src = Source("JJFlexWpf", "TuneReminder.cs");
-        Assert.Contains("EarconPlayer.Warning1Beep();", src);
+        Assert.Contains("EarconPlayer.Warning1Beep", src);
         Assert.Contains("Lexicon.Get(\"audio.tune.still_on\")", src);
         Assert.Contains("subject: SpeechSubject.TuneStillOn", src);
     }

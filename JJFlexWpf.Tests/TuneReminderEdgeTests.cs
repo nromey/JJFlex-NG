@@ -90,18 +90,45 @@ public sealed class TuneReminderEdgeTests
     }
 
     [Fact]
-    public void An_edge_that_lands_between_the_clock_and_the_sentence_retires_it_after_the_sentence()
+    public void An_edge_before_the_sentence_means_no_sentence()
     {
         TuneReminder? reminder = null;
-        var order = new List<string>();
-        reminder = new TuneReminder((_, why) => order.Add("retired: " + why), () =>
-        {
-            order.Add("said");
-            reminder!.End("tune off");      // no earlier than the speech call, no later than its return
-        });
+        int said = 0;
+        reminder = new TuneReminder((_, _) => { }, () => said++, () => reminder!.End("tune off"));
         long now = 1_000;
         UpFor(reminder, ref now, 25);
-        Assert.Equal(new[] { "said", "retired: tune off", "retired: the tune carrier going off as it was said" }, order);
+        Assert.Equal(0, said);
+    }
+
+    [Fact]
+    public void With_no_edge_the_sentence_goes()
+    {
+        int said = 0;
+        var reminder = new TuneReminder((_, _) => { }, () => said++, () => { });
+        long now = 1_000;
+        UpFor(reminder, ref now, 25);
+        Assert.Equal(1, said);          // the positive control for the test above
+    }
+
+    [Fact]
+    public void An_edge_during_the_sentence_cannot_finish_ahead_of_it()
+    {
+        var order = new List<string>();
+        using var inSentence = new System.Threading.ManualResetEventSlim();
+        using var letGo = new System.Threading.ManualResetEventSlim();
+        Task? edge = null;
+        TuneReminder? reminder = null;
+        reminder = new TuneReminder((_, _) => { lock (order) order.Add("retired"); }, () =>
+        {
+            inSentence.Set();
+            edge = Task.Run(() => reminder!.End("tune off"));   // the read loop
+            Assert.False(edge.Wait(100));                       // held until the sentence is queued
+            lock (order) order.Add("said");
+        }, () => { });
+        long now = 1_000;
+        UpFor(reminder, ref now, 25);
+        Assert.True(edge!.Wait(2_000));
+        Assert.Equal(new[] { "said", "retired" }, order);
     }
 
     [Fact]
