@@ -87,6 +87,24 @@ public sealed class TuneDoorsTests : IDisposable
     }
 
     [Fact]
+    public void A_refusal_under_tune_is_told_the_usual_way_so_the_operators_Off_silences_it()
+    {
+        // Ruled by Noel 2026-11-01 13:08. The tone is the earcon's own gate; its
+        // pin is in ZeroPowerDoorsTests, the same earcon.
+        VerbosityLevel before = ScreenReaderOutput.CurrentVerbosity;
+        try
+        {
+            ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Critical;   // what Off is
+            Assert.Equal("", Spoken(() => RecorderControls.ToggleComputerRecordAsync(_rig)));
+            Assert.Equal(0, _engine.Starts);                                 // silenced, and still refused
+
+            ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;      // the positive control
+            Assert.Equal(Refused, Spoken(() => RecorderControls.ToggleComputerRecordAsync(_rig)));
+        }
+        finally { ScreenReaderOutput.CurrentVerbosity = before; }
+    }
+
+    [Fact]
     public void Record_to_file_starts_when_tune_is_off()
     {
         TuneDoors.UpOverride = _ => false;     // positive control: the door is reachable

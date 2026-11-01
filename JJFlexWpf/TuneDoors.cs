@@ -48,11 +48,16 @@ internal static class TuneDoors
     // DRAFT PROSE (#860): awaiting Noel.
     internal static string WontGoOut => Lexicon.Get("audio.tune.wont_go_out");
 
+    /// <remarks>
+    /// Told the usual way (ruled by Noel 2026-11-01 13:08): the tone through its
+    /// own gate and the sentence at Terse, each answering to the operator's own
+    /// setting. The trace is written regardless.
+    /// </remarks>
     private static void Refuse(string sentence)
     {
         Tracing.TraceLine("TuneDoors: refused under tune: " + sentence, TraceLevel.Info);
         EarconPlayer.ATUFailTone();   // #447's refusal tone
-        ScreenReaderOutput.Speak(sentence, SpeechIntent.Interrupt, VerbosityLevel.Critical,
+        ScreenReaderOutput.Speak(sentence, SpeechIntent.Interrupt, VerbosityLevel.Terse,
             subject: SpeechSubject.TuneRefused);
     }
 
