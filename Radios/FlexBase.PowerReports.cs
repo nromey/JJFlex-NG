@@ -132,5 +132,15 @@ namespace Radios
 
         /// <summary>Everything a check can save to put back is a reading.</summary>
         public bool CheckPowersReported => TransmitPowerReported && TunePowerReported;
+
+        /// <summary>
+        /// An operator's press that would transmit refuses here. Read by the
+        /// doors, not by the setters: a check's own keying and the Fix tool's
+        /// are not presses, and Test your microphone stays at zero by ruling.
+        /// </summary>
+        public bool TransmitPressRefused => RadioPowerFloor.RefusesPress(RadioModel, TransmitPowerReported, XmitPower);
+
+        /// <summary>The same for a press that would start a tune, which reads tune power.</summary>
+        public bool TunePressRefused => RadioPowerFloor.RefusesPress(RadioModel, TunePowerReported, TunePower);
     }
 }

@@ -84,5 +84,28 @@ namespace Radios
             _refused = !settle();
             return _refused ? PressAct.Nothing : PressAct.Start;
         }
+
+        /// <summary>
+        /// A door has refused this press: true when it is a new press and is
+        /// owed an answer, false when it is more of the press already answered.
+        /// The door refuses either way; this only stops a held key from being
+        /// told again. The same rule as a start, with no field to settle.
+        /// </summary>
+        /// <remarks>
+        /// A refusal leaves the state as it was, so every repeat reaches the
+        /// door again, and each one renews the window. A second deliberate press
+        /// inside the window is refused without a word, because a reader's pairs
+        /// look the same.
+        /// </remarks>
+        public bool NewRefusal(long nowMs)
+        {
+            bool isNew = false;
+            Decide(nowMs, isRepeat: false, live: false, settle: () =>
+            {
+                isNew = true;
+                return false;
+            });
+            return isNew;
+        }
     }
 }

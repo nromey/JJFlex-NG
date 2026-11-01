@@ -37,6 +37,14 @@ namespace Radios
     /// <see cref="IsZeroWattException"/>.
     /// </para>
     /// <para>
+    /// <b>A press that would key at a reported zero is refused out loud</b> (ruled
+    /// by Noel 2026-11-01 13:04): the radio can arrive at zero from SmartSDR or
+    /// another client, so refusing to ENTER zero does not cover it, and on such a
+    /// radio nothing goes out at zero and nothing says so. See
+    /// <see cref="RefusesPress"/>. It is told the usual way (13:06): each of the
+    /// tone and the sentence answers to the operator's own setting.
+    /// </para>
+    /// <para>
     /// What the operator hears about this says "this rig" and never names the
     /// model (ruled 2026-11-01 07:55).
     /// </para>
@@ -67,6 +75,33 @@ namespace Radios
         /// </summary>
         public static bool IsZeroWattException(AudioCheckListenMethods method) =>
             method == AudioCheckListenMethods.MicTest;
+
+        /// <summary>
+        /// Whether a press that would key refuses. Only on a floored model, and
+        /// only when the radio really reported the power and it is zero: the
+        /// first report after every connect is a placeholder zero, so a power
+        /// not yet reported keys as it always has, which at a genuine zero puts
+        /// nothing on the air. Nothing writes to the radio because of this.
+        /// </summary>
+        /// <param name="radioModel">The radio's model, as <c>FlexBase.RadioModel</c> reads.</param>
+        /// <param name="reported">
+        /// The radio reported this power: <c>TransmitPowerReported</c> for a
+        /// transmit door, <c>TunePowerReported</c> for a tune door.
+        /// </param>
+        /// <param name="watts">
+        /// That power. The two are different fields, and a rig can have one at
+        /// zero and not the other.
+        /// </param>
+        public static bool RefusesPress(string? radioModel, bool reported, int watts) =>
+            Applies(radioModel) && reported && watts == 0;
+
+        /// <summary>A press that would transmit, refused.</summary>
+        // DRAFT PROSE (#859): awaiting Noel.
+        public static string TransmitRefusal => Lexicon.Get("audio.power.transmit_at_zero");
+
+        /// <summary>A press that would start a tune, refused.</summary>
+        // DRAFT PROSE (#859): awaiting Noel.
+        public static string TuneRefusal => Lexicon.Get("audio.power.tune_at_zero");
 
         /// <summary>The sentence refusing a typed power on this model, or null when the value is fine.</summary>
         // DRAFT PROSE (#859): awaiting Noel.

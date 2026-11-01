@@ -1395,6 +1395,8 @@ namespace Radios.Tests
                 "audio.check.power.low_power",
                 "audio.check.power.refused_zero",
                 "audio.power.refused_zero",
+                "audio.power.transmit_at_zero",
+                "audio.power.tune_at_zero",
                 "audio.power.range_watts_floor",
                 "audio.check.power_not_reported",
                 "settings.dummy_load.unavailable",

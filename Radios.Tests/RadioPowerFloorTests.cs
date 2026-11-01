@@ -253,6 +253,32 @@ public sealed class RadioPowerFloorTests
 
     internal static void Done(FlexBase rig) { rig.theRadio = null; try { rig.Dispose(); } catch { } }
 
+    // ── A press at a reported zero (ruled 2026-11-01 13:04) ─────────────
+
+    [Theory]
+    [InlineData(Six, true, 0, true)]
+    [InlineData(Six, false, 0, false)]          // the connect's placeholder: key as always
+    [InlineData(Six, true, 1, false)]
+    [InlineData(Six, false, 1, false)]
+    [InlineData("flex-6300", true, 0, true)]    // as Applies reads a model
+    [InlineData(Eight, true, 0, false)]         // measured to work at zero
+    [InlineData("FLEX-6400", true, 0, false)]   // unmeasured: nothing changes
+    [InlineData("FLEX-6600", true, 0, false)]
+    [InlineData("FLEX-8400", true, 0, false)]
+    [InlineData("AU-510", true, 0, false)]
+    [InlineData("", true, 0, false)]            // absent reads as not floored
+    [InlineData("   ", true, 0, false)]
+    [InlineData(null, true, 0, false)]
+    public void A_press_refuses_only_on_a_floored_rig_at_a_reported_zero(string? model, bool reported, int watts, bool refused) =>
+        Assert.Equal(refused, RadioPowerFloor.RefusesPress(model, reported, watts));
+
+    [Fact]
+    public void The_refusals_say_this_rig_and_never_the_model()
+    {
+        Assert.Equal("This rig is at 0 watts. Set your power first.", RadioPowerFloor.TransmitRefusal);
+        Assert.Equal("This rig's tune power is at 0 watts. Set your tune power first.", RadioPowerFloor.TuneRefusal);
+    }
+
     [Fact]
     public void Dummy_load_mode_refuses_to_set_on_a_6300_and_on_no_other_radio()
     {
@@ -503,6 +529,92 @@ public sealed class RadioPowerFloorTests
         var rig = RigOf(Six);
         Wire(rig);
         return rig;
+    }
+
+    private static FlexBase WiredRig(string model)
+    {
+        var rig = RigOf(model);
+        Wire(rig);
+        return rig;
+    }
+
+    [Fact]
+    public void A_press_on_the_connects_placeholder_keys_as_always()
+    {
+        var rig = WiredRig();
+        try
+        {
+            Status(rig, "rfpower=0 tunepower=0");
+            Assert.False(rig.TransmitPressRefused);
+            Assert.False(rig.TunePressRefused);
+        }
+        finally { Done(rig); }
+    }
+
+    [Fact]
+    public void A_press_at_a_zero_the_radio_really_reports_refuses()
+    {
+        var rig = WiredRig();
+        try
+        {
+            Status(rig, "rfpower=0 tunepower=0");
+            TransmitProfileReported(rig, "Default");
+            Assert.True(rig.TransmitPressRefused);     // the positive control for the placeholder
+            Assert.True(rig.TunePressRefused);
+        }
+        finally { Done(rig); }
+    }
+
+    [Fact]
+    public void A_placeholder_zero_with_no_profile_refuses_once_the_window_has_passed()
+    {
+        var rig = WiredRig();
+        long now = 500_000;
+        rig.PowerReportClock = () => now;
+        try
+        {
+            Status(rig, "rfpower=0 tunepower=0");
+            now += FlexBase.PlaceholderWindowMs - 1;
+            Assert.False(rig.TransmitPressRefused);
+            now += 1;
+            Assert.True(rig.TransmitPressRefused);
+        }
+        finally { Done(rig); }
+    }
+
+    [Theory]
+    [InlineData("rfpower=0 tunepower=10", true, false)]
+    [InlineData("rfpower=50 tunepower=0", false, true)]
+    [InlineData("rfpower=50 tunepower=10", false, false)]
+    public void The_two_powers_are_read_apart(string line, bool transmit, bool tune)
+    {
+        var rig = WiredRig();
+        try
+        {
+            Status(rig, line);
+            TransmitProfileReported(rig, "Default");
+            Assert.Equal(transmit, rig.TransmitPressRefused);
+            Assert.Equal(tune, rig.TunePressRefused);
+        }
+        finally { Done(rig); }
+    }
+
+    [Theory]
+    [InlineData(Eight)]
+    [InlineData("FLEX-6700")]
+    [InlineData("")]
+    public void A_rig_with_no_floor_never_refuses_at_a_reported_zero(string model)
+    {
+        var rig = WiredRig(model);
+        try
+        {
+            Status(rig, "rfpower=0 tunepower=0");
+            TransmitProfileReported(rig, "Default");
+            Assert.True(rig.CheckPowersReported);      // it really is a reported zero
+            Assert.False(rig.TransmitPressRefused);
+            Assert.False(rig.TunePressRefused);
+        }
+        finally { Done(rig); }
     }
 
     [Fact]

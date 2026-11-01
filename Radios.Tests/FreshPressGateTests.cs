@@ -253,4 +253,38 @@ public sealed class FreshPressGateTests
         Assert.Contains("_ctrlEnterPress.NoteControlUp();", src);
         Assert.Contains("e.Key is Key.LeftCtrl or Key.RightCtrl", src);
     }
+
+    // ── A door's refusal (a press that would key a rig at 0 watts) ──────
+
+    [Fact]
+    public void A_refusal_is_answered_once_across_a_held_key_delivered_as_pairs()
+    {
+        Assert.True(_gate.NewRefusal(_now));
+        _now += 512;                                 // the keyboard's repeat delay
+        Assert.False(_gate.NewRefusal(_now));
+        for (int i = 0; i < 20; i++)
+        {
+            _now += 250;                             // a pair about every 250 ms: each looks like a new press
+            Assert.False(_gate.NewRefusal(_now));
+        }
+    }
+
+    [Fact]
+    public void Each_repeat_renews_the_window_so_a_long_hold_never_answers_again()
+    {
+        _gate.NewRefusal(_now);
+        for (int i = 0; i < 10; i++)
+        {
+            _now += FreshPressGate.SameChordWindowMs - 1;
+            Assert.False(_gate.NewRefusal(_now));
+        }
+    }
+
+    [Fact]
+    public void A_new_press_after_the_window_is_answered()
+    {
+        Assert.True(_gate.NewRefusal(_now));
+        _now += FreshPressGate.SameChordWindowMs;
+        Assert.True(_gate.NewRefusal(_now));         // the positive control
+    }
 }

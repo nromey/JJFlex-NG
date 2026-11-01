@@ -163,6 +163,13 @@ namespace Radios.Speech
         public const string TuneRefused = "tune-refused";
 
         /// <summary>
+        /// A press that would key was refused because the rig reads 0 watts.
+        /// True until the operator sets a power, and the next refusal says the
+        /// same thing.
+        /// </summary>
+        public const string ZeroPowerRefused = "zero-power-refused";
+
+        /// <summary>
         /// Reflected power is high enough to warn about, whether or not a cut
         /// follows (#224, #571).
         ///
