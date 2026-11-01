@@ -73,11 +73,13 @@ namespace Radios.Tests
             int admitted = body.IndexOf("if (!Admitted(rig, ptt, info, route)) return;", StringComparison.Ordinal);
             int length = body.IndexOf("if (!LengthAgreed(", StringComparison.Ordinal);
             int load = body.IndexOf("TxAudioFile.TryLoadPieceInto(", StringComparison.Ordinal);
-            int stop = body.IndexOf("beforeSending?.Invoke();", StringComparison.Ordinal);
+            int stop = body.IndexOf("info.HandOff = beforeSending;", StringComparison.Ordinal);
             int start = body.IndexOf("StartComputerPiece(rig, info, loaded, route);", StringComparison.Ordinal);
             Assert.True(admitted >= 0 && length > admitted && load > length && stop > load && start > stop,
-                "admission, the warning and the load all come before the speakers stop, and the piece starts right after");
-            Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(body, @"beforeSending\?\.Invoke\(\)").Count);
+                "admission, the warning and the load all come before the speakers' stop is handed on");
+            // Handed to the piece, and run at its last step, after the refusals
+            // the piece itself can make (TuneDoorsTests holds that end).
+            Assert.DoesNotContain("beforeSending?.Invoke", body);
         }
 
         [Fact]
