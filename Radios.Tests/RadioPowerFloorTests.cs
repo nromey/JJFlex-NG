@@ -514,6 +514,8 @@ public sealed class RadioPowerFloorTests
             Assert.False(rig.TransmitPowerReported);       // created
             Status(rig, "rfpower=0 tunepower=0");          // what every connect opens with
             Status(rig, "rfpower=0 tunepower=0");
+            Assert.False(rig.TransmitPowerReported);       // each on its own
+            Assert.False(rig.TunePowerReported);
             Assert.False(rig.CheckPowersReported);
             Assert.Equal(0, rig.XmitPower);
         }
@@ -546,6 +548,25 @@ public sealed class RadioPowerFloorTests
             TransmitProfileReported(rig, "Default");
             Assert.True(rig.CheckPowersReported);          // the positive control for the placeholder test
             Assert.Equal(0, rig.XmitPower);
+        }
+        finally { Done(rig); }
+    }
+
+    [Fact]
+    public void A_new_connection_starts_from_nothing_on_the_same_rig()
+    {
+        var rig = WiredRig();
+        try
+        {
+            Status(rig, "rfpower=50 tunepower=9");
+            TransmitProfileReported(rig, "Default");
+            Assert.True(rig.CheckPowersReported);          // the positive control
+
+            typeof(FlexBase).GetMethod("ForgetPowerReports", Flags)!.Invoke(rig, null);
+            Assert.False(rig.CheckPowersReported);
+            Status(rig, "rfpower=0 tunepower=0");          // the new connection's placeholder
+            Assert.False(rig.TransmitPowerReported);       // the old profile cannot vouch for it
+            Assert.False(rig.TunePowerReported);
         }
         finally { Done(rig); }
     }

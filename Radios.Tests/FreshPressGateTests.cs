@@ -121,6 +121,15 @@ public sealed class FreshPressGateTests
     }
 
     [Fact]
+    public void A_repeat_is_a_repeat_however_late_it_arrives()
+    {
+        Press();
+        _gate.NoteControlUp();
+        Press(repeat: true, after: FreshPressGate.SameChordWindowMs * 3);   // a busy window delivered it late
+        Assert.Equal(1, _starts);
+    }
+
+    [Fact]
     public void A_quick_second_tap_still_acts_because_stopping_must_stay_quick()
     {
         Press();
