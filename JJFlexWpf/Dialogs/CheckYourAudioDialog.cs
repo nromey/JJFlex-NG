@@ -441,24 +441,25 @@ public partial class CheckYourAudioDialog : JJFlexDialog
         }
         if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Enter)
         {
-            // This press can key the radio, so one press does one thing (#859).
-            // This window takes the key before the field does, so a number
-            // still being typed has to be finished here or the check runs at the
-            // old value. Anything but the number as typed stops the press,
-            // refused or clamped: the operator hears what it is now. A held key
-            // does nothing at all, however the reader delivers it.
+            // This press can key the radio (#859). The gate decides starts only:
+            // a fresh key-down always stops or cancels what is live. This window
+            // takes the key before the field does, so a number still being typed
+            // has to be finished here or the check runs at the old value, and
+            // anything but the number as typed stops a start: the operator hears
+            // what it is now.
             var typing = Keyboard.FocusedElement as Controls.ValueFieldControl;
-            if (!_ctrlEnterPress.GoesOn(Environment.TickCount64, e.IsRepeat, () => typing?.CommitPendingEntry() ?? true))
+            bool checkLive = _checkStarts.IsBusy || _iqBusy || _session?.Active == true || ComputerMicCheckRunning;
+            switch (_ctrlEnterPress.Decide(Environment.TickCount64, e.IsRepeat, checkLive || CheckPlaybackRunning,
+                () => typing?.CommitPendingEntry() ?? true))
             {
-                e.Handled = true;
-                return;
+                case PressAct.Stop:
+                    if (checkLive) ToggleAudioCheck();
+                    StopCheckPlayback();
+                    break;
+                case PressAct.Start:
+                    ToggleAudioCheck();
+                    break;
             }
-            if (_session?.Active == true)
-            {
-                ToggleAudioCheck();
-                StopCheckPlayback();
-            }
-            else if (!StopCheckPlayback()) ToggleAudioCheck();
             e.Handled = true;
             return;
         }

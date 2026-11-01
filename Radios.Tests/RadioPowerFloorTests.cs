@@ -234,8 +234,8 @@ public sealed class RadioPowerFloorTests
         string src = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.cs"));
         int key = src.IndexOf("Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Enter", StringComparison.Ordinal);
         int commit = src.IndexOf("typing?.CommitPendingEntry()", key, StringComparison.Ordinal);
-        int toggle = src.IndexOf("ToggleAudioCheck();", key, StringComparison.Ordinal);
-        Assert.True(key > 0 && commit > key && commit < toggle);
+        int act = src.IndexOf("case PressAct.Stop:", key, StringComparison.Ordinal);
+        Assert.True(key > 0 && commit > key && commit < act);
     }
 
     // ── The rig ─────────────────────────────────────────────────────────

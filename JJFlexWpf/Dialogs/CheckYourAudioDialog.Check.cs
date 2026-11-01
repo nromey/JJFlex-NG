@@ -1074,6 +1074,19 @@ public partial class CheckYourAudioDialog
         return letter.Length > 0 ? SliceRecorderTarget.Letter(letter[0]) : target;
     }
 
+    /// <summary>True while audio this window started is sounding, the same list <see cref="StopCheckPlayback"/> stops.</summary>
+    private bool CheckPlaybackRunning
+    {
+        get
+        {
+            if (RecordingPlayer.IsPlaying || _toneMonitorSounding) return true;
+            if (_rig == null) return false;
+            foreach (var target in _checkPlayTargets)
+                if (_rig.IsSlicePlaying(target)) return true;
+            return false;
+        }
+    }
+
     /// <summary>Stop the audio this window started before another Ctrl+Enter can start a check.</summary>
     private bool StopCheckPlayback()
     {

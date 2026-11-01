@@ -18,13 +18,30 @@ public sealed class FreshPressGateTests
     private readonly FreshPressGate _gate = new();
     private long _now = 10_000;
     private int _starts;
+    private int _stops;
     private int _settled;
+    private bool _live;
 
-    /// <summary>One key-down, as the window handles it: settle the field, then start if it goes on.</summary>
-    private void Press(bool repeat = false, Func<bool> field = null, int after = 0)
+    /// <summary>One key-down, as the window handles it. A start makes the check live and a stop ends it, as the real one does.</summary>
+    private void Press(bool repeat = false, Func<bool> field = null, int after = 0, bool? live = null)
     {
         _now += after;
-        if (_gate.GoesOn(_now, repeat, () => { _settled++; return field?.Invoke() ?? true; })) _starts++;
+        switch (_gate.Decide(_now, repeat, live ?? false, () => { _settled++; return field?.Invoke() ?? true; }))
+        {
+            case PressAct.Start: _starts++; break;
+            case PressAct.Stop: _stops++; break;
+        }
+    }
+
+    /// <summary>The same, with the check's own life: what a start began, a stop ended.</summary>
+    private void PressLive(bool repeat = false, int after = 0)
+    {
+        _now += after;
+        switch (_gate.Decide(_now, repeat, _live, () => true))
+        {
+            case PressAct.Start: _starts++; _live = true; break;
+            case PressAct.Stop: _stops++; _live = false; break;
+        }
     }
 
     /// <summary>The field's answer for a pending entry, by the real rule on the check's own field.</summary>
@@ -111,13 +128,88 @@ public sealed class FreshPressGateTests
     }
 
     [Fact]
-    public void A_press_that_started_a_check_does_not_stop_it_by_being_held()
+    public void A_held_key_flagged_as_repeats_starts_once_and_stops_nothing()
     {
-        Press();
-        for (int i = 0; i < 20; i++) Press(repeat: true, after: 31);
-        Press(after: 512);
-        Press(after: 250);
-        Assert.Equal(1, _starts);       // one action for one press, on both shapes of a hold
+        PressLive();
+        for (int i = 0; i < 20; i++) PressLive(repeat: true, after: 31);
+        Assert.Equal(1, _starts);
+        Assert.Equal(0, _stops);
+    }
+
+    // ── A stop is never swallowed ───────────────────────────────────────
+
+    [Fact]
+    public void A_second_tap_with_Control_held_stops_the_check()
+    {
+        PressLive();                    // starts
+        PressLive(after: 200);          // Enter up and down again, Control never released
+        Assert.Equal(1, _stops);
+        Assert.False(_live);
+    }
+
+    [Fact]
+    public void A_pending_start_is_cancelled_the_same_way()
+    {
+        Press();                        // the start: the count is playing, nothing keyed yet
+        Press(after: 200, live: true);
+        Assert.Equal(1, _stops);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(50)]
+    [InlineData(1000)]
+    [InlineData(5000)]
+    public void A_stop_goes_whatever_the_time(int after)
+    {
+        PressLive();
+        PressLive(after: after);
+        Assert.Equal(1, _stops);
+    }
+
+    [Fact]
+    public void A_stop_goes_even_right_after_a_refusal()
+    {
+        Press(field: () => false);      // refused, and the window is holding
+        Press(after: 100, live: true);  // something else went live; a stop is a stop
+        Assert.Equal(1, _stops);
+    }
+
+    [Fact]
+    public void A_stop_goes_whatever_the_field_says_about_a_pending_number()
+    {
+        Press(field: () => false, live: true);
+        Assert.Equal(1, _stops);
+    }
+
+    [Fact]
+    public void A_repeat_never_stops()
+    {
+        PressLive();
+        PressLive(repeat: true, after: 500);
+        Assert.Equal(0, _stops);
+        Assert.True(_live);
+    }
+
+    [Fact]
+    public void Pairs_stop_the_check_they_started_and_then_start_nothing_which_is_the_safe_direction()
+    {
+        PressLive();                    // down
+        PressLive(after: 512);          // the first pair looks like a press: it stops
+        Assert.Equal(1, _stops);
+        for (int i = 0; i < 8; i++) PressLive(after: 250);
+        Assert.Equal(1, _starts);       // no flip-flop: the rest are the same press, and start nothing
+        Assert.Equal(1, _stops);
+    }
+
+    [Fact]
+    public void After_a_stop_a_held_key_cannot_start_again()
+    {
+        PressLive();
+        PressLive(after: 200);
+        PressLive(repeat: true, after: 31);
+        PressLive(after: 200);          // Control still held, no longer live
+        Assert.Equal(1, _starts);
     }
 
     [Fact]
@@ -151,10 +243,13 @@ public sealed class FreshPressGateTests
     {
         string src = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.cs"));
         int key = src.IndexOf("Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Enter", StringComparison.Ordinal);
-        int gate = src.IndexOf("_ctrlEnterPress.GoesOn(Environment.TickCount64, e.IsRepeat,", key, StringComparison.Ordinal);
-        int toggle = src.IndexOf("ToggleAudioCheck();", key, StringComparison.Ordinal);
-        int stop = src.IndexOf("StopCheckPlayback()", key, StringComparison.Ordinal);
-        Assert.True(key > 0 && gate > key && gate < toggle && gate < stop);
+        int gate = src.IndexOf("_ctrlEnterPress.Decide(Environment.TickCount64, e.IsRepeat, checkLive || CheckPlaybackRunning,", key, StringComparison.Ordinal);
+        int stopCase = src.IndexOf("case PressAct.Stop:", key, StringComparison.Ordinal);
+        int cancel = src.IndexOf("if (checkLive) ToggleAudioCheck();", key, StringComparison.Ordinal);
+        int startCase = src.IndexOf("case PressAct.Start:", key, StringComparison.Ordinal);
+        Assert.True(key > 0 && gate > key && stopCase > gate && cancel > stopCase && startCase > cancel);
+        // Everything ToggleAudioCheck stops counts as live.
+        Assert.Contains("bool checkLive = _checkStarts.IsBusy || _iqBusy || _session?.Active == true || ComputerMicCheckRunning;", src);
         Assert.Contains("_ctrlEnterPress.NoteControlUp();", src);
         Assert.Contains("e.Key is Key.LeftCtrl or Key.RightCtrl", src);
     }

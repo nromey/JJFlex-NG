@@ -58,6 +58,19 @@ public sealed class CheckCtrlEnterTests
     }
 
     [Fact]
+    public void A_finished_take_is_not_a_playback_to_stop()
+    {
+        var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+        try
+        {
+            var targets = new HashSet<SliceRecorderTarget> { SliceRecorderTarget.Letter('A') };
+            var running = typeof(CheckYourAudioDialog).GetProperty("CheckPlaybackRunning", Private)!;
+            Assert.False((bool)running.GetValue(Dialog(rig, targets))!);
+        }
+        finally { try { rig.Dispose(); } catch { } }
+    }
+
+    [Fact]
     public void A_take_still_playing_takes_the_first_press_by_design()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

@@ -3,33 +3,50 @@ using System;
 
 namespace Radios
 {
+    /// <summary>What a Ctrl+Enter key-down does.</summary>
+    public enum PressAct
+    {
+        /// <summary>Nothing: it is more of a press already answered, or the field has said why not.</summary>
+        Nothing,
+
+        /// <summary>Something is live: stop or cancel it, now.</summary>
+        Stop,
+
+        /// <summary>Start a check.</summary>
+        Start,
+    }
+
     /// <summary>
-    /// Whether a chord that can key the radio is a new press or more of the one
-    /// already down (Ctrl+Enter in Check your audio, #859). A check starts only
-    /// on a new press, so a held key cannot turn a press the field refused or
-    /// changed into a transmission at a number nobody accepted.
+    /// What a chord that can key the radio does (Ctrl+Enter in Check your audio,
+    /// #859). <b>This gate decides starts only.</b> A key-down that is not a
+    /// repeat, while something is live, always stops or cancels it, at once and
+    /// whatever the time: the Control key held between two taps is an ordinary
+    /// habit, and a stop that was swallowed leaves a radio keyed.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>The repeat flag is not enough, because a held chord does not arrive the
-    /// same way everywhere.</b> Measured 2026-10-22 under JAWS, held Shift+Space
-    /// and Ctrl+Space came as one key-down, repeat key-downs and one key-up, the
-    /// same as NVDA. Measured 2026-08-24 under JAWS, held Up came as down/up
-    /// PAIRS, each one looking like a fresh press, the first at the keyboard's
-    /// repeat delay. The pairs are probably for keys JAWS has a script for.
-    /// <b>Nobody has measured Ctrl+Enter</b>, and Enter is the kind of key a
-    /// reader scripts, so both shapes are covered here.
+    /// <b>The direction is deliberate.</b> A start is refused when in doubt; a
+    /// stop never is. So under a reader that delivers a held key as down/up
+    /// pairs, a held Ctrl+Enter starts a check and the first pair stops it.
+    /// That is the safe direction, and the next pair starts nothing. Nobody has
+    /// measured how this chord arrives.
     /// </para>
     /// <para>
-    /// So a press counts as the same press when it is flagged a repeat, or when
-    /// it comes inside <see cref="SameChordWindowMs"/> of the last one with
-    /// Control never released. After a refusal the window holds even if Control
-    /// was seen going up, in case a reader's pairs carry the modifier too. The
-    /// operator has just been told something, so nothing real is lost.
+    /// <b>The repeat flag is not enough for a start, because a held chord does
+    /// not arrive the same way everywhere.</b> Measured 2026-10-22 under JAWS,
+    /// held Shift+Space and Ctrl+Space came as one key-down, repeat key-downs
+    /// and one key-up, the same as NVDA. Measured 2026-08-24 under JAWS, held Up
+    /// came as down/up PAIRS, each one looking like a fresh press, the first at
+    /// the keyboard's repeat delay. The pairs are probably for keys JAWS has a
+    /// script for, and Enter is such a key.
     /// </para>
     /// <para>
-    /// The window is a bound, not a measurement: Windows' slowest keyboard delay
-    /// is one second, so a first pair cannot come later than this.
+    /// So a start needs a new press: not flagged a repeat, and not inside
+    /// <see cref="SameChordWindowMs"/> of the last one with Control never
+    /// released. After a refusal the window holds even if Control was seen going
+    /// up, in case a reader's pairs carry the modifier too. The operator has
+    /// just been told something, so nothing real is lost. The window is a bound,
+    /// not a measurement: Windows' slowest keyboard delay is one second.
     /// </para>
     /// </remarks>
     public sealed class FreshPressGate
@@ -44,25 +61,28 @@ namespace Radios
         /// <summary>The modifier went up.</summary>
         public void NoteControlUp() => _controlReleased = true;
 
-        /// <summary>
-        /// Should this key-down go on? A held press never does, whatever the
-        /// press would have done: it neither starts nor stops anything. A new
-        /// press goes on if <paramref name="settle"/> agrees: it finishes
-        /// anything pending in the field, and false means the operator has been
-        /// told something and this press ends here.
-        /// </summary>
+        /// <summary>What this key-down does.</summary>
         /// <param name="nowMs">A monotonic clock.</param>
-        /// <param name="isRepeat">The key event's repeat flag.</param>
+        /// <param name="isRepeat">The key event's repeat flag. A repeat never does anything, stop or start.</param>
+        /// <param name="live">A check is active, a start is pending, or a playback of this window is running.</param>
         /// <param name="settle">Finishes a typed entry. True when the number stands as typed, or there was none.</param>
-        public bool GoesOn(long nowMs, bool isRepeat, Func<bool> settle)
+        public PressAct Decide(long nowMs, bool isRepeat, bool live, Func<bool> settle)
         {
             bool inWindow = nowMs - _lastMs < SameChordWindowMs;
             bool samePress = isRepeat || (inWindow && (!_controlReleased || _refused));
             _lastMs = nowMs;
             _controlReleased = false;
-            if (samePress) return false;
+            if (isRepeat) return PressAct.Nothing;
+            if (live)
+            {
+                // Whatever the field says, the stop goes.
+                settle();
+                _refused = false;
+                return PressAct.Stop;
+            }
+            if (samePress) return PressAct.Nothing;
             _refused = !settle();
-            return !_refused;
+            return _refused ? PressAct.Nothing : PressAct.Start;
         }
     }
 }
