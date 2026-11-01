@@ -9755,6 +9755,10 @@ namespace Radios
             lines.AddRange(BuildNoiseReductionStatuses(radio));
             lines.AddRange(BuildAutoNotchStatuses(radio));
             lines.Add(BuildCwAutotuneStatus());
+            // Only where it is missing: every other radio has it, and it needs
+            // no licence, so a line there would say nothing (#859).
+            if (RadioPowerFloor.Applies(RadioModel))
+                lines.Add(BuildFeatureLine("Dummy load mode", "unavailable", RadioPowerFloor.DummyLoadUnavailable));
             return string.Join(Environment.NewLine, lines);
         }
 
@@ -12116,6 +12120,16 @@ namespace Radios
             get => _dummyLoadMode;
             set
             {
+                // Dummy load mode IS zero watts, and some radios cannot run at
+                // zero (#859). Refused here so that no route reaches it; the
+                // one way through is ZeroWattException. Turning it off is never
+                // refused.
+                if (value && !_dummyLoadMode && _zeroWattExceptionsOpen == 0 && RadioPowerFloor.Applies(RadioModel))
+                {
+                    Tracing.TraceLine("DummyLoadMode: refused on " + RadioModel + ", which cannot run at zero watts",
+                        TraceLevel.Info);
+                    return;
+                }
                 if (value == _dummyLoadMode)
                 {
                     // A release whose power writes were refused at their run
@@ -12170,6 +12184,37 @@ namespace Radios
                         }
                     }
                 }
+            }
+        }
+
+        // Open while the one route that stays at zero on a floored radio
+        // engages the dummy load. Counted on the caller's thread, around a
+        // synchronous setter call, like the other setting scopes.
+        private int _zeroWattExceptionsOpen;
+
+        /// <summary>
+        /// The way past <see cref="DummyLoadMode"/>'s refusal on a radio that
+        /// cannot run at zero, and it opens for one method only:
+        /// <see cref="RadioPowerFloor.IsZeroWattException"/>. Any other method
+        /// gets a scope that opens nothing. Asked by the check, which holds the
+        /// method; nothing else has a method to give it, and a test holds this
+        /// to the one call site.
+        /// </summary>
+        public IDisposable ZeroWattException(AudioCheckListenMethods method) => new ZeroWattExceptionScope(
+            this, RadioPowerFloor.IsZeroWattException(method));
+
+        private sealed class ZeroWattExceptionScope : IDisposable
+        {
+            private FlexBase _rig;
+            public ZeroWattExceptionScope(FlexBase rig, bool opens)
+            {
+                _rig = opens ? rig : null;
+                if (_rig != null) _rig._zeroWattExceptionsOpen++;
+            }
+            public void Dispose()
+            {
+                if (_rig != null) _rig._zeroWattExceptionsOpen--;
+                _rig = null;
             }
         }
 

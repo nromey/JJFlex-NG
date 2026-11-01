@@ -1389,6 +1389,13 @@ namespace Radios.Tests
                 "audio.recorder.computer_record_unavailable",
                 "audio.recorder.computer_play_unavailable",
                 "audio.recorder.computer_play_refused_transmitting",
+                // The check's power choices, and the refusal on a radio that
+                // cannot check at zero (DRAFT, #859).
+                "audio.check.power.dummy_load",
+                "audio.check.power.low_power",
+                "audio.check.power.refused_zero",
+                "audio.power.refused_zero",
+                "settings.dummy_load.unavailable",
                 "audio.recorder.record_to_file_button",
                 "audio.recorder.stop_record_to_file_button",
                 "audio.recorder.play_from_computer_button",

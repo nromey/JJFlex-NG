@@ -1442,5 +1442,9 @@
   "audio.alert_buffer.medium": {"text": "Medium, up to {ms} milliseconds", "delivery": null},
   "audio.alert_buffer.long": {"text": "Long, up to {ms} milliseconds", "delivery": null},
   "audio.alert_buffer.custom": {"text": "Custom, set manually in the settings file", "delivery": null},
-  "audio.alert_buffer.help": {"text": "How much of JJ Flexible's own sound the computer queues ahead of the speakers: alerts, the countdown and CW notifications. Shorter puts each sound nearer the moment it was asked for, so a countdown pip lands closer to its spoken number. If your computer is busy and the sounds crackle or break up, choose a longer one. It changes as soon as you press OK or Apply.", "delivery": null}
+  "audio.alert_buffer.help": {"text": "How much of JJ Flexible's own sound the computer queues ahead of the speakers: alerts, the countdown and CW notifications. Shorter puts each sound nearer the moment it was asked for, so a countdown pip lands closer to its spoken number. If your computer is busy and the sounds crackle or break up, choose a longer one. It changes as soon as you press OK or Apply.", "delivery": null},
+  "audio.check.power.dummy_load": {"text": "Dummy load, no RF", "delivery": null},
+  "audio.check.power.low_power": {"text": "Low power", "delivery": null},
+  "audio.check.power.refused_zero": {"text": "You can't use this audio check method at 0 power on this rig.", "delivery": null},
+  "audio.power.refused_zero": {"text": "You can't use 0 watts on this rig.", "delivery": null}
 }

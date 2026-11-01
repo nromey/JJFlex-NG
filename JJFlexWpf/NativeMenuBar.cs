@@ -2001,6 +2001,15 @@ public class NativeMenuBar : IDisposable
         AddChecked(parent, "Dummy &Load Mode", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
+            // Stays in the menu and says why (#859): a radio that cannot run at
+            // zero cannot use this mode, and the setter refuses it anyway.
+            // Turning it OFF is always the way out.
+            if (!Rig.DummyLoadMode && Radios.RadioPowerFloor.Applies(Rig.RadioModel))
+            {
+                EarconPlayer.LeaderInvalidTone();
+                SpeakAfterMenuClose(Radios.RadioPowerFloor.DummyLoadUnavailable);
+                return;
+            }
             // The operator's own command, carried out by the app (#571, Opus
             // N1 and R1): the setter zeroes the power under the app scope so
             // the receipt stays quiet, and THIS scope says the change is still

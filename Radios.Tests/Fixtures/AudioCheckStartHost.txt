@@ -4,6 +4,15 @@ using System.Threading.Tasks;
 using System.Threading;
 using Radios;
 
+// The real power rule (#859), reached through this file's own enums.
+public static class AudioCheckPowerRule
+{
+    public static AudioCheckPowerStep Plan(string model, AudioCheckListenMethods method, AudioCheckPowerModes mode,
+        int watts, int current, bool dummyLoad) => Radios.AudioCheckPowerRule.Plan(model,
+            Enum.Parse<Radios.AudioCheckListenMethods>(method.ToString()),
+            Enum.Parse<Radios.AudioCheckPowerModes>(mode.ToString()), watts, current, dummyLoad);
+}
+
 public class Host
 {
     private bool _loopbackStarting, _checkStarting, _iqBusy, _iqClosing;
@@ -36,6 +45,7 @@ public class Host
     // scenario that sets it holds the count open until it says.
     public TaskCompletionSource<bool> Countdown;
     public int CountdownsBegun, CountdownsEnded;
+    public System.Collections.Generic.List<Action> Restores = new();
     private void BeginStartCountdown(AudioCheckListenMethods method) { CountdownsBegun++; }
     private bool StartCountdownRunning => Countdown != null && !Countdown.Task.IsCompleted;
     private Task<bool> CountdownLetsKeyAsync() => Countdown?.Task ?? Task.FromResult(true);
@@ -47,6 +57,26 @@ public class Host
     {
         RecorderControls.Spoken = 0;
         var h = new Host();
+        // The power floor (#859), scenario "power:<model>:<method>:<mode>:<power>:<dummy load>":
+        // [power at the key, dummy load at the key (0 or 1), keys, power after the restores].
+        if (scenario.StartsWith("power:"))
+        {
+            string[] p = scenario.Split(':');
+            h._rig.RadioModel = p[1];
+            h._rig.XmitPower = int.Parse(p[4]);
+            if (p[5] == "1") h._rig.DummyLoadMode = true;
+            int atKey = -1, dummyAtKey = -1;
+            h.ptt.Keyed = () => { atKey = h._rig.XmitPower; dummyAtKey = h._rig.DummyLoadMode ? 1 : 0; };
+            var s = new AudioCheckSession(h, h._rig, h.ptt, Enum.Parse<AudioCheckListenMethods>(p[2]),
+                Enum.Parse<AudioCheckPowerModes>(p[3]), 10);
+            var pending = h.StartAudioCheckSessionAsync(s);
+            if (p[2] == nameof(AudioCheckListenMethods.RecordPlayback)) h._rig.Record.SetResult(new(true, "recorded", "slice"));
+            await pending;
+            // The operator releases their own dummy load before the check ends.
+            if (p.Length > 6) { h._rig.DummyLoadMode = false; h._rig.XmitPower = 42; }
+            foreach (var restore in h.Restores) restore();
+            return new[] { atKey, dummyAtKey, h.ptt.Keys, h._rig.XmitPower };
+        }
         // The countdown seam (#835, Track C): [keys while the count still
         // plays, keys at the end, 1 if a count was begun without being ended,
         // stale recorder speech].
@@ -163,7 +193,8 @@ public class Host
         { _owner=owner; _ptt=ptt; _method=method; _powerMode=powerMode; _lowPowerWatts=lowPowerWatts; _loopback=loopback; }
         private void RestoreChangedState(FlexBase rig, bool speak) { }
         private void RestoreWhenReceiving(FlexBase rig) { }
-        private void Remember(FlexBase rig, string name, Action restore, params CheckPutBack[] putBacks) { }
+        // What a scenario can run to see the restore, as the owner would.
+        private void Remember(FlexBase rig, string name, Action restore, params CheckPutBack[] putBacks) => _owner.Restores.Add(restore);
         private static string FormatMHz(double f) => f.ToString();
         private static string SourceFriendlyName(string s) => s;
         private void HandleUnkey(bool external) { _ptt.EscapeUnlock(); Active=false; _owner.OnSessionEnded(); }
@@ -182,7 +213,21 @@ public class FlexBase
     public string OffAirListenbackRefusalReason => "";
     public object CaptureListenbackRecoveryReader() => null;
     public Task<FakeRun> StartListenbackAsync(ListenbackOptions options, CancellationToken token) => OffAir.Task;
-    public bool LoopbackArranged, Transmit, DummyLoadMode, RemoteRig, LoopbackDriveManaged, TeardownInProgress;
+    public bool LoopbackArranged, Transmit, RemoteRig, LoopbackDriveManaged, TeardownInProgress;
+    private bool _dummy; private int _dummySaved;
+    public bool DummyLoadMode
+    {
+        get => _dummy;
+        set
+        {
+            if (value == _dummy) return;
+            _dummy = value;
+            if (value) { _dummySaved = _power; _power = 0; } else _power = _dummySaved;
+        }
+    }
+    public IDisposable ZeroWattException(AudioCheckListenMethods method) { ZeroWattAsked = method; return new Empty(); }
+    public AudioCheckListenMethods? ZeroWattAsked;
+    public string RadioModel = "FLEX-8600";
     private int _power=20;
     public Action PowerChanged;
     public int XmitPower { get => _power; set { _power=value; PowerChanged?.Invoke(); } }
@@ -208,8 +253,8 @@ public class FakeRun { public bool Stopped; public void OwnKeying(bool b) { }
     public Task StopAsync(string reason) { Stopped=true; return Task.CompletedTask; } }
 public record ListenbackOptions(int Rate, bool OffAir, bool HearSelfDuringOffAir);
 public static class EarconPlayer { public static void FeatureOnTone() { } }
-public class PttSafetyController { public bool IsTransmitting; public int Keys; public int? SessionTimeoutOverrideSeconds; public bool AudioCheckNarration; public int? PlannedStopSeconds;
-    public void ToggleLock() { Keys++; IsTransmitting=true; } public void EscapeUnlock() { IsTransmitting=false; } }
+public class PttSafetyController { public bool IsTransmitting; public int Keys; public int? SessionTimeoutOverrideSeconds; public bool AudioCheckNarration; public int? PlannedStopSeconds; public Action Keyed;
+    public void ToggleLock() { Keys++; IsTransmitting=true; Keyed?.Invoke(); } public void EscapeUnlock() { IsTransmitting=false; } }
 public enum AudioCheckListenMethods { Monitor, RecordPlayback, OffAir, MicTest, Loopback }
 public enum AudioCheckPowerModes { DummyLoad, LowPower }
 public enum VerbosityLevel { Terse, Critical }

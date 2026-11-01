@@ -1,0 +1,390 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Threading.Tasks;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Radios;
+using Xunit;
+
+namespace Radios.Tests;
+
+/// <summary>
+/// A radio that cannot run at zero watts (#859). Measured on the FLEX-6300, so
+/// the rule names that model; the FLEX-8600 records at zero and every other
+/// model is unmeasured, so nothing else may move. Test your microphone is the
+/// one deliberate exception, and it is pinned here so that nothing removes it
+/// by accident.
+/// </summary>
+[Collection(RadioConfigStaticsCollection.Name)]
+public sealed class RadioPowerFloorTests
+{
+    private const string Six = "FLEX-6300";
+    private const string Eight = "FLEX-8600";
+
+    private static AudioCheckPowerStep Plan(string model, AudioCheckPowerModes mode, int current, bool dummy,
+        AudioCheckListenMethods method = AudioCheckListenMethods.RecordPlayback, int low = 10) =>
+        AudioCheckPowerRule.Plan(model, method, mode, low, current, dummy);
+
+    private static AudioCheckPowerStep Sets(int watts) => new(AudioCheckPowerAct.SetPower, watts);
+    private static readonly AudioCheckPowerStep Leaves = new(AudioCheckPowerAct.None);
+    private static readonly AudioCheckPowerStep Engages = new(AudioCheckPowerAct.EngageDummyLoad);
+
+    // ── Dummy load, on a 6300 ───────────────────────────────────────────
+
+    [Theory]
+    [InlineData(100, 1)]    // lowers: the check runs AT a watt
+    [InlineData(2, 1)]
+    [InlineData(0, 1)]      // raises: a radio at zero
+    public void The_dummy_load_choice_runs_at_one_watt_on_a_6300(int current, int expected) =>
+        Assert.Equal(Sets(expected), Plan(Six, AudioCheckPowerModes.DummyLoad, current, false));
+
+    [Fact]
+    public void A_6300_already_at_one_watt_needs_nothing_changed() =>
+        Assert.Equal(Leaves, Plan(Six, AudioCheckPowerModes.DummyLoad, 1, false));
+
+    [Theory]
+    [InlineData(AudioCheckListenMethods.Monitor)]
+    [InlineData(AudioCheckListenMethods.RecordPlayback)]
+    public void Both_methods_that_obey_the_choice_take_the_floor(AudioCheckListenMethods method) =>
+        Assert.Equal(Sets(1), Plan(Six, AudioCheckPowerModes.DummyLoad, 50, false, method));
+
+    // ── The one deliberate exception (Noel, 2026-11-01 08:08) ───────────
+
+    [Fact]
+    public void Test_your_microphone_stays_at_zero_on_a_6300()
+    {
+        Assert.Equal(Engages, Plan(Six, AudioCheckPowerModes.DummyLoad, 50, false, AudioCheckListenMethods.MicTest));
+        Assert.Equal(Leaves, Plan(Six, AudioCheckPowerModes.DummyLoad, 0, true, AudioCheckListenMethods.MicTest));
+    }
+
+    [Fact]
+    public void Test_your_microphone_is_the_only_exception_there_is()
+    {
+        foreach (AudioCheckListenMethods method in Enum.GetValues<AudioCheckListenMethods>())
+            Assert.Equal(method == AudioCheckListenMethods.MicTest, RadioPowerFloor.IsZeroWattException(method));
+    }
+
+    [Theory]
+    [InlineData(false)]   // local
+    [InlineData(true)]    // SmartLink, the way a 6300 is often reached
+    public void Test_your_microphone_stays_offered_on_a_6300(bool remote) =>
+        Assert.Contains(AudioCheckListenMethods.MicTest, AudioCheckMethods.Offered(true, remote, "one-scu-not-confirmed", false));
+
+    // ── Low power, on a 6300 ────────────────────────────────────────────
+
+    [Fact]
+    public void A_6300_whose_own_power_is_zero_is_raised_for_low_power() =>
+        Assert.Equal(Sets(1), Plan(Six, AudioCheckPowerModes.LowPower, 0, false));
+
+    [Theory]
+    [InlineData(AudioCheckPowerModes.LowPower)]
+    [InlineData(AudioCheckPowerModes.DummyLoad)]
+    public void The_operators_own_dummy_load_does_not_silence_a_6300(AudioCheckPowerModes mode) =>
+        Assert.Equal(Sets(1), Plan(Six, mode, 0, true));
+
+    [Theory]
+    [InlineData(50, 10, 10)]   // still a cap above the floor
+    [InlineData(11, 10, 10)]
+    public void Low_power_is_still_a_cap_on_a_6300(int current, int low, int expected) =>
+        Assert.Equal(Sets(expected), Plan(Six, AudioCheckPowerModes.LowPower, current, false, low: low));
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(5)]
+    [InlineData(10)]
+    public void Low_power_never_raises_a_6300_that_is_already_above_zero(int current) =>
+        Assert.Equal(Leaves, Plan(Six, AudioCheckPowerModes.LowPower, current, false));
+
+    [Fact]
+    public void A_field_set_to_its_lowest_keeps_a_6300_at_one_watt() =>
+        Assert.Equal(Sets(1), Plan(Six, AudioCheckPowerModes.LowPower, 40, false, low: 1));
+
+    // ── Every other radio moves not at all ──────────────────────────────
+
+    [Theory]
+    [InlineData(Eight)]
+    [InlineData("FLEX-6400")]
+    [InlineData("FLEX-6600")]
+    [InlineData("AU-510")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void Any_other_radio_keeps_its_zero_and_its_cap(string model)
+    {
+        Assert.Equal(0, RadioPowerFloor.Watts(model));
+        Assert.Equal(Engages, Plan(model, AudioCheckPowerModes.DummyLoad, 50, false));
+        Assert.Equal(Leaves, Plan(model, AudioCheckPowerModes.DummyLoad, 0, true));
+        Assert.Equal(Leaves, Plan(model, AudioCheckPowerModes.LowPower, 0, false));   // only ever lowers
+        Assert.Equal(Leaves, Plan(model, AudioCheckPowerModes.LowPower, 0, true));
+        Assert.Equal(Leaves, Plan(model, AudioCheckPowerModes.LowPower, 50, true));   // cannot override the load
+        Assert.Equal(Sets(10), Plan(model, AudioCheckPowerModes.LowPower, 50, false));
+    }
+
+    [Theory]
+    [InlineData("flex-6300")]
+    [InlineData(" FLEX-6300 ")]
+    public void The_model_is_read_as_the_radio_spells_it(string model) =>
+        Assert.True(RadioPowerFloor.Applies(model));
+
+    // ── What the operator reads and hears ───────────────────────────────
+
+    [Fact]
+    public void A_6300_has_only_low_power_and_a_saved_dummy_load_shows_as_one_watt()
+    {
+        Assert.Equal(AudioCheckPowerModes.LowPower, AudioCheckPowerRule.ShownPowerMode(Six, AudioCheckPowerModes.DummyLoad));
+        Assert.Equal(1, AudioCheckPowerRule.ShownWatts(Six, AudioCheckPowerModes.DummyLoad, 10));
+        // A level the operator chose stands.
+        Assert.Equal(AudioCheckPowerModes.LowPower, AudioCheckPowerRule.ShownPowerMode(Six, AudioCheckPowerModes.LowPower));
+        Assert.Equal(25, AudioCheckPowerRule.ShownWatts(Six, AudioCheckPowerModes.LowPower, 25));
+    }
+
+    [Fact]
+    public void Any_other_radio_shows_what_was_saved()
+    {
+        Assert.Equal(AudioCheckPowerModes.DummyLoad, AudioCheckPowerRule.ShownPowerMode(Eight, AudioCheckPowerModes.DummyLoad));
+        Assert.Equal(10, AudioCheckPowerRule.ShownWatts(Eight, AudioCheckPowerModes.DummyLoad, 10));
+        Assert.Equal(1, AudioCheckPowerRule.ShownWatts(Eight, AudioCheckPowerModes.LowPower, 0));   // the field's own clamp
+    }
+
+    [Fact]
+    public void A_typed_zero_is_refused_on_a_6300_and_says_this_rig()
+    {
+        Assert.Equal("You can't use this audio check method at 0 power on this rig.", AudioCheckPowerRule.TypedWattsRefusal(Six, 0));
+        Assert.Null(AudioCheckPowerRule.TypedWattsRefusal(Six, 1));
+        Assert.Null(AudioCheckPowerRule.TypedWattsRefusal(Eight, 0));   // clamps to 1, as it always has
+        Assert.Equal("You can't use 0 watts on this rig.", RadioPowerFloor.TypedPowerRefusal(Six, 0));
+        Assert.Null(RadioPowerFloor.TypedPowerRefusal(Six, 1));
+        Assert.Null(RadioPowerFloor.TypedPowerRefusal(Eight, 0));
+    }
+
+    [Fact]
+    public void Nothing_said_about_this_names_the_model()
+    {
+        foreach (string text in new[]
+        {
+            AudioCheckPowerRule.TypedWattsRefusal(Six, 0), RadioPowerFloor.TypedPowerRefusal(Six, 0),
+            RadioPowerFloor.DummyLoadUnavailable,
+        })
+        {
+            Assert.DoesNotContain("6300", text);
+            Assert.Contains("this rig", text);
+        }
+    }
+
+    // ── What a press does to a power field ──────────────────────────────
+
+    [Theory]
+    [InlineData(5, -1, 4)]
+    [InlineData(5, -10, 1)]   // Page Down stops at the floor
+    [InlineData(1, -1, 1)]    // at the floor
+    [InlineData(0, -1, 0)]    // the radio reads zero: Down writes nothing
+    [InlineData(0, -10, 0)]
+    [InlineData(0, 1, 1)]     // Up leaves zero behind
+    [InlineData(0, 5, 5)]
+    [InlineData(99, 5, 100)]
+    public void Presses_on_a_power_field_with_a_floor(int value, int delta, int expected) =>
+        Assert.Equal(expected, ValueFieldRules.Adjusted(value, delta, 0, 100, 1));
+
+    [Theory]
+    [InlineData(1, -1, 0)]
+    [InlineData(0, -1, 0)]
+    public void Without_a_floor_a_field_goes_to_its_minimum(int value, int delta, int expected) =>
+        Assert.Equal(expected, ValueFieldRules.Adjusted(value, delta, 0, 100, 0));
+
+    // ── The rig ─────────────────────────────────────────────────────────
+
+    private static FlexBase RigOf(string model)
+    {
+        var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+        const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
+        var radio = (Flex.Smoothlake.FlexLib.Radio)Activator.CreateInstance(
+            typeof(Flex.Smoothlake.FlexLib.Radio), Private, binder: null, args: new object[] { false }, culture: null)!;
+        typeof(Flex.Smoothlake.FlexLib.Radio).GetField("_model", Private)!.SetValue(radio, model);
+        rig.theRadio = radio;
+        return rig;
+    }
+
+    private static void Done(FlexBase rig) { rig.theRadio = null; try { rig.Dispose(); } catch { } }
+
+    [Fact]
+    public void Dummy_load_mode_refuses_to_set_on_a_6300_and_on_no_other_radio()
+    {
+        var six = RigOf(Six);
+        var eight = RigOf(Eight);
+        try
+        {
+            six.DummyLoadMode = true;
+            Assert.False(six.DummyLoadMode);
+            eight.DummyLoadMode = true;      // positive control: the setter is reachable
+            Assert.True(eight.DummyLoadMode);
+        }
+        finally { Done(six); Done(eight); }
+    }
+
+    [Fact]
+    public void Only_Test_your_microphone_gets_through_the_refusal()
+    {
+        foreach (AudioCheckListenMethods method in Enum.GetValues<AudioCheckListenMethods>())
+        {
+            var rig = RigOf(Six);
+            try
+            {
+                using (rig.ZeroWattException(method)) rig.DummyLoadMode = true;
+                Assert.Equal(method == AudioCheckListenMethods.MicTest, rig.DummyLoadMode);
+                // The way through closes behind it.
+                rig.DummyLoadMode = false;
+                rig.DummyLoadMode = true;
+                Assert.False(rig.DummyLoadMode);
+            }
+            finally { Done(rig); }
+        }
+    }
+
+    [Fact]
+    public void A_6300_says_why_dummy_load_mode_is_missing_and_no_other_radio_mentions_it()
+    {
+        var six = RigOf(Six);
+        var eight = RigOf(Eight);
+        try
+        {
+            Assert.Contains("Dummy load mode: unavailable - Dummy load mode isn't available on this rig.", six.BuildFeatureAvailabilityText());
+            Assert.DoesNotContain("Dummy load", eight.BuildFeatureAvailabilityText());
+        }
+        finally { Done(six); Done(eight); }
+    }
+
+    [Fact]
+    public void The_way_through_has_one_caller()
+    {
+        var callers = Directory.GetFiles(IntegrationPassTree.Root, "*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar)
+                     && !f.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar)
+                     && !f.EndsWith("Tests.cs", StringComparison.Ordinal))
+            .Where(f => File.ReadAllText(f).Contains(".ZeroWattException("))
+            .Select(Path.GetFileName).ToArray();
+        Assert.Equal(new[] { "CheckYourAudioDialog.Check.cs" }, callers);
+    }
+
+    [Fact]
+    public void The_menu_keeps_the_item_and_says_why()
+    {
+        string menu = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "NativeMenuBar.cs"));
+        int item = menu.IndexOf("\"Dummy &Load Mode\"", StringComparison.Ordinal);
+        int asks = menu.IndexOf("Radios.RadioPowerFloor.Applies(Rig.RadioModel)", item, StringComparison.Ordinal);
+        int says = menu.IndexOf("SpeakAfterMenuClose(Radios.RadioPowerFloor.DummyLoadUnavailable);", item, StringComparison.Ordinal);
+        int write = menu.IndexOf("Rig.DummyLoadMode = !Rig.DummyLoadMode;", item, StringComparison.Ordinal);
+        Assert.True(item > 0 && asks > item && says > asks && write > says, "the menu must answer before it writes");
+    }
+
+    [Theory]
+    [InlineData("JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs", "PowerFieldFloor.Apply(_txPowerControl, () => _rig, () => !_txPowerXvtrMode);")]
+    [InlineData("JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs", "PowerFieldFloor.Apply(_tunePowerControl, () => _rig);")]
+    [InlineData("JJFlexWpf/Dialogs/PowerDialog.xaml.cs", "PowerFieldFloor.Apply(RfPowerField, () => _rig, () => !_xvtrMode);")]
+    [InlineData("JJFlexWpf/Dialogs/PowerDialog.xaml.cs", "PowerFieldFloor.Apply(TunePowerField, () => _rig);")]
+    public void Every_live_power_field_takes_the_floor(string file, string line) =>
+        Assert.Contains(line, File.ReadAllText(Path.Combine(IntegrationPassTree.Root, file)));
+
+    // ── The field, read from its source: it cannot be built on a live desk ──
+
+    [Fact]
+    public void A_refused_entry_leaves_before_the_clamp_and_keeps_the_value()
+    {
+        string src = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Controls", "ValueFieldControl.xaml.cs"));
+        int method = src.IndexOf("private void ConfirmNumberEntry()", StringComparison.Ordinal);
+        int asked = src.IndexOf("TypedValueRefusal?.Invoke(val)", method, StringComparison.Ordinal);
+        int clamp = src.IndexOf("val = Math.Clamp(val, _min, _max);", method, StringComparison.Ordinal);
+        int taken = src.IndexOf("_value = val;", method, StringComparison.Ordinal);
+        Assert.True(asked > 0 && asked < clamp && clamp < taken, "the refusal must be asked before the clamp and the value");
+        string refused = src.Substring(asked, clamp - asked);
+        Assert.Contains("RejectEntryKey(refusal);", refused);
+        Assert.Contains("return;", refused);
+        Assert.DoesNotContain("ValueChanged", refused);   // nothing saved
+    }
+
+    [Fact]
+    public void The_watts_field_asks_the_rule_and_a_loaded_choice_cannot_save_itself()
+    {
+        string check = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.Check.cs"));
+        Assert.Contains("_checkWattsControl.TypedValueRefusal = typed => AudioCheckPowerRule.TypedWattsRefusal(_rig?.RadioModel, typed);", check);
+        int load = check.IndexOf("private void LoadPerRadioPrefs()", StringComparison.Ordinal);
+        int shown = check.IndexOf("AudioCheckPowerRule.ShownPowerMode(_rig.RadioModel, _radioCfg.AudioCheckPowerMode)", load, StringComparison.Ordinal);
+        Assert.True(shown > load);
+        // Set between the two SuppressEvents, so the load writes nothing back.
+        Assert.Contains("_checkPowerControl.SuppressEvents = true;", check.Substring(load, shown - load));
+    }
+
+    [Fact]
+    public void A_transverter_field_is_dBm_and_keeps_its_zero()
+    {
+        string src = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Controls", "PowerFieldFloor.cs"));
+        Assert.Contains("inWatts?.Invoke() == false ? int.MinValue :", src);
+        Assert.Matches(@"TypedValueRefusal = typed => inWatts\?\.Invoke\(\) == false\s+\? null :", src);
+    }
+
+    // ── The session itself: the real StartAsync against the inert host ──
+
+    [Theory]
+    // model, method, mode, power, operator's dummy load -> at the key, dummy at the key, power after restores
+    [InlineData(Six, "RecordPlayback", "DummyLoad", 50, false, 1, 0, 50)]
+    [InlineData(Six, "Monitor", "DummyLoad", 50, false, 1, 0, 50)]
+    [InlineData(Six, "RecordPlayback", "LowPower", 0, false, 1, 0, 0)]
+    [InlineData(Six, "RecordPlayback", "LowPower", 50, false, 10, 0, 50)]
+    [InlineData(Six, "RecordPlayback", "LowPower", 5, false, 5, 0, 5)]
+    [InlineData(Six, "RecordPlayback", "LowPower", 0, true, 1, 1, 0)]
+    [InlineData(Six, "RecordPlayback", "DummyLoad", 0, true, 1, 1, 0)]
+    [InlineData(Six, "MicTest", "DummyLoad", 50, false, 0, 1, 50)]   // the exception: rides the dummy load, and comes back
+    public async Task A_check_on_a_6300_keys_where_the_rule_says_and_every_power_comes_back(string model, string method, string mode,
+        int power, bool dummy, int atKey, int dummyAtKey, int after)
+    {
+        int[] r = await Run($"power:{model}:{method}:{mode}:{power}:{(dummy ? 1 : 0)}");
+        Assert.Equal(new[] { atKey, dummyAtKey, 1, after }, r);
+    }
+
+    [Theory]
+    [InlineData(Eight, "RecordPlayback", "DummyLoad", 50, false, 0)]
+    [InlineData(Eight, "RecordPlayback", "LowPower", 0, false, 0)]
+    public async Task Zero_stays_zero_where_the_ruling_leaves_it(string model, string method, string mode, int power, bool dummy, int atKey)
+    {
+        int[] r = await Run($"power:{model}:{method}:{mode}:{power}:{(dummy ? 1 : 0)}");
+        Assert.Equal(atKey, r[0]);
+        Assert.Equal(1, r[2]);   // positive control: it keyed
+    }
+
+    [Fact]
+    public async Task An_operator_who_releases_their_dummy_load_during_the_check_keeps_their_power()
+    {
+        // The dummy load's release has already written their power back; the
+        // zero the check saved must not overwrite it.
+        int[] r = await Run($"power:{Six}:RecordPlayback:LowPower:0:1:release");
+        Assert.Equal(1, r[0]);
+        Assert.Equal(42, r[3]);
+    }
+
+    private static async Task<int[]> Run(string scenario)
+    {
+        var source = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.Check.cs"));
+        var tree = CSharpSyntaxTree.ParseText(source).GetRoot();
+        string Method(string name) => tree.DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(m => m.Identifier.Text == name).ToFullString();
+        string host = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "AudioCheckStartHost.txt"));
+        foreach (var name in new[] { "StartLoopbackCheckAsync", "StartAudioCheckSessionAsync", "StartAsync", "StopCheck" })
+            host = host.Replace("/*" + name + "*/", Method(name));
+        var offAir = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(IntegrationPassTree.Root,
+            "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.OffAir.cs"))).GetRoot().DescendantNodes()
+            .OfType<MethodDeclarationSyntax>().Single(m => m.Identifier.Text == "StartOffAirAsync").ToFullString();
+        host = host.Replace("/*StartOffAirAsync*/", offAir);
+        var refs = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
+            .Select(x => MetadataReference.CreateFromFile(x)).ToList();
+        refs.Add(MetadataReference.CreateFromFile(typeof(FlexBase).Assembly.Location));
+        var compilation = CSharpCompilation.Create("PowerFloor_" + Guid.NewGuid().ToString("N"),
+            new[] { CSharpSyntaxTree.ParseText(host) }, refs,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        using var output = new MemoryStream();
+        var emitted = compilation.Emit(output);
+        Assert.True(emitted.Success, string.Join("\n", emitted.Diagnostics.Where(x => x.Severity == DiagnosticSeverity.Error)));
+        var assembly = Assembly.Load(output.ToArray());
+        return await (Task<int[]>)assembly.GetType("Host")!.GetMethod("Run")!.Invoke(null, new object[] { scenario })!;
+    }
+}

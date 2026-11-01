@@ -133,6 +133,25 @@ public partial class ValueFieldControl : UserControl
     private string UnitSuffix => string.IsNullOrEmpty(Unit) ? "" : " " + Unit;
 
     /// <summary>
+    /// The lowest value an OPERATOR can reach, asked at each press; null is the
+    /// field's minimum. It can sit above <see cref="Min"/> so the field can
+    /// still show what a radio reports below it: <see cref="Value"/> clamps to
+    /// Min, not to this, and nothing here writes to the radio because of what
+    /// it reads.
+    /// </summary>
+    public Func<int>? OperatorFloor { get; set; }
+
+    private int LowestForOperator => Math.Max(_min, OperatorFloor?.Invoke() ?? _min);
+
+    /// <summary>
+    /// Asked about a typed value before it is clamped: return a sentence to
+    /// refuse the value, or null to take it. A refused entry is said aloud and
+    /// the field keeps the value it had. Null, the default, is what every field
+    /// has always done: a value past either end clamps to that end.
+    /// </summary>
+    public Func<int, string?>? TypedValueRefusal { get; set; }
+
+    /// <summary>
     /// Set to true during poll updates to suppress ValueChanged events and speech.
     /// </summary>
     public bool SuppressEvents
@@ -225,7 +244,7 @@ public partial class ValueFieldControl : UserControl
                 break;
 
             case Key.Home:
-                SetValue(_min);
+                SetValue(LowestForOperator);
                 e.Handled = true;
                 break;
 
@@ -478,6 +497,16 @@ public partial class ValueFieldControl : UserControl
         if (parsed)
         {
             if (_numberNegative) val = -val;
+            string? refusal = TypedValueRefusal?.Invoke(val);
+            if (refusal != null)
+            {
+                EndEntryEchoes("the entry being refused");
+                RejectEntryKey(refusal);
+                UpdateDisplay();
+                _numberBuffer = "";
+                _numberNegative = false;
+                return;
+            }
             val = Math.Clamp(val, _min, _max);
             _value = val;
             UpdateDisplay();
@@ -524,7 +553,7 @@ public partial class ValueFieldControl : UserControl
 
     private void AdjustValue(int delta)
     {
-        int newValue = Math.Clamp(_value + delta, _min, _max);
+        int newValue = ValueFieldRules.Adjusted(_value, delta, _min, _max, LowestForOperator);
 
         if (newValue == _value)
         {
@@ -552,7 +581,7 @@ public partial class ValueFieldControl : UserControl
 
     private void SetValue(int newValue)
     {
-        newValue = Math.Clamp(newValue, _min, _max);
+        newValue = Math.Clamp(newValue, LowestForOperator, _max);
         if (newValue == _value)
         {
             if (!_suppressEvents) EndStop();
@@ -643,7 +672,7 @@ public partial class ValueFieldControl : UserControl
         if ((now - _lastEndStop).TotalMilliseconds < EndStopThrottleMs) return;
         _lastEndStop = now;
 
-        EarconPlayer.Beep(_value <= _min ? EndStopLowHz : EndStopHighHz, EndStopMs);
+        EarconPlayer.Beep(_value <= LowestForOperator ? EndStopLowHz : EndStopHighHz, EndStopMs);
     }
 
     /// <summary>
@@ -682,9 +711,10 @@ public partial class ValueFieldControl : UserControl
         // operator can read back, and the end-stop wording is exactly the kind
         // of thing worth being able to change.
         string key = "audio.field.spoken_value";
-        if (atLimit || _value <= _min || _value >= _max)
+        int lowest = LowestForOperator;
+        if (atLimit || _value <= lowest || _value >= _max)
         {
-            key = _value <= _min
+            key = _value <= lowest
                 ? "audio.field.spoken_value_minimum"
                 : "audio.field.spoken_value_maximum";
         }

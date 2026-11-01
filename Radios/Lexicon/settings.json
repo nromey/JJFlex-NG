@@ -211,6 +211,7 @@
   "settings.diversity.unavailable_fallback": "Diversity is not available on this radio right now.",
   "settings.dummy_load.off": "Dummy load mode off. Power restored to {power}.",
   "settings.dummy_load.on": "Dummy load mode on. Power zero.",
+  "settings.dummy_load.unavailable": {"text": "Dummy load mode isn't available on this rig. It runs at 0 watts, and this rig can't use 0 watts.", "delivery": null},
   "settings.esc.available_reopen": "Enhanced Signal Clarity is available — reopen this menu.",
   "settings.field_panel.hidden": "Field panel hidden",
   "settings.field_panel.shown": "Field panel shown",

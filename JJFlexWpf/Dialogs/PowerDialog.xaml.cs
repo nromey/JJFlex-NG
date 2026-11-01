@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Windows.Threading;
+using JJFlexWpf.Controls;
 using Radios;
 
 namespace JJFlexWpf.Dialogs;
@@ -43,6 +44,11 @@ public partial class PowerDialog : JJFlexDialog
         JJFlexHelp.SetNoteFor(RangeText, RfPowerField);
         JJFlexHelp.SetNoteFor(HeaderText, TunePowerField);
         JJFlexHelp.SetNoteFor(RangeText, TunePowerField);
+
+        // A radio that cannot run at zero (#859), in watts only: on the
+        // transverter port the same field is dBm, where zero is ordinary.
+        PowerFieldFloor.Apply(RfPowerField, () => _rig, () => !_xvtrMode);
+        PowerFieldFloor.Apply(TunePowerField, () => _rig);
 
         ConfigureForCurrentMode();
 
