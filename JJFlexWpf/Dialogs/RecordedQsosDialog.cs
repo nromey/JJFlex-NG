@@ -682,6 +682,11 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         // A paused preview carries on the way a press now would go (Noel,
         // 2026-10-30 05:56: "If you've paused and you turn send on, say you
         // didn't realize you did, it should send"). A playing one still pauses.
+        // A paused preview stays paused while a send takes over from it, up to
+        // the send's last step (#860). So with both in hand the send takes the
+        // press, as a Play does everywhere else: it pauses, and the preview
+        // stays where it is.
+        if (previewPaused && computerSendInHand) return EnterAct.AnswerSend;
         if (previewActive)
             return previewPaused && route is SendRoute.Box or SendRoute.JoinTransmission
                 ? EnterAct.SendFromPause : EnterAct.PreviewTransport;
