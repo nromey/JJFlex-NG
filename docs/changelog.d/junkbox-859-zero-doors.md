@@ -1,0 +1,2 @@
+- On a rig that goes silent at 0 watts, a press that would key now tells you so when the radio really reads 0, however it got there: push to talk, the lock, message keys, sends, and tune and the antenna tuner, which read your tune power. Recording a slice is refused the same way while the radio is already transmitting at 0. The tone and the sentence follow your sound and verbosity settings, and the rig's power is left alone.
+- The refusals while tune is on now follow your sound and verbosity settings too.
