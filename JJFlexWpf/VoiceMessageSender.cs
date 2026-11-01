@@ -359,6 +359,10 @@ internal static class VoiceMessageSender
             return;
         }
 
+        // A rig reading 0 watts (#859): wherever the hold asks, this asks, on
+        // the same condition. It speaks for itself.
+        if (ZeroPowerDoors.RefuseTransmit(rig, "a message key")) return;
+
         if (rig.TxToneEngaged)
         {
             Refuse(info, Lexicon.Get("audio.reference.tone_already_armed"));
@@ -727,6 +731,8 @@ internal static class VoiceMessageSender
                 TraceLevel.Info);
             return false;
         }
+        // The same for a rig reading 0 watts (#859).
+        if (route == SendRoute.Box && ZeroPowerDoors.RefuseTransmit(rig, "a recording send")) return false;
         return true;
     }
 
@@ -854,6 +860,14 @@ internal static class VoiceMessageSender
         if (ptt != null && ptt.RefuseIfHeldAfterCut("a send"))
         {
             pause.Dispose();
+            return false;
+        }
+        // The rig went to 0 watts while VOX was pausing (#859). As for a tune
+        // here, a send that was carrying on keeps its paused place.
+        if (ZeroPowerDoors.RefuseTransmit(rig, "a send"))
+        {
+            pause.Dispose();
+            KeepPausedPlace(info);
             return false;
         }
 
@@ -1117,6 +1131,9 @@ internal static class VoiceMessageSender
         // stays paused.
         if (way != ResumeWay.Join && ptt != null && ptt.RefuseIfHeldAfterCut("a send carrying on"))
             return;
+        // The same for a rig reading 0 watts (#859); it speaks, and the send stays paused.
+        if (way != ResumeWay.Join && ZeroPowerDoors.RefuseTransmit(rig, "a send carrying on"))
+            return;
         if (rig.TxToneEngaged)
         {
             RefuseOrHold(info, Lexicon.Get("audio.reference.tone_already_armed"));
@@ -1187,13 +1204,17 @@ internal static class VoiceMessageSender
     /// </summary>
     private static void RefuseUnderTune(SendInfo info)
     {
-        if (info.Session.State == SendSessionState.Paused)
-        {
-            info.Resuming = false;
-            _paused = info;
-            EnsureTimer();
-        }
+        KeepPausedPlace(info);
         TuneDoors.RefuseSend();
+    }
+
+    /// <summary>A send turned away after a door let it through: if it was carrying on, it goes back to its paused place.</summary>
+    private static void KeepPausedPlace(SendInfo info)
+    {
+        if (info.Session.State != SendSessionState.Paused) return;
+        info.Resuming = false;
+        _paused = info;
+        EnsureTimer();
     }
 
     /// <summary>The radio went away while a send was paused: the send ends (#835).</summary>

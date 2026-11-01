@@ -3980,6 +3980,8 @@ public class KeyCommands
                     _context.Trace("SendCWMessage: the message key \"" + label + "\" was refused by the hold after the reflected-power cut; nothing sent, shown or said as sending");
                     break;
                 }
+                // A rig reading 0 watts (#859), asked here for the same reason.
+                if (ZeroPowerDoors.RefuseTransmit(rig, "a CW message")) break;
                 string msg = item.Message;
                 if (msg.Length > 0 && msg[^1] != ' ')
                     msg += " ";
