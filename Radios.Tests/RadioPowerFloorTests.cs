@@ -553,6 +553,60 @@ public sealed class RadioPowerFloorTests
     }
 
     [Fact]
+    public void A_radio_at_zero_with_no_profile_is_believed_after_the_window()
+    {
+        var rig = WiredRig();
+        long now = 500_000;
+        rig.PowerReportClock = () => now;
+        try
+        {
+            Status(rig, "rfpower=0 tunepower=0");
+            now += FlexBase.PlaceholderWindowMs - 1;
+            Status(rig, "rfpower=0 tunepower=0");      // a later report does not restart it
+            Assert.False(rig.CheckPowersReported);     // the positive control: still held off
+            now += 1;
+            Assert.True(rig.CheckPowersReported);
+        }
+        finally { Done(rig); }
+    }
+
+    [Fact]
+    public void The_window_is_longer_than_any_connect_read() =>
+        Assert.True(FlexBase.PlaceholderWindowMs > 3343);
+
+    [Fact]
+    public void Nothing_opens_the_window_but_a_report_from_the_radio()
+    {
+        var rig = WiredRig();
+        long now = 500_000;
+        rig.PowerReportClock = () => now;
+        try
+        {
+            now += FlexBase.PlaceholderWindowMs * 2;   // no report at all
+            Assert.False(rig.CheckPowersReported);
+        }
+        finally { Done(rig); }
+    }
+
+    [Fact]
+    public void A_new_connection_starts_its_window_again()
+    {
+        var rig = WiredRig();
+        long now = 500_000;
+        rig.PowerReportClock = () => now;
+        try
+        {
+            Status(rig, "rfpower=0 tunepower=0");
+            now += FlexBase.PlaceholderWindowMs;
+            Assert.True(rig.CheckPowersReported);
+            typeof(FlexBase).GetMethod("ForgetPowerReports", Flags)!.Invoke(rig, null);
+            Status(rig, "rfpower=0 tunepower=0");      // the new connection's placeholder
+            Assert.False(rig.CheckPowersReported);
+        }
+        finally { Done(rig); }
+    }
+
+    [Fact]
     public void A_new_connection_starts_from_nothing_on_the_same_rig()
     {
         var rig = WiredRig();

@@ -37,13 +37,46 @@ namespace Radios
     /// a dummy load saves both.
     /// </para>
     /// <para>
-    /// A radio at zero with no transmit profile selected would stay unreported.
-    /// That refuses a check, which is the safe side, and it has not been seen.
+    /// <b>The profile selection is not guaranteed, so time also closes it.</b> A
+    /// radio at zero with no transmit profile selected would otherwise be
+    /// refused for good, and FlexLib raises no event when a reconnect reports the
+    /// selection it already holds. So a zero also counts
+    /// <see cref="PlaceholderWindowMs"/> after the first report. Nothing else
+    /// waits for this: it is read when a check asks.
     /// </para>
     /// </remarks>
     public partial class FlexBase
     {
+        /// <summary>
+        /// How long a zero stays a possible placeholder. The longest gap read
+        /// from first report to real report is 3.3 seconds, over fifteen
+        /// connects, most of them under 1.9. Three times that, because a slow
+        /// SmartLink path is the one that would run long. It costs only a wait
+        /// on a radio at zero with no profile selected. A real report later than
+        /// this would be saved as a zero.
+        /// </summary>
+        public const int PlaceholderWindowMs = 10_000;
+
         [ThreadStatic] private static int _ourPowerWrites;
+
+        // Zero means none yet; TickCount64 is not zero on a running machine.
+        private long _firstPowerReportMs;
+
+        /// <summary>The clock the window is timed by. For tests.</summary>
+        internal Func<long> PowerReportClock { get; set; } = () => Environment.TickCount64;
+
+        private void NoteFirstPowerReport() =>
+            System.Threading.Interlocked.CompareExchange(ref _firstPowerReportMs, PowerReportClock(), 0);
+
+        private bool ZeroCanBeBelieved
+        {
+            get
+            {
+                if (_transmitProfileHeard) return true;
+                long first = System.Threading.Interlocked.Read(ref _firstPowerReportMs);
+                return first != 0 && PowerReportClock() - first >= PlaceholderWindowMs;
+            }
+        }
 
         private volatile bool _rfPowerHeard, _rfPowerSeenNonZero;
         private volatile bool _tunePowerHeard, _tunePowerSeenNonZero;
@@ -61,6 +94,7 @@ namespace Radios
         private void NoteRfPowerEvent(int value)
         {
             if (_ourPowerWrites > 0) return;
+            NoteFirstPowerReport();
             _rfPowerHeard = true;
             if (value != 0) _rfPowerSeenNonZero = true;
         }
@@ -68,6 +102,7 @@ namespace Radios
         private void NoteTunePowerEvent(int value)
         {
             if (_ourPowerWrites > 0) return;
+            NoteFirstPowerReport();
             _tunePowerHeard = true;
             if (value != 0) _tunePowerSeenNonZero = true;
         }
@@ -82,6 +117,7 @@ namespace Radios
             _rfPowerHeard = _rfPowerSeenNonZero = false;
             _tunePowerHeard = _tunePowerSeenNonZero = false;
             _transmitProfileHeard = false;
+            System.Threading.Interlocked.Exchange(ref _firstPowerReportMs, 0);
         }
 
         /// <summary>
@@ -89,10 +125,10 @@ namespace Radios
         /// <see cref="XmitPower"/> is a reading. Nothing may save the value as a
         /// prior, or act on it being zero, until this is true.
         /// </summary>
-        public bool TransmitPowerReported => _rfPowerHeard && (_rfPowerSeenNonZero || _transmitProfileHeard);
+        public bool TransmitPowerReported => _rfPowerHeard && (_rfPowerSeenNonZero || ZeroCanBeBelieved);
 
         /// <summary>The same for <see cref="TunePower"/>.</summary>
-        public bool TunePowerReported => _tunePowerHeard && (_tunePowerSeenNonZero || _transmitProfileHeard);
+        public bool TunePowerReported => _tunePowerHeard && (_tunePowerSeenNonZero || ZeroCanBeBelieved);
 
         /// <summary>Everything a check can save to put back is a reading.</summary>
         public bool CheckPowersReported => TransmitPowerReported && TunePowerReported;
