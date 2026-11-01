@@ -123,6 +123,7 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
                         <controls:DecorativeText Grid.Row="0" Grid.Column="0"
@@ -159,6 +160,14 @@
                         <TextBox x:Name="PttAlcBox" Grid.Row="4" Grid.Column="1"
                                  Style="{StaticResource DialogTextBox}"
                                  AutomationProperties.Name="ALC auto-release seconds, 0 to disable or 10 to 300"/>
+
+                        <!-- The tune reminder (#860). DRAFT PROSE: awaiting Noel. -->
+                        <controls:DecorativeText Grid.Row="5" Grid.Column="0"
+                                   Text="Tune reminder (seconds):"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <TextBox x:Name="PttTuneReminderBox" Grid.Row="5" Grid.Column="1"
+                                 Style="{StaticResource DialogTextBox}"
+                                 AutomationProperties.Name="Tune reminder in seconds, 10 to 1800"/>
                     </Grid>
 
                     <CheckBox x:Name="PttSpeechCheckbox"

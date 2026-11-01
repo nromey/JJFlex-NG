@@ -330,6 +330,7 @@ public partial class MainWindow : UserControl
         // Escape; anywhere else, Escape while it transmits stops it.
         DialogTransmitKeys.WindowHandlesCheckEscape = w => w is Dialogs.CheckYourAudioDialog;
         DialogTransmitKeys.CheckEscapeElsewhere = Dialogs.CheckYourAudioDialog.StopTransmittingCheckFromElsewhere;
+        StartTuneReminder();
         try
         {
             var systemWide = Radios.SystemWideKeysConfig.Load(Radios.RadioConfig.AppDataRoot);
@@ -6601,6 +6602,52 @@ public partial class MainWindow : UserControl
     {
         StopTuneAnswerWatch();
         Radios.ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.TuneNotKeyed, why);
+    }
+
+    private DispatcherTimer? _tuneReminderTimer;
+    private readonly Radios.TuneReminderClock _tuneReminderClock = new();
+
+    /// <summary>
+    /// Tell the operator a tune carrier is still up (#860). Its own timer, not
+    /// the status poll: that one stops with the connection, which is one of the
+    /// moments this has to notice. Speech and a tone only; nothing here touches
+    /// the carrier, which stays unheld by Noel's ruling of 2026-10-22.
+    /// </summary>
+    private void StartTuneReminder()
+    {
+        _tuneReminderTimer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher)
+        {
+            Interval = TimeSpan.FromSeconds(1),
+        };
+        _tuneReminderTimer.Tick += (_, _) => TuneReminderTick();
+        _tuneReminderTimer.Start();
+    }
+
+    private void TuneReminderTick()
+    {
+        FlexBase? rig = RigControl;
+        bool up = false;
+        // Asked of the radio every tick: however tune goes off, this sees it.
+        // Unreadable reads as down, because this only ever adds a sentence.
+        try { up = !_isClosing && rig != null && rig.IsConnected && rig.TuneCarrierUp; }
+        catch (Exception ex) { Tracing.TraceLine("TuneReminder: " + ex.Message, TraceLevel.Warning); }
+
+        // A carrier raised by the Fix tool or a transmit check is armed on the
+        // kill switch for its whole life, and only such a carrier is
+        // (TransmitKillSwitch.RaiseCarrier refuses otherwise).
+        int seconds = CurrentPttConfig?.TuneReminderSeconds ?? new PttConfig().TuneReminderSeconds;
+        switch (_tuneReminderClock.Tick(up, Radios.TransmitKillSwitch.Armed, Environment.TickCount64, seconds))
+        {
+            case Radios.TuneReminderStep.Remind:
+                Tracing.TraceLine("TuneReminder: the carrier has been up another " + seconds + " s", TraceLevel.Info);
+                EarconPlayer.Warning1Beep();
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.still_on"), Radios.Speech.SpeechIntent.Queue,
+                    VerbosityLevel.Critical, subject: Radios.Speech.SpeechSubject.TuneStillOn);
+                break;
+            case Radios.TuneReminderStep.Over:
+                Radios.ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.TuneStillOn, "the tune carrier going off");
+                break;
+        }
     }
 
     /// <summary>

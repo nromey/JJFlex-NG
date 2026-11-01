@@ -1,0 +1,1 @@
+- Tune no longer stays on quietly. After 25 seconds you hear a tone and "Tune is still on", and again every 25 seconds while it stays up. Your carrier is left alone, and if you tune up a tube amp for a long stretch, you can stretch the reminder to half an hour on the PTT page in Settings.

@@ -13,6 +13,40 @@ namespace Radios
         private volatile bool _txAllowedReported;
 
         /// <summary>
+        /// This client's tune carrier is up, by the radio's own report (#860).
+        /// A carrier another client holds is not ours to speak for. Read-only,
+        /// and safe with no radio.
+        /// </summary>
+        public bool TuneCarrierUp
+        {
+            get
+            {
+                Radio radio = theRadio;
+                return radio != null && radio.TXTune && TransmitIsOurs(radio);
+            }
+        }
+
+        /// <summary>
+        /// A tune carrier or an ATU cycle is up here: the air carries a plain
+        /// carrier, so nothing can modulate it (#860).
+        /// </summary>
+        public bool TuningNow
+        {
+            get
+            {
+                Radio radio = theRadio;
+                return radio != null && TransmitIsOurs(radio)
+                    && (radio.TXTune || radio.ATUTuneStatus == ATUTuneStatus.InProgress);
+            }
+        }
+
+        private bool TransmitIsOurs(Radio radio)
+        {
+            uint txClient = radio.TXClientHandle;
+            return txClient == 0 || txClient == clientHandle;
+        }
+
+        /// <summary>
         /// The radio's own word on transmitting right now. Read-only: nothing
         /// here is a command and nothing here gates one.
         /// </summary>

@@ -58,6 +58,23 @@ namespace Radios
         /// </summary>
         public int AlcAutoReleaseSeconds { get; set; } = 60;
 
+        /// <summary>The shortest tune reminder: a quick tune must never hear it.</summary>
+        public const int TuneReminderMinSeconds = 10;
+
+        /// <summary>
+        /// The longest tune reminder, half an hour: room for any tube amplifier's
+        /// tune-up, while a forgotten carrier still always gets told.
+        /// </summary>
+        public const int TuneReminderMaxSeconds = 1800;
+
+        /// <summary>
+        /// How long a tune carrier stays up before the operator is told it is
+        /// still on, and how often after that (#860, ruled by Noel 2026-11-01
+        /// 07:52: default 25, changeable because people tune tube amplifiers
+        /// for long periods). The carrier itself is never touched.
+        /// </summary>
+        public int TuneReminderSeconds { get; set; } = 25;
+
         /// <summary>
         /// When true — the default, ruled ON below — the reflected-power alarm
         /// CUTS the transmission when it fires with forward power above the
@@ -162,6 +179,7 @@ namespace Radios
             // 0 = disabled, otherwise clamp to valid range
             if (AlcAutoReleaseSeconds != 0)
                 AlcAutoReleaseSeconds = Math.Clamp(AlcAutoReleaseSeconds, 10, 300);
+            TuneReminderSeconds = Math.Clamp(TuneReminderSeconds, TuneReminderMinSeconds, TuneReminderMaxSeconds);
         }
 
         public static PttConfig Load(string configDirectory, string operatorName)

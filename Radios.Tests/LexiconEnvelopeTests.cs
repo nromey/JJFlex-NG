@@ -1396,6 +1396,10 @@ namespace Radios.Tests
                 "audio.check.power.refused_zero",
                 "audio.power.refused_zero",
                 "settings.dummy_load.unavailable",
+                // The tune reminder (DRAFT, #860).
+                "audio.tune.still_on",
+                "settings.ptt.tune_reminder_help",
+                "settings.ptt.tune_reminder_out_of_range",
                 "audio.recorder.record_to_file_button",
                 "audio.recorder.stop_record_to_file_button",
                 "audio.recorder.play_from_computer_button",

@@ -1118,6 +1118,21 @@ namespace Radios.Tests
                 _calls.Where(c => c.Salvaged).Select(c => c.Message));
         }
 
+        [Fact]
+        public void A_tune_reminder_retired_as_tune_goes_off_does_not_come_back()
+        {
+            const string Reminder = "Tune is still on. You're sending a carrier, not audio.";
+            var a = NewArbiter();
+            a.Emit(Reminder, false, SpeechIntent.Queue, VerbosityLevel.Critical, "MainWindow", subject: SpeechSubject.TuneStillOn);
+            _clock.Advance(100);
+            a.Emit("Forward 10 watts", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "meters");
+
+            a.Supersede(SpeechSubject.TuneStillOn, "the tune carrier going off", "MainWindow");
+            _clock.Advance(Settle * 3);
+
+            Assert.Empty(_calls.Where(c => c.Salvaged));
+        }
+
         private const string TuneRefusal = "Tune refused, out of band";
 
         private void TuneRefusalCutByAMeterReading(SpeechArbiter a)

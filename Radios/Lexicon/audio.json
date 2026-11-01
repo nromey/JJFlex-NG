@@ -1446,5 +1446,6 @@
   "audio.check.power.dummy_load": {"text": "Dummy load, no RF", "delivery": null},
   "audio.check.power.low_power": {"text": "Low power", "delivery": null},
   "audio.check.power.refused_zero": {"text": "You can't use this audio check method at 0 power on this rig.", "delivery": null},
-  "audio.power.refused_zero": {"text": "You can't use 0 watts on this rig.", "delivery": null}
+  "audio.power.refused_zero": {"text": "You can't use 0 watts on this rig.", "delivery": null},
+  "audio.tune.still_on": {"text": "Tune is still on. You're sending a carrier, not audio.", "delivery": null}
 }

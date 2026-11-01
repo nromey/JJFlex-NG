@@ -149,6 +149,14 @@ namespace Radios.Speech
         public const string TuneNotKeyed = "tune-not-keyed";
 
         /// <summary>
+        /// The tune reminder (#860): the carrier has been up the set length.
+        /// Critical, because a carrier left on is RF nobody means to be sending.
+        /// Tune going off, however it goes, retires one still unheard, and a
+        /// later reminder replaces an earlier one.
+        /// </summary>
+        public const string TuneStillOn = "tune-still-on";
+
+        /// <summary>
         /// Reflected power is high enough to warn about, whether or not a cut
         /// follows (#224, #571).
         ///
