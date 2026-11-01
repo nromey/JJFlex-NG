@@ -74,7 +74,7 @@ public class Host
         // A power the radio has not reported (#859): [keys, power writes, restores registered, said].
         if (scenario == "power-unreported")
         {
-            h._rig.TransmitPowerReported = false;
+            h._rig.CheckPowersReported = false;
             h._rig.RadioModel = "FLEX-6300";
             h._rig.XmitPower = 0;
             int writes = 0;
@@ -254,7 +254,7 @@ public class FlexBase
     public IDisposable ZeroWattException(AudioCheckListenMethods method) { ZeroWattAsked = method; return new Empty(); }
     public AudioCheckListenMethods? ZeroWattAsked;
     public string RadioModel = "FLEX-8600";
-    public bool TransmitPowerReported = true;
+    public bool CheckPowersReported = true;
     public bool Tuning;
     private int _power=20;
     public Action PowerChanged;

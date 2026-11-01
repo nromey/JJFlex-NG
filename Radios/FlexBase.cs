@@ -2660,7 +2660,7 @@ namespace Radios
             // said about being allowed to transmit (#447).
             ForgetTransmitCaches(null);
             NoteTuneRequest(false);
-            _rfPowerReported = false;
+            ForgetPowerReports();
             _txAllowedReported = false;
 
             // Fresh connection: whatever firmware we once sent is behind us, and
@@ -3398,7 +3398,7 @@ namespace Radios
             // A retry that opens another transport gets another producer identity.
             rememberCommandRoute(null, null, null);
             _txAllowedReported = false;
-            _rfPowerReported = false;
+            ForgetPowerReports();
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Tracing.TraceLine($"RetryConnect: BEGIN serial={theRadio.Serial}", TraceLevel.Info);
@@ -4805,7 +4805,7 @@ namespace Radios
             // cancel sat in the switch.
             if (!nowConnected) CancelStationAttempt("connection dropped");
             if (!nowConnected) _txAllowedReported = false;
-            if (!nowConnected) _rfPowerReported = false;
+            if (!nowConnected) ForgetPowerReports();
             if (!nowConnected) NoteTuneRequest(false);
             ConnectionStateChanged?.Invoke(nowConnected);
 #if zero
@@ -5180,6 +5180,7 @@ namespace Radios
                     break;
                 case "ProfileTXSelection":
                     Tracing.TraceLine("ProfileTXSelection:" + r.ProfileTXSelection, TraceLevel.Info);
+                    NoteTransmitProfileEvent(r.ProfileTXSelection);
                     break;
                 case "ProfileMICSelection":
                     {
@@ -5235,7 +5236,7 @@ namespace Radios
                 case "RFPower":
                     Tracing.TraceLine("RFPower:" + theRadio.RFPower, TraceLevel.Info);
                     _XmitPower = theRadio.RFPower;
-                    _rfPowerReported = true;
+                    NoteRfPowerEvent(theRadio.RFPower);
                     break;
                 case "SimpleVOXEnable":
                     Tracing.TraceLine("SimpleVOXEnable:" + r.SimpleVOXEnable.ToString(), TraceLevel.Info);
@@ -5265,6 +5266,7 @@ namespace Radios
                 case "TunePower":
                     Tracing.TraceLine("TunePower:" + r.TunePower, TraceLevel.Info);
                     _TunePower = r.TunePower;
+                    NoteTunePowerEvent(r.TunePower);
                     break;
                 case "TXAllowed":
                     // See _txAllowedReported: this notification is the proof
@@ -12233,22 +12235,6 @@ namespace Radios
         internal const int XmitPowerIncrement = 5;
         private int _XmitPower;
 
-        // FlexLib holds RFPower at 0 from construction and has no "reported"
-        // flag, and 0 is also a legal setting. Measured: about 1.5 seconds after
-        // a connect before the first report on a 6300, 1 second on an 8600. So
-        // a 0 here says nothing until this is set: the same reasoning as
-        // _txAllowedReported, and like that one it belongs to a connection.
-        // A write of ours also raises the change that sets it, and that is
-        // fine: what was written is then what the setting is.
-        private volatile bool _rfPowerReported;
-
-        /// <summary>
-        /// The radio has told us its transmit power on this connection, so
-        /// <see cref="XmitPower"/> is a reading (#859). Nothing may save the
-        /// value as a prior, or act on it being zero, until this is true.
-        /// </summary>
-        public bool TransmitPowerReported => _rfPowerReported;
-
         public int XmitPower
         {
             get
@@ -12260,7 +12246,7 @@ namespace Radios
                 NoteRadioSettingWritten("XmitPower", value.ToString());   // the hold after a cut needs to know whose write this is (#571)
                 // Inside a check's restore the write carries its own reply (round 1030 repairs).
                 string rf = Math.Clamp(value, 0, 100).ToString(System.Globalization.CultureInfo.InvariantCulture);
-                EnqueueSettingWrite((FunctionDel)(() => { theRadio.RFPower = value; }),
+                EnqueueSettingWrite((FunctionDel)(() => { using (OurPowerWrite()) theRadio.RFPower = value; }),
                     RadioWrite("rf-power", "transmit set rfpower=" + rf, "transmit", "rfpower", rf));
             }
         }
@@ -12327,7 +12313,7 @@ namespace Radios
                 NoteRadioSettingWritten("TunePower", value.ToString());   // the hold after a cut needs to know whose write this is (#571)
                 // Inside a check's restore the write carries its own reply (round 1030 repairs).
                 string tune = Math.Clamp(value, 0, 100).ToString(System.Globalization.CultureInfo.InvariantCulture);
-                EnqueueSettingWrite((FunctionDel)(() => { theRadio.TunePower = value; }),
+                EnqueueSettingWrite((FunctionDel)(() => { using (OurPowerWrite()) theRadio.TunePower = value; }),
                     RadioWrite("tune-power", "transmit set tunepower=" + tune, "transmit", "tunepower", tune));
             }
         }

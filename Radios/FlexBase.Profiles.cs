@@ -245,7 +245,7 @@ namespace Radios
                                     theRadio.CreateTXProfile(prof.Name);
                                     str += "CreateTXProfile_";
                                 }
-                                theRadio.ProfileTXSelection = prof.Name;
+                                using (OurPowerWrite()) theRadio.ProfileTXSelection = prof.Name;
                                 str += "ProfileTXSelection";
                             }
                             finally { dispatched = true; }
@@ -2776,7 +2776,7 @@ namespace Radios
                             if (!mayCreate) return;
                             radio.CreateTXProfile(name);
                         }
-                        radio.ProfileTXSelection = name;
+                        using (OurPowerWrite()) radio.ProfileTXSelection = name;
                     }), "stewardship transmit selection", true);
                     break;
                 case ProfileTypes.mic:

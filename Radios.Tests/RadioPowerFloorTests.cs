@@ -481,39 +481,132 @@ public sealed class RadioPowerFloorTests
         Assert.Equal(0, r[3]);
     }
 
-    private static void RadioReportsPower(FlexBase rig, int watts)
+    /// <summary>The real path: FlexLib parses a status line and raises the same change the rig hears at a connect.</summary>
+    private static void Wire(FlexBase rig)
     {
-        const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
         var radio = rig.theRadio!;
-        typeof(Flex.Smoothlake.FlexLib.Radio).GetField("_rfPower", Private)!.SetValue(radio, watts);
-        typeof(FlexBase).GetMethod("radioPropertyChangedHandler", Private)!.Invoke(rig, new object[]
-        {
-            radio, new System.ComponentModel.PropertyChangedEventArgs("RFPower"),
-            new StationConnect.ObservationBindingFor(radio).Binding,
-        });
+        var binding = new StationConnect.ObservationBindingFor(radio).Binding;
+        var handler = typeof(FlexBase).GetMethod("radioPropertyChangedHandler", Flags)!;
+        radio.PropertyChanged += (s, e) => handler.Invoke(rig, new object[] { s!, e, binding });
     }
 
-    [Theory]
-    [InlineData(50)]
-    [InlineData(0)]    // a zero the radio said is a report like any other
-    public void Unreported_and_reported_are_different_states_of_the_same_zero(int watts)
+    private const BindingFlags Flags = BindingFlags.Instance | BindingFlags.NonPublic;
+
+    private static void Status(FlexBase rig, string line) =>
+        typeof(Flex.Smoothlake.FlexLib.Radio).GetMethod("ParseTransmitStatus", Flags)!.Invoke(rig.theRadio, new object[] { line });
+
+    private static void TransmitProfileReported(FlexBase rig, string name) =>
+        typeof(Flex.Smoothlake.FlexLib.Radio).GetMethod("ParseProfilesStatus", Flags)!.Invoke(rig.theRadio, new object[] { "tx current=" + name });
+
+    private static FlexBase WiredRig()
     {
         var rig = RigOf(Six);
+        Wire(rig);
+        return rig;
+    }
+
+    [Fact]
+    public void A_placeholder_zero_is_not_a_report()
+    {
+        var rig = WiredRig();
         try
         {
+            Assert.False(rig.TransmitPowerReported);       // created
+            Status(rig, "rfpower=0 tunepower=0");          // what every connect opens with
+            Status(rig, "rfpower=0 tunepower=0");
+            Assert.False(rig.CheckPowersReported);
             Assert.Equal(0, rig.XmitPower);
-            Assert.False(rig.TransmitPowerReported);   // created: not a reading
-            RadioReportsPower(rig, watts);
-            Assert.True(rig.TransmitPowerReported);
-            Assert.Equal(watts, rig.XmitPower);
         }
         finally { Done(rig); }
     }
 
+    [Fact]
+    public void The_real_pair_is_a_report_as_soon_as_it_arrives()
+    {
+        var rig = WiredRig();
+        try
+        {
+            Status(rig, "rfpower=0 tunepower=0");
+            Status(rig, "rfpower=100 tunepower=10");       // ahead of the profile, as measured
+            Assert.True(rig.CheckPowersReported);
+            Assert.Equal(100, rig.XmitPower);
+            Assert.Equal(10, rig.TunePower);
+        }
+        finally { Done(rig); }
+    }
+
+    [Fact]
+    public void A_radio_really_at_zero_is_a_report_once_its_profile_has_come()
+    {
+        var rig = WiredRig();
+        try
+        {
+            Status(rig, "rfpower=0 tunepower=0");
+            Assert.False(rig.CheckPowersReported);
+            TransmitProfileReported(rig, "Default");
+            Assert.True(rig.CheckPowersReported);          // the positive control for the placeholder test
+            Assert.Equal(0, rig.XmitPower);
+        }
+        finally { Done(rig); }
+    }
+
+    [Fact]
+    public void A_write_of_ours_is_not_a_report()
+    {
+        var rig = WiredRig();
+        try
+        {
+            // The rig's own write, through the path XmitPower queues.
+            var mark = typeof(FlexBase).GetMethod("OurPowerWrite", BindingFlags.Static | BindingFlags.NonPublic)!;
+            using (var ours = (IDisposable)mark.Invoke(null, null)!)
+            {
+                rig.theRadio!.RFPower = 7;
+                rig.theRadio.TunePower = 8;
+            }
+            Assert.Equal(7, rig.XmitPower);                // the change did arrive
+            Assert.False(rig.TransmitPowerReported);
+            Assert.False(rig.TunePowerReported);
+
+            Status(rig, "rfpower=50 tunepower=9");
+            Assert.True(rig.CheckPowersReported);
+            Assert.Equal(50, rig.XmitPower);
+        }
+        finally { Done(rig); }
+    }
+
+    [Fact]
+    public void Tune_power_has_its_own_fact_because_a_dummy_load_saves_both()
+    {
+        var rig = WiredRig();
+        try
+        {
+            Status(rig, "rfpower=50");
+            Assert.True(rig.TransmitPowerReported);
+            Assert.False(rig.TunePowerReported);
+            Assert.False(rig.CheckPowersReported);
+            Status(rig, "tunepower=25");
+            Assert.True(rig.CheckPowersReported);
+        }
+        finally { Done(rig); }
+    }
+
+    [Fact]
+    public void The_rigs_two_power_writes_are_marked_and_are_the_only_ones()
+    {
+        var offenders = Directory.GetFiles(Path.Combine(IntegrationPassTree.Root, "Radios"), "*.cs", SearchOption.AllDirectories)
+            .Concat(Directory.GetFiles(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf"), "*.cs", SearchOption.AllDirectories))
+            .Where(f => !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar))
+            .SelectMany(f => File.ReadAllLines(f).Where(l => !l.TrimStart().StartsWith("//") &&
+                System.Text.RegularExpressions.Regex.IsMatch(l, @"(theRadio|radio|\br)\.(RFPower|TunePower)\s*=[^=]")
+                && !l.Contains("using (OurPowerWrite())")).Select(l => Path.GetFileName(f) + ": " + l.Trim()))
+            .ToArray();
+        Assert.Empty(offenders);
+    }
+
     [Theory]
-    [InlineData("_rfPowerReported = false;\r\n            _txAllowedReported = false;\r\n\r\n            // Fresh connection: whatever firmware")]
-    [InlineData("_txAllowedReported = false;\r\n            _rfPowerReported = false;\r\n\r\n            var sw")]
-    [InlineData("if (!nowConnected) _rfPowerReported = false;")]
+    [InlineData("ForgetPowerReports();\r\n            _txAllowedReported = false;\r\n\r\n            // Fresh connection: whatever firmware")]
+    [InlineData("_txAllowedReported = false;\r\n            ForgetPowerReports();\r\n\r\n            var sw")]
+    [InlineData("if (!nowConnected) ForgetPowerReports();")]
     public void The_report_ends_with_the_connection(string where) => Assert.Contains(where.Replace("\r\n", "\n"),
         File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "Radios", "FlexBase.cs")).Replace("\r\n", "\n"));
 
@@ -522,11 +615,13 @@ public sealed class RadioPowerFloorTests
     {
         string check = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.Check.cs"));
         int toggle = check.IndexOf("public void ToggleAudioCheck()", StringComparison.Ordinal);
-        int door = check.IndexOf("!_rig.TransmitPowerReported", toggle, StringComparison.Ordinal);
+        int door = check.IndexOf("!_rig.CheckPowersReported", toggle, StringComparison.Ordinal);
+        // Test your microphone saves both powers, so only the two arrangements are left out.
+        Assert.Contains("SelectedMethod is not (AudioCheckListenMethods.OffAir or AudioCheckListenMethods.Loopback)", check.Substring(door, 120));
         int start = check.IndexOf("_ = StartAudioCheckSessionAsync(", toggle, StringComparison.Ordinal);
         Assert.True(door > toggle && door < start);
         int session = check.IndexOf("public async Task<bool> StartAsync(", StringComparison.Ordinal);
-        int gate = check.IndexOf("!rig.TransmitPowerReported", session, StringComparison.Ordinal);
+        int gate = check.IndexOf("!rig.CheckPowersReported", session, StringComparison.Ordinal);
         int read = check.IndexOf("int currentPower = rig.XmitPower;", session, StringComparison.Ordinal);
         int arm = check.IndexOf("rig.StartSliceRecordAsync(", session, StringComparison.Ordinal);
         Assert.True(gate > session && gate < read && gate < arm);
