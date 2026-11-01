@@ -93,7 +93,9 @@ public static class RecorderControls
     /// Speak a recorder outcome under its subject. A refusal thunks first and
     /// speaks at Critical, so it is heard at every verbosity; a success is
     /// Terse. Both interrupt, because each is the answer to the key just
-    /// pressed.
+    /// pressed. A refusal under tune is the exception: it is Terse, the way
+    /// every tune door tells it (ruled by Noel 2026-11-01 13:06, verbosity
+    /// gated for tone and text).
     /// </summary>
     public static void Speak(RecorderOutcome outcome)
     {
@@ -111,7 +113,7 @@ public static class RecorderControls
         if (outcome.Cue == RecorderCue.TuneRefused) EarconPlayer.ATUFailTone();
         else if (!outcome.Success) EarconPlayer.LeaderInvalidTone();
         ScreenReaderOutput.Speak(outcome.Message, SpeechIntent.Interrupt,
-            outcome.Success ? VerbosityLevel.Terse : VerbosityLevel.Critical,
+            outcome.Success || outcome.Cue == RecorderCue.TuneRefused ? VerbosityLevel.Terse : VerbosityLevel.Critical,
             subject: outcome.Subject);
     }
 

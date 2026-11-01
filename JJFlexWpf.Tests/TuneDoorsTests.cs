@@ -105,6 +105,36 @@ public sealed class TuneDoorsTests : IDisposable
     }
 
     [Fact]
+    public void The_recorders_own_refusal_under_tune_is_told_the_same_way_and_other_failures_stay_critical()
+    {
+        const string underTune = "refused under tune";
+        const string otherFailure = "some other recorder failure";
+        VerbosityLevel before = ScreenReaderOutput.CurrentVerbosity;
+        try
+        {
+            ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Critical;   // what Off is
+            Assert.Equal("", Spoken(() =>
+            {
+                RecorderControls.Speak(new RecorderOutcome(false, underTune, "test", Cue: RecorderCue.TuneRefused));
+                return Task.CompletedTask;
+            }));
+            Assert.Equal(otherFailure, Spoken(() =>           // the positive control: Off still hears a failure
+            {
+                RecorderControls.Speak(new RecorderOutcome(false, otherFailure, "test"));
+                return Task.CompletedTask;
+            }));
+
+            ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;
+            Assert.Equal(underTune, Spoken(() =>
+            {
+                RecorderControls.Speak(new RecorderOutcome(false, underTune, "test", Cue: RecorderCue.TuneRefused));
+                return Task.CompletedTask;
+            }));
+        }
+        finally { ScreenReaderOutput.CurrentVerbosity = before; }
+    }
+
+    [Fact]
     public void Record_to_file_starts_when_tune_is_off()
     {
         TuneDoors.UpOverride = _ => false;     // positive control: the door is reachable
