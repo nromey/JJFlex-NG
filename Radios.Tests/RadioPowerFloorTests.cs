@@ -566,7 +566,7 @@ public sealed class RadioPowerFloorTests
     }
 
     [Fact]
-    public void A_placeholder_zero_with_no_profile_refuses_once_the_window_has_passed()
+    public void Time_alone_never_turns_a_placeholder_into_a_refusal()
     {
         var rig = WiredRig();
         long now = 500_000;
@@ -574,10 +574,47 @@ public sealed class RadioPowerFloorTests
         try
         {
             Status(rig, "rfpower=0 tunepower=0");
-            now += FlexBase.PlaceholderWindowMs - 1;
-            Assert.False(rig.TransmitPressRefused);
-            now += 1;
+            now += FlexBase.PlaceholderWindowMs * 100;
+            Assert.True(rig.CheckPowersReported);       // the window has closed for a check
+            Assert.False(rig.TransmitPressRefused);     // and still proves nothing to a key
+            Assert.False(rig.TunePressRefused);
+
+            TransmitProfileReported(rig, "Default");    // the positive control: late evidence counts
             Assert.True(rig.TransmitPressRefused);
+            Assert.True(rig.TunePressRefused);
+        }
+        finally { Done(rig); }
+    }
+
+    [Fact]
+    public void A_late_real_report_after_the_window_stays_unrefused()
+    {
+        var rig = WiredRig();
+        long now = 500_000;
+        rig.PowerReportClock = () => now;
+        try
+        {
+            Status(rig, "rfpower=0 tunepower=0");
+            now += FlexBase.PlaceholderWindowMs * 100;
+            Status(rig, "rfpower=50 tunepower=10");
+            TransmitProfileReported(rig, "Default");
+            Assert.False(rig.TransmitPressRefused);
+            Assert.False(rig.TunePressRefused);
+        }
+        finally { Done(rig); }
+    }
+
+    [Fact]
+    public void A_zero_that_follows_a_real_report_refuses_with_no_profile_heard()
+    {
+        var rig = WiredRig();
+        try
+        {
+            Status(rig, "rfpower=50 tunepower=10");
+            Assert.False(rig.TransmitPressRefused);
+            Status(rig, "rfpower=0 tunepower=0");       // set by another client
+            Assert.True(rig.TransmitPressRefused);
+            Assert.True(rig.TunePressRefused);
         }
         finally { Done(rig); }
     }

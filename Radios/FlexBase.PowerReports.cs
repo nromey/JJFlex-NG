@@ -133,14 +133,20 @@ namespace Radios
         /// <summary>Everything a check can save to put back is a reading.</summary>
         public bool CheckPowersReported => TransmitPowerReported && TunePowerReported;
 
+        // Evidence, never elapsed time. The window above is fit for a check, which
+        // only saves a value; it must not refuse a key. A radio really at zero
+        // with no transmit profile keys as it always has, and nothing goes out.
+        private bool TransmitZeroIsEstablished => _rfPowerHeard && (_rfPowerSeenNonZero || _transmitProfileHeard);
+        private bool TuneZeroIsEstablished => _tunePowerHeard && (_tunePowerSeenNonZero || _transmitProfileHeard);
+
         /// <summary>
         /// An operator's press that would transmit refuses here. Read by the
         /// doors, not by the setters: a check's own keying and the Fix tool's
         /// are not presses, and Test your microphone stays at zero by ruling.
         /// </summary>
-        public bool TransmitPressRefused => RadioPowerFloor.RefusesPress(RadioModel, TransmitPowerReported, XmitPower);
+        public bool TransmitPressRefused => RadioPowerFloor.RefusesPress(RadioModel, TransmitZeroIsEstablished, XmitPower);
 
         /// <summary>The same for a press that would start a tune, which reads tune power.</summary>
-        public bool TunePressRefused => RadioPowerFloor.RefusesPress(RadioModel, TunePowerReported, TunePower);
+        public bool TunePressRefused => RadioPowerFloor.RefusesPress(RadioModel, TuneZeroIsEstablished, TunePower);
     }
 }
