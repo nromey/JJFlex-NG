@@ -1,3 +1,4 @@
+using System;
 using Flex.Smoothlake.FlexLib;
 
 namespace Radios
@@ -12,38 +13,87 @@ namespace Radios
         // RetryConnect and when the connection falls.
         private volatile bool _txAllowedReported;
 
+        // What this client last asked of the tune carrier, for TuneFact. Noted
+        // beside the request, which goes on exactly as before: nothing here
+        // gates a carrier or changes when one is written.
+        private readonly object _tuneFactGate = new();
+        private bool _tuneRequested;
+        private long _tuneRequestedAtMs;
+        private TuneReading _tuneAtRequest = TuneReading.Unknown;
+
+        /// <summary>The clock a request is timed by. For tests.</summary>
+        internal Func<long> TuneFactClock { get; set; } = () => Environment.TickCount64;
+
+        /// <summary>A tune was asked for, or asked off. On the caller's thread, so a door on that thread sees it at once, ahead of the command queue.</summary>
+        private void NoteTuneRequest(bool on)
+        {
+            TuneReading standing = on ? ReadTuneStanding() : default;
+            lock (_tuneFactGate)
+            {
+                _tuneRequested = on;
+                if (!on) return;
+                _tuneRequestedAtMs = TuneFactClock();
+                _tuneAtRequest = standing;
+            }
+        }
+
         /// <summary>
-        /// This client's tune carrier is up, by the radio's own report (#860).
-        /// A carrier another client holds is not ours to speak for. Read-only,
-        /// and safe with no radio.
+        /// The radio or FlexLib has dropped the tune flag, however that came
+        /// about (#860). For whoever has something to retire the moment tune
+        /// ends. Raised on FlexLib's read loop, so a subscriber must not wait.
+        /// </summary>
+        public event Action TuneCarrierFell;
+
+        private void OnTuneFlagFell()
+        {
+            NoteTuneRequest(false);
+            TuneCarrierFell?.Invoke();
+        }
+
+        /// <summary>
+        /// This client's tune carrier is on the air, by the radio's own report
+        /// (#860): <see cref="TuneFact.CarrierUp"/>. Read-only, and safe with no
+        /// radio.
         /// </summary>
         public bool TuneCarrierUp
         {
             get
             {
                 Radio radio = theRadio;
-                return radio != null && radio.TXTune && TransmitIsOurs(radio);
+                if (radio == null) return false;
+                TuneReading atRequest;
+                lock (_tuneFactGate) atRequest = _tuneAtRequest;
+                return TuneFact.CarrierUp(radio.TXTune, ReadTuneStanding(), atRequest);
             }
         }
 
         /// <summary>
-        /// A tune carrier or an ATU cycle is up here: the air carries a plain
-        /// carrier, so nothing can modulate it (#860).
+        /// A tune of ours is up or on its way, or an ATU cycle of ours is
+        /// running: the air carries a plain carrier, so nothing can modulate
+        /// it (#860). A tune the radio denied stops counting once it has had
+        /// time to answer.
         /// </summary>
         public bool TuningNow
         {
             get
             {
                 Radio radio = theRadio;
-                return radio != null && TransmitIsOurs(radio)
-                    && (radio.TXTune || radio.ATUTuneStatus == ATUTuneStatus.InProgress);
+                if (radio == null) return false;
+                TuneReading now = ReadTuneStanding();
+                if (now.AnotherClient) return false;
+                if (radio.ATUTuneStatus == ATUTuneStatus.InProgress) return true;
+                bool requested;
+                long at;
+                TuneReading atRequest;
+                lock (_tuneFactGate)
+                {
+                    requested = _tuneRequested;
+                    at = _tuneRequestedAtMs;
+                    atRequest = _tuneAtRequest;
+                }
+                return TuneFact.CarrierUp(radio.TXTune, now, atRequest)
+                    || TuneFact.Pending(requested, TuneFactClock() - at, now);
             }
-        }
-
-        private bool TransmitIsOurs(Radio radio)
-        {
-            uint txClient = radio.TXClientHandle;
-            return txClient == 0 || txClient == clientHandle;
         }
 
         /// <summary>

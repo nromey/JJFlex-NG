@@ -96,52 +96,59 @@ public sealed class TuneReminderTests
         Assert.Equal(TuneReminderStep.Over, Tick(true, exempt: true));
     }
 
+    [Fact]
+    public void An_edge_between_ticks_starts_the_next_carrier_from_nothing()
+    {
+        Assert.Equal(0, RemindersOver(20));
+        _clock.Reset();                        // off and on again between two ticks
+        Assert.Equal(0, RemindersOver(25));    // no time carried over
+        Assert.Equal(TuneReminderStep.Remind, Tick(true));
+    }
+
     private static string Source(params string[] path) =>
         File.ReadAllText(Path.Combine(IntegrationPassTree.Root, Path.Combine(path)));
 
-    private static string Tick_()
+    [Fact]
+    public void The_window_hands_the_radio_and_the_owner_to_the_reminder_and_never_writes_a_carrier()
     {
         string main = Source("JJFlexWpf", "MainWindow.xaml.cs");
         int at = main.IndexOf("private void TuneReminderTick()", StringComparison.Ordinal);
-        Assert.True(at > 0);
-        return main.Substring(at, main.IndexOf("/// Show or hide the meters panel.", at, StringComparison.Ordinal) - at);
-    }
-
-    [Fact]
-    public void The_window_asks_the_radio_and_the_kill_switch_and_never_writes_a_carrier()
-    {
-        string tick = Tick_();
-        Assert.Contains("rig.TuneCarrierUp", tick);
-        Assert.Contains("Radios.TransmitKillSwitch.Armed", tick);
+        string tick = main.Substring(at, main.IndexOf("/// Show or hide the meters panel.", at, StringComparison.Ordinal) - at);
+        Assert.Contains("rig != null && rig.IsConnected && rig.TuneCarrierUp", tick);
+        Assert.Contains("Radios.TransmitKillSwitch.HoldsTuneCarrier(rig!)", tick);
+        Assert.DoesNotContain("TransmitKillSwitch.Armed", tick);
         Assert.DoesNotContain("TxTune =", tick);
         Assert.DoesNotContain("Transmit =", tick);
         Assert.DoesNotContain("DropCarrier", tick);
     }
 
     [Fact]
-    public void It_says_what_was_ruled_under_its_own_subject_and_retires_it()
+    public void It_says_what_was_ruled_under_its_own_subject()
     {
-        string tick = Tick_();
-        Assert.Contains("EarconPlayer.Warning1Beep();", tick);
-        Assert.Contains("Radios.Lexicon.Get(\"audio.tune.still_on\")", tick);
-        Assert.Contains("subject: Radios.Speech.SpeechSubject.TuneStillOn", tick);
-        Assert.Contains("Radios.ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.TuneStillOn,", tick);
+        string src = Source("JJFlexWpf", "TuneReminder.cs");
+        Assert.Contains("EarconPlayer.Warning1Beep();", src);
+        Assert.Contains("Lexicon.Get(\"audio.tune.still_on\")", src);
+        Assert.Contains("subject: SpeechSubject.TuneStillOn", src);
     }
 
-    [Fact]
-    public void The_timer_is_its_own_because_the_status_poll_stops_with_the_connection()
-    {
-        string main = Source("JJFlexWpf", "MainWindow.xaml.cs");
-        Assert.Contains("StartTuneReminder();", main);
-        // The reading treats a lost radio as down, which is what ends the clock.
-        Assert.Contains("rig != null && rig.IsConnected && rig.TuneCarrierUp", Tick_());
-    }
+    [Theory]
+    [InlineData("EndTuneAnswer(\"tune off\");")]
+    [InlineData("EndTuneAnswer(\"the connection fell\");")]
+    [InlineData("EndTuneAnswer(\"the radio's events were unwired\");")]
+    [InlineData("EndTuneAnswer(\"the radio powered off\");")]
+    [InlineData("if (!transmit) _tuneReminder.End(\"the radio going to receive\");")]
+    [InlineData("_tuneReminder.End(\"the radio dropping tune\");")]
+    [InlineData("RigControl.TuneCarrierFell += TuneCarrierFellHandler;")]
+    public void Every_real_edge_ends_it_at_once(string line) =>
+        Assert.Contains(line, Source("JJFlexWpf", "MainWindow.xaml.cs"));
 
     [Fact]
-    public void Every_carrier_a_check_raises_needs_the_arm_the_exemption_reads()
+    public void Every_carrier_a_check_raises_needs_the_arm_the_owner_is_recorded_under()
     {
         string kill = Source("Radios", "TransmitKillSwitch.cs");
-        Assert.Contains("if (_arms == 0 || !ReferenceEquals(_rig, rig))", kill);
+        int gate = kill.IndexOf("if (_arms == 0 || !ReferenceEquals(_rig, rig))", StringComparison.Ordinal);
+        int owner = kill.IndexOf("if (carrier == Carrier.Tune) _tuneRaisedOn = rig;", StringComparison.Ordinal);
+        Assert.True(gate > 0 && owner > gate);
     }
 
     [Fact]

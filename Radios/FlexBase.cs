@@ -2659,6 +2659,7 @@ namespace Radios
             // describes a connection that has gone (#858), and so does what it
             // said about being allowed to transmit (#447).
             ForgetTransmitCaches(null);
+            NoteTuneRequest(false);
             _rfPowerReported = false;
             _txAllowedReported = false;
 
@@ -4805,6 +4806,7 @@ namespace Radios
             if (!nowConnected) CancelStationAttempt("connection dropped");
             if (!nowConnected) _txAllowedReported = false;
             if (!nowConnected) _rfPowerReported = false;
+            if (!nowConnected) NoteTuneRequest(false);
             ConnectionStateChanged?.Invoke(nowConnected);
 #if zero
             bool justReconnected = false;
@@ -5292,6 +5294,7 @@ namespace Radios
                         // Both edges, so a manual carrier gets a tuneResult line.
                         // Only the rising edge raises FlexAntTuneStartStop below.
                         noteTuneCarrier(r.TXTune);
+                        if (!r.TXTune) OnTuneFlagFell();
                         if (r.TXTune)
                         {
                             // Report status if starting up.
@@ -8177,6 +8180,7 @@ namespace Radios
             {
                 // #835: as Transmit above; turning tune off is never refused.
                 if (value && RefusedForCheckTeardown("tune")) return;
+                NoteTuneRequest(value);
                 q.Enqueue((FunctionDel)(() =>
                 {
                     if (value && TeardownHeldSilently("tune")) return;
@@ -9603,6 +9607,7 @@ namespace Radios
                                 RaiseFlexAntTuneStartStop(new FlexAntTunerArg
                                     (FlexTunerType, stat, highSWR));
                             }
+                            NoteTuneRequest(value);
                             q.Enqueue((FunctionDel)(() =>
                             {
                                 if (value && TeardownHeldSilently("antenna tuner"))

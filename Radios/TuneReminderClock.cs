@@ -35,12 +35,17 @@ namespace Radios
     /// <para>
     /// A carrier the Fix tool or a transmit check raised is exempt for as long
     /// as that check holds it, and if one were left up afterwards the clock
-    /// starts then, so a stuck carrier still gets told.
+    /// starts then, so a stuck carrier still gets told. An edge a tick cannot
+    /// see, such as off and on again between two ticks, comes through
+    /// <see cref="Reset"/>.
     /// </para>
     /// </remarks>
     public sealed class TuneReminderClock
     {
         private long? _since;
+
+        /// <summary>A real edge between ticks: the next carrier starts from nothing.</summary>
+        public void Reset() => _since = null;
 
         /// <param name="carrierUp">The radio reports this client's tune carrier up.</param>
         /// <param name="exempt">The carrier belongs to a check.</param>

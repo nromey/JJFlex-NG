@@ -3971,6 +3971,7 @@ public partial class MainWindow : UserControl
             RigControl.NoSliceError -= NoSliceErrorHandler;
             RigControl.FeatureLicenseChanged -= FeatureLicenseChangedHandler;
             RigControl.TransmitChange -= TransmitChangeHandler;
+            RigControl.TuneCarrierFell -= TuneCarrierFellHandler;
             RigControl.FlexAntTunerStartStop -= FlexAntTuneStartStopHandler;
             RigControl.ConnectedEvent -= ConnectedEventHandler;
         }
@@ -5020,6 +5021,8 @@ public partial class MainWindow : UserControl
         // B6): a transmission VOX or a hand mic keyed is a transmission, and an
         // unheard "you are no longer on the air" must not be replayed into it.
         _pttController?.NoteRadioTransmit(transmit);
+        // At receive no carrier of ours is up, whoever ended it (#860).
+        if (!transmit) _tuneReminder.End("the radio going to receive");
 
         // Update Transmit button visual
         TransmitButton.Content = transmit ? "TX On" : "Transmit";
@@ -5299,6 +5302,7 @@ public partial class MainWindow : UserControl
         if (RigControl != null)
         {
             RigControl.TransmitChange += TransmitChangeHandler;
+            RigControl.TuneCarrierFell += TuneCarrierFellHandler;
             RigControl.FlexAntTunerStartStop += FlexAntTuneStartStopHandler;
             RigControl.ConnectedEvent += ConnectedEventHandler;
         }
@@ -5785,6 +5789,7 @@ public partial class MainWindow : UserControl
         if (RigControl != null)
         {
             RigControl.TransmitChange -= TransmitChangeHandler;
+            RigControl.TuneCarrierFell -= TuneCarrierFellHandler;
             RigControl.FlexAntTunerStartStop -= FlexAntTuneStartStopHandler;
             RigControl.ConnectedEvent -= ConnectedEventHandler;
         }
@@ -6603,10 +6608,11 @@ public partial class MainWindow : UserControl
         StopTuneAnswerWatch();
         Radios.ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.TuneNotKeyed, why);
         Radios.ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.TuneRefused, why);
+        _tuneReminder.End(why);
     }
 
     private DispatcherTimer? _tuneReminderTimer;
-    private readonly Radios.TuneReminderClock _tuneReminderClock = new();
+    private TuneReminder _tuneReminder = new();
 
     /// <summary>
     /// Tell the operator a tune carrier is still up (#860). Its own timer, not
@@ -6624,6 +6630,20 @@ public partial class MainWindow : UserControl
         _tuneReminderTimer.Start();
     }
 
+    /// <summary>
+    /// The tune flag fell, whoever dropped it (#860). From FlexLib's read loop,
+    /// so queued and never waited on, as the transmit change is.
+    /// </summary>
+    private void TuneCarrierFellHandler()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(TuneCarrierFellHandler);
+            return;
+        }
+        _tuneReminder.End("the radio dropping tune");
+    }
+
     private void TuneReminderTick()
     {
         FlexBase? rig = RigControl;
@@ -6633,22 +6653,8 @@ public partial class MainWindow : UserControl
         try { up = !_isClosing && rig != null && rig.IsConnected && rig.TuneCarrierUp; }
         catch (Exception ex) { Tracing.TraceLine("TuneReminder: " + ex.Message, TraceLevel.Warning); }
 
-        // A carrier raised by the Fix tool or a transmit check is armed on the
-        // kill switch for its whole life, and only such a carrier is
-        // (TransmitKillSwitch.RaiseCarrier refuses otherwise).
         int seconds = CurrentPttConfig?.TuneReminderSeconds ?? new PttConfig().TuneReminderSeconds;
-        switch (_tuneReminderClock.Tick(up, Radios.TransmitKillSwitch.Armed, Environment.TickCount64, seconds))
-        {
-            case Radios.TuneReminderStep.Remind:
-                Tracing.TraceLine("TuneReminder: the carrier has been up another " + seconds + " s", TraceLevel.Info);
-                EarconPlayer.Warning1Beep();
-                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.still_on"), Radios.Speech.SpeechIntent.Queue,
-                    VerbosityLevel.Critical, subject: Radios.Speech.SpeechSubject.TuneStillOn);
-                break;
-            case Radios.TuneReminderStep.Over:
-                Radios.ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.TuneStillOn, "the tune carrier going off");
-                break;
-        }
+        _tuneReminder.Tick(up, Radios.TransmitKillSwitch.HoldsTuneCarrier(rig!), Environment.TickCount64, seconds);
     }
 
     /// <summary>

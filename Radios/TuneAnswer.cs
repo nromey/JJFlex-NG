@@ -128,6 +128,35 @@ namespace Radios
         }
     }
 
+    /// <summary>
+    /// Whether a tune is up, from what the radio reported (#860). What FlexLib
+    /// holds in <c>Radio.TXTune</c> is our own request, written before the
+    /// command goes out, so on its own it proves nothing: a denied tune can
+    /// leave it true while nothing is on the air.
+    /// </summary>
+    public static class TuneFact
+    {
+        /// <summary>
+        /// The carrier is on the air, and it is this tune's: the radio reports
+        /// transmitting, on the terms of <see cref="TuneAnswer.ThisTuneKeyed"/>.
+        /// </summary>
+        /// <param name="requestFlag"><c>Radio.TXTune</c>.</param>
+        /// <param name="now">The radio's report now.</param>
+        /// <param name="atRequest">Its report when the tune was asked for.</param>
+        public static bool CarrierUp(bool requestFlag, TuneReading now, TuneReading atRequest) =>
+            requestFlag && TuneAnswer.ThisTuneKeyed(now, atRequest);
+
+        /// <summary>
+        /// A tune has been asked for and the radio has had no time to answer. It
+        /// counts for a door, because a request queued a moment ago reaches the
+        /// radio first. It stops counting at <see cref="TuneAnswer.WaitMs"/>,
+        /// the time the radio gets to report the key, so a denied tune cannot go
+        /// on refusing an ordinary send.
+        /// </summary>
+        public static bool Pending(bool requested, long msSinceRequest, TuneReading now) =>
+            requested && !now.AnotherClient && msSinceRequest < TuneAnswer.WaitMs;
+    }
+
     /// <summary>What a <see cref="TuneAnswerWatch"/> found this time round.</summary>
     public enum TuneWatchStep
     {
