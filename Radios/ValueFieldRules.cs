@@ -23,5 +23,20 @@ namespace Radios
             if (delta < 0 && value <= lowest) return value;
             return Math.Clamp(value + delta, lowest, max);
         }
+
+        /// <summary>
+        /// The unit as it reads after this value: "1 watt", "5 watts". A value
+        /// that shows decimals keeps the plural ("1.00 watts"), and a unit that
+        /// is not a plural word does not change: "dB", "dBm", "dBFS", "percent",
+        /// "hertz". Lower case and more than two letters is what tells a word
+        /// from a symbol, so "ms" stays "ms".
+        /// </summary>
+        public static string UnitFor(string formattedValue, string unit)
+        {
+            if (formattedValue is not ("1" or "-1")) return unit;
+            if (unit.Length <= 2 || !unit.EndsWith('s')) return unit;
+            foreach (char c in unit) if (!char.IsLower(c)) return unit;
+            return unit.Substring(0, unit.Length - 1);
+        }
     }
 }

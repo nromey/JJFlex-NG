@@ -9,6 +9,9 @@ using Xunit;
 
 namespace JJFlexWpf.Tests;
 
+// LEXICON_SCANNER_EXEMPT: the pins below quote source lines, escaped quotes and
+// all, so the scanner would read each as a call with a mangled key.
+
 /// <summary>
 /// What the recorder and send doors do while a tune carrier is up (#860).
 /// Recording is refused aloud; playing still plays and says it will not go

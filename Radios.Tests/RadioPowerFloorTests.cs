@@ -193,6 +193,32 @@ public sealed class RadioPowerFloorTests
     public void Without_a_floor_a_field_goes_to_its_minimum(int value, int delta, int expected) =>
         Assert.Equal(expected, ValueFieldRules.Adjusted(value, delta, 0, 100, 0));
 
+    // ── One watt, five watts ─────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("1", "watts", "watt")]
+    [InlineData("5", "watts", "watts")]
+    [InlineData("0", "watts", "watts")]
+    [InlineData("1", "seconds", "second")]
+    [InlineData("-1", "seconds", "second")]
+    [InlineData("1.00", "watts", "watts")]   // decimals read as a plural
+    [InlineData("1", "dB", "dB")]
+    [InlineData("1", "dBm", "dBm")]
+    [InlineData("1", "dBFS", "dBFS")]
+    [InlineData("1", "percent", "percent")]
+    [InlineData("1", "hertz", "hertz")]
+    [InlineData("1", "ms", "ms")]
+    public void A_unit_agrees_with_its_value(string value, string unit, string expected) =>
+        Assert.Equal(expected, ValueFieldRules.UnitFor(value, unit));
+
+    [Fact]
+    public void The_field_says_it_on_screen_and_in_speech_through_one_suffix()
+    {
+        string src = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Controls", "ValueFieldControl.xaml.cs"));
+        Assert.Contains("ValueFieldRules.UnitFor(FormatValue(_value), Unit)", src);
+        Assert.DoesNotContain("(\"unit\", Unit)", src);
+    }
+
     // ── The rig ─────────────────────────────────────────────────────────
 
     private static FlexBase RigOf(string model)

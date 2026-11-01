@@ -4,6 +4,9 @@ using Xunit;
 
 namespace Radios.Tests;
 
+// LEXICON_SCANNER_EXEMPT: the pins below quote source lines, escaped quotes and
+// all, so the scanner would read each as a call with a mangled key.
+
 /// <summary>
 /// The tune reminder (#860): after the set length of a carrier being up, and
 /// again at that length while it stays up. Speech and a tone only.

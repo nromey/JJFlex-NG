@@ -130,7 +130,7 @@ public partial class ValueFieldControl : UserControl
             System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    private string UnitSuffix => string.IsNullOrEmpty(Unit) ? "" : " " + Unit;
+    private string UnitSuffix => string.IsNullOrEmpty(Unit) ? "" : " " + ValueFieldRules.UnitFor(FormatValue(_value), Unit);
 
     /// <summary>
     /// The lowest value an OPERATOR can reach, asked at each press; null is the
