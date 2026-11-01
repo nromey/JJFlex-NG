@@ -770,8 +770,6 @@ public partial class FlexBase
                 return Outcome(false, "audio.recorder.play_stop_unconfirmed", letter);
             state.Playing = false;
         }
-        // The doors ask first; this is the sink, after every wait above (#860).
-        if (TuningNow) return TuneRefusedRecording();
         state.Owner = owner;
         state.Recording = true;
         bool started = await SendSafelyAsync(state, "record", true).ConfigureAwait(false);

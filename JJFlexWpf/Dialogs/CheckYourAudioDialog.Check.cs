@@ -805,8 +805,10 @@ public partial class CheckYourAudioDialog
         // Until the radio has said what its power is, a 0 here is not a reading.
         // Refused rather than waited for: the wait is a second or so after a
         // connect, a press this early is rare, and a report that never comes
-        // must not end in keying on a guess (#859).
-        if (!_rig.TransmitPowerReported && AudioCheckMethods.UsesCheckPower(SelectedMethod))
+        // must not end in keying on a guess (#859). Test your microphone asks
+        // too: its dummy load saves this value to put back. The two methods
+        // left out run an arrangement that owns power.
+        if (!_rig.TransmitPowerReported && SelectedMethod is not (AudioCheckListenMethods.OffAir or AudioCheckListenMethods.Loopback))
         {
             SayPowerNotReported();
             return;
