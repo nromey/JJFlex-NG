@@ -417,6 +417,13 @@ internal static class VoiceMessageSender
     /// </summary>
     private static void BeginAndLaunch(FlexBase rig, SendInfo info, string label, TxAudioFile.Loaded loaded)
     {
+        // The sink for every send that does not key through the box: the last
+        // read before the file starts, after the decode (#860).
+        if (TuneDoors.Up(rig))
+        {
+            RefuseUnderTune(info);
+            return;
+        }
         PieceHolds holds = PieceHolds.Take(rig, Name(info));
         VoiceMessageSend send;
         try { send = VoiceMessageSend.Begin(new FlexBaseVoiceMessageRig(rig), label, Environment.TickCount64); }
@@ -726,6 +733,11 @@ internal static class VoiceMessageSender
     /// </summary>
     private static void JoinWithFile(FlexBase rig, SendInfo info, TxAudioFile.Loaded loaded)
     {
+        if (TuneDoors.Up(rig))
+        {
+            RefuseUnderTune(info);
+            return;
+        }
         // Begin keys a receiving radio. The operator's press was read keyed,
         // but if the radio has not echoed it yet, Begin would key on its own
         // account and later unkey under the operator's thumb. So: refuse, and
@@ -821,7 +833,7 @@ internal static class VoiceMessageSender
         {
             // A tune came up while we waited: nothing to join (#860).
             pause.Dispose();
-            TuneDoors.RefuseSend();
+            RefuseUnderTune(info);
             return false;
         }
         if (OperatorHolds(rig, ptt) || rig.Transmit)
@@ -1154,6 +1166,21 @@ internal static class VoiceMessageSender
             return;
         }
         Refuse(info, reason);
+    }
+
+    /// <summary>
+    /// A tune came up after a door let this send through (#860). Said aloud, and
+    /// a send that was carrying on goes back to its paused place.
+    /// </summary>
+    private static void RefuseUnderTune(SendInfo info)
+    {
+        if (info.Session.State == SendSessionState.Paused)
+        {
+            info.Resuming = false;
+            _paused = info;
+            EnsureTimer();
+        }
+        TuneDoors.RefuseSend();
     }
 
     /// <summary>The radio went away while a send was paused: the send ends (#835).</summary>

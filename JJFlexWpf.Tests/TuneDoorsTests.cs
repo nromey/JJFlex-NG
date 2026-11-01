@@ -212,6 +212,108 @@ public sealed class TuneDoorsTests : IDisposable
         return (Task<(IDisposable?, LocalPlaybackVox.CarryOn)>)method.Invoke(null, new object?[] { rig })!;
     }
 
+    // ── A tune that comes up after a door said yes ──────────────────────
+
+    private const System.Reflection.BindingFlags Any = System.Reflection.BindingFlags.NonPublic
+        | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public;
+
+    private object Info(bool paused)
+    {
+        var sender = typeof(VoiceMessageSender);
+        var type = sender.GetNestedType("SendInfo", Any)!;
+        object info = Activator.CreateInstance(type, true)!;
+        type.GetField("Kind", Any)!.SetValue(info, Enum.Parse(sender.GetNestedType("SendKind", Any)!, "ComputerRecording"));
+        type.GetField("What", Any)!.SetValue(info, "the computer recording test");
+        type.GetField("Rig", Any)!.SetValue(info, _rig);
+        var session = new SendSession(1);
+        if (paused) session.PauseBeforeKeying();
+        type.GetField("Session", Any)!.SetValue(info, session);
+        return info;
+    }
+
+    /// <summary>The send's last step, as a door that said yes reaches it after the file has loaded.</summary>
+    private string AtTheSink(string method, object info) => Spoken(() =>
+    {
+        typeof(VoiceMessageSender).GetMethod(method, Any)!.Invoke(null,
+            method == "JoinWithFile" ? new object?[] { _rig, info, null } : new object?[] { _rig, info, "test", null });
+        return Task.CompletedTask;
+    });
+
+    [Theory]
+    [InlineData("BeginAndLaunch")]
+    [InlineData("JoinWithFile")]
+    public void A_tune_that_came_up_after_the_door_stops_the_send_at_its_last_step(string method)
+    {
+        Assert.Equal(WontGoOut, AtTheSink(method, Info(paused: false)));
+        Assert.False(VoiceMessageSender.InFlight);
+    }
+
+    [Fact]
+    public void With_no_tune_the_last_step_goes_on()
+    {
+        TuneDoors.UpOverride = _ => false;
+        // The positive control: past the tune, an idle radio's own refusal.
+        Assert.Contains(Lexicon.Get("audio.send.not_yet_transmitting"), AtTheSink("JoinWithFile", Info(paused: false)));
+    }
+
+    [Theory]
+    [InlineData("BeginAndLaunch")]
+    [InlineData("JoinWithFile")]
+    public void A_send_carrying_on_goes_back_to_its_place_and_says_so(string method)
+    {
+        var paused = typeof(VoiceMessageSender).GetField("_paused", Any)!;
+        try
+        {
+            object info = Info(paused: true);
+            Assert.Equal(WontGoOut, AtTheSink(method, info));
+            Assert.True(VoiceMessageSender.Paused);
+            Assert.Same(info, paused.GetValue(null));
+        }
+        finally { paused.SetValue(null, null); }
+    }
+
+    [Fact]
+    public void Every_send_reaches_the_last_step_after_its_file_has_loaded()
+    {
+        string src = Source("JJFlexWpf", "VoiceMessageSender.cs");
+        int resume = src.IndexOf("private static void ResumePaused()", StringComparison.Ordinal);
+        int load = src.IndexOf("TxAudioFile.TryLoadPieceInto(", resume, StringComparison.Ordinal);
+        int piece = src.IndexOf("StartVoiceMessagePiece(rig, info, loaded, route);", load, StringComparison.Ordinal);
+        Assert.True(resume > 0 && load > resume && piece > load);
+        Assert.Contains("BeginAndLaunch(rig, info, info.Label, loaded);", src);
+        Assert.Contains("BeginAndLaunch(rig, info, info.What, loaded);", src);
+    }
+
+    [Fact]
+    public void The_reference_arm_is_refused_aloud_and_unticks()
+    {
+        Exception? failure = null;
+        string said = "";
+        bool? ticked = null;
+        var thread = new System.Threading.Thread(() =>
+        {
+            try
+            {
+                const System.Reflection.BindingFlags Flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+                var dialog = (Dialogs.CheckYourAudioDialog)System.Runtime.CompilerServices.RuntimeHelpers
+                    .GetUninitializedObject(typeof(Dialogs.CheckYourAudioDialog));
+                var box = new System.Windows.Controls.CheckBox { IsChecked = true };
+                typeof(Dialogs.CheckYourAudioDialog).GetField("_rig", Flags)!.SetValue(dialog, _rig);
+                typeof(Dialogs.CheckYourAudioDialog).GetField("_refArmCheck", Flags)!.SetValue(dialog, box);
+                var arm = typeof(Dialogs.CheckYourAudioDialog).GetMethod("ReferenceArmChanged", Flags)!;
+                said = Spoken(() => { arm.Invoke(dialog, new object[] { true }); return Task.CompletedTask; });
+                ticked = box.IsChecked;
+            }
+            catch (Exception ex) { failure = ex; }
+        });
+        thread.SetApartmentState(System.Threading.ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+        Assert.Null(failure);
+        Assert.Equal(WontGoOut, said);
+        Assert.False(ticked);
+    }
+
     // ── Read from source: these need a keyed radio or a window ──────────
 
     private static string Source(params string[] path)

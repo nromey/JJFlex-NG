@@ -426,6 +426,12 @@ public sealed class RadioPowerFloorTests
     }
 
     [Fact]
+    public async Task A_tune_that_comes_up_during_the_count_keys_nothing_and_arms_nothing()
+    {
+        Assert.Equal(new[] { 0, 0, 0, 1 }, await Run("tune-during-count"));
+    }
+
+    [Fact]
     public async Task A_reported_zero_is_a_reading_and_takes_the_raise()
     {
         // The positive control: same radio, same zero, the radio has said so.

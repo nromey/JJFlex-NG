@@ -108,7 +108,8 @@ public static class RecorderControls
             }
         }
         if (string.IsNullOrEmpty(outcome.Message) || (outcome.Success && !StatusSpeechEnabled)) return;
-        if (!outcome.Success) EarconPlayer.LeaderInvalidTone();
+        if (outcome.Cue == RecorderCue.TuneRefused) EarconPlayer.ATUFailTone();
+        else if (!outcome.Success) EarconPlayer.LeaderInvalidTone();
         ScreenReaderOutput.Speak(outcome.Message, SpeechIntent.Interrupt,
             outcome.Success ? VerbosityLevel.Terse : VerbosityLevel.Critical,
             subject: outcome.Subject);

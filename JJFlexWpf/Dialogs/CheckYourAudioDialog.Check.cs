@@ -1328,6 +1328,13 @@ public partial class CheckYourAudioDialog
                     VerbosityLevel.Critical, interrupt: true);
                 return false;
             }
+            // A tune or ATU cycle that came up during the count (#860). rig.Transmit
+            // above does not cover a request still on its way.
+            if (TuneDoors.Up(rig))
+            {
+                TuneDoors.RefuseStart();
+                return false;
+            }
             // The door asked before the count; a reconnect can have happened
             // since, and nothing below may treat this power as a reading until
             // the radio has given one (#859). Before the recorder arms, so a

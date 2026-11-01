@@ -313,6 +313,14 @@ public partial class CheckYourAudioDialog
             return;
         }
 
+        // The reference would replace the microphone under a plain carrier (#860).
+        if (TuneDoors.Up(rig))
+        {
+            SetReferenceArmSilently(false);
+            TuneDoors.RefuseSend();
+            return;
+        }
+
         if (rig.TxToneEngaged)
         {
             SetReferenceArmSilently(false);
@@ -375,7 +383,9 @@ public partial class CheckYourAudioDialog
         {
             SetReferenceArmSilently(false);
             RestoreInjectionPath(rig, out _);
-            ScreenReaderOutput.Speak("VOX disabled when reference is enabled.",
+            // A tune that came up while the path was cleared is why, not VOX.
+            if (TuneDoors.Up(rig)) TuneDoors.RefuseSend();
+            else ScreenReaderOutput.Speak("VOX disabled when reference is enabled.",
                 VerbosityLevel.Critical, interrupt: true);
             return;
         }

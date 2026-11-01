@@ -58,6 +58,19 @@ public class Host
     {
         RecorderControls.Spoken = 0;
         var h = new Host();
+        // A tune that comes up during the count (#860): [keys while counting, keys, record arms, said].
+        if (scenario == "tune-during-count")
+        {
+            h.Countdown = new TaskCompletionSource<bool>();
+            var s = new AudioCheckSession(h, h._rig, h.ptt, AudioCheckListenMethods.RecordPlayback, AudioCheckPowerModes.LowPower, 1);
+            var pending = h.StartAudioCheckSessionAsync(s);
+            await Task.Delay(20);
+            int whileCounting = h.ptt.Keys;
+            h._rig.Tuning = true;
+            h.Countdown.SetResult(true);
+            await pending;
+            return new[] { whileCounting, h.ptt.Keys, h._rig.RecordStarts, RecorderControls.Spoken };
+        }
         // A power the radio has not reported (#859): [keys, power writes, restores registered, said].
         if (scenario == "power-unreported")
         {
@@ -242,6 +255,7 @@ public class FlexBase
     public AudioCheckListenMethods? ZeroWattAsked;
     public string RadioModel = "FLEX-8600";
     public bool TransmitPowerReported = true;
+    public bool Tuning;
     private int _power=20;
     public Action PowerChanged;
     public int XmitPower { get => _power; set { _power=value; PowerChanged?.Invoke(); } }
@@ -267,6 +281,7 @@ public class FakeRun { public bool Stopped; public void OwnKeying(bool b) { }
     public Task StopAsync(string reason) { Stopped=true; return Task.CompletedTask; } }
 public record ListenbackOptions(int Rate, bool OffAir, bool HearSelfDuringOffAir);
 public static class EarconPlayer { public static void FeatureOnTone() { } }
+public static class TuneDoors { public static bool Up(FlexBase rig) => rig.Tuning; public static void RefuseStart() { RecorderControls.Spoken++; } }
 public class PttSafetyController { public bool IsTransmitting; public int Keys; public int? SessionTimeoutOverrideSeconds; public bool AudioCheckNarration; public int? PlannedStopSeconds; public Action Keyed;
     public void ToggleLock() { Keys++; IsTransmitting=true; Keyed?.Invoke(); } public void EscapeUnlock() { IsTransmitting=false; } }
 public enum AudioCheckListenMethods { Monitor, RecordPlayback, OffAir, MicTest, Loopback }
