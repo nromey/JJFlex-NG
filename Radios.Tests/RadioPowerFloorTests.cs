@@ -238,15 +238,6 @@ public sealed class RadioPowerFloorTests
         Assert.True(key > 0 && commit > key && commit < toggle);
     }
 
-    [Fact]
-    public void A_refused_or_unreadable_entry_tells_the_window_not_to_go_on()
-    {
-        string src = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Controls", "ValueFieldControl.xaml.cs"));
-        Assert.Contains("internal bool CommitPendingEntry() => !_numberEntryMode || ConfirmNumberEntry();", src);
-        Assert.Contains("return false;", src.Substring(src.IndexOf("private bool ConfirmNumberEntry()", StringComparison.Ordinal)));
-        Assert.Contains("return parsed;", src);
-    }
-
     // ── The rig ─────────────────────────────────────────────────────────
 
     internal static FlexBase RigOf(string model)
@@ -342,19 +333,68 @@ public sealed class RadioPowerFloorTests
 
     // ── The field, read from its source: it cannot be built on a live desk ──
 
+    private static (TypedEntry Entry, int Value, string Refused) Typed(string model, bool parsed, int typed)
+    {
+        // The check's own field: 1 to 100, with the rule's refusal.
+        TypedEntry entry = ValueFieldRules.Judge(parsed, typed, 1, 100,
+            t => AudioCheckPowerRule.TypedWattsRefusal(model, t), out int value, out string refused);
+        return (entry, value, refused);
+    }
+
+    [Theory]
+    [InlineData(Six, 5)]
+    [InlineData(Eight, 5)]
+    [InlineData(Six, 1)]
+    [InlineData(Eight, 100)]
+    public void A_number_in_range_is_taken_as_typed(string model, int typed)
+    {
+        var r = Typed(model, true, typed);
+        Assert.Equal(TypedEntry.Taken, r.Entry);
+        Assert.Equal(typed, r.Value);
+    }
+
     [Fact]
-    public void A_refused_entry_leaves_before_the_clamp_and_keeps_the_value()
+    public void A_typed_zero_is_refused_on_a_floored_model()
+    {
+        var r = Typed(Six, true, 0);
+        Assert.Equal(TypedEntry.Refused, r.Entry);
+        Assert.Equal("You can't use this audio check method at 0 power on this rig.", r.Refused);
+    }
+
+    [Theory]
+    [InlineData(Eight, 0, 1)]     // clamps as it always has, and must not start a check
+    [InlineData(Eight, 101, 100)]
+    [InlineData(Six, 101, 100)]
+    public void A_number_past_an_end_is_clamped_and_says_it_was(string model, int typed, int value)
+    {
+        var r = Typed(model, true, typed);
+        Assert.Equal(TypedEntry.Clamped, r.Entry);
+        Assert.Equal(value, r.Value);
+    }
+
+    [Theory]
+    [InlineData(Six)]
+    [InlineData(Eight)]
+    public void What_is_not_a_number_is_said_to_be_not_a_number(string model) =>
+        Assert.Equal(TypedEntry.NotANumber, Typed(model, false, 0).Entry);
+
+    [Fact]
+    public void Only_the_number_as_typed_lets_the_press_go_on()
     {
         string src = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Controls", "ValueFieldControl.xaml.cs"));
-        int method = src.IndexOf("private bool ConfirmNumberEntry()", StringComparison.Ordinal);
-        int asked = src.IndexOf("TypedValueRefusal?.Invoke(val)", method, StringComparison.Ordinal);
-        int clamp = src.IndexOf("val = Math.Clamp(val, _min, _max);", method, StringComparison.Ordinal);
-        int taken = src.IndexOf("_value = val;", method, StringComparison.Ordinal);
-        Assert.True(asked > 0 && asked < clamp && clamp < taken, "the refusal must be asked before the clamp and the value");
-        string refused = src.Substring(asked, clamp - asked);
-        Assert.Contains("RejectEntryKey(refusal);", refused);
-        Assert.Contains("return false;", refused);
-        Assert.DoesNotContain("ValueChanged", refused);   // nothing saved
+        Assert.Contains("internal bool CommitPendingEntry() => !_numberEntryMode || ConfirmNumberEntry() == TypedEntry.Taken;", src);
+    }
+
+    [Fact]
+    public void Every_field_goes_on_clamping_and_nothing_is_saved_for_a_refused_entry()
+    {
+        string src = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Controls", "ValueFieldControl.xaml.cs"));
+        int method = src.IndexOf("private TypedEntry ConfirmNumberEntry()", StringComparison.Ordinal);
+        int judge = src.IndexOf("ValueFieldRules.Judge(parsed, val, _min, _max, TypedValueRefusal,", method, StringComparison.Ordinal);
+        int taken = src.IndexOf("_value = value;", judge, StringComparison.Ordinal);
+        int changed = src.IndexOf("ValueChanged?.Invoke(this, _value);", taken, StringComparison.Ordinal);
+        int fallThrough = src.IndexOf("default:", judge, StringComparison.Ordinal);
+        Assert.True(judge > method && fallThrough > judge && taken > fallThrough && changed > taken);
     }
 
     [Fact]

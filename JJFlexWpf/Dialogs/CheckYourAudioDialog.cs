@@ -443,8 +443,9 @@ public partial class CheckYourAudioDialog : JJFlexDialog
         {
             // This window takes the key before the field does, so a number
             // still being typed has to be finished here or the check runs at the
-            // old value. One the field refused stops the press: the operator is
-            // hearing why.
+            // old value. Anything but the number as typed stops the press,
+            // refused or clamped: the operator hears what it is now, and the
+            // next Ctrl+Enter starts. This press can key the radio.
             if (Keyboard.FocusedElement is Controls.ValueFieldControl typing && !typing.CommitPendingEntry())
             {
                 e.Handled = true;

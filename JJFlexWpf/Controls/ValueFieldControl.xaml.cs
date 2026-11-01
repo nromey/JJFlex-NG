@@ -472,10 +472,12 @@ public partial class ValueFieldControl : UserControl
 
     /// <summary>
     /// Finish a typed entry as Enter would, for a window that takes the key
-    /// before the field sees it. True when there was none, or it was taken;
-    /// false when it was refused or was not a number, and has said so.
+    /// before the field sees it. True when there was none, or the value set is
+    /// the value typed. False when it was refused, was not a number, or was
+    /// clamped to something else: each has said so, and a press that would act
+    /// on the value must stop and let the operator hear what it now is.
     /// </summary>
-    internal bool CommitPendingEntry() => !_numberEntryMode || ConfirmNumberEntry();
+    internal bool CommitPendingEntry() => !_numberEntryMode || ConfirmNumberEntry() == TypedEntry.Taken;
 
     /// <summary>
     /// Confirm the number entry buffer and apply the value.
@@ -483,7 +485,7 @@ public partial class ValueFieldControl : UserControl
     /// &gt; 0) parse a decimal number and scale it to integer units (e.g.
     /// "5.5" dBm → 550 centi-dBm). The sign toggle applies at the end.
     /// </summary>
-    private bool ConfirmNumberEntry()
+    private TypedEntry ConfirmNumberEntry()
     {
         _numberEntryMode = false;
         bool parsed;
@@ -500,51 +502,48 @@ public partial class ValueFieldControl : UserControl
         {
             parsed = int.TryParse(_numberBuffer, out val);
         }
+        if (parsed && _numberNegative) val = -val;
 
-        if (parsed)
+        TypedEntry entry = ValueFieldRules.Judge(parsed, val, _min, _max, TypedValueRefusal,
+            out int value, out string? refusal);
+        switch (entry)
         {
-            if (_numberNegative) val = -val;
-            string? refusal = TypedValueRefusal?.Invoke(val);
-            if (refusal != null)
-            {
+            case TypedEntry.Refused:
                 EndEntryEchoes("the entry being refused");
-                RejectEntryKey(refusal);
+                RejectEntryKey(refusal!);
                 UpdateDisplay();
-                _numberBuffer = "";
-                _numberNegative = false;
-                return false;
-            }
-            val = Math.Clamp(val, _min, _max);
-            _value = val;
-            UpdateDisplay();
+                break;
+            case TypedEntry.NotANumber:
+                EndEntryEchoes("the entry being rejected as not a number");
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.field.invalid_cancelled"),
+                    Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse, subject: ValueSubject);
+                UpdateDisplay();
+                break;
+            default:
+                _value = value;
+                UpdateDisplay();
 
-            if (!_suppressEvents)
-            {
-                ValueChanged?.Invoke(this, _value);
-                // The committed value covers every digit that built it: a
-                // queued "1" and "5" are worthless once "Tune Power 15" has
-                // been handed over, and the arbiter will not re-speak them.
-                string spoken = Lexicon.Get("audio.field.spoken_value",
-                    ("label", _label), ("value", FormatValue(_value)), ("unit", UnitSuffix));
-                EndEntryEchoes("the entry ending as '" + spoken + "'");
-                ScreenReaderOutput.Speak(
-                    spoken,
-                    Radios.Speech.SpeechIntent.Queue,
-                    VerbosityLevel.Terse,
-                    subject: ValueSubject);
-                EarconPlayer.ConfirmTone();
-            }
-        }
-        else
-        {
-            EndEntryEchoes("the entry being rejected as not a number");
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.field.invalid_cancelled"),
-                Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse, subject: ValueSubject);
-            UpdateDisplay();
+                if (!_suppressEvents)
+                {
+                    ValueChanged?.Invoke(this, _value);
+                    // The committed value covers every digit that built it: a
+                    // queued "1" and "5" are worthless once "Tune Power 15" has
+                    // been handed over, and the arbiter will not re-speak them.
+                    string spoken = Lexicon.Get("audio.field.spoken_value",
+                        ("label", _label), ("value", FormatValue(_value)), ("unit", UnitSuffix));
+                    EndEntryEchoes("the entry ending as '" + spoken + "'");
+                    ScreenReaderOutput.Speak(
+                        spoken,
+                        Radios.Speech.SpeechIntent.Queue,
+                        VerbosityLevel.Terse,
+                        subject: ValueSubject);
+                    EarconPlayer.ConfirmTone();
+                }
+                break;
         }
         _numberBuffer = "";
         _numberNegative = false;
-        return parsed;
+        return entry;
     }
 
     /// <summary>

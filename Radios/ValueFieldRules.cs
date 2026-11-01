@@ -8,8 +8,48 @@ namespace Radios
     /// calls its unit. Pure, because the control itself cannot be built on a
     /// live desk.
     /// </summary>
+    /// <summary>What became of a number typed into a value field.</summary>
+    public enum TypedEntry
+    {
+        /// <summary>The value set is the value typed.</summary>
+        Taken,
+
+        /// <summary>A value was set, but not the one typed: it was past an end of the range.</summary>
+        Clamped,
+
+        /// <summary>The field's owner refused it; the field keeps the value it had.</summary>
+        Refused,
+
+        /// <summary>It was not a number.</summary>
+        NotANumber,
+    }
+
     public static class ValueFieldRules
     {
+        /// <summary>
+        /// Judge a typed number. Every field goes on clamping as it always has;
+        /// the answer exists for a press that would act on the value at once,
+        /// which must not go on with a number the operator did not type.
+        /// </summary>
+        /// <param name="parsed">The text read as a number.</param>
+        /// <param name="typed">The number, signed.</param>
+        /// <param name="min">The field's minimum.</param>
+        /// <param name="max">The field's maximum.</param>
+        /// <param name="refusal">The owner's refusal, asked before any clamp; null when it has none.</param>
+        /// <param name="value">The value to set, for Taken and Clamped.</param>
+        /// <param name="refused">The sentence, for Refused.</param>
+        public static TypedEntry Judge(bool parsed, int typed, int min, int max, Func<int, string?>? refusal,
+            out int value, out string? refused)
+        {
+            value = typed;
+            refused = null;
+            if (!parsed) return TypedEntry.NotANumber;
+            refused = refusal?.Invoke(typed);
+            if (refused != null) return TypedEntry.Refused;
+            value = Math.Clamp(typed, min, max);
+            return value == typed ? TypedEntry.Taken : TypedEntry.Clamped;
+        }
+
         /// <summary>
         /// Where an arrow or Page key lands. <paramref name="floor"/> is the
         /// lowest an OPERATOR can reach, which can sit above the lowest the
