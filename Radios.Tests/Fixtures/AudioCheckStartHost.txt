@@ -51,12 +51,25 @@ public class Host
     private Task<bool> CountdownLetsKeyAsync() => Countdown?.Task ?? Task.FromResult(true);
     private void EndStartCountdown() { CountdownsEnded++; Countdown?.TrySetResult(false); }
     private void OnSessionEnded() { CancelCheckStart(); }
+    private static void SayPowerNotReported() { RecorderControls.Spoken++; }
     /*StartLoopbackCheckAsync*/
     /*StartAudioCheckSessionAsync*/
     public static async Task<int[]> Run(string scenario)
     {
         RecorderControls.Spoken = 0;
         var h = new Host();
+        // A power the radio has not reported (#859): [keys, power writes, restores registered, said].
+        if (scenario == "power-unreported")
+        {
+            h._rig.TransmitPowerReported = false;
+            h._rig.RadioModel = "FLEX-6300";
+            h._rig.XmitPower = 0;
+            int writes = 0;
+            h._rig.PowerChanged = () => writes++;
+            var s = new AudioCheckSession(h, h._rig, h.ptt, AudioCheckListenMethods.Monitor, AudioCheckPowerModes.LowPower, 10);
+            await h.StartAudioCheckSessionAsync(s);
+            return new[] { h.ptt.Keys, writes, h.Restores.Count, RecorderControls.Spoken };
+        }
         // The power floor (#859), scenario "power:<model>:<method>:<mode>:<power>:<dummy load>":
         // [power at the key, dummy load at the key (0 or 1), keys, power after the restores].
         if (scenario.StartsWith("power:"))
@@ -228,6 +241,7 @@ public class FlexBase
     public IDisposable ZeroWattException(AudioCheckListenMethods method) { ZeroWattAsked = method; return new Empty(); }
     public AudioCheckListenMethods? ZeroWattAsked;
     public string RadioModel = "FLEX-8600";
+    public bool TransmitPowerReported = true;
     private int _power=20;
     public Action PowerChanged;
     public int XmitPower { get => _power; set { _power=value; PowerChanged?.Invoke(); } }

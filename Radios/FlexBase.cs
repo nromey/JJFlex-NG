@@ -2659,6 +2659,7 @@ namespace Radios
             // describes a connection that has gone (#858), and so does what it
             // said about being allowed to transmit (#447).
             ForgetTransmitCaches(null);
+            _rfPowerReported = false;
             _txAllowedReported = false;
 
             // Fresh connection: whatever firmware we once sent is behind us, and
@@ -3396,6 +3397,7 @@ namespace Radios
             // A retry that opens another transport gets another producer identity.
             rememberCommandRoute(null, null, null);
             _txAllowedReported = false;
+            _rfPowerReported = false;
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Tracing.TraceLine($"RetryConnect: BEGIN serial={theRadio.Serial}", TraceLevel.Info);
@@ -4802,6 +4804,7 @@ namespace Radios
             // cancel sat in the switch.
             if (!nowConnected) CancelStationAttempt("connection dropped");
             if (!nowConnected) _txAllowedReported = false;
+            if (!nowConnected) _rfPowerReported = false;
             ConnectionStateChanged?.Invoke(nowConnected);
 #if zero
             bool justReconnected = false;
@@ -5230,6 +5233,7 @@ namespace Radios
                 case "RFPower":
                     Tracing.TraceLine("RFPower:" + theRadio.RFPower, TraceLevel.Info);
                     _XmitPower = theRadio.RFPower;
+                    _rfPowerReported = true;
                     break;
                 case "SimpleVOXEnable":
                     Tracing.TraceLine("SimpleVOXEnable:" + r.SimpleVOXEnable.ToString(), TraceLevel.Info);
@@ -12223,6 +12227,23 @@ namespace Radios
         internal const int XmitPowerMax = 100;
         internal const int XmitPowerIncrement = 5;
         private int _XmitPower;
+
+        // FlexLib holds RFPower at 0 from construction and has no "reported"
+        // flag, and 0 is also a legal setting. Measured: about 1.5 seconds after
+        // a connect before the first report on a 6300, 1 second on an 8600. So
+        // a 0 here says nothing until this is set: the same reasoning as
+        // _txAllowedReported, and like that one it belongs to a connection.
+        // A write of ours also raises the change that sets it, and that is
+        // fine: what was written is then what the setting is.
+        private volatile bool _rfPowerReported;
+
+        /// <summary>
+        /// The radio has told us its transmit power on this connection, so
+        /// <see cref="XmitPower"/> is a reading (#859). Nothing may save the
+        /// value as a prior, or act on it being zero, until this is true.
+        /// </summary>
+        public bool TransmitPowerReported => _rfPowerReported;
+
         public int XmitPower
         {
             get

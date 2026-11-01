@@ -802,6 +802,15 @@ public partial class CheckYourAudioDialog
             TuneDoors.RefuseStart();
             return;
         }
+        // Until the radio has said what its power is, a 0 here is not a reading.
+        // Refused rather than waited for: the wait is a second or so after a
+        // connect, a press this early is rare, and a report that never comes
+        // must not end in keying on a guess (#859).
+        if (!_rig.TransmitPowerReported && AudioCheckMethods.UsesCheckPower(SelectedMethod))
+        {
+            SayPowerNotReported();
+            return;
+        }
         if (_iqRun != null) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
         // The Workshop's diagnostic take is a take too; the radio would refuse
         // the off-air one with "another IQ take is running", but an ordinary
@@ -869,6 +878,13 @@ public partial class CheckYourAudioDialog
         if (_startCheckButton == null) return;
         _startCheckButton.Content = label;
         AutomationProperties.SetName(_startCheckButton, label);
+    }
+
+    // DRAFT PROSE (#859): awaiting Noel.
+    private static void SayPowerNotReported()
+    {
+        EarconPlayer.LeaderInvalidTone();
+        ScreenReaderOutput.Speak(Lexicon.Get("audio.check.power_not_reported"), VerbosityLevel.Critical, interrupt: true);
     }
 
     /// <summary>
@@ -1310,6 +1326,15 @@ public partial class CheckYourAudioDialog
                 // end a count on nothing.
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.already_transmitting"),
                     VerbosityLevel.Critical, interrupt: true);
+                return false;
+            }
+            // The door asked before the count; a reconnect can have happened
+            // since, and nothing below may treat this power as a reading until
+            // the radio has given one (#859). Before the recorder arms, so a
+            // refused start has changed nothing.
+            if (!_loopback && !rig.TransmitPowerReported)
+            {
+                SayPowerNotReported();
                 return false;
             }
 

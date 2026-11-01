@@ -249,7 +249,7 @@ public sealed class RadioPowerFloorTests
 
     // ── The rig ─────────────────────────────────────────────────────────
 
-    private static FlexBase RigOf(string model)
+    internal static FlexBase RigOf(string model)
     {
         var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
         const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
@@ -260,7 +260,7 @@ public sealed class RadioPowerFloorTests
         return rig;
     }
 
-    private static void Done(FlexBase rig) { rig.theRadio = null; try { rig.Dispose(); } catch { } }
+    internal static void Done(FlexBase rig) { rig.theRadio = null; try { rig.Dispose(); } catch { } }
 
     [Fact]
     public void Dummy_load_mode_refuses_to_set_on_a_6300_and_on_no_other_radio()
@@ -414,6 +414,76 @@ public sealed class RadioPowerFloorTests
         int[] r = await Run($"power:{Six}:RecordPlayback:LowPower:0:1:release");
         Assert.Equal(1, r[0]);
         Assert.Equal(42, r[3]);
+    }
+
+    // ── An unreported power is not a measured zero ──────────────────────
+
+    [Fact]
+    public async Task A_check_never_acts_on_a_power_the_radio_has_not_reported()
+    {
+        // Keys, power writes, restores registered, sentences said.
+        Assert.Equal(new[] { 0, 0, 0, 1 }, await Run("power-unreported"));
+    }
+
+    [Fact]
+    public async Task A_reported_zero_is_a_reading_and_takes_the_raise()
+    {
+        // The positive control: same radio, same zero, the radio has said so.
+        int[] r = await Run($"power:{Six}:Monitor:LowPower:0:0");
+        Assert.Equal(1, r[0]);
+        Assert.Equal(1, r[2]);
+        Assert.Equal(0, r[3]);
+    }
+
+    private static void RadioReportsPower(FlexBase rig, int watts)
+    {
+        const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
+        var radio = rig.theRadio!;
+        typeof(Flex.Smoothlake.FlexLib.Radio).GetField("_rfPower", Private)!.SetValue(radio, watts);
+        typeof(FlexBase).GetMethod("radioPropertyChangedHandler", Private)!.Invoke(rig, new object[]
+        {
+            radio, new System.ComponentModel.PropertyChangedEventArgs("RFPower"),
+            new StationConnect.ObservationBindingFor(radio).Binding,
+        });
+    }
+
+    [Theory]
+    [InlineData(50)]
+    [InlineData(0)]    // a zero the radio said is a report like any other
+    public void Unreported_and_reported_are_different_states_of_the_same_zero(int watts)
+    {
+        var rig = RigOf(Six);
+        try
+        {
+            Assert.Equal(0, rig.XmitPower);
+            Assert.False(rig.TransmitPowerReported);   // created: not a reading
+            RadioReportsPower(rig, watts);
+            Assert.True(rig.TransmitPowerReported);
+            Assert.Equal(watts, rig.XmitPower);
+        }
+        finally { Done(rig); }
+    }
+
+    [Theory]
+    [InlineData("_rfPowerReported = false;\r\n            _txAllowedReported = false;\r\n\r\n            // Fresh connection: whatever firmware")]
+    [InlineData("_txAllowedReported = false;\r\n            _rfPowerReported = false;\r\n\r\n            var sw")]
+    [InlineData("if (!nowConnected) _rfPowerReported = false;")]
+    public void The_report_ends_with_the_connection(string where) => Assert.Contains(where.Replace("\r\n", "\n"),
+        File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "Radios", "FlexBase.cs")).Replace("\r\n", "\n"));
+
+    [Fact]
+    public void The_door_asks_before_the_count_and_the_power_reads_only_after_the_gate()
+    {
+        string check = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.Check.cs"));
+        int toggle = check.IndexOf("public void ToggleAudioCheck()", StringComparison.Ordinal);
+        int door = check.IndexOf("!_rig.TransmitPowerReported", toggle, StringComparison.Ordinal);
+        int start = check.IndexOf("_ = StartAudioCheckSessionAsync(", toggle, StringComparison.Ordinal);
+        Assert.True(door > toggle && door < start);
+        int session = check.IndexOf("public async Task<bool> StartAsync(", StringComparison.Ordinal);
+        int gate = check.IndexOf("!rig.TransmitPowerReported", session, StringComparison.Ordinal);
+        int read = check.IndexOf("int currentPower = rig.XmitPower;", session, StringComparison.Ordinal);
+        int arm = check.IndexOf("rig.StartSliceRecordAsync(", session, StringComparison.Ordinal);
+        Assert.True(gate > session && gate < read && gate < arm);
     }
 
     private static async Task<int[]> Run(string scenario)

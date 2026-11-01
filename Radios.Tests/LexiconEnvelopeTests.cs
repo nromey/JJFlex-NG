@@ -1396,6 +1396,7 @@ namespace Radios.Tests
                 "audio.check.power.refused_zero",
                 "audio.power.refused_zero",
                 "audio.power.range_watts_floor",
+                "audio.check.power_not_reported",
                 "settings.dummy_load.unavailable",
                 // The tune reminder (DRAFT, #860).
                 "audio.tune.still_on",
