@@ -3971,6 +3971,7 @@ public partial class MainWindow : UserControl
             RigControl.NoSliceError -= NoSliceErrorHandler;
             RigControl.FeatureLicenseChanged -= FeatureLicenseChangedHandler;
             RigControl.TransmitChange -= TransmitChangeHandler;
+            RigControl.TransmitChange -= TuneReminderTransmitEdge;
             RigControl.TuneCarrierFell -= TuneCarrierFellHandler;
             RigControl.FlexAntTunerStartStop -= FlexAntTuneStartStopHandler;
             RigControl.ConnectedEvent -= ConnectedEventHandler;
@@ -5021,8 +5022,6 @@ public partial class MainWindow : UserControl
         // B6): a transmission VOX or a hand mic keyed is a transmission, and an
         // unheard "you are no longer on the air" must not be replayed into it.
         _pttController?.NoteRadioTransmit(transmit);
-        // At receive no carrier of ours is up, whoever ended it (#860).
-        if (!transmit) _tuneReminder.End("the radio going to receive");
 
         // Update Transmit button visual
         TransmitButton.Content = transmit ? "TX On" : "Transmit";
@@ -5302,6 +5301,7 @@ public partial class MainWindow : UserControl
         if (RigControl != null)
         {
             RigControl.TransmitChange += TransmitChangeHandler;
+            RigControl.TransmitChange += TuneReminderTransmitEdge;
             RigControl.TuneCarrierFell += TuneCarrierFellHandler;
             RigControl.FlexAntTunerStartStop += FlexAntTuneStartStopHandler;
             RigControl.ConnectedEvent += ConnectedEventHandler;
@@ -5789,6 +5789,7 @@ public partial class MainWindow : UserControl
         if (RigControl != null)
         {
             RigControl.TransmitChange -= TransmitChangeHandler;
+            RigControl.TransmitChange -= TuneReminderTransmitEdge;
             RigControl.TuneCarrierFell -= TuneCarrierFellHandler;
             RigControl.FlexAntTunerStartStop -= FlexAntTuneStartStopHandler;
             RigControl.ConnectedEvent -= ConnectedEventHandler;
@@ -6621,17 +6622,17 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// The tune flag fell, whoever dropped it (#860). From FlexLib's read loop,
-    /// so queued and never waited on, as the transmit change is.
+    /// The tune flag fell, whoever dropped it (#860). On FlexLib's read loop, and
+    /// it stays there: a post to this window can lose to the speech arbiter's
+    /// own timer, which would say the cut reminder again after the carrier has
+    /// gone. <see cref="TuneReminder.End"/> touches no UI.
     /// </summary>
-    private void TuneCarrierFellHandler()
+    private void TuneCarrierFellHandler() => _tuneReminder.End("the radio dropping tune");
+
+    /// <summary>At receive no carrier of ours is up, whoever ended it. As above, on the event's own thread.</summary>
+    private void TuneReminderTransmitEdge(object sender, bool transmit)
     {
-        if (!Dispatcher.CheckAccess())
-        {
-            Dispatcher.BeginInvoke(TuneCarrierFellHandler);
-            return;
-        }
-        _tuneReminder.End("the radio dropping tune");
+        if (!transmit) _tuneReminder.End("the radio going to receive");
     }
 
     private void TuneReminderTick()

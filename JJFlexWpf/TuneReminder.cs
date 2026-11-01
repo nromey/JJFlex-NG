@@ -15,11 +15,13 @@ namespace JJFlexWpf;
 /// <para>
 /// <b>Two ways it ends, and both matter.</b> The tick reads the radio every
 /// second, which catches anything. But a sentence cut off is held and said
-/// again about 600 ms later, so a one-second poll is too late to retire it, and
+/// again about 600 ms later, on the speech arbiter's own timer, so neither a
+/// one-second poll nor a post to the UI thread is soon enough to retire it, and
 /// turning tune off because of the reminder is the ordinary way this ends. So
-/// every real edge (tune off, the radio dropping tune or going to receive, a
-/// lost radio, power off, the events being unwired) calls <see cref="End"/> at
-/// once.
+/// every real edge calls <see cref="End"/> at once, on whatever thread it was
+/// raised on, FlexLib's read loop included. That is safe: the arbiter's
+/// withdrawal takes its own short lock and sends nothing to the screen reader,
+/// and nothing here touches the UI.
 /// </para>
 /// <para>
 /// <b>A carrier a check holds is told from the rest by who raised it</b>
@@ -31,26 +33,50 @@ namespace JJFlexWpf;
 internal sealed class TuneReminder
 {
     private readonly TuneReminderClock _clock = new();
+    private readonly object _gate = new();
     private readonly Action<string, string> _retire;
+    private readonly Action _say;
+    private int _ends;
 
-    /// <summary>For tests: stands in for the arbiter's withdrawal, so the moment it is called can be held.</summary>
-    internal TuneReminder(Action<string, string>? retire = null) =>
+    /// <param name="retire">For tests: stands in for the arbiter's withdrawal, so the moment it is called can be held.</param>
+    /// <param name="say">For tests: stands in for the tone and the sentence.</param>
+    internal TuneReminder(Action<string, string>? retire = null, Action? say = null)
+    {
         _retire = retire ?? ((subject, why) => ScreenReaderOutput.Supersede(subject, why));
+        _say = say ?? SayIt;
+    }
 
-    /// <summary>Called each second.</summary>
+    private static void SayIt()
+    {
+        EarconPlayer.Warning1Beep();
+        ScreenReaderOutput.Speak(Lexicon.Get("audio.tune.still_on"), SpeechIntent.Queue,
+            VerbosityLevel.Critical, subject: SpeechSubject.TuneStillOn);
+    }
+
+    /// <summary>Called each second, on the UI thread.</summary>
     /// <param name="up">The radio reports this client's tune on the air.</param>
     /// <param name="ownedByACheck">A transmit check holds that carrier.</param>
     /// <param name="nowMs">A monotonic clock.</param>
     /// <param name="seconds">The set length.</param>
     internal void Tick(bool up, bool ownedByACheck, long nowMs, int seconds)
     {
-        switch (_clock.Tick(up, ownedByACheck, nowMs, seconds))
+        TuneReminderStep step;
+        int ends;
+        lock (_gate)
+        {
+            step = _clock.Tick(up, ownedByACheck, nowMs, seconds);
+            ends = _ends;
+        }
+        switch (step)
         {
             case TuneReminderStep.Remind:
                 Tracing.TraceLine("TuneReminder: the carrier has been up another " + seconds + " s", TraceLevel.Info);
-                EarconPlayer.Warning1Beep();
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.tune.still_on"), SpeechIntent.Queue,
-                    VerbosityLevel.Critical, subject: SpeechSubject.TuneStillOn);
+                _say();
+                // An edge can land between the clock and the sentence. Its
+                // withdrawal came too soon to cover this one, so it goes again.
+                bool overtaken;
+                lock (_gate) overtaken = _ends != ends;
+                if (overtaken) _retire(SpeechSubject.TuneStillOn, "the tune carrier going off as it was said");
                 break;
             case TuneReminderStep.Over:
                 _retire(SpeechSubject.TuneStillOn, "the tune carrier going off");
@@ -58,10 +84,14 @@ internal sealed class TuneReminder
         }
     }
 
-    /// <summary>The carrier has gone, or the radio has: nothing about it is true any more.</summary>
+    /// <summary>The carrier has gone, or the radio has: nothing about it is true any more. Any thread.</summary>
     internal void End(string why)
     {
-        _clock.Reset();
+        lock (_gate)
+        {
+            _clock.Reset();
+            _ends++;
+        }
         _retire(SpeechSubject.TuneStillOn, why);
     }
 }

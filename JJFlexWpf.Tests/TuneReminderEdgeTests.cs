@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using JJFlexWpf.Tests.Infrastructure;
 using Radios;
 using Radios.Speech;
@@ -51,6 +52,56 @@ public sealed class TuneReminderEdgeTests
 
         // Before any further tick.
         Assert.Equal(new[] { (SpeechSubject.TuneStillOn, "tune off") }, _retired);
+    }
+
+    private MainWindow WindowHolding(TuneReminder reminder)
+    {
+        var window = (MainWindow)RuntimeHelpers.GetUninitializedObject(typeof(MainWindow));
+        typeof(MainWindow).GetField("_tuneReminder", Private)!.SetValue(window, reminder);
+        return window;
+    }
+
+    [Theory]
+    [InlineData("TuneCarrierFellHandler", false)]
+    [InlineData("TuneReminderTransmitEdge", true)]
+    public void A_radio_side_edge_retires_it_on_its_own_thread_with_the_dispatcher_doing_nothing(string handler, bool transmitEvent)
+    {
+        var reminder = Reminder();
+        long now = 1_000;
+        UpFor(reminder, ref now, 25);       // said, and could be held for recovery
+        var window = WindowHolding(reminder);
+        var method = typeof(MainWindow).GetMethod(handler, Private)!;
+
+        // A worker thread, and an uninitialized window has no dispatcher to
+        // post to: only a retirement made right here can land.
+        Task.Run(() => method.Invoke(window, transmitEvent ? new object?[] { window, false } : null)).GetAwaiter().GetResult();
+
+        Assert.Single(_retired);
+        Assert.Equal(SpeechSubject.TuneStillOn, _retired[0].Subject);
+    }
+
+    [Fact]
+    public void Going_to_transmit_retires_nothing()
+    {
+        var reminder = Reminder();
+        var window = WindowHolding(reminder);
+        typeof(MainWindow).GetMethod("TuneReminderTransmitEdge", Private)!.Invoke(window, new object?[] { window, true });
+        Assert.Empty(_retired);
+    }
+
+    [Fact]
+    public void An_edge_that_lands_between_the_clock_and_the_sentence_retires_it_after_the_sentence()
+    {
+        TuneReminder? reminder = null;
+        var order = new List<string>();
+        reminder = new TuneReminder((_, why) => order.Add("retired: " + why), () =>
+        {
+            order.Add("said");
+            reminder!.End("tune off");      // no earlier than the speech call, no later than its return
+        });
+        long now = 1_000;
+        UpFor(reminder, ref now, 25);
+        Assert.Equal(new[] { "said", "retired: tune off", "retired: the tune carrier going off as it was said" }, order);
     }
 
     [Fact]

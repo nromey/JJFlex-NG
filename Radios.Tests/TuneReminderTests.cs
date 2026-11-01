@@ -139,6 +139,7 @@ public sealed class TuneReminderTests
     [InlineData("if (!transmit) _tuneReminder.End(\"the radio going to receive\");")]
     [InlineData("_tuneReminder.End(\"the radio dropping tune\");")]
     [InlineData("RigControl.TuneCarrierFell += TuneCarrierFellHandler;")]
+    [InlineData("RigControl.TransmitChange += TuneReminderTransmitEdge;")]
     public void Every_real_edge_ends_it_at_once(string line) =>
         Assert.Contains(line, Source("JJFlexWpf", "MainWindow.xaml.cs"));
 
