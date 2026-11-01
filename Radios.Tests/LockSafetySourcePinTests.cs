@@ -34,6 +34,10 @@ namespace Radios.Tests
             Assert.Contains("if (State == PttState.Idle && RefuseIfHeldAfterCut(\"the lock key\")) return;", Body(ctl, "public void ToggleLock()"));
             Assert.Contains("if (State == PttState.Idle && RefuseIfHeldAfterCut(\"push to talk\")) return;", Body(ctl, "public void PttDown()"));
 
+            // The Audio Check's start reaches that same body through its own door,
+            // so the hold still answers it (a rig at 0 watts does not: #859).
+            Assert.Contains("try { ToggleLock(); }", Body(ctl, "public void KeyForCheck()"));
+
             // Outside it: the voice message keys, before the recording is even looked for.
             string voice = ReadSource("JJFlexWpf/VoiceMessageSender.cs");
             Assert.Contains("ptt.RefuseIfHeldAfterCut(\"a message key\")", voice);

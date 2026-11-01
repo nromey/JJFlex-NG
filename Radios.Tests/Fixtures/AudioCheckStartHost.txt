@@ -283,7 +283,7 @@ public record ListenbackOptions(int Rate, bool OffAir, bool HearSelfDuringOffAir
 public static class EarconPlayer { public static void FeatureOnTone() { } }
 public static class TuneDoors { public static bool Up(FlexBase rig) => rig.Tuning; public static void RefuseStart() { RecorderControls.Spoken++; } }
 public class PttSafetyController { public bool IsTransmitting; public int Keys; public int? SessionTimeoutOverrideSeconds; public bool AudioCheckNarration; public int? PlannedStopSeconds; public Action Keyed;
-    public void ToggleLock() { Keys++; IsTransmitting=true; Keyed?.Invoke(); } public void EscapeUnlock() { IsTransmitting=false; } }
+    public void KeyForCheck() { Keys++; IsTransmitting=true; Keyed?.Invoke(); } public void EscapeUnlock() { IsTransmitting=false; } }
 public enum AudioCheckListenMethods { Monitor, RecordPlayback, OffAir, MicTest, Loopback }
 public enum AudioCheckPowerModes { DummyLoad, LowPower }
 public enum VerbosityLevel { Terse, Critical }

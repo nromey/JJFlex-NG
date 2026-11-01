@@ -1486,7 +1486,7 @@ public partial class CheckYourAudioDialog
                 if (_owner._iqClosing || !ReferenceEquals(rig, Rig) || _ptt.IsTransmitting || rig.Transmit
                     || rig.TeardownInProgress)
                     return false;
-                _ptt.ToggleLock();
+                _ptt.KeyForCheck();
                 return true;
             });
             if (!admitted)
