@@ -19,7 +19,6 @@ namespace Radios
         private readonly object _tuneFactGate = new();
         private bool _tuneRequested;
         private long _tuneRequestedAtMs;
-        private TuneReading _tuneAtRequest = TuneReading.Unknown;
 
         /// <summary>The clock a request is timed by. For tests.</summary>
         internal Func<long> TuneFactClock { get; set; } = () => Environment.TickCount64;
@@ -27,13 +26,10 @@ namespace Radios
         /// <summary>A tune was asked for, or asked off. On the caller's thread, so a door on that thread sees it at once, ahead of the command queue.</summary>
         private void NoteTuneRequest(bool on)
         {
-            TuneReading standing = on ? ReadTuneStanding() : default;
             lock (_tuneFactGate)
             {
                 _tuneRequested = on;
-                if (!on) return;
-                _tuneRequestedAtMs = TuneFactClock();
-                _tuneAtRequest = standing;
+                if (on) _tuneRequestedAtMs = TuneFactClock();
             }
         }
 
@@ -60,10 +56,7 @@ namespace Radios
             get
             {
                 Radio radio = theRadio;
-                if (radio == null) return false;
-                TuneReading atRequest;
-                lock (_tuneFactGate) atRequest = _tuneAtRequest;
-                return TuneFact.CarrierUp(radio.TXTune, ReadTuneStanding(), atRequest);
+                return radio != null && TuneFact.CarrierUp(radio.TXTune, ReadTuneStanding());
             }
         }
 
@@ -84,14 +77,12 @@ namespace Radios
                 if (radio.ATUTuneStatus == ATUTuneStatus.InProgress) return true;
                 bool requested;
                 long at;
-                TuneReading atRequest;
                 lock (_tuneFactGate)
                 {
                     requested = _tuneRequested;
                     at = _tuneRequestedAtMs;
-                    atRequest = _tuneAtRequest;
                 }
-                return TuneFact.CarrierUp(radio.TXTune, now, atRequest)
+                return TuneFact.CarrierUp(radio.TXTune, now)
                     || TuneFact.Pending(requested, TuneFactClock() - at, now);
             }
         }

@@ -6543,17 +6543,10 @@ public partial class MainWindow : UserControl
         // the sentence that says it is transmitting, which is still true.
         Radios.TuneReading atPress = rig.ReadTuneStanding();
 
-        // The radio's own source word for the length of the wait: FlexLib's
-        // parse drops a list and keeps a stale value, and one tune's trace has
-        // to settle what a real tune reports. A read of the status stream; the
-        // carrier command is already on its way and is not touched.
-        try { _tuneSourceWatch = rig.WatchPttSource(); }
-        catch (Exception ex) { Tracing.TraceLine("TuneAnswer: no source watch: " + ex.Message, TraceLevel.Warning); }
-
         Tracing.TraceLine("TuneAnswer: asked, the radio reads " + atPress, TraceLevel.Info);
 
         var waited = Stopwatch.StartNew();
-        var answer = new Radios.TuneAnswerWatch(atPress, rig.ReadTuneStanding,
+        var answer = new Radios.TuneAnswerWatch(rig.ReadTuneStanding,
             () => ReferenceEquals(RigControl, rig) && _radioPowerOn && rig.IsConnected,
             () => waited.ElapsedMilliseconds);
         var watch = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher)
@@ -6587,14 +6580,11 @@ public partial class MainWindow : UserControl
     }
 
     private DispatcherTimer? _tuneAnswerWatch;
-    private IDisposable? _tuneSourceWatch;
 
     private void StopTuneAnswerWatch()
     {
         _tuneAnswerWatch?.Stop();
         _tuneAnswerWatch = null;
-        _tuneSourceWatch?.Dispose();
-        _tuneSourceWatch = null;
     }
 
     /// <summary>

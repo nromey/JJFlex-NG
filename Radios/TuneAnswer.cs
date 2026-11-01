@@ -80,31 +80,20 @@ namespace Radios
         public const Speech.SpeechIntent NotKeyedIntent = Speech.SpeechIntent.Queue;
 
         /// <summary>
-        /// Is what the radio reports THIS tune? <paramref name="now"/> being on
-        /// the air is not enough: a hardware key, a MOX or another client can
-        /// be what is transmitting, and that is RF we did not make.
+        /// Is what the radio reports THIS tune? It is when the radio is
+        /// transmitting, on no other client's account, and names TUNE as the
+        /// source. Being on the air is not enough: a hardware key, a MOX or
+        /// another client can be what is transmitting.
         /// </summary>
         /// <remarks>
-        /// <para>
-        /// The radio naming TUNE as the source, on no other client's account,
-        /// is the plain case.
-        /// </para>
-        /// <para>
-        /// <b>The second case is here because no trace yet shows what a real
-        /// tune reports as its source.</b> A radio that was idle at the press,
-        /// and is now transmitting on a software source or none, on no other
-        /// client's account, has done what we asked: nothing else on this
-        /// station was asked to key. If the bench reads TUNE, this case can go.
-        /// A transmission already up at the press never qualifies, so a tune
-        /// pressed over one gets the unconfirmed sentence.
-        /// </para>
+        /// Measured, not assumed: every <c>TXTune:True</c> in the traces is
+        /// followed by <c>PTTSource:TUNE</c> within about 130 ms, nine of nine
+        /// on a 6300 over SmartLink and four of four on an 8600. An idle-to-SW
+        /// fallback stood here until that was read, and it let a stale tune
+        /// request claim a later ordinary transmission.
         /// </remarks>
-        public static bool ThisTuneKeyed(TuneReading now, TuneReading atPress)
-        {
-            if (!now.Transmitting || now.AnotherClient) return false;
-            if (now.Source == PTTSource.TUNE) return true;
-            return !atPress.Busy && now.Source is PTTSource.SW or PTTSource.None;
-        }
+        public static bool ThisTuneKeyed(TuneReading now) =>
+            now.Transmitting && !now.AnotherClient && now.Source == PTTSource.TUNE;
 
         /// <summary>The sentence once the radio has not keyed in time, or has
         /// keyed and we cannot say it was this tune.</summary>
@@ -142,9 +131,8 @@ namespace Radios
         /// </summary>
         /// <param name="requestFlag"><c>Radio.TXTune</c>.</param>
         /// <param name="now">The radio's report now.</param>
-        /// <param name="atRequest">Its report when the tune was asked for.</param>
-        public static bool CarrierUp(bool requestFlag, TuneReading now, TuneReading atRequest) =>
-            requestFlag && TuneAnswer.ThisTuneKeyed(now, atRequest);
+        public static bool CarrierUp(bool requestFlag, TuneReading now) =>
+            requestFlag && TuneAnswer.ThisTuneKeyed(now);
 
         /// <summary>
         /// A tune has been asked for and the radio has had no time to answer. It
@@ -181,19 +169,16 @@ namespace Radios
     /// </summary>
     public sealed class TuneAnswerWatch
     {
-        private readonly TuneReading _atPress;
         private readonly Func<TuneReading> _read;
         private readonly Func<bool> _stillOwed;
         private readonly Func<long> _elapsedMs;
 
-        /// <param name="atPress">The radio just after the carrier was asked for.</param>
         /// <param name="read">The radio now.</param>
         /// <param name="stillOwed">False once the session the tune belonged to
         /// has ended, however it ended.</param>
         /// <param name="elapsedMs">Time since the press.</param>
-        public TuneAnswerWatch(TuneReading atPress, Func<TuneReading> read, Func<bool> stillOwed, Func<long> elapsedMs)
+        public TuneAnswerWatch(Func<TuneReading> read, Func<bool> stillOwed, Func<long> elapsedMs)
         {
-            _atPress = atPress;
             _read = read;
             _stillOwed = stillOwed;
             _elapsedMs = elapsedMs;
@@ -207,7 +192,7 @@ namespace Radios
         {
             if (!_stillOwed()) return TuneWatchStep.Abandon;
             Last = _read();
-            if (TuneAnswer.ThisTuneKeyed(Last, _atPress)) return TuneWatchStep.Keyed;
+            if (TuneAnswer.ThisTuneKeyed(Last)) return TuneWatchStep.Keyed;
             return _elapsedMs() >= TuneAnswer.WaitMs ? TuneWatchStep.NotKeyed : TuneWatchStep.Wait;
         }
     }

@@ -37,32 +37,25 @@ namespace Radios.Tests
         [Fact]
         public void The_radio_naming_the_tune_as_the_source_is_this_tune()
         {
-            Assert.True(TuneAnswer.ThisTuneKeyed(OnTheAir(PTTSource.TUNE), Idle));
+            Assert.True(TuneAnswer.ThisTuneKeyed(OnTheAir(PTTSource.TUNE)));
         }
 
-        [Fact]
-        public void Keying_up_from_idle_on_a_software_source_is_this_tune()
+        [Theory]
+        [InlineData(PTTSource.SW)]
+        [InlineData(PTTSource.None)]
+        public void An_ordinary_transmission_is_not_this_tune(PTTSource source)
         {
-            Assert.True(TuneAnswer.ThisTuneKeyed(OnTheAir(PTTSource.SW), Idle));
-            Assert.True(TuneAnswer.ThisTuneKeyed(OnTheAir(PTTSource.None), Idle));
+            // A stale request cannot claim it: only TUNE is a tune, as measured.
+            Assert.False(TuneAnswer.ThisTuneKeyed(OnTheAir(source)));
         }
 
         [Theory]
         [InlineData(PTTSource.Mic)]
         [InlineData(PTTSource.ACC)]
         [InlineData(PTTSource.RCA)]
-        public void A_hardware_key_is_not_this_tune_even_from_idle(PTTSource source)
+        public void A_hardware_key_is_not_this_tune(PTTSource source)
         {
-            Assert.False(TuneAnswer.ThisTuneKeyed(OnTheAir(source), Idle));
-        }
-
-        [Theory]
-        [InlineData(PTTSource.SW)]
-        [InlineData(PTTSource.None)]
-        [InlineData(PTTSource.RCA)]
-        public void A_transmission_already_up_at_the_press_is_not_this_tune(PTTSource source)
-        {
-            Assert.False(TuneAnswer.ThisTuneKeyed(OnTheAir(source), OnTheAir(source)));
+            Assert.False(TuneAnswer.ThisTuneKeyed(OnTheAir(source)));
         }
 
         [Theory]
@@ -70,13 +63,13 @@ namespace Radios.Tests
         [InlineData(PTTSource.SW)]
         public void Another_clients_transmission_is_not_this_tune(PTTSource source)
         {
-            Assert.False(TuneAnswer.ThisTuneKeyed(OnTheAir(source, anotherClient: true), Idle));
+            Assert.False(TuneAnswer.ThisTuneKeyed(OnTheAir(source, anotherClient: true)));
         }
 
         [Fact]
         public void Off_the_air_is_not_keyed()
         {
-            Assert.False(TuneAnswer.ThisTuneKeyed(NotKeyed(allowed: true), Idle));
+            Assert.False(TuneAnswer.ThisTuneKeyed(NotKeyed(allowed: true)));
         }
 
         // ---- the watch ----
@@ -86,7 +79,7 @@ namespace Radios.Tests
             TuneReading now = atPress;
             long ms = 0;
             bool owed = true;
-            var w = new TuneAnswerWatch(atPress, () => now, () => owed, () => ms);
+            var w = new TuneAnswerWatch(() => now, () => owed, () => ms);
             return (w, r => now = r, m => ms = m, () => owed = false);
         }
 
@@ -330,7 +323,7 @@ namespace Radios.Tests
             Put(radio, "_txClientHandle", 7u);
 
             TuneReading mine = _rig.ReadTuneStanding();
-            Assert.True(TuneAnswer.ThisTuneKeyed(mine, Idle));
+            Assert.True(TuneAnswer.ThisTuneKeyed(mine));
 
             // The trace line has to settle what a real tune reports.
             string traced = mine.ToString();
@@ -342,7 +335,7 @@ namespace Radios.Tests
             Put(radio, "_txClientHandle", 9u);
             TuneReading theirs = _rig.ReadTuneStanding();
             Assert.True(theirs.AnotherClient);
-            Assert.False(TuneAnswer.ThisTuneKeyed(theirs, Idle));
+            Assert.False(TuneAnswer.ThisTuneKeyed(theirs));
         }
 
         [Theory]

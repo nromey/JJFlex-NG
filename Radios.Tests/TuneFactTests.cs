@@ -81,14 +81,31 @@ public sealed class TuneFactTests : IDisposable
         Assert.False(_rig.TuneCarrierUp);
     }
 
-    [Fact]
-    public void A_flag_left_up_over_someone_elses_key_is_not_this_tune()
+    [Theory]
+    [InlineData(PTTSource.SW)]
+    [InlineData(PTTSource.None)]
+    public void A_stale_request_cannot_claim_a_later_ordinary_transmission(PTTSource source)
     {
-        // Already on the air at the press, on a source that does not say tune.
-        RadioIs(InterlockState.Transmitting, Ours, PTTSource.SW);
         Asked();
         FlagUp();
+        RadioIs(InterlockState.NotReady);   // denied, and the flag stays up
+        _now += TuneAnswer.WaitMs;
+        Assert.False(_rig.TuningNow);
+
+        RadioIs(InterlockState.Transmitting, Ours, source);   // an ordinary key, much later
         Assert.False(_rig.TuneCarrierUp);
+        Assert.False(_rig.TuningNow);
+    }
+
+    [Fact]
+    public void A_real_tune_over_the_same_flag_still_counts()
+    {
+        Asked();
+        FlagUp();
+        RadioIs(InterlockState.Transmitting, Ours, PTTSource.TUNE);
+        _now += TuneAnswer.WaitMs;
+        Assert.True(_rig.TuneCarrierUp);    // the positive control for the theory above
+        Assert.True(_rig.TuningNow);
     }
 
     [Fact]
