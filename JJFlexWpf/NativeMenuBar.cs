@@ -1917,7 +1917,11 @@ public class NativeMenuBar : IDisposable
             dlg.ShowDialog();
         });
         AddChecked(parent, "Tune &Carrier\tCtrl+Shift+T", () =>
-            _window.ToggleTuneCarrier(),
+            {
+                // Asked here too, so its sentence can wait for the menu to close (#859).
+                if (Rig?.TxTune == false && ZeroPowerDoors.RefuseTune(Rig, "the tune menu", afterMenu: true)) return;
+                _window.ToggleTuneCarrier();
+            },
             () => Rig?.TxTune == true);
 
         AddSep(parent);
@@ -2514,7 +2518,11 @@ public class NativeMenuBar : IDisposable
             {
                 BuildATUItems(antSub);
                 AddSep(antSub);
-                AddWired(antSub, "ATU Tune\tCtrl+T", () => _window.StartATUTuneCycle());
+                AddWired(antSub, "ATU Tune\tCtrl+T", () =>
+                {
+                    if (Rig?.FlexTunerOn == false && ZeroPowerDoors.RefuseTune(Rig, "the ATU menu", afterMenu: true)) return;
+                    _window.StartATUTuneCycle();
+                });
             }
             // Unconditional as of Sprint 30 Track A. The old
             // DiversityHardwareSupported guard meant a 1-SCU radio got no

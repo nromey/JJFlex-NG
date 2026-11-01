@@ -6011,6 +6011,7 @@ public partial class MainWindow : UserControl
         {
             // Fallback — direct TX toggle (no safety controller)
             Tracing.TraceLine($"toggling transmit: {RigControl.Transmit}", TraceLevel.Info);
+            if (!RigControl.Transmit && ZeroPowerDoors.RefuseTransmit(RigControl, "the transmit toggle")) return;
             RigControl.Transmit = !RigControl.Transmit;
         }
     }
@@ -6437,9 +6438,17 @@ public partial class MainWindow : UserControl
             Tracing.TraceLine("antennaTune: no power", TraceLevel.Error);
             return;
         }
+        if (TunerStartRefused()) return;
         _oldSwr = "";
         RigControl.FlexTunerOn = !RigControl.FlexTunerOn;
     }
+
+    /// <summary>
+    /// A press that would start the tuner on a rig whose tune power reads 0
+    /// watts (#859). Turning the tuner off is never refused.
+    /// </summary>
+    private bool TunerStartRefused() =>
+        !RigControl.FlexTunerOn && ZeroPowerDoors.RefuseTune(RigControl, "the antenna tuner");
 
     /// <summary>
     /// Show SWR/tuner status on hover.
@@ -6478,6 +6487,17 @@ public partial class MainWindow : UserControl
     public void ToggleTuneCarrier()
     {
         if (RigControl == null) return;
+
+        // A press that would START a tune on a rig whose tune power reads 0
+        // watts (#859). Ahead of the debounce, which would leave a click's
+        // button checked, and of everything below, so a refused press tells
+        // nothing it keyed. The button has flipped itself by now, so it goes
+        // back. This is not the hold: tune is not held, by ruling of 2026-10-22.
+        if (!RigControl.TxTune && ZeroPowerDoors.RefuseTune(RigControl, "the tune carrier"))
+        {
+            if (TuneToggleButton != null) TuneToggleButton.IsChecked = false;
+            return;
+        }
 
         // Debounce: ignore calls within 500ms (key auto-repeat protection)
         long now = Environment.TickCount64;
@@ -6692,6 +6712,7 @@ public partial class MainWindow : UserControl
             Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.no_tuner"), VerbosityLevel.Terse);
             return;
         }
+        if (TunerStartRefused()) return;
         // ATU tune uses FlexTunerOn which handles auto/manual tuner logic
         _oldSwr = "";
         RigControl.FlexTunerOn = true;
@@ -6802,6 +6823,7 @@ public partial class MainWindow : UserControl
         switch (item)
         {
             case "ATU Tune":
+                if (TunerStartRefused()) break;
                 RigControl.FlexTunerOn = !RigControl.FlexTunerOn;
                 break;
             case "Start Tune Carrier":
