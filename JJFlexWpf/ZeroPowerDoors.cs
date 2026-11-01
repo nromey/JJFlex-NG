@@ -59,6 +59,12 @@ internal static class ZeroPowerDoors
     /// <summary>For tests: the clock the presses are told apart by.</summary>
     internal static Func<long> Clock { get; set; } = () => Environment.TickCount64;
 
+    /// <summary>
+    /// For tests: told each door that answers a press. The speech history
+    /// cannot count answers, because it folds a sentence said twice into one.
+    /// </summary>
+    internal static Action<string>? Answered { get; set; }
+
     /// <summary>For tests: every door starts with no press in hand.</summary>
     internal static void Forget()
     {
@@ -112,6 +118,7 @@ internal static class ZeroPowerDoors
     private static void Answer(string door, string sentence, bool afterMenu)
     {
         if (!NewPress(door)) return;
+        Answered?.Invoke(door);
         Tracing.TraceLine("ZeroPowerDoors: refused at 0 watts: " + door, TraceLevel.Info);
         EarconPlayer.ATUFailTone();   // the refusal tone, through its own gate, with no admission
         if (afterMenu) _ = SayAfterMenuAsync(sentence);

@@ -39,6 +39,7 @@ public sealed class ZeroPowerDoorsTests : IDisposable
     private readonly VerbosityLevel _verbosityWas;
     private bool _transmitAtZero = true, _tuneAtZero = true;
     private long _now = 1_000_000;
+    private readonly List<string> _answers = new();
 
     public ZeroPowerDoorsTests()
     {
@@ -51,6 +52,7 @@ public sealed class ZeroPowerDoorsTests : IDisposable
         ZeroPowerDoors.Forget();
         ZeroPowerDoors.AtZeroOverride = (rig, tune) => ReferenceEquals(rig, _rig) && (tune ? _tuneAtZero : _transmitAtZero);
         ZeroPowerDoors.Clock = () => _now;
+        ZeroPowerDoors.Answered = _answers.Add;
         _controller = new PttSafetyController(() => _rig, () => true,
             new PttConfig { ChirpEnabled = false, SpeechEnabled = false });
     }
@@ -58,6 +60,7 @@ public sealed class ZeroPowerDoorsTests : IDisposable
     public void Dispose()
     {
         ZeroPowerDoors.AtZeroOverride = null;
+        ZeroPowerDoors.Answered = null;
         ZeroPowerDoors.Clock = () => Environment.TickCount64;
         ZeroPowerDoors.Forget();
         Dialogs.AudioWorkshopDialog.PttControllerSource = null;
@@ -176,6 +179,17 @@ public sealed class ZeroPowerDoorsTests : IDisposable
     }
 
     [Fact]
+    public void A_push_to_talk_down_while_already_keyed_is_not_told_anything()
+    {
+        Keyable();
+        _controller.ToggleLock();
+        _transmitAtZero = true;
+        _controller.PttDown();           // keys nothing, so it is not a press this answers
+        Assert.Empty(_answers);
+        Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);
+    }
+
+    [Fact]
     public void A_rig_with_nothing_connected_keys_as_it_always_has()
     {
         ZeroPowerDoors.AtZeroOverride = null;   // the real reads, on a rig with no model and no reports
@@ -244,18 +258,15 @@ public sealed class ZeroPowerDoorsTests : IDisposable
     [MemberData(nameof(Doors))]
     public void A_held_key_under_a_reader_that_sends_pairs_is_one_tone_and_one_sentence(string door)
     {
-        var said = Said(() =>
+        PressDoor(door);
+        _now += 512;                     // the keyboard's repeat delay, then a pair about every 250 ms
+        PressDoor(door);
+        for (int i = 0; i < 12; i++)
         {
+            _now += 250;
             PressDoor(door);
-            _now += 512;                 // the keyboard's repeat delay, then a pair about every 250 ms
-            PressDoor(door);
-            for (int i = 0; i < 12; i++)
-            {
-                _now += 250;
-                PressDoor(door);
-            }
-        });
-        Assert.Single(said);
+        }
+        Assert.Single(_answers);         // counted at the answer: the speech history folds repeats
         Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);   // every repeat was still refused
     }
 
@@ -265,7 +276,8 @@ public sealed class ZeroPowerDoorsTests : IDisposable
     {
         PressDoor(door);
         _now += FreshPressGate.SameChordWindowMs + 1;
-        Assert.Single(Said(() => PressDoor(door)));   // the positive control for the one above
+        PressDoor(door);
+        Assert.Equal(2, _answers.Count);  // the positive control for the one above
     }
 
     [Fact]
