@@ -97,6 +97,8 @@ internal static class VoiceMessageSender
         public string? Path;
         /// <summary>The send across its pieces and pauses (#835).</summary>
         public SendSession Session = new(0);
+        /// <summary>What the send takes over from, run at the last step and not before: the paused speakers.</summary>
+        public Action? HandOff;
         /// <summary>The piece about to start carries on after a pause, so it says so rather than "Sending".</summary>
         public bool Resuming;
         /// <summary>What the running piece holds on the radio, given back when it settles.</summary>
@@ -424,6 +426,7 @@ internal static class VoiceMessageSender
             RefuseUnderTune(info);
             return;
         }
+        HandOffNow(info);
         PieceHolds holds = PieceHolds.Take(rig, Name(info));
         VoiceMessageSend send;
         try { send = VoiceMessageSend.Begin(new FlexBaseVoiceMessageRig(rig), label, Environment.TickCount64); }
@@ -489,9 +492,10 @@ internal static class VoiceMessageSender
     }
 
     /// <param name="beforeSending">
-    /// Run once every question and refusal has passed, just before the piece
-    /// starts: the paused speakers stop here, so nothing that turns the send
-    /// away has already lost the operator's place.
+    /// Run once every question and refusal has passed, at the very last step
+    /// (<see cref="HandOffNow"/>): the paused speakers stop there, so nothing
+    /// that turns the send away has lost the operator's place. That includes a
+    /// tune that comes up during the decode or the box's wait for VOX (#860).
     /// </param>
     private static void SendComputerRecording(FlexBase rig, string path, SendRoute route, double fromSeconds,
         Action? beforeSending = null)
@@ -539,7 +543,7 @@ internal static class VoiceMessageSender
             }
         }
         info.Session = new SendSession(loaded.LengthSeconds, fromSeconds);
-        beforeSending?.Invoke();
+        info.HandOff = beforeSending;
         StartComputerPiece(rig, info, loaded, route);
     }
 
@@ -879,6 +883,7 @@ internal static class VoiceMessageSender
             info.VoxPause = null;
             return false;
         }
+        HandOffNow(info);
         var send = VoiceMessageSend.BeginKeyed(info.Owned, Name(info), Environment.TickCount64, options);
         Launch(rig, info, send, info.Path ?? "", "box", holds);
         return true;
@@ -1166,6 +1171,14 @@ internal static class VoiceMessageSender
             return;
         }
         Refuse(info, reason);
+    }
+
+    /// <summary>Nothing can turn this send away now: whatever it takes over from stops, once.</summary>
+    private static void HandOffNow(SendInfo info)
+    {
+        Action? handOff = info.HandOff;
+        info.HandOff = null;
+        handOff?.Invoke();
     }
 
     /// <summary>

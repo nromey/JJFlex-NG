@@ -272,6 +272,104 @@ public sealed class TuneDoorsTests : IDisposable
         finally { paused.SetValue(null, null); }
     }
 
+    // ── A recording paused on the speakers keeps its place ──────────────
+
+    private object InfoHandingOff(Action handOff)
+    {
+        object info = Info(paused: false);
+        info.GetType().GetField("HandOff", Any)!.SetValue(info, handOff);
+        return info;
+    }
+
+    [Theory]
+    [InlineData("BeginAndLaunch")]
+    [InlineData("JoinWithFile")]
+    public void A_late_refusal_leaves_the_paused_speakers_alone(string method)
+    {
+        bool handedOff = false;
+        Assert.Equal(WontGoOut, AtTheSink(method, InfoHandingOff(() => handedOff = true)));
+        Assert.False(handedOff);
+    }
+
+    [Fact]
+    public void A_recording_paused_on_the_speakers_keeps_its_place_when_tune_comes_up_during_the_load()
+    {
+        // The whole road from the speakers: a real paused player, a real file
+        // in the recordings folder, and a radio whose audio path says yes.
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        var radioType = typeof(FlexBase).GetField("theRadio", flags)!.FieldType;
+        object radio = Activator.CreateInstance(radioType, flags, null, new object[] { false }, null)!;
+        radioType.GetField("_micInput", flags)!.SetValue(radio, "PC");
+        typeof(FlexBase).GetField("theRadio", flags)!.SetValue(_rig, radio);
+        typeof(FlexBase).GetField("_PCAudio", flags)!.SetValue(_rig, true);
+        Assert.Equal("", _rig.TxTonePathTrouble);    // or the send never reaches the load
+
+        Directory.CreateDirectory(RecordedQsoCatalog.FolderPath);
+        string path = Path.Combine(RecordedQsoCatalog.FolderPath, "tune-" + Guid.NewGuid().ToString("N") + ".wav");
+        using (var writer = new NAudio.Wave.WaveFileWriter(path, new NAudio.Wave.WaveFormat(24000, 16, 1)))
+        {
+            var samples = Enumerable.Repeat(0.5f, 72000).ToArray();
+            writer.WriteSamples(samples, 0, samples.Length);
+        }
+        try
+        {
+            Assert.True(RecordingPlayer.PlayWithMixer(path, "A test recording.", null, false, _ => true));
+            Assert.True(RecordingPlayer.Pause());
+            double? at = RecordingPlayer.PositionSeconds;
+
+            int asked = 0;
+            TuneDoors.UpOverride = _ => ++asked >= 2;   // clear at the door, up at the last step
+            string said = Spoken(() =>
+            {
+                Assert.True(VoiceMessageSender.SendPausedSpeakerPlayback(_rig, SendRoute.JoinTransmission));
+                return Task.CompletedTask;
+            });
+
+            Assert.True(asked >= 2);                    // the send did reach the last step
+            Assert.Equal(WontGoOut, said);
+            Assert.True(RecordingPlayer.IsPaused);
+            Assert.Equal(at, RecordingPlayer.PositionSeconds);
+            Assert.False(VoiceMessageSender.InFlight);
+        }
+        finally
+        {
+            RecordingPlayer.StopWithoutSpeaking();
+            typeof(FlexBase).GetField("theRadio", flags)!.SetValue(_rig, null);
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Any_late_refusal_leaves_them_alone_not_just_a_tunes()
+    {
+        TuneDoors.UpOverride = _ => false;
+        bool handedOff = false;
+        AtTheSink("JoinWithFile", InfoHandingOff(() => handedOff = true));   // an idle radio turns it away
+        Assert.False(handedOff);
+    }
+
+    [Fact]
+    public void The_hand_off_runs_once_and_only_at_the_two_last_steps()
+    {
+        string src = Source("JJFlexWpf", "VoiceMessageSender.cs");
+        int send = src.IndexOf("private static void SendComputerRecording(FlexBase rig, string path, SendRoute route, double fromSeconds,", StringComparison.Ordinal);
+        string body = src.Substring(send, src.IndexOf("StartComputerPiece(rig, info, loaded, route);", send, StringComparison.Ordinal) - send);
+        Assert.DoesNotContain("beforeSending?.Invoke", body);
+        Assert.Contains("info.HandOff = beforeSending;", body);
+
+        int plain = src.IndexOf("private static void BeginAndLaunch(", StringComparison.Ordinal);
+        int gate = src.IndexOf("if (TuneDoors.Up(rig))", plain, StringComparison.Ordinal);
+        int handOff = src.IndexOf("HandOffNow(info);", plain, StringComparison.Ordinal);
+        int holds = src.IndexOf("PieceHolds holds = PieceHolds.Take", plain, StringComparison.Ordinal);
+        Assert.True(gate > plain && handOff > gate && holds > handOff);
+
+        int box = src.IndexOf("VoiceMessageSend.BeginKeyed(info.Owned", StringComparison.Ordinal);
+        int boxHandOff = src.LastIndexOf("HandOffNow(info);", box, StringComparison.Ordinal);
+        int boxGate = src.LastIndexOf("RefuseIfHeldAfterCut(\"a send\")", box, StringComparison.Ordinal);
+        int owned = src.LastIndexOf("return false;", box, StringComparison.Ordinal);
+        Assert.True(boxHandOff > boxGate && boxHandOff > owned);
+    }
+
     [Fact]
     public void Every_send_reaches_the_last_step_after_its_file_has_loaded()
     {

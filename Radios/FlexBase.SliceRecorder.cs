@@ -469,7 +469,7 @@ public partial class FlexBase
                     // keyed, so this is the one place that sees it (#860).
                     if (args.PropertyName is nameof(Radio.TXTune) or nameof(Radio.ATUTuneStatus)
                         && state.Intent is { UnderTune: true } underTune && !TuningNow)
-                        _ = StopPlayingForTransmitAsync(state, underTune.Generation + 1);
+                        _ = StopPlayingForTransmitAsync(state, long.MaxValue, underTune);
                 };
                 state.Radio.PropertyChanged += state.RadioStatus;
                 state.Removed = removed =>
@@ -708,11 +708,18 @@ public partial class FlexBase
         TransmitChange += _sliceRecorderKeyed;
     }
 
-    private async Task StopPlayingForTransmitAsync(SliceRecorderState state, long generation)
+    /// <param name="only">
+    /// The one playback this stop is for, when it is not for a generation. A
+    /// tune ending moves no generation, so a newer playback on the same key
+    /// carries the same number as the old one, and only the object tells them
+    /// apart (#860).
+    /// </param>
+    private async Task StopPlayingForTransmitAsync(SliceRecorderState state, long generation, PlaybackIntent only = null)
     {
         await state.Gate.WaitAsync().ConfigureAwait(false);
         try
         {
+            if (only != null && !ReferenceEquals(state.Intent, only)) return;
             // A delayed stop belongs to the invalidated press, not to a new
             // press admitted after that edge or safety cut.
             if (state.Intent?.Generation >= generation) return;
