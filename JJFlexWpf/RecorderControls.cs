@@ -168,6 +168,13 @@ public static class RecorderControls
             TuneDoors.RefuseStart();
             return new(false, "", SpeechSubject.SliceRecorder(""));
         }
+        // A recording made while the radio is transmitting at 0 watts on a rig
+        // that records nothing there (#859): a hardware push to talk, which we
+        // cannot refuse, so this press is. In receive this door records at any
+        // power, and it keys nothing. Only the menu passes a speaker of its own.
+        if (rig != null && (rig.Transmit || rig.RadioInterlockReportsTransmit) && !rig.IsSliceRecording(target)
+            && ZeroPowerDoors.RefuseTransmit(rig, "a slice recording", afterMenu: speak != null))
+            return new(false, "", SpeechSubject.SliceRecorder(""));
         var outcome = rig == null
             ? NoRadio(SpeechSubject.SliceRecorder(""))
             : await Guarded(() => rig.ToggleSliceRecordAsync(target, owner), SpeechSubject.SliceRecorder(""));
