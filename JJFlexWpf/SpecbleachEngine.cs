@@ -283,8 +283,12 @@ namespace JJFlexWpf
             try { library = LibraryLocator?.Invoke(); }
             catch { return Unavailability.LibraryMissing; }
             if (string.IsNullOrEmpty(library)) library = DefaultLibraryPath();
-            return File.Exists(library) ? Unavailability.None : Unavailability.LibraryMissing;
+            return ProbeAt(library);
         }
+
+        /// <summary>The probe's whole rule, for one path: present or not. Never loads anything.</summary>
+        internal static Unavailability ProbeAt(string library)
+            => File.Exists(library) ? Unavailability.None : Unavailability.LibraryMissing;
 
         /// <summary><c>runtimes\win-{arch}\native\specbleach.dll</c> under the app base directory.</summary>
         public static string DefaultLibraryPath()
