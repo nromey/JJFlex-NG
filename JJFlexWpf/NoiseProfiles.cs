@@ -316,10 +316,9 @@ public static class NoiseCaptureNarrator
         {
             AutoSave(p);
             EarconPlayer.ConfirmTone();
-            string next = p.SpectralEnabled
-                ? Radios.Lexicon.Get("audio.noise.capture.spectral_is_using_it")
-                : Radios.Lexicon.Get("audio.noise.capture.turn_spectral_on");
-            Speak(Radios.Lexicon.Get("audio.noise.capture.captured", ("next", next)), interrupt: true);
+            string next = Radios.Lexicon.Get(p.CaptureFinishKey());
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.noise.capture.captured", ("next", next)),
+                Radios.Speech.SpeechIntent.Interrupt, subject: Radios.Speech.SpeechSubject.NoiseCaptureFinished);
         }
         else
         {

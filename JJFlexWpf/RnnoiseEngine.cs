@@ -44,7 +44,7 @@ namespace JJFlexWpf
     /// the output is the same as before. What changed is around it: there is
     /// now one of these per channel instead of one for channel 0.
     /// </remarks>
-    public sealed class RnnoiseEngine : INeuralDenoiseEngine
+    public sealed class RnnoiseEngine : IDenoiseEngine
     {
         /// <summary>RNNoise's fixed frame: 10 ms at 48 kHz.</summary>
         public const int Frame = 480;
@@ -61,7 +61,7 @@ namespace JJFlexWpf
             _denoiser = TryCreate();
         }
 
-        public string Id => _scaling == RnnoiseScaling.Historical ? "rnnoise" : "rnnoise-corrected";
+        public string Id => "rnnoise";
 
         public int SampleRate => 48000;
 
@@ -80,7 +80,7 @@ namespace JJFlexWpf
         /// <summary>Which input level this instance feeds RNNoise.</summary>
         public RnnoiseScaling Scaling => _scaling;
 
-        public void ProcessFrame(ReadOnlySpan<float> input, Span<float> output)
+        public bool ProcessFrame(ReadOnlySpan<float> input, Span<float> output)
         {
             var d = _denoiser;
             if (d == null)
@@ -104,6 +104,7 @@ namespace JJFlexWpf
                 d.Denoise(new Span<float>(_scratch));
                 _scratch.AsSpan().CopyTo(output);
             }
+            return true;
         }
 
         public void Reset()

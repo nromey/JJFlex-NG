@@ -942,12 +942,7 @@ public partial class MainWindow : UserControl
         if (CurrentAudioConfig == null || OpenParms == null) return;
         var pipeline = FieldsPanel?.AudioPipeline;
         if (pipeline == null) return;
-        CurrentAudioConfig.RNNoiseEnabled = pipeline.RnnEnabled;
-        CurrentAudioConfig.RNNoiseStrength = pipeline.RnnStrength;
-        CurrentAudioConfig.RNNoiseAutoDisableNonVoice = pipeline.RnnAutoDisableNonVoice;
-        CurrentAudioConfig.SpectralSubEnabled = pipeline.SpectralEnabled;
-        CurrentAudioConfig.SpectralSubStrength = pipeline.SpectralStrength;
-        CurrentAudioConfig.SpectralSubFloor = pipeline.SpectralFloor;
+        ReceiveDenoiseConfig.Map(CurrentAudioConfig, pipeline, save: true);
         CurrentAudioConfig.Save(OpenParms.ConfigDirectory);
     }
 

@@ -1,9 +1,10 @@
 using System;
+using System.Collections.Generic;
 
 namespace JJFlexWpf
 {
     /// <summary>
-    /// A mono, fixed-frame neural noise reducer: one channel in, one channel
+    /// A mono, fixed-frame noise reducer: one channel in, one channel
     /// out, exactly <see cref="FrameLength"/> samples at a time.
     /// </summary>
     /// <remarks>
@@ -25,12 +26,8 @@ namespace JJFlexWpf
     /// noise), so one instance must only ever be fed one continuous channel.
     /// Never alternate two sources through one instance.
     /// </para>
-    /// <para>
-    /// Not an operator surface. Which engine the app uses is decided in code;
-    /// nothing here is a setting.
-    /// </para>
     /// </remarks>
-    public interface INeuralDenoiseEngine : IDisposable
+    public interface IDenoiseEngine : IDisposable
     {
         /// <summary>Short stable identifier, for traces and the offline bench ("rnnoise", "deepfilternet3").</summary>
         string Id { get; }
@@ -50,6 +47,11 @@ namespace JJFlexWpf
         /// construction; <see cref="PerChannelDenoiserBank"/> does.
         /// </summary>
         bool IsAvailable { get; }
+        Unavailability Unavailability => IsAvailable ? Unavailability.None : Unavailability.InitFailed;
+        string UnavailabilityDetail => "";
+        IReadOnlyList<EngineSettingDescriptor> Settings => Array.Empty<EngineSettingDescriptor>();
+        EngineSettingValue GetSetting(string name) => throw new ArgumentException("Unknown setting", nameof(name));
+        bool TrySetSetting(string name, EngineSettingValue value) => false;
 
         /// <summary>
         /// How far the engine's output lags its input, in samples at
@@ -64,12 +66,12 @@ namespace JJFlexWpf
         /// long, samples in [-1, 1]. Input and output may not overlap.
         /// </summary>
         /// <remarks>
-        /// May throw. <see cref="PerChannelDenoiserBank"/> treats a throw, like
+        /// False is an expected late frame, not a failure. May throw. <see cref="PerChannelDenoiserBank"/> treats a throw, like
         /// an unavailable engine, as "pass this frame through unprocessed": the
         /// audio thread is never stalled, never silenced and never handed the
         /// exception.
         /// </remarks>
-        void ProcessFrame(ReadOnlySpan<float> input, Span<float> output);
+        bool ProcessFrame(ReadOnlySpan<float> input, Span<float> output);
 
         /// <summary>Forget everything learned so far, as if newly created.</summary>
         void Reset();

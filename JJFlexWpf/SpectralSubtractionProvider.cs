@@ -453,6 +453,10 @@ namespace JJFlexWpf
             return false;
         }
 
+        // Profile arrays are immutable after capture/load; only their references travel.
+        internal double[]? GetChannelProfile(int channel) => System.Threading.Volatile.Read(ref _channels[channel].NoiseProfile);
+        internal void SetChannelProfile(int channel, double[]? profile) => System.Threading.Volatile.Write(ref _channels[channel].NoiseProfile, profile);
+
         /// <summary>Clear the current noise profile.</summary>
         public void ClearProfile()
         {

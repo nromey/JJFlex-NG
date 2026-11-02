@@ -54,6 +54,7 @@ namespace Radios.Speech
     /// </summary>
     public static class SpeechSubject
     {
+        public const string NoiseCaptureFinished = "noise.capture.finished";
         /// <summary>
         /// The narration of a slow operation — "Searching for radios", "Still
         /// searching", "Connected to X. Waiting for slice...". Only the newest

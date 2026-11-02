@@ -37,12 +37,11 @@ namespace JJFlexWpf
     {
         private readonly ISampleProvider? _source;
         private readonly WaveFormat _waveFormat;
-        private readonly Func<INeuralDenoiseEngine> _engineFactory;
+        private readonly Func<IDenoiseEngine> _engineFactory;
         private PerChannelDenoiserBank? _bank;
 
         /// <summary>
-        /// Set whenever a buffer goes by unprocessed (disabled, or a non-voice
-        /// mode), so the next processed buffer drops any audio the carry held
+        /// Set whenever a buffer goes by unprocessed (disabled), so the next processed buffer drops any audio the carry held
         /// from before the gap rather than playing it late.
         /// </summary>
         private bool _carryStale;
@@ -58,42 +57,14 @@ namespace JJFlexWpf
         /// </summary>
         public float Strength { get; set; } = 0.8f;
 
-        /// <summary>
-        /// When true, auto-disables NR in CW/digital modes (RNNoise is speech-trained).
-        /// </summary>
-        public bool AutoDisableNonVoice { get; set; } = true;
-
-        /// <summary>Current mode from radio — set externally to control auto-disable.</summary>
-        public string CurrentMode { get; set; } = "";
-
         public WaveFormat WaveFormat => _waveFormat;
-
-        /// <summary>
-        /// ISampleProvider constructor — wraps an existing audio source for NAudio chain use.
-        /// </summary>
-        public NoiseReductionProvider(ISampleProvider source)
-        {
-            _source = source;
-            _waveFormat = source.WaveFormat;
-            _engineFactory = DefaultEngine;
-            _bank = CreateBank(_waveFormat.Channels);
-        }
-
-        /// <summary>
-        /// Standalone constructor for live audio pipeline use (no ISampleProvider source).
-        /// Call ProcessInPlace() to process buffers directly.
-        /// </summary>
-        public NoiseReductionProvider(int sampleRate = 48000, int channels = 2)
-            : this(sampleRate, channels, DefaultEngine)
-        {
-        }
 
         /// <summary>
         /// Standalone constructor with a chosen engine, for code and the
         /// offline bench. Not reachable from anything an operator can select.
         /// </summary>
         /// <param name="engineFactory">Called once per channel; each call must return a new instance.</param>
-        public NoiseReductionProvider(int sampleRate, int channels, Func<INeuralDenoiseEngine> engineFactory)
+        public NoiseReductionProvider(int sampleRate, int channels, Func<IDenoiseEngine> engineFactory)
         {
             _source = null;
             _waveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
@@ -119,8 +90,8 @@ namespace JJFlexWpf
         {
             int totalRead = _source?.Read(buffer) ?? 0;
 
-            // Pass through if disabled, no engine, or auto-disabled for non-voice modes
-            if (!Enabled || totalRead == 0 || (AutoDisableNonVoice && IsNonVoiceMode(CurrentMode)))
+            // Pass through if disabled or no engine
+            if (!Enabled || totalRead == 0)
             {
                 _carryStale = true;
                 return totalRead;
@@ -137,7 +108,7 @@ namespace JJFlexWpf
         /// </summary>
         public void ProcessInPlace(float[] buffer, int offset, int count, int channels)
         {
-            if (!Enabled || count == 0 || (AutoDisableNonVoice && IsNonVoiceMode(CurrentMode)))
+            if (!Enabled || count == 0)
             {
                 _carryStale = true;
                 return;
@@ -191,17 +162,6 @@ namespace JJFlexWpf
                 Trace.WriteLine($"NoiseReductionProvider: engine init failed: {ex.Message}");
                 return null;
             }
-        }
-
-        private static INeuralDenoiseEngine DefaultEngine() => new RnnoiseEngine();
-
-        private static bool IsNonVoiceMode(string mode)
-        {
-            if (string.IsNullOrEmpty(mode)) return false;
-            return mode.StartsWith("CW", StringComparison.OrdinalIgnoreCase) ||
-                   mode.StartsWith("DIG", StringComparison.OrdinalIgnoreCase) ||
-                   mode.StartsWith("FDM", StringComparison.OrdinalIgnoreCase) ||
-                   mode.Equals("RTTY", StringComparison.OrdinalIgnoreCase);
         }
 
         public void Dispose()

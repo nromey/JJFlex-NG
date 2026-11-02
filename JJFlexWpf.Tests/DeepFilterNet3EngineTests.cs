@@ -39,10 +39,10 @@ public sealed class DeepFilterNet3EngineTests
     {
         NoiseReductionPerChannelTests.AssertWindowless();
         using var e = new DeepFilterNet3Engine(libraryPath: LibraryPath());
-        Assert.True(e.IsAvailable, "DeepFilterNet3 did not start: " + e.UnavailableReason);
+        Assert.True(e.IsAvailable, "DeepFilterNet3 did not start: " + e.UnavailabilityDetail);
         Assert.Equal(480, e.FrameLength);
         Assert.Equal(48000, e.SampleRate);
-        Assert.Equal("", e.UnavailableReason);
+        Assert.Equal("", e.UnavailabilityDetail);
     }
 
     [Fact]
@@ -50,7 +50,7 @@ public sealed class DeepFilterNet3EngineTests
     {
         NoiseReductionPerChannelTests.AssertWindowless();
         using var e = new DeepFilterNet3Engine(libraryPath: LibraryPath());
-        Assert.True(e.IsAvailable, e.UnavailableReason);
+        Assert.True(e.IsAvailable, e.UnavailabilityDetail);
 
         var rng = new Random(731);
         var input = new float[480];
@@ -84,7 +84,7 @@ public sealed class DeepFilterNet3EngineTests
         string nowhere = Path.Combine(Path.GetTempPath(), "jjflex-no-such-dir-" + Guid.NewGuid().ToString("N"), "deepfilter.dll");
         using var e = new DeepFilterNet3Engine(libraryPath: nowhere);
         Assert.False(e.IsAvailable);
-        Assert.Contains("was not found", e.UnavailableReason);
+        Assert.Contains("was not found", e.UnavailabilityDetail);
         Assert.Throws<InvalidOperationException>(() => e.ProcessFrame(new float[480], new float[480]));
     }
 
@@ -98,7 +98,7 @@ public sealed class DeepFilterNet3EngineTests
         {
             using var e = new DeepFilterNet3Engine(libraryPath: LibraryPath(), modelPath: bogus);
             Assert.False(e.IsAvailable);
-            Assert.Contains("not the pinned file", e.UnavailableReason);
+            Assert.Contains("not the pinned file", e.UnavailabilityDetail);
         }
         finally
         {
@@ -113,7 +113,7 @@ public sealed class DeepFilterNet3EngineTests
         string missing = Path.Combine(Path.GetTempPath(), "jjflex-missing-model-" + Guid.NewGuid().ToString("N") + ".tar.gz");
         using var e = new DeepFilterNet3Engine(libraryPath: LibraryPath(), modelPath: missing);
         Assert.False(e.IsAvailable);
-        Assert.Contains("was not found", e.UnavailableReason);
+        Assert.Contains("was not found", e.UnavailabilityDetail);
     }
 
     [Fact]
@@ -134,11 +134,11 @@ public sealed class DeepFilterNet3EngineTests
     {
         NoiseReductionPerChannelTests.AssertWindowless();
         using var e = new DeepFilterNet3Engine(libraryPath: LibraryPath());
-        Assert.True(e.IsAvailable, e.UnavailableReason);
+        Assert.True(e.IsAvailable, e.UnavailabilityDetail);
         var buf = new float[480];
         e.ProcessFrame(buf, buf.AsSpan().ToArray());
         e.Reset();
-        Assert.True(e.IsAvailable, e.UnavailableReason);
+        Assert.True(e.IsAvailable, e.UnavailabilityDetail);
         Assert.Equal(0, e.FramesProcessed);
     }
 

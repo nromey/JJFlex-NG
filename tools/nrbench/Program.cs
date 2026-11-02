@@ -141,7 +141,7 @@ int Bench(string[] a)
         var bank = nr.Bank;
         if (bank == null || !bank.IsAvailable)
         {
-            string why = bank?.EngineFor(0) is DeepFilterNet3Engine d ? d.UnavailableReason : "the engine did not start";
+            string why = bank?.EngineFor(0) is DeepFilterNet3Engine d ? d.UnavailabilityDetail : "the engine did not start";
             Line($"NOT RENDERED: {why}");
             Line();
             continue;
@@ -470,4 +470,4 @@ static string FindRepoRoot()
     return d?.FullName ?? Environment.CurrentDirectory;
 }
 
-record Variant(string Name, string Description, Func<INeuralDenoiseEngine>? Factory, float Strength);
+record Variant(string Name, string Description, Func<IDenoiseEngine>? Factory, float Strength);

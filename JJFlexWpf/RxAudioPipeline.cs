@@ -1,12 +1,15 @@
 using System;
 using System.Diagnostics;
+using System.Threading;
+using Radios;
 
 namespace JJFlexWpf
 {
     /// <summary>
     /// PC-side audio processing pipeline for RX audio.
     /// Chains processing stages between Opus decode and PortAudio playback:
-    ///   Decoded PCM → SpectralSubtraction → RNNoise → PortAudio queue
+    /// Capture listens first, then the spectral and neural slots run, followed
+    /// by the warning duck and recording playback level.
     ///
     /// Works on ALL radios (6000/8000/Aurora) since processing runs on the PC,
     /// unlike radio-side NR which requires 8000/Aurora hardware DSP.
@@ -15,14 +18,46 @@ namespace JJFlexWpf
     /// Future stages (waterfall FFT tap, recording tap, DSP filters) plug in here.
     ///
     /// Thread safety: Process() is called from FlexBase's remoteAudioProc thread.
-    /// Property setters are called from the UI thread. Properties use volatile reads
-    /// to avoid torn values — no locks needed since each property is a single word.
+    /// Control state is published by reference. The audio thread owns both
+    /// slots while the interlocked process mark is held; disconnect waits
+    /// before freeing their native state.
     /// Sprint 25 Phase 20.
     /// </summary>
     public class RxAudioPipeline : IDisposable
     {
-        private readonly NoiseReductionProvider _rnnoise;
-        private readonly SpectralSubtractionProvider _spectralSub;
+        private SpectralSubtractionProvider _spectralSub;
+        private readonly DenoiseEngineCatalog _catalog;
+        public PcDenoiseSlot SpectralSlot { get; }
+        public PcDenoiseSlot NeuralSlot { get; }
+        private int _processMark; // 0 idle, 1 inside Process, 2 permanently closed
+        private int _disposed;
+        private string _mode = "";
+        private bool _voiceModesOnly = true;
+        public event EventHandler<DenoiseSelectionResult>? SelectionResult;
+        public bool VoiceModesOnly { get => Volatile.Read(ref _voiceModesOnly); set => Volatile.Write(ref _voiceModesOnly, value); }
+        public string CurrentMode => Volatile.Read(ref _mode);
+        public bool SelectPcEngine(string id, out string? refusal)
+        {
+            var row = _catalog.Find(id);
+            if (row == null) { refusal = "unknown-engine"; return false; }
+            if (row.Side != DenoiseSide.Pc) { refusal = "radio-engine"; return false; }
+            return (row.Family == DenoiseFamily.Spectral ? SpectralSlot : NeuralSlot).Select(id, out refusal);
+        }
+        public bool SelectPcEngine(string id) => SelectPcEngine(id, out _);
+        public static bool ModePermits(DenoiseFamily family, string mode, bool voiceModesOnly)
+        {
+            if (!voiceModesOnly) return true;
+            if (mode.StartsWith("DIG", StringComparison.OrdinalIgnoreCase) ||
+                mode.StartsWith("FDM", StringComparison.OrdinalIgnoreCase) || mode.Equals("RTTY", StringComparison.OrdinalIgnoreCase)) return false;
+            return family != DenoiseFamily.Neural || !mode.StartsWith("CW", StringComparison.OrdinalIgnoreCase);
+        }
+        private void ForwardSelection(object? sender, DenoiseSelectionResult result) => SelectionResult?.Invoke(this, result);
+        public string CaptureFinishKey() => CaptureFinishKey(SpectralEnabled, SpectralSlot.ChosenEngineId, CurrentMode, VoiceModesOnly);
+        public static string CaptureFinishKey(bool on, string selection, string mode, bool voiceModesOnly)
+        {
+            if (!ModePermits(DenoiseFamily.Spectral, mode, voiceModesOnly)) return "audio.noise.capture.held_by_mode";
+            return on && selection == "spectral_capture" ? "audio.noise.capture.spectral_is_using_it" : "audio.noise.capture.turn_spectral_on";
+        }
         private readonly int _channels;
 
         /// <summary>Kept for the duck's ramp, which has to convert a time
@@ -33,11 +68,15 @@ namespace JJFlexWpf
         /// Create the pipeline for the given audio format.
         /// Both providers are created in standalone mode (no ISampleProvider source).
         /// </summary>
-        public RxAudioPipeline(int sampleRate = 48000, int channels = 2)
+        public RxAudioPipeline(int sampleRate = 48000, int channels = 2, DenoiseEngineCatalog? catalog = null)
         {
             _channels = channels;
             _sampleRate = sampleRate;
-            _rnnoise = new NoiseReductionProvider(sampleRate, channels);
+            _catalog = catalog ?? new DenoiseEngineCatalog();
+            SpectralSlot = new(DenoiseFamily.Spectral, "spectral_capture", sampleRate, channels, _catalog);
+            NeuralSlot = new(DenoiseFamily.Neural, "rnnoise", sampleRate, channels, _catalog);
+            SpectralSlot.SelectionResult += ForwardSelection;
+            NeuralSlot.SelectionResult += ForwardSelection;
             _spectralSub = new SpectralSubtractionProvider(sampleRate, channels);
 
             Trace.WriteLine($"RxAudioPipeline: created ({sampleRate}Hz, {channels}ch)");
@@ -48,22 +87,22 @@ namespace JJFlexWpf
         /// <summary>Enable/disable PC-side neural noise reduction (RNNoise).</summary>
         public bool RnnEnabled
         {
-            get => _rnnoise.Enabled;
-            set => _rnnoise.Enabled = value;
+            get => NeuralSlot.Enabled;
+            set => NeuralSlot.Enabled = value;
         }
 
         /// <summary>RNNoise wet/dry mix: 0.0 = bypass, 1.0 = fully processed. Default 0.8.</summary>
         public float RnnStrength
         {
-            get => _rnnoise.Strength;
-            set => _rnnoise.Strength = Math.Clamp(value, 0f, 1f);
+            get => NeuralSlot.GetStrength("rnnoise");
+            set => NeuralSlot.SetStrength("rnnoise", value);
         }
 
         /// <summary>Auto-disable RNNoise for CW/digital modes (it's speech-trained).</summary>
         public bool RnnAutoDisableNonVoice
         {
-            get => _rnnoise.AutoDisableNonVoice;
-            set => _rnnoise.AutoDisableNonVoice = value;
+            get => VoiceModesOnly;
+            set => VoiceModesOnly = value;
         }
 
         // --- Spectral subtraction properties ---
@@ -71,22 +110,22 @@ namespace JJFlexWpf
         /// <summary>Enable/disable PC-side spectral subtraction.</summary>
         public bool SpectralEnabled
         {
-            get => _spectralSub.Enabled;
-            set => _spectralSub.Enabled = value;
+            get => SpectralSlot.Enabled;
+            set => SpectralSlot.Enabled = value;
         }
 
         /// <summary>Subtraction aggressiveness: 0.0 = none, 1.0 = max. Default 0.7.</summary>
         public float SpectralStrength
         {
-            get => _spectralSub.Strength;
-            set => _spectralSub.Strength = Math.Clamp(value, 0f, 1f);
+            get => (float)SpectralSlot.GetSetting("spectral_capture", "subtraction_amount").Number;
+            set => SpectralSlot.TrySetSetting("spectral_capture", "subtraction_amount", new EngineSettingValue(Math.Round(Math.Clamp(value, 0f, 1f), 2)));
         }
 
         /// <summary>Spectral floor to prevent musical noise artifacts. Default 0.02.</summary>
         public float SpectralFloor
         {
-            get => _spectralSub.SpectralFloor;
-            set => _spectralSub.SpectralFloor = Math.Clamp(value, 0f, 1f);
+            get => (float)SpectralSlot.GetSetting("spectral_capture", "spectral_floor").Number;
+            set => SpectralSlot.TrySetSetting("spectral_capture", "spectral_floor", new EngineSettingValue(Math.Round(Math.Clamp(value, 0f, 0.2f), 3)));
         }
 
         /// <summary>True while actively sampling noise profile.</summary>
@@ -109,7 +148,7 @@ namespace JJFlexWpf
         /// </summary>
         public void SetCurrentMode(string mode)
         {
-            _rnnoise.CurrentMode = mode ?? "";
+            Volatile.Write(ref _mode, mode ?? "");
         }
 
         // --- Noise profile management ---
@@ -118,7 +157,11 @@ namespace JJFlexWpf
         /// Default 3 seconds (range 1-5) per the ratified capture-window decision.</summary>
         public void StartNoiseSampling(int durationSeconds = 3)
         {
-            _spectralSub.StartSampling(durationSeconds);
+            var old = Volatile.Read(ref _spectralSub);
+            var fresh = new SpectralSubtractionProvider(_sampleRate, _channels) { ProfileName = old.ProfileName };
+            for (int ch = 0; ch < _channels; ch++) fresh.SetChannelProfile(ch, old.GetChannelProfile(ch));
+            fresh.StartSampling(durationSeconds);
+            Interlocked.Exchange(ref _spectralSub, fresh);
         }
 
         /// <summary>Cancel an in-progress noise sampling session.</summary>
@@ -149,18 +192,31 @@ namespace JJFlexWpf
 
         /// <summary>
         /// Process a decoded audio buffer in-place.
-        /// Chain order: SpectralSubtraction first (removes band-specific noise floor),
-        /// then RNNoise (neural cleanup of remaining signal).
+        /// Capture listens to raw input, then the spectral slot and neural slot
+        /// run before the warning duck and recording playback level.
         ///
         /// Called from FlexBase.remoteAudioProc thread via the PostDecodeProcessor delegate.
         /// </summary>
         public void Process(float[] buffer)
         {
-            int count = buffer.Length;
-            _spectralSub.ProcessInPlace(buffer, 0, count, _channels);
-            _rnnoise.ProcessInPlace(buffer, 0, count, _channels);
-            ApplyDuck(buffer, count);
-            ApplyPlaybackLevel(buffer, count);
+            if (Volatile.Read(ref _disposed) != 0 || Interlocked.CompareExchange(ref _processMark, 1, 0) != 0) return;
+            try
+            {
+                if (Volatile.Read(ref _disposed) != 0) return;
+                int count = buffer.Length;
+                var capture = Volatile.Read(ref _spectralSub);
+                bool capturing = capture.IsSampling;
+                capture.ProcessInPlace(buffer, 0, count, _channels); // capture only, never enabled
+                SpectralSlot.Process(buffer, ModePermits(DenoiseFamily.Spectral, CurrentMode, VoiceModesOnly),
+                    capture.HasProfile, capturing, bank => {
+                        for (int ch = 0; ch < bank.Channels; ch++)
+                            if (bank.EngineFor(ch) is SpectralCaptureEngine engine) engine.SetProfile(capture.GetChannelProfile(ch));
+                    });
+                NeuralSlot.Process(buffer, ModePermits(DenoiseFamily.Neural, CurrentMode, VoiceModesOnly), true, false, null);
+                ApplyDuck(buffer, count);
+                ApplyPlaybackLevel(buffer, count);
+            }
+            finally { Interlocked.Exchange(ref _processMark, 0); }
         }
 
         // --- Recording playback level (#787, bench 2026-10-25) ---
@@ -304,7 +360,20 @@ namespace JJFlexWpf
 
         public void Dispose()
         {
-            _rnnoise.Dispose();
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            SpectralSlot.CloseAdmission(); NeuralSlot.CloseAdmission();
+            var wait = Stopwatch.StartNew();
+            var spin = new SpinWait();
+            while (Interlocked.CompareExchange(ref _processMark, 2, 0) != 0)
+            {
+                if (wait.ElapsedMilliseconds >= 250)
+                {
+                    Trace.WriteLine("RxAudioPipeline: disconnect timed out; retaining engines rather than freeing during Process");
+                    return;
+                }
+                spin.SpinOnce();
+            }
+            SpectralSlot.DisposeOwned(); NeuralSlot.DisposeOwned();
             Trace.WriteLine("RxAudioPipeline: disposed");
         }
     }

@@ -32,7 +32,7 @@ public sealed class PerChannelDenoiserBankTests
     /// frame) + channel tag. Stateful, channel-specific, and never equal to
     /// its input for non-trivial audio.
     /// </summary>
-    private sealed class FakeEngine : INeuralDenoiseEngine
+    private sealed class FakeEngine : IDenoiseEngine
     {
         private float _carry;
         public readonly List<float[]> Seen = new();
@@ -47,7 +47,8 @@ public sealed class PerChannelDenoiserBankTests
         /// <summary>Report unavailable from this frame on, as an out-of-process engine whose helper died would.</summary>
         public int DieFrom = -1;
         public int Asked;
-        public void ProcessFrame(ReadOnlySpan<float> input, Span<float> output)
+        public int LateFrom = -1;
+        public bool ProcessFrame(ReadOnlySpan<float> input, Span<float> output)
         {
             int k = Asked++;
             if (DieFrom >= 0 && k + 1 >= DieFrom) IsAvailable = false;
@@ -56,10 +57,12 @@ public sealed class PerChannelDenoiserBankTests
                 output.Fill(float.NaN); // half-written garbage must not escape either
                 throw new InvalidOperationException("the helper went away");
             }
+            if (LateFrom >= 0 && k >= LateFrom) return false;
             Seen.Add(input.ToArray());
             for (int i = 0; i < F; i++)
                 output[i] = -0.5f * input[i] + 0.25f * _carry + Tag;
             _carry = input[F - 1];
+            return true;
         }
         public void Reset() { _carry = 0; Seen.Clear(); }
         public void Dispose() { }
@@ -75,7 +78,7 @@ public sealed class PerChannelDenoiserBankTests
         return outp;
     }
 
-    private static Func<INeuralDenoiseEngine> FakeFactory(List<FakeEngine>? made = null)
+    private static Func<IDenoiseEngine> FakeFactory(List<FakeEngine>? made = null)
     {
         int n = 0;
         return () =>
@@ -384,7 +387,7 @@ public sealed class PerChannelDenoiserBankTests
         var expected = (float[])input.Clone();
         OldProcessSamples(expected, frames * 2, 2, strength: 0.8f);
 
-        using var nr = new NoiseReductionProvider(48000, 2) { Enabled = true };
+        using var nr = new NoiseReductionProvider(48000, 2, () => new RnnoiseEngine()) { Enabled = true };
         var got = (float[])input.Clone();
         for (int pos = 0; pos < got.Length; pos += F * 2)
             nr.ProcessInPlace(got, pos, F * 2, 2);
@@ -428,5 +431,22 @@ public sealed class PerChannelDenoiserBankTests
     private static IEnumerable<int> Cycle(int[] values)
     {
         for (int i = 0; ; i++) yield return values[i % values.Length];
+    }
+
+    [Fact]
+    public void Late_frames_are_counted_separately_from_failed_frames_and_leave_availability_alone()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var made = new List<FakeEngine>();
+        using var bank = new PerChannelDenoiserBank(FakeFactory(made), 2);
+        made[0].LateFrom = 0;
+        made[1].ThrowFrom = 0;
+        var audio = RandomStereo(F, 94);
+        var expected = (float[])audio.Clone();
+        bank.Process(audio, 1);
+        Assert.Equal(expected, audio);
+        Assert.Equal(1, bank.LateFrames);
+        Assert.Equal(1, bank.FallbackFrames);
+        Assert.True(made[0].IsAvailable);
     }
 }

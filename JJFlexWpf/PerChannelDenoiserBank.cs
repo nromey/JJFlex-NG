@@ -4,7 +4,7 @@ using System.Diagnostics;
 namespace JJFlexWpf
 {
     /// <summary>
-    /// Runs one mono <see cref="INeuralDenoiseEngine"/> per channel over an
+    /// Runs one mono <see cref="IDenoiseEngine"/> per channel over an
     /// interleaved buffer: de-interleave, denoise each channel on its own,
     /// blend wet and dry, re-interleave.
     /// </summary>
@@ -67,7 +67,7 @@ namespace JJFlexWpf
     /// </remarks>
     public sealed class PerChannelDenoiserBank : IDisposable
     {
-        private readonly INeuralDenoiseEngine[] _engines;
+        private readonly IDenoiseEngine[] _engines;
         private readonly float[][] _in;   // pending partial frame, per channel
         private float[][] _wet;            // processed, waiting to go out
         private float[][] _dry;            // the same samples unprocessed, for the blend
@@ -78,14 +78,21 @@ namespace JJFlexWpf
 
         /// <param name="engineFactory">Called once per channel. Every instance must report the same frame length.</param>
         /// <param name="channels">Interleaved channel count, at least 1.</param>
-        public PerChannelDenoiserBank(Func<INeuralDenoiseEngine> engineFactory, int channels)
+        public PerChannelDenoiserBank(Func<IDenoiseEngine> engineFactory, int channels)
         {
             if (engineFactory == null) throw new ArgumentNullException(nameof(engineFactory));
             if (channels < 1) throw new ArgumentOutOfRangeException(nameof(channels));
 
-            _engines = new INeuralDenoiseEngine[channels];
-            for (int c = 0; c < channels; c++)
-                _engines[c] = engineFactory();
+            _engines = new IDenoiseEngine[channels];
+            try
+            {
+                for (int c = 0; c < channels; c++) _engines[c] = engineFactory();
+            }
+            catch
+            {
+                foreach (var engine in _engines) engine?.Dispose();
+                throw;
+            }
 
             FrameLength = _engines[0].FrameLength;
             for (int c = 1; c < channels; c++)
@@ -161,8 +168,10 @@ namespace JJFlexWpf
         /// </summary>
         public long FallbackFrames { get; private set; }
 
+        public long LateFrames { get; private set; }
+
         /// <summary>The engine serving one channel, for the offline bench's per-engine figures.</summary>
-        public INeuralDenoiseEngine EngineFor(int channel) => _engines[channel];
+        public IDenoiseEngine EngineFor(int channel) => _engines[channel];
 
         /// <summary>
         /// Denoise an interleaved buffer in place. Whole sample frames only:
@@ -224,7 +233,7 @@ namespace JJFlexWpf
                             // came in, for this channel only. Never silence,
                             // never a stall, never the exception.
                             Array.Copy(inBuf, 0, wet, outCount, f);
-                            FallbackFrames++;
+
                         }
                         Array.Copy(inBuf, 0, dry, outCount, f);
                         outCount += f;
@@ -284,16 +293,17 @@ namespace JJFlexWpf
         /// stretch, not once per frame, so a dead engine cannot flood the
         /// trace from the audio thread.
         /// </summary>
-        private bool RunEngine(int ch, INeuralDenoiseEngine engine, float[] input, Span<float> output)
+        private bool RunEngine(int ch, IDenoiseEngine engine, float[] input, Span<float> output)
         {
             string? failure = null;
             if (engine.IsAvailable)
             {
                 try
                 {
-                    engine.ProcessFrame(input, output);
+                    bool processed = engine.ProcessFrame(input, output);
                     _failing[ch] = false;
-                    return true;
+                    if (!processed) LateFrames++;
+                    return processed;
                 }
                 catch (Exception ex)
                 {
@@ -305,6 +315,7 @@ namespace JJFlexWpf
                 failure = "not available";
             }
 
+            FallbackFrames++;
             if (!_failing[ch])
             {
                 _failing[ch] = true;

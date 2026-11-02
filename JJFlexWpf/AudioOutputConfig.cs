@@ -163,6 +163,10 @@ namespace JJFlexWpf
 
         /// <summary>Whether JJ Neural NR (RNNoise) is enabled.</summary>
         public bool RNNoiseEnabled { get; set; }
+        public int ReceiveDenoiseVersion { get; set; }
+        public bool ReceiveVoiceModesOnly { get; set; } = true;
+        public ReceiveDenoiseSlotConfig ReceiveNeural { get; set; } = new();
+        public ReceiveDenoiseSlotConfig ReceiveSpectral { get; set; } = new();
 
         /// <summary>RNNoise wet/dry mix strength 0.0-1.0.</summary>
         public float RNNoiseStrength { get; set; } = 0.8f;

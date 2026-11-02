@@ -28,7 +28,9 @@
     <PackageReference Include="YellowDogMan.RRNoise.NET" Version="0.1.9" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="..\..\JJFlexWpf\INeuralDenoiseEngine.cs" Link="src\INeuralDenoiseEngine.cs" />
+    <Compile Include="..\..\JJFlexWpf\EngineSettingDescriptor.cs" Link="src\EngineSettingDescriptor.cs" />
+    <Compile Include="..\..\Radios\DenoiseEngineSettings.cs" Link="src\DenoiseEngineSettings.cs" />
+    <Compile Include="..\..\JJFlexWpf\IDenoiseEngine.cs" Link="src\IDenoiseEngine.cs" />
     <Compile Include="..\..\JJFlexWpf\RnnoiseEngine.cs" Link="src\RnnoiseEngine.cs" />
     <Compile Include="..\..\JJFlexWpf\DeepFilterNet3Engine.cs" Link="src\DeepFilterNet3Engine.cs" />
     <Compile Include="..\..\JJFlexWpf\PerChannelDenoiserBank.cs" Link="src\PerChannelDenoiserBank.cs" />

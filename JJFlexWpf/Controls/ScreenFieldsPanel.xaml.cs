@@ -1650,12 +1650,7 @@ public partial class ScreenFieldsPanel : UserControl
     {
         if (_audioPipeline == null) return;
 
-        _audioPipeline.RnnEnabled = cfg.RNNoiseEnabled;
-        _audioPipeline.RnnStrength = Math.Clamp(cfg.RNNoiseStrength, 0f, 1f);
-        _audioPipeline.RnnAutoDisableNonVoice = cfg.RNNoiseAutoDisableNonVoice;
-        _audioPipeline.SpectralEnabled = cfg.SpectralSubEnabled;
-        _audioPipeline.SpectralStrength = Math.Clamp(cfg.SpectralSubStrength, 0f, 1f);
-        _audioPipeline.SpectralFloor = Math.Clamp(cfg.SpectralSubFloor, 0f, 1f);
+        ReceiveDenoiseConfig.Map(cfg, _audioPipeline, save: false);
 
         string lastProfile = cfg.NoiseProfileLastPath;
         if (!string.IsNullOrEmpty(lastProfile) && System.IO.File.Exists(lastProfile))

@@ -1,6 +1,8 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Collections.Generic;
+using System.Threading;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 
@@ -39,7 +41,7 @@ namespace JJFlexWpf
     /// where native libraries live; tests and the bench pass a path.
     /// </para>
     /// </remarks>
-    public sealed class DeepFilterNet3Engine : INeuralDenoiseEngine
+    public sealed class DeepFilterNet3Engine : IDenoiseEngine
     {
         /// <summary>The shipped file name (built as <c>df.dll</c> upstream, renamed).</summary>
         public const string LibraryFileName = "deepfilter.dll";
@@ -67,7 +69,9 @@ namespace JJFlexWpf
         private readonly string? _modelPath;
         private Api? _api;
         private IntPtr _state;
-        private float _attenLimitDb;
+        private sealed record Parameters(float Attenuation, float Beta);
+        private Parameters _pending;
+        private Parameters? _applied;
         private readonly float[] _in = new float[480];
         private readonly float[] _out = new float[480];
 
@@ -77,7 +81,7 @@ namespace JJFlexWpf
         public DeepFilterNet3Engine(float attenuationLimitDb = DefaultAttenuationLimitDb,
                                     string? libraryPath = null, string? modelPath = null)
         {
-            _attenLimitDb = attenuationLimitDb;
+            _pending = new Parameters(attenuationLimitDb, 0);
             _libraryPath = libraryPath;
             _modelPath = modelPath;
             Start();
@@ -103,21 +107,35 @@ namespace JJFlexWpf
         public int LatencySamples => (960 - FrameLength) + 2 * FrameLength;
 
         /// <summary>Why <see cref="IsAvailable"/> is false, in plain words; empty when it is true.</summary>
-        public string UnavailableReason { get; private set; } = "";
+        public Unavailability Unavailability { get; private set; }
+        public string UnavailabilityDetail { get; private set; } = "";
+        public IReadOnlyList<EngineSettingDescriptor> Settings { get; } = new[] {
+            new EngineSettingDescriptor("attenuation_limit_db", "audio.denoise.attenuation_limit_db", EngineSettingKind.Number,
+                new EngineSettingValue(9), 0, 100, 1, "audio.denoise.db"),
+            new EngineSettingDescriptor("post_filter_beta", "audio.denoise.post_filter_beta", EngineSettingKind.Number,
+                new EngineSettingValue(0), 0, 0.05, 0.001)
+        };
+        public EngineSettingValue GetSetting(string name) => name switch {
+            "attenuation_limit_db" => new EngineSettingValue(Volatile.Read(ref _pending).Attenuation),
+            "post_filter_beta" => new EngineSettingValue(Volatile.Read(ref _pending).Beta),
+            _ => throw new ArgumentException("Unknown setting", nameof(name))
+        };
+        public bool TrySetSetting(string name, EngineSettingValue value)
+        {
+            var descriptor = System.Linq.Enumerable.FirstOrDefault(Settings, x => x.Name == name);
+            if (descriptor == null || !descriptor.Accepts(value)) return false;
+            Parameters before, after;
+            do {
+                before = Volatile.Read(ref _pending);
+                after = name == "attenuation_limit_db" ? before with { Attenuation = (float)value.Number }
+                    : before with { Beta = (float)value.Number };
+                if (after == before) return true;
+            } while (Interlocked.CompareExchange(ref _pending, after, before) != before);
+            return true;
+        }
 
         /// <summary>The DLL actually loaded, or the path that was tried.</summary>
         public string LibraryPath { get; private set; } = "";
-
-        /// <summary>Most the engine may take off, in dB (100 = unlimited). Applies live.</summary>
-        public float AttenuationLimitDb
-        {
-            get => _attenLimitDb;
-            set
-            {
-                _attenLimitDb = value;
-                if (_state != IntPtr.Zero) _api!.SetAttenLim(_state, value);
-            }
-        }
 
         /// <summary>The local SNR, in dB, the model reported for the most recent frame.</summary>
         public float LastFrameSnrDb { get; private set; }
@@ -128,22 +146,22 @@ namespace JJFlexWpf
         /// <summary>Sum of every reported per-frame SNR, for a mean.</summary>
         public double SnrSumDb { get; private set; }
 
-        /// <summary>Post-filter strength; 0 disables it (upstream default). Upstream suggests 0 to 0.05.</summary>
-        public void SetPostFilterBeta(float beta)
-        {
-            if (_state != IntPtr.Zero) _api!.SetPostFilterBeta(_state, beta);
-        }
-
-        public void ProcessFrame(ReadOnlySpan<float> input, Span<float> output)
+        public bool ProcessFrame(ReadOnlySpan<float> input, Span<float> output)
         {
             if (_state == IntPtr.Zero)
-                throw new InvalidOperationException("DeepFilterNet3 is not available: " + UnavailableReason);
+                throw new InvalidOperationException("DeepFilterNet3 is not available: " + UnavailabilityDetail);
             if (input.Length != FrameLength || output.Length != FrameLength)
                 throw new ArgumentException($"DeepFilterNet3 frames are exactly {FrameLength} samples.");
 
             // Copied in and out: the C signature takes a mutable input pointer,
             // and nothing outside this class should have to trust that it is
             // never written.
+            var pending = Volatile.Read(ref _pending);
+            if (!ReferenceEquals(pending, _applied)) {
+                _api!.SetAttenLim(_state, pending.Attenuation);
+                _api.SetPostFilterBeta(_state, pending.Beta);
+                _applied = pending;
+            }
             input.CopyTo(_in);
             float snr = _api!.ProcessFrame(_state, _in, _out);
             _out.AsSpan(0, FrameLength).CopyTo(output);
@@ -151,6 +169,7 @@ namespace JJFlexWpf
             LastFrameSnrDb = snr;
             SnrSumDb += snr;
             FramesProcessed++;
+            return true;
         }
 
         public void Reset()
@@ -180,7 +199,7 @@ namespace JJFlexWpf
 
             if (!File.Exists(lib))
             {
-                Unavailable($"{LibraryFileName} was not found at {lib}.");
+                Unavailable(Unavailability.LibraryMissing, $"{LibraryFileName} was not found at {lib}.");
                 return;
             }
 
@@ -188,14 +207,14 @@ namespace JJFlexWpf
             string? modelProblem = CheckModel(model);
             if (modelProblem != null)
             {
-                Unavailable(modelProblem);
+                Unavailable(Unavailability.ModelMissing, modelProblem);
                 return;
             }
 
             var api = Api.Load(lib, out string? loadProblem);
             if (api == null)
             {
-                Unavailable(loadProblem ?? $"{LibraryFileName} would not load.");
+                Unavailable(Unavailability.InitFailed, loadProblem ?? $"{LibraryFileName} would not load.");
                 return;
             }
             _api = api;
@@ -203,7 +222,7 @@ namespace JJFlexWpf
             IntPtr pathUtf8 = Marshal.StringToCoTaskMemUTF8(model);
             try
             {
-                _state = api.Create(pathUtf8, _attenLimitDb);
+                _state = api.Create(pathUtf8, Volatile.Read(ref _pending).Attenuation);
             }
             finally
             {
@@ -212,7 +231,7 @@ namespace JJFlexWpf
 
             if (_state == IntPtr.Zero)
             {
-                Unavailable("DeepFilterNet3 did not initialise its model.");
+                Unavailable(Unavailability.InitFailed, "DeepFilterNet3 did not initialise its model.");
                 return;
             }
 
@@ -222,16 +241,19 @@ namespace JJFlexWpf
                 // The buffers are sized for this model; a different one is a
                 // different pin and must be reviewed, not absorbed.
                 Stop();
-                Unavailable($"DeepFilterNet3 reported a {frame}-sample frame; this build expects {_in.Length}.");
+                Unavailable(Unavailability.InitFailed, $"DeepFilterNet3 reported a {frame}-sample frame; this build expects {_in.Length}.");
                 return;
             }
             FrameLength = frame;
-            UnavailableReason = "";
+            Unavailability = Unavailability.None;
+            UnavailabilityDetail = "";
+            _applied = null;
         }
 
-        private void Unavailable(string reason)
+        private void Unavailable(Unavailability reasonCode, string reason)
         {
-            UnavailableReason = reason;
+            Unavailability = reasonCode;
+            UnavailabilityDetail = reason;
             Trace.WriteLine("DeepFilterNet3Engine: unavailable: " + reason);
         }
 

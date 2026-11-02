@@ -57,11 +57,7 @@ namespace JJFlexWpf
             if (rig == null) return;
             _rig = rig;
 
-            _nr = new NoiseReductionProvider(48000, 2)
-            {
-                Enabled = false,       // operator opts in
-                Strength = 0.8f
-            };
+            _nr = CreateNoiseReductionProvider();
             _player = new TxMonitorPlayer();
 
             var cond = rig.TxConditioner;
@@ -81,6 +77,9 @@ namespace JJFlexWpf
 
             Trace.WriteLine("TxAudioConditioning: attached");
         }
+
+        internal static NoiseReductionProvider CreateNoiseReductionProvider() =>
+            new NoiseReductionProvider(48000, 2, () => new RnnoiseEngine()) { Enabled = false, Strength = 0.8f };
 
         /// <summary>Unhook from the rig and release the monitor device.</summary>
         public static void Detach()
@@ -165,14 +164,10 @@ namespace JJFlexWpf
             var rig = _rig;
             if (rig == null) return;
             rig.TxConditioner.BypassAll = IsNonVoiceMode(mode);
-            var nr = _nr;
-            if (nr != null) nr.CurrentMode = mode; // defense in depth
         }
 
         /// <summary>
-        /// Same test NoiseReductionProvider applies internally (its copy is
-        /// private; duplicated here rather than widening a symbol another
-        /// track may be relying on — flagged in the track report).
+        /// The transmit chain's mode policy applies before its noise reducer.
         /// </summary>
         private static bool IsNonVoiceMode(string mode)
         {

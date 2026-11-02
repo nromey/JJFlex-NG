@@ -15,7 +15,7 @@ using Xunit;
 namespace JJFlexWpf.Tests;
 
 /// <summary>
-/// Each real engine's <see cref="INeuralDenoiseEngine.LatencySamples"/> is
+/// Each real engine's <see cref="IDenoiseEngine.LatencySamples"/> is
 /// what the engine actually does, found by cross-correlating its output
 /// against its input on real speech, not just what its documentation says.
 /// </summary>
@@ -352,12 +352,12 @@ public sealed class EngineLatencyTests
         string arch = Environment.Is64BitProcess ? "x64" : "x86";
         string lib = Path.Combine(RepoPaths.RequireRoot(), "runtimes", $"win-{arch}", "native", DeepFilterNet3Engine.LibraryFileName);
         using var e = new DeepFilterNet3Engine(libraryPath: lib);
-        Assert.True(e.IsAvailable, e.UnavailableReason);
+        Assert.True(e.IsAvailable, e.UnavailabilityDetail);
         Assert.Equal(1440, e.LatencySamples);
         AssertMeasuredDelay(e);
     }
 
-    private static void AssertMeasuredDelay(INeuralDenoiseEngine e)
+    private static void AssertMeasuredDelay(IDenoiseEngine e)
     {
         float[] speech = ReferenceSpeech(startSeconds: 12, seconds: 4);
         int f = e.FrameLength;

@@ -102,10 +102,6 @@ namespace Radios.Tests
                       "identical in three files: Radios/ChainChecks/TxChainFacts.cs, "
                       + "TxDifferentialCapture.cs and TxTuneProbeRunner.cs"),
 
-            new Known(Rules.DuplicateBody, "IsNonVoiceMode", "#256",
-                      "identical in JJFlexWpf/NoiseReductionProvider.cs and "
-                      + "JJFlexWpf/TxAudioConditioning.cs — one question about the "
-                      + "operating mode, answered twice"),
             new Known(Rules.DuplicateBody, "GetFilePath", "#256",
                       "identical in Radios/ConnectPathLearningConfig.cs and "
                       + "Radios/DiagnosticsConfig.cs — two settings files resolving "

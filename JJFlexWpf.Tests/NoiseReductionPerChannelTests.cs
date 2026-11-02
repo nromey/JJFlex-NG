@@ -49,7 +49,7 @@ public sealed class NoiseReductionPerChannelTests
     public void RnnoiseKeepsTheRightChannelsOwnTone()
     {
         AssertWindowless();
-        using var nr = new NoiseReductionProvider(Rate, 2) { Enabled = true };
+        using var nr = new NoiseReductionProvider(Rate, 2, () => new RnnoiseEngine()) { Enabled = true };
         AssertEngineRuns(nr);
 
         float[] stream = TwoTones(seconds: 1.0, LeftHz, RightHz);
@@ -63,7 +63,7 @@ public sealed class NoiseReductionPerChannelTests
     public void RnnoiseLeavesASilentRightChannelSilent()
     {
         AssertWindowless();
-        using var nr = new NoiseReductionProvider(Rate, 2) { Enabled = true };
+        using var nr = new NoiseReductionProvider(Rate, 2, () => new RnnoiseEngine()) { Enabled = true };
         AssertEngineRuns(nr);
 
         float[] stream = ToneLeftSilenceRight(seconds: 1.0, LeftHz);
