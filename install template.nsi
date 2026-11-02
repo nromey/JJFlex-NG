@@ -92,7 +92,7 @@ Section "MYPGM (required)"
   ; build tree for debug builds and the offline bench, and are held out of
   ; the release installer until the noise layer can offer them (#731,
   ; ruled 2026-10-17). Remove these two exclusions when it can.
-  File /r /x "*.pdb" /x "*.xml" /x "runPgm.bat" /x "deepfilter.*" /x "DeepFilterNet3_onnx.tar.gz" "MYOUTDIR\*.*"
+  File /r /x "*.pdb" /x "*.xml" /x "runPgm.bat" /x "deepfilter.*" /x "DeepFilterNet3_onnx.tar.gz" /x "specbleach.*" /x "jjflex-wdsp-helper.*" /x "libfftw3*.dll" "MYOUTDIR\*.*"
 
   ; Include changelog
   File "docs\CHANGELOG.md"
