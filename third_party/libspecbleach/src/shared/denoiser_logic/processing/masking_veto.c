@@ -1,0 +1,304 @@
+/*
+libspecbleach - A spectral processing library
+
+Copyright 2022-2026 Luciano Dato <lucianodato@gmail.com>
+
+This library is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 2.1 of the License, or (at your option) any later version.
+
+This library is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this library; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+*/
+
+#include "shared/denoiser_logic/processing/masking_veto.h"
+#include "shared/configurations.h"
+#include "shared/frame_rate_norm.h"
+#include "shared/utils/critical_bands.h"
+#include "shared/utils/masking_estimator.h"
+#include "shared/utils/spectral_smoother.h"
+#include <math.h>
+#include <stdbool.h>
+#include <stdlib.h>
+
+struct MaskingVeto {
+  uint32_t real_spectrum_size;
+  MaskingEstimator* masking_estimator;
+  CriticalBands* critical_bands_helper;
+  float smooth;
+  float* clean_signal_estimation;
+  float* stable_clean_signal;
+  float* masking_thresholds;
+  float* band_audibility;
+  float* band_audibility_memory; // Smoothed state
+  float* band_centers;           // Store center bin for each band
+  uint32_t sample_rate;
+  float* future_clean_estimation_buf;
+};
+
+MaskingVeto* masking_veto_initialize(uint32_t fft_size, uint32_t sample_rate,
+                                     CriticalBandType critical_band_type,
+                                     SpectrumType spectrum_type,
+                                     bool use_absolute_threshold,
+                                     bool use_temporal_masking) {
+
+  MaskingVeto* self = (MaskingVeto*)calloc(1U, sizeof(MaskingVeto));
+  if (!self) {
+    return NULL;
+  }
+
+  self->real_spectrum_size = (fft_size / 2U) + 1U;
+  self->masking_estimator = masking_estimation_initialize(
+      fft_size, sample_rate, critical_band_type, spectrum_type,
+      use_absolute_threshold, use_temporal_masking);
+
+  // Helper to access band indexes for classification
+  self->critical_bands_helper =
+      critical_bands_initialize(sample_rate, fft_size, critical_band_type);
+
+  if (!self->masking_estimator || !self->critical_bands_helper) {
+    masking_veto_free(self);
+    return NULL;
+  }
+
+  const uint32_t num_bands =
+      get_number_of_critical_bands(self->critical_bands_helper);
+
+  self->clean_signal_estimation =
+      (float*)calloc(self->real_spectrum_size, sizeof(float));
+  self->stable_clean_signal =
+      (float*)calloc(self->real_spectrum_size, sizeof(float));
+  self->masking_thresholds =
+      (float*)calloc(self->real_spectrum_size, sizeof(float));
+  self->band_audibility = (float*)calloc(num_bands, sizeof(float));
+  self->band_audibility_memory = (float*)calloc(num_bands, sizeof(float));
+  self->band_centers = (float*)calloc(num_bands, sizeof(float));
+  self->future_clean_estimation_buf =
+      (float*)calloc(self->real_spectrum_size, sizeof(float));
+  self->sample_rate = sample_rate;
+  self->smooth = MASKING_VETO_SMOOTHING;
+
+  if (!self->clean_signal_estimation || !self->stable_clean_signal ||
+      !self->masking_thresholds || !self->band_audibility ||
+      !self->band_audibility_memory || !self->band_centers ||
+      !self->future_clean_estimation_buf) {
+    masking_veto_free(self);
+    return NULL;
+  }
+
+  // Pre-calculate band center bins for interpolation
+  for (uint32_t j = 0; j < num_bands; j++) {
+    const CriticalBandIndexes indexes =
+        get_band_indexes(self->critical_bands_helper, j);
+    self->band_centers[j] =
+        (float)indexes.start_position +
+        ((float)(indexes.end_position - indexes.start_position) / 2.0F);
+  }
+
+  return self;
+}
+
+void masking_veto_free(MaskingVeto* self) {
+  if (!self) {
+    return;
+  }
+
+  masking_estimation_free(self->masking_estimator);
+  critical_bands_free(self->critical_bands_helper);
+  free(self->clean_signal_estimation);
+  free(self->stable_clean_signal);
+  free(self->masking_thresholds);
+  free(self->band_audibility);
+  free(self->band_audibility_memory);
+  free(self->band_centers);
+  free(self->future_clean_estimation_buf);
+  free(self);
+}
+
+void masking_veto_apply(MaskingVeto* self, const float* smoothed_spectrum,
+                        const float* noise_spectrum,
+                        const float* future_spectrum, float* alpha,
+                        float depth) {
+  if (!self || !smoothed_spectrum || !noise_spectrum || !alpha ||
+      depth < 0.0F || self->real_spectrum_size == 0U) {
+    return;
+  }
+
+  // 1. Estimate clean signal magnitude from SMOOTHED signal
+  for (uint32_t k = 0U; k < self->real_spectrum_size; k++) {
+    const float current_clean = fmaxf(
+        smoothed_spectrum[k] - (MASKING_VETO_NOISE_GATE * noise_spectrum[k]),
+        0.0F);
+
+    // Stabilize the clean signal estimation (prevents gargle in spreading
+    // skirts). self->smooth is the memory (recurrent) weight, retuned per
+    // hop to preserve the time constant -- same convention as the temporal
+    // smoother below.
+    self->stable_clean_signal[k] =
+        ((1.0F - self->smooth) * current_clean) +
+        (self->smooth * self->stable_clean_signal[k]);
+    self->clean_signal_estimation[k] = self->stable_clean_signal[k];
+  }
+
+  // 1.1 Estimate future clean signal magnitude for backward masking
+  const float* future_clean_estimation = NULL;
+  if (future_spectrum) {
+    for (uint32_t k = 0U; k < self->real_spectrum_size; k++) {
+      self->future_clean_estimation_buf[k] = fmaxf(
+          future_spectrum[k] - (MASKING_VETO_NOISE_GATE * noise_spectrum[k]),
+          0.0F);
+    }
+    future_clean_estimation = self->future_clean_estimation_buf;
+  }
+
+  // 2. Compute psychoacoustic masking thresholds
+  if (!compute_masking_thresholds(
+          self->masking_estimator, self->clean_signal_estimation,
+          future_clean_estimation, self->masking_thresholds)) {
+    return;
+  }
+
+  /**
+   * 3. Calculate Band-wise Protection from NMR
+   *
+   * NMR (Noise-to-Mask Ratio) determines whether noise is audible:
+   *   NMR <= 0dB: noise is below masking threshold -> inaudible -> protect
+   *   NMR >= NMR_RANGE: noise is clearly audible -> no protection
+   *
+   * Protection is the inverse of audibility: 1.0 = full protection, 0.0 = none
+   */
+  const uint32_t num_bands =
+      get_number_of_critical_bands(self->critical_bands_helper);
+
+  bool band_valid[256];
+  const uint32_t valid_count = (num_bands < 256U) ? num_bands : 256U;
+
+  for (uint32_t j = 0U; j < num_bands; j++) {
+    const CriticalBandIndexes indexes =
+        get_band_indexes(self->critical_bands_helper, j);
+
+    bool is_valid = false;
+    float protection = 0.0F;
+
+    if (indexes.end_position > indexes.start_position) {
+      float band_noise_energy = 0.0F;
+      float band_threshold = 0.0F;
+      float band_clean_energy = 0.0F;
+
+      for (uint32_t k = indexes.start_position; k < indexes.end_position; k++) {
+        band_noise_energy += noise_spectrum[k];
+        band_threshold += self->masking_thresholds[k];
+        band_clean_energy += self->clean_signal_estimation[k];
+      }
+
+      // Protection requires signal energy to generate psychoacoustic masking.
+      // In noise-only bands, no signal is present to mask noise.
+      if (band_clean_energy > SPECTRAL_EPSILON &&
+          band_threshold > SPECTRAL_EPSILON) {
+        is_valid = true;
+        const float nmr_db =
+            10.0F * log10f((band_noise_energy + SPECTRAL_EPSILON) /
+                           (band_threshold + SPECTRAL_EPSILON));
+
+        // Map NMR to protection (inverse of audibility):
+        //   NMR <= 0dB -> protection = 1.0 (noise masked, preserve energy)
+        //   NMR >= NMR_RANGE -> protection = 0.0 (noise audible, allow
+        //   suppression)
+        if (nmr_db <= 0.0F) {
+          protection = 1.0F;
+        } else if (nmr_db >= MASKING_VETO_NMR_RANGE) {
+          protection = 0.0F;
+        } else {
+          protection = 1.0F - (nmr_db / MASKING_VETO_NMR_RANGE);
+        }
+      }
+    }
+
+    self->band_audibility[j] = protection;
+    if (!is_valid) {
+      self->band_audibility_memory[j] = 0.0F;
+    }
+    if (j < valid_count) {
+      band_valid[j] = is_valid;
+    }
+  }
+
+  // Temporal Stabilization:
+  // Smooth the protection metric to prevent rapid switching
+  spectral_smoothing_apply_simple_temporal(self->band_audibility,
+                                           self->band_audibility_memory,
+                                           num_bands, self->smooth);
+
+  // Spectral Stabilization:
+  // Smooth protection ACROSS bands to prevent sharp spectral edges.
+  spectral_smoothing_apply_spatial(self->band_audibility, num_bands);
+
+  // Reapply clean-signal validity mask before interpolation so invalid bands
+  // remain unprotected
+  for (uint32_t j = 0U; j < valid_count; j++) {
+    if (!band_valid[j]) {
+      self->band_audibility[j] = 0.0F;
+      self->band_audibility_memory[j] = 0.0F;
+    }
+  }
+
+  /**
+   * 4. Apply Interpolated Veto
+   * Interpolate protection for each bin between band centers.
+   * This eliminates sharp gain transitions at Bark band boundaries.
+   */
+  uint32_t current_band = 0;
+  for (uint32_t k = 0; k < self->real_spectrum_size; k++) {
+    while (current_band < num_bands - 1 &&
+           (float)k > self->band_centers[current_band + 1]) {
+      current_band++;
+    }
+
+    float bin_protection;
+    if (current_band < num_bands - 1) {
+      const float x0 = self->band_centers[current_band];
+      const float x1 = self->band_centers[current_band + 1];
+      const float y0 = self->band_audibility[current_band];
+      const float y1 = self->band_audibility[current_band + 1];
+
+      if (x1 > x0) {
+        const float t = ((float)k - x0) / (x1 - x0);
+        const float t_clamped = fmaxf(0.0F, fminf(1.0F, t));
+        bin_protection = (y0 * (1.0F - t_clamped)) + (y1 * t_clamped);
+      } else {
+        bin_protection = y0;
+      }
+    } else {
+      bin_protection = self->band_audibility[num_bands - 1];
+    }
+
+    const float bin_clean = self->clean_signal_estimation[k];
+    const float bin_noise = noise_spectrum[k];
+    const float bin_snr = bin_clean / (bin_noise + SPECTRAL_EPSILON);
+    const float bin_snr_scale =
+        fminf(bin_snr / MASKING_VETO_SNR_THRESHOLD, 1.0F);
+
+    // Scale alpha down toward ALPHA_MIN (1.0) based on protection and bin SNR.
+    // At full protection (depth=1.0, protection=1.0): alpha -> ALPHA_MIN (full
+    // un-oversubtracted energy preservation) At zero protection
+    // (protection=0.0): alpha is unchanged (full noise oversubtraction)
+    const float veto_amount = bin_protection * bin_snr_scale * depth;
+    alpha[k] = fmaxf(ALPHA_MIN, alpha[k] * (1.0F - veto_amount));
+  }
+}
+
+void masking_veto_set_hop_sec(MaskingVeto* self, float hop_sec) {
+  if (!self || !(hop_sec > 0.0F)) {
+    return;
+  }
+  self->smooth =
+      sb_alpha_retuned(MASKING_VETO_SMOOTHING, LEGACY_REF_HOP_SEC, hop_sec);
+  masking_estimation_set_hop_sec(self->masking_estimator, hop_sec);
+}

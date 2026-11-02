@@ -1,0 +1,76 @@
+name: Build & Test libspecbleach
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - "*"
+  schedule:
+    # Nightly full-suite run (including the slow integration suites)
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.config.name }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - name: "Standard + Coverage"
+            cmake_flags: "-DENABLE_TESTS=ON -DENABLE_EXAMPLES=ON -DENABLE_COVERAGE=ON -DCMAKE_BUILD_TYPE=Debug"
+            run_coverage: true
+          - name: "Sanitizers (ASan + UBSan)"
+            cmake_flags: "-DENABLE_TESTS=ON -DENABLE_EXAMPLES=ON -DENABLE_SANITIZERS=ON -DCMAKE_BUILD_TYPE=Release"
+            run_coverage: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -qq \
+            cmake \
+            gcovr \
+            libsndfile1-dev
+
+      - name: Configure build
+        run: |
+          cmake -B build \
+            ${{ matrix.config.cmake_flags }}
+
+      - name: Build project
+        run: |
+          cmake --build build -j4
+
+      - name: Run CTest Suite
+        run: |
+          cd build
+          # PRs gate on the fast unit suite; the slower integration suites
+          # run on main pushes, the nightly schedule, and manual dispatches.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            ctest --output-on-failure --test-dir . -LE integration
+          else
+            ctest --output-on-failure --test-dir .
+          fi
+
+      - name: Generate coverage report
+        if: matrix.config.run_coverage && github.event_name != 'pull_request'
+        run: |
+          gcovr --xml build/coverage.xml -r . -e tests/ -e examples/ \
+            --gcov-ignore-parse-errors negative_hits.warn_once_per_file
+
+      - name: Upload coverage to Codecov
+        if: matrix.config.run_coverage && github.event_name != 'pull_request'
+        uses: codecov/codecov-action@v5
+        with:
+          files: build/coverage.xml
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}

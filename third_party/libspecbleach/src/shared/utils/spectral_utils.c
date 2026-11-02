@@ -1,0 +1,414 @@
+/*
+libspecbleach - A spectral processing library
+
+Copyright 2022 Luciano Dato <lucianodato@gmail.com>
+
+This library is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 2.1 of the License, or (at your option) any later version.
+
+This library is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this library; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+*/
+
+#include "spectral_utils.h"
+#include "../configurations.h"
+#include "general_utils.h"
+#include <float.h>
+#include <math.h>
+#include <stdlib.h>
+
+static float blackman(const uint32_t bin_index, const uint32_t fft_size) {
+  const float p = ((float)(bin_index)) / ((float)(fft_size));
+  return sanitize_denormal(0.42F - (0.5F * cosf(2.F * M_PIf * p)) +
+                           (0.08F * cosf(4.F * M_PIf * p)));
+}
+
+static float hanning(const uint32_t bin_index, const uint32_t fft_size) {
+  const float p = ((float)(bin_index)) / ((float)(fft_size));
+  return sanitize_denormal(0.5F - (0.5F * cosf(2.F * M_PIf * p)));
+}
+
+static float hamming(const uint32_t bin_index, const uint32_t fft_size) {
+  const float p = ((float)(bin_index)) / ((float)(fft_size));
+  return sanitize_denormal(0.54F - (0.46F * cosf(2.F * M_PIf * p)));
+}
+
+static float vorbis(const uint32_t bin_index, const uint32_t fft_size) {
+  const float p = ((float)(bin_index)) / ((float)(fft_size));
+  return sanitize_denormal(sinf(M_PIf / 2.F * powf(sinf(M_PIf * p), 2.F)));
+}
+
+bool get_fft_window(float* window, const uint32_t fft_size,
+                    const WindowTypes window_type) {
+  if (!window || !fft_size) {
+    return false;
+  }
+
+  for (uint32_t k = 0; k < fft_size; k++) {
+    switch (window_type) {
+      case HANN_WINDOW:
+        window[k] = hanning(k, fft_size);
+        break;
+      case HAMMING_WINDOW:
+        window[k] = hamming(k, fft_size);
+        break;
+      case BLACKMAN_WINDOW:
+        window[k] = blackman(k, fft_size);
+        break;
+      case VORBIS_WINDOW:
+        window[k] = vorbis(k, fft_size);
+        break;
+      default:
+        break;
+    }
+  }
+
+  return true;
+}
+
+bool initialize_spectrum_with_value(float* spectrum, uint32_t spectrum_size,
+                                    const float value) {
+  if (!spectrum || spectrum_size == 0U) {
+    return false;
+  }
+
+  for (uint32_t i = 0U; i < spectrum_size; i++) {
+    spectrum[i] = value;
+  }
+
+  return true;
+}
+
+bool min_spectrum(float* spectrum_one, const float* spectrum_two,
+                  const uint32_t spectrum_size) {
+  if (!spectrum_one || !spectrum_two || spectrum_size == 0U) {
+    return false;
+  }
+
+  for (uint32_t k = 0; k < spectrum_size; k++) {
+    spectrum_one[k] = fminf(spectrum_one[k], spectrum_two[k]);
+  }
+
+  return true;
+}
+
+bool max_spectrum(float* spectrum_one, const float* spectrum_two,
+                  const uint32_t spectrum_size) {
+  if (!spectrum_one || !spectrum_two || spectrum_size == 0U) {
+    return false;
+  }
+
+  for (uint32_t k = 0; k < spectrum_size; k++) {
+    spectrum_one[k] = fmaxf(spectrum_one[k], spectrum_two[k]);
+  }
+
+  return true;
+}
+
+bool min_spectrum_float(float* spectrum_one, const float* spectrum_two,
+                        uint32_t spectrum_size) {
+  return min_spectrum(spectrum_one, spectrum_two, spectrum_size);
+}
+
+bool max_spectrum_float(float* spectrum_one, const float* spectrum_two,
+                        uint32_t spectrum_size) {
+  return max_spectrum(spectrum_one, spectrum_two, spectrum_size);
+}
+
+float fft_bin_to_freq(const uint32_t bin_index, const uint32_t sample_rate,
+                      const uint32_t fft_size) {
+  return (float)bin_index * ((float)sample_rate / (float)fft_size);
+}
+
+uint32_t freq_to_fft_bin(const float freq, const uint32_t sample_rate,
+                         const uint32_t fft_size) {
+  return (uint32_t)((freq / ((float)sample_rate / (float)fft_size)) + 0.5f);
+}
+
+bool get_rolling_mean_spectrum(float* averaged_spectrum,
+                               const float* current_spectrum,
+                               const uint32_t number_of_blocks,
+                               const uint32_t spectrum_size) {
+  if (!averaged_spectrum || !current_spectrum || spectrum_size == 0U) {
+    return false;
+  }
+
+  if (number_of_blocks <= 1U) {
+    for (uint32_t k = 0U; k < spectrum_size; k++) {
+      averaged_spectrum[k] = current_spectrum[k];
+    }
+    return true;
+  }
+
+  const float inv_blocks = 1.0F / (float)number_of_blocks;
+  for (uint32_t k = 0U; k < spectrum_size; k++) {
+    averaged_spectrum[k] +=
+        (current_spectrum[k] - averaged_spectrum[k]) * inv_blocks;
+  }
+
+  return true;
+}
+
+static int min_max_comparator(const void* a, const void* b) {
+  float x = *(const float*)a;
+  float y = *(const float*)b;
+
+  return (x > y) - (x < y);
+}
+
+static float find_median(const float* array, uint32_t array_size) {
+  float median = 0.F;
+
+  if (array_size % 2 == 0) {
+    // if number of elements are even
+    median = (array[(array_size - 1U) / 2U] + array[array_size / 2U]) / 2.F;
+  } else {
+    // if number of elements are odd
+    median = array[array_size / 2U];
+  }
+
+  return median;
+}
+
+static float select_kth(float* arr, uint32_t n, uint32_t k) {
+  uint32_t lo = 0U;
+  uint32_t hi = n - 1U;
+  while (true) {
+    if (lo == hi) {
+      return arr[lo];
+    }
+    uint32_t pivot = lo + (hi - lo) / 2U;
+    float pivot_val = arr[pivot];
+    float tmp = arr[pivot];
+    arr[pivot] = arr[hi];
+    arr[hi] = tmp;
+    uint32_t store = lo;
+    for (uint32_t i = lo; i < hi; i++) {
+      if (arr[i] < pivot_val) {
+        tmp = arr[i];
+        arr[i] = arr[store];
+        arr[store] = tmp;
+        store++;
+      }
+    }
+    tmp = arr[store];
+    arr[store] = arr[hi];
+    arr[hi] = tmp;
+    if (k == store) {
+      return arr[store];
+    }
+    if (k < store) {
+      hi = store - 1U;
+    } else {
+      lo = store + 1U;
+    }
+  }
+}
+
+static float median_of_buffer(float* buf, uint32_t n) {
+  if (n == 0U) {
+    return 0.0F;
+  }
+  if ((n & 1U) == 1U) {
+    return select_kth(buf, n, n / 2U);
+  }
+  uint32_t k2 = n / 2U;
+  float upper = select_kth(buf, n, k2);
+  float lower = buf[0];
+  for (uint32_t i = 1U; i < k2; i++) {
+    if (buf[i] > lower) {
+      lower = buf[i];
+    }
+  }
+  return (lower + upper) * 0.5F;
+}
+
+bool get_rolling_median_spectrum(float* median_spectrum,
+                                 const float** input_spectra,
+                                 const uint32_t number_of_blocks,
+                                 const uint32_t spectrum_size) {
+  if (!median_spectrum || !input_spectra || spectrum_size == 0U ||
+      number_of_blocks == 0U) {
+    return false;
+  }
+
+  // Validate element count against size_t overflow and fixed workspace bound
+  // (no malloc in audio path)
+  if ((size_t)number_of_blocks > (SIZE_MAX / sizeof(float)) ||
+      number_of_blocks > 256U) {
+    return false;
+  }
+
+  float tmp_buffer[256];
+  // For the common small history (25 frames) a quickselect (nth_element)
+  // is ~3.3x faster than generic qsort and ~1.3x faster than insertion
+  // sort, avoiding the indirect comparator call that dominated CPU during
+  // learning. Only the median is needed, not a full sort.
+  const bool use_quickselect = number_of_blocks <= 64U;
+
+  for (uint32_t i = 0U; i < spectrum_size; i++) {
+    for (uint32_t j = 0U; j < number_of_blocks; j++) {
+      if (input_spectra[j]) {
+        tmp_buffer[j] = input_spectra[j][i];
+      } else {
+        tmp_buffer[j] = 0.0f; // Safety fallback
+      }
+    }
+
+    if (use_quickselect) {
+      median_spectrum[i] = median_of_buffer(tmp_buffer, number_of_blocks);
+    } else {
+      qsort(tmp_buffer, number_of_blocks, sizeof(float), min_max_comparator);
+      median_spectrum[i] = find_median(tmp_buffer, number_of_blocks);
+    }
+  }
+
+  return true;
+}
+
+void smooth_spectrum(float* spectrum, uint32_t size, float smoothing_factor) {
+  if (!spectrum || size < 2 || smoothing_factor <= 0.0F) {
+    return;
+  }
+
+  // Boundary check: Handle edge bins with 2-point moving average
+  // to ensure smoothing reaches the very last bin (Nyquist)
+  float first = spectrum[0];
+  spectrum[0] = ((spectrum[0] + spectrum[1]) / 2.0F * smoothing_factor) +
+                (spectrum[0] * (1.0F - smoothing_factor));
+
+  float prev = first;
+  for (uint32_t i = 1; i < size - 1; i++) {
+    float current = spectrum[i];
+    spectrum[i] =
+        (((prev + current + spectrum[i + 1]) / 3.0F) * smoothing_factor) +
+        (current * (1.0F - smoothing_factor));
+    prev = current;
+  }
+
+  // Handle last bin (Nyquist)
+  spectrum[size - 1] =
+      (((prev + spectrum[size - 1]) / 2.0F) * smoothing_factor) +
+      (spectrum[size - 1] * (1.0F - smoothing_factor));
+}
+
+void interpolate_spectrum_gaps(float* spectrum, uint32_t size,
+                               float gap_threshold) {
+  if (!spectrum || size < 3) {
+    return;
+  }
+
+  for (uint32_t i = 1; i < size - 1; i++) {
+    if (spectrum[i] < gap_threshold) {
+      // Find next non-gap bin
+      uint32_t j = i + 1;
+      while (j < size && spectrum[j] < gap_threshold) {
+        j++;
+      }
+
+      if (j < size) {
+        // Interpolate between i-1 and j
+        float start_val = spectrum[i - 1];
+        float end_val = spectrum[j];
+        float step = (end_val - start_val) / (float)(j - (i - 1));
+
+        for (uint32_t k = i; k < j; k++) {
+          spectrum[k] = start_val + (step * (float)(k - (i - 1)));
+        }
+        i = j;
+      }
+    }
+  }
+}
+
+// Sliding window extreme (min with is_min=true, max otherwise). `forward`
+// selects the leading window [i, i+window-1]; otherwise the window trails
+// [i-window+1, i]. Both clamp at the array edges. O(N*W) with W <=
+// TONAL_DETONE_MAX_BINS (16): a few thousand comparisons per frame — negligible
+// against the STFT/NLM cost, and immune to deque edge cases.
+static void sb_slide_extreme(const float* src, float* dst, uint32_t size,
+                             uint32_t window, const bool is_min,
+                             const bool forward) {
+  for (uint32_t i = 0U; i < size; i++) {
+    uint32_t lo;
+    uint32_t hi;
+    if (forward) {
+      lo = i;
+      hi = (i + window > size) ? (size - 1U) : (i + window - 1U);
+    } else {
+      lo = (window > (i + 1U)) ? 0U : (i + 1U - window);
+      hi = i;
+    }
+    float ext = src[lo];
+    for (uint32_t j = lo + 1U; j <= hi; j++) {
+      if (is_min) {
+        if (src[j] < ext) {
+          ext = src[j];
+        }
+      } else {
+        if (src[j] > ext) {
+          ext = src[j];
+        }
+      }
+    }
+    dst[i] = ext;
+  }
+}
+
+bool sb_spectral_envelope_opening(const float* spectrum, float* scratch,
+                                  float* out, const uint32_t size,
+                                  const uint32_t window) {
+  if (!spectrum || !scratch || !out || size == 0U || window == 0U) {
+    return false;
+  }
+  if (window > TONAL_DETONE_MAX_BINS) {
+    return false;
+  }
+
+  // Morphological opening with opposed orientations: a trailing erosion
+  // followed by a leading dilation removes narrowband peaks while leaving
+  // monotonic baselines and steps where they are. Using the same orientation
+  // for both passes would delay the envelope by a full window, misaligning the
+  // extracted baseline from the tonal residual it is subtracted from.
+  sb_slide_extreme(spectrum, scratch, size, window, true, false);
+  sb_slide_extreme(scratch, out, size, window, false, true);
+  smooth_spectrum(out, size, TONAL_DETONE_SMOOTHING);
+
+  return true;
+}
+
+bool get_morphed_profile(float* output_profile, const float* mean_profile,
+                         const float* median_profile, const float* max_profile,
+                         const float* min_profile, uint32_t size,
+                         float aggressiveness) {
+  if (!output_profile || !mean_profile || !median_profile || !max_profile ||
+      !min_profile || size == 0) {
+    return false;
+  }
+
+  for (uint32_t i = 0; i < size; i++) {
+    if (aggressiveness < 0.0F) {
+      // Morph from Mean (0) to Median (-1)
+      float t = -aggressiveness;
+      output_profile[i] =
+          (mean_profile[i] * (1.0F - t)) + (median_profile[i] * t);
+    } else {
+      // Morph from Mean (0) to Mean + 2*StdDev (+1.0)
+      float t = aggressiveness;
+      output_profile[i] = mean_profile[i] +
+                          (max_profile[i] * t * STANDARD_DEVIATION_MORPH_SCALE);
+    }
+
+    output_profile[i] = fmaxf(output_profile[i], 0.0f); // Safety clamp
+  }
+
+  return true;
+}

@@ -1,0 +1,86 @@
+# Prerequisites
+*.d
+
+# Object files
+*.o
+*.ko
+*.obj
+*.elf
+
+# Linker output
+*.ilk
+*.map
+*.exp
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Libraries
+*.lib
+*.a
+*.la
+*.lo
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Kernel Module Compile Results
+*.mod*
+*.cmd
+.tmp_versions/
+modules.order
+Module.symvers
+Mkfile.old
+dkms.conf
+
+# Builds
+build*/
+compile_commands.json
+.ninja_*
+meson-*/
+
+# Test outputs (temporary files generated during testing)
+tests/test_data/*_output.wav
+tests/test_data/*_processed.wav
+tests/test_data/*_denoised.wav
+
+# Valgrind dumps
+*.valgrind
+
+# IDE files
+.vscode/
+.cursor/
+.cache/
+
+# Other files
+*.log
+.DS_Store
+
+# Autoresearch
+autoresearch/audio_dataset
+autoresearch/research_data
+autoresearch/.env
+
+# Coverage
+.coverage
+*.gcov
+Testing/
+
