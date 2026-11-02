@@ -827,6 +827,34 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
    store recovered **4,135 lines of decision record** that a file-to-file
    migration would have dropped without anything noticing.
 
+3c-ter. **Junk box intake. Ruled by Noel 2026-11-02:** *"we need to add an event so
+   that we re-process the junkbox and add, categorize, and prioritize junkbox items as
+   we are adding new tasks to the register."* Run it after 3c-bis, before the summary
+   is regenerated for the last time.
+
+   - **Every entry opened since the last seal gets a TARGET.** Find them by the
+     `opened <date>` on their status lines. Read each one and decide: JUNKBOX,
+     a sprint, RULING, DESIGN or DEFER. A new entry with no target is how the junk
+     box loses things.
+   - **Every JUNKBOX entry gets a `**PRIORITY:**` line** (`high`, `medium` or `low`,
+     then the reason in a few words): this seal's new ones first, then work the
+     unprioritized backlog down, newest first. The rubric is in the handoff below.
+     Category is the summary script's title grouping; if an entry sits in the wrong
+     group, retitle it rather than adding a field.
+   - **Close what a merged junk box batch fixed**, with its commits, and file the
+     batch report's "For the register" list.
+   - **Regenerate.** The same command as 3c-bis now also writes
+     `open-junkbox.md`, the junk box sorted by priority and category. **The junk box
+     has no file of its own: it is every open entry whose TARGET says JUNKBOX**, so
+     the generated view cannot drift from the register.
+   - **Report in the seal entry:** how many entries were targeted, how many
+     prioritized, and how many JUNKBOX entries remain unprioritized. That last number
+     should fall seal by seal.
+
+   How a batch is picked and run, start to merge:
+   `C:\dev\jjf-private\planning\junkbox-harness\JUNKBOX-HANDOFF.md`, with the brief
+   template beside it.
+
 3d. **AppData config backup:** run `& "C:\dev\JJFlex-NG\backup-appdata-to-nas.ps1"`.
    Snapshots the operator's CONFIGURATION out of `%AppData%\JJFlexRadio\` to
    `historical\appdata\` as a dated zip. **Measured 2026-10-17: 32 files and
