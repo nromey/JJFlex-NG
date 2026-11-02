@@ -37,6 +37,7 @@
     <Compile Include="..\..\JJFlexWpf\IDenoiseEngine.cs" Link="src\IDenoiseEngine.cs" />
     <Compile Include="..\..\JJFlexWpf\RnnoiseEngine.cs" Link="src\RnnoiseEngine.cs" />
     <Compile Include="..\..\JJFlexWpf\DeepFilterNet3Engine.cs" Link="src\DeepFilterNet3Engine.cs" />
+    <Compile Include="..\..\JJFlexWpf\SpecbleachEngine.cs" Link="src\SpecbleachEngine.cs" />
     <Compile Include="..\..\JJFlexWpf\PerChannelDenoiserBank.cs" Link="src\PerChannelDenoiserBank.cs" />
     <Compile Include="..\..\JJFlexWpf\NoiseReductionProvider.cs" Link="src\NoiseReductionProvider.cs" />
   </ItemGroup>
