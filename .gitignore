@@ -513,3 +513,7 @@ read-trace*.ps1
 # exclude is local and uncommitted: a fresh clone had no such rule, and a
 # `git add -A` there would have published them.
 TRACK-INSTRUCTIONS.md
+
+# Sprint 49: GPL build products of the WDSP helper must never be committed (copied in by the build, never tracked)
+runtimes/**/jjflex-wdsp-helper.*
+runtimes/**/libfftw3*.dll
