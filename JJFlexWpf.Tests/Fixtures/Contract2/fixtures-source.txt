@@ -1,0 +1,491 @@
+# Contract 2, protocol version 1: the fixtures, written field by field.
+#
+# This file is the hand-written record each .bin fixture was assembled from.
+# Every value below was written from the protocol description, field by
+# field; none was produced by either end's encoder.
+#
+# Format: "== name.bin" starts a fixture. "msg" starts a message inside it
+# (the assembler checks the hand-written length against the bytes that
+# follow); "msg nocheck" starts one whose length is deliberately wrong.
+# Each other line is one field:
+#   u8 / u16 / u32 / u64 N   unsigned, little-endian, decimal or 0x hex
+#   f64bits HHHHHHHHHHHHHHHH  an f64 written as its 64 bits, most significant
+#                             hex digit first; stored little-endian
+#   str "text"               u16 byte count, then the UTF-8 bytes
+#   hex AA BB ...            literal bytes, in order
+#   f32seq N                 N samples, f32 little-endian, sample i being
+#                            (i - 240) / 256, every one exact in f32
+#   include name.bin         the bytes of an earlier fixture
+# Anything after "#" is a comment.
+
+# ---------------------------------------------------------------------------
+# The six worked examples, copied byte for byte as literal hex.
+# ---------------------------------------------------------------------------
+
+== heartbeat.bin
+msg
+hex 02 00 00 00        # length 2
+hex 40 00              # type 0x0040 Heartbeat, no payload
+
+== hello-v1.bin
+msg
+hex 13 00 00 00        # length 19
+hex 01 00              # type 0x0001 Hello
+hex 01 00              # lowest version 1
+hex 01 00              # highest version 1
+hex 0B 00              # string length 11
+hex 34 2E 31 2E 31 36 2E 32 38 35 39   # "4.1.16.2859"
+
+== open-channel.bin
+msg
+hex 0D 00 00 00        # length 13
+hex 10 00              # type 0x0010 OpenChannel
+hex 01 00 00 00        # channel 1
+hex 00                 # direction 0, receive
+hex 03 00 6E 6E 72     # engine id "nnr"
+hex 00                 # no initial values
+
+== close-channel.bin
+msg
+hex 06 00 00 00        # length 6
+hex 12 00              # type 0x0012 CloseChannel
+hex 07 00 00 00        # channel 7
+
+== set-setting-number.bin
+msg
+hex 1E 00 00 00        # length 30
+hex 30 00              # type 0x0030 SetSetting
+hex 03 00 00 00        # channel 3
+hex 0D 00              # name length 13
+hex 6D 61 73 6B 5F 66 6C 6F 6F 72 5F 64 62   # "mask_floor_db"
+hex 00                 # value kind 0, number
+hex 00 00 00 00 00 00 39 C0                  # -25.0, bits C039000000000000
+
+== error-utf8.bin
+msg
+hex 0F 00 00 00        # length 15
+hex 50 00              # type 0x0050 Error
+hex 00 00 00 00        # channel 0, none
+hex 0D 00              # code 13, Internal
+hex 05 00              # text length 5
+hex 63 61 66 C3 A9     # "café", the accented letter two bytes
+
+# ---------------------------------------------------------------------------
+# The method check: the same six again, written with typed fields. The
+# assembler refuses to write anything unless each equals its literal above.
+# ---------------------------------------------------------------------------
+
+== @check heartbeat.bin
+msg
+u32 2
+u16 0x0040
+
+== @check hello-v1.bin
+msg
+u32 19                 # type 2 + versions 4 + string 2 + 11
+u16 0x0001
+u16 1
+u16 1
+str "4.1.16.2859"
+
+== @check open-channel.bin
+msg
+u32 13                 # type 2 + channel 4 + direction 1 + id 5 + count 1
+u16 0x0010
+u32 1
+u8 0
+str "nnr"
+u8 0
+
+== @check close-channel.bin
+msg
+u32 6
+u16 0x0012
+u32 7
+
+== @check set-setting-number.bin
+msg
+u32 30                 # type 2 + channel 4 + name 15 + kind 1 + f64 8
+u16 0x0030
+u32 3
+str "mask_floor_db"
+u8 0
+f64bits C039000000000000   # -25
+
+== @check error-utf8.bin
+msg
+u32 15                 # type 2 + channel 4 + code 2 + text 7
+u16 0x0050
+u32 0
+u16 13
+str "café"
+
+# ---------------------------------------------------------------------------
+# The rest of the named fixtures.
+# ---------------------------------------------------------------------------
+
+== hello-v1-extended.bin
+msg
+u32 22                 # Hello's 19, raised by the three extra bytes
+u16 0x0001
+u16 1
+u16 1
+str "4.1.16.2859"
+hex AA BB CC           # trailing bytes a reader of Hello ignores
+
+== hello-reject.bin
+msg
+u32 42                 # type 2 + versions 4 + string 2 + 34
+u16 0x0003             # HelloReject
+u16 2                  # lowest the helper speaks
+u16 3                  # highest the helper speaks
+str "this helper speaks protocol 2 to 3"
+
+== hello-ack.bin
+msg
+u32 813                # type 2 + payload 811
+u16 0x0002             # HelloAck
+u16 1                  # chosen version
+str "fixture-1"        # helper version
+str "2.11"             # WDSP version
+str "0123456789abcdef0123456789abcdef01234567"   # WDSP commit
+str "fftw-3.3.10-fixture"                        # FFTW version
+u16 16                 # most channels at once
+u8 2                   # model fingerprint count
+# fingerprint 1
+str "nnr"              # engine id
+u8 0                   # slot
+str "standard"         # option that selects it
+hex 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F
+hex 10 11 12 13 14 15 16 17 18 19 1A 1B 1C 1D 1E 1F
+# fingerprint 2
+str "nnr"
+u8 1
+str "premium"
+hex 20 21 22 23 24 25 26 27 28 29 2A 2B 2C 2D 2E 2F
+hex 30 31 32 33 34 35 36 37 38 39 3A 3B 3C 3D 3E 3F
+u8 2                   # engine count
+# engine 1
+str "nnr"
+u8 3                   # directions: receive and transmit
+u32 48000              # sample rate
+u16 480                # frame length
+u32 2448               # algorithmic latency
+u16 1000               # calibration frames
+u32 1000000            # median cost, ns
+u32 2500000            # 99th percentile cost, ns
+u8 2                   # descriptor count
+#   descriptor: model
+str "model"
+str "audio.denoise.nnr.model"
+u8 1                   # kind Choice
+u8 1                   # flags: ChangesLatency
+str "standard"         # default option
+u8 2                   # option count
+str "standard"
+str "audio.denoise.nnr.model.standard"
+str "premium"
+str "audio.denoise.nnr.model.premium"
+#   descriptor: mask_floor_db
+str "mask_floor_db"
+str "audio.denoise.nnr.mask_floor_db"
+u8 0                   # kind Number
+u8 0                   # flags
+f64bits C039000000000000   # default -25
+f64bits C044000000000000   # minimum -40
+f64bits C024000000000000   # maximum -10
+f64bits 0000000000000000   # step, 0 with stops
+str "audio.unit.decibels"  # unit key
+u8 9                   # stop count
+f64bits C044000000000000   # -40
+f64bits C041800000000000   # -35
+f64bits C03E000000000000   # -30
+f64bits C03B000000000000   # -27
+f64bits C039000000000000   # -25
+f64bits C036000000000000   # -22
+f64bits C034000000000000   # -20
+f64bits C02E000000000000   # -15
+f64bits C024000000000000   # -10
+# engine 2
+str "nr2"
+u8 3
+u32 48000
+u16 480
+u32 3840
+u16 1000
+u32 200000
+u32 400000
+u8 2
+#   descriptor: gain_method
+str "gain_method"
+str "audio.denoise.nr2.gain_method"
+u8 1                   # Choice
+u8 0
+str "trained"          # default option
+u8 3
+str "linear"
+str "audio.denoise.nr2.gain_method.linear"
+str "log"
+str "audio.denoise.nr2.gain_method.log"
+str "trained"
+str "audio.denoise.nr2.gain_method.trained"
+#   descriptor: trained_t2
+str "trained_t2"
+str "audio.denoise.nr2.trained_t2"
+u8 0                   # Number
+u8 0
+f64bits 3FC999999999999A   # default 0.2
+f64bits 3F947AE147AE147B   # minimum 0.02
+f64bits 3FD3333333333333   # maximum 0.3
+f64bits 3F847AE147AE147B   # step 0.01
+str ""                 # no unit
+u8 0                   # no stops
+
+== hello-ack-bad-stops.bin
+msg
+u32 813
+u16 0x0002
+u16 1
+str "fixture-1"
+str "2.11"
+str "0123456789abcdef0123456789abcdef01234567"
+str "fftw-3.3.10-fixture"
+u16 16
+u8 2
+str "nnr"
+u8 0
+str "standard"
+hex 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F
+hex 10 11 12 13 14 15 16 17 18 19 1A 1B 1C 1D 1E 1F
+str "nnr"
+u8 1
+str "premium"
+hex 20 21 22 23 24 25 26 27 28 29 2A 2B 2C 2D 2E 2F
+hex 30 31 32 33 34 35 36 37 38 39 3A 3B 3C 3D 3E 3F
+u8 2
+str "nnr"
+u8 3
+u32 48000
+u16 480
+u32 2448
+u16 1000
+u32 1000000
+u32 2500000
+u8 2
+str "model"
+str "audio.denoise.nnr.model"
+u8 1
+u8 1
+str "standard"
+u8 2
+str "standard"
+str "audio.denoise.nnr.model.standard"
+str "premium"
+str "audio.denoise.nnr.model.premium"
+str "mask_floor_db"
+str "audio.denoise.nnr.mask_floor_db"
+u8 0
+u8 0
+f64bits C039000000000000   # default -25
+f64bits C044000000000000   # minimum -40
+f64bits C024000000000000   # maximum -10
+f64bits 0000000000000000   # step
+str "audio.unit.decibels"
+u8 9
+f64bits C044000000000000   # -40
+f64bits C041800000000000   # -35
+f64bits C03E000000000000   # -30
+f64bits C039000000000000   # -25   SWAPPED with the next: no longer ascending
+f64bits C03B000000000000   # -27
+f64bits C036000000000000   # -22
+f64bits C034000000000000   # -20
+f64bits C02E000000000000   # -15
+f64bits C024000000000000   # -10
+str "nr2"
+u8 3
+u32 48000
+u16 480
+u32 3840
+u16 1000
+u32 200000
+u32 400000
+u8 2
+str "gain_method"
+str "audio.denoise.nr2.gain_method"
+u8 1
+u8 0
+str "trained"
+u8 3
+str "linear"
+str "audio.denoise.nr2.gain_method.linear"
+str "log"
+str "audio.denoise.nr2.gain_method.log"
+str "trained"
+str "audio.denoise.nr2.gain_method.trained"
+str "trained_t2"
+str "audio.denoise.nr2.trained_t2"
+u8 0
+u8 0
+f64bits 3FC999999999999A
+f64bits 3F947AE147AE147B
+f64bits 3FD3333333333333
+f64bits 3F847AE147AE147B
+str ""
+u8 0
+
+== open-channel-with-values.bin
+msg
+u32 54                 # type 2 + channel 4 + direction 1 + id 5 + count 1 + values 41
+u16 0x0010
+u32 2                  # channel 2
+u8 0                   # receive
+str "nnr"
+u8 2                   # two initial values
+str "model"            # name
+u8 1                   # value kind choice
+str "premium"
+str "mask_floor_db"
+u8 0                   # value kind number
+f64bits C03E000000000000   # -30
+
+== open-channel-ack-ok.bin
+msg
+u32 56                 # type 2 + channel 4 + result 2 + latency 4 + count 1 + values 41 + detail 2
+u16 0x0011
+u32 2                  # channel 2
+u16 0                  # Ok
+u32 2448               # this channel's latency
+u8 2                   # applied value count
+str "model"
+u8 1
+str "premium"
+str "mask_floor_db"
+u8 0
+f64bits C03E000000000000   # -30
+str ""                 # detail, empty on Ok
+
+== open-channel-ack-refused.bin
+msg
+u32 40                 # type 2 + channel 4 + result 2 + latency 4 + count 1 + detail 27
+u16 0x0011
+u32 4                  # channel 4
+u16 3                  # EngineNotOffered
+u32 0                  # latency 0 when refused
+u8 0                   # no applied values
+str "engine nr4 is not offered"
+
+== close-channel-ack.bin
+msg
+u32 8
+u16 0x0013
+u32 7                  # channel 7
+u16 0                  # Ok
+
+== frame.bin
+msg
+u32 1936               # type 2 + channel 4 + seq 8 + count 2 + 1920
+u16 0x0020
+u32 1                  # channel 1
+u64 0                  # seq 0
+u16 480                # sample count
+f32seq 480
+
+== frame-out.bin
+msg
+u32 1940               # type 2 + channel 4 + seq 8 + time 4 + count 2 + 1920
+u16 0x0021
+u32 1
+u64 0
+u32 123456             # processing time, ns
+u16 480
+f32seq 480
+
+== frame-count-overrun.bin
+msg
+u32 1932               # frame.bin's length lowered by 4
+u16 0x0020
+u32 1
+u64 0
+u16 480                # still claims 480 samples; 479 follow
+f32seq 479
+
+== set-setting-choice.bin
+msg
+u32 25                 # type 2 + channel 4 + name 13 + kind 1 + choice 5
+u16 0x0030
+u32 3
+str "gain_method"
+u8 1                   # choice
+str "log"
+
+== setting-ack-ok.bin
+msg
+u32 27                 # type 2 + channel 4 + result 2 + name 13 + kind 1 + choice 5
+u16 0x0031
+u32 3
+u16 0                  # Ok
+str "gain_method"
+u8 1
+str "log"
+
+== setting-ack-refused.bin
+msg
+u32 29                 # type 2 + channel 4 + result 2 + name 12 + kind 1 + f64 8
+u16 0x0031
+u32 3
+u16 6                  # InvalidValue
+str "trained_t2"
+u8 0
+f64bits 3FC999999999999A   # 0.2, unchanged current value
+
+== setting-ack-unknown.bin
+msg
+u32 26                 # type 2 + channel 4 + result 2 + name 17 + kind 1
+u16 0x0031
+u32 3
+u16 5                  # UnknownSetting
+str "no_such_setting"
+u8 255                 # value none
+
+== two-messages.bin
+include heartbeat.bin
+include close-channel.bin
+
+== unknown-types.bin
+msg
+u32 7                  # type 2 + 5 payload bytes
+u16 0x7FFF             # unassigned
+hex 01 02 03 04 05
+msg
+u32 2
+u16 0xF001             # reserved for tests
+msg
+u32 6
+u16 0x0032             # reserved, was LatencyChanged
+hex 00 00 00 00
+include heartbeat.bin
+
+== length-too-large.bin
+msg nocheck
+hex 01 00 01 00        # 65,537, and nothing else
+
+== length-too-small.bin
+msg nocheck
+hex 01 00 00 00        # 1
+hex 40
+
+== trailing-byte.bin
+msg
+u32 7                  # close-channel's 6, raised by one
+u16 0x0012
+u32 7
+hex 00                 # the extra byte
+
+== bad-utf8.bin
+msg
+u32 15
+u16 0x0050
+u32 0
+u16 13
+u16 5                  # text length 5
+hex 63 61 66 C3 28     # "caf" then C3 28, not valid UTF-8
