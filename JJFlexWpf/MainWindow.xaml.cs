@@ -150,6 +150,10 @@ public partial class MainWindow : UserControl
         // #835: where Check your audio finds the radio when a door has none
         // to hand (the Workshop opened from Settings carries no radio).
         Dialogs.CheckYourAudioDialog.RigSource = () => RigControl;
+        // 2026-11-02: the tune key works in Check your audio, and Escape there
+        // turns a tune carrier off, both through Home's own toggle.
+        Dialogs.CheckYourAudioDialog.ToggleTuneSource = () => ToggleTuneCarrier();
+        Dialogs.CheckYourAudioDialog.TuneOffSource = () => TurnTuneCarrierOff();
         // Sprint 33 Track I: the recorder records the microphone the operator
         // already chose. Pointing it at the same setting the rest of the audio
         // path reads is what stops "which microphone am I recording" from
@@ -6545,6 +6549,21 @@ public partial class MainWindow : UserControl
             // (Don's rooftop unit) get the real final match, not the idle 1.0.
             AnnounceCapturedSwrAfterTune(isFailure: false, capturedSwr);
         }
+    }
+
+    /// <summary>
+    /// Turn the tune carrier off if it is on; true when it was (2026-11-02).
+    /// Escape in Check your audio comes here. It goes through the toggle, so
+    /// the tones, the SWR sentence and the controller's note are Home's own.
+    /// The toggle's debounce guards auto-repeat of the toggle; an off is never
+    /// a chirp, so it does not stand in the way of this one.
+    /// </summary>
+    public bool TurnTuneCarrierOff()
+    {
+        if (RigControl?.TxTune != true) return false;
+        _lastTuneToggleTicks = 0;
+        ToggleTuneCarrier();
+        return true;
     }
 
     /// <summary>

@@ -62,6 +62,12 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     /// </summary>
     public static Func<FlexBase?>? RigSource { get; set; }
 
+    /// <summary>Home's tune toggle, for the tune key pressed in this window (2026-11-02). Set by MainWindow.</summary>
+    public static Action? ToggleTuneSource { get; set; }
+
+    /// <summary>Turn a tune carrier of ours off; true when one was on (2026-11-02). Set by MainWindow.</summary>
+    public static Func<bool>? TuneOffSource { get; set; }
+
     /// <summary>The window's one content panel. Every section is a GroupBox directly in it, which is what F6 counts.</summary>
     private StackPanel CheckContent { get; }
 
@@ -390,7 +396,10 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             // The radio's own transmit report, not only the session's (fix round
             // 2): a hardware PTT line can hold the radio keyed with no check
             // running, or while one is still preparing.
+            // And a tune carrier we asked for, before the radio reports it
+            // keyed (2026-11-02): Escape turns it off rather than closing on it.
             bool transmitting = _session?.EscapeStopsTransmit == true || _rig?.Transmit == true
+                || _rig?.TxTune == true
                 || PttControllerSource?.Invoke()?.IsTransmitting == true;
             switch (AudioCheckEscape.Decide(_checkStarts.IsBusy, _checkStarts.IsCancelled,
                 _session?.Active == true, transmitting))
@@ -439,6 +448,11 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             e.Handled = true;
             return;
         }
+        if (TakesTheTuneKey(e))
+        {
+            e.Handled = true;
+            return;
+        }
         if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Enter)
         {
             // This press can key the radio (#859). The gate decides starts only:
@@ -483,12 +497,60 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     /// </summary>
     private void UnkeyOutsideACheck()
     {
+        bool ourTune = EscapeOurTune();
         var ptt = PttControllerSource?.Invoke();
         if (ptt?.IsTransmitting == true) ptt.EscapeUnlock();
-        else if (_rig?.Transmit == true)
+        else if (!ourTune && _rig?.Transmit == true)
             // DRAFT PROSE (#835): awaiting Noel.
             ScreenReaderOutput.Speak(Lexicon.Get("audio.check.escape_radio_still_transmitting"),
                 VerbosityLevel.Critical, interrupt: true);
+    }
+
+    /// <summary>
+    /// Escape with a tune of ours holding the radio (2026-11-02). Until then
+    /// Escape here asked only the push-to-talk controller, which a tune carrier
+    /// does not go through, so it blamed a hardware line or VOX and kept the
+    /// window open on our own carrier. Now the carrier goes off through Home's
+    /// toggle, tones and SWR sentence and all, and the window stays open: the
+    /// next Escape closes it, as after any unkey. An ATU cycle cannot be
+    /// stopped from here; it is named, so the hardware sentence is never said
+    /// about our own tune. True when a tune of ours answered for the transmit.
+    /// </summary>
+    internal bool EscapeOurTune()
+    {
+        if (TuneOffSource?.Invoke() == true) return true;
+        if (!TuneDoors.Up(_rig)) return false;
+        // DRAFT PROSE: awaiting Noel.
+        ScreenReaderOutput.Speak(Lexicon.Get("audio.tune.tuner_still_tuning"),
+            VerbosityLevel.Critical, interrupt: true);
+        return true;
+    }
+
+    /// <summary>
+    /// The operator's tune key in this window (2026-11-02): Ctrl+Shift+T by
+    /// default, read from the live key table so a remap is honoured. Tune is a
+    /// Radio-scope command and reaches no dialog by itself, while the refusal
+    /// here says "Tune is on. Turn it off first." So the window takes it and
+    /// runs Home's own toggle. While a check owns the transmitter a carrier is
+    /// not started, the same rule as push to talk here; turning one off is never
+    /// refused. A chord with no Control or Alt is not taken, so a tune key
+    /// remapped to a plain key still types in this window's fields. True when
+    /// the key was taken.
+    /// </summary>
+    private bool TakesTheTuneKey(KeyEventArgs e)
+    {
+        var chord = WpfKeyConverter.ToWinFormsKeys(e);
+        if ((chord & (System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.Alt)) == 0) return false;
+        if (!KeyCommands.IsTuneKey(chord)) return false;
+        if (e.IsRepeat || _rig == null) return true;
+        bool checkOwnsTransmitter = _session?.Active == true || _checkStarts.IsBusy || _iqBusy;
+        if (_rig.TxTune != true && checkOwnsTransmitter)
+        {
+            TuneDoors.RefuseTuneDuringCheck();
+            return true;
+        }
+        ToggleTuneSource?.Invoke();
+        return true;
     }
 
     /// <summary>

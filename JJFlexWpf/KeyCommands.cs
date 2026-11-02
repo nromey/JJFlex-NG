@@ -1374,6 +1374,16 @@ public class KeyCommands
 
     #region Tuning Handlers
 
+    /// <summary>
+    /// Is this chord the operator's tune key? Read from the live key table, so
+    /// a remap is honoured. Tune is a Radio-scope command and never reaches a
+    /// dialog through the registry; Check your audio asks here and takes it
+    /// itself (2026-11-02), because its refusal tells the operator to turn
+    /// tune off.
+    /// </summary>
+    internal static bool IsTuneKey(Keys k) =>
+        _globalRoutingOwner?.Lookup(k)?.KeyDef?.Id == CommandValues.TuneToggle;
+
     private void TuneToggleHandler()
     {
         if (_context.GetRigControl() == null) return;

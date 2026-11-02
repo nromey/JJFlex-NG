@@ -51,6 +51,8 @@ public class Host
     private Task<bool> CountdownLetsKeyAsync() => Countdown?.Task ?? Task.FromResult(true);
     private void EndStartCountdown() { CountdownsEnded++; Countdown?.TrySetResult(false); }
     private void OnSessionEnded() { CancelCheckStart(); }
+    // Escape with a tune of ours holding the radio (2026-11-02): no tune here.
+    internal bool EscapeOurTune() => false;
     private static void SayPowerNotReported() { RecorderControls.Spoken++; }
     /*StartLoopbackCheckAsync*/
     /*StartAudioCheckSessionAsync*/

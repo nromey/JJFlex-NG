@@ -395,6 +395,31 @@ public sealed class ZeroPowerDoorsTests : IDisposable
     }
 
     [Fact]
+    public void Turning_tune_off_from_a_dialog_does_nothing_when_tune_is_off()
+    {
+        // Escape in Check your audio (2026-11-02): no carrier, nothing toggled.
+        RadioFor();
+        var main = Window();
+        Assert.False(main.TurnTuneCarrierOff());
+        Assert.Equal(0L, (long)Read(main, "_lastTuneToggleTicks")!);
+        Assert.False(TuneCarrierNoted());
+    }
+
+    [Fact]
+    public void Turning_tune_off_from_a_dialog_runs_the_toggles_off_even_inside_its_debounce()
+    {
+        object radio = RadioFor();
+        radio.GetType().GetField("_txTune", Any)!.SetValue(radio, true);
+        var main = Window();
+        // A toggle a moment ago would have the debounce swallow an ordinary press.
+        typeof(MainWindow).GetField("_lastTuneToggleTicks", Any)!.SetValue(main, Environment.TickCount64);
+        // The off branch ran: it reached the button this window lacks.
+        var said = Said(() => Assert.Throws<NullReferenceException>(() => main.TurnTuneCarrierOff()));
+        Assert.DoesNotContain(Tune, said);
+        Assert.NotEqual(0L, (long)Read(main, "_lastTuneToggleTicks")!);
+    }
+
+    [Fact]
     public void A_refused_click_unchecks_the_button_that_flipped_itself_and_plays_no_tune_tone()
     {
         string tune = Body(Source("JJFlexWpf", "MainWindow.xaml.cs"), "public void ToggleTuneCarrier()");

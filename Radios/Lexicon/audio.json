@@ -1453,5 +1453,7 @@
   "audio.power.range_watts_floor": {"text": "Range 1 to 100 watts on this rig, whole watts only. Arrows adjust by 1, type digits then Enter for an exact value.", "delivery": null},
   "audio.tune.still_on": {"text": "Tune is still on. You're sending a carrier, not audio.", "delivery": null},
   "audio.tune.turn_off_first": {"text": "Tune is on. Turn it off first.", "delivery": null},
-  "audio.tune.wont_go_out": {"text": "Tune is on, so this recording won't go out on the air.", "delivery": null}
+  "audio.tune.wont_go_out": {"text": "Tune is on, so this recording won't go out on the air.", "delivery": null},
+  "audio.tune.tuner_still_tuning": {"text": "The tuner is still tuning.", "delivery": null},
+  "audio.tune.not_during_check": {"text": "The check is using the transmitter. Stop it first.", "delivery": null}
 }

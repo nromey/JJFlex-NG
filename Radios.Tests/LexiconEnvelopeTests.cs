@@ -1404,6 +1404,9 @@ namespace Radios.Tests
                 "audio.tune.still_on",
                 "audio.tune.turn_off_first",
                 "audio.tune.wont_go_out",
+                // Escape and the tune key in Check your audio (DRAFT, 2026-11-02).
+                "audio.tune.tuner_still_tuning",
+                "audio.tune.not_during_check",
                 "settings.ptt.tune_reminder_help",
                 "settings.ptt.tune_reminder_out_of_range",
                 "audio.recorder.record_to_file_button",

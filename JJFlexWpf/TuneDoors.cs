@@ -69,6 +69,14 @@ internal static class TuneDoors
     internal static void RefuseSend() => Refuse(WontGoOut);
 
     /// <summary>
+    /// The tune key pressed in Check your audio while a check owns the
+    /// transmitter (2026-11-02): no carrier starts. The same rule as push to
+    /// talk there (B3), told the way every other tune refusal is told.
+    /// </summary>
+    // DRAFT PROSE: awaiting Noel.
+    internal static void RefuseTuneDuringCheck() => Refuse(Lexicon.Get("audio.tune.not_during_check"));
+
+    /// <summary>
     /// The answer to a Play press that started playing: under tune, the
     /// sentence that it will not go out, in place of the usual one.
     /// </summary>

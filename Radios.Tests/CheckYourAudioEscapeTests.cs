@@ -148,6 +148,70 @@ namespace Radios.Tests
             throw new InvalidOperationException("Unbalanced braces after " + signature);
         }
 
+        private static string Check() => File.ReadAllText(Path.Combine(IntegrationPassTree.Root,
+            "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.Check.cs")).Replace("\r\n", "\n");
+
+        [Fact]
+        public void Our_own_tune_is_never_blamed_on_a_hardware_line()
+        {
+            // 2026-11-02, the harness: tune up, Escape said a hardware P T T line
+            // or VOX was holding the radio and kept the window open, because it
+            // asked only the push-to-talk controller and a tune carrier does not
+            // go through it. Both places that say that sentence ask about our
+            // tune first.
+            string outside = Body(Shell(), "private void UnkeyOutsideACheck()");
+            int tune = outside.IndexOf("EscapeOurTune()", StringComparison.Ordinal);
+            int blame = outside.IndexOf("escape_radio_still_transmitting", StringComparison.Ordinal);
+            Assert.True(tune >= 0 && blame > tune);
+            Assert.Contains("!ourTune && _rig?.Transmit == true", outside);
+
+            string stop = Body(Check(), "public void StopCheck()");
+            tune = stop.IndexOf("_owner.EscapeOurTune()", StringComparison.Ordinal);
+            blame = stop.IndexOf("escape_radio_still_transmitting", StringComparison.Ordinal);
+            Assert.True(tune >= 0 && blame > tune);
+
+            // The carrier goes off through Home's toggle; an ATU cycle is named.
+            string ours = Body(Shell(), "internal bool EscapeOurTune()");
+            Assert.Contains("TuneOffSource?.Invoke() == true", ours);
+            Assert.Contains("audio.tune.tuner_still_tuning", ours);
+        }
+
+        [Fact]
+        public void A_tune_carrier_asked_for_counts_as_transmitting_before_the_radio_reports_it()
+        {
+            string shell = Shell();
+            int at = shell.IndexOf("protected override void OnPreviewKeyDown(KeyEventArgs e)", StringComparison.Ordinal);
+            string handler = shell.Substring(at, shell.IndexOf("base.OnPreviewKeyDown(e);", at, StringComparison.Ordinal) - at);
+            Assert.Contains("|| _rig?.TxTune == true", handler);
+        }
+
+        [Fact]
+        public void The_tune_key_works_in_the_window_and_starts_no_carrier_under_a_check()
+        {
+            string shell = Shell();
+            int at = shell.IndexOf("protected override void OnPreviewKeyDown(KeyEventArgs e)", StringComparison.Ordinal);
+            string handler = shell.Substring(at, shell.IndexOf("base.OnPreviewKeyDown(e);", at, StringComparison.Ordinal) - at);
+            int key = handler.IndexOf("TakesTheTuneKey(e)", StringComparison.Ordinal);
+            int enter = handler.IndexOf("e.Key == Key.Enter", StringComparison.Ordinal);
+            Assert.True(key >= 0 && enter > key);
+
+            string takes = Body(shell, "private bool TakesTheTuneKey(KeyEventArgs e)");
+            // The live key table, so a remap is honoured; a plain key is not taken.
+            Assert.Contains("KeyCommands.IsTuneKey(chord)", takes);
+            Assert.Contains("System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.Alt", takes);
+            // A start is refused while a check owns the transmitter; an off never is.
+            int refuse = takes.IndexOf("TuneDoors.RefuseTuneDuringCheck()", StringComparison.Ordinal);
+            int toggle = takes.IndexOf("ToggleTuneSource?.Invoke()", StringComparison.Ordinal);
+            Assert.True(refuse > 0 && toggle > refuse);
+            Assert.Contains("_rig.TxTune != true && checkOwnsTransmitter", takes);
+
+            string main = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "MainWindow.xaml.cs"));
+            Assert.Contains("Dialogs.CheckYourAudioDialog.ToggleTuneSource = () => ToggleTuneCarrier();", main);
+            Assert.Contains("Dialogs.CheckYourAudioDialog.TuneOffSource = () => TurnTuneCarrierOff();", main);
+            string keys = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "KeyCommands.cs"));
+            Assert.Contains("Lookup(k)?.KeyDef?.Id == CommandValues.TuneToggle", keys);
+        }
+
         [Fact]
         public void With_nothing_running_Escape_is_the_dialogs_ordinary_close()
         {

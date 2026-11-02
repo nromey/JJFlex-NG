@@ -1549,6 +1549,11 @@ public partial class CheckYourAudioDialog
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.check.still_transmitting"),
                     VerbosityLevel.Critical, interrupt: true);
             }
+            else if (_owner.EscapeOurTune())
+            {
+                // A tune of ours is the transmit (2026-11-02): turned off, or
+                // an ATU cycle named. Not the hardware sentence below.
+            }
             else if (Rig?.Transmit == true)
             {
                 // The app has let go and the radio is still keyed: a hardware
