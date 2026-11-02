@@ -682,6 +682,11 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         // A paused preview carries on the way a press now would go (Noel,
         // 2026-10-30 05:56: "If you've paused and you turn send on, say you
         // didn't realize you did, it should send"). A playing one still pauses.
+        // A paused preview stays paused while a send takes over from it, up to
+        // the send's last step (#860). So with both in hand the send takes the
+        // press, as a Play does everywhere else: it pauses, and the preview
+        // stays where it is.
+        if (previewPaused && computerSendInHand) return EnterAct.AnswerSend;
         if (previewActive)
             return previewPaused && route is SendRoute.Box or SendRoute.JoinTransmission
                 ? EnterAct.SendFromPause : EnterAct.PreviewTransport;
@@ -798,7 +803,8 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         switch (answer)
         {
             case LocalPlaybackVox.CarryOn.Resumed:
-                Say(Lexicon.Get("audio.qsos.resumed", ("position", RecordedQsoWords.Position(at, _browser.Duration))));
+                Say(TuneDoors.ForPlay(Lexicon.Get("audio.qsos.resumed", ("position", RecordedQsoWords.Position(at, _browser.Duration))),
+                    TuneDoors.Up(_rig)));
                 break;
             case LocalPlaybackVox.CarryOn.Transmitting:
                 Refuse(Lexicon.Get("audio.qsos.resume_refused_transmitting"));
@@ -828,7 +834,10 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         int selectionVersion = _selectionVersion;
         if (q == null) { Refuse(Lexicon.Get("audio.qsos.nothing_selected")); return; }
         if (CurrentIsStillRecording) { Refuse(Lexicon.Get("audio.qsos.still_recording")); return; }
-        if (_rig?.Transmit == true) { Refuse(Lexicon.Get("audio.qsos.play_refused_transmitting")); return; }
+        // A preview under tune plays on the speakers and says it will not go
+        // out (#860); RouteFor sent it here rather than to a send.
+        bool underTune = TuneDoors.Up(_rig);
+        if (_rig?.Transmit == true && !underTune) { Refuse(Lexicon.Get("audio.qsos.play_refused_transmitting")); return; }
 
         var pause = await LocalPlaybackVox.PauseAsync(_rig);
         if (pause == null)
@@ -853,6 +862,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
                     : Lexicon.Get("audio.qsos.playing_from", ("position", RecordedQsoWords.Position(from, _browser.Duration)),
                         ("length", RecordedQsoWords.Length(_browser.Duration)));
 
+            announcement = TuneDoors.ForPlay(announcement, underTune);
             _previewPath = q.Path;
             bool started = RecordingPlayer.PlayFrom(q.Path, from, announcement);
             if (started)

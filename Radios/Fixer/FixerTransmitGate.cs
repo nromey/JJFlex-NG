@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 
 namespace Radios.Fixer
 {
@@ -330,6 +331,15 @@ namespace Radios.Fixer
         {
             if (!string.IsNullOrWhiteSpace(stageId)) _transmitted.Remove(stageId);
         }
+
+        /// <summary>
+        /// The stages this gate will refuse a plain run of, because they have
+        /// transmitted. A copy, and only a view: the page offers these the Run
+        /// again gesture, which is the one thing that clears the flag. A stage's
+        /// recorded status cannot answer this, because a stage can be charged
+        /// and still have no measurement.
+        /// </summary>
+        public IReadOnlyCollection<string> ChargedStages => _transmitted.ToArray();
 
         /// <summary>
         /// Decide whether this request may key the transmitter.

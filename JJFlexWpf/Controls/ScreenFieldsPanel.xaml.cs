@@ -1010,6 +1010,9 @@ public partial class ScreenFieldsPanel : UserControl
             if (_txPowerXvtrMode) _rig.XvtrDrivePowerCentiDbm = v;
             else _rig.XmitPower = v;
         };
+        // A radio that cannot run at zero (#859), in watts only: the same
+        // field on the transverter port is dBm, where zero is an ordinary value.
+        PowerFieldFloor.Apply(_txPowerControl, () => _rig, () => !_txPowerXvtrMode);
         TxContent.Children.Add(_txPowerControl);
 
         _fullDuplexButton = new Button { Content = Lexicon.Get("audio.full_duplex.not_reported"), Margin = new Thickness(4) };
@@ -1075,6 +1078,7 @@ public partial class ScreenFieldsPanel : UserControl
 
         _tunePowerControl = MakeValue(Lexicon.Get("audio.fields.tune_power"), 0, 100, 1);
         _tunePowerControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.TunePower = v; };
+        PowerFieldFloor.Apply(_tunePowerControl, () => _rig);
         TxContent.Children.Add(_tunePowerControl);
 
         // Mic Gain

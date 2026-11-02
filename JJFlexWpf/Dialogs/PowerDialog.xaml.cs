@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Windows.Threading;
+using JJFlexWpf.Controls;
 using Radios;
 
 namespace JJFlexWpf.Dialogs;
@@ -43,6 +44,11 @@ public partial class PowerDialog : JJFlexDialog
         JJFlexHelp.SetNoteFor(RangeText, RfPowerField);
         JJFlexHelp.SetNoteFor(HeaderText, TunePowerField);
         JJFlexHelp.SetNoteFor(RangeText, TunePowerField);
+
+        // A radio that cannot run at zero (#859), in watts only: on the
+        // transverter port the same field is dBm, where zero is ordinary.
+        PowerFieldFloor.Apply(RfPowerField, () => _rig, () => !_xvtrMode);
+        PowerFieldFloor.Apply(TunePowerField, () => _rig);
 
         ConfigureForCurrentMode();
 
@@ -108,7 +114,8 @@ public partial class PowerDialog : JJFlexDialog
                     decimalPlaces: 0, unit: Lexicon.Get("audio.power.unit_label_watts"));
                 HeaderText.Text =
                     Lexicon.Get("audio.power.header_watts", ("antenna", _rig.TXAntennaName));
-                RangeText.Text = Lexicon.Get("audio.power.range_watts");
+                RangeText.Text = Lexicon.Get(RadioPowerFloor.Applies(_rig.RadioModel)
+                    ? "audio.power.range_watts_floor" : "audio.power.range_watts");
             }
 
             // Tune power stays integer watts in both personalities — the ATU

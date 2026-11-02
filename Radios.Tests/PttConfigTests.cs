@@ -40,6 +40,36 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void The_tune_reminder_defaults_to_25_seconds_and_a_file_without_it_gets_that()
+        {
+            Assert.Equal(25, new PttConfig().TuneReminderSeconds);
+            Assert.Equal(25, PttConfig.Load(_dir, Operator).TuneReminderSeconds);
+            File.WriteAllText(Path.Combine(_dir, Operator + "_pttConfig.xml"),
+                "<?xml version=\"1.0\"?><PttConfig><TimeoutSeconds>120</TimeoutSeconds></PttConfig>");
+            var older = PttConfig.Load(_dir, Operator);
+            Assert.Equal(120, older.TimeoutSeconds);   // positive control: the file was read
+            Assert.Equal(25, older.TuneReminderSeconds);
+        }
+
+        [Theory]
+        [InlineData(600)]    // a tube amplifier's long tune-up fits
+        [InlineData(PttConfig.TuneReminderMaxSeconds)]
+        public void A_long_tune_reminder_survives_a_restart(int seconds)
+        {
+            new PttConfig { TuneReminderSeconds = seconds }.Save(_dir, Operator);
+            Assert.Equal(seconds, PttConfig.Load(_dir, Operator).TuneReminderSeconds);
+        }
+
+        [Theory]
+        [InlineData(0, PttConfig.TuneReminderMinSeconds)]
+        [InlineData(99999, PttConfig.TuneReminderMaxSeconds)]
+        public void A_tune_reminder_out_of_range_comes_back_in_range(int written, int expected)
+        {
+            new PttConfig { TuneReminderSeconds = written }.Save(_dir, Operator);
+            Assert.Equal(expected, PttConfig.Load(_dir, Operator).TuneReminderSeconds);
+        }
+
+        [Fact]
         public void The_cut_defaults_on_for_a_fresh_operator()
         {
             // Ruled ON 2026-08-26 and re-confirmed 2026-08-30. A wrong cut is

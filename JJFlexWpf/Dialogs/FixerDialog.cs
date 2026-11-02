@@ -315,6 +315,10 @@ public sealed class FixerDialog : JJFlexDialog
                     SpeakListenDone = Cue("audio.fixer.listen_done"),
                 })),
 
+            // Read each time a stage's sentence renders, so "counts down with
+            // three tones" goes when the countdown does.
+            CountdownOn = () => FixerCountdown.On,
+
             // WIRED. The five fixes stage 0 offers at the point of detection.
             // Each applies its change and then READS IT BACK, reporting what
             // the setting became in the operator's words — never "done". A fix
@@ -1391,6 +1395,17 @@ document.addEventListener('keydown', function (e) {
         // would otherwise stay wrong for the rest of the run.
         _gate.NoteUnkeyed();
 
+        // Refused over a measurement that stands (#858): nothing new to record,
+        // and the words are the refusal, not the old verdict again.
+        string? refused = _run.TakeRefusal(stageId);
+        if (r != null && refused != null)
+        {
+            RecordNotice(stageId, refused);
+            _state.SelectedStageId = stageId;
+            Render(FixerPage.LandingAfterResult(_run, stageId), refused);
+            return;
+        }
+
         if (r != null)
         {
             // Persisted HERE, the moment the engine returns the result — not
@@ -1776,6 +1791,7 @@ document.addEventListener('keydown', function (e) {
         _state.StageNotices = _notices;
         _state.ExplanationOpen = _explainOpen;
         _state.TransmitCount = _gate.TransmitCount;
+        _state.ChargedStages = _gate.ChargedStages;
         _state.HowToOpenByDefault = _howToOpenByDefault;
         // The how-to section's leaving bullet may only promise "pick it up
         // later" while something is really writing the run to disk.

@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Threading;
 
 namespace JJFlexWpf;
 
@@ -154,8 +155,26 @@ public partial class LogEntryControl : UserControl
 
     public void FocusCallSign()
     {
+        // Inferred from the code, not yet read off the running app (#849): the
+        // first time Logging mode opens in a session this control has never
+        // been laid out. It starts collapsed, and a UserControl builds its
+        // visual tree on its first measure, so CallSignBox would have no visual
+        // parent, not be IsVisible, and Focus() would refuse without a word.
+        // The field that had focus has just collapsed, so focus would then rest
+        // on the host window, a nameless pane to a screen reader. Lay out
+        // first; if the panel is not ready even then, ask again once the
+        // dispatcher has finished showing it.
+        if (TakeCallSignFocus()) return;
+        UpdateLayout();
+        if (TakeCallSignFocus()) return;
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => TakeCallSignFocus());
+    }
+
+    private bool TakeCallSignFocus()
+    {
         CallSignBox.Focus();
         Keyboard.Focus(CallSignBox);
+        return CallSignBox.IsKeyboardFocused;
     }
 
     /// <summary>

@@ -258,6 +258,7 @@ namespace Radios.Fixer
                 case FixerStageStatus.CouldNotRun:
                     s.Para("Attempted at " + Stamp(result.AtUtc) + " and could not run.");
                     s.Paras(result.Answer);
+                    if (result.Evidence.Length > 0) s.Pre(result.Evidence);
                     return s;
             }
 

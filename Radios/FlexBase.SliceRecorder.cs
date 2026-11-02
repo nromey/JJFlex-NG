@@ -60,7 +60,7 @@ public readonly struct SliceRecorderTarget : IEquatable<SliceRecorderTarget>
 /// <param name="Message">A complete sentence, already worded from the lexicon.</param>
 /// <param name="Subject">The <see cref="Speech.SpeechSubject"/> it belongs to.</param>
 /// <param name="AlreadyInState">True when nothing needed changing: the recorder was already doing what was asked.</param>
-public enum RecorderCue { None, Start, Stop, PlayStart, PlayStop }
+public enum RecorderCue { None, Start, Stop, PlayStart, PlayStop, TuneRefused }
 public sealed record RecorderOutcome(bool Success, string Message, string Subject,
     bool AlreadyInState = false, RecorderCue Cue = RecorderCue.None);
 
@@ -161,6 +161,7 @@ public partial class FlexBase
         internal DateTime? AppTakeAt;
         internal double? AppTakeSeconds;
         internal bool PlayStopRequested;
+        internal bool RecordRefusedUnderTune;
     }
 
     private readonly Dictionary<Slice, SliceRecorderState> _sliceRecorders = new(ReferenceEqualityComparer.Instance);
@@ -174,7 +175,13 @@ public partial class FlexBase
     /// <summary>The host's common PTT admission check. Missing or throwing means no on-air playback.</summary>
     public Func<bool> SlicePlaybackTransmitAllowed { get; set; }
 
-    private sealed record PlaybackIntent(bool OnAir, long Generation, Radio Radio, Slice Transmitter);
+    /// <param name="UnderTune">
+    /// Pressed under a tune carrier, where the operator is told it will not go
+    /// out. Such a playback must end with the tune, whatever follows: a hardware
+    /// line holding the radio keyed would otherwise carry the same play=1 into a
+    /// real transmission (#860).
+    /// </param>
+    private sealed record PlaybackIntent(bool OnAir, long Generation, Radio Radio, Slice Transmitter, bool UnderTune);
 
     private PlaybackIntent CapturePlaybackIntent()
     {
@@ -183,7 +190,7 @@ public partial class FlexBase
         // must invalidate this press, not lend it the next transmission's epoch.
         long generation = Interlocked.Read(ref _slicePlaybackGeneration);
         return new(Transmit || theRadio?.Mox == true, generation,
-            theRadio, theRadio?.TransmitSlice);
+            theRadio, theRadio?.TransmitSlice, TuningNow);
     }
 
     private bool LocalPlaybackVoxOff(Radio radio)
@@ -196,6 +203,7 @@ public partial class FlexBase
     {
         if (intent == null || intent.Generation != Interlocked.Read(ref _slicePlaybackGeneration) ||
             !ReferenceEquals(intent.Radio, theRadio) || theRadio?.Connected != true) return false;
+        if (intent.UnderTune && !TuningNow) return false;
         bool keyed = Transmit || theRadio.Mox;
         if (!intent.OnAir) return !keyed && (!requireLocalVoxOff || LocalPlaybackVoxOff(theRadio));
         if (!keyed || !CanTransmit || intent.Transmitter == null ||
@@ -456,6 +464,12 @@ public partial class FlexBase
                     {
                         if (state.Intent != null && !PlaybackIntentIsCurrent(state.Intent)) CancelSlicePlayback();
                     }
+                    // Only this playback, and only one pressed under tune, ends
+                    // with the tune: no transmit edge comes if the radio stays
+                    // keyed, so this is the one place that sees it (#860).
+                    if (args.PropertyName is nameof(Radio.TXTune) or nameof(Radio.ATUTuneStatus)
+                        && state.Intent is { UnderTune: true } underTune && !TuningNow)
+                        _ = StopPlayingForTransmitAsync(state, long.MaxValue, underTune);
                 };
                 state.Radio.PropertyChanged += state.RadioStatus;
                 state.Removed = removed =>
@@ -581,6 +595,14 @@ public partial class FlexBase
                 if (!StateIsLive(state) || !ReferenceEquals(radio, theRadio) || !ReferenceEquals(connection, radio.CurrentCommandConnection) ||
                     (property == "play" && enabled && (!PlaybackIntentIsCurrent(state.Intent) || !slice.PlayEnabled)))
                     throw new InvalidOperationException("slice-recorder-connection-or-state-changed");
+                // The last read before record=1 leaves (#860): a tune queued
+                // ahead of this command reaches the radio first. Nothing has
+                // gone out, so there is nothing for the caller to put back.
+                if (property == "record" && enabled && TuningNow)
+                {
+                    state.RecordRefusedUnderTune = true;
+                    throw new InvalidOperationException("slice-recorder-tune-up");
+                }
                 lock (_sliceRecorders)
                 {
                     sentCommand = true;
@@ -686,11 +708,18 @@ public partial class FlexBase
         TransmitChange += _sliceRecorderKeyed;
     }
 
-    private async Task StopPlayingForTransmitAsync(SliceRecorderState state, long generation)
+    /// <param name="only">
+    /// The one playback this stop is for, when it is not for a generation. A
+    /// tune ending moves no generation, so a newer playback on the same key
+    /// carries the same number as the old one, and only the object tells them
+    /// apart (#860).
+    /// </param>
+    private async Task StopPlayingForTransmitAsync(SliceRecorderState state, long generation, PlaybackIntent only = null)
     {
         await state.Gate.WaitAsync().ConfigureAwait(false);
         try
         {
+            if (only != null && !ReferenceEquals(state.Intent, only)) return;
             // A delayed stop belongs to the invalidated press, not to a new
             // press admitted after that edge or safety cut.
             if (state.Intent?.Generation >= generation) return;
@@ -751,6 +780,12 @@ public partial class FlexBase
         state.Owner = owner;
         state.Recording = true;
         bool started = await SendSafelyAsync(state, "record", true).ConfigureAwait(false);
+        if (state.RecordRefusedUnderTune)
+        {
+            state.RecordRefusedUnderTune = false;
+            state.Recording = false;
+            return TuneRefusedRecording();
+        }
         // A lost start reply leaves the radio's state unknown, so a
         // compensating stop is sent even though the start was not confirmed.
         if (!started)
@@ -770,6 +805,10 @@ public partial class FlexBase
         bool ears = target.IsLoopbackEars && _loopbackArranged && ReferenceEquals(slice, _lbResources?.Slice);
         return Outcome(true, ears ? "audio.recorder.recording_loopback" : "audio.recorder.recording", letter);
     }
+
+    // DRAFT PROSE (#860): awaiting Noel.
+    private static RecorderOutcome TuneRefusedRecording() => new(false, Lexicon.Get("audio.tune.turn_off_first"),
+        Speech.SpeechSubject.TuneRefused, Cue: RecorderCue.TuneRefused);
 
     private async Task<RecorderOutcome> StopRecordLockedAsync(SliceRecorderState state, SliceRecorderTarget target, object owner = null)
     {

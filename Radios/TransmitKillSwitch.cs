@@ -116,6 +116,9 @@ namespace Radios
         private static FlexBase _rig;
         private static string _what = "";
         private static bool _carrierRaised;
+        // The radio a check raised a TUNE carrier on, until it drops it or
+        // disarms. Bookkeeping beside the write; nothing keys or unkeys on it.
+        private static volatile FlexBase _tuneRaisedOn;
         private static bool _reflectedWarned;
 
         /// <summary>
@@ -212,6 +215,12 @@ namespace Radios
         /// through an eight-second listen instead of at the end of it.
         /// </summary>
         public static bool KillRequested => _killRequested;
+
+        /// <summary>
+        /// True while a check holds a tune carrier it raised here on this
+        /// radio. Being armed is not this: an ordinary box send is armed too.
+        /// </summary>
+        public static bool HoldsTuneCarrier(FlexBase rig) => rig != null && ReferenceEquals(_tuneRaisedOn, rig);
 
         /// <summary>True while at least one transmit is armed for killing.</summary>
         public static bool Armed { get { lock (Gate) { return _arms > 0; } } }
@@ -327,6 +336,7 @@ namespace Radios
                     _rig = null;
                     _what = "";
                     _carrierRaised = false;
+                    _tuneRaisedOn = null;
                     _reflectedWarned = false;
                     _run.Reset();
                     _killRequested = false;
@@ -427,6 +437,7 @@ namespace Radios
                 // under-claim, and "nothing was transmitted" spoken over a live
                 // carrier is the sentence this whole file exists to prevent.
                 _carrierRaised = true;
+                if (carrier == Carrier.Tune) _tuneRaisedOn = rig;
             }
 
             try
@@ -503,6 +514,7 @@ namespace Radios
         public static void DropCarrier(FlexBase rig, Carrier carrier)
         {
             if (rig == null) return;
+            if (carrier == Carrier.Tune && ReferenceEquals(_tuneRaisedOn, rig)) _tuneRaisedOn = null;
             try
             {
                 if (carrier == Carrier.Mox) rig.Transmit = false;

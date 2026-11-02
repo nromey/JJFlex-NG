@@ -68,7 +68,51 @@ public class KeyCommands
     // under verbosity, the coalesced move speech; this class only builds
     // definitions, routes keys to the live layer and wires the earcons.
     // Null when no layer is live. ──
-    private Radios.ValueSubLayer? _valueLayer;
+    private Radios.ValueSubLayer? _liveLayer;
+
+    /// <summary>
+    /// The window the live layer opened in, null for Home. Every assignment to
+    /// <see cref="_valueLayer"/> stamps it, so no site that opens a layer can
+    /// forget. See <see cref="LetGoOfLayerOutsideItsWindow"/>.
+    /// </summary>
+    private object? _liveLayerWindow;
+
+    private Radios.ValueSubLayer? _valueLayer
+    {
+        get => _liveLayer;
+        set
+        {
+            _liveLayer = value;
+            _liveLayerWindow = value == null ? null : LayerWindowProbe();
+        }
+    }
+
+    /// <summary>
+    /// Which of our windows holds the keyboard right now, null for Home, which
+    /// is hosted in the shell and so sits in no WPF window. A field so the
+    /// window-free tests can name a window without building one.
+    /// </summary>
+    internal Func<object?> LayerWindowProbe { get; set; } = FocusedWpfWindow;
+
+    private static object? FocusedWpfWindow()
+    {
+        // The input manager refuses a thread that is not STA, and the routing
+        // tests run on one: no window can hold the keyboard there anyway.
+        if (System.Threading.Thread.CurrentThread.GetApartmentState() != System.Threading.ApartmentState.STA)
+            return null;
+        try
+        {
+            return System.Windows.Input.Keyboard.FocusedElement is System.Windows.DependencyObject focused
+                ? System.Windows.Window.GetWindow(focused)
+                : null;
+        }
+        catch (Exception ex)
+        {
+            JJTrace.Tracing.TraceLine("KeyCommands: could not read the focused window: " + ex.Message,
+                                      System.Diagnostics.TraceLevel.Warning);
+            return null;
+        }
+    }
 
     /// <summary>
     /// The live value layer, or null — for the window-free routing tests
@@ -1329,6 +1373,16 @@ public class KeyCommands
     #endregion
 
     #region Tuning Handlers
+
+    /// <summary>
+    /// Is this chord the operator's tune key? Read from the live key table, so
+    /// a remap is honoured. Tune is a Radio-scope command and never reaches a
+    /// dialog through the registry; Check your audio asks here and takes it
+    /// itself (2026-11-02), because its refusal tells the operator to turn
+    /// tune off.
+    /// </summary>
+    internal static bool IsTuneKey(Keys k) =>
+        _globalRoutingOwner?.Lookup(k)?.KeyDef?.Id == CommandValues.TuneToggle;
 
     private void TuneToggleHandler()
     {
@@ -3122,6 +3176,10 @@ public class KeyCommands
             theKey == (int)Keys.ShiftKey || theKey == 0)
             return rv;
 
+        // A layer opened in a dialog that has since closed: this key is on
+        // Home, which is not the layer's window, so it goes on as a Home key.
+        if (!fromDialog) LetGoOfLayerOutsideItsWindow(null, windowIsHelpSurface: false, "a key on Home");
+
         // === VALUE SUB-LAYER DISPATCH (#305 pattern — the audio and filter
         // layers today) ===
         // Ahead of the one-shot leader: the layer stays live across keys.
@@ -3393,7 +3451,87 @@ public class KeyCommands
             typeof(System.Windows.Window),
             System.Windows.Input.Keyboard.PreviewKeyUpEvent,
             new System.Windows.Input.KeyEventHandler(AnyWindowPreviewKeyUp));
+        // #846: a JJ Flexible dialog taking the keyboard closes a layer left
+        // open underneath it. handledEventsToo, because whether a control marked
+        // the focus change handled says nothing about where focus went.
+        System.Windows.EventManager.RegisterClassHandler(
+            typeof(System.Windows.Window),
+            System.Windows.Input.Keyboard.GotKeyboardFocusEvent,
+            new System.Windows.Input.KeyboardFocusChangedEventHandler(AnyWindowGotKeyboardFocus),
+            handledEventsToo: true);
         _context.Trace("KeyCommands: global window routing installed");
+    }
+
+    /// <summary>
+    /// The keyboard landed in a WPF window of ours. Home never comes here: it
+    /// sits in the shell, not in a WPF window.
+    /// </summary>
+    private static void AnyWindowGotKeyboardFocus(object sender, System.Windows.Input.KeyboardFocusChangedEventArgs e)
+    {
+        _globalRoutingOwner?.LetGoOfLayerOutsideItsWindow(sender, IsHelpSurfaceWindow(sender), "focus went to " + sender);
+    }
+
+    private static bool IsHelpSurfaceWindow(object window) =>
+        KeyHelpSurfaces.IsOpen || (window is System.Windows.Window w && KeyHelpSurfaces.IsSurface(w));
+
+    /// <summary>
+    /// A value layer belongs to the window it opened in. A JJ Flexible dialog
+    /// taking the keyboard closes it KEEPING its changes (#846), so nothing on
+    /// the radio moves because a dialog opened, and the keys in that dialog are
+    /// the dialog's.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>What this ends.</b> JJ key, N, B left the noise layer open on Home,
+    /// the operator's own Radio, Disconnect opened a question over it, and
+    /// every Tab in the question spoke the layer's refusal. The first Escape
+    /// went to the layer as a cancel, which switched the noise blanker back on
+    /// behind a dialog about saving the station.
+    /// </para>
+    /// <para>
+    /// <b>The window it opened in, not Home alone, on purpose.</b> "The mic
+    /// check works from inside the Audio Workshop" is a promise this class and
+    /// <see cref="KeyHelpSurfaces"/> both state: a layer opened IN a dialog
+    /// rides values there, and #778's rulings on Tab, push to talk and Escape
+    /// are written for that case. What this rules out is a layer outliving the
+    /// window it was opened in, in either direction.
+    /// </para>
+    /// <para>
+    /// <b>A help surface is the exception.</b> H opens the layer's own key
+    /// list from inside the layer, and the layer is still there when it closes.
+    /// </para>
+    /// <para>
+    /// <b>No sentence, only the layer's closing tone.</b> A screen reader
+    /// flushes its speech when the focused window changes, so a sentence said
+    /// here would be cut by the very window that caused it. A tone is not. A
+    /// program that is not ours is not this path: that is #750's timeout.
+    /// </para>
+    /// <para>
+    /// <b>Not covered:</b> the older dialogs, a WinForms form or a native task
+    /// dialog over Home. Those raise no WPF focus event and their keys never
+    /// reach this class, so the layer takes nothing from them, but it is still
+    /// open when the operator comes back.
+    /// </para>
+    /// <para>
+    /// <b>A layer with no window is Home's, today.</b> A layer opened from
+    /// another program is refused at opening
+    /// (<c>leader.systemwide.layer_needs_window</c>), so none exists. The day
+    /// #749 lets one live, it must be stamped as having no window of ours, or
+    /// the first dialog of ours to take the keyboard will close it.
+    /// </para>
+    /// </remarks>
+    /// <param name="window">The window holding the keyboard, null for Home.</param>
+    /// <param name="windowIsHelpSurface">True for a key help surface.</param>
+    /// <param name="why">For the trace.</param>
+    /// <returns>True when a layer closed.</returns>
+    internal bool LetGoOfLayerOutsideItsWindow(object? window, bool windowIsHelpSurface, string why)
+    {
+        var layer = _valueLayer;
+        if (layer == null || windowIsHelpSurface || ReferenceEquals(window, _liveLayerWindow)) return false;
+        _context.Trace("ValueLayer:closed keeping its changes (" + why + ")");
+        _valueLayer = null;
+        layer.CloseForAnotherWindow();
+        return true;
     }
 
     /// <summary>
@@ -3449,6 +3587,10 @@ public class KeyCommands
     {
         var kc = _globalRoutingOwner;
         if (kc == null || e.Handled) return;
+        // The focus event closes this first; a key is the backstop for a
+        // window that got the keyboard without one. Ahead of everything, so
+        // no key below sees a layer that is not this window's.
+        kc.LetGoOfLayerOutsideItsWindow(sender, IsHelpSurfaceWindow(sender), "a key in " + sender);
         if (DialogTransmitKeys.OnPreviewKeyDown(sender, e))
         {
             // Escape that unkeyed (repair round one, B1) also drops an armed
@@ -3848,6 +3990,8 @@ public class KeyCommands
                     _context.Trace("SendCWMessage: the message key \"" + label + "\" was refused by the hold after the reflected-power cut; nothing sent, shown or said as sending");
                     break;
                 }
+                // A rig reading 0 watts (#859), asked here for the same reason.
+                if (ZeroPowerDoors.RefuseTransmit(rig, "a CW message")) break;
                 string msg = item.Message;
                 if (msg.Length > 0 && msg[^1] != ' ')
                     msg += " ";
@@ -6660,9 +6804,10 @@ public class KeyCommands
     /// </para>
     /// <para>
     /// <b>Value layers are left alone.</b> The audio and filter layers close
-    /// only on Enter, Escape or the JJ key (#778's ruling), and how long they
-    /// survive away from the window is #750's configurable timeout, ruled and
-    /// not yet built. This is not that.
+    /// on Enter, Escape or the JJ key (#778's ruling) and when a JJ Flexible
+    /// dialog takes the keyboard (#846, <see cref="LetGoOfLayerOutsideItsWindow"/>).
+    /// How long they survive while another program has it is #750's
+    /// configurable timeout, ruled and not yet built. This is not that.
     /// </para>
     /// <para>
     /// Silent, as the system-wide expiry is silent: a layer that announces its

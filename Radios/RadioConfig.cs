@@ -199,7 +199,10 @@ namespace Radios
     /// </summary>
     public enum AudioCheckPowerModes
     {
-        /// <summary>Dummy load: zero watts, no RF at all. The default —
+        /// <summary>Dummy load: zero watts, no RF at all. Not offered on a
+        /// radio that cannot run at zero (<see cref="RadioPowerFloor"/>), where
+        /// a saved value shows as Low power at the floor and stays saved.
+        /// The default —
         /// every meter the check reads (SC_MIC, SW ALC) sits upstream of
         /// the power amplifier, so the measurement is identical with no
         /// RF, and a check with a tone armed must not put a carrier on an
@@ -211,7 +214,9 @@ namespace Radios
         /// cref="RadioConfig.AudioCheckLowPowerWatts"/> for the separate,
         /// deliberate act of confirming RF actually leaves the radio. A
         /// cap only — it never raises power and cannot override an active
-        /// dummy load mode.</summary>
+        /// dummy load mode, except that a check on a radio that records
+        /// nothing at zero never keys at zero
+        /// (<see cref="AudioCheckPowerRule"/>).</summary>
         LowPower = 1,
     }
 
@@ -1976,7 +1981,7 @@ namespace Radios
                 FailureKind.SettingNotSaved,
                 "A radio setting could not be saved",
                 "The change is in effect right now, but it will not be there the "
-                + "next time you start JJ Flex.");
+                + "next time you start JJ Flexible Radio Access.");
             return false;
         }
 

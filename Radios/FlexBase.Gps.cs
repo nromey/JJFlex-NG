@@ -248,7 +248,7 @@ namespace Radios
             if (s.HasGnss && s.HasGpsdo)
                 text += " Unusually, both receiver modules are reported. Normally a radio has one or the other — " +
                         "ordering the 32-channel unit means it is fitted instead of the 10-channel one, not alongside it. " +
-                        "If both really are present, JJ Flex cannot tell you which antenna connector feeds which — the radio does not report that.";
+                        "If both really are present, JJ Flexible Radio Access cannot tell you which antenna connector feeds which — the radio does not report that.";
 
             return text;
         }

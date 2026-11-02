@@ -1723,6 +1723,9 @@ namespace Radios
                 {
                     if (!ReferenceEquals(radio, theRadio) || radio.SimpleVOXEnable ||
                         !ReferenceEquals(_referenceVoxLease, lease)) return FailReferenceArm(lease);
+                    // A file source cannot reach the air under a tune carrier
+                    // (#860). Asked here, after the VOX wait; the arm says why.
+                    if (TuningNow) return FailReferenceArm(lease);
                     TxFileStart();
                     return true;
                 }

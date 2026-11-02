@@ -163,14 +163,18 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_engine_reads_a_refusal_as_nothing_to_compare_never_as_a_result()
+        public void The_engine_reads_a_refusal_as_nothing_measured_never_as_a_result()
         {
             // The whole path: refused facts through the engine's own words.
+            // This asserted "nothing to compare" until the refusal stopped
+            // reading as a pass: the answer is now the refusal itself.
             InjectedTransmitFacts f = Wired(ReadyGate(), () => null)
                 .InjectedTransmit(TransmitStageSet.InjectedTransmit)();
             FixerOutcome o = TransmitStages.Injected(f);
 
-            Assert.Contains("nothing to compare", o.Answer);
+            Assert.True(o.NothingMeasured);
+            Assert.Contains("nothing was transmitted", o.Answer);
+            Assert.DoesNotContain("nothing to compare", o.Answer);
             Assert.Contains("nothing was transmitted", o.Evidence);
         }
 

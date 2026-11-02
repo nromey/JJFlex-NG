@@ -320,7 +320,7 @@
                           Style="{StaticResource DialogComboBox}"
                           Margin="0,0,0,8"
                           AutomationProperties.Name="Alert and CW notification output device"
-                          local:JJFlexHelp.Text="These are JJ Flex's own sounds, not the radio's. CW notifications play through this device; there is no separate CW output to choose."/>
+                          local:JJFlexHelp.Text="These are JJ Flexible Radio Access's own sounds, not the radio's. CW notifications play through this device; there is no separate CW output to choose."/>
 
                 <Label Content="Meter _tone device:"
                        Target="{Binding ElementName=MeterDeviceCombo}"

@@ -150,6 +150,10 @@ public partial class MainWindow : UserControl
         // #835: where Check your audio finds the radio when a door has none
         // to hand (the Workshop opened from Settings carries no radio).
         Dialogs.CheckYourAudioDialog.RigSource = () => RigControl;
+        // 2026-11-02: the tune key works in Check your audio, and Escape there
+        // turns a tune carrier off, both through Home's own toggle.
+        Dialogs.CheckYourAudioDialog.ToggleTuneSource = () => ToggleTuneCarrier();
+        Dialogs.CheckYourAudioDialog.TuneOffSource = () => TurnTuneCarrierOff();
         // Sprint 33 Track I: the recorder records the microphone the operator
         // already chose. Pointing it at the same setting the rest of the audio
         // path reads is what stops "which microphone am I recording" from
@@ -330,6 +334,7 @@ public partial class MainWindow : UserControl
         // Escape; anywhere else, Escape while it transmits stops it.
         DialogTransmitKeys.WindowHandlesCheckEscape = w => w is Dialogs.CheckYourAudioDialog;
         DialogTransmitKeys.CheckEscapeElsewhere = Dialogs.CheckYourAudioDialog.StopTransmittingCheckFromElsewhere;
+        StartTuneReminder();
         try
         {
             var systemWide = Radios.SystemWideKeysConfig.Load(Radios.RadioConfig.AppDataRoot);
@@ -1763,7 +1768,7 @@ public partial class MainWindow : UserControl
         // identically, which is the defect this task set out to close. A
         // successful connect replaces the whole title through UpdateTitleBar,
         // so it cannot go stale.
-        UpdateTitleBar?.Invoke("JJ Flexible Radio Access — no radio connected");
+        ShowNoRadioTitle();
 
         ApplyRescueVisibility();
 
@@ -2581,9 +2586,10 @@ public partial class MainWindow : UserControl
     /// Enter Logging Mode from either Classic or Modern.
     /// Matches Form1.EnterLoggingMode().
     ///
-    /// In pure WPF, this is beautifully simple:
+    /// In pure WPF, this is simple:
     /// - Set Visibility on the Grid rows (no ElementHost container issues)
-    /// - Focus moves naturally to LogEntryControl.CallSignBox
+    /// - Focus goes to LogEntryControl.CallSignBox, which lays the panel out
+    ///   first: see <see cref="LogEntryControl.FocusCallSign"/>
     /// - No "unknown" announcement (no intermediate containers)
     /// - No focus trapping (Visibility.Collapsed removes from tab order)
     /// </summary>
@@ -2600,7 +2606,6 @@ public partial class MainWindow : UserControl
         LoggingRadioPane.UpdateFromRadio();
 
         // Focus the CallSign field in LogEntryControl.
-        // In pure WPF, this just works — no BeginInvoke, no ElementHost dance.
         LoggingLogEntry.FocusCallSign();
 
         Radios.ScreenReaderOutput.Speak(
@@ -3271,6 +3276,69 @@ public partial class MainWindow : UserControl
     public Action<string>? UpdateTitleBar { get; set; }
 
     /// <summary>
+    /// The no-radio title, from the source a fresh launch uses. Null from it
+    /// means leave the title alone: the application is exiting. Wired by
+    /// globals.vb, which holds the station name.
+    /// </summary>
+    public Func<string?>? NoRadioTitleSource { get; set; }
+
+    /// <summary>
+    /// Put the no-radio title up (#848), so a screen reader reading the window
+    /// on Alt+Tab or on focus does not name a slice and a frequency for a radio
+    /// that has gone.
+    /// </summary>
+    public void ShowNoRadioTitle()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(ShowNoRadioTitle);
+            return;
+        }
+        string? title = NoRadioTitleSource?.Invoke();
+        if (title == null) return;
+        UpdateTitleBar?.Invoke(title);
+        _sessionTitle.NoRadioTitleShown();
+    }
+
+    private readonly Radios.SessionTitle _sessionTitle = new();
+    private Action<bool>? _connectionWatch;
+    private FlexBase? _connectionWatched;
+
+    /// <summary>
+    /// Watch the one notification that means the connection really changed
+    /// (#848). PowerStatus does not: a profile import raises it false on a live
+    /// connection. The legacy ConnectedEvent never fires: its raise is compiled
+    /// out at its source.
+    /// </summary>
+    private void WatchConnection(FlexBase rig)
+    {
+        StopWatchingConnection();
+        _connectionWatched = rig;
+        _connectionWatch = _ => Dispatcher.BeginInvoke(() => ConnectionChanged(rig));
+        rig.ConnectionStateChanged += _connectionWatch;
+    }
+
+    private void StopWatchingConnection()
+    {
+        if (_connectionWatched != null && _connectionWatch != null)
+            _connectionWatched.ConnectionStateChanged -= _connectionWatch;
+        _connectionWatched = null;
+        _connectionWatch = null;
+    }
+
+    /// <summary>
+    /// Read the state again here rather than trust the event, which may have
+    /// waited behind other work: a radio back already owes nothing, and a rig
+    /// that has since been replaced is not the session on the title.
+    /// </summary>
+    private void ConnectionChanged(FlexBase rig)
+    {
+        if (!ReferenceEquals(rig, RigControl)) return;
+        if (!rig.IsConnected) EndTuneAnswer("the connection fell");
+        if (_sessionTitle.OwesNoRadioTitle(rig.IsConnected)) ShowNoRadioTitle();
+    }
+
+    /// <summary>
     /// Callback for VB-side exit sequence. Returns true to proceed, false to cancel.
     /// Set by ApplicationEvents.vb, called from MainWindow_Closing.
     /// </summary>
@@ -3376,6 +3444,7 @@ public partial class MainWindow : UserControl
     {
         HideDisconnectedRecorderStop();
         if (RigControl == null) return;
+        WatchConnection(RigControl);
 
         // Sprint 42 Track D (#395): a connect is genuinely starting — this is
         // the one call every path makes before Start(), including auto-connect
@@ -3887,6 +3956,8 @@ public partial class MainWindow : UserControl
 
         PollTimerEnabled = false;
         _radioPowerOn = false;
+        EndTuneAnswer("the radio's events were unwired");
+        StopWatchingConnection();
 
         // Sprint 42 Track D (#395): a teardown ends any quiet scope a failed
         // connect left open. On an ordinary disconnect there is no scope and
@@ -3904,6 +3975,8 @@ public partial class MainWindow : UserControl
             RigControl.NoSliceError -= NoSliceErrorHandler;
             RigControl.FeatureLicenseChanged -= FeatureLicenseChangedHandler;
             RigControl.TransmitChange -= TransmitChangeHandler;
+            RigControl.TransmitChange -= TuneReminderTransmitEdge;
+            RigControl.TuneCarrierFell -= TuneCarrierFellHandler;
             RigControl.FlexAntTunerStartStop -= FlexAntTuneStartStopHandler;
             RigControl.ConnectedEvent -= ConnectedEventHandler;
         }
@@ -4654,6 +4727,7 @@ public partial class MainWindow : UserControl
                 string mode = RigControl.Mode ?? "";
                 double freqMhz = (RigControl.Transmit ? RigControl.TXFrequency : RigControl.VirtualRXFrequency) / 1_000_000.0;
                 UpdateTitleBar($"JJ Flexible Radio Access — Slice {sliceLetter}, {freqMhz:F3}, {mode}");
+                _sessionTitle.SliceTitleShown();
             }
         }
         catch (Exception ex)
@@ -5231,6 +5305,8 @@ public partial class MainWindow : UserControl
         if (RigControl != null)
         {
             RigControl.TransmitChange += TransmitChangeHandler;
+            RigControl.TransmitChange += TuneReminderTransmitEdge;
+            RigControl.TuneCarrierFell += TuneCarrierFellHandler;
             RigControl.FlexAntTunerStartStop += FlexAntTuneStartStopHandler;
             RigControl.ConnectedEvent += ConnectedEventHandler;
         }
@@ -5717,9 +5793,13 @@ public partial class MainWindow : UserControl
         if (RigControl != null)
         {
             RigControl.TransmitChange -= TransmitChangeHandler;
+            RigControl.TransmitChange -= TuneReminderTransmitEdge;
+            RigControl.TuneCarrierFell -= TuneCarrierFellHandler;
             RigControl.FlexAntTunerStartStop -= FlexAntTuneStartStopHandler;
             RigControl.ConnectedEvent -= ConnectedEventHandler;
         }
+
+        EndTuneAnswer("the radio powered off");
 
         _radioPowerOn = false;
 
@@ -5935,6 +6015,7 @@ public partial class MainWindow : UserControl
         {
             // Fallback — direct TX toggle (no safety controller)
             Tracing.TraceLine($"toggling transmit: {RigControl.Transmit}", TraceLevel.Info);
+            if (!RigControl.Transmit && ZeroPowerDoors.RefuseTransmit(RigControl, "the transmit toggle")) return;
             RigControl.Transmit = !RigControl.Transmit;
         }
     }
@@ -6361,9 +6442,17 @@ public partial class MainWindow : UserControl
             Tracing.TraceLine("antennaTune: no power", TraceLevel.Error);
             return;
         }
+        if (TunerStartRefused()) return;
         _oldSwr = "";
         RigControl.FlexTunerOn = !RigControl.FlexTunerOn;
     }
+
+    /// <summary>
+    /// A press that would start the tuner on a rig whose tune power reads 0
+    /// watts (#859). Turning the tuner off is never refused.
+    /// </summary>
+    private bool TunerStartRefused() =>
+        !RigControl.FlexTunerOn && ZeroPowerDoors.RefuseTune(RigControl, "the antenna tuner");
 
     /// <summary>
     /// Show SWR/tuner status on hover.
@@ -6403,6 +6492,17 @@ public partial class MainWindow : UserControl
     {
         if (RigControl == null) return;
 
+        // A press that would START a tune on a rig whose tune power reads 0
+        // watts (#859). Ahead of the debounce, which would leave a click's
+        // button checked, and of everything below, so a refused press tells
+        // nothing it keyed. The button has flipped itself by now, so it goes
+        // back. This is not the hold: tune is not held, by ruling of 2026-10-22.
+        if (!RigControl.TxTune && ZeroPowerDoors.RefuseTune(RigControl, "the tune carrier"))
+        {
+            if (TuneToggleButton != null) TuneToggleButton.IsChecked = false;
+            return;
+        }
+
         // Debounce: ignore calls within 500ms (key auto-repeat protection)
         long now = Environment.TickCount64;
         if (now - _lastTuneToggleTicks < 500) return;
@@ -6432,22 +6532,179 @@ public partial class MainWindow : UserControl
         {
             EarconPlayer.TuneOnTone();
             MeterToneEngine.OnTuneStarted();
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.tune_on"), VerbosityLevel.Terse, true);
+            AnnounceTuneWhenTheRadioAnswers();
         }
         else
         {
-            // Stop ATU progress earcon in case auto-ATU started a tune cycle
-            EarconPlayer.StopATUProgressEarcon();
-            StopATUTimeout();
-            EarconPlayer.TuneOffTone();
-            MeterToneEngine.OnTuneStopped();
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.tune_off"), VerbosityLevel.Terse, true);
-            // TXTune falling edge raises no FlexAntTuneStartStop event, so the
-            // ATU-status-driven announce path never fires for manual carrier.
-            // Call directly here with the captured SWR so external/manual tuners
-            // (Don's rooftop unit) get the real final match, not the idle 1.0.
-            AnnounceCapturedSwrAfterTune(isFailure: false, capturedSwr);
+            TuneOffFeedback(capturedSwr);
         }
+    }
+
+    /// <summary>What a tune carrier going off says and sounds, from the toggle or from <see cref="TurnTuneCarrierOff"/>.</summary>
+    private void TuneOffFeedback(float capturedSwr)
+    {
+        EndTuneAnswer("tune off");
+        // Stop ATU progress earcon in case auto-ATU started a tune cycle
+        EarconPlayer.StopATUProgressEarcon();
+        StopATUTimeout();
+        EarconPlayer.TuneOffTone();
+        MeterToneEngine.OnTuneStopped();
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.tune_off"), VerbosityLevel.Terse, true);
+        // TXTune falling edge raises no FlexAntTuneStartStop event, so the
+        // ATU-status-driven announce path never fires for manual carrier.
+        // Call directly here with the captured SWR so external/manual tuners
+        // (Don's rooftop unit) get the real final match, not the idle 1.0.
+        AnnounceCapturedSwrAfterTune(isFailure: false, capturedSwr);
+    }
+
+    /// <summary>
+    /// Turn our tune carrier off if it is up or on its way; true when it was
+    /// (2026-11-02). Escape and the tune key in Check your audio come here.
+    /// </summary>
+    /// <remarks>
+    /// <b>An explicit off, never a toggle.</b> The first version read the flag,
+    /// then called the toggle, which read it again to choose its new state; a
+    /// flag falling on FlexLib's reader thread between the two reads turned an
+    /// unkey into a new carrier (Codex, 2026-11-02). This writes false and
+    /// nothing else, so no interleaving can issue a key. It also counts a tune
+    /// asked for and still in the command queue (<see cref="FlexBase.TuneAskedOrUp"/>);
+    /// the off queues behind it, so the radio ends off. No debounce applies: a
+    /// stop is never swallowed. The feedback is the toggle's own.
+    /// </remarks>
+    public bool TurnTuneCarrierOff()
+    {
+        FlexBase? rig = RigControl;
+        if (rig == null || !rig.TuneAskedOrUp) return false;
+        float capturedSwr = rig.TuneCycleSettledComputedSwr;
+        rig.TxTune = false;
+        _pttController?.NoteTuneCarrier(false);
+        // A toggle press right behind this one is more of it: a start inside
+        // the toggle's window is swallowed, which is the safe direction.
+        _lastTuneToggleTicks = Environment.TickCount64;
+        if (TuneToggleButton != null) TuneToggleButton.IsChecked = false;
+        TuneOffFeedback(capturedSwr);
+        return true;
+    }
+
+    /// <summary>
+    /// Say what the radio did with the tune carrier, not what we asked for
+    /// (#447). The carrier has already been asked for and keeps being asked
+    /// for exactly as before: this only decides the sentence, and it speaks
+    /// the moment the radio reports the key.
+    /// </summary>
+    private void AnnounceTuneWhenTheRadioAnswers()
+    {
+        EndTuneAnswer("a new tune was pressed");
+        FlexBase? rig = RigControl;
+        if (rig == null) return;
+
+        // As near the press as this can read. What is on the air now is taken
+        // as not this tune; a radio fast enough to have keyed already lands on
+        // the sentence that says it is transmitting, which is still true.
+        Radios.TuneReading atPress = rig.ReadTuneStanding();
+
+        Tracing.TraceLine("TuneAnswer: asked, the radio reads " + atPress, TraceLevel.Info);
+
+        var waited = Stopwatch.StartNew();
+        var answer = new Radios.TuneAnswerWatch(rig.ReadTuneStanding,
+            () => ReferenceEquals(RigControl, rig) && _radioPowerOn && rig.IsConnected,
+            () => waited.ElapsedMilliseconds);
+        var watch = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher)
+        {
+            Interval = TimeSpan.FromMilliseconds(25),
+        };
+        watch.Tick += (_, _) =>
+        {
+            Radios.TuneWatchStep step = answer.Step();
+            if (step == Radios.TuneWatchStep.Wait) return;
+
+            Tracing.TraceLine($"TuneAnswer: {step} after {waited.ElapsedMilliseconds} ms, the radio reads {answer.Last}", TraceLevel.Info);
+            StopTuneAnswerWatch();
+            if (step == Radios.TuneWatchStep.Keyed)
+            {
+                EndTuneAnswer("the tune keyed");
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.tune_on"), VerbosityLevel.Terse, true);
+            }
+            else if (step == Radios.TuneWatchStep.NotKeyed)
+            {
+                // The on tone stays at the press; a refusal answers it with an
+                // error tone (Noel, 2026-10-31). Only a refusal: "no report
+                // yet" and "transmitting, not provably this tune" are not one.
+                if (answer.Last.RadioRefuses) EarconPlayer.ATUFailTone();
+                Radios.ScreenReaderOutput.Speak(Radios.TuneAnswer.NotKeyedSentence(answer.Last), Radios.TuneAnswer.NotKeyedIntent,
+                    VerbosityLevel.Critical, subject: Radios.Speech.SpeechSubject.TuneNotKeyed);
+            }
+        };
+        _tuneAnswerWatch = watch;
+        watch.Start();
+    }
+
+    private DispatcherTimer? _tuneAnswerWatch;
+
+    private void StopTuneAnswerWatch()
+    {
+        _tuneAnswerWatch?.Stop();
+        _tuneAnswerWatch = null;
+    }
+
+    /// <summary>
+    /// This tune's question is over: stop waiting, and retire a not-keyed
+    /// sentence that has not been heard yet. It is queued so that a cut one
+    /// comes back, which is exactly why it has to be withdrawn when it stops
+    /// being true.
+    /// </summary>
+    private void EndTuneAnswer(string why)
+    {
+        StopTuneAnswerWatch();
+        Radios.ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.TuneNotKeyed, why);
+        Radios.ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.TuneRefused, why);
+        _tuneReminder.End(why);
+    }
+
+    private DispatcherTimer? _tuneReminderTimer;
+    private TuneReminder _tuneReminder = new();
+
+    /// <summary>
+    /// Tell the operator a tune carrier is still up (#860). Its own timer, not
+    /// the status poll: that one stops with the connection, which is one of the
+    /// moments this has to notice. Speech and a tone only; nothing here touches
+    /// the carrier, which stays unheld by Noel's ruling of 2026-10-22.
+    /// </summary>
+    private void StartTuneReminder()
+    {
+        _tuneReminderTimer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher)
+        {
+            Interval = TimeSpan.FromSeconds(1),
+        };
+        _tuneReminderTimer.Tick += (_, _) => TuneReminderTick();
+        _tuneReminderTimer.Start();
+    }
+
+    /// <summary>
+    /// The tune flag fell, whoever dropped it (#860). On FlexLib's read loop, and
+    /// it stays there: a post to this window can lose to the speech arbiter's
+    /// own timer, which would say the cut reminder again after the carrier has
+    /// gone. <see cref="TuneReminder.End"/> touches no UI.
+    /// </summary>
+    private void TuneCarrierFellHandler() => _tuneReminder.End("the radio dropping tune");
+
+    /// <summary>At receive no carrier of ours is up, whoever ended it. As above, on the event's own thread.</summary>
+    private void TuneReminderTransmitEdge(object sender, bool transmit)
+    {
+        if (!transmit) _tuneReminder.End("the radio going to receive");
+    }
+
+    private void TuneReminderTick()
+    {
+        FlexBase? rig = RigControl;
+        bool up = false;
+        // Asked of the radio every tick: however tune goes off, this sees it.
+        // Unreadable reads as down, because this only ever adds a sentence.
+        try { up = !_isClosing && rig != null && rig.IsConnected && rig.TuneCarrierUp; }
+        catch (Exception ex) { Tracing.TraceLine("TuneReminder: " + ex.Message, TraceLevel.Warning); }
+
+        int seconds = CurrentPttConfig?.TuneReminderSeconds ?? new PttConfig().TuneReminderSeconds;
+        _tuneReminder.Tick(up, Radios.TransmitKillSwitch.HoldsTuneCarrier(rig!), Environment.TickCount64, seconds);
     }
 
     /// <summary>
@@ -6494,6 +6751,7 @@ public partial class MainWindow : UserControl
             Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.no_tuner"), VerbosityLevel.Terse);
             return;
         }
+        if (TunerStartRefused()) return;
         // ATU tune uses FlexTunerOn which handles auto/manual tuner logic
         _oldSwr = "";
         RigControl.FlexTunerOn = true;
@@ -6604,6 +6862,7 @@ public partial class MainWindow : UserControl
         switch (item)
         {
             case "ATU Tune":
+                if (TunerStartRefused()) break;
                 RigControl.FlexTunerOn = !RigControl.FlexTunerOn;
                 break;
             case "Start Tune Carrier":

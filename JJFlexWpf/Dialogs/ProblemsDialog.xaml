@@ -39,7 +39,7 @@
                  Height="220" Margin="0,0,0,10"
                  HorizontalContentAlignment="Stretch"
                  AutomationProperties.Name="Problems, newest first"
-                 local:JJFlexHelp.Text="Every problem JJ Flex noticed since it started, newest first. Each line gives the time, what failed, and what it means for you. The list empties when you close JJ Flex — the diagnostic log is the record that keeps."
+                 local:JJFlexHelp.Text="Every problem JJ Flexible Radio Access noticed since it started, newest first. Each line gives the time, what failed, and what it means for you. The list empties when you close JJ Flexible Radio Access — the diagnostic log is the record that keeps."
                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
             <ListBox.ItemTemplate>
                 <DataTemplate>

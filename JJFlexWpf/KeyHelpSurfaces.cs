@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Windows;
 
@@ -39,6 +40,14 @@ public static class KeyHelpSurfaces
 
     public static bool IsOpen => Volatile.Read(ref _open) > 0;
 
+    // Marked at Attach, not at Loaded: a surface can take the keyboard before
+    // Loaded raises and IsOpen counts it, and the value layer must not take
+    // that for some other window (#846).
+    private static readonly ConditionalWeakTable<Window, object> _surfaces = new();
+
+    /// <summary>Is this window a key help surface, shown yet or not?</summary>
+    public static bool IsSurface(Window window) => _surfaces.TryGetValue(window, out _);
+
     /// <summary>
     /// Count <paramref name="window"/> as a surface from the moment it is
     /// shown until it closes. Loaded and Closed are each honoured once per
@@ -46,6 +55,7 @@ public static class KeyHelpSurfaces
     /// </summary>
     public static void Attach(Window window)
     {
+        _surfaces.AddOrUpdate(window, new object());
         bool counted = false;
         window.Loaded += (_, _) =>
         {

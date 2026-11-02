@@ -1789,6 +1789,19 @@ namespace Radios
         }
 
         /// <summary>
+        /// A JJ Flexible dialog took the keyboard: keep what is applied, as
+        /// <see cref="Confirm"/> does, and close on the layer's closing tone
+        /// alone. A sentence here would be flushed by the window change that
+        /// caused it (#846).
+        /// </summary>
+        public void CloseForAnotherWindow()
+        {
+            if (!_live) return;
+            _def.Cues.Closed?.Invoke();
+            Confirm(speak: false);
+        }
+
+        /// <summary>
         /// Close with no write and no speech: the radio went away, or PTT
         /// safety took Escape. A forced drop keeps, never restores — a
         /// restore is a write, and mid-transmit is no time to write.

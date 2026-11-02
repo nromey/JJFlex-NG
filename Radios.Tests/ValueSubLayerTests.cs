@@ -117,6 +117,26 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void Another_window_closes_the_layer_keeping_the_value_and_saying_nothing()
+        {
+            // #846: nothing on the radio moves because a dialog opened, and a
+            // sentence here would be flushed by the window change anyway.
+            var (h, rig) = OpenSingle(40, VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.Up);
+            Assert.Equal(45, rig.Value); // positive control: the key moved it
+            int writes = rig.Writes.Count;
+            int said = h.Transcript.Count;
+
+            h.Layer.CloseForAnotherWindow();
+
+            Assert.Equal(45, rig.Value);
+            Assert.Equal(writes, rig.Writes.Count);
+            Assert.Equal(said, h.Transcript.Count);
+            h.Layer.Cancel(speak: true); // a closed layer has nothing to put back
+            Assert.Equal(45, rig.Value);
+        }
+
+        [Fact]
         public void Single_entry_announces_and_seeds_from_the_live_value()
         {
             var (h, _) = OpenSingle(40, VerbosityLevel.Terse);

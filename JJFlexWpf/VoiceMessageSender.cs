@@ -97,6 +97,8 @@ internal static class VoiceMessageSender
         public string? Path;
         /// <summary>The send across its pieces and pauses (#835).</summary>
         public SendSession Session = new(0);
+        /// <summary>What the send takes over from, run at the last step and not before: the paused speakers.</summary>
+        public Action? HandOff;
         /// <summary>The piece about to start carries on after a pause, so it says so rather than "Sending".</summary>
         public bool Resuming;
         /// <summary>What the running piece holds on the radio, given back when it settles.</summary>
@@ -251,6 +253,8 @@ internal static class VoiceMessageSender
     /// through the controller, a hardware PTT line, or the tune carrier. A
     /// radio held up only by VOX is NOT this (Noel, 2026-10-27 15:28). Also
     /// asked by a paused speaker playback carrying on (<see cref="LocalPlaybackVox.CarryOnAsync"/>).
+    /// The tune carrier counts here because the key is held, but nothing joins
+    /// it: <see cref="RouteFor"/> and the doors ask <see cref="TuneDoors"/> first.
     /// </summary>
     internal static bool OperatorHolds(FlexBase rig, PttSafetyController? ptt)
     {
@@ -268,8 +272,16 @@ internal static class VoiceMessageSender
     }
 
     /// <summary>Which way a send pressed now goes. Read live, once per press.</summary>
+    /// <remarks>
+    /// Under tune it is <see cref="SendRoute.AsBefore"/> (#860): the air carries a
+    /// plain carrier, so no route reaches it, and Play and Enter in Recorded
+    /// QSOs fall through to the speakers. A door that would key on its own, a
+    /// voice message or a paused send carrying on, asks <see cref="TuneDoors"/>
+    /// itself and starts nothing.
+    /// </remarks>
     internal static SendRoute RouteFor(FlexBase rig)
     {
+        if (TuneDoors.Up(rig)) return SendRoute.AsBefore;
         PttSafetyController? ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
         bool voiceVoxOn = rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox;
         return VoxSendBox.Choose(VoxSendBox.Ticked, voiceVoxOn, rig.Transmit, OperatorHolds(rig, ptt));
@@ -318,6 +330,13 @@ internal static class VoiceMessageSender
 
         var info = new SendInfo { Kind = SendKind.VoiceMessage, Label = label, Rig = rig };
 
+        // A message would key into, or sit under, a plain carrier (#860).
+        if (TuneDoors.Up(rig))
+        {
+            TuneDoors.RefuseSend();
+            return;
+        }
+
         // The licence-aware lockout PTT applies, applied here too: a key that
         // keys the radio must answer to the same rule as the key that keys it
         // by hand. Resolved per call — the controller is recreated on operator
@@ -339,6 +358,10 @@ internal static class VoiceMessageSender
                 TraceLevel.Info);
             return;
         }
+
+        // A rig reading 0 watts (#859): wherever the hold asks, this asks, on
+        // the same condition. It speaks for itself.
+        if (ZeroPowerDoors.RefuseTransmit(rig, "a message key")) return;
 
         if (rig.TxToneEngaged)
         {
@@ -400,6 +423,14 @@ internal static class VoiceMessageSender
     /// </summary>
     private static void BeginAndLaunch(FlexBase rig, SendInfo info, string label, TxAudioFile.Loaded loaded)
     {
+        // The sink for every send that does not key through the box: the last
+        // read before the file starts, after the decode (#860).
+        if (TuneDoors.Up(rig))
+        {
+            RefuseUnderTune(info);
+            return;
+        }
+        HandOffNow(info);
         PieceHolds holds = PieceHolds.Take(rig, Name(info));
         VoiceMessageSend send;
         try { send = VoiceMessageSend.Begin(new FlexBaseVoiceMessageRig(rig), label, Environment.TickCount64); }
@@ -465,9 +496,10 @@ internal static class VoiceMessageSender
     }
 
     /// <param name="beforeSending">
-    /// Run once every question and refusal has passed, just before the piece
-    /// starts: the paused speakers stop here, so nothing that turns the send
-    /// away has already lost the operator's place.
+    /// Run once every question and refusal has passed, at the very last step
+    /// (<see cref="HandOffNow"/>): the paused speakers stop there, so nothing
+    /// that turns the send away has lost the operator's place. That includes a
+    /// tune that comes up during the decode or the box's wait for VOX (#860).
     /// </param>
     private static void SendComputerRecording(FlexBase rig, string path, SendRoute route, double fromSeconds,
         Action? beforeSending = null)
@@ -515,7 +547,7 @@ internal static class VoiceMessageSender
             }
         }
         info.Session = new SendSession(loaded.LengthSeconds, fromSeconds);
-        beforeSending?.Invoke();
+        info.HandOff = beforeSending;
         StartComputerPiece(rig, info, loaded, route);
     }
 
@@ -679,6 +711,13 @@ internal static class VoiceMessageSender
     /// <summary>The licence lockout and the hold after a reflected-power cut, for a send that may key.</summary>
     private static bool Admitted(FlexBase rig, PttSafetyController? ptt, SendInfo info, SendRoute route)
     {
+        // Asked here as well as at the route: a tune can come up while the
+        // long-send question is open (#860).
+        if (TuneDoors.Up(rig))
+        {
+            TuneDoors.RefuseSend();
+            return false;
+        }
         if (ptt?.CanTransmitHereCheck != null && !ptt.CanTransmitHereCheck())
         {
             Refuse(info, Lexicon.Get("audio.ptt.blocked_by_license"));
@@ -692,6 +731,8 @@ internal static class VoiceMessageSender
                 TraceLevel.Info);
             return false;
         }
+        // The same for a rig reading 0 watts (#859).
+        if (route == SendRoute.Box && ZeroPowerDoors.RefuseTransmit(rig, "a recording send")) return false;
         return true;
     }
 
@@ -702,6 +743,11 @@ internal static class VoiceMessageSender
     /// </summary>
     private static void JoinWithFile(FlexBase rig, SendInfo info, TxAudioFile.Loaded loaded)
     {
+        if (TuneDoors.Up(rig))
+        {
+            RefuseUnderTune(info);
+            return;
+        }
         // Begin keys a receiving radio. The operator's press was read keyed,
         // but if the radio has not echoed it yet, Begin would key on its own
         // account and later unkey under the operator's thumb. So: refuse, and
@@ -793,6 +839,13 @@ internal static class VoiceMessageSender
         }
 
         PttSafetyController? ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
+        if (TuneDoors.Up(rig))
+        {
+            // A tune came up while we waited: nothing to join (#860).
+            pause.Dispose();
+            RefuseUnderTune(info);
+            return false;
+        }
         if (OperatorHolds(rig, ptt) || rig.Transmit)
         {
             // The operator keyed while we waited, or something other than VOX
@@ -807,6 +860,14 @@ internal static class VoiceMessageSender
         if (ptt != null && ptt.RefuseIfHeldAfterCut("a send"))
         {
             pause.Dispose();
+            return false;
+        }
+        // The rig went to 0 watts while VOX was pausing (#859). As for a tune
+        // here, a send that was carrying on keeps its paused place.
+        if (ZeroPowerDoors.RefuseTransmit(rig, "a send"))
+        {
+            pause.Dispose();
+            KeepPausedPlace(info);
             return false;
         }
 
@@ -836,6 +897,7 @@ internal static class VoiceMessageSender
             info.VoxPause = null;
             return false;
         }
+        HandOffNow(info);
         var send = VoiceMessageSend.BeginKeyed(info.Owned, Name(info), Environment.TickCount64, options);
         Launch(rig, info, send, info.Path ?? "", "box", holds);
         return true;
@@ -1041,6 +1103,13 @@ internal static class VoiceMessageSender
             return;
         }
 
+        // A paused send stays paused under tune and keeps its place (#860).
+        if (TuneDoors.Up(rig))
+        {
+            TuneDoors.RefuseSend();
+            return;
+        }
+
         SendRoute route = RouteFor(rig);
         ResumeWay way = SendSession.ResumeAs(info.Kind == SendKind.VoiceMessage, route);
         if (way == ResumeWay.NeedsKey)
@@ -1061,6 +1130,9 @@ internal static class VoiceMessageSender
         // keys or lets VOX key. The controller speaks the refusal; the send
         // stays paused.
         if (way != ResumeWay.Join && ptt != null && ptt.RefuseIfHeldAfterCut("a send carrying on"))
+            return;
+        // The same for a rig reading 0 watts (#859); it speaks, and the send stays paused.
+        if (way != ResumeWay.Join && ZeroPowerDoors.RefuseTransmit(rig, "a send carrying on"))
             return;
         if (rig.TxToneEngaged)
         {
@@ -1116,6 +1188,33 @@ internal static class VoiceMessageSender
             return;
         }
         Refuse(info, reason);
+    }
+
+    /// <summary>Nothing can turn this send away now: whatever it takes over from stops, once.</summary>
+    private static void HandOffNow(SendInfo info)
+    {
+        Action? handOff = info.HandOff;
+        info.HandOff = null;
+        handOff?.Invoke();
+    }
+
+    /// <summary>
+    /// A tune came up after a door let this send through (#860). Said aloud, and
+    /// a send that was carrying on goes back to its paused place.
+    /// </summary>
+    private static void RefuseUnderTune(SendInfo info)
+    {
+        KeepPausedPlace(info);
+        TuneDoors.RefuseSend();
+    }
+
+    /// <summary>A send turned away after a door let it through: if it was carrying on, it goes back to its paused place.</summary>
+    private static void KeepPausedPlace(SendInfo info)
+    {
+        if (info.Session.State != SendSessionState.Paused) return;
+        info.Resuming = false;
+        _paused = info;
+        EnsureTimer();
     }
 
     /// <summary>The radio went away while a send was paused: the send ends (#835).</summary>

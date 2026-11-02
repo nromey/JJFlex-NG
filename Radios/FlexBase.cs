@@ -1955,7 +1955,7 @@ namespace Radios
             ChangeNothingActive = active;
             Tracing.TraceLine(
                 "ChangeNothing: " + (active
-                    ? "armed — JJ Flex will not change anything this radio keeps"
+                    ? "armed — JJ Flexible Radio Access will not change anything this radio keeps"
                     : "lifted — this radio may be changed normally"),
                 TraceLevel.Warning);
         }
@@ -2654,6 +2654,15 @@ namespace Radios
             // does, we must not treat a default-false as a reported-false on a
             // radio that is not ours (#499). See _radioReportedAutosave.
             _radioReportedAutosave = false;
+
+            // Fresh connection: what the old one said about its transmit slice
+            // describes a connection that has gone (#858), and so does what it
+            // said about being allowed to transmit (#447).
+            ForgetTransmitCaches(null);
+            NoteTuneRequest(false);
+            ForgetTuneWrites();
+            ForgetPowerReports();
+            _txAllowedReported = false;
 
             // Fresh connection: whatever firmware we once sent is behind us, and
             // this connection falling is a drop again.
@@ -3389,6 +3398,8 @@ namespace Radios
 
             // A retry that opens another transport gets another producer identity.
             rememberCommandRoute(null, null, null);
+            _txAllowedReported = false;
+            ForgetPowerReports();
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Tracing.TraceLine($"RetryConnect: BEGIN serial={theRadio.Serial}", TraceLevel.Info);
@@ -4794,6 +4805,10 @@ namespace Radios
             // subscribers see the attempt already ended, as they did when the
             // cancel sat in the switch.
             if (!nowConnected) CancelStationAttempt("connection dropped");
+            if (!nowConnected) _txAllowedReported = false;
+            if (!nowConnected) ForgetPowerReports();
+            if (!nowConnected) NoteTuneRequest(false);
+            if (!nowConnected) ForgetTuneWrites();
             ConnectionStateChanged?.Invoke(nowConnected);
 #if zero
             bool justReconnected = false;
@@ -5167,6 +5182,7 @@ namespace Radios
                     break;
                 case "ProfileTXSelection":
                     Tracing.TraceLine("ProfileTXSelection:" + r.ProfileTXSelection, TraceLevel.Info);
+                    NoteTransmitProfileEvent(r.ProfileTXSelection);
                     break;
                 case "ProfileMICSelection":
                     {
@@ -5222,6 +5238,7 @@ namespace Radios
                 case "RFPower":
                     Tracing.TraceLine("RFPower:" + theRadio.RFPower, TraceLevel.Info);
                     _XmitPower = theRadio.RFPower;
+                    NoteRfPowerEvent(theRadio.RFPower);
                     break;
                 case "SimpleVOXEnable":
                     Tracing.TraceLine("SimpleVOXEnable:" + r.SimpleVOXEnable.ToString(), TraceLevel.Info);
@@ -5251,6 +5268,12 @@ namespace Radios
                 case "TunePower":
                     Tracing.TraceLine("TunePower:" + r.TunePower, TraceLevel.Info);
                     _TunePower = r.TunePower;
+                    NoteTunePowerEvent(r.TunePower);
+                    break;
+                case "TXAllowed":
+                    // See _txAllowedReported: this notification is the proof
+                    // the value is the radio's and not FlexLib's initial false.
+                    _txAllowedReported = true;
                     break;
                 case "TX1Enabled":
                     Tracing.TraceLine("TX1Enabled:" + r.TX1Enabled.ToString(), TraceLevel.Info);
@@ -5275,6 +5298,7 @@ namespace Radios
                         // Both edges, so a manual carrier gets a tuneResult line.
                         // Only the rising edge raises FlexAntTuneStartStop below.
                         noteTuneCarrier(r.TXTune);
+                        if (!r.TXTune) OnTuneFlagFell();
                         if (r.TXTune)
                         {
                             // Report status if starting up.
@@ -5319,7 +5343,11 @@ namespace Radios
                         {
                             Tracing.TraceLine("DemodMode:slice " + s.Index.ToString() + " " + s.DemodMode.ToString(), TraceLevel.Info);
                             if (s.Active) _RXMode = s.DemodMode;
-                            if (s.IsTransmitSlice) _TXMode = s.DemodMode;
+                            if (s.IsTransmitSlice)
+                            {
+                                FollowTransmitSlice(s);
+                                _TXMode = s.DemodMode;
+                            }
                             if (s.Active)
                             {
                                 FilterObj.RXFreqChange(s);
@@ -5416,7 +5444,11 @@ namespace Radios
                                 // click.
                                 NoteOperatorPlace(s);
                             }
-                            if (s.IsTransmitSlice && _txFreqEcho.Accept(echoed)) _TXFrequency = echoed;
+                            if (s.IsTransmitSlice)
+                            {
+                                FollowTransmitSlice(s);
+                                if (_txFreqEcho.Accept(echoed)) _TXFrequency = echoed;
+                            }
                         }
                         break;
                     case "IsTransmitSlice":
@@ -5428,9 +5460,12 @@ namespace Radios
                                 if (CanTransmit)
                                 {
                                     _TXVFO = vfo;
-                                    _TXFrequency = LibFreqtoLong(s.Freq);
-                                    _TXMode = s.DemodMode;
+                                    NoteTransmitSliceAsFound(s);
                                 }
+                            }
+                            else
+                            {
+                                ForgetTransmitCaches(s);
                             }
                         }
                         break;
@@ -6388,14 +6423,119 @@ namespace Radios
                 {
                     Tracing.TraceLine("sliceAdded:IsTransmitSlice", TraceLevel.Info);
                     _TXVFO = SliceToVFO(slc);
+                    NoteTransmitSliceAsFound(slc);
                 }
                 if (slc.Active)
                 {
                     Tracing.TraceLine("sliceAdded:activeSlice", TraceLevel.Info);
                     _RXVFO = SliceToVFO(slc);
+                    NoteActiveSliceAsFound(slc);
                 }
             }
             else Tracing.TraceLine("sliceAdded:not mine " + slc.ToString(), TraceLevel.Info);
+        }
+
+        // A slice that arrives ALREADY carrying its state raises no change for
+        // that state. FlexLib fires SliceAdded only once the slice is ready, so
+        // every status line has been parsed before this class subscribes, and
+        // the mode has a second way of going quiet: Slice._demodMode starts as
+        // "USB", so a status of mode=USB is not even a change inside FlexLib.
+        // On the bench 8600 a whole session traced no IsTransmit:slice and no
+        // DemodMode:slice line, and the caches below stayed empty until the
+        // operator happened to change mode. So what the change handlers would
+        // have written is read here, once, from the slice as it arrived.
+
+        /// <summary>Fill the transmit caches from the transmit slice as found:
+        /// the frequency, the mode and the XIT that the IsTransmitSlice, Freq,
+        /// DemodMode, XITOn and XITFreq cases would have written.</summary>
+        private void NoteTransmitSliceAsFound(Slice s)
+        {
+            _txCacheSlice = s;
+            _TXFrequency = LibFreqtoLong(s.Freq);
+            _TXMode = s.DemodMode;
+            lock (_XIT)
+            {
+                _XIT.Active = s.XITOn;
+                _XIT.Value = s.XITFreq;
+            }
+        }
+
+        /// <summary>
+        /// The slice the transmit caches describe. Filling them at connect made
+        /// every session one that holds them, so they now have to end with the
+        /// designation they came from: a value kept after the slice has gone is
+        /// a confident answer about nothing (#858).
+        /// </summary>
+        private Slice _txCacheSlice;
+
+        /// <summary>
+        /// The transmit caches' slice has stopped being the transmit slice, or
+        /// with null, the transmit designation or the connection has gone
+        /// whichever slice they came from. A slice that is not the source
+        /// changes nothing, so a late "no longer transmit" from the old slice
+        /// cannot wipe what its replacement has just reported.
+        /// </summary>
+        private void ForgetTransmitCaches(Slice gone)
+        {
+            if (gone != null && !ReferenceEquals(gone, _txCacheSlice)) return;
+            _txCacheSlice = null;
+            _TXMode = "";
+            _TXFrequency = 0UL;
+            lock (_XIT)
+            {
+                _XIT.Active = false;
+                _XIT.Value = 0;
+            }
+        }
+
+        /// <summary>
+        /// The caches may be believed only while their slice is still
+        /// designated. Every writer goes through a designated slice and every
+        /// loss of designation forgets them; this is the reader's half of that,
+        /// so a populated cache cannot outlive a designation by a missed report.
+        /// </summary>
+        private bool TransmitCachesStand => _txCacheSlice?.IsTransmitSlice == true;
+
+        /// <summary>A report from the transmit slice, when the caches still
+        /// describe a different one: they move over whole.</summary>
+        private void FollowTransmitSlice(Slice s)
+        {
+            if (!ReferenceEquals(s, _txCacheSlice)) NoteTransmitSliceAsFound(s);
+        }
+
+        /// <summary>
+        /// The slice of ours the radio has designated for transmit, or null. A
+        /// position alone proves nothing: TXVFO falls back to the first slice
+        /// when the transmit slice goes, whatever that slice is.
+        /// </summary>
+        private Slice DesignatedTransmitSlice()
+        {
+            lock (mySlices)
+            {
+                // Cleared by us, with the radio's echo still on its way.
+                int vfo = _TXVFO;
+                if (vfo == noVFO) return null;
+                if (vfo >= 0 && vfo < mySlices.Count && mySlices[vfo].IsTransmitSlice) return mySlices[vfo];
+                foreach (Slice s in mySlices)
+                    if (s.IsTransmitSlice) return s;
+                return null;
+            }
+        }
+
+        /// <summary>The same for the active slice: the frequency and mode the
+        /// ActiveSlice case writes, and the RIT that RITOn and RITFreq write.
+        /// The receive side usually has these from ActiveSlice already, but
+        /// that case only takes a slice whose client handle has been parsed by
+        /// the time its active flag is.</summary>
+        private void NoteActiveSliceAsFound(Slice s)
+        {
+            _RXFrequency = LibFreqtoLong(s.Freq);
+            _RXMode = s.DemodMode;
+            lock (_RIT)
+            {
+                _RIT.Active = s.RITOn;
+                _RIT.Value = s.RITFreq;
+            }
         }
 
         private void sliceRemoved(Slice slc, ObservationBinding binding)
@@ -6422,6 +6562,7 @@ namespace Radios
 
                         if (removed)
                         {
+                            ForgetTransmitCaches(slc);
                             int oldRX = _RXVFO;
                             int oldTX = _TXVFO;
 
@@ -8043,11 +8184,7 @@ namespace Radios
             {
                 // #835: as Transmit above; turning tune off is never refused.
                 if (value && RefusedForCheckTeardown("tune")) return;
-                q.Enqueue((FunctionDel)(() =>
-                {
-                    if (value && TeardownHeldSilently("tune")) return;
-                    theRadio.TXTune = value;
-                }), "TXTune");
+                EnqueueTuneWrite(value, "tune", null);
             }
         }
 
@@ -8685,6 +8822,7 @@ namespace Radios
             if (s != null)
                 q.Enqueue((FunctionDel)(() => { s.IsTransmitSlice = false; }), "ClearTransmitSlice");
             _TXVFO = noVFO;
+            ForgetTransmitCaches(null);
             Tracing.TraceLine($"ClearTransmitSlice: was vfo={vfo}", TraceLevel.Info);
         }
 
@@ -8974,7 +9112,13 @@ namespace Radios
         {
             get
             {
-                return _TXFrequency;
+                // Zero is "no echo seen", not a frequency: ask the slice the
+                // radio has designated, and only that one. The connect path
+                // fills this now (NoteTransmitSliceAsFound), so this covers a
+                // transmit slice designated some other way.
+                if (_TXFrequency != 0UL && TransmitCachesStand) return _TXFrequency;
+                Slice s = DesignatedTransmitSlice();
+                return s != null ? LibFreqtoLong(s.Freq) : 0UL;
             }
             set
             {
@@ -9005,6 +9149,25 @@ namespace Radios
                                       + value + " was NOT applied and was not kept",
                                       TraceLevel.Warning);
                     return;
+                }
+                // The optimistic value belongs to this slice, so it goes when
+                // this slice does. Only a slice the radio has designated may
+                // stand in the transmit caches: TXVFO can be a position left
+                // over from a removal, on an ordinary receive slice, and that
+                // slice's frequency and mode are not transmit facts. The write
+                // below still goes where it always went; that positional target
+                // is older than this and is on the register.
+                if (!slice.IsTransmitSlice)
+                {
+                    _TXFrequency = replaced;
+                    Tracing.TraceLine("TXFrequency: the slice at TXVFO is not designated for transmit, "
+                                      + "so the requested " + value + " is not held as a transmit fact",
+                                      TraceLevel.Warning);
+                }
+                else if (!ReferenceEquals(slice, _txCacheSlice))
+                {
+                    _txCacheSlice = slice;
+                    _TXMode = slice.DemodMode;
                 }
                 double freq = LongFreqToLibFreq(value);
                 _txFreqEcho.Requested(replaced, value);
@@ -9180,7 +9343,10 @@ namespace Radios
         {
             get
             {
-                return _TXMode;
+                // Empty is "no echo seen", never a mode: every slice has one,
+                // so ask the designated slice. See TXFrequency's getter.
+                if (!string.IsNullOrEmpty(_TXMode) && TransmitCachesStand) return _TXMode;
+                return DesignatedTransmitSlice()?.DemodMode ?? "";
             }
             set
             {
@@ -9440,15 +9606,7 @@ namespace Radios
                                 RaiseFlexAntTuneStartStop(new FlexAntTunerArg
                                     (FlexTunerType, stat, highSWR));
                             }
-                            q.Enqueue((FunctionDel)(() =>
-                            {
-                                if (value && TeardownHeldSilently("antenna tuner"))
-                                {
-                                    _FlexTunerOn = false;
-                                    return;
-                                }
-                                theRadio.TXTune = value;
-                            }), "TXTune");
+                            EnqueueTuneWrite(value, "antenna tuner", () => _FlexTunerOn = false);
                         }
                         break;
                     case FlexTunerTypes.auto:
@@ -9596,6 +9754,10 @@ namespace Radios
             lines.AddRange(BuildNoiseReductionStatuses(radio));
             lines.AddRange(BuildAutoNotchStatuses(radio));
             lines.Add(BuildCwAutotuneStatus());
+            // Only where it is missing: every other radio has it, and it needs
+            // no licence, so a line there would say nothing (#859).
+            if (RadioPowerFloor.Applies(RadioModel))
+                lines.Add(BuildFeatureLine("Dummy load mode", "unavailable", RadioPowerFloor.DummyLoadUnavailable));
             return string.Join(Environment.NewLine, lines);
         }
 
@@ -11957,6 +12119,16 @@ namespace Radios
             get => _dummyLoadMode;
             set
             {
+                // Dummy load mode IS zero watts, and some radios cannot run at
+                // zero (#859). Refused here so that no route reaches it; the
+                // one way through is ZeroWattException. Turning it off is never
+                // refused.
+                if (value && !_dummyLoadMode && _zeroWattExceptionsOpen == 0 && RadioPowerFloor.Applies(RadioModel))
+                {
+                    Tracing.TraceLine("DummyLoadMode: refused on " + RadioModel + ", which cannot run at zero watts",
+                        TraceLevel.Info);
+                    return;
+                }
                 if (value == _dummyLoadMode)
                 {
                     // A release whose power writes were refused at their run
@@ -12014,11 +12186,43 @@ namespace Radios
             }
         }
 
+        // Open while the one route that stays at zero on a floored radio
+        // engages the dummy load. Counted on the caller's thread, around a
+        // synchronous setter call, like the other setting scopes.
+        private int _zeroWattExceptionsOpen;
+
+        /// <summary>
+        /// The way past <see cref="DummyLoadMode"/>'s refusal on a radio that
+        /// cannot run at zero, and it opens for one method only:
+        /// <see cref="RadioPowerFloor.IsZeroWattException"/>. Any other method
+        /// gets a scope that opens nothing. Asked by the check, which holds the
+        /// method; nothing else has a method to give it, and a test holds this
+        /// to the one call site.
+        /// </summary>
+        public IDisposable ZeroWattException(AudioCheckListenMethods method) => new ZeroWattExceptionScope(
+            this, RadioPowerFloor.IsZeroWattException(method));
+
+        private sealed class ZeroWattExceptionScope : IDisposable
+        {
+            private FlexBase _rig;
+            public ZeroWattExceptionScope(FlexBase rig, bool opens)
+            {
+                _rig = opens ? rig : null;
+                if (_rig != null) _rig._zeroWattExceptionsOpen++;
+            }
+            public void Dispose()
+            {
+                if (_rig != null) _rig._zeroWattExceptionsOpen--;
+                _rig = null;
+            }
+        }
+
         // transmit power
         internal const int XmitPowerMin = 0;
         internal const int XmitPowerMax = 100;
         internal const int XmitPowerIncrement = 5;
         private int _XmitPower;
+
         public int XmitPower
         {
             get
@@ -12030,7 +12234,7 @@ namespace Radios
                 NoteRadioSettingWritten("XmitPower", value.ToString());   // the hold after a cut needs to know whose write this is (#571)
                 // Inside a check's restore the write carries its own reply (round 1030 repairs).
                 string rf = Math.Clamp(value, 0, 100).ToString(System.Globalization.CultureInfo.InvariantCulture);
-                EnqueueSettingWrite((FunctionDel)(() => { theRadio.RFPower = value; }),
+                EnqueueSettingWrite((FunctionDel)(() => { using (OurPowerWrite()) theRadio.RFPower = value; }),
                     RadioWrite("rf-power", "transmit set rfpower=" + rf, "transmit", "rfpower", rf));
             }
         }
@@ -12097,7 +12301,7 @@ namespace Radios
                 NoteRadioSettingWritten("TunePower", value.ToString());   // the hold after a cut needs to know whose write this is (#571)
                 // Inside a check's restore the write carries its own reply (round 1030 repairs).
                 string tune = Math.Clamp(value, 0, 100).ToString(System.Globalization.CultureInfo.InvariantCulture);
-                EnqueueSettingWrite((FunctionDel)(() => { theRadio.TunePower = value; }),
+                EnqueueSettingWrite((FunctionDel)(() => { using (OurPowerWrite()) theRadio.TunePower = value; }),
                     RadioWrite("tune-power", "transmit set tunepower=" + tune, "transmit", "tunepower", tune));
             }
         }

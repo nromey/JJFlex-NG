@@ -81,7 +81,7 @@ namespace Radios.SmartLink
         public string ToMarkdown()
         {
             var sb = new StringBuilder();
-            sb.AppendLine("# JJ Flex Network Diagnostic");
+            sb.AppendLine("# JJ Flexible Radio Access Network Diagnostic");
             sb.AppendLine();
             sb.AppendLine($"- **Timestamp:** {TimestampUtc:yyyy-MM-dd HH:mm:ss} UTC");
             sb.AppendLine($"- **Radio serial:** {RenderString(RadioSerial)}");

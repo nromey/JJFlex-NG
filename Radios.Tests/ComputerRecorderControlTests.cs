@@ -103,6 +103,8 @@ public sealed class ComputerRecorderControlTests : IDisposable
         var refused = await ComputerRecorder.TogglePlaybackAsync(transmitting: true);
         Assert.False(refused.Success);
         Assert.Equal(Lexicon.Get("audio.recorder.computer_play_refused_transmitting"), refused.Message);
+        // Sending a recording to the air shipped with #835; nothing may say it has not.
+        Assert.DoesNotContain("not available in this build", refused.Message);
         Assert.Empty(engine.Calls);
 
         // Stopping a playback is never refused.

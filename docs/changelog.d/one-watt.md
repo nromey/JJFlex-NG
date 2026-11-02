@@ -1,0 +1,1 @@
+- A value field set to 1 now says "1 watt", on screen and in speech, instead of "1 watts".

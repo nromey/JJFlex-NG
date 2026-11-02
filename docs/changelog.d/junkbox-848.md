@@ -1,0 +1,1 @@
+- After you disconnect, or lose the radio, the window title says no radio connected, the same as a fresh start. It used to go on naming the slice and frequency you had left, which is what your screen reader read when you came back to the window.

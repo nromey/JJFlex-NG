@@ -1119,6 +1119,87 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void A_tune_reminder_retired_as_tune_goes_off_does_not_come_back()
+        {
+            const string Reminder = "Tune is still on. You're sending a carrier, not audio.";
+            var a = NewArbiter();
+            a.Emit(Reminder, false, SpeechIntent.Queue, VerbosityLevel.Critical, "MainWindow", subject: SpeechSubject.TuneStillOn);
+            _clock.Advance(100);
+            a.Emit("Forward 10 watts", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "meters");
+
+            a.Supersede(SpeechSubject.TuneStillOn, "the tune carrier going off", "MainWindow");
+            _clock.Advance(Settle * 3);
+
+            Assert.Empty(_calls.Where(c => c.Salvaged));
+        }
+
+        [Fact]
+        public void A_reminder_cut_and_not_withdrawn_comes_back()
+        {
+            // The positive control for the test below: recovery really is what it stops.
+            const string Reminder = "Tune is still on. You're sending a carrier, not audio.";
+            var a = NewArbiter();
+            a.Emit(Reminder, false, SpeechIntent.Queue, VerbosityLevel.Critical, "MainWindow", subject: SpeechSubject.TuneStillOn);
+            _clock.Advance(100);
+            a.Emit("Forward 10 watts", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "meters");
+            _clock.Advance(Settle * 3);
+
+            Assert.Equal(new[] { Reminder }, _calls.Where(c => c.Salvaged).Select(c => c.Message));
+        }
+
+        [Fact]
+        public void A_reminder_held_for_recovery_is_withdrawn_from_a_thread_that_is_not_the_speech_thread()
+        {
+            const string Reminder = "Tune is still on. You're sending a carrier, not audio.";
+            var a = NewArbiter();
+            a.Emit(Reminder, false, SpeechIntent.Queue, VerbosityLevel.Critical, "MainWindow", subject: SpeechSubject.TuneStillOn);
+            _clock.Advance(100);
+            a.Emit("Forward 10 watts", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "meters");
+            _clock.Advance(Settle / 2);         // held, with recovery due
+
+            System.Threading.Tasks.Task.Run(() => a.Supersede(SpeechSubject.TuneStillOn, "the radio dropping tune", "reader"))
+                .GetAwaiter().GetResult();
+            _clock.Advance(Settle * 3);
+
+            Assert.Empty(_calls.Where(c => c.Salvaged));
+        }
+
+        private const string TuneRefusal = "Tune refused, out of band";
+
+        private void TuneRefusalCutByAMeterReading(SpeechArbiter a)
+        {
+            a.Emit(TuneRefusal, TuneAnswer.NotKeyedIntent == SpeechIntent.Interrupt, TuneAnswer.NotKeyedIntent, VerbosityLevel.Critical,
+                "MainWindow", subject: SpeechSubject.TuneNotKeyed);
+            _clock.Advance(100);
+            a.Emit("Forward 10 watts", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "meters");
+        }
+
+        [Fact]
+        public void A_tune_refusal_cut_by_a_meter_reading_comes_back()
+        {
+            var a = NewArbiter();
+
+            TuneRefusalCutByAMeterReading(a);
+            _clock.Advance(Settle);
+
+            Assert.Equal(new[] { TuneRefusal }, _calls.Where(c => c.Salvaged).Select(c => c.Message));
+        }
+
+        [Fact]
+        public void A_tune_refusal_retired_by_a_later_tune_does_not_come_back_behind_Tune_on()
+        {
+            var a = NewArbiter();
+            TuneRefusalCutByAMeterReading(a);
+
+            a.Supersede(SpeechSubject.TuneNotKeyed, "the tune keyed", "MainWindow");
+            a.Emit("Tune on", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "MainWindow");
+            _clock.Advance(Settle * 3);
+
+            Assert.DoesNotContain(_calls.Skip(2), c => c.Message == TuneRefusal);
+            Assert.Empty(_calls.Where(c => c.Salvaged));
+        }
+
+        [Fact]
         public void Salvage_ProgressLines_TheControl_UnkeyedTheirOwnArithmeticDecides()
         {
             // Same timings, no subject: the control for the test above.

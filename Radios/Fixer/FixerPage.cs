@@ -651,8 +651,11 @@ namespace Radios.Fixer
                 // double-fired handler never announces itself as a repeat — so
                 // the page keeps the two gestures apart. A skipped or
                 // could-not-run stage has not run, so its control stays a
-                // first run.
-                bool ranBefore = result.Status == FixerStageStatus.Ran;
+                // first run, unless the gate has charged it: a stage that keyed
+                // and then failed would otherwise offer only the gesture the
+                // gate refuses.
+                bool ranBefore = result.Status == FixerStageStatus.Ran
+                              || state.IsCharged(stage.Id);
                 RunButton(sb, stage, describedBy, again: ranBefore, primary: false);
                 HostActionButtons(sb, stage);
                 // No skip controls once a result exists: skipping a stage
@@ -1207,6 +1210,14 @@ section.report-region { background: var(--report-bg); border-radius: 8px;
         /// summary line's "nothing has keyed the radio" — the fact a blind
         /// operator cannot glance at.</summary>
         public int TransmitCount { get; set; }
+
+        /// <summary>The stages the gate would refuse a plain run of. Null when
+        /// the host has no gate.</summary>
+        public IReadOnlyCollection<string> ChargedStages { get; set; }
+
+        /// <summary>Has the gate charged this stage?</summary>
+        public bool IsCharged(string stageId)
+            => ChargedStages != null && ChargedStages.Contains(stageId, StringComparer.OrdinalIgnoreCase);
 
         /// <summary>Stage id to the explanation-disclosure state the OPERATOR
         /// chose, reported by the page's toggle message. Absent means they

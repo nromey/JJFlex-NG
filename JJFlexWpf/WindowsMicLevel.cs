@@ -349,7 +349,7 @@ internal sealed class WindowsMicLevel : IDisposable
             {
                 Tracing.TraceLine("WindowsMicLevel: no Core Audio endpoint matches \""
                     + selectedName + "\"", TraceLevel.Info);
-                whyNot = "JJ Flex could not confidently match " + selectedName
+                whyNot = "JJ Flexible Radio Access could not confidently match " + selectedName
                     + " to a Windows sound device, so the level control is turned off "
                     + "rather than risk moving the wrong microphone's level. "
                     + "Adjust it in Windows Sound settings instead.";
@@ -360,7 +360,7 @@ internal sealed class WindowsMicLevel : IDisposable
                     + " Core Audio endpoints answer to \"" + selectedName
                     + "\"; refusing to guess", TraceLevel.Info);
                 whyNot = "More than one Windows sound device answers to the name " + selectedName
-                    + ", so JJ Flex cannot be sure which level to move and the control is turned off. "
+                    + ", so JJ Flexible Radio Access cannot be sure which level to move and the control is turned off. "
                     + "Adjust it in Windows Sound settings instead.";
             }
             return null;
@@ -368,7 +368,7 @@ internal sealed class WindowsMicLevel : IDisposable
         catch (Exception ex)
         {
             Tracing.TraceLine("WindowsMicLevel: match attempt failed — " + ex.Message, TraceLevel.Error);
-            whyNot = "Windows would not let JJ Flex read its sound devices, so the level control "
+            whyNot = "Windows would not let JJ Flexible Radio Access read its sound devices, so the level control "
                 + "is unavailable. Adjust the level in Windows Sound settings instead.";
             return null;
         }

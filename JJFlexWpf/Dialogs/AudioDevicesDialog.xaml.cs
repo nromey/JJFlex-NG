@@ -757,7 +757,7 @@ namespace JJFlexWpf.Dialogs
             bool anyBadRate = shown.Any(d => Devices.DescribeRate(d).Length > 0);
             string filterNote = "";
             if (anyMultiChannel)
-                filterNote = "Devices with more than two channels are fine — JJ Flex uses them in stereo.";
+                filterNote = "Devices with more than two channels are fine — JJ Flexible Radio Access uses them in stereo.";
             if (anyMono)
                 filterNote += (filterNote.Length > 0 ? " " : "")
                     + "Mono devices work too — a mono microphone is sent to the radio on both "

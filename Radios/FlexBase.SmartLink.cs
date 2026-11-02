@@ -51,7 +51,7 @@ namespace Radios
                     return theRadio.WanOwnerHandshakeStatus switch
                     {
                         Radio.WanRadioRegistrationState.Undefined =>
-                            "Not started. JJ Flex cannot tell from here whether this radio is already registered — if it shows up in your SmartLink radio list, it is.",
+                            "Not started. JJ Flexible Radio Access cannot tell from here whether this radio is already registered — if it shows up in your SmartLink radio list, it is.",
                         Radio.WanRadioRegistrationState.WaitingOnSmartLinkConnection =>
                             "The radio is contacting SmartLink.",
                         Radio.WanRadioRegistrationState.WaitingForPTT =>
@@ -132,9 +132,9 @@ namespace Radios
                 // missing is a decision, and re-signing-in does not make one.
                 check.BlockReason = AccountManager.Accounts.Count == 0
                     ? "No SmartLink account is signed in. Sign in to SmartLink first — the radio is registered to an account, " +
-                      "and JJ Flex needs to know which one."
+                      "and JJ Flexible Radio Access needs to know which one."
                     : "Several SmartLink accounts are saved and none is set as the default. Open Manage SmartLink Accounts " +
-                      "and choose a default account — the radio is registered to an account, and JJ Flex needs to know " +
+                      "and choose a default account — the radio is registered to an account, and JJ Flexible Radio Access needs to know " +
                       "which one to check against.";
                 return check;
             }

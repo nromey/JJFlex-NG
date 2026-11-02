@@ -93,7 +93,9 @@ public static class RecorderControls
     /// Speak a recorder outcome under its subject. A refusal thunks first and
     /// speaks at Critical, so it is heard at every verbosity; a success is
     /// Terse. Both interrupt, because each is the answer to the key just
-    /// pressed.
+    /// pressed. A refusal under tune is the exception: it is Terse, the way
+    /// every tune door tells it (ruled by Noel 2026-11-01 13:06, verbosity
+    /// gated for tone and text).
     /// </summary>
     public static void Speak(RecorderOutcome outcome)
     {
@@ -108,9 +110,10 @@ public static class RecorderControls
             }
         }
         if (string.IsNullOrEmpty(outcome.Message) || (outcome.Success && !StatusSpeechEnabled)) return;
-        if (!outcome.Success) EarconPlayer.LeaderInvalidTone();
+        if (outcome.Cue == RecorderCue.TuneRefused) EarconPlayer.ATUFailTone();
+        else if (!outcome.Success) EarconPlayer.LeaderInvalidTone();
         ScreenReaderOutput.Speak(outcome.Message, SpeechIntent.Interrupt,
-            outcome.Success ? VerbosityLevel.Terse : VerbosityLevel.Critical,
+            outcome.Success || outcome.Cue == RecorderCue.TuneRefused ? VerbosityLevel.Terse : VerbosityLevel.Critical,
             subject: outcome.Subject);
     }
 
@@ -160,6 +163,20 @@ public static class RecorderControls
     public static async Task<RecorderOutcome> ToggleSliceRecordAsync(FlexBase? rig, SliceRecorderTarget target,
         Action<RecorderOutcome>? speak = null, object? owner = null)
     {
+        // Nothing records under tune (#860). A recording already running can
+        // always be stopped.
+        if (rig != null && !rig.IsSliceRecording(target) && TuneDoors.Up(rig))
+        {
+            TuneDoors.RefuseStart();
+            return new(false, "", SpeechSubject.SliceRecorder(""));
+        }
+        // A recording made while the radio is transmitting at 0 watts on a rig
+        // that records nothing there (#859): a hardware push to talk, which we
+        // cannot refuse, so this press is. In receive this door records at any
+        // power, and it keys nothing. Only the menu passes a speaker of its own.
+        if (rig != null && (rig.Transmit || rig.RadioInterlockReportsTransmit) && !rig.IsSliceRecording(target)
+            && ZeroPowerDoors.RefuseTransmit(rig, "a slice recording", afterMenu: speak != null))
+            return new(false, "", SpeechSubject.SliceRecorder(""));
         var outcome = rig == null
             ? NoRadio(SpeechSubject.SliceRecorder(""))
             : await Guarded(() => rig.ToggleSliceRecordAsync(target, owner), SpeechSubject.SliceRecorder(""));
@@ -199,10 +216,14 @@ public static class RecorderControls
             return HandedToSend(SpeechSubject.SliceRecorder(""));
         }
         Observe(rig);
+        // It still plays under tune, as it always has, and says at the press
+        // that it will not go out (#860, Noel 2026-11-01 08:04).
+        bool underTune = rig != null && !rig.IsSlicePlaying(target) && TuneDoors.Up(rig);
         if (rig != null && !rig.IsSlicePlaying(target)) PlayStartClick();
         var outcome = rig == null
             ? NoRadio(SpeechSubject.SliceRecorder(""))
             : await Guarded(() => rig.ToggleSlicePlayAsync(target, owner), SpeechSubject.SliceRecorder(""));
+        outcome = TuneDoors.ForPlay(outcome, underTune);
         (speak ?? Speak)(outcome);
         return outcome;
     }
@@ -240,7 +261,8 @@ public static class RecorderControls
             return await LocalPlaybackVox.CarryOnAsync() switch
             {
                 LocalPlaybackVox.CarryOn.Resumed => new(true,
-                    Lexicon.Get("audio.qsos.resumed", ("position", RecordedQsoWords.Position(at, null))),
+                    TuneDoors.ForPlay(Lexicon.Get("audio.qsos.resumed", ("position", RecordedQsoWords.Position(at, null))),
+                        TuneDoors.Up(LocalPlaybackVox.PausedRig)),
                     SpeechSubject.ComputerRecorder),
                 LocalPlaybackVox.CarryOn.Transmitting => new(false,
                     Lexicon.Get("audio.qsos.resume_refused_transmitting"), SpeechSubject.ComputerRecorder),
@@ -288,6 +310,12 @@ public static class RecorderControls
     public static async Task<RecorderOutcome> ToggleComputerRecordAsync(FlexBase? rig,
         Action<RecorderOutcome>? speak = null)
     {
+        // Nothing records under tune (#860); a running recording can always stop.
+        if (!ComputerRecorder.Current.IsRecording && TuneDoors.Up(rig))
+        {
+            TuneDoors.RefuseStart();
+            return new(false, "", SpeechSubject.ComputerRecorder);
+        }
         var outcome = await Guarded(() => ComputerRecorder.ToggleRecordingAsync(rig), SpeechSubject.ComputerRecorder);
         (speak ?? Speak)(outcome);
         return outcome;
@@ -366,7 +394,11 @@ public static class RecorderControls
                 return HandedToSend(SpeechSubject.ComputerRecorder);
             }
         }
-        bool transmitting = rig?.Transmit == true;
+        // Under tune RouteFor said AsBefore, so this is the speakers, with the
+        // same VOX pause as any speaker playback: a carrier is not the operator
+        // talking, and the speakers must not key VOX when the tune ends (#860).
+        bool underTune = starting && TuneDoors.Up(rig);
+        bool transmitting = rig?.Transmit == true && !underTune;
         FlexBase.LocalPlaybackVoxPause? pause = null;
         if (starting && !transmitting)
         {
@@ -393,6 +425,7 @@ public static class RecorderControls
             if (outcome.Success && ComputerRecorder.Current.IsPlaying) LocalPlaybackVox.HoldUntilPlaybackEnds(rig, pause);
             else pause.Dispose();
         }
+        outcome = TuneDoors.ForPlay(outcome, underTune);
         (speak ?? Speak)(outcome);
         return outcome;
     }

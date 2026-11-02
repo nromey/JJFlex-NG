@@ -210,8 +210,11 @@ public partial class CheckYourAudioDialog
         // power remains for confirming RF leaves the radio, with the cap
         // choosable. Shown only for the methods that obey it.
         _powerSection = _sections.OpenRadio(CheckContent, "Check power");
-        _checkPowerControl = MakeCycle("Transmit power during checks",
-            new[] { "Dummy load, no RF", "Low power" });
+        _checkPowerControl = MakeCycle("Transmit power during checks", new[]
+        {
+            Lexicon.Get("audio.check.power.dummy_load"),
+            Lexicon.Get("audio.check.power.low_power"),
+        });
         _checkPowerControl.SelectionChanged += (s, idx) =>
         {
             if (_polling) return;
@@ -222,6 +225,10 @@ public partial class CheckYourAudioDialog
 
         _checkWattsControl = new ValueFieldControl();
         _checkWattsControl.Setup("Low power level", 1, 100, 1, 10, 0, "watts");
+        // The arrows, the Page keys and Home already stop at this field's 1. A
+        // typed 0 would clamp to it in silence, so on a radio that cannot check
+        // at zero it is refused aloud instead (#859, Noel 2026-11-01 07:54).
+        _checkWattsControl.TypedValueRefusal = typed => AudioCheckPowerRule.TypedWattsRefusal(_rig?.RadioModel, typed);
         _checkWattsControl.Visibility = Visibility.Collapsed; // dummy load is the default
         _checkWattsControl.ValueChanged += (s, v) =>
         {
@@ -528,14 +535,17 @@ public partial class CheckYourAudioDialog
 
         if (_checkPowerControl != null)
         {
+            // A saved dummy load shows as Low power on a radio that cannot run
+            // at zero, and the file keeps it (#859): SuppressEvents saves nothing.
             _checkPowerControl.SuppressEvents = true;
-            _checkPowerControl.SelectedIndex = (int)_radioCfg.AudioCheckPowerMode;
+            _checkPowerControl.SelectedIndex = (int)AudioCheckPowerRule.ShownPowerMode(_rig.RadioModel, _radioCfg.AudioCheckPowerMode);
             _checkPowerControl.SuppressEvents = false;
         }
         if (_checkWattsControl != null)
         {
             _checkWattsControl.SuppressEvents = true;
-            _checkWattsControl.Value = Math.Clamp(_radioCfg.AudioCheckLowPowerWatts, 1, 100);
+            _checkWattsControl.Value = AudioCheckPowerRule.ShownWatts(_rig.RadioModel,
+                _radioCfg.AudioCheckPowerMode, _radioCfg.AudioCheckLowPowerWatts);
             _checkWattsControl.SuppressEvents = false;
         }
         if (_iqAutoCompare != null)
@@ -566,6 +576,11 @@ public partial class CheckYourAudioDialog
         int watts = _checkWattsControl?.Value ?? _radioCfg.AudioCheckLowPowerWatts;
         bool compare = _iqAutoCompare?.IsChecked == true;
         RadioConfig.RecordAudioCheckPref(_radioCfgSerial, edited, method, power, watts, compare);
+        // Setting a level on a radio with only Low power IS choosing Low power
+        // (#859): without this, a saved dummy load would show 1 watt again at
+        // the next open and lose the level the operator just set.
+        if (edited == AudioCheckPref.LowPowerWatts && RadioPowerFloor.Applies(_rig?.RadioModel))
+            RadioConfig.RecordAudioCheckPref(_radioCfgSerial, AudioCheckPref.PowerMode, method, power, watts, compare);
         // Keep the in-memory copy in step, so a rebuild of the cycle resolves
         // against what was just saved.
         if (edited == AudioCheckPref.ListenMethod && _listenMethodControl != null)
@@ -575,12 +590,20 @@ public partial class CheckYourAudioDialog
         }
     }
 
-    /// <summary>The watts field exists only while Low power is the selected check mode.</summary>
+    /// <summary>
+    /// The watts field exists only while Low power is the selected check mode.
+    /// On a radio that cannot run at zero (#859) Low power is all there is, so
+    /// the choice itself is out of the tab order and only the field remains.
+    /// </summary>
     private void UpdateCheckWattsVisibility()
     {
         if (_checkWattsControl == null) return;
         bool lowPower = _checkPowerControl?.SelectedIndex == (int)AudioCheckPowerModes.LowPower;
         _checkWattsControl.Visibility = lowPower ? Visibility.Visible : Visibility.Collapsed;
+        if (_checkPowerControl == null) return;
+        bool onlyChoice = RadioPowerFloor.Applies(_rig?.RadioModel);
+        if (onlyChoice && _checkPowerControl.IsKeyboardFocusWithin) _checkWattsControl.Focus();
+        _checkPowerControl.Visibility = onlyChoice ? Visibility.Collapsed : Visibility.Visible;
     }
 
     #endregion
@@ -771,6 +794,25 @@ public partial class CheckYourAudioDialog
             return;
         }
 
+        // A check keys the radio, so it cannot start over a tune carrier. It used
+        // to run its countdown and then stop at the session's own transmit test
+        // without a word (#860).
+        if (TuneDoors.Up(_rig))
+        {
+            TuneDoors.RefuseStart();
+            return;
+        }
+        // Until the radio has said what its power is, a 0 here is not a reading.
+        // Refused rather than waited for: the wait is a second or so after a
+        // connect, a press this early is rare, and a report that never comes
+        // must not end in keying on a guess (#859). Both powers, because a dummy
+        // load saves both, so Test your microphone asks too. The two methods
+        // left out run an arrangement that owns power.
+        if (!_rig.CheckPowersReported && SelectedMethod is not (AudioCheckListenMethods.OffAir or AudioCheckListenMethods.Loopback))
+        {
+            SayPowerNotReported();
+            return;
+        }
         if (_iqRun != null) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
         // The Workshop's diagnostic take is a take too; the radio would refuse
         // the off-air one with "another IQ take is running", but an ordinary
@@ -838,6 +880,13 @@ public partial class CheckYourAudioDialog
         if (_startCheckButton == null) return;
         _startCheckButton.Content = label;
         AutomationProperties.SetName(_startCheckButton, label);
+    }
+
+    // DRAFT PROSE (#859): awaiting Noel.
+    private static void SayPowerNotReported()
+    {
+        EarconPlayer.LeaderInvalidTone();
+        ScreenReaderOutput.Speak(Lexicon.Get("audio.check.power_not_reported"), VerbosityLevel.Critical, interrupt: true);
     }
 
     /// <summary>
@@ -990,6 +1039,7 @@ public partial class CheckYourAudioDialog
         if (_closing || !ReferenceEquals(rig, _rig)) return;
         RecorderControls.Observe(rig);
         RecorderControls.PlayStartClick();
+        bool underTune = TuneDoors.Up(rig);
         var outcome = await rig.StartSlicePlayAsync(target);
         if (outcome.Success)
         {
@@ -999,8 +1049,8 @@ public partial class CheckYourAudioDialog
                 return;
             }
             _checkPlayTargets.Add(target);
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.playing_take"), Radios.Speech.SpeechIntent.Interrupt,
-                VerbosityLevel.Terse, subject: outcome.Subject);
+            ScreenReaderOutput.Speak(TuneDoors.ForPlay(Lexicon.Get("audio.check.playing_take"), underTune),
+                Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Terse, subject: outcome.Subject);
         }
         else RecorderControls.Speak(outcome);
         SyncPlayTakeLabel();
@@ -1024,6 +1074,19 @@ public partial class CheckYourAudioDialog
         return letter.Length > 0 ? SliceRecorderTarget.Letter(letter[0]) : target;
     }
 
+    /// <summary>True while audio this window started is sounding, the same list <see cref="StopCheckPlayback"/> stops.</summary>
+    private bool CheckPlaybackRunning
+    {
+        get
+        {
+            if (RecordingPlayer.IsPlaying || _toneMonitorSounding) return true;
+            if (_rig == null) return false;
+            foreach (var target in _checkPlayTargets)
+                if (_rig.IsSlicePlaying(target)) return true;
+            return false;
+        }
+    }
+
     /// <summary>Stop the audio this window started before another Ctrl+Enter can start a check.</summary>
     private bool StopCheckPlayback()
     {
@@ -1037,9 +1100,16 @@ public partial class CheckYourAudioDialog
         {
             var targets = new List<SliceRecorderTarget>(_checkPlayTargets);
             _checkPlayTargets.Clear();
+            // Nothing takes a Record yourself take off this list when it plays
+            // to its end. So only one still playing counts as stopped: a take
+            // that had finished used to swallow the next Ctrl+Enter whole, with
+            // nothing started and nothing said.
             foreach (var target in targets)
+            {
+                if (!_rig.IsSlicePlaying(target)) continue;
                 _ = RecorderControls.ReportStopFailureAsync(_rig.StopSlicePlayAsync(target));
-            stopped = true;
+                stopped = true;
+            }
         }
         if (_toneMonitorSounding)
         {
@@ -1273,6 +1343,22 @@ public partial class CheckYourAudioDialog
                     VerbosityLevel.Critical, interrupt: true);
                 return false;
             }
+            // A tune or ATU cycle that came up during the count (#860). rig.Transmit
+            // above does not cover a request still on its way.
+            if (TuneDoors.Up(rig))
+            {
+                TuneDoors.RefuseStart();
+                return false;
+            }
+            // The door asked before the count; a reconnect can have happened
+            // since, and nothing below may treat this power as a reading until
+            // the radio has given one (#859). Before the recorder arms, so a
+            // refused start has changed nothing.
+            if (!_loopback && !rig.CheckPowersReported)
+            {
+                SayPowerNotReported();
+                return false;
+            }
 
             // Loopback mode: the arrangement (FlexBase) already owns power
             // (1 W), monitor (off), antennas and full duplex — the session
@@ -1315,56 +1401,68 @@ public partial class CheckYourAudioDialog
             }
             if (!_loopback)
             {
-                // Power handling BEFORE keying. Dummy load (the default, and
+                // Power handling BEFORE keying, decided by one rule
+                // (AudioCheckPowerRule, #859). Dummy load (the default, and
                 // ALWAYS for Test your microphone) rides FlexBase.DummyLoadMode:
                 // it zeroes transmit and tune power and restores both on
                 // disable. If the operator engaged dummy load themselves, we
                 // leave it theirs: the check neither re-engages nor releases it.
+                // Low power is a CAP: it only ever lowers power, and it cannot
+                // override an active dummy load. On a radio that cannot run at
+                // zero the check instead writes that radio's floor, raising if
+                // it has to; the rule says when, and Test your microphone alone
+                // still rides the dummy load there (RadioPowerFloor.IsZeroWattException).
                 int currentPower = rig.XmitPower;
-                if (_powerMode == AudioCheckPowerModes.DummyLoad)
+                bool theirDummyLoad = rig.DummyLoadMode;
+                var power = AudioCheckPowerRule.Plan(rig.RadioModel, _method, _powerMode, _lowPowerWatts,
+                    currentPower, theirDummyLoad);
+                JJTrace.Tracing.TraceLine("AudioCheck: power " + _powerMode + " on " + rig.RadioModel + ", at "
+                    + currentPower + (theirDummyLoad ? " in dummy load" : "") + ": " + power,
+                    System.Diagnostics.TraceLevel.Info);
+                if (power.Act == AudioCheckPowerAct.EngageDummyLoad)
                 {
-                    if (!rig.DummyLoadMode)
-                    {
-                        // The powers the dummy load will put back, kept here too:
-                        // a restore whose queued writes meet a keyed radio runs
-                        // again at receive (fix round 4), and by then the dummy
-                        // load is already released, so the retry writes them.
-                        int rf = rig.XmitPower, tune = rig.TunePower;
-                        bool released = false;
+                    // The powers the dummy load will put back, kept here too:
+                    // a restore whose queued writes meet a keyed radio runs
+                    // again at receive (fix round 4), and by then the dummy
+                    // load is already released, so the retry writes them.
+                    int rf = rig.XmitPower, tune = rig.TunePower;
+                    bool released = false;
+                    using (rig.ZeroWattException(_method))
                         rig.DummyLoadMode = true;
-                        // Releasing the dummy load restores transmit AND tune power.
-                        Remember(rig, "audio check: dummy load", () =>
+                    // Releasing the dummy load restores transmit AND tune power.
+                    Remember(rig, "audio check: dummy load", () =>
+                    {
+                        if (!released)
                         {
-                            if (!released)
-                            {
-                                // An operator who released it during the check
-                                // has had both powers back already.
-                                if (!rig.DummyLoadMode) return;
-                                released = true;
-                                rig.DummyLoadMode = false;
-                                return;
-                            }
-                            using (rig.AppInitiatedSettingChanges())
-                            {
-                                rig.XmitPower = rf;
-                                rig.TunePower = tune;
-                            }
-                        }, CheckPutBack.Power(rf, 0), CheckPutBack.Tune(tune, 0));
-                    }
+                            // An operator who released it during the check
+                            // has had both powers back already.
+                            if (!rig.DummyLoadMode) return;
+                            released = true;
+                            rig.DummyLoadMode = false;
+                            return;
+                        }
+                        using (rig.AppInitiatedSettingChanges())
+                        {
+                            rig.XmitPower = rf;
+                            rig.TunePower = tune;
+                        }
+                    }, CheckPutBack.Power(rf, 0), CheckPutBack.Tune(tune, 0));
                 }
-                else if (!rig.DummyLoadMode && currentPower > _lowPowerWatts)
+                else if (power.Act == AudioCheckPowerAct.SetPower)
                 {
-                    // Low power is a CAP: it only ever lowers power, never
-                    // raises it — and it cannot override an active dummy load.
-                    int saved = currentPower;
-                    // The cap is the check's own mechanical act, not an
+                    int saved = currentPower, checkPower = power.Watts;
+                    // The write is the check's own mechanical act, not an
                     // operator settings change (#225). Same for the restores.
                     using (rig.AppInitiatedSettingChanges())
-                        rig.XmitPower = _lowPowerWatts;
+                        rig.XmitPower = checkPower;
                     Remember(rig, "audio check: power", () =>
                     {
+                        // An operator who released their own dummy load during
+                        // the check has had their power back already, and the
+                        // zero saved here is not theirs any more.
+                        if (theirDummyLoad && !rig.DummyLoadMode) return;
                         using (rig.AppInitiatedSettingChanges()) rig.XmitPower = saved;
-                    }, CheckPutBack.Power(saved, _lowPowerWatts));
+                    }, CheckPutBack.Power(saved, checkPower));
                 }
 
                 if (_method == AudioCheckListenMethods.Monitor &&
@@ -1388,7 +1486,7 @@ public partial class CheckYourAudioDialog
                 if (_owner._iqClosing || !ReferenceEquals(rig, Rig) || _ptt.IsTransmitting || rig.Transmit
                     || rig.TeardownInProgress)
                     return false;
-                _ptt.ToggleLock();
+                _ptt.KeyForCheck();
                 return true;
             });
             if (!admitted)
@@ -1439,7 +1537,7 @@ public partial class CheckYourAudioDialog
         /// through the controller and restores session state. The dialog
         /// stays open.
         /// </summary>
-        public void StopCheck()
+        public void StopCheck(bool escape = false)
         {
             _owner.CancelCheckStart();
             if (!Active) return;
@@ -1449,6 +1547,20 @@ public partial class CheckYourAudioDialog
             {
                 _ptt.EscapeUnlock();
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.check.still_transmitting"),
+                    VerbosityLevel.Critical, interrupt: true);
+            }
+            else if (escape && _owner.EscapeOurTune())
+            {
+                // Escape, with a tune of ours as the transmit (2026-11-02):
+                // turned off, or an ATU cycle named. Not the hardware sentence.
+            }
+            else if (!escape && _owner.OurTuneHolds())
+            {
+                // The Stop button stops the check, not a tune the operator
+                // started on Home; it says what holds the radio instead of
+                // blaming a hardware line. Escape is the one that turns it off.
+                // DRAFT PROSE (#860): awaiting Noel.
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.tune.turn_off_first"),
                     VerbosityLevel.Critical, interrupt: true);
             }
             else if (Rig?.Transmit == true)

@@ -62,6 +62,12 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     /// </summary>
     public static Func<FlexBase?>? RigSource { get; set; }
 
+    /// <summary>Home's tune toggle, for the tune key pressed in this window (2026-11-02). Set by MainWindow.</summary>
+    public static Action? ToggleTuneSource { get; set; }
+
+    /// <summary>Turn a tune carrier of ours off; true when one was on (2026-11-02). Set by MainWindow.</summary>
+    public static Func<bool>? TuneOffSource { get; set; }
+
     /// <summary>The window's one content panel. Every section is a GroupBox directly in it, which is what F6 counts.</summary>
     private StackPanel CheckContent { get; }
 
@@ -379,8 +385,11 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     {
         if (e.Key == Key.Escape && ComputerMicCheckRunning && _session?.Active != true)
         {
-            // Nothing is transmitting: Escape stops the listening and stays, so
+            // No check is transmitting: Escape stops the listening and stays, so
             // the verdict is heard before anything closes. The next one closes.
+            // The tune key works during the listening (2026-11-02), so a carrier
+            // of ours goes off on this same press: Escape never leaves one up.
+            EscapeOurTune();
             StopComputerMicCheck(speak: true);
             e.Handled = true;
             return;
@@ -390,7 +399,10 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             // The radio's own transmit report, not only the session's (fix round
             // 2): a hardware PTT line can hold the radio keyed with no check
             // running, or while one is still preparing.
+            // And a tune carrier of ours, up or still in the command queue
+            // (2026-11-02): Escape turns it off rather than closing on it.
             bool transmitting = _session?.EscapeStopsTransmit == true || _rig?.Transmit == true
+                || _rig?.TuneAskedOrUp == true
                 || PttControllerSource?.Invoke()?.IsTransmitting == true;
             switch (AudioCheckEscape.Decide(_checkStarts.IsBusy, _checkStarts.IsCancelled,
                 _session?.Active == true, transmitting))
@@ -409,7 +421,7 @@ public partial class CheckYourAudioDialog : JJFlexDialog
                     return;
                 case AudioCheckEscapeAction.UnkeyAndStay:
                     if (_checkStarts.IsBusy && !_checkStarts.IsCancelled) CancelCheckStart();
-                    if (_session?.Active == true) _session.StopCheck();
+                    if (_session?.Active == true) _session.StopCheck(escape: true);
                     else UnkeyOutsideACheck();
                     StopCheckPlayback();
                     e.Handled = true;
@@ -439,18 +451,48 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             e.Handled = true;
             return;
         }
+        if (TakesTheTuneKey(e))
+        {
+            e.Handled = true;
+            return;
+        }
         if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Enter)
         {
-            if (_session?.Active == true)
+            // This press can key the radio (#859). The gate decides starts only:
+            // a fresh key-down always stops or cancels what is live. This window
+            // takes the key before the field does, so a number still being typed
+            // has to be finished here or the check runs at the old value, and
+            // anything but the number as typed stops a start: the operator hears
+            // what it is now.
+            var typing = Keyboard.FocusedElement as Controls.ValueFieldControl;
+            bool checkLive = _checkStarts.IsBusy || _iqBusy || _session?.Active == true || ComputerMicCheckRunning;
+            switch (_ctrlEnterPress.Decide(Environment.TickCount64, e.IsRepeat, checkLive || CheckPlaybackRunning,
+                () => typing?.CommitPendingEntry() ?? true))
             {
-                ToggleAudioCheck();
-                StopCheckPlayback();
+                case PressAct.Stop:
+                    if (checkLive) ToggleAudioCheck();
+                    StopCheckPlayback();
+                    break;
+                case PressAct.Start:
+                    ToggleAudioCheck();
+                    break;
             }
-            else if (!StopCheckPlayback()) ToggleAudioCheck();
             e.Handled = true;
             return;
         }
         base.OnPreviewKeyDown(e);
+    }
+
+    private readonly FreshPressGate _ctrlEnterPress = new();
+
+    /// <summary>A chord that was refused or changed is over when Control goes up.</summary>
+    protected override void OnPreviewKeyUp(KeyEventArgs e)
+    {
+        if (e.Key is Key.LeftCtrl or Key.RightCtrl) _ctrlEnterPress.NoteControlUp();
+        // The tune key's chord carries Control or Alt; either going up ends it.
+        Key raw = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (raw is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt) _tuneKeyPress.NoteControlUp();
+        base.OnPreviewKeyUp(e);
     }
 
     /// <summary>
@@ -461,12 +503,91 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     /// </summary>
     private void UnkeyOutsideACheck()
     {
+        bool ourTune = EscapeOurTune();
         var ptt = PttControllerSource?.Invoke();
         if (ptt?.IsTransmitting == true) ptt.EscapeUnlock();
-        else if (_rig?.Transmit == true)
+        else if (!ourTune && _rig?.Transmit == true)
             // DRAFT PROSE (#835): awaiting Noel.
             ScreenReaderOutput.Speak(Lexicon.Get("audio.check.escape_radio_still_transmitting"),
                 VerbosityLevel.Critical, interrupt: true);
+    }
+
+    /// <summary>
+    /// Escape with a tune of ours holding the radio (2026-11-02). Until then
+    /// Escape here asked only the push-to-talk controller, which a tune carrier
+    /// does not go through, so it blamed a hardware line or VOX and kept the
+    /// window open on our own carrier. Now the carrier goes off through Home's
+    /// toggle, tones and SWR sentence and all, and the window stays open: the
+    /// next Escape closes it, as after any unkey. An ATU cycle cannot be
+    /// stopped from here; it is named, so the hardware sentence is never said
+    /// about our own tune. True when a tune of ours answered for the transmit.
+    /// </summary>
+    internal bool EscapeOurTune()
+    {
+        if (TuneOffSource?.Invoke() == true) return true;
+        if (!TuneDoors.Up(_rig)) return false;
+        // DRAFT PROSE: awaiting Noel.
+        ScreenReaderOutput.Speak(Lexicon.Get("audio.tune.tuner_still_tuning"),
+            VerbosityLevel.Critical, interrupt: true);
+        return true;
+    }
+
+    /// <summary>
+    /// A tune of ours holds the radio: a carrier up or on its way, or an ATU
+    /// cycle. For the Stop button, which names it rather than blaming a
+    /// hardware line; only Escape turns it off.
+    /// </summary>
+    internal bool OurTuneHolds() => _rig?.TuneAskedOrUp == true || TuneDoors.Up(_rig);
+
+    /// <summary>One answer per press of the tune key, whatever the reader does with a held one.</summary>
+    private readonly FreshPressGate _tuneKeyPress = new();
+
+    /// <summary>
+    /// The operator's tune key in this window (2026-11-02): Ctrl+Shift+T by
+    /// default, read from the live key table so a remap is honoured. Tune is a
+    /// Radio-scope command and reaches no dialog by itself, while the refusal
+    /// here says "Tune is on. Turn it off first." So the window takes it. A
+    /// chord with no Control or Alt is not taken, so a tune key remapped to a
+    /// plain key still types in this window's fields. True when taken.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A stop is explicit and never swallowed; a start needs a new press</b>
+    /// (Codex, 2026-11-02). With a carrier of ours up or on its way, any fresh
+    /// key-down turns it off through <see cref="TuneOffSource"/>, which writes
+    /// off and nothing else, with no debounce. Otherwise a start goes through
+    /// Home's toggle only for a new press, by <see cref="FreshPressGate"/>, the
+    /// rule Ctrl+Enter here already follows: so a held key delivered as a
+    /// reader's down/up pairs starts once, the first pair stops it, and the
+    /// pairs after that start nothing. That is the safe direction; nobody has
+    /// measured how this chord arrives.
+    /// </para>
+    /// <para>
+    /// While a check owns the transmitter, or is starting, or an off-air take
+    /// is running, a start is refused: the same rule as push to talk here.
+    /// The Windows microphone check does not own the radio, so a carrier may
+    /// start during it; Escape then turns that carrier off with the listening.
+    /// </para>
+    /// </remarks>
+    private bool TakesTheTuneKey(KeyEventArgs e)
+    {
+        var chord = WpfKeyConverter.ToWinFormsKeys(e);
+        if ((chord & (System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.Alt)) == 0) return false;
+        if (!KeyCommands.IsTuneKey(chord)) return false;
+        if (_rig == null) return true;
+        bool carrierOurs = _rig.TuneAskedOrUp;
+        switch (_tuneKeyPress.Decide(Environment.TickCount64, e.IsRepeat, carrierOurs, () => true))
+        {
+            case PressAct.Stop:
+                TuneOffSource?.Invoke();
+                break;
+            case PressAct.Start:
+                bool checkOwnsTransmitter = _session?.Active == true || _checkStarts.IsBusy || _iqBusy;
+                if (checkOwnsTransmitter) TuneDoors.RefuseTuneDuringCheck();
+                else ToggleTuneSource?.Invoke();
+                break;
+        }
+        return true;
     }
 
     /// <summary>

@@ -916,6 +916,9 @@ namespace JJFlexWpf
             // a down while already transmitting keys nothing anyway.
             if (State == PttState.Idle && RefuseIfHeldAfterCut("push to talk")) return;
 
+            // A rig reading 0 watts (#859). Not the hold: its own rule and state.
+            if (State == PttState.Idle && ZeroPowerDoors.RefuseTransmit(_getRigControl(), "push to talk")) return;
+
             // License-aware TX lockout check
             if (CanTransmitHereCheck != null && !CanTransmitHereCheck())
             {
@@ -980,6 +983,12 @@ namespace JJFlexWpf
             // refused — the hold only ever stops RF, never keeps it on.
             if (State == PttState.Idle && RefuseIfHeldAfterCut("the lock key")) return;
 
+            // A rig reading 0 watts (#859). An operator's press only: a check
+            // keys through KeyForCheck, and Test your microphone is at zero by
+            // ruling. An unlock is never refused.
+            if (State == PttState.Idle && !_keyingForCheck
+                && ZeroPowerDoors.RefuseTransmit(_getRigControl(), "the lock key")) return;
+
             if (State == PttState.Idle || State == PttState.PttHold)
             {
                 EnterLocked();
@@ -990,6 +999,22 @@ namespace JJFlexWpf
                 GoIdle(Lexicon.Get("audio.ptt.announce_receiving"));
             }
         }
+
+        /// <summary>
+        /// A check keys: everything the lock key does, except that it is not an
+        /// operator's press, so a rig at 0 watts is not a reason to refuse it. A
+        /// check decides its own power first, and only Test your microphone
+        /// stays at zero, by ruling (<see cref="RadioPowerFloor.IsZeroWattException"/>).
+        /// The teardown and the hold after a cut still answer it.
+        /// </summary>
+        public void KeyForCheck()
+        {
+            _keyingForCheck = true;
+            try { ToggleLock(); }
+            finally { _keyingForCheck = false; }
+        }
+
+        private bool _keyingForCheck;
 
         /// <summary>
         /// Escape — unlock TX from any state.

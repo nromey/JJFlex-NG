@@ -34,6 +34,129 @@ public sealed class SliceRecorderSurfaceTests : IDisposable
 
     private static string Text(string key, string letter) => Lexicon.Get(key, ("letter", letter));
 
+    // ── Under tune, at the sink (#860) ──────────────────────────────────
+
+    [Fact]
+    public async Task A_tune_asked_for_before_the_press_stops_record_at_the_sink()
+    {
+        using var c = new RadioCase();
+        c.F.Rig.TxTune = true;              // queued: nothing has run it
+        var outcome = await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice));
+        Assert.False(outcome.Success);
+        Assert.Equal(Lexicon.Get("audio.tune.turn_off_first"), outcome.Message);
+        Assert.Equal(RecorderCue.TuneRefused, outcome.Cue);
+        Assert.DoesNotContain("slice set 1 record=1", c.F.Vendor.Transport.Commands);
+    }
+
+    [Fact]
+    public async Task A_tune_during_the_wait_for_the_playback_to_stop_stops_record_at_the_sink()
+    {
+        using var c = new RadioCase();
+        c.F.Vendor.Status("slice 1 play=0");
+        Assert.True((await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        var respond = c.F.Vendor.Transport.CommandWritten;
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command == "slice set 1 play=0") c.F.Rig.TxTune = true;
+            respond(command);
+        };
+        var outcome = await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice));
+        Assert.Contains("slice set 1 play=0", c.F.Vendor.Transport.Commands);   // the wait really happened
+        Assert.False(outcome.Success);
+        Assert.DoesNotContain("slice set 1 record=1", c.F.Vendor.Transport.Commands);
+    }
+
+    [Fact]
+    public async Task A_tune_after_the_record_was_queued_stops_it_in_the_queue_and_says_why()
+    {
+        using var c = new RadioCase();
+        var pending = c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice);
+        c.F.Rig.TxTune = true;              // after the method's own read, before the queue runs
+        var outcome = await c.Pump(pending);
+        Assert.False(outcome.Success);
+        Assert.Equal(Lexicon.Get("audio.tune.turn_off_first"), outcome.Message);
+        Assert.DoesNotContain("slice set 1 record=1", c.F.Vendor.Transport.Commands);
+    }
+
+    [Fact]
+    public async Task With_no_tune_record_goes_out_and_stopping_is_never_refused()
+    {
+        using var c = new RadioCase();
+        Assert.True((await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        Assert.Contains("slice set 1 record=1", c.F.Vendor.Transport.Commands);   // the positive control
+        c.F.Rig.TxTune = true;
+        Assert.True((await c.Pump(c.F.Rig.StopSliceRecordAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        Assert.Contains("slice set 1 record=0", c.F.Vendor.Transport.Commands);
+    }
+
+    private static async Task<int> Settle() { await Task.Delay(50); return 0; }
+
+    [Fact]
+    public async Task A_playback_started_under_tune_ends_when_tune_ends_though_the_radio_stays_keyed()
+    {
+        using var c = new RadioCase();
+        OwnTransmission(c);
+        c.F.Rig.TxTune = true;
+        await c.Pump(Settle());
+        Assert.True((await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        Assert.Contains("slice set 1 play=1", c.F.Vendor.Transport.Commands);
+
+        c.F.Rig.TxTune = false;             // no transmit edge: the radio is still keyed
+        Assert.True(c.F.Rig.Transmit);
+        Assert.True(await c.Pump(WaitUntil(() => c.F.Vendor.Transport.Commands.Contains("slice set 1 play=0"))));
+    }
+
+    [Fact]
+    public async Task A_delayed_tune_stop_does_nothing_to_a_newer_playback_on_the_same_key()
+    {
+        using var c = new RadioCase();
+        OwnTransmission(c);
+        c.F.Rig.TxTune = true;
+        await c.Pump(Settle());
+        Assert.True((await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+
+        const BindingFlags Flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        var states = (System.Collections.IDictionary)typeof(FlexBase).GetField("_sliceRecorders", Flags)!.GetValue(c.F.Rig)!;
+        object state = states.Values.Cast<object>().Single();
+        var intentField = state.GetType().GetField("Intent", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)!;
+        object underTune = intentField.GetValue(state)!;
+        long generation = (long)underTune.GetType().GetProperty("Generation")!.GetValue(underTune)!;
+
+        // The first stop lands: tune off, the radio still keyed.
+        c.F.Rig.TxTune = false;
+        Assert.True(await c.Pump(WaitUntil(() => c.F.Vendor.Transport.Commands.Contains("slice set 1 play=0"))));
+        Assert.True(await c.Pump(WaitUntil(() => !c.F.Rig.IsSlicePlaying(SliceRecorderTarget.ActiveSlice))));
+
+        // A fresh ordinary play on the same key: no transmit edge, so the same generation.
+        Assert.True((await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        object newer = intentField.GetValue(state)!;
+        Assert.NotSame(underTune, newer);
+        Assert.Equal(generation, (long)newer.GetType().GetProperty("Generation")!.GetValue(newer)!);
+        int stopsBefore = c.F.Vendor.Transport.Commands.Count(x => x == "slice set 1 play=0");
+
+        // The second stop, queued behind the first and now out of date.
+        var stop = typeof(FlexBase).GetMethod("StopPlayingForTransmitAsync", Flags)!;
+        await c.Pump(Stale((Task)stop.Invoke(c.F.Rig, new object[] { state, long.MaxValue, underTune })!));
+
+        Assert.Equal(stopsBefore, c.F.Vendor.Transport.Commands.Count(x => x == "slice set 1 play=0"));
+        Assert.True(c.F.Rig.IsSlicePlaying(SliceRecorderTarget.ActiveSlice));
+    }
+
+    private static async Task<int> Stale(Task stop) { await stop; return 0; }
+
+    [Fact]
+    public async Task A_playback_started_on_a_real_key_is_not_touched_by_a_tune_falling()
+    {
+        using var c = new RadioCase();
+        OwnTransmission(c);
+        Assert.True((await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        c.F.Rig.TxTune = true;
+        await c.Pump(Settle());
+        c.F.Rig.TxTune = false;
+        await c.Pump(Settle());
+        Assert.DoesNotContain("slice set 1 play=0", c.F.Vendor.Transport.Commands);
+    }
+
     [Fact]
     public async Task A_slice_you_are_not_listening_to_can_be_recorded_by_its_letter()
     {

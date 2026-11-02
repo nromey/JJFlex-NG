@@ -229,6 +229,9 @@ namespace JJFlexWpf.Dialogs
             JJFlexHelp.SetText(ReflectedCutCheckbox,
                 Lexicon.Get("settings.ptt.reflected_cut_help"));
 
+            // The tune reminder (#860). DRAFT PROSE: awaiting Noel
+            JJFlexHelp.SetText(PttTuneReminderBox, Lexicon.Get("settings.ptt.tune_reminder_help"));
+
             // The VOX send box (#835). DRAFT PROSE (#835): awaiting Noel
             VoxSendBoxCheckbox.Content = Lexicon.Get("audio.send.box_label");
             System.Windows.Automation.AutomationProperties.SetName(VoxSendBoxCheckbox,
@@ -252,6 +255,7 @@ namespace JJFlexWpf.Dialogs
             PttWarning2Box.Text = _pttConfig.Warning2SecondsBeforeTimeout.ToString();
             PttOhCrapBox.Text = _pttConfig.OhCrapSecondsBeforeTimeout.ToString();
             PttAlcBox.Text = _pttConfig.AlcAutoReleaseSeconds.ToString();
+            PttTuneReminderBox.Text = _pttConfig.TuneReminderSeconds.ToString();
             PttSpeechCheckbox.IsChecked = _pttConfig.SpeechEnabled;
             ChirpEnabledCheckbox.IsChecked = _pttConfig.ChirpEnabled;
             VoxSendBoxCheckbox.IsChecked = _audioConfig.VoxSendKeysRadio;
@@ -1364,8 +1368,20 @@ namespace JJFlexWpf.Dialogs
                 return false;
             }
 
+            if (!int.TryParse(PttTuneReminderBox.Text, out int tuneReminder)
+                || tuneReminder < PttConfig.TuneReminderMinSeconds || tuneReminder > PttConfig.TuneReminderMaxSeconds)
+            {
+                MessageBox.Show(Lexicon.Get("settings.ptt.tune_reminder_out_of_range",
+                        ("min", PttConfig.TuneReminderMinSeconds), ("max", PttConfig.TuneReminderMaxSeconds)),
+                    Lexicon.Get("settings.dialog_title"), MessageBoxButton.OK, MessageBoxImage.Warning);
+                SelectTabByHeader("PTT");  // Track C papercut: focusing a field on an unselected tab fails silently
+                PttTuneReminderBox.Focus();
+                return false;
+            }
+
             // Write back to PttConfig (Validate() will clamp)
             _pttConfig.TimeoutSeconds = timeout;
+            _pttConfig.TuneReminderSeconds = tuneReminder;
             _pttConfig.Warning1SecondsBeforeTimeout = w1;
             _pttConfig.Warning2SecondsBeforeTimeout = w2;
             _pttConfig.OhCrapSecondsBeforeTimeout = ohCrap;

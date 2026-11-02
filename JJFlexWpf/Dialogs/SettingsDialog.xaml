@@ -123,6 +123,7 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
                         <controls:DecorativeText Grid.Row="0" Grid.Column="0"
@@ -159,6 +160,14 @@
                         <TextBox x:Name="PttAlcBox" Grid.Row="4" Grid.Column="1"
                                  Style="{StaticResource DialogTextBox}"
                                  AutomationProperties.Name="ALC auto-release seconds, 0 to disable or 10 to 300"/>
+
+                        <!-- The tune reminder (#860). DRAFT PROSE: awaiting Noel. -->
+                        <controls:DecorativeText Grid.Row="5" Grid.Column="0"
+                                   Text="Tune reminder (seconds):"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <TextBox x:Name="PttTuneReminderBox" Grid.Row="5" Grid.Column="1"
+                                 Style="{StaticResource DialogTextBox}"
+                                 AutomationProperties.Name="Tune reminder in seconds, 10 to 1800"/>
                     </Grid>
 
                     <CheckBox x:Name="PttSpeechCheckbox"
@@ -435,7 +444,7 @@
                                     Content="Audio _Devices..."
                                     HorizontalAlignment="Left" Padding="12,4"
                                     Margin="0,0,0,8"
-                                    AutomationProperties.Name="Audio Devices, choose which sound devices JJ Flex uses"
+                                    AutomationProperties.Name="Audio Devices, choose which sound devices to use"
                                     AutomationProperties.AcceleratorKey="Alt+D"
                                     Click="AudioDevicesButton_Click"/>
                         </StackPanel>
@@ -666,7 +675,7 @@
 
                             <!-- Sprint 27 Track A: Tier 1 framing prose. Explains what this mode means and why it's the recommended default. -->
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                                       Text="Tier 1 (Manual Port Forwarding) is the recommended default. You choose the external port and set the two router rules yourself, and JJ Flex tells the radio to advertise that port. Tier 1 is sovereign — there is no third-party coordination, no UPnP, and no hole-punch. It is the only tier compatible with organizational security policies that require UPnP disabled (DISA STIGs, PCI-DSS, HIPAA), and it is the most reliable path through strict NAT configurations. Your chosen port is saved with your SmartLink account; on future connections, JJ Flex applies it automatically."/>
+                                       Text="Tier 1 (Manual Port Forwarding) is the recommended default. You choose the external port and set the two router rules yourself, and JJ Flexible Radio Access tells the radio to advertise that port. Tier 1 is sovereign — there is no third-party coordination, no UPnP, and no hole-punch. It is the only tier compatible with organizational security policies that require UPnP disabled (DISA STIGs, PCI-DSS, HIPAA), and it is the most reliable path through strict NAT configurations. Your chosen port is saved with your SmartLink account; on future connections, JJ Flexible Radio Access applies it automatically."/>
 
                             <TextBlock x:Name="NetworkCurrentStateText"
                                        Style="{StaticResource DialogLabel}" Margin="0,0,0,8"
@@ -761,7 +770,7 @@
                                 <StackPanel>
                                     <TextBlock Text="Tier 1 + 2 — Manual + UPnP" FontWeight="SemiBold"/>
                                     <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
-                                               Text="The radio asks your router via UPnP to open the port automatically. JJ Flex does not do this itself and cannot turn UPnP on — if your router has UPnP switched off, that is a change on the router, not here. UPnP is also convenient in a way worth knowing about: it lets any program on your network open a way in without asking, which is why many routers and most workplace networks disable it. If UPnP does not work, JJ Flex falls back to Tier 1."/>
+                                               Text="The radio asks your router via UPnP to open the port automatically. JJ Flexible Radio Access does not do this itself and cannot turn UPnP on — if your router has UPnP switched off, that is a change on the router, not here. UPnP is also convenient in a way worth knowing about: it lets any program on your network open a way in without asking, which is why many routers and most workplace networks disable it. If UPnP does not work, JJ Flexible Radio Access falls back to Tier 1."/>
                                 </StackPanel>
                             </RadioButton>
                             <RadioButton x:Name="Tier3Radio"
@@ -773,7 +782,7 @@
                                 <StackPanel>
                                     <TextBlock Text="Tier 1 + 2 + 3 — Allow automatic hole-punch" FontWeight="SemiBold"/>
                                     <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
-                                               Text="If direct port forwarding or UPnP is not working, let Flex's SmartLink coordinate a UDP hole-punch between the radio and JJ Flex. Works through most home NATs. May fail on symmetric-NAT networks (some corporate environments and mobile-carrier networks). Fallback to Tier 2 then Tier 1 on failure is automatic."/>
+                                               Text="If direct port forwarding or UPnP is not working, let Flex's SmartLink coordinate a UDP hole-punch between the radio and JJ Flexible Radio Access. Works through most home NATs. May fail on symmetric-NAT networks (some corporate environments and mobile-carrier networks). Fallback to Tier 2 then Tier 1 on failure is automatic."/>
                                 </StackPanel>
                             </RadioButton>
                         </StackPanel>
@@ -798,7 +807,7 @@
                               AutomationProperties.Name="Hole-punch Port">
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                                       Text="The hole-punch port is a per-radio setting — it belongs to the radio's site, not your account. Set it on the Radios tab, which works whether or not a radio is connected. Leaving it blank there is recommended: JJ Flex then picks a fresh port for every connection, which avoids clashing with a leftover mapping in the router. A port saved here by an earlier version of JJ Flex is still honored until the radio has its own setting."/>
+                                       Text="The hole-punch port is a per-radio setting — it belongs to the radio's site, not your account. Set it on the Radios tab, which works whether or not a radio is connected. Leaving it blank there is recommended: JJ Flexible Radio Access then picks a fresh port for every connection, which avoids clashing with a leftover mapping in the router. A port saved here by an earlier version of JJ Flexible Radio Access is still honored until the radio has its own setting."/>
                         </StackPanel>
                     </GroupBox>
 
@@ -1003,7 +1012,7 @@
                               AutomationProperties.Name="Whose radio is this">
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                                       Text="Some settings live on the radio itself and are shared by every program connected to it. Telling JJ Flex which radios are yours is what lets it set those up for you — and what keeps it from changing a friend's radio while you are borrowing it."/>
+                                       Text="Some settings live on the radio itself and are shared by every program connected to it. Telling JJ Flexible Radio Access which radios are yours is what lets it set those up for you — and what keeps it from changing a friend's radio while you are borrowing it."/>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
                                 <controls:DecorativeText Text="This radio is:"
                                            VerticalAlignment="Center"
@@ -1011,7 +1020,7 @@
                                 <ComboBox x:Name="RadioProfileOwnershipCombo" MinWidth="260"
                                           Style="{StaticResource DialogComboBox}"
                                           AutomationProperties.Name="Whose radio this is"
-                   local:JJFlexHelp.Text="Marking a radio as yours lets JJ Flex create settings on the radio itself without stopping to ask each time — a mic profile, for instance. On any other radio it will still apply everything that lives on this computer, and will ask before creating anything on the radio. This is your word for it: JJ Flex does not check and cannot. It is here so you do not change a friend's radio by accident, not to stop you doing anything deliberately."
+                   local:JJFlexHelp.Text="Marking a radio as yours lets JJ Flexible Radio Access create settings on the radio itself without stopping to ask each time — a mic profile, for instance. On any other radio it will still apply everything that lives on this computer, and will ask before creating anything on the radio. This is your word for it: JJ Flexible Radio Access does not check and cannot. It is here so you do not change a friend's radio by accident, not to stop you doing anything deliberately."
                                           SelectionChanged="RadioProfileOwnershipCombo_SelectionChanged">
                                     <ComboBoxItem Content="Ask me when it comes up"/>
                                     <ComboBoxItem Content="Mine"/>
@@ -1020,7 +1029,7 @@
                             </StackPanel>
                             <TextBlock TextWrapping="Wrap" Margin="20,0,0,4"
                                        Style="{StaticResource DialogLabel}"
-                                       Text="Being able to reach a radio is not the same as owning it — you can be signed in with its owner's account and still be a guest, and a radio on your own network may have no account behind it at all. So JJ Flex asks instead of guessing. Settings you have already bound to a radio keep working whichever answer you give; this only decides whether new things may be created on it."/>
+                                       Text="Being able to reach a radio is not the same as owning it — you can be signed in with its owner's account and still be a guest, and a radio on your own network may have no account behind it at all. So JJ Flexible Radio Access asks instead of guessing. Settings you have already bound to a radio keep working whichever answer you give; this only decides whether new things may be created on it."/>
                         </StackPanel>
                     </GroupBox>
                     <!-- #403: the change-nothing hold. Sits directly under the
@@ -1038,12 +1047,12 @@
                                       Checked="RadioProfileChangeNothing_Toggled"
                                       Unchecked="RadioProfileChangeNothing_Toggled"
                                       AutomationProperties.Name="Change nothing on this radio"
-                   local:JJFlexHelp.Text="While this is on, JJ Flex connects and operates as usual but leaves this radio's own setup alone: no profiles created or loaded, no settings applied at connect, no changes to its name, network, registration, or firmware. It says so at each connect, and names this setting whenever it declines something. Turn it on before connecting to a radio that has to stay exactly as it is — after a factory reset, or while someone else's setup is under test.">
+                   local:JJFlexHelp.Text="While this is on, JJ Flexible Radio Access connects and operates as usual but leaves this radio's own setup alone: no profiles created or loaded, no settings applied at connect, no changes to its name, network, registration, or firmware. It says so at each connect, and names this setting whenever it declines something. Turn it on before connecting to a radio that has to stay exactly as it is — after a factory reset, or while someone else's setup is under test.">
                                 <TextBlock Text="Change nothing on this radio" TextWrapping="Wrap"/>
                             </CheckBox>
                             <TextBlock TextWrapping="Wrap" Margin="20,0,0,4"
                                        Style="{StaticResource DialogLabel}"
-                                       Text="Everything still works — connecting, listening, tuning, the everyday controls. What stops is JJ Flex touching the radio's own setup: profiles, settings applied at connect, its name, network, registration, and firmware. You hear about it at each connect, and whenever something is declined because of it, so a setting that will not stick never has to be a mystery."/>
+                                       Text="Everything still works — connecting, listening, tuning, the everyday controls. What stops is JJ Flexible Radio Access touching the radio's own setup: profiles, settings applied at connect, its name, network, registration, and firmware. You hear about it at each connect, and whenever something is declined because of it, so a setting that will not stick never has to be a mystery."/>
                         </StackPanel>
                     </GroupBox>
                     <!-- Sprint 38 Track C (#337): what unit this radio's
@@ -1082,7 +1091,7 @@
                               AutomationProperties.Name="Connection over SmartLink">
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                                       Text="How JJ Flex reaches this radio over SmartLink. These settings belong to the radio, not your account — one radio can use a forwarded port while another hole-punches."/>
+                                       Text="How JJ Flexible Radio Access reaches this radio over SmartLink. These settings belong to the radio, not your account — one radio can use a forwarded port while another hole-punches."/>
                             <!-- The three mode radios are their own arrow-navigation
                                  group. Without this they shared the outer StackPanel
                                  with the hole-punch port field, so arrowing past the
@@ -1099,7 +1108,7 @@
                                 <StackPanel>
                                     <TextBlock Text="Automatic (recommended)" FontWeight="SemiBold"/>
                                     <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
-                                               Text="JJ Flex follows what the radio reports about itself on every connection: if it advertises forwarded ports, they are used; if it says it needs a hole-punch, JJ Flex punches. No configuration needed."/>
+                                               Text="JJ Flexible Radio Access follows what the radio reports about itself on every connection: if it advertises forwarded ports, they are used; if it says it needs a hole-punch, one is punched. No configuration needed."/>
                                 </StackPanel>
                             </RadioButton>
                             <RadioButton x:Name="RadioProfileForwardRadio" GroupName="RadioProfileMode" Margin="0,4,0,4"
@@ -1792,7 +1801,7 @@
                                       Content="Speak connection progress while connecting to a radio"
                                       Margin="0,0,0,8"
                                       AutomationProperties.Name="Speak connection progress"
-                           local:JJFlexHelp.Text="When checked, JJ Flex announces each connection phase and plays a counting tone (1, 2, then 3 tones) as the connect proceeds. Critical messages (errors, cancel, timeout) always speak regardless of this setting."/>
+                           local:JJFlexHelp.Text="When checked, JJ Flexible Radio Access announces each connection phase and plays a counting tone (1, 2, then 3 tones) as the connect proceeds. Critical messages (errors, cancel, timeout) always speak regardless of this setting."/>
                         </StackPanel>
                     </GroupBox>
 
@@ -1818,7 +1827,7 @@
                                       Content="Offer to save my setup to the radio when I disconnect"
                                       Margin="0,0,0,8"
                                       AutomationProperties.Name="Offer to save my setup to the radio when I disconnect"
-                           local:JJFlexHelp.Text="Slices you add or release live only in the current session — the radio restores its own stored setup the next time you connect. When checked, JJ Flex asks on the way out whether to save your setup into the radio, so it comes back the way you left it. It only ever asks; it never saves on its own. It stays quiet when you changed nothing, when another operator is connected to the same radio, and on any radio you have not marked as yours on the Radios tab. You can save at any time without this, from Save Station Setup to Radio on the Slice menu."/>
+                           local:JJFlexHelp.Text="Slices you add or release live only in the current session — the radio restores its own stored setup the next time you connect. When checked, JJ Flexible Radio Access asks on the way out whether to save your setup into the radio, so it comes back the way you left it. It only ever asks; it never saves on its own. It stays quiet when you changed nothing, when another operator is connected to the same radio, and on any radio you have not marked as yours on the Radios tab. You can save at any time without this, from Save Station Setup to Radio on the Slice menu."/>
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
                                        Style="{StaticResource DialogLabel}"
                                        Text="What gets saved is the radio's global profile, which is the whole station — every slice, its frequency and its mode — and it is shared with everyone who connects to that radio, not just you."/>
@@ -1868,7 +1877,7 @@
                               AutomationProperties.Name="Input Timing">
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                                       Text="Double-tap tolerance controls how quickly you need to press a key twice for JJ Flex to recognize the second press as part of a double-tap. This affects filter-edge bracket double-tap (entering single-edge adjust mode) and Escape-Escape to collapse all field groups. Pick a setting that matches your typing cadence — faster if you tap quickly, slower if you verify speech between presses."/>
+                                       Text="Double-tap tolerance controls how quickly you need to press a key twice for JJ Flexible Radio Access to recognize the second press as part of a double-tap. This affects filter-edge bracket double-tap (entering single-edge adjust mode) and Escape-Escape to collapse all field groups. Pick a setting that matches your typing cadence — faster if you tap quickly, slower if you verify speech between presses."/>
 
                             <GroupBox Header="Double-tap tolerance" Margin="0,0,0,8"
                                       AutomationProperties.Name="Double-tap tolerance">
@@ -2034,13 +2043,13 @@
                             </GroupBox>
 
                             <CheckBox x:Name="UpdateAutoCheckCheckbox"
-                                      Content="Check for updates when JJ Flex starts"
+                                      Content="Check for updates when JJ Flexible Radio Access starts"
                                       Margin="0,0,0,4"
-                                      AutomationProperties.Name="Check for updates when JJ Flex starts"/>
+                                      AutomationProperties.Name="Check for updates when JJ Flexible Radio Access starts"/>
                             <CheckBox x:Name="UpdatePeriodicCheckCheckbox"
-                                      Content="Check every two hours while JJ Flex is running"
+                                      Content="Check every two hours while JJ Flexible Radio Access is running"
                                       Margin="0,0,0,12"
-                                      AutomationProperties.Name="Check every two hours while JJ Flex is running"/>
+                                      AutomationProperties.Name="Check every two hours while JJ Flexible Radio Access is running"/>
 
                             <TextBlock x:Name="UpdateLastCheckText"
                                        Text="Last check: never"
@@ -2109,10 +2118,10 @@
                                     Content="Show recorded problems..."
                                     HorizontalAlignment="Left" Padding="12,4" Margin="0,0,0,6"
                                     AutomationProperties.Name="Show recorded problems"
-                   local:JJFlexHelp.Text="Opens the list of everything that has gone wrong since JJ Flex started, newest first, with the time and what each one means. Control J then Alt R opens the same list from anywhere. The list empties when you close JJ Flex; the diagnostic log is the record that keeps."
+                   local:JJFlexHelp.Text="Opens the list of everything that has gone wrong since JJ Flexible Radio Access started, newest first, with the time and what each one means. Control J then Alt R opens the same list from anywhere. The list empties when you close JJ Flexible Radio Access; the diagnostic log is the record that keeps."
                                     Click="DiagShowProblemsButton_Click"/>
                             <TextBlock TextWrapping="Wrap"
-                                       Text="When something fails, JJ Flex plays a short sound and says so once, without opening anything or taking you away from what you were doing. It is recorded either way, so missing that announcement costs you nothing — press Control J then Alt R whenever you want to read what happened."/>
+                                       Text="When something fails, JJ Flexible Radio Access plays a short sound and says so once, without opening anything or taking you away from what you were doing. It is recorded either way, so missing that announcement costs you nothing — press Control J then Alt R whenever you want to read what happened."/>
                         </StackPanel>
                     </GroupBox>
 

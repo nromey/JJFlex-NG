@@ -1279,7 +1279,7 @@ Module globals
             ' the setting is quietly back where it was.
             Radios.OperationFailure.Report(Radios.FailureKind.SettingNotSaved,
                 "Your diagnostic settings could not be saved",
-                "The change is in effect right now, but it will not be there the next time you start JJ Flex. " &
+                "The change is in effect right now, but it will not be there the next time you start JJ Flexible Radio Access. " &
                 "Something stopped the settings file from being written.")
         End If
 
@@ -1379,7 +1379,7 @@ Module globals
         If Not DiagnosticsSettings.Save(BaseConfigDir) Then
             Radios.OperationFailure.Report(Radios.FailureKind.SettingNotSaved,
                 "Your transcript setting could not be saved",
-                "The change is in effect right now, but it will not be there the next time you start JJ Flex. " &
+                "The change is in effect right now, but it will not be there the next time you start JJ Flexible Radio Access. " &
                 "Something stopped the settings file from being written.")
         End If
         Try
@@ -1396,7 +1396,7 @@ Module globals
         If Not DiagnosticsSettings.Save(BaseConfigDir) Then
             Radios.OperationFailure.Report(Radios.FailureKind.SettingNotSaved,
                 "Your meter stream setting could not be saved",
-                "The change is in effect right now, but it will not be there the next time you start JJ Flex. " &
+                "The change is in effect right now, but it will not be there the next time you start JJ Flexible Radio Access. " &
                 "Something stopped the settings file from being written.")
         End If
         Try
@@ -5088,7 +5088,7 @@ Module globals
                     Radios.OperationFailure.Report(
                         Radios.FailureKind.ConnectFailed,
                         $"The connection to {failedName} failed",
-                        "JJ Flex recorded the whole connection attempt. Sending that " &
+                        "JJ Flexible Radio Access recorded the whole connection attempt. Sending that " &
                         "record is the fastest way to find out why.")
                 End If
 
@@ -5406,11 +5406,16 @@ RadioConnected:
                 WpfMainWindow.PowerOnCallback = Sub()
                                                     SetupKnob()
                                                 End Sub
+                ' Compared first: a title write can make the screen reader speak
+                ' the window (#550), and the poll sends the same line every tick.
                 WpfMainWindow.UpdateTitleBar = Sub(title)
-                                                   If AppShellForm IsNot Nothing Then
+                                                   If AppShellForm IsNot Nothing AndAlso AppShellForm.Text <> title Then
                                                        AppShellForm.Text = title
                                                    End If
                                                End Sub
+                ' Nothing on the way out: an exit closes the radio too, and a
+                ' window about to close has no reason to announce a new title.
+                WpfMainWindow.NoRadioTitleSource = Function() If(Ending, Nothing, NoRadioWindowTitle())
                 WpfMainWindow.WireRadioEvents()
 
                 ' Ensure ShellForm is visible before Start() so error dialogs
@@ -5707,6 +5712,7 @@ RadioConnected:
         Tracing.TraceLine("CloseTheRadio", TraceLevel.Info)
 
         WpfMainWindow?.UnwireRadioEvents()
+        WpfMainWindow?.ShowNoRadioTitle()
 
         StopKnob()
         If SMeter IsNot Nothing Then
@@ -6074,11 +6080,19 @@ RadioConnected:
         ' premise came from.
         If WpfMainWindow IsNot Nothing AndAlso WpfMainWindow.RigControl Is Nothing _
            AndAlso AppShellForm IsNot Nothing Then
-            AppShellForm.Text &= " — no radio connected"
+            AppShellForm.Text = NoRadioWindowTitle()
         End If
 
         Tracing.TraceLine("InitializeApplication: complete", TraceLevel.Info)
     End Sub
+
+    ''' <summary>
+    ''' The main window's title with no radio (#848): the one line a fresh launch
+    ''' and every end of a session both show.
+    ''' </summary>
+    Friend Function NoRadioWindowTitle() As String
+        Return Radios.MainWindowTitle.NoRadio(StationName, ProgramInstance)
+    End Function
 
 #End Region
 End Module

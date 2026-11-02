@@ -246,21 +246,28 @@ internal static class LocalPlaybackVox
         }
     }
 
+    /// <summary>The radio a paused playback paused VOX on, or null.</summary>
+    internal static FlexBase? PausedRig { get { lock (Gate) return _rig; } }
+
     /// <summary>
     /// The live pause for a carry-on: refused while the operator holds the
     /// transmitter; otherwise VOX off, confirmed by the radio, and then the
     /// tail of VOX's own hold on the operator's last words allowed to drop,
     /// the same wait a box send makes (<see cref="VoxSendBox.VoxTailDropWait"/>).
     /// A radio still transmitting after that stays the operator's, and the
-    /// recording stays paused.
+    /// recording stays paused. A tune carrier is not holding a transmission
+    /// anything can join, and there is no microphone in it to clip: the
+    /// speakers carry on, VOX paused, with no wait for a carrier to drop (#860).
     /// </summary>
     private static async Task<(IDisposable? Pause, CarryOn Refusal)> PauseForCarryOnLiveAsync(FlexBase? rig)
     {
         if (rig == null) return (FlexBase.LocalPlaybackVoxPause.NotNeeded, CarryOn.Resumed);
-        if (VoiceMessageSender.OperatorHolds(rig, Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke()))
+        bool underTune = TuneDoors.Up(rig);
+        if (!underTune && VoiceMessageSender.OperatorHolds(rig, Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke()))
             return (null, CarryOn.Transmitting);
         FlexBase.LocalPlaybackVoxPause? pause = await rig.PauseVoxForLocalPlaybackAsync();
         if (pause == null) return (null, CarryOn.VoxUnconfirmed);
+        if (underTune) return (pause, CarryOn.Resumed);
         long until = Environment.TickCount64 + (long)VoxSendBox.VoxTailDropWait.TotalMilliseconds;
         while (rig.Transmit && Environment.TickCount64 < until
                && !VoiceMessageSender.OperatorHolds(rig, Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke()))

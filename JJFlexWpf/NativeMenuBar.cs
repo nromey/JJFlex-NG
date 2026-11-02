@@ -1917,7 +1917,11 @@ public class NativeMenuBar : IDisposable
             dlg.ShowDialog();
         });
         AddChecked(parent, "Tune &Carrier\tCtrl+Shift+T", () =>
-            _window.ToggleTuneCarrier(),
+            {
+                // Asked here too, so its sentence can wait for the menu to close (#859).
+                if (Rig?.TxTune == false && ZeroPowerDoors.RefuseTune(Rig, "the tune menu", afterMenu: true)) return;
+                _window.ToggleTuneCarrier();
+            },
             () => Rig?.TxTune == true);
 
         AddSep(parent);
@@ -2001,6 +2005,15 @@ public class NativeMenuBar : IDisposable
         AddChecked(parent, "Dummy &Load Mode", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
+            // Stays in the menu and says why (#859): a radio that cannot run at
+            // zero cannot use this mode, and the setter refuses it anyway.
+            // Turning it OFF is always the way out.
+            if (!Rig.DummyLoadMode && Radios.RadioPowerFloor.Applies(Rig.RadioModel))
+            {
+                EarconPlayer.LeaderInvalidTone();
+                SpeakAfterMenuClose(Radios.RadioPowerFloor.DummyLoadUnavailable);
+                return;
+            }
             // The operator's own command, carried out by the app (#571, Opus
             // N1 and R1): the setter zeroes the power under the app scope so
             // the receipt stays quiet, and THIS scope says the change is still
@@ -2098,6 +2111,25 @@ public class NativeMenuBar : IDisposable
                                             System.StringComparison.OrdinalIgnoreCase));
                 }
             }
+
+            // ── Making the change stick (#117, #59) ──
+            //
+            // New Slice and Release Active Slice work and neither survives a
+            // disconnect, because the radio restores its slice layout from its
+            // own global profile on the next connect. This is what to DO about
+            // that. It sat beside those two under Slice, Selection, on the
+            // reasoning that the answer should sit at the question, until Noel
+            // went looking for it after an evening at the radio and looked
+            // here: "slice, selection, on radio profiles is a crappy place to
+            // put it" (#760). It writes a profile, so it lives with the
+            // profiles.
+            //
+            // The label says STATION and not SLICE deliberately. This writes a
+            // global profile, which is the whole station — every slice, and
+            // everything else the radio keeps in there. An operator who came
+            // here thinking about one slice has to learn that in the label, not
+            // afterwards from the consequences.
+            AddWired(radio, "Save Station Setup to Radio", SaveStationSetupFromMenu);
 
             // The one-press restore of an autosave a prior session left off
             // (#499). Present ONLY when actually owed, so it is never a verb
@@ -2317,30 +2349,6 @@ public class NativeMenuBar : IDisposable
                 });
             }
 
-            // ── Making the change stick, from where the change was made ──
-            //
-            // Sprint 33 Track K, #117 and #59. New Slice and Release Active
-            // Slice both work, both say so, and neither survives a disconnect,
-            // because the radio restores its slice layout from its own global
-            // profile on the next connect. Sprint 32 added the spoken receipt
-            // that says so. What no surface said was what to DO about it.
-            //
-            // Noel, who owns the radio: "I don't know ... what I need to do in
-            // JJ Flexible to get it to stick in the radio." The procedure
-            // existed the whole time, four steps away on a different menu. An
-            // answer that far from the question is not discoverable, so the
-            // answer moves to the question — same reasoning, and the same
-            // idiom, as the "See MultiFlex Clients on the Radio menu" pointer a
-            // few lines above.
-            //
-            // The label says STATION and not SLICE deliberately. This writes a
-            // global profile, which is the whole station — every slice, and
-            // everything else the radio keeps in there. An operator who came
-            // here thinking about one slice has to learn that in the label, not
-            // afterwards from the consequences.
-            AddSep(selSub);
-            AddWired(selSub, "Save Station Setup to Radio", SaveStationSetupFromMenu);
-
             // QB Track I — Transmit Slice submenu, mirroring Selection: one
             // entry per slice with the checkmark on the current TX slice,
             // plus an explicit clear. This is the discoverable door for what
@@ -2510,7 +2518,11 @@ public class NativeMenuBar : IDisposable
             {
                 BuildATUItems(antSub);
                 AddSep(antSub);
-                AddWired(antSub, "ATU Tune\tCtrl+T", () => _window.StartATUTuneCycle());
+                AddWired(antSub, "ATU Tune\tCtrl+T", () =>
+                {
+                    if (Rig?.FlexTunerOn == false && ZeroPowerDoors.RefuseTune(Rig, "the ATU menu", afterMenu: true)) return;
+                    _window.StartATUTuneCycle();
+                });
             }
             // Unconditional as of Sprint 30 Track A. The old
             // DiversityHardwareSupported guard meant a 1-SCU radio got no
@@ -4173,9 +4185,8 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
-    /// Slice ▸ Save Station Setup to Radio — the one-step answer to "how do I
-    /// make this stick", reachable from the menu where the operator changed the
-    /// thing they want to keep.
+    /// Radio ▸ Save Station Setup to Radio — the one-step answer to "how do I
+    /// make this stick", beside the radio's profiles, which is what it writes.
     /// </summary>
     /// <remarks>
     /// <para>This CONFIRMS rather than just doing it, and the confirmation is

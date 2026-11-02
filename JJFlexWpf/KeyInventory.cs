@@ -1369,7 +1369,7 @@ public static class KeyInventory
         // vocabularies of the old surface, the new one, and the problem.
         new FixedKeyEntry
         {
-            Description = "Diagnostics settings - what JJ Flex records, how much detail, and where it goes",
+            Description = "Diagnostics settings - what JJ Flexible Radio Access records, how much detail, and where it goes",
             Scope = "Global", Group = "Diagnostics",
             MenuText = "Tools menu, Diagnostics (also Settings, Diagnostics tab)",
             Keywords = new[] { "diagnostic", "diagnostics", "log", "logging", "trace", "tracing",
@@ -1410,7 +1410,7 @@ public static class KeyInventory
         {
             Description = "Save your station setup into the radio so slice changes survive disconnecting",
             Scope = "Radio", Group = "FreqOut",
-            MenuText = "Slice menu, Selection submenu, Save Station Setup to Radio",
+            MenuText = "Radio menu, Save Station Setup to Radio",
             Keywords = new[] { "save", "stick", "sticky", "keep", "persist", "permanent", "remember",
                                "forget", "forgot", "back", "returns", "restore", "revert", "lost",
                                "slice", "layout", "setup", "station", "profile", "global",

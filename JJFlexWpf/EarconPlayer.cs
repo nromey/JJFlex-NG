@@ -2798,7 +2798,7 @@ namespace JJFlexWpf
 
         /// <summary>ATU tune failed — descending minor E-C-A (~200ms total).</summary>
         [Earcon("ATU tune failed", EarconCategory.Transmit, Order = 33,
-            Description = "Descending minor. The tuner gave up.")]
+            Description = "Descending minor. The tuner gave up, or the radio refused a tune.")]
         public static void ATUFailTone()
         {
             if (!Gate(EarconCategory.Transmit)) return;
@@ -4141,6 +4141,16 @@ namespace JJFlexWpf
         #region Internal Types
 
         /// <summary>
+        /// May a request for a device be ignored? Only when it is the device
+        /// held and that device is PLAYING. A channel that never opened has no
+        /// state, and one whose device failed has stopped: both still need the
+        /// open they asked for. A channel that fell back to the Windows default
+        /// holds -1, so asking again for the device that failed tries it again.
+        /// </summary>
+        internal static bool DeviceAlreadyHeld(int asked, int held, PlaybackState? state) =>
+            asked == held && state == PlaybackState.Playing;
+
+        /// <summary>
         /// An independent audio output channel with its own WaveOutEvent, mixer, and volume.
         /// Each channel can target a different audio device.
         /// </summary>
@@ -4272,7 +4282,23 @@ namespace JJFlexWpf
                 }
             }
 
+            /// <summary>
+            /// Point this channel at a device. Asked for the one it already
+            /// holds and is playing on, it does nothing: every connect applies
+            /// the audio settings, and reopening a device that has not changed
+            /// tears the card down under whatever sound is playing (#408).
+            /// </summary>
             public void SetDevice(int deviceNumber)
+            {
+                if (DeviceAlreadyHeld(deviceNumber, _deviceNumber, _waveOut?.PlaybackState)) return;
+                OpenDevice(deviceNumber);
+            }
+
+            /// <summary>
+            /// Stop whatever is open and open <paramref name="deviceNumber"/>,
+            /// with this channel's buffers. A sound in the mixer carries on.
+            /// </summary>
+            private void OpenDevice(int deviceNumber)
             {
                 _deviceNumber = deviceNumber;
                 if (Mixer == null || _volume == null) return;
@@ -4313,7 +4339,9 @@ namespace JJFlexWpf
                 if (bufferMs == BufferMs && bufferCount == BufferCount) return;
                 BufferMs = bufferMs;
                 BufferCount = bufferCount;
-                if (_waveOut != null) SetDevice(_deviceNumber);
+                // Past SetDevice's guard on purpose: the device is the same,
+                // and reopening it is the whole of this.
+                if (_waveOut != null) OpenDevice(_deviceNumber);
             }
 
             public void Dispose()

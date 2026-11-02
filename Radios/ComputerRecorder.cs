@@ -157,14 +157,17 @@ public static class ComputerRecorder
     /// <summary>
     /// "Play from computer": play the chosen or last recording to the
     /// speakers, or stop the one playing. Needs no radio. Refused while
-    /// transmitting BEFORE the engine is asked (Noel, 2026-10-21 10:57: keyed,
-    /// Play sending to air is phase 2), so no engine can forget the refusal.
+    /// transmitting BEFORE the engine is asked, so no engine can forget the
+    /// refusal. Play from computer routes a keyed press to a send before it
+    /// gets here, so this is reached only if the radio keys between the two
+    /// reads; the sentence says what is true then, and #835's sends made its
+    /// old "not available in this build yet" false.
     /// </summary>
     public static async Task<RecorderOutcome> TogglePlaybackAsync(bool transmitting)
     {
         var recorder = _current;
         if (recorder.IsPlaying) return await recorder.StopPlaybackAsync().ConfigureAwait(false);
-        // DRAFT PROSE (#787): awaiting Noel
+        // DRAFT PROSE (#860): awaiting Noel
         if (transmitting) return Refusal("audio.recorder.computer_play_refused_transmitting");
         return await recorder.PlayAsync(ChosenForPlayback()).ConfigureAwait(false);
     }

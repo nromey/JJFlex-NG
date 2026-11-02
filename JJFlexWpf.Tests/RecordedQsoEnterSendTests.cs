@@ -103,6 +103,72 @@ public sealed class RecordedQsoEnterSendTests
         Assert.Equal("PreviewTransport", RecordedQsosDialog.ChooseEnter(true, false, route, previewPaused: false).ToString());
     }
 
+    /// <summary>
+    /// A send taking over from a paused preview leaves the preview paused until
+    /// its last step, so both are in hand during a box send's wait for VOX.
+    /// Enter answers the send, on every route that wait can read: Box while VOX
+    /// reads on, AsBefore once it reads off.
+    /// </summary>
+    [Theory]
+    [InlineData(SendRoute.Box)]
+    [InlineData(SendRoute.AsBefore)]
+    [InlineData(SendRoute.JoinTransmission)]
+    public void A_pending_send_takes_Enter_from_the_paused_preview_it_is_taking_over(SendRoute route)
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Assert.Equal("AnswerSend", RecordedQsosDialog.ChooseEnter(true, true, route, previewPaused: true).ToString());
+    }
+
+    [Fact]
+    public void A_sounding_preview_keeps_its_own_transport()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Assert.Equal("PreviewTransport", RecordedQsosDialog.ChooseEnter(true, true, SendRoute.Box, previewPaused: false).ToString());
+    }
+
+    [Fact]
+    public void The_second_Enter_in_the_wait_pauses_the_real_pending_send_and_keeps_the_preview()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        const BindingFlags Any = BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public;
+        var sender = typeof(VoiceMessageSender);
+        var starting = sender.GetField("_starting", Any)!;
+        var paused = sender.GetField("_paused", Any)!;
+        var infoType = sender.GetNestedType("SendInfo", Any)!;
+        object info = Activator.CreateInstance(infoType, true)!;
+        infoType.GetField("Kind", Any)!.SetValue(info, Enum.Parse(sender.GetNestedType("SendKind", Any)!, "ComputerRecording"));
+        infoType.GetField("What", Any)!.SetValue(info, "the computer recording test");
+        infoType.GetField("Session", Any)!.SetValue(info, new SendSession(1));
+        bool handedOff = false;
+        infoType.GetField("HandOff", Any)!.SetValue(info, new Action(() => handedOff = true));
+
+        // The box's wait: the send is pending, and nothing has stopped the speakers.
+        starting.SetValue(null, info);
+        try
+        {
+            var doors = new VoiceMessageDoors();
+            Assert.True(doors.ComputerRecordingInHand);
+            Assert.Equal("AnswerSend", RecordedQsosDialog.ChooseEnter(true, doors.ComputerRecordingInHand, SendRoute.Box, previewPaused: true).ToString());
+            Assert.True(doors.Answer());
+
+            Assert.Null(starting.GetValue(null));       // the box's wait sees this and gives up its key
+            Assert.Same(info, paused.GetValue(null));   // paused, its place kept
+            Assert.False(handedOff);                    // and the preview is still there
+        }
+        finally
+        {
+            starting.SetValue(null, null);
+            paused.SetValue(null, null);
+        }
+    }
+
+    /// <summary>The real send's two answers, as the window's own doors read them.</summary>
+    private sealed class VoiceMessageDoors
+    {
+        public bool ComputerRecordingInHand => VoiceMessageSender.ComputerRecordingInHand;
+        public bool Answer() => VoiceMessageSender.AnswerPlayFromComputer();
+    }
+
     [Fact]
     public void Enter_with_the_box_ticked_and_VOX_on_sends_the_selected_recording_through_Play_from_computers_send()
     {

@@ -113,7 +113,9 @@ namespace Radios.Tests
             FixerStageResult r = run.RunStage(TransmitStageSet.TransmitterCheck);
 
             Assert.Equal(1, called);
-            Assert.Equal(FixerStageStatus.Ran, r.Status);
+            // A refusal measured nothing, so it is not a Ran stage: Ran with no
+            // findings reads "passed" on the page.
+            Assert.Equal(FixerStageStatus.CouldNotRun, r.Status);
             // The probe's own refusal wording flows through untranslated.
             Assert.Contains("not known what is connected", r.Answer);
         }

@@ -141,6 +141,35 @@ namespace Radios.Speech
         public const string TransmitKeyRefused = "transmit-key-refused";
 
         /// <summary>
+        /// The radio did not key for the tune carrier (#447): it refused with
+        /// a reason, or the time for it to report has passed. Critical, so it
+        /// reaches every verbosity: the operator is waiting for RF that is not
+        /// coming. A later tune's answer retires an unheard earlier one.
+        /// </summary>
+        public const string TuneNotKeyed = "tune-not-keyed";
+
+        /// <summary>
+        /// The tune reminder (#860): the carrier has been up the set length.
+        /// Critical, because a carrier left on is RF nobody means to be sending.
+        /// Tune going off, however it goes, retires one still unheard, and a
+        /// later reminder replaces an earlier one.
+        /// </summary>
+        public const string TuneStillOn = "tune-still-on";
+
+        /// <summary>
+        /// A recorder or send door turned away while tune is up (#860): the
+        /// answer to the key just pressed, out of date the moment tune goes off.
+        /// </summary>
+        public const string TuneRefused = "tune-refused";
+
+        /// <summary>
+        /// A press that would key was refused because the rig reads 0 watts.
+        /// True until the operator sets a power, and the next refusal says the
+        /// same thing.
+        /// </summary>
+        public const string ZeroPowerRefused = "zero-power-refused";
+
+        /// <summary>
         /// Reflected power is high enough to warn about, whether or not a cut
         /// follows (#224, #571).
         ///

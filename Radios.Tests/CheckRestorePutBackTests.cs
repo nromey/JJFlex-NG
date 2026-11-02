@@ -551,7 +551,7 @@ public sealed class CheckRestorePutBackTests : IDisposable
         string dialog = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.Check.cs"));
         Assert.Contains("rig.DescribeCheckPutBack(entry, putBacks);", dialog);
         Assert.Contains("}, CheckPutBack.Power(rf, 0), CheckPutBack.Tune(tune, 0));", dialog);
-        Assert.Contains("}, CheckPutBack.Power(saved, _lowPowerWatts));", dialog);
+        Assert.Contains("}, CheckPutBack.Power(saved, checkPower));", dialog);
         Assert.Contains("CheckPutBack.MonitorOn(false, true));", dialog);
     }
 

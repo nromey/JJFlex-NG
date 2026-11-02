@@ -46,7 +46,7 @@ public sealed class RadioOwnershipDialog : JJFlexDialog
         var root = new StackPanel { Margin = new Thickness(12) };
 
         string suggestionLine = suggestion == RadioOwnership.Mine
-            ? "\n\nJJ Flex would guess this one is yours, going on how you have "
+            ? "\n\nJJ Flexible Radio Access would guess this one is yours, going on how you have "
               + "reached it before. That is only a guess — it has no way to know, "
               + "and it will not decide for you."
             : "";
@@ -59,10 +59,10 @@ public sealed class RadioOwnershipDialog : JJFlexDialog
                 + "computer, and every program connected to that radio shares them. "
                 + "Changing one on a radio you are borrowing changes it for its "
                 + "owner too, with nothing on their end to say why."
-                + "\n\nSo before JJ Flex creates anything new on " + radioLabel
+                + "\n\nSo before JJ Flexible Radio Access creates anything new on " + radioLabel
                 + ", it would like to know whose radio it is."
                 + suggestionLine
-                + "\n\nThis is your word for it, nothing more — JJ Flex does not "
+                + "\n\nThis is your word for it, nothing more — JJ Flexible Radio Access does not "
                 + "check and cannot. It is here so you do not change a friend's "
                 + "radio by accident, not to stop you doing anything on purpose."
                 + "\n\nYou can change the answer later in Settings, on the Radios "
@@ -78,7 +78,7 @@ public sealed class RadioOwnershipDialog : JJFlexDialog
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             MaxHeight = 380,
         };
-        AutomationProperties.SetName(body, "Why JJ Flex is asking whose radio this is");
+        AutomationProperties.SetName(body, "Why this question is being asked");
         root.Children.Add(body);
 
         string dontShowAgain = Lexicon.Get("connect.dialog.dont_show_again");

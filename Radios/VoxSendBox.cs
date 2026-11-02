@@ -82,6 +82,7 @@ namespace Radios
         /// <param name="operatorHolds">
         /// The operator is keying the radio: push to talk, the lock, a hardware
         /// PTT line, or the tune carrier. False when the radio is up only on VOX.
+        /// Nothing reaches this rule under tune: the send door answers first (#860).
         /// </param>
         public static SendRoute Choose(bool ticked, bool voiceVoxOn, bool transmitting, bool operatorHolds)
         {

@@ -1,0 +1,2 @@
+- JJ Flexible now knows your transmit mode the moment you connect, not the first time you change it. The Fix tool's tone ladder runs and its report names the mode on a session where you never touched it.
+- A Fix tool test that refused to start, or was stopped before it measured anything, now says it could not run and why, instead of reading as passed. With the countdown off, the tests no longer promise three tones.
