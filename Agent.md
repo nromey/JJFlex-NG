@@ -9,6 +9,30 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-11-02 (COVERS 2026-10-31 AFTER ITS SEAL TO 2026-11-02 06:40) — THE 2026-10-31 JUNK BOX MERGES, THE 6300 GETS ITS ZERO-WATT AND TUNE FIXES, AND THE TESTERS GET A BUILD
+
+**Measured from the 2026-10-31 seal (`376ff2c8`, 05:26):** 62 commits on main, 133 files, +8,910 / −416. Two of them (`f88032c2`, `03c5e599`, #855's countdown pip and alert delay wording) were pushed after that seal; the rest are the junk box batch and this morning.
+
+**The 2026-10-31 junk box, merged `b1688ed1` on Noel's word (06:21):** 57 commits from one Opus ruled track and its repairs, each item checked by Codex (`gpt-6.1-sol` high) before merging. #859: a 6300 records no audio at 0 W (proven on the radio), so Check your audio runs it at Low power from 1 W and the app can't set it to 0; a press that would key a rig that really reads 0 refuses with a tone and a sentence, on evidence of a real zero, never on elapsed time (Codex caught the first version certifying a placeholder). #447 tune says what the radio did; #860 tune doors (recording refused, playback says it won't go out) and the 25-second reminder; #846 a layer closes when a dialog takes the keyboard; #848 the title after disconnect; #849 Logging mode focus; #760 Save Station Setup on the Radio menu; #851 "JJ Flex" wording; #858 transmit mode known at connect; #408 the connect tone; Ctrl+Enter after a take. Prep commit `4ba8c657`: six windowless test classes added to the CLAUDE.md filter (thirty-eight classes, 589 tests), a changelog line, one comment corrected.
+
+**The tune Escape fix, found by the harness 2026-11-01 and ruled by Noel 2026-11-02 04:51:** with tune up, Check your audio's Escape blamed a hardware PTT line and stayed; Ctrl+Shift+T did nothing there. Now Escape turns tune off and stays, and the tune key works in the window. Three Codex rounds (`8a1fb8c0` four blockers, `dfa4dcfc` two queue blockers, `bb85031d` one point Noel ruled acceptable: a sent ON and the OFF sent behind it can't be recalled). The lasting change is in `FlexBase.EnqueueTuneWrite`: a later tune write revokes a queued ON, and a queued ON counts as up until it runs or is revoked; `TuneWriteLifetimeTests` drive the real queue.
+
+**Bench:** 2026-11-01 harness on the 8600 (all passed) and the 6300 (everything that doesn't key). 2026-11-02 on the 6300, Noel control operator and told before each key: the 1 W check keyed, recorded 5.8 s and restored power; **but it went out on the transmit slice A, 14.100 (the beacon frequency), about 0.87 W for 6 s, while the S meter and Noel's ear were on slice B, 14.175.** Harness error, and product finding #863 (a check doesn't say where it transmits); memory `feedback_key_the_slice_you_listened_to.md`. Test your microphone on the 6300 keys its dummy-load mode at 0 W. Then the tune fix on the 8600 into the load: all five cases passed. Live settings untouched in every run.
+
+**Rulings:** the tester's 6300 on a weekday: Noel asks the tester first unless Select Radio shows 0 connected clients. Refusals at 0 W and under tune are told the usual way, tone and sentence each under the operator's settings. The sent-but-unanswered tune pair is accepted.
+
+**Build:** debug 4.1.16.2859 from `67090d74`, `debug-notes.txt` rewritten for it, published to Dropbox `debug\` (verified) and promoted as the nightly. Every transmit change in it was exercised on a radio.
+
+**Seal checks:** no dependency advisories; drift's one new flag (the harness-scripts reference) updated; Codex instruction tests pass (5), Codex loads `AGENTS.md`, sandbox healthy; NVDA logs archived (the old log at speech level, 54 lines). Backups: memory (10 projects), Claude state (828 MB), private docs, AppData, dev mirror. Worktrees `jjflex-cx1031b/c/d` removed; `jjflex-jb1029` back on its branch. MEMORY.md 15.7 KB, still over 12 KB.
+
+**Cross-surface:** the noise processing session refreshed the Sprint 49 step zero brief against `03c5e599`; its second reading (`for-noel/2026-11-01-second-reading-sprint49-step-zero.md`) says not ready to launch, six gaps. Codex: about twenty-five check runs, all logged. Freight Fate 16 unpushed on `feat/career-1.9` (one dirty file), Civ VI two dirty files, rigmeter 13 unpushed with no remote: Noel's call. jjf-data and jjflexible-connect idle. **Eye surgery Thursday 2026-11-05.**
+
+**Carried over:** #863 ruling; DRAFT wording pass (the zero-watt and tune sentences); the doors at a real 0 on the 6300 (needs another client); real JAWS for held chords; #857; #854 key setup; changelog fragments in `docs/changelog.d` still not folded into `CHANGELOG.md`; the solution build skipped rebuilding Radios.Tests on main this morning, so a stale test binary failed a run of tests until the project was built directly.
+
+### Rigmeter snapshot — end of 2026-11-02
+
+Since the 10-31 seal, main: 62 commits, 133 files, +8,910 / −416. Since 2026-10-31 midnight: 66 commits, +13,824 / −1,122 (net +12,702), C# +13,337 / −882 across 133 files; about 72,000 authored words, 8 hours read aloud. Today since midnight: 6 commits, +687 / −125. Snapshot `historical/stats/2026-11-02-67090d74.json`.
+
 ## END-OF-DAY SEAL — 2026-10-31 (COVERS 2026-10-28 TO 2026-10-31) — CHECK YOUR AUDIO, SOUND TIMING, BOTH JUNK BOXES AND THE RECORD INDEX LAND ON MAIN, PUSHED, AND A NIGHTLY GOES OUT
 
 **No seal ran on 10-28, 10-29 or 10-30, so this one covers four days, measured from the 2026-10-27 seal (`f52b3867`).** 152 commits on main in the span (42 on 10-28 and 61 on 10-29, though some of those were dated on their branches; 46 on 10-30; the rest this morning). Main is pushed through `b80f2662` (05:11, on Noel's word, 154 commits), and this seal pushes the rest.
