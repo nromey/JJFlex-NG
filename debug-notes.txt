@@ -1,41 +1,45 @@
 WHAT IS NEW SINCE THE LAST BUILD
 
-The big one is Check your audio, a window of its own for hearing how
-you sound on the air before anyone else does. The ones you will
-notice:
+Thanks for the Check your audio writeup. This build is a round of
+fixes around it, most of them about the 6300 and about tune. The ones
+you will notice:
 
-- Ctrl+J, then Alt+C opens Check your audio. Inside it, Ctrl+Enter
-  starts a check. It can record a take off the air and play it back to
-  you, and it puts back every radio setting it changed when the check
-  ends, even if the radio disconnects partway through.
-- Play from computer and Play active slice now send to the air when
-  you are transmitting. Ctrl+J, Ctrl+K turns on a box that lets a send
-  key the radio by itself while VOX is on. The same box is in Home's
-  Transmission group and in Settings, PTT.
-- A send longer than three minutes asks first, and tells you how to
-  pause it so you can identify.
-- If you pause a recording and then press Play with sending turned
-  on, it goes to the air from where you paused it. Saying No to the
-  long-send question leaves it paused.
-- A countdown of tones can play before anything keys. Settings,
-  Audio has its length, pitch and an off switch.
-- Settings, Audio has an "Alert sound delay". Lower it if alert
-  sounds seem to lag behind what they announce.
-- The Audio menu has DSP and Meter Tones. The disconnect question has
-  a box to stop asking. Warning sounds still play with alert sounds
-  turned off, and Logging mode offers a No Log File choice.
-- JAWS reads the value of the number fields now.
+- On a 6300, recording yourself at 0 watts used to play back nothing.
+  Check your audio now runs at Low power there, from 1 watt, and puts
+  your power back when the check ends. Test your microphone still runs
+  at zero, because nothing goes on the air.
+- The 6300 can't be set to 0 watts in the app any more: the arrows
+  stop at 1, and a typed 0 says why. If the radio does read 0, a press
+  that would key it tells you so instead of keying silently.
+- Tune says what the radio did. "Tune on" waits for the radio to
+  report it is transmitting, and a refused tune tells you why.
+- Tune no longer stays on quietly. After 25 seconds you hear a tone and
+  "Tune is still on", every 25 seconds. If you tune up a long time, you
+  can stretch that to half an hour on the PTT page in Settings.
+- While tune is on, recording is refused, and playing a recording says
+  it won't go out on the air.
+- With tune on, Escape in Check your audio turns tune off and leaves the
+  window open. Ctrl+Shift+T works inside that window too.
+- Ctrl+Enter in Check your audio starts a check on the first press
+  after a take has played to its end.
+- Save Station Setup to Radio is on the Radio menu now, right after
+  Profiles on This Radio.
+- After a disconnect, the window title says no radio connected instead
+  of naming the slice you had.
+- The connect tone plays out whole, and "1 watts" reads "1 watt".
 
 KNOWN ISSUES
 
+- Check your audio transmits on your transmit slice, which may not be
+  the slice you are listening to, and it does not yet say which. Before
+  a check, make sure the slice you listened on is the transmit slice.
 - Just after you turn VOX on, the radio can key itself for about a
   third of a second. It looks like the radio doing it, not the app; I'm
   still looking into it.
 - A hand mic or footswitch on the radio's own PTT jack keys the radio
   with the radio's microphone, so your computer microphone is silent
   on the air, and nothing tells you yet. A fix is planned.
-- The Fix tool's tone ladder can skip itself, saying the radio did not
-  report its mode. With VOX on, its transmit stage can say "passed"
-  when it did not transmit at all.
+- With VOX on, the Fix tool's transmit stage can say "passed" when it
+  did not transmit at all.
 - Shift+Space doesn't lock the transmitter inside dialogs yet. Use
   Alt+Shift+Space there.
