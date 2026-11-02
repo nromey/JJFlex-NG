@@ -74,10 +74,12 @@ internal sealed class TuneReminder
                 // The gate is held through the sentence, so an edge cannot finish
                 // between the question and the queueing: it is either already
                 // counted here, or its withdrawal comes after and covers it.
-                // Safe to hold: a queued Speak takes the arbiter's own lock and
-                // returns, with no dispatcher and no call back into this class,
-                // and End lets go of this gate before it touches the arbiter, so
-                // the two locks are never taken the other way round.
+                // Safe to hold: a queued Speak takes the arbiter's own lock, and
+                // may wait for it while another speaker holds it, but it waits on
+                // no dispatcher and never calls back into this class; and End
+                // lets go of this gate before it touches the arbiter, so the two
+                // locks are never taken the other way round. "Queued" says where
+                // the sentence goes, not that the call cannot wait at all.
                 lock (_gate)
                 {
                     if (_ends == ends) _say();
