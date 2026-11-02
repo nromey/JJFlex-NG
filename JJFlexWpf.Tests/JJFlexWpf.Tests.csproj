@@ -44,4 +44,11 @@
     <Compile Include="..\Radios.Tests\Fixtures\JawsShiftSpaceCapture20261022.cs" Link="Fixtures\JawsShiftSpaceCapture20261022.cs" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Contract 2 (the WDSP helper's pipe protocol) fixtures, byte for byte
+         the copy the helper's own repository holds. Copied whole; the
+         manifest test refuses a drifted or partial copy. -->
+    <None Update="Fixtures\Contract2\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
