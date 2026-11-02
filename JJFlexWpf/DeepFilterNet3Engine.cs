@@ -109,12 +109,13 @@ namespace JJFlexWpf
         /// <summary>Why <see cref="IsAvailable"/> is false, in plain words; empty when it is true.</summary>
         public Unavailability Unavailability { get; private set; }
         public string UnavailabilityDetail { get; private set; } = "";
-        public IReadOnlyList<EngineSettingDescriptor> Settings { get; } = new[] {
+        public static IReadOnlyList<EngineSettingDescriptor> SettingDescriptors { get; } = new[] {
             new EngineSettingDescriptor("attenuation_limit_db", "audio.denoise.attenuation_limit_db", EngineSettingKind.Number,
                 new EngineSettingValue(9), 0, 100, 1, "audio.denoise.db"),
             new EngineSettingDescriptor("post_filter_beta", "audio.denoise.post_filter_beta", EngineSettingKind.Number,
                 new EngineSettingValue(0), 0, 0.05, 0.001)
         };
+        public IReadOnlyList<EngineSettingDescriptor> Settings => SettingDescriptors;
         public EngineSettingValue GetSetting(string name) => name switch {
             "attenuation_limit_db" => new EngineSettingValue(Volatile.Read(ref _pending).Attenuation),
             "post_filter_beta" => new EngineSettingValue(Volatile.Read(ref _pending).Beta),
@@ -122,14 +123,17 @@ namespace JJFlexWpf
         };
         public bool TrySetSetting(string name, EngineSettingValue value)
         {
-            var descriptor = System.Linq.Enumerable.FirstOrDefault(Settings, x => x.Name == name);
+            EngineSettingDescriptor? descriptor = null;
+            for (int i = 0; i < Settings.Count; i++)
+                if (Settings[i].Name == name) { descriptor = Settings[i]; break; }
             if (descriptor == null || !descriptor.Accepts(value)) return false;
             Parameters before, after;
             do {
                 before = Volatile.Read(ref _pending);
+                float next = (float)value.Number;
+                if ((name == "attenuation_limit_db" ? before.Attenuation : before.Beta) == next) return true;
                 after = name == "attenuation_limit_db" ? before with { Attenuation = (float)value.Number }
                     : before with { Beta = (float)value.Number };
-                if (after == before) return true;
             } while (Interlocked.CompareExchange(ref _pending, after, before) != before);
             return true;
         }

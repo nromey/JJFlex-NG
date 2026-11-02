@@ -79,7 +79,7 @@ public sealed class SpectralCaptureTests
             {
                 // Inject a different spectral selection through the catalog, without needing a new real engine.
                 p.Dispose();
-                var rows = new DenoiseEngineCatalog().Entries.Select(e => e.Id == "nr2" ? e with { Factory = () => new SpectralCaptureEngine() } : e);
+                var rows = new DenoiseEngineCatalog().Entries.Select(e => e.Id == "nr2" ? e with { Factory = _ => new SpectralCaptureEngine() } : e);
                 using var alternate = new RxAudioPipeline(catalog: new DenoiseEngineCatalog(rows));
                 Assert.True(alternate.SelectPcEngine("nr2")); alternate.SetCurrentMode(mode);
                 CaptureAndCompare(alternate, dir);

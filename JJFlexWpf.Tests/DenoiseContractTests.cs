@@ -76,7 +76,8 @@ public sealed class DenoiseContractTests
     [Fact]
     public void Dfn_settings_are_pending_until_the_audio_frame_boundary()
     {
-        string lib = Path.Combine(RepoPaths.RequireRoot(), "runtimes/win-x64/native/deepfilter.dll");
+        string arch = Environment.Is64BitProcess ? "x64" : "x86";
+        string lib = Path.Combine(RepoPaths.RequireRoot(), "runtimes", "win-" + arch, "native", DeepFilterNet3Engine.LibraryFileName);
         using var engine = new DeepFilterNet3Engine(9, lib);
         Assert.True(engine.IsAvailable, engine.UnavailabilityDetail);
         Assert.True(engine.TrySetSetting("attenuation_limit_db", new(12)));
@@ -88,6 +89,16 @@ public sealed class DenoiseContractTests
         Assert.True(engine.ProcessFrame(new float[480], new float[480]));
         Assert.NotNull(applied.GetValue(engine));
         Assert.Equal(12, engine.GetSetting("attenuation_limit_db").Number);
+        for (int i = 0; i < 50; i++) {
+            engine.TrySetSetting("attenuation_limit_db", new(12));
+            engine.TrySetSetting("post_filter_beta", new(0.025));
+        }
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 200; i++) {
+            engine.TrySetSetting("attenuation_limit_db", new(12));
+            engine.TrySetSetting("post_filter_beta", new(0.025));
+        }
+        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
     }
 
     [Fact]

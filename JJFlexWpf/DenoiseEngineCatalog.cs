@@ -12,10 +12,12 @@ namespace JJFlexWpf
 
     public sealed record DenoiseEngineEntry(
         string Id, DenoiseSide Side, DenoiseFamily? Family, string LabelKey,
-        IReadOnlyList<DenoiseDirection> Directions, Func<IDenoiseEngine>? Factory = null,
+        IReadOnlyList<DenoiseDirection> Directions, Func<IReadOnlyDictionary<string, EngineSettingValue>, IDenoiseEngine>? Factory = null,
         Func<Unavailability>? Probe = null, RadioCapability? Capability = null,
-        Func<FlexBase, OffOnValues>? ReadRadio = null, Action<FlexBase, OffOnValues>? WriteRadio = null)
+        Func<FlexBase, OffOnValues>? ReadRadio = null, Action<FlexBase, OffOnValues>? WriteRadio = null,
+        IReadOnlyList<EngineSettingDescriptor>? SettingDescriptors = null)
     {
+        public IReadOnlyList<EngineSettingDescriptor> Settings => SettingDescriptors ?? Array.Empty<EngineSettingDescriptor>();
         public bool Serves(DenoiseDirection direction) => Directions.Contains(direction);
         public Unavailability Availability() => Probe?.Invoke() ?? Unavailability.LibraryMissing;
     }
@@ -37,15 +39,15 @@ namespace JJFlexWpf
         private static IEnumerable<DenoiseEngineEntry> DefaultEntries()
         {
             yield return new("rnnoise", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.rnnoise", Both,
-                () => new RnnoiseEngine(), () => File.Exists(Path.Combine(AppContext.BaseDirectory, "rnnoise.dll"))
+                _ => new RnnoiseEngine(), () => File.Exists(Path.Combine(AppContext.BaseDirectory, "rnnoise.dll"))
                     ? Unavailability.None : Unavailability.LibraryMissing);
             yield return new("deepfilternet3", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.deepfilternet3", Both,
-                () => new DeepFilterNet3Engine(9), ProbeDeepFilter);
+                initial => new DeepFilterNet3Engine((float)initial["attenuation_limit_db"].Number), ProbeDeepFilter, SettingDescriptors: DeepFilterNet3Engine.SettingDescriptors);
             yield return new("nnr", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.nnr", Both);
             yield return new("nr2", DenoiseSide.Pc, DenoiseFamily.Spectral, "audio.denoise.nr2", Both);
             yield return new("nr4", DenoiseSide.Pc, DenoiseFamily.Spectral, "audio.denoise.nr4", Both);
             yield return new("spectral_capture", DenoiseSide.Pc, DenoiseFamily.Spectral, "audio.denoise.spectral_capture", Receive,
-                () => new SpectralCaptureEngine(), () => Unavailability.None);
+                _ => new SpectralCaptureEngine(), () => Unavailability.None, SettingDescriptors: SpectralCaptureEngine.SettingDescriptors);
             yield return new("nvidia_afx", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.nvidia_afx", Both);
             yield return new("radio_nr", DenoiseSide.Radio, null, "audio.denoise.radio_nr", Receive,
                 ReadRadio: r => r.NoiseReduction, WriteRadio: (r, v) => r.NoiseReduction = v);

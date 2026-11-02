@@ -24,7 +24,12 @@ namespace JJFlexWpf
         public bool Accepts(EngineSettingValue value)
         {
             if (Kind == EngineSettingKind.Choice)
-                return value.Choice != null && Options != null && Options.Any(x => x.Name == value.Choice);
+            {
+                if (value.Choice == null || Options == null) return false;
+                for (int i = 0; i < Options.Count; i++)
+                    if (Options[i].Name == value.Choice) return true;
+                return false;
+            }
             if (value.Choice != null || !double.IsFinite(value.Number) || value.Number < Min || value.Number > Max)
                 return false;
             if (Stops != null) return Stops.Contains(value.Number);

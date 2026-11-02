@@ -15,12 +15,13 @@ namespace JJFlexWpf
         public int FrameLength => 480;
         public int LatencySamples => _provider.HasProfile ? 992 : 0;
         public bool IsAvailable => true;
-        public IReadOnlyList<EngineSettingDescriptor> Settings { get; } = new[] {
+        public static IReadOnlyList<EngineSettingDescriptor> SettingDescriptors { get; } = new[] {
             new EngineSettingDescriptor("subtraction_amount", "audio.denoise.subtraction_amount", EngineSettingKind.Number,
                 new EngineSettingValue(0.7), 0, 1, 0.01),
             new EngineSettingDescriptor("spectral_floor", "audio.denoise.spectral_floor", EngineSettingKind.Number,
                 new EngineSettingValue(0.02), 0, 0.2, 0.001)
         };
+        public IReadOnlyList<EngineSettingDescriptor> Settings => SettingDescriptors;
         public EngineSettingValue GetSetting(string name) => name switch {
             "subtraction_amount" => new EngineSettingValue(Volatile.Read(ref _subtraction)),
             "spectral_floor" => new EngineSettingValue(Volatile.Read(ref _floor)),
@@ -28,7 +29,9 @@ namespace JJFlexWpf
         };
         public bool TrySetSetting(string name, EngineSettingValue value)
         {
-            var descriptor = System.Linq.Enumerable.FirstOrDefault(Settings, x => x.Name == name);
+            EngineSettingDescriptor? descriptor = null;
+            for (int i = 0; i < Settings.Count; i++)
+                if (Settings[i].Name == name) { descriptor = Settings[i]; break; }
             if (descriptor == null || !descriptor.Accepts(value)) return false;
             if (name == "subtraction_amount") Volatile.Write(ref _subtraction, (float)value.Number);
             else Volatile.Write(ref _floor, (float)value.Number);
