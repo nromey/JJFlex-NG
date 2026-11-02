@@ -26,6 +26,8 @@ namespace JJFlexWpf
     public class RxAudioPipeline : IDisposable
     {
         private SpectralSubtractionProvider _spectralSub;
+        private SpectralSubtractionProvider _processingCapture;
+        private readonly Action<PerChannelDenoiserBank> _prepareSpectral;
         private readonly DenoiseEngineCatalog _catalog;
         public PcDenoiseSlot SpectralSlot { get; }
         public PcDenoiseSlot NeuralSlot { get; }
@@ -78,6 +80,8 @@ namespace JJFlexWpf
             SpectralSlot.SelectionResult += ForwardSelection;
             NeuralSlot.SelectionResult += ForwardSelection;
             _spectralSub = new SpectralSubtractionProvider(sampleRate, channels);
+            _processingCapture = _spectralSub;
+            _prepareSpectral = PrepareSpectral;
 
             Trace.WriteLine($"RxAudioPipeline: created ({sampleRate}Hz, {channels}ch)");
         }
@@ -207,16 +211,21 @@ namespace JJFlexWpf
                 var capture = Volatile.Read(ref _spectralSub);
                 bool capturing = capture.IsSampling;
                 capture.ProcessInPlace(buffer, 0, count, _channels); // capture only, never enabled
+                _processingCapture = capture;
                 SpectralSlot.Process(buffer, ModePermits(DenoiseFamily.Spectral, CurrentMode, VoiceModesOnly),
-                    capture.HasProfile, capturing, bank => {
-                        for (int ch = 0; ch < bank.Channels; ch++)
-                            if (bank.EngineFor(ch) is SpectralCaptureEngine engine) engine.SetProfile(capture.GetChannelProfile(ch));
-                    });
+                    capture.HasProfile, capturing, _prepareSpectral);
                 NeuralSlot.Process(buffer, ModePermits(DenoiseFamily.Neural, CurrentMode, VoiceModesOnly), true, false, null);
                 ApplyDuck(buffer, count);
                 ApplyPlaybackLevel(buffer, count);
             }
             finally { Interlocked.Exchange(ref _processMark, 0); }
+        }
+
+        private void PrepareSpectral(PerChannelDenoiserBank bank)
+        {
+            for (int ch = 0; ch < bank.Channels; ch++)
+                if (bank.EngineFor(ch) is SpectralCaptureEngine engine)
+                    engine.SetProfile(_processingCapture.GetChannelProfile(ch));
         }
 
         // --- Recording playback level (#787, bench 2026-10-25) ---
