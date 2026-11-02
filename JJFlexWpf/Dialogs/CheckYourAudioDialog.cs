@@ -385,8 +385,11 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     {
         if (e.Key == Key.Escape && ComputerMicCheckRunning && _session?.Active != true)
         {
-            // Nothing is transmitting: Escape stops the listening and stays, so
+            // No check is transmitting: Escape stops the listening and stays, so
             // the verdict is heard before anything closes. The next one closes.
+            // The tune key works during the listening (2026-11-02), so a carrier
+            // of ours goes off on this same press: Escape never leaves one up.
+            EscapeOurTune();
             StopComputerMicCheck(speak: true);
             e.Handled = true;
             return;
@@ -396,10 +399,10 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             // The radio's own transmit report, not only the session's (fix round
             // 2): a hardware PTT line can hold the radio keyed with no check
             // running, or while one is still preparing.
-            // And a tune carrier we asked for, before the radio reports it
-            // keyed (2026-11-02): Escape turns it off rather than closing on it.
+            // And a tune carrier of ours, up or still in the command queue
+            // (2026-11-02): Escape turns it off rather than closing on it.
             bool transmitting = _session?.EscapeStopsTransmit == true || _rig?.Transmit == true
-                || _rig?.TxTune == true
+                || _rig?.TuneAskedOrUp == true
                 || PttControllerSource?.Invoke()?.IsTransmitting == true;
             switch (AudioCheckEscape.Decide(_checkStarts.IsBusy, _checkStarts.IsCancelled,
                 _session?.Active == true, transmitting))
@@ -418,7 +421,7 @@ public partial class CheckYourAudioDialog : JJFlexDialog
                     return;
                 case AudioCheckEscapeAction.UnkeyAndStay:
                     if (_checkStarts.IsBusy && !_checkStarts.IsCancelled) CancelCheckStart();
-                    if (_session?.Active == true) _session.StopCheck();
+                    if (_session?.Active == true) _session.StopCheck(escape: true);
                     else UnkeyOutsideACheck();
                     StopCheckPlayback();
                     e.Handled = true;
@@ -486,6 +489,9 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     protected override void OnPreviewKeyUp(KeyEventArgs e)
     {
         if (e.Key is Key.LeftCtrl or Key.RightCtrl) _ctrlEnterPress.NoteControlUp();
+        // The tune key's chord carries Control or Alt; either going up ends it.
+        Key raw = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (raw is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt) _tuneKeyPress.NoteControlUp();
         base.OnPreviewKeyUp(e);
     }
 
@@ -527,29 +533,60 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     }
 
     /// <summary>
+    /// A tune of ours holds the radio: a carrier up or on its way, or an ATU
+    /// cycle. For the Stop button, which names it rather than blaming a
+    /// hardware line; only Escape turns it off.
+    /// </summary>
+    internal bool OurTuneHolds() => _rig?.TuneAskedOrUp == true || TuneDoors.Up(_rig);
+
+    /// <summary>One answer per press of the tune key, whatever the reader does with a held one.</summary>
+    private readonly FreshPressGate _tuneKeyPress = new();
+
+    /// <summary>
     /// The operator's tune key in this window (2026-11-02): Ctrl+Shift+T by
     /// default, read from the live key table so a remap is honoured. Tune is a
     /// Radio-scope command and reaches no dialog by itself, while the refusal
-    /// here says "Tune is on. Turn it off first." So the window takes it and
-    /// runs Home's own toggle. While a check owns the transmitter a carrier is
-    /// not started, the same rule as push to talk here; turning one off is never
-    /// refused. A chord with no Control or Alt is not taken, so a tune key
-    /// remapped to a plain key still types in this window's fields. True when
-    /// the key was taken.
+    /// here says "Tune is on. Turn it off first." So the window takes it. A
+    /// chord with no Control or Alt is not taken, so a tune key remapped to a
+    /// plain key still types in this window's fields. True when taken.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A stop is explicit and never swallowed; a start needs a new press</b>
+    /// (Codex, 2026-11-02). With a carrier of ours up or on its way, any fresh
+    /// key-down turns it off through <see cref="TuneOffSource"/>, which writes
+    /// off and nothing else, with no debounce. Otherwise a start goes through
+    /// Home's toggle only for a new press, by <see cref="FreshPressGate"/>, the
+    /// rule Ctrl+Enter here already follows: so a held key delivered as a
+    /// reader's down/up pairs starts once, the first pair stops it, and the
+    /// pairs after that start nothing. That is the safe direction; nobody has
+    /// measured how this chord arrives.
+    /// </para>
+    /// <para>
+    /// While a check owns the transmitter, or is starting, or an off-air take
+    /// is running, a start is refused: the same rule as push to talk here.
+    /// The Windows microphone check does not own the radio, so a carrier may
+    /// start during it; Escape then turns that carrier off with the listening.
+    /// </para>
+    /// </remarks>
     private bool TakesTheTuneKey(KeyEventArgs e)
     {
         var chord = WpfKeyConverter.ToWinFormsKeys(e);
         if ((chord & (System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.Alt)) == 0) return false;
         if (!KeyCommands.IsTuneKey(chord)) return false;
-        if (e.IsRepeat || _rig == null) return true;
-        bool checkOwnsTransmitter = _session?.Active == true || _checkStarts.IsBusy || _iqBusy;
-        if (_rig.TxTune != true && checkOwnsTransmitter)
+        if (_rig == null) return true;
+        bool carrierOurs = _rig.TuneAskedOrUp;
+        switch (_tuneKeyPress.Decide(Environment.TickCount64, e.IsRepeat, carrierOurs, () => true))
         {
-            TuneDoors.RefuseTuneDuringCheck();
-            return true;
+            case PressAct.Stop:
+                TuneOffSource?.Invoke();
+                break;
+            case PressAct.Start:
+                bool checkOwnsTransmitter = _session?.Active == true || _checkStarts.IsBusy || _iqBusy;
+                if (checkOwnsTransmitter) TuneDoors.RefuseTuneDuringCheck();
+                else ToggleTuneSource?.Invoke();
+                break;
         }
-        ToggleTuneSource?.Invoke();
         return true;
     }
 

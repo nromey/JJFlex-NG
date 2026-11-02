@@ -88,6 +88,33 @@ namespace Radios
         }
 
         /// <summary>
+        /// A tune carrier of ours is up, or asked for and on its way (2026-11-02):
+        /// FlexLib's tune flag, or a request this client noted ahead of the
+        /// command queue that the radio has not yet had time to answer. The
+        /// getter of <see cref="TxTune"/> alone misses the second, because the
+        /// queued write changes it only when the command worker runs, so a door
+        /// that asked only the getter could close a window on a tune about to
+        /// key. An ATU cycle is not counted. Read-only; safe with no radio.
+        /// </summary>
+        public bool TuneAskedOrUp
+        {
+            get
+            {
+                Radio radio = theRadio;
+                if (radio == null) return false;
+                if (radio.TXTune) return true;
+                bool requested;
+                long at;
+                lock (_tuneFactGate)
+                {
+                    requested = _tuneRequested;
+                    at = _tuneRequestedAtMs;
+                }
+                return TuneFact.Pending(requested, TuneFactClock() - at, ReadTuneStanding());
+            }
+        }
+
+        /// <summary>
         /// The radio's own word on transmitting right now. Read-only: nothing
         /// here is a command and nothing here gates one.
         /// </summary>

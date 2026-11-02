@@ -1537,7 +1537,7 @@ public partial class CheckYourAudioDialog
         /// through the controller and restores session state. The dialog
         /// stays open.
         /// </summary>
-        public void StopCheck()
+        public void StopCheck(bool escape = false)
         {
             _owner.CancelCheckStart();
             if (!Active) return;
@@ -1549,10 +1549,19 @@ public partial class CheckYourAudioDialog
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.check.still_transmitting"),
                     VerbosityLevel.Critical, interrupt: true);
             }
-            else if (_owner.EscapeOurTune())
+            else if (escape && _owner.EscapeOurTune())
             {
-                // A tune of ours is the transmit (2026-11-02): turned off, or
-                // an ATU cycle named. Not the hardware sentence below.
+                // Escape, with a tune of ours as the transmit (2026-11-02):
+                // turned off, or an ATU cycle named. Not the hardware sentence.
+            }
+            else if (!escape && _owner.OurTuneHolds())
+            {
+                // The Stop button stops the check, not a tune the operator
+                // started on Home; it says what holds the radio instead of
+                // blaming a hardware line. Escape is the one that turns it off.
+                // DRAFT PROSE (#860): awaiting Noel.
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.tune.turn_off_first"),
+                    VerbosityLevel.Critical, interrupt: true);
             }
             else if (Rig?.Transmit == true)
             {

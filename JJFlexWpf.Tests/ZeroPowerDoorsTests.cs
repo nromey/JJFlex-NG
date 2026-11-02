@@ -394,29 +394,103 @@ public sealed class ZeroPowerDoorsTests : IDisposable
         Assert.NotEqual(0L, (long)Read(main, "_lastTuneToggleTicks")!);
     }
 
-    [Fact]
-    public void Turning_tune_off_from_a_dialog_does_nothing_when_tune_is_off()
+    // ── Turning tune off from Check your audio (2026-11-02) ─────────────
+
+    private bool TuneAskedOn() => (bool)typeof(FlexBase).GetField("_tuneRequested", Any)!.GetValue(_rig)!;
+
+    private void AskForTuneJustNow()
     {
-        // Escape in Check your audio (2026-11-02): no carrier, nothing toggled.
+        // As FlexBase.TxTune's setter notes it, ahead of the queued write.
+        typeof(FlexBase).GetField("_tuneRequested", Any)!.SetValue(_rig, true);
+        typeof(FlexBase).GetField("_tuneRequestedAtMs", Any)!.SetValue(_rig, Environment.TickCount64);
+    }
+
+    [Fact]
+    public void Turning_tune_off_does_nothing_when_no_tune_of_ours_is_up_or_asked()
+    {
         RadioFor();
         var main = Window();
         Assert.False(main.TurnTuneCarrierOff());
         Assert.Equal(0L, (long)Read(main, "_lastTuneToggleTicks")!);
         Assert.False(TuneCarrierNoted());
+        Assert.False(TuneAskedOn());
     }
 
     [Fact]
-    public void Turning_tune_off_from_a_dialog_runs_the_toggles_off_even_inside_its_debounce()
+    public void Turning_tune_off_writes_off_even_inside_the_toggles_debounce()
     {
         object radio = RadioFor();
         radio.GetType().GetField("_txTune", Any)!.SetValue(radio, true);
+        AskForTuneJustNow();
         var main = Window();
-        // A toggle a moment ago would have the debounce swallow an ordinary press.
-        typeof(MainWindow).GetField("_lastTuneToggleTicks", Any)!.SetValue(main, Environment.TickCount64);
-        // The off branch ran: it reached the button this window lacks.
-        var said = Said(() => Assert.Throws<NullReferenceException>(() => main.TurnTuneCarrierOff()));
-        Assert.DoesNotContain(Tune, said);
-        Assert.NotEqual(0L, (long)Read(main, "_lastTuneToggleTicks")!);
+        // A toggle a moment ago: the debounce would swallow an ordinary press.
+        typeof(MainWindow).GetField("_lastTuneToggleTicks", Any)!.SetValue(main, Environment.TickCount64 - 10);
+        Record.Exception(() => main.TurnTuneCarrierOff());   // the feedback may reach parts this window lacks
+        // The write was OFF: the setter notes its value before it queues.
+        Assert.False(TuneAskedOn());
+        Assert.False(TuneCarrierNoted());
+    }
+
+    [Fact]
+    public void A_tune_still_in_the_command_queue_counts_and_is_written_off()
+    {
+        // Codex blocker 2: the radio's flag has not risen yet, but the request
+        // is on its way. The getter alone would say no tune at all.
+        RadioFor();
+        AskForTuneJustNow();
+        Assert.False(_rig.TxTune);
+        Assert.True(_rig.TuneAskedOrUp);
+        var main = Window();
+        // The feedback may reach parts this window lacks, after the write.
+        Record.Exception(() => main.TurnTuneCarrierOff());
+        Assert.False(TuneAskedOn());          // the write was OFF
+        Assert.False(_rig.TuneAskedOrUp);
+    }
+
+    [Fact]
+    public void A_flag_falling_between_reads_can_never_turn_the_off_into_an_on()
+    {
+        // Codex blocker 1: the first version read the flag and then toggled,
+        // and the toggle read it again. The off is now a write of false and
+        // nothing else, so no interleaving can reach a write of true.
+        string off = Body(Source("JJFlexWpf", "MainWindow.xaml.cs"), "public bool TurnTuneCarrierOff()");
+        Assert.Contains("rig.TxTune = false;", off);
+        Assert.DoesNotContain("ToggleTuneCarrier", off);
+        Assert.DoesNotContain("TxTune = true", off);
+        Assert.DoesNotContain("newState", off);
+        Assert.Contains("rig.TuneAskedOrUp", off);
+    }
+
+    [Fact]
+    public void The_tune_key_in_the_dialog_stops_explicitly_and_starts_only_on_a_new_press()
+    {
+        // Codex blocker 4: a quick second press must stop, and a reader's
+        // down/up pairs must not restart a carrier the first pair stopped.
+        string takes = Body(Source("JJFlexWpf", "Dialogs", "CheckYourAudioDialog.cs"), "private bool TakesTheTuneKey(KeyEventArgs e)");
+        Assert.Contains("_tuneKeyPress.Decide(Environment.TickCount64, e.IsRepeat, carrierOurs, () => true)", takes);
+        int stop = takes.IndexOf("case PressAct.Stop:", StringComparison.Ordinal);
+        int start = takes.IndexOf("case PressAct.Start:", StringComparison.Ordinal);
+        Assert.True(stop > 0 && start > stop);
+        string stopArm = takes.Substring(stop, start - stop);
+        Assert.Contains("TuneOffSource?.Invoke()", stopArm);
+        Assert.DoesNotContain("ToggleTuneSource", stopArm);
+
+        // The gate itself, in the pair shape: start, the first pair stops, no
+        // pair after that starts anything.
+        var gate = new FreshPressGate();
+        bool up = false;
+        long t = 0;
+        var acts = new List<PressAct>();
+        for (int pair = 0; pair < 7; pair++, t += 250)
+        {
+            var act = gate.Decide(t, isRepeat: false, live: up, settle: () => true);
+            acts.Add(act);
+            if (act == PressAct.Start) up = true;
+            if (act == PressAct.Stop) up = false;
+        }
+        Assert.Equal(PressAct.Start, acts[0]);
+        Assert.Equal(PressAct.Stop, acts[1]);
+        Assert.All(acts.Skip(2), a => Assert.Equal(PressAct.Nothing, a));
     }
 
     [Fact]

@@ -151,7 +151,8 @@ namespace Radios.Tests
             int escape = keys.IndexOf("case AudioCheckEscapeAction.UnkeyAndStay:", StringComparison.Ordinal);
             Assert.True(escape >= 0);
             string first = keys.Substring(escape, keys.IndexOf("return;", escape, StringComparison.Ordinal) - escape);
-            Assert.Contains("_session.StopCheck();", first);
+            // Told it is an Escape (2026-11-02), so a tune of ours goes off too.
+            Assert.Contains("_session.StopCheck(escape: true);", first);
             Assert.Contains("e.Handled = true;", first);
         }
 

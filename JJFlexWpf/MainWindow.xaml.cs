@@ -6536,33 +6536,53 @@ public partial class MainWindow : UserControl
         }
         else
         {
-            EndTuneAnswer("tune off");
-            // Stop ATU progress earcon in case auto-ATU started a tune cycle
-            EarconPlayer.StopATUProgressEarcon();
-            StopATUTimeout();
-            EarconPlayer.TuneOffTone();
-            MeterToneEngine.OnTuneStopped();
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.tune_off"), VerbosityLevel.Terse, true);
-            // TXTune falling edge raises no FlexAntTuneStartStop event, so the
-            // ATU-status-driven announce path never fires for manual carrier.
-            // Call directly here with the captured SWR so external/manual tuners
-            // (Don's rooftop unit) get the real final match, not the idle 1.0.
-            AnnounceCapturedSwrAfterTune(isFailure: false, capturedSwr);
+            TuneOffFeedback(capturedSwr);
         }
     }
 
+    /// <summary>What a tune carrier going off says and sounds, from the toggle or from <see cref="TurnTuneCarrierOff"/>.</summary>
+    private void TuneOffFeedback(float capturedSwr)
+    {
+        EndTuneAnswer("tune off");
+        // Stop ATU progress earcon in case auto-ATU started a tune cycle
+        EarconPlayer.StopATUProgressEarcon();
+        StopATUTimeout();
+        EarconPlayer.TuneOffTone();
+        MeterToneEngine.OnTuneStopped();
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.tune_off"), VerbosityLevel.Terse, true);
+        // TXTune falling edge raises no FlexAntTuneStartStop event, so the
+        // ATU-status-driven announce path never fires for manual carrier.
+        // Call directly here with the captured SWR so external/manual tuners
+        // (Don's rooftop unit) get the real final match, not the idle 1.0.
+        AnnounceCapturedSwrAfterTune(isFailure: false, capturedSwr);
+    }
+
     /// <summary>
-    /// Turn the tune carrier off if it is on; true when it was (2026-11-02).
-    /// Escape in Check your audio comes here. It goes through the toggle, so
-    /// the tones, the SWR sentence and the controller's note are Home's own.
-    /// The toggle's debounce guards auto-repeat of the toggle; an off is never
-    /// a chirp, so it does not stand in the way of this one.
+    /// Turn our tune carrier off if it is up or on its way; true when it was
+    /// (2026-11-02). Escape and the tune key in Check your audio come here.
     /// </summary>
+    /// <remarks>
+    /// <b>An explicit off, never a toggle.</b> The first version read the flag,
+    /// then called the toggle, which read it again to choose its new state; a
+    /// flag falling on FlexLib's reader thread between the two reads turned an
+    /// unkey into a new carrier (Codex, 2026-11-02). This writes false and
+    /// nothing else, so no interleaving can issue a key. It also counts a tune
+    /// asked for and still in the command queue (<see cref="FlexBase.TuneAskedOrUp"/>);
+    /// the off queues behind it, so the radio ends off. No debounce applies: a
+    /// stop is never swallowed. The feedback is the toggle's own.
+    /// </remarks>
     public bool TurnTuneCarrierOff()
     {
-        if (RigControl?.TxTune != true) return false;
-        _lastTuneToggleTicks = 0;
-        ToggleTuneCarrier();
+        FlexBase? rig = RigControl;
+        if (rig == null || !rig.TuneAskedOrUp) return false;
+        float capturedSwr = rig.TuneCycleSettledComputedSwr;
+        rig.TxTune = false;
+        _pttController?.NoteTuneCarrier(false);
+        // A toggle press right behind this one is more of it: a start inside
+        // the toggle's window is swallowed, which is the safe direction.
+        _lastTuneToggleTicks = Environment.TickCount64;
+        if (TuneToggleButton != null) TuneToggleButton.IsChecked = false;
+        TuneOffFeedback(capturedSwr);
         return true;
     }
 

@@ -53,6 +53,7 @@ public class Host
     private void OnSessionEnded() { CancelCheckStart(); }
     // Escape with a tune of ours holding the radio (2026-11-02): no tune here.
     internal bool EscapeOurTune() => false;
+    internal bool OurTuneHolds() => false;
     private static void SayPowerNotReported() { RecorderControls.Spoken++; }
     /*StartLoopbackCheckAsync*/
     /*StartAudioCheckSessionAsync*/

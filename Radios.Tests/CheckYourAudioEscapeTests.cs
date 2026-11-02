@@ -165,24 +165,59 @@ namespace Radios.Tests
             Assert.True(tune >= 0 && blame > tune);
             Assert.Contains("!ourTune && _rig?.Transmit == true", outside);
 
-            string stop = Body(Check(), "public void StopCheck()");
+            string stop = Body(Check(), "public void StopCheck(bool escape = false)");
             tune = stop.IndexOf("_owner.EscapeOurTune()", StringComparison.Ordinal);
             blame = stop.IndexOf("escape_radio_still_transmitting", StringComparison.Ordinal);
             Assert.True(tune >= 0 && blame > tune);
 
-            // The carrier goes off through Home's toggle; an ATU cycle is named.
+            // Only Escape turns it off; the Stop button names it.
+            Assert.Contains("escape && _owner.EscapeOurTune()", stop);
+            Assert.Contains("!escape && _owner.OurTuneHolds()", stop);
+
+            // The carrier goes off through Home's explicit off; an ATU cycle is named.
             string ours = Body(Shell(), "internal bool EscapeOurTune()");
             Assert.Contains("TuneOffSource?.Invoke() == true", ours);
             Assert.Contains("audio.tune.tuner_still_tuning", ours);
         }
 
-        [Fact]
-        public void A_tune_carrier_asked_for_counts_as_transmitting_before_the_radio_reports_it()
+        private static string Handler()
         {
             string shell = Shell();
             int at = shell.IndexOf("protected override void OnPreviewKeyDown(KeyEventArgs e)", StringComparison.Ordinal);
-            string handler = shell.Substring(at, shell.IndexOf("base.OnPreviewKeyDown(e);", at, StringComparison.Ordinal) - at);
-            Assert.Contains("|| _rig?.TxTune == true", handler);
+            return shell.Substring(at, shell.IndexOf("base.OnPreviewKeyDown(e);", at, StringComparison.Ordinal) - at);
+        }
+
+        [Fact]
+        public void A_tune_still_in_the_command_queue_counts_as_transmitting()
+        {
+            // Codex blocker 2: the tune key's write is queued, and the getter
+            // changes only when it runs; Escape in that gap closed the window.
+            Assert.Contains("|| _rig?.TuneAskedOrUp == true", Handler());
+            string flex = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "Radios", "FlexBase.TuneAnswer.cs"));
+            string asked = Body(flex, "public bool TuneAskedOrUp");
+            Assert.Contains("if (radio.TXTune) return true;", asked);
+            Assert.Contains("TuneFact.Pending(requested", asked);
+        }
+
+        [Fact]
+        public void Escape_with_a_session_tells_the_session_it_is_an_escape()
+        {
+            string handler = Handler();
+            int stay = handler.IndexOf("case AudioCheckEscapeAction.UnkeyAndStay:", StringComparison.Ordinal);
+            string arm = handler.Substring(stay, handler.IndexOf("return;", stay, StringComparison.Ordinal) - stay);
+            Assert.Contains("_session.StopCheck(escape: true)", arm);
+        }
+
+        [Fact]
+        public void The_microphone_listening_Escape_turns_a_tune_of_ours_off_on_the_same_press()
+        {
+            // Codex blocker 3: this branch returned before anything asked about tune.
+            string handler = Handler();
+            int at = handler.IndexOf("ComputerMicCheckRunning && _session?.Active != true", StringComparison.Ordinal);
+            string branch = handler.Substring(at, handler.IndexOf("return;", at, StringComparison.Ordinal) - at);
+            int tune = branch.IndexOf("EscapeOurTune();", StringComparison.Ordinal);
+            int mic = branch.IndexOf("StopComputerMicCheck(speak: true);", StringComparison.Ordinal);
+            Assert.True(tune > 0 && mic > tune);
         }
 
         [Fact]
@@ -200,10 +235,11 @@ namespace Radios.Tests
             Assert.Contains("KeyCommands.IsTuneKey(chord)", takes);
             Assert.Contains("System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.Alt", takes);
             // A start is refused while a check owns the transmitter; an off never is.
+            int start = takes.IndexOf("case PressAct.Start:", StringComparison.Ordinal);
             int refuse = takes.IndexOf("TuneDoors.RefuseTuneDuringCheck()", StringComparison.Ordinal);
             int toggle = takes.IndexOf("ToggleTuneSource?.Invoke()", StringComparison.Ordinal);
-            Assert.True(refuse > 0 && toggle > refuse);
-            Assert.Contains("_rig.TxTune != true && checkOwnsTransmitter", takes);
+            Assert.True(start > 0 && refuse > start && toggle > refuse);
+            Assert.Contains("if (checkOwnsTransmitter) TuneDoors.RefuseTuneDuringCheck();", takes);
 
             string main = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "MainWindow.xaml.cs"));
             Assert.Contains("Dialogs.CheckYourAudioDialog.ToggleTuneSource = () => ToggleTuneCarrier();", main);
