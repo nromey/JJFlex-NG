@@ -1,32 +1,9 @@
-// Sprint 48 Track G (#731): nrbench, the offline noise-reduction bench.
-//
-// Renders one input WAV through each noise-reduction variant the app can run,
-// using the app's own sources (linked, see nrbench.csproj), and writes one WAV
-// per variant plus a plain-text report a screen reader can read top to bottom.
-//
-//   dotnet run --project tools/nrbench -- <input.wav> <outDir> [options]
-//
-//   --clean <wav>            the clean original, when the input was made by
-//                            mixing noise into it; adds a fidelity figure
-//   --external <name>=<wav>  fold in a WAV produced elsewhere (repeatable);
-//                            it is copied beside the others and reported the
-//                            same way, so a denoiser that cannot live in this
-//                            repository can still be compared on the same
-//                            recording
-//   --deepfilter <dir>       folder holding deepfilter.dll and its model;
-//                            default runtimes\win-x64\native in this repository
-//
-//   dotnet run --project tools/nrbench -- synth <speech.wav> <outDir> [options]
-//
-//   Makes a synthetic test input: the speech band-limited to an SSB passband,
-//   mixed with generated noise. Writes noisy.wav and clean.wav.
-//   --start <s>  --seconds <s>  --snr <dB>  --carrier <Hz>  --seed <n>
-//
-// Input may be mono or stereo at any rate; it is resampled to 48 kHz. Output
-// WAVs are 48 kHz 16-bit with the input's channel count.
-//
-// Nothing here opens an audio device or plays a sound.
-
+// Offline only: reads WAV files and writes WAVs/text; no audio devices.
+// nrbench suite <recordingsRoot> [--out <resultsRoot>] [--deepfilter <nativeDir>]
+// nrbench <input.wav> <outDir> [--deepfilter <nativeDir>]
+// nrbench cpu [input.wav] [--out <report.txt>] [--deepfilter <nativeDir>]
+// nrbench selftest [--mutation <control-name>]
+// nrbench synth <speech.wav> <outDir> [--start s] [--seconds s] [--snr dB] [--carrier Hz] [--seed n]
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
@@ -34,181 +11,12 @@ using JJFlexWpf;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 
-const int Rate = 48000;
-const int Frame = 480;            // 10 ms: one Opus packet on the live receive path
-const float AppStrength = 0.8f;   // NoiseReductionProvider's default, and the Home control's default of 80 percent
-
-CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
-
-if (args.Length >= 1 && args[0] == "synth")
-    return Synth(args.Skip(1).ToArray());
-if (args.Length < 2 || args[0].StartsWith("-"))
+namespace NrBench;
+partial class BenchApp
 {
-    Console.Error.WriteLine("usage: nrbench <input.wav> <outDir> [--clean <wav>] [--external <name>=<wav>]... [--deepfilter <dir>]");
-    Console.Error.WriteLine("       nrbench synth <speech.wav> <outDir> [--start s] [--seconds s] [--snr dB] [--carrier Hz] [--seed n]");
-    return 2;
-}
-return Bench(args);
-
-// ===========================================================================
-// The bench
-// ===========================================================================
-
-int Bench(string[] a)
-{
-    string inputPath = a[0];
-    string outDir = a[1];
-    string? cleanPath = null;
-    string? dfDir = null;
-    var externals = new List<(string Name, string Path)>();
-    for (int i = 2; i < a.Length; i++)
-    {
-        switch (a[i])
-        {
-            case "--clean": cleanPath = a[++i]; break;
-            case "--deepfilter": dfDir = a[++i]; break;
-            case "--external":
-                string spec = a[++i];
-                int eq = spec.IndexOf('=');
-                if (eq <= 0) { Console.Error.WriteLine($"--external wants name=path, got {spec}"); return 2; }
-                externals.Add((spec[..eq], spec[(eq + 1)..]));
-                break;
-            default: Console.Error.WriteLine($"unknown option {a[i]}"); return 2;
-        }
-    }
-
-    Directory.CreateDirectory(outDir);
-    dfDir ??= Path.Combine(FindRepoRoot(), "runtimes", "win-x64", "native");
-    string dfLib = Path.Combine(dfDir, DeepFilterNet3Engine.LibraryFileName);
-
-    var input = LoadWav(inputPath, out int channels, out string inputDescription);
-    float[]? clean = cleanPath != null ? Mono(LoadWav(cleanPath, out int cleanCh, out _), cleanCh) : null;
-    double seconds = input.Length / (double)channels / Rate;
-
-    var report = new StringBuilder();
-    void Line(string s = "") { report.AppendLine(s); Console.WriteLine(s); }
-
-    Line("Noise reduction bench report");
-    Line();
-    Line($"Made {DateTime.Now:yyyy-MM-dd HH:mm} by tools/nrbench, which runs the app's own noise-reduction code.");
-    Line($"Input: {Path.GetFileName(inputPath)}, {inputDescription}, {seconds:F1} seconds, {channels} channel{(channels == 1 ? "" : "s")}.");
-    if (clean != null)
-        Line($"Clean original for the fidelity figure: {Path.GetFileName(cleanPath!)}.");
-    Line($"Every variant is fed the way the live receive path feeds it: one 10 ms packet ({Frame} samples per channel) at a time, through NoiseReductionProvider, one engine per channel.");
-    Line($"Times are wall-clock on this machine ({Environment.ProcessorCount} logical processors), single-threaded, for the whole file divided by its 10 ms frames.");
-    Line("The real-time factor is processing time over audio time: 0.05 means one second of audio took a twentieth of a second to process.");
-    Line("Measured delay is how far the output lags the input, found by cross-correlation, not quoted from any documentation.");
-    Line("Output level is RMS in dBFS. Noise reduction lowers it, and a quieter file tends to sound worse in a quick comparison, so match levels before judging.");
-    if (clean != null)
-        Line("Fidelity is scale-invariant signal-to-distortion ratio against the clean original, after removing the measured delay. Higher is closer to the clean speech; the unprocessed figure is the starting point.");
-    Line();
-
-    var variants = new List<Variant>
-    {
-        new("unprocessed", "Unprocessed: the input as it went in.", null, 0f),
-        new("rnnoise", $"RNNoise at the app's default strength of {AppStrength * 100:F0} percent, exactly as the app runs it today.",
-            () => new RnnoiseEngine(RnnoiseScaling.Historical), AppStrength),
-        new("rnnoise-corrected", $"RNNoise at {AppStrength * 100:F0} percent with its input scaled once instead of twice. Not what the app does; rendered so the scaling question can be settled by ear.",
-            () => new RnnoiseEngine(RnnoiseScaling.Corrected), AppStrength),
-        new("deepfilternet3-unlimited", "DeepFilterNet3 with no attenuation limit (upstream's default, 100 dB), fully wet.",
-            () => new DeepFilterNet3Engine(100f, dfLib), 1f),
-        new("deepfilternet3-limit-18db", "DeepFilterNet3 limited to 18 dB of attenuation, fully wet.",
-            () => new DeepFilterNet3Engine(18f, dfLib), 1f),
-        new("deepfilternet3-limit-9db", "DeepFilterNet3 limited to 9 dB of attenuation, fully wet: the gentlest setting here.",
-            () => new DeepFilterNet3Engine(9f, dfLib), 1f),
-    };
-
-    int number = 0;
-    foreach (var v in variants)
-    {
-        number++;
-        var buf = (float[])input.Clone();
-        string file = v.Name + ".wav";
-        Line($"Variant {number}: {v.Name}");
-        Line(v.Description);
-
-        if (v.Factory == null)
-        {
-            WriteWav(Path.Combine(outDir, file), buf, channels);
-            Line($"File: {file}.");
-            Line($"Output level: {RmsDb(buf):F1} dBFS.");
-            if (clean != null) Line($"Fidelity: {Fidelity(clean, Mono(buf, channels)):F1} dB.");
-            Line();
-            continue;
-        }
-
-        using var nr = new NoiseReductionProvider(Rate, channels, v.Factory) { Enabled = true, Strength = v.Strength };
-        var bank = nr.Bank;
-        if (bank == null || !bank.IsAvailable)
-        {
-            string why = bank?.EngineFor(0) is DeepFilterNet3Engine d ? d.UnavailabilityDetail : "the engine did not start";
-            Line($"NOT RENDERED: {why}");
-            Line();
-            continue;
-        }
-
-        int packet = Frame * channels;
-        int frames = 0;
-        var sw = Stopwatch.StartNew();
-        for (int pos = 0; pos + packet <= buf.Length; pos += packet, frames++)
-            nr.ProcessInPlace(buf, pos, packet, channels);
-        sw.Stop();
-        // A final short packet, so the whole file is processed (and the carry exercised once).
-        int tail = buf.Length % packet;
-        if (tail > 0) nr.ProcessInPlace(buf, buf.Length - tail, tail, channels);
-
-        WriteWav(Path.Combine(outDir, file), buf, channels);
-        double msPerFrame = sw.Elapsed.TotalMilliseconds / Math.Max(1, frames);
-        double rtf = sw.Elapsed.TotalSeconds / Math.Max(1e-9, frames * 0.010);
-        Line($"File: {file}.");
-        Line($"Processing time: {msPerFrame:F3} ms per 10 ms frame for {(channels == 1 ? "the one channel" : $"all {channels} channels together")}, {msPerFrame / channels:F3} ms per channel.");
-        Line($"Real-time factor: {rtf:F3}, meaning processing took {rtf * 100:F1} percent of the audio's own duration.");
-        Line($"Measured delay: {DelayMs(Mono(input, channels), Mono(buf, channels)):F1} ms. " +
-             $"The engine reports {bank.EngineLatencySamples * 1000.0 / Rate:F1} ms of its own, " +
-             $"and the frame carry added {bank.CarryLatencySamples * 1000.0 / Rate:F1} ms " +
-             "(nothing on 10 ms packets; the short last packet is what moves it).");
-        if (bank.FallbackFrames > 0)
-            Line($"WARNING: {bank.FallbackFrames} frames went out unprocessed because the engine failed on them.");
-        Line($"Output level: {RmsDb(buf):F1} dBFS.");
-        if (bank.EngineFor(0) is DeepFilterNet3Engine)
-        {
-            double sum = 0; long n = 0;
-            for (int ch = 0; ch < channels; ch++)
-                if (bank.EngineFor(ch) is DeepFilterNet3Engine e) { sum += e.SnrSumDb; n += e.FramesProcessed; }
-            Line($"Mean per-frame SNR DeepFilterNet3 reported: {sum / Math.Max(1, n):F1} dB, over {n} frames.");
-        }
-        if (clean != null)
-            Line($"Fidelity: {Fidelity(clean, Mono(buf, channels)):F1} dB.");
-        Line();
-    }
-
-    foreach (var (name, path) in externals)
-    {
-        number++;
-        Line($"Variant {number}: external, {name}");
-        Line($"Produced outside this repository and folded in for comparison: {Path.GetFileName(path)}.");
-        if (!File.Exists(path)) { Line("NOT FOUND."); Line(); continue; }
-        var ext = LoadWav(path, out int extCh, out string extDesc);
-        string file = "external-" + Sanitise(name) + ".wav";
-        WriteWav(Path.Combine(outDir, file), ext, extCh);
-        Line($"File: {file}, copied from {extDesc}.");
-        Line("Processing time: not measured here; it was produced by another program.");
-        Line($"Measured delay: {DelayMs(Mono(input, channels), Mono(ext, extCh)):F1} ms.");
-        Line($"Output level: {RmsDb(ext):F1} dBFS.");
-        if (clean != null) Line($"Fidelity: {Fidelity(clean, Mono(ext, extCh)):F1} dB.");
-        Line();
-    }
-
-    Line("End of report.");
-    File.WriteAllText(Path.Combine(outDir, "report.txt"), report.ToString());
-    return 0;
-}
-
-// ===========================================================================
-// Synthetic input
-// ===========================================================================
-
-int Synth(string[] a)
+const int Rate = 48000, Frame = 480;
+static int Main(string[] args) => Entry(args);
+static int Synth(string[] a)
 {
     if (a.Length < 2) { Console.Error.WriteLine("synth wants <speech.wav> <outDir>"); return 2; }
     string speechPath = a[0], outDir = a[1];
@@ -298,7 +106,10 @@ static void WriteWav(string path, float[] samples, int channels)
 {
     using var w = new WaveFileWriter(path, new WaveFormat(Rate, 16, channels));
     var clamped = new float[samples.Length];
-    for (int i = 0; i < samples.Length; i++) clamped[i] = Math.Clamp(samples[i], -1f, 1f);
+    for (int i = 0; i < samples.Length; i++) {
+        if (!float.IsFinite(samples[i]) || Math.Abs(samples[i]) > 1f) throw new InvalidOperationException("Refusing a WAV that would clip or contain non-finite samples");
+        clamped[i] = samples[i];
+    }
     w.WriteSamples(clamped, 0, clamped.Length);
 }
 
@@ -386,6 +197,7 @@ static double DelayMs(float[] a, float[] b) => DelaySamples(a, b) * 1000.0 / Rat
 
 static int DelaySamples(float[] a, float[] b)
 {
+    if (Mutation == "delay-finder") return 0;
     const int N = 1 << 18;           // about 5.5 s
     int maxLag = Rate / 4;
     int len = Math.Min(a.Length, b.Length);
@@ -467,7 +279,7 @@ static string FindRepoRoot()
 {
     var d = new DirectoryInfo(AppContext.BaseDirectory);
     while (d != null && !File.Exists(Path.Combine(d.FullName, "JJFlexRadio.sln"))) d = d.Parent;
-    return d?.FullName ?? Environment.CurrentDirectory;
+    return d?.FullName ?? "";
 }
 
-record Variant(string Name, string Description, Func<IDenoiseEngine>? Factory, float Strength);
+}
