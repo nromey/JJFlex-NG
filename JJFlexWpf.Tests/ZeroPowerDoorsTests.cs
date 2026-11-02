@@ -403,7 +403,10 @@ public sealed class ZeroPowerDoorsTests : IDisposable
         // As FlexBase.TxTune's setter notes it, ahead of the queued write.
         typeof(FlexBase).GetField("_tuneRequested", Any)!.SetValue(_rig, true);
         typeof(FlexBase).GetField("_tuneRequestedAtMs", Any)!.SetValue(_rig, Environment.TickCount64);
+        typeof(FlexBase).GetField("_tuneOnQueued", Any)!.SetValue(_rig, true);
     }
+
+    private bool OnStillQueued() => (bool)typeof(FlexBase).GetField("_tuneOnQueued", Any)!.GetValue(_rig)!;
 
     [Fact]
     public void Turning_tune_off_does_nothing_when_no_tune_of_ours_is_up_or_asked()
@@ -444,6 +447,7 @@ public sealed class ZeroPowerDoorsTests : IDisposable
         // The feedback may reach parts this window lacks, after the write.
         Record.Exception(() => main.TurnTuneCarrierOff());
         Assert.False(TuneAskedOn());          // the write was OFF
+        Assert.False(OnStillQueued());        // and it revoked the ON ahead of it
         Assert.False(_rig.TuneAskedOrUp);
     }
 

@@ -195,8 +195,10 @@ namespace Radios.Tests
             Assert.Contains("|| _rig?.TuneAskedOrUp == true", Handler());
             string flex = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "Radios", "FlexBase.TuneAnswer.cs"));
             string asked = Body(flex, "public bool TuneAskedOrUp");
-            Assert.Contains("if (radio.TXTune) return true;", asked);
-            Assert.Contains("TuneFact.Pending(requested", asked);
+            // Counted until it runs or is revoked; no timeout stands in for the
+            // queue. The behaviour is TuneWriteLifetimeTests'.
+            Assert.Contains("return _tuneOnQueued || radio.TXTune;", asked);
+            Assert.DoesNotContain("Pending", asked);
         }
 
         [Fact]

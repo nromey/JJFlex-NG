@@ -33,6 +33,71 @@ namespace Radios
             }
         }
 
+        // ── The tune write's own life in the command queue (2026-11-02) ──────
+        //
+        // A tune-ON sits in the command queue until the worker runs it, and until
+        // then it can still key the radio. Codex showed two ways that went wrong
+        // in Check your audio: the request's answer window expired at 1.5 s while
+        // the ON was still queued, so Escape closed the window ahead of a carrier;
+        // and an OFF cleared the request at once while the ON ahead of it still
+        // ran, so a second Escape closed before it keyed. A timeout is not a
+        // command's lifetime. So every tune write takes a generation, a later
+        // write REVOKES an earlier ON that has not run, and a queued ON is
+        // counted by TuneAskedOrUp until it has run or been revoked.
+
+        private readonly object _tuneWriteGate = new();
+        private long _tuneWriteGen;
+        private bool _tuneOnQueued;
+
+        /// <summary>
+        /// Queue one write of FlexLib's tune flag. A later write revokes an ON
+        /// that has not yet run: it is dropped, never sent after a stop. An OFF
+        /// always runs. The check and the write share a lock with the revoking
+        /// setter, so an ON is either sent before the later write's generation
+        /// is taken, and its flag is then up for every door to see, or never.
+        /// </summary>
+        /// <param name="held">Run instead of the write when an Audio Check teardown holds an ON.</param>
+        private void EnqueueTuneWrite(bool value, string what, Action held)
+        {
+            long gen;
+            lock (_tuneWriteGate)
+            {
+                gen = ++_tuneWriteGen;
+                _tuneOnQueued = value;
+            }
+            NoteTuneRequest(value);
+            q.Enqueue((FunctionDel)(() =>
+            {
+                lock (_tuneWriteGate)
+                {
+                    bool latest = gen == _tuneWriteGen;
+                    if (value && !latest)
+                    {
+                        JJTrace.Tracing.TraceLine("TuneWrite: an ON for the " + what + " was revoked by a later write before it ran", System.Diagnostics.TraceLevel.Info);
+                        return;
+                    }
+                    if (value && TeardownHeldSilently(what))
+                    {
+                        if (latest) _tuneOnQueued = false;
+                        held?.Invoke();
+                        return;
+                    }
+                    theRadio.TXTune = value;
+                    if (latest) _tuneOnQueued = false;
+                }
+            }), "TXTune");
+        }
+
+        /// <summary>The connection is gone: nothing queued for it is ours to count.</summary>
+        private void ForgetTuneWrites()
+        {
+            lock (_tuneWriteGate)
+            {
+                _tuneWriteGen++;
+                _tuneOnQueued = false;
+            }
+        }
+
         /// <summary>
         /// The radio or FlexLib has dropped the tune flag, however that came
         /// about (#860). For whoever has something to retire the moment tune
@@ -88,13 +153,16 @@ namespace Radios
         }
 
         /// <summary>
-        /// A tune carrier of ours is up, or asked for and on its way (2026-11-02):
-        /// FlexLib's tune flag, or a request this client noted ahead of the
-        /// command queue that the radio has not yet had time to answer. The
-        /// getter of <see cref="TxTune"/> alone misses the second, because the
-        /// queued write changes it only when the command worker runs, so a door
-        /// that asked only the getter could close a window on a tune about to
-        /// key. An ATU cycle is not counted. Read-only; safe with no radio.
+        /// A tune carrier of ours is up, or an ON for it is still in the command
+        /// queue (2026-11-02): FlexLib's tune flag, or a queued ON that has
+        /// neither run nor been revoked by a later write. The getter of
+        /// <see cref="TxTune"/> alone misses the second, because the queued write
+        /// changes it only when the command worker runs; and no timeout stands in
+        /// for that, because a queued ON can key the radio for as long as it sits
+        /// there. FlexLib sets its flag as the ON is sent, so there is no gap
+        /// between the two. A denied tune leaves the flag true, so it counts until
+        /// an off is written: the safe direction. An ATU cycle is not counted.
+        /// Read-only; safe with no radio.
         /// </summary>
         public bool TuneAskedOrUp
         {
@@ -102,15 +170,10 @@ namespace Radios
             {
                 Radio radio = theRadio;
                 if (radio == null) return false;
-                if (radio.TXTune) return true;
-                bool requested;
-                long at;
-                lock (_tuneFactGate)
+                lock (_tuneWriteGate)
                 {
-                    requested = _tuneRequested;
-                    at = _tuneRequestedAtMs;
+                    return _tuneOnQueued || radio.TXTune;
                 }
-                return TuneFact.Pending(requested, TuneFactClock() - at, ReadTuneStanding());
             }
         }
 

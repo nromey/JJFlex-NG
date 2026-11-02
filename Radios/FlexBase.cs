@@ -2660,6 +2660,7 @@ namespace Radios
             // said about being allowed to transmit (#447).
             ForgetTransmitCaches(null);
             NoteTuneRequest(false);
+            ForgetTuneWrites();
             ForgetPowerReports();
             _txAllowedReported = false;
 
@@ -4807,6 +4808,7 @@ namespace Radios
             if (!nowConnected) _txAllowedReported = false;
             if (!nowConnected) ForgetPowerReports();
             if (!nowConnected) NoteTuneRequest(false);
+            if (!nowConnected) ForgetTuneWrites();
             ConnectionStateChanged?.Invoke(nowConnected);
 #if zero
             bool justReconnected = false;
@@ -8182,12 +8184,7 @@ namespace Radios
             {
                 // #835: as Transmit above; turning tune off is never refused.
                 if (value && RefusedForCheckTeardown("tune")) return;
-                NoteTuneRequest(value);
-                q.Enqueue((FunctionDel)(() =>
-                {
-                    if (value && TeardownHeldSilently("tune")) return;
-                    theRadio.TXTune = value;
-                }), "TXTune");
+                EnqueueTuneWrite(value, "tune", null);
             }
         }
 
@@ -9609,16 +9606,7 @@ namespace Radios
                                 RaiseFlexAntTuneStartStop(new FlexAntTunerArg
                                     (FlexTunerType, stat, highSWR));
                             }
-                            NoteTuneRequest(value);
-                            q.Enqueue((FunctionDel)(() =>
-                            {
-                                if (value && TeardownHeldSilently("antenna tuner"))
-                                {
-                                    _FlexTunerOn = false;
-                                    return;
-                                }
-                                theRadio.TXTune = value;
-                            }), "TXTune");
+                            EnqueueTuneWrite(value, "antenna tuner", () => _FlexTunerOn = false);
                         }
                         break;
                     case FlexTunerTypes.auto:
