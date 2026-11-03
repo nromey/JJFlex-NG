@@ -35,7 +35,8 @@ namespace JJFlexWpf
         private sealed record Built(Choice Choice, PerChannelDenoiserBank Bank)
         {
             internal Parameters? Applied;
-            internal IReadOnlyDictionary<string, EngineSettingValue>? Initial;
+            /// <summary>Made on the build worker, so the swap on the audio thread only publishes a reference.</summary>
+            internal RunningBuild? Running;
         }
         /// <summary>
         /// What the running bank was built from: its id and the starting values
@@ -74,6 +75,8 @@ namespace JJFlexWpf
         }
         public event EventHandler<DenoiseSelectionResult>? SelectionResult;
         internal Action<string>? InstallHook { get; set; }
+        /// <summary>Tests only: the bank the audio thread is running now.</summary>
+        internal PerChannelDenoiserBank? RunningBankForTest => Volatile.Read(ref _running);
         internal bool BuildDelivered(string id)
         {
             var choice = Volatile.Read(ref _choice);
@@ -208,7 +211,7 @@ namespace JJFlexWpf
                 lock (_control)
                 {
                     if (_closed != 0 || !ReferenceEquals(choice, _choice)) { bank.Dispose(); return; }
-                    var previous = Interlocked.Exchange(ref _ready, new Built(choice, bank) { Initial = builtFrom });
+                    var previous = Interlocked.Exchange(ref _ready, new Built(choice, bank) { Running = new RunningBuild(choice.Id, builtFrom) });
                     bank = null;
                     previous?.Bank.Dispose();
                 }
@@ -319,7 +322,7 @@ namespace JJFlexWpf
                     InstallHook?.Invoke("before-running-id");
                     CrossFade(audio, _nextAudio, _channels);
                     var old = Interlocked.Exchange(ref _running, _warming.Bank);
-                    Volatile.Write(ref _runningBuild, _warming.Initial == null ? null : new RunningBuild(_warming.Choice.Id, _warming.Initial));
+                    Volatile.Write(ref _runningBuild, _warming.Running); // built on the worker: nothing is allocated here
                     Volatile.Write(ref _runningId, _warming.Choice.Id);
                     InstallHook?.Invoke("after-running-id");
                     _runningApplied = _warming.Applied;

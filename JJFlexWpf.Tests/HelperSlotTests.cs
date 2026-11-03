@@ -209,8 +209,50 @@ public sealed class HelperSlotTests
         Assert.True(pipeline.SelectPcEngine("a")); // arrow back before b ever ran
         gate.Set();
         for (int i = 0; i < 40; i++) { pipeline.Process(Audio(i)); Thread.Sleep(2); }
-        HelperTestRig.Until(() => made.Any(e => e.Id == "a" && e.BuiltWith == "premium") && slot.RunningEngineId == "a",
-            "a rebuilt with the new model", step: () => pipeline.Process(Audio(0)));
+        // Not just "a premium instance was made" and "a is running" (the old
+        // bank satisfies the second): the running bank itself must be the
+        // premium one, on every channel, with the premium delay.
+        static bool IsPremium(PerChannelDenoiserBank? bank) => bank != null &&
+            Enumerable.Range(0, bank.Channels).All(c => bank.EngineFor(c) is ModelEngine { Id: "a", BuiltWith: "premium" });
+        HelperTestRig.Until(() => slot.RunningEngineId == "a" && IsPremium(slot.RunningBankForTest),
+            "the premium bank running", step: () => pipeline.Process(Audio(0)));
+        var running = slot.RunningBankForTest!;
+        Assert.Equal(960, running.EngineLatencySamples);
+        Assert.All(oldA, e => Assert.NotSame(e, running.EngineFor(0)));
         Assert.Equal("premium", slot.GetSetting("a", "model").Choice);
+    }
+
+    /// <summary>
+    /// The swap from a warmed bank to the running one allocates nothing on the
+    /// audio thread: the record of what the bank was built from is made on the
+    /// build worker, and the swap only publishes it. Measured on the audio
+    /// thread between the slot's own two hook points around the swap, so the
+    /// event queued afterwards (step zero's, out of this test's reach) is not
+    /// counted.
+    /// </summary>
+    [Fact]
+    public void The_swap_to_a_warmed_bank_allocates_nothing_on_the_audio_thread()
+    {
+        DenoiseEngineEntry Row(string id) => new(id, DenoiseSide.Pc, DenoiseFamily.Neural, "label", new[] { DenoiseDirection.Receive },
+            initial => new ModelEngine(id, initial), () => Unavailability.None, SettingDescriptors: ModelEngine.Descriptors);
+        using var pipeline = new RxAudioPipeline(catalog: new DenoiseEngineCatalog(new[] { Row("a"), Row("b") }));
+        var slot = pipeline.NeuralSlot;
+        pipeline.RnnEnabled = true;
+        var buffer = Audio(0);
+        Assert.True(pipeline.SelectPcEngine("a"));
+        HelperTestRig.Until(() => slot.RunningEngineId == "a", "a running", step: () => pipeline.Process(buffer));
+        long before = -1, after = -1;
+        int swaps = 0;
+        slot.InstallHook = tag =>
+        {
+            if (tag == "before-running-id") before = GC.GetAllocatedBytesForCurrentThread();
+            else if (tag == "after-running-id") { after = GC.GetAllocatedBytesForCurrentThread(); swaps++; }
+        };
+        Assert.True(pipeline.SelectPcEngine("b"));
+        HelperTestRig.Until(() => slot.RunningEngineId == "b", "b running", step: () => pipeline.Process(buffer));
+        slot.InstallHook = null;
+        Assert.Equal(1, swaps);
+        Assert.True(before >= 0 && after >= 0, "the swap's hook points were never reached");
+        Assert.Equal(0, after - before);
     }
 }
