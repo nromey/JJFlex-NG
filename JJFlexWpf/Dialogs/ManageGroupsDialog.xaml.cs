@@ -50,6 +50,8 @@ namespace JJFlexWpf.Dialogs
         public ManageGroupsDialog()
         {
             InitializeComponent();
+            // Delete on the list presses this button (#774).
+            DeleteKeyRemoves.SetButton(GroupsListBox, DeleteButton);
             ResizeMode = ResizeMode.CanResizeWithGrip;
             Loaded += OnLoaded;
         }

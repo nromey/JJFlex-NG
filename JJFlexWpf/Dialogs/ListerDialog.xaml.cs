@@ -38,6 +38,8 @@ namespace JJFlexWpf.Dialogs
         public ListerDialog()
         {
             InitializeComponent();
+            // Delete on the list presses this button (#774).
+            DeleteKeyRemoves.SetButton(ScreenList, DeleteButton);
             ResizeMode = ResizeMode.CanResizeWithGrip;
             Loaded += OnLoaded;
         }

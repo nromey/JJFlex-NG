@@ -65,6 +65,8 @@ namespace JJFlexWpf.Dialogs
         {
             _callbacks = callbacks ?? throw new ArgumentNullException(nameof(callbacks));
             InitializeComponent();
+            // Delete on the list presses this button (#774).
+            DeleteKeyRemoves.SetButton(ProfilesListBox, DeleteButton);
             RefreshList();
         }
 

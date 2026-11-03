@@ -79,6 +79,8 @@ public partial class TNFDialog : JJFlexDialog
     public TNFDialog()
     {
         InitializeComponent();
+        // Delete on the list presses this button (#774).
+        DeleteKeyRemoves.SetButton(TNFList, RemoveButton);
         Loaded += TNFDialog_Loaded;
     }
 

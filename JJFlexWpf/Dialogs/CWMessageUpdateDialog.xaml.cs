@@ -34,6 +34,8 @@ namespace JJFlexWpf.Dialogs
         public CWMessageUpdateDialog()
         {
             InitializeComponent();
+            // Delete on the list presses this button (#774).
+            DeleteKeyRemoves.SetButton(KeysList, DeleteButton);
             // #717: the list names the way out. Arrow keys never leave a
             // ListBox, so with messages present the buttons felt absent; Tab
             // reaches them and Escape closes. Initial focus stays on the list,

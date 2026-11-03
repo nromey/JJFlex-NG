@@ -132,6 +132,8 @@ public partial class MemoriesDialog : JJFlexDialog
     public MemoriesDialog()
     {
         InitializeComponent();
+        // Delete on the list presses this button (#774).
+        DeleteKeyRemoves.SetButton(MemoryList, DeleteButton);
         // ResizeMode from base is NoResize; override for this larger dialog
         ResizeMode = ResizeMode.CanResize;
         MinWidth = 500;
