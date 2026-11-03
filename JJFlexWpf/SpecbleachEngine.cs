@@ -291,11 +291,17 @@ namespace JJFlexWpf
             => File.Exists(library) ? Unavailability.None : Unavailability.LibraryMissing;
 
         /// <summary><c>runtimes\win-{arch}\native\specbleach.dll</c> under the app base directory.</summary>
-        public static string DefaultLibraryPath()
-        {
-            string arch = Environment.Is64BitProcess ? "x64" : "x86";
-            return Path.Combine(AppContext.BaseDirectory, "runtimes", $"win-{arch}", "native", LibraryFileName);
-        }
+        public static string DefaultLibraryPath() => Path.Combine(NativeRuntimeFolder(), LibraryFileName);
+
+        /// <summary>
+        /// <c>runtimes\win-{arch}\native</c> under the app base directory, for
+        /// the running process's architecture. The same composition as
+        /// <c>DeepFilterNet3Engine.DefaultLibraryPath</c>, which this track may
+        /// not edit; the two belong in one shared helper (reported, Sprint 49
+        /// Track C), and until then this is the copy that says so.
+        /// </summary>
+        internal static string NativeRuntimeFolder()
+            => Path.Combine(AppContext.BaseDirectory, "runtimes", Environment.Is64BitProcess ? "win-x64" : "win-x86", "native");
 
         /// <summary>The block's size as this binding lays it out: 88 bytes on x64, 76 on x86.</summary>
         internal static readonly uint ParametersSize = (uint)Marshal.SizeOf<SpecbleachDenoiserParameters>();
