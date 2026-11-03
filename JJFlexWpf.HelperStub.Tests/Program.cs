@@ -24,6 +24,8 @@
 //   --break-after <n>        after n frames, close the pipe
 //   --refuse-setting <name>  refuse every SetSetting for that name
 //   --refuse-open <engine>   refuse every OpenChannel for that engine (ChannelBuildFailed)
+//   --bad-applied <how>      answer every Ok OpenChannelAck with malformed applied values:
+//                            missing, order, duplicate or refused
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -57,6 +59,7 @@ internal static class Program
     private static readonly HashSet<string> Omit = new(StringComparer.Ordinal);
     private static readonly HashSet<string> RefuseOpen = new(StringComparer.Ordinal);
     private static string? _refuseSetting;
+    private static string? _badApplied;
     private static long _framesProcessed;
     private static bool _answered;
 
@@ -101,6 +104,7 @@ internal static class Program
                     case "--break-after": _breakAfter = int.Parse(Next(), CultureInfo.InvariantCulture); break;
                     case "--refuse-setting": _refuseSetting = Next(); break;
                     case "--refuse-open": RefuseOpen.Add(Next()); break;
+                    case "--bad-applied": _badApplied = Next(); break;
                     default: throw new FormatException("unknown argument " + args[i]);
                 }
             }
@@ -300,12 +304,23 @@ internal static class Program
                         Id = open.Channel, Engine = open.EngineId, Latency = latency, Values = values, Line = new float[latency],
                     };
                     ack = new WdspOpenChannelAck(open.Channel, WdspResult.Ok, (uint)latency,
-                        descriptors.Select(d => new WdspNamedValue(d.Name, values[d.Name])).ToArray(), "");
+                        Malformed(descriptors, descriptors.Select(d => new WdspNamedValue(d.Name, values[d.Name])).ToArray()), "");
                 }
             }
         }
         Send(ack);
     }
+
+    /// <summary>The applied values, broken the way --bad-applied asks (unchanged when it does not).</summary>
+    private static WdspNamedValue[] Malformed(EngineSettingDescriptor[] descriptors, WdspNamedValue[] applied) => _badApplied switch
+    {
+        "missing" => applied[..^1],
+        "order" => applied.Reverse().ToArray(),
+        "duplicate" => applied[..^1].Append(applied[0]).ToArray(),
+        "refused" => applied.Select((v, i) => i != 0 ? v : new WdspNamedValue(v.Name, descriptors[0].Kind == EngineSettingKind.Choice
+            ? new WdspValue(WdspValue.ChoiceKind, 0, "no_such_option") : new WdspValue(WdspValue.NumberKind, descriptors[0].Max + 1000, null))).ToArray(),
+        _ => applied,
+    };
 
     // ------------------------------------------------------------------ processing
 

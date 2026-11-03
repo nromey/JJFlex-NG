@@ -297,4 +297,29 @@ public sealed class HelperEngineTests
             if (processed) for (int i = 0; i < 480; i++) Assert.Equal(signal[f * 480 + i - 3408], output[i]);
         }
     }
+    /// <summary>
+    /// An Ok OpenChannelAck whose applied values break the offer (one missing,
+    /// out of order, listed twice, or a value its own descriptor refuses) never
+    /// makes the engine available: it is a helper this JJ Flexible cannot read,
+    /// so a version mismatch, final, with the channel closed and its delay
+    /// never taken from the broken ack.
+    /// </summary>
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("order")]
+    [InlineData("duplicate")]
+    [InlineData("refused")]
+    public void A_malformed_open_ack_never_makes_the_engine_available(string how)
+    {
+        using var rig = new HelperTestRig(_ => new[] { "--bad-applied", how });
+        var engine = rig.Engine("nnr");
+        Assert.False(engine.IsAvailable);
+        Assert.Equal(Unavailability.HelperVersionMismatch, engine.Unavailability);
+        Assert.Contains("applied", engine.UnavailabilityDetail);
+        Assert.Equal(0, engine.LatencySamples);
+        Assert.Null(engine.Channel);
+        Thread.Sleep(300);
+        Assert.False(engine.IsAvailable);
+        Assert.Single(rig.Host.LaunchedProcessIds); // not a crash: nothing restarts
+    }
 }

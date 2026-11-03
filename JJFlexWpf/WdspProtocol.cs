@@ -487,11 +487,32 @@ namespace JJFlexWpf
                 if (!IsVersion(s)) throw new WdspProtocolException($"{what} '{s}' breaks the version string rule.");
                 return s;
             }
+            /// <summary>
+            /// Before an array of <paramref name="count"/> items is made: even at
+            /// the least each item can take, do they fit in what is left?
+            /// </summary>
+            public void Fits(int count, int leastEach, string what)
+            {
+                if ((long)count * leastEach > Remaining)
+                    throw new WdspProtocolException($"{count} {what} cannot fit in the {Remaining} bytes left (each takes at least {leastEach}).");
+            }
             public void End()
             {
                 if (Remaining != 0) throw new WdspProtocolException($"The payload has {Remaining} bytes past its layout.");
             }
         }
+
+        // The least bytes one item of each variable-count array can take, from
+        // the appendix's layouts: a string is 2 bytes of count and then at
+        // least 1 byte where its rule needs one (names, keys), 0 where it may be
+        // empty (a fingerprint's option, a unit key).
+        internal const int LeastName = 2 + 1;
+        internal const int LeastNamedValue = LeastName + 1 + LeastName;              // a choice value is the shortest: kind, then a name
+        internal const int LeastStop = 8;
+        internal const int LeastOption = LeastName + LeastName;                      // option name, label key
+        internal const int LeastDescriptor = LeastName + LeastName + 1 + 1 + LeastName + 1 + LeastOption; // a Choice with one option is the shortest
+        internal const int LeastFingerprint = LeastName + 1 + 2 + 32;
+        internal const int LeastEngineOffer = LeastName + 1 + 4 + 2 + 4 + 2 + 4 + 4 + 1;
 
         private static WdspValue ReadValue(ref Reader r, bool noneAllowed)
         {
@@ -522,6 +543,7 @@ namespace JJFlexWpf
                 string unit = r.Key("A unit key", emptyAllowed: true);
                 int stopCount = r.U8();
                 if (stopCount > 128) throw new WdspProtocolException("A stop count above 128.");
+                r.Fits(stopCount, LeastStop, "stops");
                 double[]? stops = stopCount == 0 ? null : new double[stopCount];
                 for (int i = 0; i < stopCount; i++) stops![i] = r.F64();
                 return new EngineSettingDescriptor(name, label, EngineSettingKind.Number, new EngineSettingValue(def),
@@ -532,6 +554,7 @@ namespace JJFlexWpf
                 string def = r.Name("A default option");
                 int count = r.U8();
                 if (count < 1 || count > 32) throw new WdspProtocolException("An option count outside 1 to 32.");
+                r.Fits(count, LeastOption, "options");
                 var options = new EngineSettingOption[count];
                 for (int i = 0; i < count; i++) options[i] = new EngineSettingOption(r.Name("An option name"), r.Key("An option label key"));
                 return new EngineSettingDescriptor(name, label, EngineSettingKind.Choice, new EngineSettingValue(0, def),
@@ -576,6 +599,7 @@ namespace JJFlexWpf
                     ushort maxChannels = r.U16();
                     int fpCount = r.U8();
                     if (fpCount > 32) throw new WdspProtocolException("More than 32 model fingerprints.");
+                    r.Fits(fpCount, LeastFingerprint, "fingerprints");
                     var fps = new WdspFingerprint[fpCount];
                     for (int i = 0; i < fpCount; i++)
                     {
@@ -587,6 +611,7 @@ namespace JJFlexWpf
                     }
                     int engineCount = r.U8();
                     if (engineCount < 1 || engineCount > 16) throw new WdspProtocolException("An engine count outside 1 to 16.");
+                    r.Fits(engineCount, LeastEngineOffer, "engine offers");
                     var engines = new WdspEngineOffer[engineCount];
                     for (int i = 0; i < engineCount; i++)
                     {
@@ -599,6 +624,7 @@ namespace JJFlexWpf
                         uint median = r.U32(), p99 = r.U32();
                         int descriptors = r.U8();
                         if (descriptors > 32) throw new WdspProtocolException("More than 32 descriptors.");
+                        r.Fits(descriptors, LeastDescriptor, "descriptors");
                         var list = new EngineSettingDescriptor[descriptors];
                         for (int d = 0; d < descriptors; d++) list[d] = ReadDescriptor(ref r);
                         engines[i] = new WdspEngineOffer(id, dirs, rate, frame, latency, calibration, median, p99, list);
@@ -611,6 +637,7 @@ namespace JJFlexWpf
                     uint ch = r.U32(); byte dir = r.U8(); string engine = r.Name("An engine id");
                     int count = r.U8();
                     if (count > 32) throw new WdspProtocolException("More than 32 initial values.");
+                    r.Fits(count, LeastNamedValue, "initial values");
                     var values = new WdspNamedValue[count];
                     for (int i = 0; i < count; i++) values[i] = ReadNamed(ref r);
                     r.End();
@@ -620,6 +647,7 @@ namespace JJFlexWpf
                 {
                     uint ch = r.U32(); var result = (WdspResult)r.U16(); uint latency = r.U32();
                     int count = r.U8();
+                    r.Fits(count, LeastNamedValue, "applied values");
                     var values = new WdspNamedValue[count];
                     for (int i = 0; i < count; i++) values[i] = ReadNamed(ref r);
                     string detail = r.Str();
@@ -738,6 +766,30 @@ namespace JJFlexWpf
             return true;
         }
 
+        /// <summary>
+        /// Null when an Ok OpenChannelAck's applied values are what the appendix
+        /// says they must be: every descriptor of the engine, in the offer's
+        /// order, each once, each with a value its own descriptor accepts.
+        /// Otherwise the first rule broken, for the trace.
+        /// </summary>
+        public static string? CheckApplied(IReadOnlyList<EngineSettingDescriptor> offer, IReadOnlyList<WdspNamedValue> applied)
+        {
+            if (applied.Count != offer.Count)
+                return $"applied {applied.Count} value{(applied.Count == 1 ? "" : "s")}; the offer has {offer.Count} setting{(offer.Count == 1 ? "" : "s")}";
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < applied.Count; i++)
+            {
+                string name = applied[i].Name;
+                if (!seen.Add(name)) return $"setting {name} is applied twice";
+                int at = -1;
+                for (int d = 0; d < offer.Count; d++) if (string.Equals(offer[d].Name, name, StringComparison.Ordinal)) { at = d; break; }
+                if (at < 0) return $"the offer has no setting {name}";
+                if (at != i) return $"setting {name} is out of the offer's order";
+                if (!offer[at].Accepts(applied[i].Value.ToSetting())) return $"setting {name}'s own descriptor refuses the value applied";
+            }
+            return null;
+        }
+
         public static string? ValidateDescriptor(EngineSettingDescriptor d)
         {
             if (d.Kind == EngineSettingKind.Choice)
@@ -759,6 +811,7 @@ namespace JJFlexWpf
                     if (i > 0 && !(stops[i] > stops[i - 1])) return "the stops are not strictly ascending";
                 }
                 if (stops[0] != d.Min || stops[^1] != d.Max) return "the stops do not run from the minimum to the maximum";
+                if (BitConverter.DoubleToInt64Bits(d.Step) != 0) return "stops and a step that is not sent as 0";
             }
             else if (!(d.Step > 0)) return "no stops and a step that is not above zero";
             if (!d.Accepts(d.Default)) return "the default fails the acceptance rule";

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using Radios;
@@ -363,6 +364,22 @@ namespace JJFlexWpf
                 if (ack.Result == WdspResult.Ok)
                 {
                     if (ch.Closed || !ReferenceEquals(Volatile.Read(ref _channel), ch)) return;
+                    // Before anything is published from it (the delay, the values,
+                    // availability): the applied values must be the offer's, whole.
+                    var offered = ch.Conn.Hello?.Engines.FirstOrDefault(o => o.Id == Id)?.Settings;
+                    string? malformed = offered == null ? "the open was acknowledged for an engine this helper did not offer"
+                        : WdspProtocol.CheckApplied(offered, ack.Applied);
+                    if (malformed != null)
+                    {
+                        string why = $"{Id}: channel {ack.Channel}'s acknowledgement is malformed: {malformed} (applied values)";
+                        Trace.WriteLine("WdspHelperEngine: " + why);
+                        SetUnavailableLocked(Unavailability.HelperVersionMismatch, why, final: true);
+                        Host.CloseLocked(ch);
+                        SetChannelLocked(null);
+                        _firstOpen.Set();
+                        Host.WakeControl();
+                        return;
+                    }
                     var slots = _slots;
                     if (!_opened)
                     {

@@ -57,9 +57,11 @@ public sealed class HelperProtocolTests
         return Assert.Single(all);
     }
 
-    private static object DecodeAs(string fixture, WdspRole receiver)
+    private static object DecodeAs(string fixture, WdspRole receiver) => DecodeAs(Fixture(fixture), receiver);
+
+    private static object DecodeAs(byte[] message, WdspRole receiver)
     {
-        var (type, payload) = One(Fixture(fixture));
+        var (type, payload) = One(message);
         return WdspProtocol.Decode(type, payload, receiver);
     }
 
@@ -225,8 +227,10 @@ public sealed class HelperProtocolTests
         if (e.Kind == EngineSettingKind.Number)
         {
             Assert.Equal((e.Min, e.Max), (a.Min, a.Max));
-            if (e.Stops == null) { Assert.Null(a.Stops); Assert.Equal(e.Step, a.Step); }
+            if (e.Stops == null) Assert.Null(a.Stops);
             else Assert.Equal(e.Stops, a.Stops!);
+            // With stops the step is sent as 0; it is compared all the same, bit for bit.
+            Assert.Equal(BitConverter.DoubleToInt64Bits(e.Step), BitConverter.DoubleToInt64Bits(a.Step));
             Assert.Null(a.Options);
         }
         else
@@ -399,7 +403,112 @@ public sealed class HelperProtocolTests
         Assert.Contains("ascending", WdspProtocol.ValidateHelloAck(bad));
     }
 
+    /// <summary>
+    /// With stops, the step is sent as 0 (appendix, "Descriptors"). A HelloAck
+    /// whose stepped descriptor carries a nonzero step is invalid as a whole.
+    /// Made from the fixture's own bytes, the step field patched, so the whole
+    /// decode path is exercised (the encoder always writes 0 there).
+    /// </summary>
+    [Fact]
+    public void A_hello_ack_with_stops_and_a_nonzero_step_is_invalid_as_a_whole()
+    {
+        var bytes = Fixture("hello-ack.bin");
+        static byte[] F64(double v) { var b = new byte[8]; System.Buffers.Binary.BinaryPrimitives.WriteDoubleLittleEndian(b, v); return b; }
+        // mask_floor_db: default -25, minimum -40, maximum -10, step 0, in that order.
+        var pattern = F64(-25).Concat(F64(-40)).Concat(F64(-10)).Concat(F64(0)).ToArray();
+        int at = -1;
+        for (int i = 0; i + pattern.Length <= bytes.Length && at < 0; i++)
+            if (bytes.AsSpan(i, pattern.Length).SequenceEqual(pattern)) at = i;
+        Assert.True(at >= 0, "the fixture's mask_floor_db numbers were not found");
+        F64(1).CopyTo(bytes, at + 24);
+        var ack = Assert.IsType<WdspHelloAck>(DecodeAs(bytes, WdspRole.JJFlexible));
+        var stepped = ack.Engines.Single(e => e.Id == "nnr").Settings.Single(d => d.Name == "mask_floor_db");
+        Assert.Equal(1, stepped.Step);
+        Assert.NotNull(stepped.Stops);
+        Assert.Contains("step", WdspProtocol.ValidateHelloAck(ack));
+        Assert.Null(WdspProtocol.ValidateHelloAck(Assert.IsType<WdspHelloAck>(DecodeAs("hello-ack.bin", WdspRole.JJFlexible))));
+    }
+
+    /// <summary>
+    /// Every variable-count array proves its least possible size fits in what
+    /// is left of the payload BEFORE anything is allocated for it (appendix,
+    /// "Framing"). Each case is a payload whose count is in range but whose
+    /// bytes stop at once: it must be refused by the count check, naming the
+    /// count, and not later by running off the end of the payload after the
+    /// array was made.
+    /// </summary>
+    [Theory]
+    [InlineData("stops")]
+    [InlineData("options")]
+    [InlineData("descriptors")]
+    [InlineData("engines")]
+    [InlineData("fingerprints")]
+    [InlineData("applied")]
+    [InlineData("initial")]
+    public void A_count_whose_least_size_cannot_fit_is_refused_before_anything_is_allocated(string which)
+    {
+        var w = new List<byte>();
+        void U8(int v) => w.Add((byte)v);
+        void U16(int v) { U8(v & 0xFF); U8(v >> 8); }
+        void U32(uint v) { U16((int)(v & 0xFFFF)); U16((int)(v >> 16)); }
+        void Str(string v) { var b = System.Text.Encoding.UTF8.GetBytes(v); U16(b.Length); w.AddRange(b); }
+        void F64(double v) { var b = new byte[8]; System.Buffers.Binary.BinaryPrimitives.WriteDoubleLittleEndian(b, v); w.AddRange(b); }
+        void AckHead() { U16(1); Str("stub-1"); Str("0.0"); Str(new string('0', 40)); Str("none"); U16(16); }
+        void OfferHead(int descriptors) { Str("nnr"); U8(3); U32(48000); U16(480); U32(2448); U16(1); U32(1); U32(1); U8(descriptors); }
+        WdspMessageType type = WdspMessageType.HelloAck;
+        var receiver = WdspRole.JJFlexible;
+        switch (which)
+        {
+            case "fingerprints": AckHead(); U8(32); break;
+            case "engines": AckHead(); U8(0); U8(16); break;
+            case "descriptors": AckHead(); U8(0); U8(1); OfferHead(32); break;
+            case "stops": AckHead(); U8(0); U8(1); OfferHead(1); Str("floor"); Str("label"); U8(0); U8(0); F64(0); F64(0); F64(1); F64(0); Str(""); U8(128); break;
+            case "options": AckHead(); U8(0); U8(1); OfferHead(1); Str("model"); Str("label"); U8(1); U8(0); Str("standard"); U8(32); break;
+            case "applied": type = WdspMessageType.OpenChannelAck; U32(1); U16(0); U32(2448); U8(255); break;
+            case "initial": type = WdspMessageType.OpenChannel; receiver = WdspRole.Helper; U32(1); U8(0); Str("nnr"); U8(32); break;
+        }
+        var payload = w.ToArray();
+        var ex = Assert.Throws<WdspProtocolException>(() => WdspProtocol.Decode(type, payload, receiver));
+        Assert.Contains("cannot fit", ex.Message);
+    }
+
     // ---------------------------------------------------------------- JJ Flexible only
+
+    /// <summary>
+    /// An Ok OpenChannelAck's applied values are every descriptor of the
+    /// engine, in the offer's order, each once, each accepted by its own
+    /// descriptor (appendix, "OpenChannelAck"). One control for each rule.
+    /// </summary>
+    [Theory]
+    [InlineData("complete", null)]
+    [InlineData("missing", "applied 1 value")]
+    [InlineData("extra", "applied 3 values")]
+    [InlineData("order", "out of the offer's order")]
+    [InlineData("duplicate", "twice")]
+    [InlineData("unknown", "no setting")]
+    [InlineData("refused", "refuses")]
+    [InlineData("wrong_kind", "refuses")]
+    public void An_open_ack_s_applied_values_are_checked_against_the_offer(string how, string? expected)
+    {
+        var offer = FixtureHelloAck().Engines.Single(e => e.Id == "nnr").Settings;
+        var model = new WdspNamedValue("model", new WdspValue(1, 0, "premium"));
+        var floor = new WdspNamedValue("mask_floor_db", new WdspValue(0, -30, null));
+        WdspNamedValue[] applied = how switch
+        {
+            "complete" => new[] { model, floor },
+            "missing" => new[] { model },
+            "extra" => new[] { model, floor, floor },
+            "order" => new[] { floor, model },
+            "duplicate" => new[] { model, model },
+            "unknown" => new[] { model, new WdspNamedValue("no_such_setting", new WdspValue(0, 1, null)) },
+            "refused" => new[] { model, new WdspNamedValue("mask_floor_db", new WdspValue(0, -33, null)) },
+            "wrong_kind" => new[] { new WdspNamedValue("model", new WdspValue(0, 1, null)), floor },
+            _ => throw new ArgumentException(how),
+        };
+        string? problem = WdspProtocol.CheckApplied(offer, applied);
+        if (expected == null) Assert.Null(problem);
+        else Assert.Contains(expected, problem);
+    }
 
     [Fact]
     public void Every_result_code_maps_onto_the_stated_unavailability()
