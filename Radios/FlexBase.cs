@@ -7286,11 +7286,89 @@ namespace Radios
         public string SwAlcElectionText => _swAlcElection.Describe(System.Environment.TickCount);
         /// <summary>Reset the SC_MIC peak-hold and the since-key-down counts of every
         /// transmit-meter copy. Call at transmit start.</summary>
+        /// <remarks>
+        /// Called by the push-to-talk controller as it keys, which is also
+        /// remembered: the radio reports the same transmission's key-down a
+        /// moment later, and that echo must not reset the sample again (#651,
+        /// see <see cref="ShouldRestartAudioSampleOnRadioKeyDown"/>).
+        /// </remarks>
         public void ResetScMicMax()
+        {
+            Interlocked.Exchange(ref _ownAudioSampleStartMs, Environment.TickCount64);
+            resetTransmitMeterPeaks();
+        }
+
+        private void resetTransmitMeterPeaks()
         {
             _scMicElection.ResetPeaks();
             _swAlcElection.ResetPeaks();
             _scMicRecentDb = -150f;
+        }
+
+        // ------------------------------------------------------------------
+        // #651: the spoken transmit-audio figures start on EVERY key-down
+        // ------------------------------------------------------------------
+        //
+        // The mic peak and the integrated loudness the operator can ask for
+        // describe "this transmission", and until #651 they restarted only
+        // when our own push to talk or lock keyed. A foot switch, the radio's
+        // own PTT, CW or another client keys the radio without that, and the
+        // spoken peak then carried an earlier transmission's level, which is
+        // exactly the kind of wrong number an operator trusts and acts on.
+        //
+        // So the radio's own rising edge restarts them too, UNLESS our own key
+        // already did for this transmission: our controller resets at the
+        // press and the radio's echo arrives some hundreds of milliseconds
+        // later, so a second reset at the echo would throw away the first
+        // syllable's peak. "For this transmission" is an own reset that no
+        // earlier rising edge has claimed and that is recent enough to be the
+        // echo's cause (OwnAudioSampleEchoWindowMs).
+
+        /// <summary>When our own key last restarted the audio sample
+        /// (<see cref="Environment.TickCount64"/>), or 0 once a rising edge
+        /// has claimed it.</summary>
+        private long _ownAudioSampleStartMs;
+
+        /// <summary>How long after our own key the radio's rising edge still
+        /// counts as that key's echo. Generous for SmartLink's latency; an own
+        /// reset older than this belongs to some earlier transmission.</summary>
+        internal const long OwnAudioSampleEchoWindowMs = 3000;
+
+        /// <summary>
+        /// Should the radio's reported key-down restart the transmit-audio
+        /// sample? Pure, so the rule is tested without a radio (#651).
+        /// </summary>
+        /// <param name="ownStartMs">When our own key restarted it, or 0 when
+        /// no unclaimed own restart is pending.</param>
+        /// <param name="nowMs">Now, on the same clock.</param>
+        /// <returns>True for a key-down that came from anywhere but our own
+        /// push to talk or lock: a foot switch, the radio's PTT, CW, another
+        /// client, or our own key so long ago that it cannot be this
+        /// transmission's.</returns>
+        internal static bool ShouldRestartAudioSampleOnRadioKeyDown(long ownStartMs, long nowMs)
+        {
+            if (ownStartMs == 0) return true;
+            long since = nowMs - ownStartMs;
+            return since < 0 || since > OwnAudioSampleEchoWindowMs;
+        }
+
+        /// <summary>The radio reported a key-down: restart the spoken
+        /// transmit-audio figures unless our own key already did (#651).</summary>
+        private void restartAudioSampleOnRadioKeyDown()
+        {
+            long now = Environment.TickCount64;
+            long own = Interlocked.Exchange(ref _ownAudioSampleStartMs, 0);
+            if (ShouldRestartAudioSampleOnRadioKeyDown(own, now))
+            {
+                resetTransmitMeterPeaks();
+                ResetTxLufsIntegrated();
+                Tracing.TraceLine("Mox: audio sample restarted at the radio's key-down (not keyed by our push to talk)", TraceLevel.Info);
+            }
+            else
+            {
+                Tracing.TraceLine("Mox: audio sample kept; our own key started it "
+                    + (now - own).ToString(System.Globalization.CultureInfo.InvariantCulture) + " ms ago", TraceLevel.Info);
+            }
         }
         private int _meterInventoryCount = -1;
 
@@ -7697,6 +7775,7 @@ namespace Radios
         {
             bool oldTransmit = _Transmit;
             if (mox && !oldTransmit && !_tuneCycleActive) beginTxLineWindow();
+            if (mox && !oldTransmit) restartAudioSampleOnRadioKeyDown();
             if (mox && !oldTransmit && TxReferenceArmed)
                 txFilePlayer.RestartOnNextBuffer();
             _Transmit = mox;

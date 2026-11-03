@@ -1099,6 +1099,11 @@ namespace JJFlexWpf
         /// Ctrl+Space was told about a locked transmit from some minutes ago.
         /// Two figures measured over two different windows is exactly the
         /// disagreement the reading is supposed to resolve.
+        ///
+        /// A key-down that does not come through here (a foot switch, the
+        /// radio's own PTT, CW, another client) is restarted by FlexBase at
+        /// the radio's reported rising edge instead, and that edge leaves this
+        /// reset alone when it is only the echo of our own key (#651).
         /// </summary>
         private void StartFreshAudioSample()
         {
