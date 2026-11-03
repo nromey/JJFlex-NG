@@ -8,6 +8,7 @@ namespace Radios.Tests;
 /// transmit, or both", Both speaking the transmit slice first, one sentence
 /// when the two are the same slice.
 /// </summary>
+[Collection(RadioConfigStaticsCollection.Name)]
 public sealed class FrequencyKeyReadoutTests
 {
     public FrequencyKeyReadoutTests() => Lexicon.Load(Lexicon.Partitions);

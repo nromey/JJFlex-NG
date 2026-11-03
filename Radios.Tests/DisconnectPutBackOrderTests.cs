@@ -78,7 +78,7 @@ public sealed class DisconnectPutBackOrderTests
         // The shack speaker: only while the radio still mutes it.
         int write = text.IndexOf("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop", StringComparison.Ordinal);
         Assert.True(write > 0);
-        string speaker = text.Substring(write, 700);
-        Assert.Contains("if (speakerRadio.IsMuteLocalAudioWhenRemoteOn)", speaker, StringComparison.Ordinal);
+        string speaker = text.Substring(Math.Max(0, write - 300), 300);
+        Assert.Contains("if (!speakerRadio.IsMuteLocalAudioWhenRemoteOn)", speaker, StringComparison.Ordinal);
     }
 }

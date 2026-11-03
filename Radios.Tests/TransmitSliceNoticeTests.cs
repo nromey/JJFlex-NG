@@ -11,6 +11,7 @@ namespace Radios.Tests;
 /// naming the slice and frequency, then the transmission (#863; Noel,
 /// 2026-11-02: "Say it, then go", and for the other doors "Yes, all of them").
 /// </summary>
+[Collection(RadioConfigStaticsCollection.Name)]
 public sealed class TransmitSliceNoticeTests
 {
     public TransmitSliceNoticeTests() => Lexicon.Load(Lexicon.Partitions);

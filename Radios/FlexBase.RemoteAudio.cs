@@ -1407,17 +1407,13 @@ namespace Radios
                 speakerRadio != null, IsConnected, Disconnecting);
             if (speakerRefusal == null)
             {
-                // Put back only what matches (Noel, 2026-11-02): this run
-                // muted the speaker, so it unmutes it only while the radio
-                // still mutes it. Already unmuted means somebody else gave it
-                // back, and that is left alone.
-                if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop"))
+                // Put back only what matches (Noel, 2026-11-02): unmute only
+                // while the radio still mutes it; already unmuted is left alone.
+                if (!speakerRadio.IsMuteLocalAudioWhenRemoteOn)
+                    Tracing.TraceLine("remoteAudioProc: the shack speaker is already unmuted; left as it is", TraceLevel.Info);
+                else if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop"))
                 {
-                    if (speakerRadio.IsMuteLocalAudioWhenRemoteOn)
-                        speakerRadio.IsMuteLocalAudioWhenRemoteOn = false;
-                    else
-                        Tracing.TraceLine("remoteAudioProc: the shack speaker is already unmuted, so it is left as it is",
-                            TraceLevel.Info);
+                    speakerRadio.IsMuteLocalAudioWhenRemoteOn = false;
                 }
             }
             else

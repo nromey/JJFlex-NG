@@ -10,6 +10,7 @@ namespace Radios.Tests;
 /// for it (#496, ruled 2026-09-01: "'transmitting on slice a' 'receiving on
 /// slice b' ... bingo done"). All three strings, every time when on.
 /// </summary>
+[Collection(RadioConfigStaticsCollection.Name)]
 public sealed class PttSliceWordsTests
 {
     public PttSliceWordsTests() => Lexicon.Load(Lexicon.Partitions);
