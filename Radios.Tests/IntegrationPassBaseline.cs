@@ -173,25 +173,10 @@ namespace Radios.Tests
             //  Standing rules
             // ---------------------------------------------------------------
 
-            // #237. Three reflected-power thresholds, all live. Two of them are
-            // required by their own comments to agree and do; the third is a
-            // factor of two away and nothing connects it to either.
-            new Known(Rules.ReflectedThreshold, "TxTuneProbe.ReflectedSuspectPercent", "#237",
-                      "20 percent, against 40 in TransmitSafety.ReflectedWarnFraction and 40 "
-                      + "in the power-coming-back rule. Whether the tune probe SHOULD share "
-                      + "the warning threshold is #237's judgement, not this rule's — what is "
-                      + "certain is that nothing today would notice if one of them moved"),
-
-            // FOUND BY THE SWEEP, not by the plan. #237 was written up as
-            // "three reflected thresholds"; there are four. This one is the
-            // abort bar, deliberately above the suspect bar the way SwrAbort
-            // sits above SwrSuspect, so the tiering may well be right — but
-            // 20 / 40 / 50 are three unrelated literals describing one
-            // quantity, and nothing ties any of them to the others.
-            new Known(Rules.ReflectedThreshold, "TxTuneProbe.ReflectedAbortPercent", "#237",
-                      "50 percent, the bar for stopping a tune early. Reasonable as a tier "
-                      + "above the others and still a fourth free-standing literal about "
-                      + "reflected power"),
+            // #237's two rows (TxTuneProbe.ReflectedSuspectPercent at 20 and
+            // ReflectedAbortPercent at 50) are FIXED, 2026-11-02: both now
+            // derive from SwrLadder, and the rule finds any threshold that is
+            // no rung of it.
 
             // A CheckBox wired to Click alone never hears IsChecked change any
             // other way, so every programmatic path has to remember to call the

@@ -122,8 +122,8 @@ namespace Radios
         /// <c>TransmitSafety.JudgeReflectedCut</c>, pure and tested, and it
         /// has TWO rungs since Sprint 47 (#571 tier 1). The share rung,
         /// <c>ShouldCutReflected</c>: the warning has fired and a further
-        /// sample above 10 W forward still has forty percent or more coming
-        /// back. The watts rung, <c>ShouldCutReflectedWatts</c>: ten watts or
+        /// sample above 10 W forward still has the warning's share or more
+        /// coming back (36 percent, SWR 4, since 2026-11-02; it was forty). The watts rung, <c>ShouldCutReflectedWatts</c>: ten watts or
         /// more coming back on two coherent samples in a row, whatever the
         /// share — reflected watts is what heats the finals, and a voice
         /// trough cannot fake it the way it faked the ratio (#453). The ATU

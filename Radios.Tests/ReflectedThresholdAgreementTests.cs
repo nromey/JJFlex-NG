@@ -6,16 +6,19 @@ using Xunit;
 namespace Radios.Tests
 {
     /// <summary>
-    /// The reflected-power threshold has exactly one home —
-    /// <see cref="TransmitSafety.ReflectedWarnPercent"/> — and three consumers:
-    /// the live PTT warning, the chain check's power-coming-back rule, and the
-    /// transmit-check tune probe's fallback. This holds them together.
+    /// The diagnostic reflected-power ladder has exactly one home,
+    /// <see cref="SwrLadder"/>, stated in SWR, and every percentage of
+    /// reflected power is derived from one of its rungs: the live PTT warning
+    /// and the chain check's power-coming-back rule from the warn rung, the
+    /// transmit-check tune probe's fallbacks from the suspect and abort rungs.
+    /// This holds them together.
     /// </summary>
     /// <remarks>
-    /// Task #237. The pairing between the first two was documented in both
-    /// places and honoured for months; the third consumer was then written at
-    /// 20 percent without reading either note. A comment asks future editors
-    /// to keep figures in step; only a test notices when one does not.
+    /// Task #237. The ladder was ruled by Noel on 2026-08-26 (SWR 2.5 suspect,
+    /// 4 warn, 5 abort) and its warn rung extended to the live warning on
+    /// 2026-11-02 ("Yes, SWR 4 everywhere"). Until then this class pinned a
+    /// PLACEHOLDER (the probe at half of a 40 percent warning) while presenting
+    /// itself as the guard; it was changed on purpose to pin the ruling.
     /// </remarks>
     public class ReflectedThresholdAgreementTests
     {
@@ -40,20 +43,64 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_probe_fallback_is_pinned_to_the_live_warning()
+        public void The_ladder_is_the_one_noel_ruled()
         {
-            // Deliberately stricter — half — and the ratio is a pin awaiting
-            // Noel's ruling, not a ruling itself (#237). What this test
-            // forbids is the two moving APART again: if either constant is
-            // edited back to an independent literal, this is where it shows.
-            Assert.Equal(TransmitSafety.ReflectedWarnPercent / 2.0,
-                         TxTuneProbe.ReflectedSuspectPercent);
+            // Literals on purpose: this is the ruling, written down where a
+            // reader of the test can check it against the register.
+            Assert.Equal(2.5, SwrLadder.Suspect);
+            Assert.Equal(4.0, SwrLadder.Warn);
+            Assert.Equal(5.0, SwrLadder.Abort);
 
-            // And stricter means stricter. A "more cautious" fallback that
-            // drifted above the live warning would invert the reasoning the
-            // constant's remarks give for existing at all.
-            Assert.True(TxTuneProbe.ReflectedSuspectPercent
-                        < TransmitSafety.ReflectedWarnPercent);
+            // Suspect is reported, warn is spoken, abort is acted on: the
+            // rungs climb, and the warn rung exists between the other two.
+            Assert.True(SwrLadder.Suspect < SwrLadder.Warn);
+            Assert.True(SwrLadder.Warn < SwrLadder.Abort);
+        }
+
+        [Fact]
+        public void Each_percentage_is_its_rung_converted_not_a_literal_of_its_own()
+        {
+            // The conversion by hand, so a broken ReflectedPercentAt cannot
+            // agree with itself: ((SWR - 1) / (SWR + 1)) squared.
+            Assert.Equal(100.0 * (1.5 / 3.5) * (1.5 / 3.5), SwrLadder.SuspectReflectedPercent, 9);
+            Assert.Equal(36.0, SwrLadder.WarnReflectedPercent, 9);
+            Assert.Equal(100.0 * (4.0 / 6.0) * (4.0 / 6.0), SwrLadder.AbortReflectedPercent, 9);
+
+            Assert.Equal(SwrLadder.ReflectedPercentAt(SwrLadder.Suspect), SwrLadder.SuspectReflectedPercent, 9);
+            Assert.Equal(SwrLadder.ReflectedPercentAt(SwrLadder.Warn), SwrLadder.WarnReflectedPercent, 9);
+            Assert.Equal(SwrLadder.ReflectedPercentAt(SwrLadder.Abort), SwrLadder.AbortReflectedPercent, 9);
+        }
+
+        [Fact]
+        public void The_live_warning_is_the_warn_rung()
+        {
+            Assert.Equal(SwrLadder.WarnReflectedPercent, TransmitSafety.ReflectedWarnPercent, 9);
+        }
+
+        [Fact]
+        public void The_probe_stands_on_the_same_ladder()
+        {
+            // SWR side and percent side of each probe threshold are one rung,
+            // so the abort cannot again sit at SWR 5 on one side and 5.83 on
+            // the other.
+            Assert.Equal(SwrLadder.Suspect, TxTuneProbe.SwrSuspect);
+            Assert.Equal(SwrLadder.Abort, TxTuneProbe.SwrAbort);
+            Assert.Equal(SwrLadder.SuspectReflectedPercent, TxTuneProbe.ReflectedSuspectPercent, 9);
+            Assert.Equal(SwrLadder.AbortReflectedPercent, TxTuneProbe.ReflectedAbortPercent, 9);
+
+            // The unattended probe is more cautious than the warning a person
+            // hears while holding the key, and its abort is past that warning.
+            Assert.True(TxTuneProbe.ReflectedSuspectPercent < TransmitSafety.ReflectedWarnPercent);
+            Assert.True(TxTuneProbe.ReflectedAbortPercent > TransmitSafety.ReflectedWarnPercent);
+        }
+
+        [Fact]
+        public void The_conversion_refuses_what_is_not_an_swr()
+        {
+            Assert.True(double.IsNaN(SwrLadder.ReflectedPercentAt(double.NaN)));
+            Assert.True(double.IsNaN(SwrLadder.ReflectedPercentAt(0.9)));
+            Assert.Equal(0.0, SwrLadder.ReflectedPercentAt(1.0), 9);
+            Assert.Equal(100.0, SwrLadder.ReflectedPercentAt(double.PositiveInfinity), 9);
         }
 
         [Fact]

@@ -641,36 +641,46 @@ evidence: rf-power-setting, tx-slice, tx-mode, ptt-source, tx-antenna, transvert
 #
 
 
-# MEASURED: 40 percent, and this is the first threshold in this file taken from
-# a real radio into a real load rather than guessed. On 2026-08-22 the bench
-# 8600 transmitted into an EMPTY antenna connector, the dummy load being on the
-# other port, and 76 percent of the power came straight back. Minutes later,
-# into the load, it was 0.05 percent. Those are three orders of magnitude apart,
-# so 40 sits in an enormous empty gap rather than on a judgement call. For scale,
-# 40 percent back is a standing wave ratio around 5 to 1 — well past anything a
-# working antenna presents, and firmly in "something is not connected" country.
+# RULED: 36 percent, which is a standing wave ratio of 4 to 1, the warn rung
+# of the diagnostic ladder Noel ruled on 2026-08-26 (SWR 2.5 suspect, 4 warn,
+# 5 abort) and extended to every reflected warning on 2026-11-02: "Yes, SWR 4
+# everywhere". It was 40 percent, about SWR 4.4, until then. The ladder is
+# stored in SWR (SwrLadder in the code) and this percentage is derived from it,
+# because hams reason in SWR and a percentage hides which rung it is.
+#
+# MEASURED context: on 2026-08-22 the bench 8600 transmitted into an EMPTY
+# antenna connector, the dummy load being on the other port, and 76 percent of
+# the power came straight back. Minutes later, into the load, it was 0.05
+# percent. 36 sits in that enormous empty gap, well past anything a working
+# antenna presents.
 #
 # This rule is deliberately listed BEFORE high-swr. The analyzer reports the
 # first rule that fires in a stage, and when both apply this is the more useful
 # sentence: it names a cause the operator can act on rather than a ratio they
 # have to interpret.
 #
-# THE 40 BELOW IS TransmitSafety.ReflectedWarnPercent, and a test holds them
+# THE 36 BELOW IS TransmitSafety.ReflectedWarnPercent, and a test holds them
 # together: ReflectedThresholdAgreementTests parses this shipped file and fails
 # the build's test run if this figure and that constant disagree. This file is
 # data and cannot reference the constant, which is why the pairing was once
-# kept by comments alone — and a third consumer (the transmit-check tune
-# probe) was then written at 20 without reading them (#237). The probe's
-# fallback is now deliberately stricter and derives from the same constant; if
-# you move this figure, move ReflectedWarnPercent, and the test will tell you
-# what else is watching.
+# kept by comments alone, and a third consumer (the transmit-check tune probe)
+# was then written at 20 without reading them (#237). If you move this figure,
+# move the ladder's warn rung, and the tests will tell you what else is
+# watching.
+#
+# TWO LADDERS, TWO JOBS, TWO UNITS. This is the DIAGNOSTIC ladder, a ratio
+# describing the match. The PROTECTIVE reflected-power cut is in absolute
+# reflected WATTS, describing heat in the finals. They can disagree and both be
+# right: 100 W at SWR 2.5 sends 18 W back, over the cut but under this rule;
+# 10 W at SWR 5 sends 4.4 W back, over this rule but under the cut. Never state
+# one in the other's unit, and never unify them.
 rule: power-coming-back
 in-stage: 12
 needs: transmitting is yes
 needs: dummy-load is no
 needs: atu-tuning is no
 needs: forward-power at least 1
-broken-when: reflected-percent above 40
+broken-when: reflected-percent above 36
 verdict: {reflected-percent} percent of your transmit power is coming straight back into the radio instead of going out. That is far more than any working antenna sends back, and the usual cause is that the selected antenna port has nothing connected to it, or that the feedline is open.
 fix: Check that the antenna is connected to the port the radio is actually transmitting on, and that you have selected the port you think you have. Stop transmitting until you have.
 evidence: forward-power, reflected-power, swr, rf-power-setting, meter-patemp, tx-antenna
