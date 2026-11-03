@@ -127,6 +127,61 @@ public sealed class HelperLifecycleTests
         Assert.Equal(2, events.Count);
     }
 
+    /// <summary>
+    /// "Back" means back: after the cap, a retry whose helper shakes hands
+    /// properly but then refuses the channel has brought nothing back, so the
+    /// recovery event must not be raised. Only the cap event stands.
+    /// </summary>
+    [Fact]
+    public void After_the_cap_a_good_handshake_then_a_refused_open_is_not_reported_back()
+    {
+        using var rig = new HelperTestRig(n => n <= 4 ? new[] { "--crash-after", "1:9" } : new[] { "--refuse-open", "nr2" });
+        var events = new ConcurrentQueue<WdspHelperStateChangedEventArgs>();
+        rig.Host.StateChanged += (_, e) => events.Enqueue(e);
+        var engine = rig.Engine("nr2");
+        using (new Feeder(engine))
+        {
+            HelperTestRig.Until(() => rig.Host.State == WdspHelperState.CapReached, "the cap");
+            HelperTestRig.Until(() => events.Count == 1, "the cap event");
+            rig.Host.Retry();
+            HelperTestRig.Until(() => rig.Host.LaunchedProcessIds.Count == 5 && engine.Unavailability == Unavailability.InitFailed,
+                "the fifth start's refused open");
+            Assert.Equal(WdspHelperState.Running, rig.Host.State); // the handshake itself was good
+            Thread.Sleep(500);
+            Assert.False(engine.IsAvailable);
+        }
+        var only = Assert.Single(events);
+        Assert.Equal(WdspHelperStateChange.CapReached, only.Change);
+    }
+
+    /// <summary>
+    /// After the cap, the recovery event waits for the channels, and names
+    /// only the engines that actually came back: here NR2, while NNR's
+    /// channel is refused.
+    /// </summary>
+    [Fact]
+    public void After_the_cap_the_back_event_names_only_the_engines_whose_channels_reopened()
+    {
+        using var rig = new HelperTestRig(n => n <= 4 ? new[] { "--crash-after", "1:9" } : new[] { "--refuse-open", "nnr" });
+        var events = new ConcurrentQueue<(WdspHelperStateChangedEventArgs Args, bool Nr2Available)>();
+        var nr2 = rig.Engine("nr2");
+        var nnr = rig.Engine("nnr");
+        rig.Host.StateChanged += (_, e) => events.Enqueue((e, nr2.IsAvailable));
+        using (new Feeder(nr2, nnr))
+        {
+            HelperTestRig.Until(() => rig.Host.State == WdspHelperState.CapReached, "the cap");
+            HelperTestRig.Until(() => events.Count == 1, "the cap event");
+            Assert.Equal(new[] { "nnr", "nr2" }, events.Single().Args.Engines);
+            rig.Host.Retry();
+            HelperTestRig.Until(() => events.Count == 2, "the back event");
+        }
+        var back = events.Last();
+        Assert.Equal(WdspHelperStateChange.BackAfterCap, back.Args.Change);
+        Assert.Equal(new[] { "nr2" }, back.Args.Engines);
+        Assert.True(back.Nr2Available, "the back event was raised before NR2's channel had reopened");
+        Assert.Equal(Unavailability.InitFailed, nnr.Unavailability);
+    }
+
     [Fact]
     public void A_new_selection_resets_the_restart_count()
     {

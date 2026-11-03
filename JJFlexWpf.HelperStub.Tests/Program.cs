@@ -23,6 +23,7 @@
 //   --crash-after <n>:<code> after n frames, exit with that code
 //   --break-after <n>        after n frames, close the pipe
 //   --refuse-setting <name>  refuse every SetSetting for that name
+//   --refuse-open <engine>   refuse every OpenChannel for that engine (ChannelBuildFailed)
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -54,6 +55,7 @@ internal static class Program
     private static int _lateMs;
     private static bool _reject, _invalidHello, _noServerCheck;
     private static readonly HashSet<string> Omit = new(StringComparer.Ordinal);
+    private static readonly HashSet<string> RefuseOpen = new(StringComparer.Ordinal);
     private static string? _refuseSetting;
     private static long _framesProcessed;
     private static bool _answered;
@@ -98,6 +100,7 @@ internal static class Program
                     case "--crash-after": (_crashAfter, _crashCode) = Pair(); break;
                     case "--break-after": _breakAfter = int.Parse(Next(), CultureInfo.InvariantCulture); break;
                     case "--refuse-setting": _refuseSetting = Next(); break;
+                    case "--refuse-open": RefuseOpen.Add(Next()); break;
                     default: throw new FormatException("unknown argument " + args[i]);
                 }
             }
@@ -275,6 +278,7 @@ internal static class Program
             if (open.Channel == 0 || !UsedIds.Add(open.Channel)) ack = Refuse(WdspResult.ChannelIdInUse, "id in use");
             else if (!Engines.TryGetValue(open.EngineId, out var descriptors) || Omit.Contains(open.EngineId)) ack = Refuse(WdspResult.EngineNotOffered, $"engine {open.EngineId} is not offered");
             else if (open.Direction > 1) ack = Refuse(WdspResult.DirectionNotServed, "unknown direction");
+            else if (RefuseOpen.Contains(open.EngineId)) ack = Refuse(WdspResult.ChannelBuildFailed, "refused by the test's command line");
             else
             {
                 var values = descriptors.ToDictionary(d => d.Name, d => WdspValue.From(d.Default), StringComparer.Ordinal);

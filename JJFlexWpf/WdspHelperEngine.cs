@@ -400,6 +400,7 @@ namespace JJFlexWpf
                         Volatile.Write(ref _available, 1);
                     }
                     _firstOpen.Set();
+                    Host.WakeControl(); // a channel settled: the host may now say it is back after the cap
                     return;
                 }
                 var mapped = WdspProtocol.MapOpenResult(ack.Result);
@@ -415,6 +416,7 @@ namespace JJFlexWpf
                 if (mapped is { } reason && reason != Unavailability.None) SetUnavailableLocked(reason, detail, final: true);
                 else Volatile.Write(ref _detail, detail); // JJ Flexible's own bug: traced, availability unchanged
                 _firstOpen.Set();
+                Host.WakeControl();
             }
         }
 

@@ -40,14 +40,18 @@ namespace JJFlexWpf
     {
         /// <summary>The restart cap was reached; the engines are passing audio through.</summary>
         CapReached,
-        /// <summary>After the cap, a retry or a new selection brought the helper back.</summary>
+        /// <summary>After the cap, a retry or a new selection brought the helper back, and at least one engine's channel really reopened.</summary>
         BackAfterCap,
     }
 
     public sealed class WdspHelperStateChangedEventArgs : EventArgs
     {
         public WdspHelperStateChange Change { get; }
-        /// <summary>Catalog ids of the helper engines selected when it happened, in catalog order.</summary>
+        /// <summary>
+        /// Catalog ids, in catalog order: for <see cref="WdspHelperStateChange.CapReached"/>
+        /// the helper engines selected when it happened; for
+        /// <see cref="WdspHelperStateChange.BackAfterCap"/> only those whose channels reopened.
+        /// </summary>
         public IReadOnlyList<string> Engines { get; }
         public WdspHelperStateChangedEventArgs(WdspHelperStateChange change, IReadOnlyList<string> engines)
         { Change = change; Engines = engines; }
@@ -598,11 +602,7 @@ namespace JJFlexWpf
                             Volatile.Write(ref c.LastReceive, now);
                             c.HelloDone = true;
                             SetStateLocked(WdspHelperState.Running, $"helper {ack.HelperVersion}, pid {c.Pid}");
-                            if (_capPending)
-                            {
-                                _capPending = false;
-                                raise.Add(new(WdspHelperStateChange.BackAfterCap, WantedIdsLocked()));
-                            }
+                            // Not "back" yet: a handshake reopens nothing. BackAfterCapLocked waits for the channels.
                             break;
                         case WdspHelloReject reject:
                             MismatchLocked(c, $"the helper rejected protocol 1; it speaks {reject.Lowest} to {reject.Highest} ({reject.Detail})");
@@ -612,7 +612,11 @@ namespace JJFlexWpf
                             stop = c; return;
                     }
                 }
-                if (c.HelloDone) OpenWantedLocked(c);
+                if (c.HelloDone)
+                {
+                    OpenWantedLocked(c);
+                    BackAfterCapLocked(c, raise);
+                }
                 if (_wanted.Count == 0)
                 {
                     if (_lingerUntil == 0) _lingerUntil = now + Ticks(Policy.Linger);
@@ -685,6 +689,30 @@ namespace JJFlexWpf
                 life.OpenSent = true;
                 c.Wake.Set();
             }
+        }
+
+        /// <summary>
+        /// After the cap, raise the recovery event only once every selected
+        /// engine's channel has settled on this connection, and only for the
+        /// engines that actually reopened. A good handshake followed by a
+        /// refused open, an engine no longer offered, or a reopen whose delay
+        /// changed has brought nothing back, so nothing is said; the cap event
+        /// still stands until something does come back.
+        /// </summary>
+        private void BackAfterCapLocked(WdspConnection c, List<WdspHelperStateChangedEventArgs> raise)
+        {
+            if (!_capPending || _wanted.Count == 0) return;
+            List<WdspHelperEngine>? back = null;
+            foreach (var e in _wanted)
+            {
+                var ch = e.Channel;
+                if (!e.Final && ch != null && ch.Conn == c && ch.Opened && !ch.Closed) { (back ??= new()).Add(e); continue; }
+                if (e.Final || e.RefusedOn == c) continue; // settled, and not back
+                return; // still opening: wait for its ack
+            }
+            if (back == null) return;
+            _capPending = false;
+            raise.Add(new(WdspHelperStateChange.BackAfterCap, KnownEngines.Where(id => back.Any(e => e.Id == id)).ToArray()));
         }
 
         /// <summary>Take the connection away from the engines; teardown follows outside the lock.</summary>
