@@ -2477,39 +2477,64 @@ public class FreqOutHandlers
         var key = RawKey(e);
         var mods = Keyboard.Modifiers;
 
+        switch (DeadHomeKeyAnswerFor(key, mods, haveRig: Rig != null, registryBound: () => IsRegistryBound(e)))
+        {
+            case DeadHomeKeyAnswer.NeedsRadio:
+                // Same sentence, same key, as every registry command that needs a
+                // radio and has none — one vocabulary for one situation.
+                Radios.ScreenReaderOutput.Speak(
+                    Lexicon.Get("connect.command_needs_radio"),
+                    VerbosityLevel.Critical, true);
+                e.Handled = true;
+                return;
+            case DeadHomeKeyAnswer.Unbound:
+                Radios.ScreenReaderOutput.Speak(
+                    Lexicon.Get("settings.home.key_unbound",
+                        ("key", SpokenChord(mods, LetterOf(key))), ("field", field.Label ?? field.Key)),
+                    VerbosityLevel.Terse, true);
+                e.Handled = true;
+                return;
+        }
+    }
+
+    /// <summary>What <see cref="AnnounceDeadHomeKey"/> says, if anything.</summary>
+    internal enum DeadHomeKeyAnswer
+    {
+        /// <summary>Nothing: the key is somebody else's, or not a field key.</summary>
+        None,
+        /// <summary>"No radio connected" (connect.command_needs_radio).</summary>
+        NeedsRadio,
+        /// <summary>"{key} does nothing on the {field} field..." (settings.home.key_unbound).</summary>
+        Unbound,
+    }
+
+    /// <summary>
+    /// The decision behind <see cref="AnnounceDeadHomeKey"/>, pure, so a test
+    /// can hold every case without a window or a key event (#338).
+    /// </summary>
+    /// <param name="registryBound">Asked only when the answer turns on it:
+    /// a chord the registry binds is the window dispatcher's, never declared
+    /// dead here.</param>
+    internal static DeadHomeKeyAnswer DeadHomeKeyAnswerFor(Key key, ModifierKeys mods, bool haveRig,
+        Func<bool> registryBound)
+    {
         // Alt chords are the menu bar's and the mode keys'; the Windows key
         // is the shell's. Neither can be a field key, and claiming either
         // would take it from its owner.
-        if ((mods & (ModifierKeys.Alt | ModifierKeys.Windows)) != 0) return;
+        if ((mods & (ModifierKeys.Alt | ModifierKeys.Windows)) != 0) return DeadHomeKeyAnswer.None;
+
+        if (!haveRig)
+        {
+            if ((mods & ModifierKeys.Control) != 0) return DeadHomeKeyAnswer.None;
+            if (!IsFieldActionKey(key)) return DeadHomeKeyAnswer.None;
+            return registryBound() ? DeadHomeKeyAnswer.None : DeadHomeKeyAnswer.NeedsRadio;
+        }
 
         // Classified from the KEY, not from KeyToChar: a shifted or
         // controlled letter is still a letter for the purpose of naming it
         // back, even though it is no longer a character the field maps use.
-        char letter = LetterOf(key);
-        bool isLetter = letter != '\0';
-
-        if (Rig == null)
-        {
-            if ((mods & ModifierKeys.Control) != 0) return;
-            if (!IsFieldActionKey(key)) return;
-            if (IsRegistryBound(e)) return;
-            // Same sentence, same key, as every registry command that needs a
-            // radio and has none — one vocabulary for one situation.
-            Radios.ScreenReaderOutput.Speak(
-                Lexicon.Get("connect.command_needs_radio"),
-                VerbosityLevel.Critical, true);
-            e.Handled = true;
-            return;
-        }
-
-        if (!isLetter) return;
-        if (IsRegistryBound(e)) return;
-
-        Radios.ScreenReaderOutput.Speak(
-            Lexicon.Get("settings.home.key_unbound",
-                ("key", SpokenChord(mods, letter)), ("field", field.Label ?? field.Key)),
-            VerbosityLevel.Terse, true);
-        e.Handled = true;
+        if (LetterOf(key) == '\0') return DeadHomeKeyAnswer.None;
+        return registryBound() ? DeadHomeKeyAnswer.None : DeadHomeKeyAnswer.Unbound;
     }
 
     /// <summary>

@@ -2767,35 +2767,37 @@ public partial class MainWindow : UserControl
         // same chords (MemoryScan, SpeakFrequency, SearchLog-in-Logging) and
         // were invisible to the Keys surface and Command Finder.
 
-        // 1c. Universal Home keys (M/V/R/X/Q/=) no-radio guard.
+        // 1c. Universal Home keys (M/V/R/X/Q/=) with no radio: one answer for
+        //     the whole no-radio surface (#372, #356, #338).
         //
-        // These keys are field-handler-bound — they only fire when focus is on a
-        // Home field. With no radio, FrequencyDisplay's _fieldDict is empty so
-        // focus can't be on a Home field, and the keys silently do nothing —
-        // a violation of the no-silent-keystrokes rule. Speak no-radio guidance
-        // and consume so the user gets audible feedback at window scope.
+        // These six are the universal Home keys, handled ahead of the field
+        // handlers. With no radio there are two surfaces a Home key can land
+        // on, and this guard answers both, in the field handlers' own words:
         //
-        // Gated on FreqOut.IsKeyboardFocusWithin so we only fire where a Home
-        // field WOULD have focus if a radio were connected; outside Home (menu
-        // bar, settings dialog, command finder) the keys pass through to be
-        // typed normally. With a radio connected, the guard skips and the
-        // normal field-handler routing wins.
+        //  * Home's fields AFTER a disconnect. The fields survive it
+        //    (FrequencyDisplay.Clear blanks their text and keeps them), so
+        //    every other Home key reaches its field handler, which says
+        //    connect.command_needs_radio. These six used to be claimed here
+        //    first and answered "JJ Flexible Home, no radio connected", a
+        //    second sentence for one state. (This comment used to say the
+        //    fields do not exist with no radio, which is true only before the
+        //    first connect.)
+        //  * The rescue page, which is what holds focus BEFORE the first
+        //    connect (and after a disconnect that raised it): the frequency
+        //    display is collapsed, no field exists, and nothing else would
+        //    answer these keys at all.
         //
-        // Shift+M and Shift+, (multi-slice variants) are intentionally NOT in
-        // this list — they're bound in KeyCommands (Radio scope) and the
-        // DoCommand-layer guard at f8c64d57 already covers them.
-        //
-        // Sprint 30 Track A: the rescue page joins the gate. With no radio the
-        // frequency display is collapsed, so FreqOut can never hold focus and
-        // this guard would never fire again — these keys would go back to being
-        // silent in exactly the situation they were written for.
-        if (RigControl == null
-            && Keyboard.Modifiers == ModifierKeys.None
-            && (FreqOut.IsKeyboardFocusWithin
-                || (_rescueMode && RescuePanel.IsKeyboardFocusWithin))
-            && IsUniversalHomeKey(rawKey))
+        // Gated on focus being in one of those two places, so outside Home
+        // (menu bar, dialogs, the Command Finder) the letters are typed as
+        // usual, and on bare presses only: Shift+M and Shift+, are registry
+        // chords, which the DoCommand guard answers with their own action
+        // label. Keys that do nothing anywhere are not claimed.
+        if (ClaimsNoRadioHomeKey(rawKey, Keyboard.Modifiers, haveRig: RigControl != null,
+                focusOnHomeOrRescue: FreqOut.IsKeyboardFocusWithin
+                    || (_rescueMode && RescuePanel.IsKeyboardFocusWithin)))
         {
-            Radios.ScreenReaderOutput.SpeakNoRadioConnected();
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.command_needs_radio"),
+                VerbosityLevel.Critical, true);
             e.Handled = true;
             return;
         }
@@ -2932,6 +2934,14 @@ public partial class MainWindow : UserControl
     private static bool IsUniversalHomeKey(Key key) =>
         key == Key.M || key == Key.V || key == Key.R || key == Key.X
         || key == Key.Q || key == Key.OemPlus;
+
+    /// <summary>
+    /// Does step 1c answer this key with "No radio connected"? Pure, so the
+    /// whole no-radio surface is tested without a window (#372): a bare
+    /// universal Home key, no radio, focus on Home's fields or the rescue page.
+    /// </summary>
+    internal static bool ClaimsNoRadioHomeKey(Key key, ModifierKeys mods, bool haveRig, bool focusOnHomeOrRescue) =>
+        !haveRig && mods == ModifierKeys.None && focusOnHomeOrRescue && IsUniversalHomeKey(key);
 
     /// <summary>
     /// PreviewKeyUp — handles Ctrl+Space release for PTT hold mode.
