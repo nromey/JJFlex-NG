@@ -279,11 +279,12 @@ public partial class CheckYourAudioDialog
         };
         AutomationProperties.SetName(_playTakeButton, "Play last take");
         JJFlexHelp.SetText(_playTakeButton,
-            "Plays the slice recording with Record yourself, or the off-air take "
-            + "with Hear what you transmitted. Press again to stop.");
+            "Plays the slice recording with Radio recording, or the off-air take "
+            + "with Heard on the air. Press again to stop.");
         _playTakeButton.Click += (s, e) => PlayLastTake();
         _playTakeButton.GotFocus += (s, e) => SyncPlayTakeLabel();
         _sections.Add(CheckContent, _playTakeButton);
+        AddPlayTakesDoor();
 
         BuildOffAirResults();
 

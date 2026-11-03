@@ -211,6 +211,10 @@ public enum CommandValues
     // this one and may append its dialog's command at the same number; if both
     // took 131, the merge gives one of them 132 and moves the count test once.
     ToggleVoxSendBox = 131,
+    // Unified takes (#864): the Play takes window, every take of every kind.
+    // Ctrl+J, Alt+T on the JJ key (proposed, not yet ruled); NO default flat
+    // key until Noel picks one (the F11 recorder family is full).
+    OpenPlayTakes = 132,
 }
 
 /// <summary>

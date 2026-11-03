@@ -11,7 +11,7 @@ public class RecordedQsoFlacTests
     private static readonly object ResolverGate = new();
     private static bool _resolverSet;
 
-    private static void NativeLibraryReady()
+    internal static void NativeLibraryReady()
     {
         lock (ResolverGate)
         {

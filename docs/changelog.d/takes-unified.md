@@ -1,0 +1,3 @@
+- Play takes is a new window that lists every take of your audio on this computer, newest first, whatever radio or method made it. You can play a take, compare it with another one you choose, read its details, add a note, save a copy as WAV or FLAC, or delete it. Ctrl+J then Alt+T opens it, and Check your audio has a Play takes button.
+- A comparison now names more of what changed between two takes: mic gain, the compander, the speech processor and the transmit equalizer. When more than one setting changed, it says so.
+- Check your audio's three methods that make a take now have clearer names: Radio recording, Heard on the air, and Looped back.

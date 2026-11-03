@@ -686,6 +686,16 @@ public class KeyCommands
                                      "manage", "play", "preview", "trim", "cut", "edit", "save", "as", "export", "convert",
                                      "mp3", "flac", "wav", "opus", "m4a", "delete", "prune", "clean", "recycle", "tape", "f11" },
                   ShortActionLabel = "open recorded QSOs" },
+            // Unified takes (#864): Play takes, every take on this computer, of
+            // every kind and from every radio. A window, so the Dialog group;
+            // Global, because the takes are files and need no radio.
+            new(CommandValues.OpenPlayTakes, KeyTypes.Command, OpenPlayTakesHandler,
+                "Open Play takes - every take of your audio, to play, compare, read, note, rename its test, save a copy or delete",
+                "Play takes", false, FunctionGroups.Dialog, KeyScope.Global)
+                { Keywords = new[] { "takes", "take", "play takes", "compare takes", "recordings of my audio", "compare",
+                                     "playback", "test", "series", "heard on the air", "radio recording", "looped back",
+                                     "diagnostic", "listen", "back", "audio", "check" },
+                  ShortActionLabel = "open play takes" },
             // Check your audio Track B (#835): the VOX send box. With it on and VOX
             // on, a voice message or a played recording keys the radio itself
             // and hands back to VOX. Home's Transmission group and Settings,
@@ -1469,6 +1479,17 @@ public class KeyCommands
         mw?.Dispatcher.Invoke(() => Dialogs.RecordedQsosDialog.Show(rig));
     }
 
+    /// <summary>
+    /// Play takes (Unified takes, #864). Opens with no radio and over
+    /// SmartLink: the takes are on this computer. Never starts a check or keys.
+    /// </summary>
+    private void OpenPlayTakesHandler()
+    {
+        var rig = _context.GetRigControl();
+        var mw = _context.GetMainWindow();
+        mw?.Dispatcher.Invoke(() => Dialogs.PlayTakesDialog.Show(rig));
+    }
+
     private void MuteSliceHandler()
     {
         var rig = _context.GetRigControl();
@@ -2023,6 +2044,9 @@ public class KeyCommands
         // Check your audio Track B (#835). Home's Transmission group and
         // Settings, PTT, carry the box too; the Command Finder runs this
         // command and the Hotkey Editor can bind it a flat key.
+        [CommandValues.OpenPlayTakes] = new(UnboundReason.LeaderLayer,
+            "Ctrl+J, Alt+T opens Play takes; T for takes. Check your audio has a Play takes button too. "
+            + "Its flat key is not chosen yet."),
         [CommandValues.ToggleVoxSendBox] = new(UnboundReason.LeaderLayer,
             "Ctrl+J, Ctrl+K turns on or off whether sends key the radio when VOX is on; K for key. "
             + "The same box is in Home's Transmission group, after VOX gain and delay, and in Settings, PTT."),
@@ -2283,6 +2307,8 @@ public class KeyCommands
         // one F11 form still free (Noel, 2026-10-24 15:49: "I'd make the hotkey
         // for the dialog ctrl+alt+shift+f11"). Shift+F11 alone stays NVDA's.
         new(Keys.F11 | Keys.Control | Keys.Alt | Keys.Shift, CommandValues.OpenRecordedQsos, KeyScope.Global),
+        // Unified takes (#864): Play takes' default flat key goes HERE once
+        // Noel picks one. Deliberately none yet; Ctrl+J, Alt+T opens it.
     };
 
     // ────────────────────────────────────────────────────────────────
@@ -4533,6 +4559,14 @@ public class KeyCommands
             // levels are reachable regardless.
             case Keys.C | Keys.Alt:
                 OpenCheckYourAudioHandler();
+                break;
+
+            // Unified takes (#864): T for takes, Play takes. PROPOSED by the
+            // orchestrator 2026-11-02, not yet ruled. Opening a window is an
+            // action, so the Alt tier, beside Alt+C and Alt+F. It opens the
+            // window and never starts a check or keys. Works with no radio.
+            case Keys.T | Keys.Alt:
+                OpenPlayTakesHandler();
                 break;
 
             // The two help doors every layer has (#514, #519): H lists this

@@ -585,6 +585,12 @@ namespace Radios.Speech
         /// <see cref="ComputerRecorder"/>.
         /// </summary>
         public const string RecordedQsos = "recorded-qsos";
+        /// <summary>
+        /// The Play takes window's own answers (Unified takes): a comparison's
+        /// result, a note saved, a test renamed, a copy saved, a delete done or
+        /// refused. One subject, because each answer replaces the last.
+        /// </summary>
+        public const string PlayTakes = "play-takes";
         /// A global-profile write refused because the radio is not declared
         /// the operator's, or its ownership is not yet answered (junkbox
         /// #777). Spoken from the funnel every global save passes through,
