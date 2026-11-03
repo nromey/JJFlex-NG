@@ -64,7 +64,7 @@ namespace JJFlexWpf
     {
         HelloReject, InvalidHelloAck, VersionNotSpoken, EngineNotOffered, DirectionNotServed,
         WrongSampleRate, WrongFrameLength, ReopenLatencyDiffers,
-        Stall, BrokenPipe, ProcessExited, FatalProtocolError, HandshakeDeadline,
+        Stall, BrokenPipe, ProcessExited, FatalProtocolError, HandshakeDeadline, StartFailed,
         FileMissing, StartBlocked, SettingRefused, NonFatalError,
     }
 
@@ -794,7 +794,8 @@ namespace JJFlexWpf
             WdspCondition.EngineNotOffered or WdspCondition.DirectionNotServed or WdspCondition.WrongSampleRate or
             WdspCondition.WrongFrameLength or WdspCondition.ReopenLatencyDiffers => Unavailability.HelperVersionMismatch,
             WdspCondition.Stall or WdspCondition.BrokenPipe or WdspCondition.ProcessExited or
-            WdspCondition.FatalProtocolError or WdspCondition.HandshakeDeadline => Unavailability.HelperNotRunning,
+            WdspCondition.FatalProtocolError or WdspCondition.HandshakeDeadline or
+            WdspCondition.StartFailed => Unavailability.HelperNotRunning,
             WdspCondition.FileMissing or WdspCondition.StartBlocked => Unavailability.HelperMissing,
             WdspCondition.SettingRefused or WdspCondition.NonFatalError => null,
             _ => null,

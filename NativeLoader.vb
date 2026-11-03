@@ -51,6 +51,11 @@ Public Module NativeLoader
             ' library; the engine asks through this locator.
             WireDeepFilterLocator()
 
+            ' The WDSP helper (#737, Sprint 49 Track B) is a separate program,
+            ' started by the engine's host rather than loaded, but it is a
+            ' native file of ours all the same, so this module says where it is.
+            WireWdspHelperLocator()
+
             _initialized = True
         Catch ex As Exception
             ' Log but don't throw - let default resolution attempt to work
@@ -66,6 +71,12 @@ Public Module NativeLoader
     <System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)>
     Private Sub WireDeepFilterLocator()
         JJFlexWpf.DeepFilterNet3Engine.LibraryLocator = AddressOf LocateDeepFilter
+    End Sub
+
+    ''' <summary>Same reason as WireDeepFilterLocator: resolved inside Initialize's Try.</summary>
+    <System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)>
+    Private Sub WireWdspHelperLocator()
+        JJFlexWpf.WdspHelperEngine.HelperLocator = AddressOf LocateWdspHelper
     End Sub
 
     Private Function ResolveNativeLibrary(
@@ -150,6 +161,18 @@ Public Module NativeLoader
         Dim arch As String = If(Environment.Is64BitProcess, "x64", "x86")
         Dim p As String = Path.Combine(AppContext.BaseDirectory, "runtimes", $"win-{arch}", "native",
                                        MappedFileName("deepfilter.dll"))
+        Return If(File.Exists(p), p, Nothing)
+    End Function
+
+    ''' <summary>
+    ''' Absolute path of this architecture's WDSP helper, or Nothing when it is
+    ''' not there. No app-directory fallback, for the same reason as
+    ''' LocateDeepFilter: a stray copy elsewhere is exactly what must not run.
+    ''' </summary>
+    Private Function LocateWdspHelper() As String
+        Dim arch As String = If(Environment.Is64BitProcess, "x64", "x86")
+        Dim p As String = Path.Combine(AppContext.BaseDirectory, "runtimes", $"win-{arch}", "native",
+                                       JJFlexWpf.WdspHelperEngine.HelperFileName)
         Return If(File.Exists(p), p, Nothing)
     End Function
 End Module

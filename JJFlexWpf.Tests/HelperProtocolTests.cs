@@ -446,6 +446,7 @@ public sealed class HelperProtocolTests
             [WdspCondition.ProcessExited] = Unavailability.HelperNotRunning,
             [WdspCondition.FatalProtocolError] = Unavailability.HelperNotRunning,
             [WdspCondition.HandshakeDeadline] = Unavailability.HelperNotRunning,
+            [WdspCondition.StartFailed] = Unavailability.HelperNotRunning,
             [WdspCondition.FileMissing] = Unavailability.HelperMissing,
             [WdspCondition.StartBlocked] = Unavailability.HelperMissing,
             [WdspCondition.SettingRefused] = null,
