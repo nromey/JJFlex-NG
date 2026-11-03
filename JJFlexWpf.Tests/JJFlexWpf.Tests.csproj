@@ -36,7 +36,27 @@
   <ItemGroup>
     <ProjectReference Include="..\JJFlexWpf\JJFlexWpf.csproj" />
     <ProjectReference Include="..\Radios\Radios.csproj" />
+    <!-- The MIT stub that plays the WDSP helper. Built for these tests only,
+         never referenced as an assembly (it links two JJFlexWpf source files,
+         whose public types would collide); CopyHelperStub below puts its
+         files in a HelperStub folder beside this assembly. -->
+    <ProjectReference Include="..\JJFlexWpf.HelperStub.Tests\JJFlexWpf.HelperStub.Tests.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
+
+  <Target Name="CopyHelperStub" AfterTargets="Build">
+    <MSBuild Projects="..\JJFlexWpf.HelperStub.Tests\JJFlexWpf.HelperStub.Tests.csproj" Targets="GetTargetPath"
+             Properties="Configuration=$(Configuration);Platform=$(Platform)">
+      <Output TaskParameter="TargetOutputs" ItemName="_HelperStubTarget" />
+    </MSBuild>
+    <PropertyGroup>
+      <_HelperStubDir>@(_HelperStubTarget->'%(RootDir)%(Directory)')</_HelperStubDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <_HelperStubFiles Include="$(_HelperStubDir)JJFlexWpf.HelperStub.Tests.*" />
+    </ItemGroup>
+    <Error Condition="'@(_HelperStubFiles)' == ''" Text="The helper stub was not found in $(_HelperStubDir)." />
+    <Copy SourceFiles="@(_HelperStubFiles)" DestinationFolder="$(OutDir)HelperStub" SkipUnchangedFiles="true" />
+  </Target>
 
   <ItemGroup>
     <!-- The measured JAWS Shift+Space streams (#800), one source file compiled
@@ -48,4 +68,12 @@
     <Content Include="..\runtimes\win-x64\native\rnnoise.dll;..\runtimes\win-x64\native\rnnoise.COPYING.txt" Link="runtimes\win-x64\native\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\runtimes\win-x86\native\rnnoise.dll;..\runtimes\win-x86\native\rnnoise.COPYING.txt" Link="runtimes\win-x86\native\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Contract 2 (the WDSP helper's pipe protocol) fixtures, byte for byte
+         the copy the helper's own repository holds. Copied whole; the
+         manifest test refuses a drifted or partial copy. -->
+    <None Update="Fixtures\Contract2\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
