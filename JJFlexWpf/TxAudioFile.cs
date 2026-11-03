@@ -87,6 +87,16 @@ public static class TxAudioFile
             ? FromSeconds + Seconds
             : Math.Max(TotalSeconds, FromSeconds + Seconds);
 
+        /// <summary>
+        /// Whether <see cref="PeakDb"/> and <see cref="IntegratedLufs"/> were
+        /// measured. False for a piece loaded to SEND (#718): the send never
+        /// reads them, and measuring them was a peak scan and a gated loudness
+        /// pass over every sample, on the key handler's thread, before the
+        /// radio keyed. Unmeasured, both hold their "nothing" values and
+        /// <see cref="Describe"/> leaves them out.
+        /// </summary>
+        public bool Measured { get; init; } = true;
+
         /// <summary>Loudest sample, dBFS. <see cref="MicProbe.SilenceDb"/> if silent.</summary>
         public float PeakDb { get; init; }
 
@@ -107,9 +117,9 @@ public static class TxAudioFile
                 string.IsNullOrEmpty(Name) ? "unnamed" : Name,
                 RecordingStore.DescribeLength(Seconds),
             };
-            if (PeakDb > MicProbe.SilenceDb)
+            if (Measured && PeakDb > MicProbe.SilenceDb)
                 parts.Add("peak " + PeakDb.ToString("F1") + " dBFS");
-            if (IntegratedLufs > LufsMeter.Floor)
+            if (Measured && IntegratedLufs > LufsMeter.Floor)
                 parts.Add("loudness " + IntegratedLufs.ToString("F1") + " LUFS");
             return string.Join(", ", parts);
         }
@@ -207,6 +217,15 @@ public static class TxAudioFile
     /// </param>
     public static bool TryLoadPiece(string path, int targetRate, double fromSeconds, out Loaded? loaded,
         out string trouble)
+        => TryLoadPiece(path, targetRate, fromSeconds, measure: true, out loaded, out trouble);
+
+    /// <summary>
+    /// <see cref="TryLoadPiece(string, int, double, out Loaded?, out string)"/>,
+    /// choosing whether to measure the piece's level. The send path does not
+    /// (#718); everything that reports a level does.
+    /// </summary>
+    internal static bool TryLoadPiece(string path, int targetRate, double fromSeconds, bool measure,
+        out Loaded? loaded, out string trouble)
     {
         loaded = null;
         trouble = "";
@@ -277,7 +296,8 @@ public static class TxAudioFile
             }
 
             float[] mono = samples.ToArray();
-            Measure(mono, targetRate, out float peakDb, out float lufs);
+            float peakDb = MicProbe.SilenceDb, lufs = LufsMeter.Floor;
+            if (measure) Measure(mono, targetRate, out peakDb, out lufs);
 
             loaded = new Loaded
             {
@@ -289,6 +309,7 @@ public static class TxAudioFile
                 FromSeconds = fromSeconds,
                 TotalSeconds = total,
                 ReachesEnd = !more,
+                Measured = measure,
                 PeakDb = peakDb,
                 IntegratedLufs = lufs,
             };
@@ -390,6 +411,12 @@ public static class TxAudioFile
     /// of the piece, so a piece that is not the file's end never runs out
     /// before the pause, and the next piece is loaded from the held place.
     /// </summary>
+    /// <remarks>
+    /// Not measured (#718; Noel, 2026-10-14: "That should just start streaming
+    /// instantaneously"). The send never reads the level, and the measurement
+    /// ran over every sample before the key. The reference audio and the Fix
+    /// tool load through <see cref="TryLoad"/> and still measure.
+    /// </remarks>
     public static bool TryLoadPieceInto(Radios.FlexBase rig, string path, double fromSeconds,
         out Loaded? loaded, out string trouble)
     {
@@ -402,7 +429,7 @@ public static class TxAudioFile
         }
 
         int rate = (int)Radios.FlexBase.OpusTxSampleRateSetting;
-        if (!TryLoadPiece(path, rate, fromSeconds, out loaded, out trouble)) return false;
+        if (!TryLoadPiece(path, rate, fromSeconds, measure: false, out loaded, out trouble)) return false;
 
         rig.TxFilePlayer.Load(loaded!.Mono, loaded.SampleRate, loaded.Name);
         return true;
