@@ -138,6 +138,12 @@ namespace JJFlexWpf
         private int _latencySamples;
         private uint _firstLatency;
         private bool _opened;
+        /// <summary>
+        /// Set under the host's lock when the constructor returns without a first
+        /// open: this instance's delay is 0 for good and it never becomes
+        /// available, not even after a retry.
+        /// </summary>
+        private bool _neverOpened;
         private IReadOnlyList<EngineSettingDescriptor> _settings = Array.Empty<EngineSettingDescriptor>();
         private volatile Slot[]? _slots;
         private readonly IReadOnlyDictionary<string, EngineSettingValue>? _starting;
@@ -179,6 +185,20 @@ namespace JJFlexWpf
             host.Attach(this);
             if (!_firstOpen.Wait(host.Policy.ConstructionWait))
                 Trace.WriteLine($"WdspHelperEngine: {Id} did not open within {host.Policy.ConstructionWait.TotalMilliseconds} ms ({UnavailabilityDetail})");
+            lock (host.Gate)
+            {
+                // Whatever the bank reads next is this instance's delay for good.
+                // An instance that did not open in time has 0 and keeps it: a late
+                // acknowledgement must neither make it available nor change its
+                // delay under a bank already built on 0.
+                if (!_opened)
+                {
+                    _neverOpened = true;
+                    string detail = Volatile.Read(ref _detail);
+                    if (detail is "starting" or "") detail = $"{Id} did not open within {host.Policy.ConstructionWait.TotalMilliseconds} ms";
+                    SetUnavailableLocked((Unavailability)Volatile.Read(ref _reason), detail, final: true);
+                }
+            }
         }
 
         // ------------------------------------------------------------------
@@ -303,7 +323,11 @@ namespace JJFlexWpf
             if (final) { Final = true; _firstOpen.Set(); }
         }
 
-        internal void ClearFinalLocked() { Final = false; RefusedOn = null; }
+        internal void ClearFinalLocked()
+        {
+            if (_neverOpened) return; // its delay is 0 for good; a new selection builds a new instance
+            Final = false; RefusedOn = null;
+        }
 
         internal void ReleaseWaiter() => _firstOpen.Set();
 
@@ -364,6 +388,15 @@ namespace JJFlexWpf
                 if (ack.Result == WdspResult.Ok)
                 {
                     if (ch.Closed || !ReferenceEquals(Volatile.Read(ref _channel), ch)) return;
+                    if (_neverOpened)
+                    {
+                        // Too late: the constructor has returned with a delay of 0.
+                        Trace.WriteLine($"WdspHelperEngine: {Id}: channel {ack.Channel} opened after the construction wait; closed unused");
+                        Host.CloseLocked(ch);
+                        SetChannelLocked(null);
+                        Host.WakeControl();
+                        return;
+                    }
                     // Before anything is published from it (the delay, the values,
                     // availability): the applied values must be the offer's, whole.
                     var offered = ch.Conn.Hello?.Engines.FirstOrDefault(o => o.Id == Id)?.Settings;

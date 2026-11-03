@@ -322,4 +322,37 @@ public sealed class HelperEngineTests
         Assert.False(engine.IsAvailable);
         Assert.Single(rig.Host.LaunchedProcessIds); // not a crash: nothing restarts
     }
+
+    /// <summary>
+    /// The delay is known before the bank reads it, and never changes after.
+    /// An instance whose first open misses the construction wait reports 0
+    /// and must stay unavailable with 0 for good, even when the helper's
+    /// acknowledgement arrives late: otherwise the bank, which set its delay
+    /// line from 0 at construction, would meet a changed delay at its first
+    /// produced frame and silence the untouched side for one delay length.
+    /// </summary>
+    [Fact]
+    public void An_open_that_misses_the_construction_wait_never_becomes_available_or_changes_its_delay()
+    {
+        var policy = HelperTestRig.Fast with { ConstructionWait = TimeSpan.FromMilliseconds(300) };
+        using var rig = new HelperTestRig(_ => new[] { "--slow-start", "1200" }, policy);
+        var engine = rig.Engine("nnr");
+        Assert.False(engine.IsAvailable);
+        Assert.Equal(0, engine.LatencySamples);
+        HelperTestRig.Until(() => rig.Host.State == WdspHelperState.Running, "the late handshake");
+        Thread.Sleep(800); // room for the late OpenChannelAck
+        Assert.False(engine.IsAvailable);
+        Assert.Equal(0, engine.LatencySamples);
+        // An engine that did open in time, on the same helper, is unaffected.
+        var prompt = rig.Engine("nr2");
+        Assert.True(prompt.IsAvailable);
+        Assert.Equal(3408, prompt.LatencySamples);
+        // Not even a retry revives the late one: its delay is 0 for good.
+        rig.Host.Retry();
+        Thread.Sleep(500);
+        Assert.False(engine.IsAvailable);
+        Assert.Equal(0, engine.LatencySamples);
+        Assert.Null(engine.Channel);
+        Assert.True(prompt.IsAvailable);
+    }
 }
