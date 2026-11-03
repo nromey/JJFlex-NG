@@ -32,7 +32,7 @@ partial class BenchApp
         foreach(int channels in new[]{1,2})
         {
             var profile=GeneratedProfile(channels);
-            var variants=new List<List<Stage>> {new(){Rn()},new(){Rn(.8f,"Corrected")},new(){Rn(1)},new(){Neural(9)},
+            var variants=new List<List<Stage>> {new(){Rn()},new(){Rn(.8f,"Historical")},new(){Rn(1)},new(){Neural(9)},
                 new(){CaptureStage(profile,"generated noise")},new(){CaptureStage(profile,"generated noise"),Rn()},new(){CaptureStage(profile,"generated noise"),Neural(9)}};
             foreach(var stages in variants)
             {

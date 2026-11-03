@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection.PortableExecutable;
 using Radios;
 using OffOnValues = Radios.FlexBase.OffOnValues;
 
@@ -39,8 +40,7 @@ namespace JJFlexWpf
         private static IEnumerable<DenoiseEngineEntry> DefaultEntries()
         {
             yield return new("rnnoise", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.rnnoise", Both,
-                _ => new RnnoiseEngine(), () => File.Exists(Path.Combine(AppContext.BaseDirectory, "rnnoise.dll"))
-                    ? Unavailability.None : Unavailability.LibraryMissing);
+                _ => new RnnoiseEngine(), ProbeRnnoise);
             yield return new("deepfilternet3", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.deepfilternet3", Both,
                 initial => new DeepFilterNet3Engine((float)initial["attenuation_limit_db"].Number), ProbeDeepFilter, SettingDescriptors: DeepFilterNet3Engine.SettingDescriptors);
             yield return new("nnr", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.nnr", Both);
@@ -62,6 +62,20 @@ namespace JJFlexWpf
             yield return new("radio_rnn", DenoiseSide.Radio, null, "audio.denoise.radio_rnn", Receive,
                 Capability: RadioCapability.NoiseReductionNeural,
                 ReadRadio: r => r.NeuralNoiseReduction, WriteRadio: (r, v) => r.NeuralNoiseReduction = v);
+        }
+
+        private static Unavailability ProbeRnnoise()
+        {
+            try
+            {
+                string library = RnnoiseEngine.LocateLibrary();
+                if (!File.Exists(library)) return Unavailability.LibraryMissing;
+                using var stream = File.OpenRead(library);
+                using var pe = new PEReader(stream);
+                var expected = Environment.Is64BitProcess ? Machine.Amd64 : Machine.I386;
+                return pe.PEHeaders.CoffHeader.Machine == expected ? Unavailability.None : Unavailability.InitFailed;
+            }
+            catch { return Unavailability.InitFailed; }
         }
 
         private static Unavailability ProbeDeepFilter()

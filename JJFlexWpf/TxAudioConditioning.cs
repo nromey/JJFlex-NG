@@ -37,6 +37,7 @@ namespace JJFlexWpf
     {
         private static FlexBase _rig;
         private static NoiseReductionProvider _nr;
+        private static int _nrAppliedLatency;
         private static TxMonitorPlayer _player;
         private static System.Timers.Timer _policyTimer;
 
@@ -62,6 +63,7 @@ namespace JJFlexWpf
 
             var cond = rig.TxConditioner;
             cond.NoiseReducer = NrStage;
+            cond.NoiseReducerAppliedLatencySamples = AppliedNrLatency;
             cond.MonitorSink = MonitorStage;
 
             rig.ModeChanged += OnModeChanged;
@@ -91,6 +93,7 @@ namespace JJFlexWpf
                 rig.ModeChanged -= OnModeChanged;
                 var cond = rig.TxConditioner;
                 cond.NoiseReducer = null;
+                cond.NoiseReducerAppliedLatencySamples = null;
                 cond.MonitorSink = null;
                 cond.MonitorMode = JJPortaudio.TxAudioConditioner.MonitorModes.Off;
             }
@@ -109,6 +112,7 @@ namespace JJFlexWpf
 
         private static void NrStage(float[] buffer, int count, uint sampleRate)
         {
+            _nrAppliedLatency = 0;
             var nr = _nr;
             if (nr == null) return;
             // RNNoise is 48 kHz-native (480-sample frames are 10 ms only
@@ -117,8 +121,13 @@ namespace JJFlexWpf
             // residual goes silent, which is the designed tell that the
             // stage is not live.
             if (sampleRate == 48000)
+            {
                 nr.ProcessInPlace(buffer, 0, count, 2);
+                _nrAppliedLatency = nr.AppliedLatencySamples;
+            }
         }
+
+        private static int AppliedNrLatency() => _nrAppliedLatency;
 
         private static void MonitorStage(float[] buffer, int count, uint sampleRate)
         {

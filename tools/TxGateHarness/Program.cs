@@ -39,6 +39,8 @@ namespace TxGateHarness
             CheckBypassedChainGivesSilentResidual();
             CheckSplitMonitorChannels();
             CheckMonitorOffNeverCalls();
+            CheckDelayedResidualAndBypass(480);
+            CheckDelayedResidualAndBypass(2448);
 
             Console.WriteLine();
             Console.WriteLine($"{checks} checks, {failures} failed.");
@@ -285,6 +287,55 @@ namespace TxGateHarness
             float[] input = SineBuffer(997.0, -15f, FrameFloats);
             cond.Process(input, input.Length, Fs);
             Assert(!called, "monitor sink is never called while Off");
+        }
+
+        /// <summary>A pure delay removes nothing: residual must be exact
+        /// silence, including a monitor enabled midstream and NR bypasses.</summary>
+        private static void CheckDelayedResidualAndBypass(int latency)
+        {
+            var cond = new TxAudioConditioner();
+            var line = new float[latency * 2];
+            int at = 0, applied = 0;
+            bool bypass = false;
+            cond.NoiseReducer = (buffer, count, rate) => {
+                applied = 0;
+                if (bypass || rate != Fs) return;
+                for (int i = 0; i < count; i++) {
+                    float raw = buffer[i]; buffer[i] = line[at]; line[at] = raw;
+                    if (++at == line.Length) at = 0;
+                }
+                applied = latency;
+            };
+            cond.NoiseReducerAppliedLatencySamples = () => applied;
+            float[] captured = null;
+            cond.MonitorSink = (buffer, count, rate) => captured = (float[])buffer.Clone();
+            bool exact = true, split = true, bypassSilent = true, output = true;
+            for (int frame = 0; frame < 45; frame++) {
+                bypass = frame >= 20 && frame < 24;
+                cond.MonitorMode = frame < 8 ? TxAudioConditioner.MonitorModes.Off
+                    : frame < 14 ? TxAudioConditioner.MonitorModes.Residual
+                    : frame < 35 ? TxAudioConditioner.MonitorModes.Split : TxAudioConditioner.MonitorModes.Output;
+                float[] buffer = SineBuffer(997, -15, FrameFloats);
+                captured = null;
+                uint rate = frame >= 28 && frame < 31 ? 44100u : Fs;
+                cond.Process(buffer, buffer.Length, rate);
+                if (frame < 8) continue;
+                if (captured == null) { exact = false; continue; }
+                if (frame < 14) {
+                    for (int i = 0; i < FrameFloats; i++) exact &= captured[i] == 0;
+                }
+                else if (frame < 35) {
+                    for (int i = 0; i < FrameFloats; i += 2) {
+                        split &= captured[i] == buffer[i] && captured[i + 1] == 0;
+                        if (bypass || rate != Fs) bypassSilent &= captured[i + 1] == 0;
+                    }
+                }
+                else for (int i = 0; i < FrameFloats; i++) output &= captured[i] == buffer[i];
+            }
+            Assert(exact, $"{latency}-sample reducer has exact zero residual, including enabling monitor midstream");
+            Assert(split, $"{latency}-sample delay: split output left, exact zero residual right");
+            Assert(bypassSilent, $"{latency}-sample reducer reports zero on bypass and wrong rate, residual stays silent");
+            Assert(output, $"{latency}-sample reducer leaves Output monitor bit-identical");
         }
 
         // ---------------------------------------------------------------- //

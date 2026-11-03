@@ -529,6 +529,8 @@
          must be given a path to, and the library's two licences (MIT OR
          Apache-2.0). Loaded by ABSOLUTE PATH from JJFlexWpf\DeepFilterNet3Engine.cs,
          with NativeLoader.vb saying where. Not selectable by an operator yet. -->
+    <Content Include="runtimes\win-x64\native\rnnoise.dll" CopyToOutputDirectory="PreserveNewest" Link="runtimes\win-x64\native\rnnoise.dll" />
+    <Content Include="runtimes\win-x64\native\rnnoise.COPYING.txt" CopyToOutputDirectory="PreserveNewest" Link="runtimes\win-x64\native\rnnoise.COPYING.txt" />
     <Content Include="runtimes\win-x64\native\deepfilter.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>runtimes\win-x64\native\deepfilter.dll</Link>
@@ -570,6 +572,8 @@
       <Link>runtimes\win-x86\native\nvdaControllerClient.LICENSE.txt</Link>
     </Content>
     <!-- DeepFilterNet3: the x86 build of the same pin. See the x64 group. -->
+    <Content Include="runtimes\win-x86\native\rnnoise.dll" CopyToOutputDirectory="PreserveNewest" Link="runtimes\win-x86\native\rnnoise.dll" />
+    <Content Include="runtimes\win-x86\native\rnnoise.COPYING.txt" CopyToOutputDirectory="PreserveNewest" Link="runtimes\win-x86\native\rnnoise.COPYING.txt" />
     <Content Include="runtimes\win-x86\native\deepfilter.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>runtimes\win-x86\native\deepfilter.dll</Link>
