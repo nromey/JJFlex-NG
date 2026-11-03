@@ -6,13 +6,14 @@ namespace NrBench;
 partial class BenchApp
 {
     sealed record Block(int Start, double Level);
-    sealed record Window(int Start, int Length, string Kind) { public string Words => $"{Kind} {Start/Rate/60}:{Start/Rate%60:00}"; }
+    sealed record Window(int Start, int Length, string Kind) { public string Words => $"{Kind} {Start/Rate/60} min {Start/Rate%60:00}"; }
     sealed class Windows
     {
         public List<Block> Blocks=new();
         public double Floor;
         public Window? Quiet, Speech;
         public int Excerpt;
+        public bool ExcerptFallback=true;
         public const double QuietAbove=3, SpeechAbove=6;
     }
     static List<Block> LoudnessBlocks(float[] audio, int channels, int offset=0, int? length=null)
@@ -62,16 +63,15 @@ partial class BenchApp
             for(int j=i;j<i+windowBlocks;j++) { if(blocks[j].Level>=w.Floor+Windows.SpeechAbove)speech++;if(blocks[j].Level<=w.Floor+Windows.QuietAbove)pause=true; }
             if(pause && speech>best) {best=speech;w.Excerpt=blocks[i].Start;}
         }
+        w.ExcerptFallback=best<0;
         if(Mutation=="quiet-window" || Mutation=="quiet-none")w.Quiet=new(0,Rate*3,"mutated quiet");
         return w;
     }
     static double[][] CaptureProfile(float[] source,int channels,Window window,int delay=0,int? providerChannels=null)
     {
-        if(Mutation!="capture-channels" && providerChannels.HasValue && providerChannels != channels)
-            throw new InvalidOperationException("Capture channel count differs from provider channel count");
         if(window.Length != Rate*3 || (window.Start+delay+window.Length)*channels > source.Length)
             throw new InvalidOperationException("Capture window is absent or not three seconds long");
-        var capture=new SpectralSubtractionProvider(Rate,channels);
+        var capture=new SpectralSubtractionProvider(Rate,providerChannels ?? channels);
         capture.StartSampling(3);
         // A private copy guarantees this sampling pass cannot change its source render.
         var packet=new float[Frame*channels];
@@ -81,7 +81,7 @@ partial class BenchApp
             capture.ProcessInPlace(packet,0,packet.Length,channels);
         }
         var profiles=Enumerable.Range(0,channels).Select(c=>capture.GetChannelProfile(c)).ToArray();
-        if(capture.IsSampling || profiles.Any(x=>x==null))
+        if(Mutation!="capture-channels" && (capture.IsSampling || profiles.Any(x=>x==null)))
             throw new InvalidOperationException("Capture did not complete or a channel profile is absent");
         return profiles.Select(x=>x!).ToArray();
     }
@@ -153,9 +153,8 @@ partial class BenchApp
         return diff;
     }
     sealed record Ripple(double DepthDb,double GainDb);
-    static Ripple EnvelopeRipple(float[] input,float[] output,int latency,bool hasProfile=true)
+    static Ripple EnvelopeRipple(float[] input,float[] output,int latency)
     {
-        if(Mutation!="ripple-profile" && !hasProfile)throw new InvalidOperationException("Ripple measure requires an engaged capture profile");
         const int bins=64,hop=512;
         var raw=new double[bins];var wet=new double[bins];
         int end=Math.Min(input.Length,output.Length-latency);

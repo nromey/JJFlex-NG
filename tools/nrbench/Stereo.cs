@@ -4,12 +4,17 @@ partial class BenchApp
     const double LeakageThreshold=.15;
     static double Correlation(float[] output,float[] input,int delay)
     {
-        if(Mutation=="crosstalk")return 0;
         double dot=0,aa=0,bb=0;
         int start=Math.Max(Rate,-delay),n=Math.Min(input.Length,output.Length-delay);
         for(int i=start;i<n;i++){double a=output[i+delay],b=input[i];dot+=a*b;aa+=a*a;bb+=b*b;}
         return aa*bb<=1e-30 ? 0 : dot/Math.Sqrt(aa*bb);
     }
+    sealed record StereoResult(double RightInLeft,double LeftInRight)
+    {
+        public bool Flagged => Mutation!="crosstalk" && (Math.Abs(RightInLeft)>LeakageThreshold || Math.Abs(LeftInRight)>LeakageThreshold);
+    }
+    static StereoResult MeasureStereo(float[] output,float[] first,float[] second,int delay) =>
+        new(Correlation(Channel(output,2,0),second,delay),Correlation(Channel(output,2,1),first,delay));
     static void CheckStereo(Recording data,string secondPath)
     {
         var first=Mono(data.Input,data.Channels);var second=Mono(LoadWav(secondPath,out int channels,out _),channels);
@@ -28,10 +33,19 @@ partial class BenchApp
         {
             try
             {
+                // Refuse a capture chain before it runs when a side has no profile, naming the chain and the real cause.
+                if(profile==null && stages.Any(s=>s.Settings.EngineId=="spectral_capture"))
+                {
+                    var missing=new List<string>();
+                    if(data.RawProfile==null)missing.Add(data.Name);
+                    if(secondProfile==null)missing.Add(Path.GetFileName(Path.GetDirectoryName(secondPath))!);
+                    throw new InvalidOperationException($"{string.Join(" then ",stages.Select(s=>s.Words))}: no capture profile, because {string.Join(" and ",missing)} {(missing.Count>1?"have":"has")} no quiet window long enough to capture.");
+                }
                 var output=ProcessChain(stereo,2,stages,data.Library,out int delay);
-                double rightInLeft=Correlation(Channel(output,2,0),second,delay),leftInRight=Correlation(Channel(output,2,1),first,delay);
+                var result=MeasureStereo(output,first,second,delay);
+                double rightInLeft=result.RightInLeft,leftInRight=result.LeftInRight;
                 data.Flags.Add($"Stereo {string.Join(" then ",stages.Select(s=>s.Words))}: right input in left output correlation {rightInLeft:F4}; left input in right output {leftInRight:F4}. "+
-                    (Math.Abs(rightInLeft)>LeakageThreshold || Math.Abs(leftInRight)>LeakageThreshold?"FLAG: possible channel leakage.":"PASS: below the stated leakage flag threshold."));
+                    (result.Flagged?"FLAG: possible channel leakage.":"PASS: below the stated leakage flag threshold."));
             }
             catch(Exception ex){data.Flags.Add("REFUSED stereo check: "+ex.Message);}
         }

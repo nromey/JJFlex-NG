@@ -32,11 +32,17 @@ partial class BenchApp
         public int Number;
         public string Group = "";
         public List<Stage> Stages = new();
-        public bool Experiment, Residual;
+        public bool Experiment, Residual, NearestComparison, SpeechFallback;
         public string SourceWords = "";
         public string? Refusal;
         public string? FileName;
+        // Audio lives only while this render and its immediate residual are finished.
         public float[]? Audio;
+        public Action? Prepare;
+        public Render? ResidualRender;
+        public bool CaptureQuiet, CaptureSpeech;
+        public double[][]? QuietProfile, SpeechProfile;
+        public string? QuietProfileRefusal, SpeechProfileRefusal;
         public int Latency, MeasuredDelay;
         public double Speech, Noise, GainDb, RequestedGainDb, Change;
         public List<string> Notes = new();
@@ -81,10 +87,10 @@ partial class BenchApp
         }
         if (engine is SpectralCaptureEngine spectral)
         {
-            if (stage.Profile == null || channel >= stage.Profile.Length || stage.Profile[channel] == null)
-                throw new InvalidOperationException("Capture engine has no per-channel profile: " + stage.ProfileSource);
-            spectral.SetProfile(stage.Profile[channel]);
-            if (spectral.LatencySamples != 992) throw new InvalidOperationException("Capture profile did not engage 992-sample latency");
+            // The latency readback is the completion guard, including an absent profile.
+            spectral.SetProfile(stage.Profile != null && channel < stage.Profile.Length ? stage.Profile[channel] : null);
+            if (Mutation!="ripple-profile" && spectral.LatencySamples != 992)
+                throw new InvalidOperationException("Capture profile did not engage 992-sample latency: " + stage.ProfileSource);
         }
     }
     sealed class Chain : IDisposable

@@ -29,17 +29,20 @@ partial class BenchApp
             Render ruled=ruledPairs[limit];
             var source=FindNeural(data,limit)!;
             var window=data.Windows.Quiet;
-            double[][]? profile=null;string? refusal=null;
-            if(source.Refusal!=null)refusal=$"Source render {source.Number:00} refused: {source.Refusal}";
-            else if(window==null)refusal="No qualifying raw quiet window";
-            else { try {profile=CaptureProfile(source.Audio!,data.Channels,window,source.Latency);}catch(Exception ex){refusal=ex.Message;} }
-            string words=$"after DF{limit:0} quiet {(window==null?"unavailable":ClockTime(window.Start))}";
-            var stages=new List<Stage>{Neural(limit),CaptureStage(profile,words)};
-            var r=refusal!=null ? data.Refuse("capture after neural",stages,refusal,ruled.Number,true) : data.Add("capture after neural",stages,ruled.Number,true);
-            if(profile!=null)r.Notes.AddRange(ProfileComparison(profile,data.RawProfile,false));
+            source.CaptureQuiet=true;
+            string words=$"after DeepFilterNet3 at {limit:0} dB, quiet {(window==null?"unavailable":FileTime(window.Start))}";
+            var stages=new List<Stage>{Neural(limit),CaptureStage(null,words)};
+            var r=data.Add("capture after neural",stages,ruled.Number,true);
+            r.Prepare=()=> {
+                if(source.Refusal!=null)throw new InvalidOperationException($"Source render {source.Number:00} refused: {source.Refusal}");
+                if(source.QuietProfile==null)throw new InvalidOperationException(source.QuietProfileRefusal ?? "No qualifying raw quiet window");
+                stages[1].Profile=source.QuietProfile;
+                r.Notes.AddRange(ProfileComparison(source.QuietProfile,data.RawProfile,false));
+            };
             r.Notes.Add("Experiment only: capture comes from the neural output over the same raw quiet window moved by its delay. The live app captures raw audio.");
         }
     }
+    static string FileTime(int samples)=>$"{samples/Rate/60} min {samples/Rate%60:00}";
     static string ClockTime(int samples)=>$"{samples/Rate/60}:{samples/Rate%60:00}";
 }
 partial class BenchApp
@@ -50,18 +53,24 @@ partial class BenchApp
         {
             var source=data.Renders.First(r=>r.Residual && r.Stages.Count==1 && r.Stages[0].Settings.EngineId==neural.Settings.EngineId &&
                 (neural.Settings.EngineId=="rnnoise" || Math.Abs(r.Stages[0].Value("attenuation_limit_db")-neural.Value("attenuation_limit_db"))<.001));
-            var window=data.Windows.Speech;double[][]? profile=null;string? refusal=source.Refusal==null ? null : $"Residual render {source.Number:00} refused: {source.Refusal}";
-            if(refusal==null && window==null)refusal="No qualifying three-second speech window";
-            if(refusal==null)try {profile=CaptureProfile(source.Audio!,data.Channels,window!,source.Latency);}catch(Exception ex){refusal=ex.Message;}
-            string from=$"residual {source.Number:00} speech {(window==null?"unavailable":ClockTime(window.Start))}";
+            var window=data.Windows.Speech;
+            source.CaptureSpeech=true;
+            string from=$"residual {source.Number:00} speech {(window==null?"unavailable":FileTime(window.Start))}";
             foreach(bool pair in new[]{false,true})
             {
-                var stages=new List<Stage>{CaptureStage(profile,from)};
+                var stages=new List<Stage>{CaptureStage(null,from)};
                 if(pair)stages.Add(neural.Copy());
-                int compare=pair ? data.Renders.FirstOrDefault(r=>!r.Residual && r.Group=="pairs" && r.Stages.Last().Settings.EngineId==neural.Settings.EngineId)?.Number ?? 1
-                    : data.Renders.First(r=>r.Group=="old capture subtraction").Number;
-                var r=refusal==null ? data.Add("capture on residuals",stages,compare,true) : data.Refuse("capture on residuals",stages,refusal,compare,true);
-                if(profile!=null)r.Notes.AddRange(ProfileComparison(profile,data.RawProfile,true));
+                var comparison=pair ? data.Renders.First(r=>!r.Residual && r.Group=="pairs" && r.Stages.Last().Settings.EngineId==neural.Settings.EngineId)
+                    : data.Renders.First(r=>r.Group=="old capture subtraction");
+                var r=data.Add("capture on residuals",stages,comparison.Number,true);
+                r.NearestComparison=pair && (comparison.Stages.Last().Settings.Strength!=neural.Settings.Strength ||
+                    neural.Settings.EngineId=="deepfilternet3" && comparison.Stages.Last().Value("attenuation_limit_db")!=neural.Value("attenuation_limit_db"));
+                r.Prepare=()=> {
+                    if(source.Refusal!=null)throw new InvalidOperationException($"Residual render {source.Number:00} refused: {source.Refusal}");
+                    if(source.SpeechProfile==null)throw new InvalidOperationException(source.SpeechProfileRefusal ?? "No qualifying three-second speech window");
+                    stages[0].Profile=source.SpeechProfile;
+                    r.Notes.AddRange(ProfileComparison(source.SpeechProfile,data.RawProfile,true));
+                };
                 r.Notes.Add("A missing profile flag is not a clearance: AGC can lower noise during speech even when speech entered the profile. Listening to the source residual decides.");
             }
         }
