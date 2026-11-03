@@ -3194,7 +3194,22 @@ public partial class MainWindow : UserControl
             if (down) Radios.ScreenReaderOutput.SpeakNoRadioConnected();
             return;
         }
+        bool wasIdle = _pttController.State == PttSafetyController.PttState.Idle;
         if (down) PttKeyDownEdge(door); else PttKeyUpEdge();
+
+        // Push to talk inside a dialog keys the transmit slice while the
+        // dialog shows something else (#863). A held key is not delayed for a
+        // sentence: under a reader that synthesises the hold as down/up pairs
+        // (JAWS), a key that waits for speech would be released and pressed
+        // again before the sentence ends and would never key. So the slice and
+        // frequency follow the key-down line instead, queued behind it.
+        if (down && door == PttDoor.Dialog && wasIdle
+            && _pttController.State == PttSafetyController.PttState.PttHold)
+        {
+            string? where = Radios.TransmitSliceNotice.For(RigControl);
+            if (where != null)
+                Radios.ScreenReaderOutput.Speak(where, Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Critical);
+        }
     }
 
     /// <summary>

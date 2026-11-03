@@ -2120,6 +2120,9 @@ namespace Radios.Tests
                 "audio.ptt.announce_transmitting_on",
                 "settings.ptt.announce_slice_help",
                 "settings.ptt.announce_slice_label",
+                // Junk box 2026-11-02 (#863): a door that could not say where it
+                // would transmit keys nothing, and says so. DRAFT prose.
+                "audio.ptt.transmit_slice_not_heard",
                 // Reworded by the JJ Flex naming sweep (#851), so classified.
                 "audio.micprofile.create_reason",
                 "audio.micprofile.load_reason",

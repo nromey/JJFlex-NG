@@ -43,6 +43,22 @@ public partial class CheckYourAudioDialog
     private CountdownRun? _startCountdown;
 
     /// <summary>
+    /// The sentence naming the transmit slice, said before this start keys
+    /// (#863), or null when the transmit slice is the selected one.
+    /// </summary>
+    private ICountdownWords? _transmitSliceNotice;
+
+    /// <summary>
+    /// Whether a method keys the operator's transmit slice, and so owes the
+    /// sentence (#863). The computer microphone check keys nothing. Loopback
+    /// is left out on purpose: its own arrangement, made during the count,
+    /// decides what it keys and into the transverter port, and its own line
+    /// already says the frequency.
+    /// </summary>
+    internal static bool KeysTheTransmitSlice(AudioCheckListenMethods method) =>
+        method != AudioCheckListenMethods.ComputerMic && method != AudioCheckListenMethods.Loopback;
+
+    /// <summary>
     /// Begin the count for a start that is about to set up. Nothing when the
     /// operator has turned the countdown off. Called only after the start has
     /// been admitted, so two never overlap.
@@ -51,6 +67,15 @@ public partial class CheckYourAudioDialog
     {
         HookCountdownSkipKeys();
         _startCountdown?.Cancel();
+
+        // Say it, then go (#863; Noel, 2026-11-02): where this will transmit,
+        // when that is not the selected slice. Said FIRST, on the count's own
+        // channel, so a count that is on is queued behind it; with the count
+        // off, CountdownLetsKeyAsync waits for it.
+        _transmitSliceNotice = KeysTheTransmitSlice(method)
+            ? TransmitSliceNotice.Say(_rig ?? RigSource?.Invoke(), "Check your audio, " + method)
+            : null;
+
         _countdownStartedTick = Environment.TickCount64;
         var plan = CheckCountdown.PlanFor(method, CountdownSettings.Current,
             EarconPlayer.IsOn(EarconPlayer.EarconCategory.Transmit),
@@ -72,7 +97,15 @@ public partial class CheckYourAudioDialog
     private async Task<bool> CountdownLetsKeyAsync()
     {
         var run = _startCountdown;
-        if (run == null) return true;
+        if (run == null)
+        {
+            // No count, so nothing else holds the key for the sentence (#863).
+            var notice = _transmitSliceNotice;
+            _transmitSliceNotice = null;
+            if (await TransmitSliceNotice.HeardAsync(notice, () => !_closing)) return true;
+            if (!_closing) TransmitSliceNotHeard();
+            return false;
+        }
         bool go = await run.ReadyToKeyAsync();
         if (!go && run.SpeechStalled)
         {
@@ -84,6 +117,17 @@ public partial class CheckYourAudioDialog
             ScreenReaderOutput.Speak(Lexicon.Get("audio.countdown.not_heard"), VerbosityLevel.Critical, interrupt: true);
         }
         return go;
+    }
+
+    /// <summary>
+    /// The sentence naming the transmit slice never reached the reader, so
+    /// nothing keyed (#863). Said with a sound as well, since speech is what
+    /// just failed. DRAFT PROSE (#863), awaiting Noel.
+    /// </summary>
+    internal static void TransmitSliceNotHeard()
+    {
+        EarconPlayer.LeaderInvalidTone();
+        ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.transmit_slice_not_heard"), VerbosityLevel.Critical, interrupt: true);
     }
 
     // ── The bare Control that skips the count ─────────────────────────────
@@ -212,5 +256,6 @@ public partial class CheckYourAudioDialog
     {
         _startCountdown?.Cancel();
         _startCountdown = null;
+        _transmitSliceNotice = null;
     }
 }

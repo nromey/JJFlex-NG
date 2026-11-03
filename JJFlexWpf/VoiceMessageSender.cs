@@ -788,6 +788,10 @@ internal static class VoiceMessageSender
         bool startsOnKey, Action joinInstead, PieceHolds holds)
     {
         _starting = info;
+        // Say it, then go (#863; Noel, 2026-11-02, "Yes, all of them"): where
+        // this send will transmit, when that is not the selected slice. Said
+        // now, so it plays while VOX is paused; the key waits for it below.
+        ICountdownWords? sliceNotice = TransmitSliceNotice.Say(rig, "the box send of " + Name(info));
         // A kill from here on cancels this send's key, whatever route it takes
         // (fix round 1, Codex's follow-up 4). Escape invalidates _starting;
         // a kill moves this generation, and BoxSendOwnedRig.Own refuses.
@@ -822,6 +826,15 @@ internal static class VoiceMessageSender
         while (rig.Transmit && Environment.TickCount64 < until && ReferenceEquals(_starting, info)
                && !OperatorHolds(rig, Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke()))
             await Task.Delay(50);
+        if (!await TransmitSliceNotice.HeardAsync(sliceNotice, () => ReferenceEquals(_starting, info))
+            && ReferenceEquals(_starting, info))
+        {
+            // The reader never got where this would transmit: nothing keys.
+            _starting = null;
+            pause.Dispose();
+            Dialogs.CheckYourAudioDialog.TransmitSliceNotHeard();
+            return false;
+        }
         if (!ReferenceEquals(_starting, info))
         {
             pause.Dispose();
