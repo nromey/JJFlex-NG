@@ -118,9 +118,13 @@ namespace JJFlexWpf
         public volatile object? HelloResult; // WdspHelloAck, WdspHelloReject, or a string saying why it is unusable
         public WdspHelloAck? Hello;
         public bool HelloProcessed;
-        public int Broken;
-        public WdspCondition BrokenCondition;
-        public string BrokenDetail = "";
+        /// <summary>
+        /// Why this connection broke, published once and whole: the record is
+        /// built first and then made visible by one CompareExchange, so a
+        /// reader that sees it at all sees its reason too.
+        /// </summary>
+        public WdspFailure? Failure;
+        public bool IsBroken => Volatile.Read(ref Failure) != null;
         public long LastBadTrace;
 
         public WdspConnection(int startNumber, string pipeName, string commandLine, NamedPipeServerStream pipe,
@@ -138,6 +142,9 @@ namespace JJFlexWpf
                 SafeWaitHandle = new SafeWaitHandle(process.DangerousGetHandle(), ownsHandle: false);
         }
     }
+
+    /// <summary>A connection's failure: immutable, so publishing the reference publishes all of it.</summary>
+    internal sealed record WdspFailure(WdspCondition Condition, string Detail);
 
     /// <summary>
     /// One channel's life: one engine instance on one helper connection, from
@@ -558,9 +565,9 @@ namespace JJFlexWpf
             var c = _conn;
             if (c != null)
             {
-                if (Volatile.Read(ref c.Broken) != 0)
+                if (Volatile.Read(ref c.Failure) is { } failure)
                 {
-                    FailLocked(c, c.BrokenCondition, c.BrokenDetail, raise);
+                    FailLocked(c, failure.Condition, failure.Detail, raise);
                     stop = c; kill = true; return;
                 }
                 if (c.Exited.WaitOne(0))
@@ -858,11 +865,17 @@ namespace JJFlexWpf
         private static readonly string JJFlexibleVersion =
             (Assembly.GetEntryAssembly()?.GetName().Version ?? typeof(WdspHost).Assembly.GetName().Version)?.ToString() ?? "0";
 
+        /// <summary>Tests only: runs on the breaking thread the instant its failure is visible.</summary>
+        internal Action<WdspConnection>? FailurePublishedForTest;
+
+        /// <summary>Tests only: break this connection as the reader or writer would.</summary>
+        internal void BreakForTest(WdspConnection c, WdspCondition condition, string detail) => Break(c, condition, detail);
+
         private void Break(WdspConnection c, WdspCondition condition, string detail)
         {
-            if (Interlocked.CompareExchange(ref c.Broken, 1, 0) != 0) return;
-            c.BrokenCondition = condition;
-            c.BrokenDetail = detail;
+            // The first failure wins, and it is visible only once it is complete.
+            if (Interlocked.CompareExchange(ref c.Failure, new WdspFailure(condition, detail), null) != null) return;
+            FailurePublishedForTest?.Invoke(c);
             _controlWake.Set();
         }
 
@@ -1027,7 +1040,7 @@ namespace JJFlexWpf
             long lastSend = Now, beat = Ticks(Policy.Heartbeat);
             try
             {
-                while (!c.Stopping && Volatile.Read(ref c.Broken) == 0)
+                while (!c.Stopping && !c.IsBroken)
                 {
                     long due = lastSend + beat - Now;
                     c.Wake.WaitOne((int)Math.Clamp(due * 1000 / Stopwatch.Frequency, 0, int.MaxValue));

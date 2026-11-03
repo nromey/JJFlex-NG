@@ -245,6 +245,37 @@ public sealed class HelperLifecycleTests
         Assert.Contains("2500", engine.UnavailabilityDetail);
     }
 
+    /// <summary>
+    /// A failure is published whole. The thread that breaks the connection is
+    /// held at the instant its failure becomes visible, and the control thread
+    /// is made to act on it right then. It must see the real condition (a
+    /// broken pipe: restart, counted) and never a default one (which reads as
+    /// a rejected handshake: a mismatch, never retried, the helper gone for
+    /// good).
+    /// </summary>
+    [Fact]
+    public void The_control_thread_never_acts_on_a_failure_published_without_its_reason()
+    {
+        using var rig = new HelperTestRig();
+        var engine = rig.Engine("nnr");
+        Assert.True(engine.IsAvailable);
+        var c = rig.Host.CurrentConnection!;
+        WdspHelperState? seen = null;
+        rig.Host.FailurePublishedForTest = _ =>
+        {
+            // The barrier: this thread waits here until the control thread has acted.
+            rig.Host.WakeControl();
+            HelperTestRig.Until(() => rig.Host.State != WdspHelperState.Running, "the control thread to act on the failure");
+            seen = rig.Host.State;
+        };
+        rig.Host.BreakForTest(c, WdspCondition.BrokenPipe, "a broken pipe, injected by the test");
+        rig.Host.FailurePublishedForTest = null;
+        Assert.NotNull(seen);
+        Assert.NotEqual(WdspHelperState.VersionMismatch, seen);
+        Assert.Equal(1, rig.Host.Failures); // a crash, counted toward the cap
+        HelperTestRig.Until(() => engine.IsAvailable && rig.Host.LaunchedProcessIds.Count == 2, "the restart");
+    }
+
     [Fact]
     public void A_fresh_host_answers_the_probe_without_starting_anything()
     {
