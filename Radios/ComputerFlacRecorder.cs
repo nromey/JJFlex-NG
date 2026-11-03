@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -165,9 +166,70 @@ public sealed class ComputerFlacRecorder : IComputerRecorder
     public Task<RecorderOutcome> StopPlaybackAsync()
     { _stopPlay(); return Task.FromResult(Result(true, "", RecorderCue.PlayStop)); }
 
+    // ── Playback takes: a second sink on the same raw tap (Unified takes, design section 4) ──
+    //
+    // A playback take is NOT the operator's QSO recording and never touches it:
+    // it neither starts, stops, pauses, moves nor reads the QSO session, and
+    // the QSO session never sees a take. Both are fed from Receive, the one
+    // point where the raw Opus packet exists before the computer's mute, gain
+    // and noise reduction. One take per radio at a time, alongside a QSO
+    // recording if one is running.
+
+    private readonly System.Collections.Generic.List<(FlexBase Rig, Listenback.PlaybackTakeCapture Capture)> _takeCaptures = new();
+
+    /// <summary>
+    /// Start capturing a playback take for <paramref name="sliceIndex"/> on
+    /// <paramref name="rig"/>, ARMED: listening for that slice's raw playback
+    /// start from now. Call before asking the radio to play. The capture
+    /// closes itself on the radio's reported stop, a fail-safe, receive
+    /// ending, or <see cref="Listenback.PlaybackTakeCapture.End"/>.
+    /// </summary>
+    public Listenback.PlaybackTakeCapture StartTakeCapture(FlexBase rig, Listenback.AudioTakeWriter writer, int sliceIndex)
+    {
+        if (rig == null) throw new ArgumentNullException(nameof(rig));
+        var decoder = new OpusDecoder(SamplingRate.Sampling24000, Channels.Stereo);
+        var capture = new Listenback.PlaybackTakeCapture(writer, sliceIndex, packet => decoder.DecodePacketFloat(packet));
+        lock (_gate)
+        {
+            foreach (var (other, running) in _takeCaptures)
+                if (ReferenceEquals(other, rig) && running.State != Listenback.PlaybackCaptureState.Closed)
+                { decoder.Dispose(); throw new InvalidOperationException("take-capture-running"); }
+            _takeCaptures.Add((rig, capture));
+        }
+        Action<SlicePlaybackObservation> observe = capture.Observe;
+        rig.SlicePlaybackObserved += observe;
+        _ = capture.Closed.ContinueWith(_ =>
+        {
+            rig.SlicePlaybackObserved -= observe;
+            lock (_gate) _takeCaptures.RemoveAll(t => ReferenceEquals(t.Capture, capture));
+            decoder.Dispose();
+        }, TaskScheduler.Default);
+        capture.Arm();
+        return capture;
+    }
+
+    /// <summary>Copy one raw packet to every playback take of this radio. Never blocks, never throws.</summary>
+    private void OfferToTakes(FlexBase rig, byte[] packet, int sequence, double timestamp, bool muted)
+    {
+        Listenback.PlaybackTakeCapture[] captures;
+        lock (_gate)
+        {
+            if (_takeCaptures.Count == 0) return;
+            captures = _takeCaptures.Where(t => ReferenceEquals(t.Rig, rig)).Select(t => t.Capture).ToArray();
+        }
+        if (captures.Length == 0) return;
+        try
+        {
+            var copy = new ReceivedAudioPacket((byte[])packet.Clone(), sequence, timestamp, Stopwatch.GetTimestamp(), muted);
+            foreach (var capture in captures) capture.Offer(copy);
+        }
+        catch (Exception ex) { JJTrace.Tracing.TraceLine("ComputerFlacRecorder take offer: " + ex.Message, TraceLevel.Warning); }
+    }
+
     /// <summary>Called on the receive thread before output decoding. Never touches disk.</summary>
     internal void Receive(FlexBase rig, byte[] packet, int sequence, double timestamp, bool muted)
     {
+        OfferToTakes(rig, packet, sequence, timestamp, muted);
         Session session;
         lock (_gate) session = _session;
         if (session == null || session.Rig != rig || session.Stopping) return;
@@ -196,6 +258,9 @@ public sealed class ComputerFlacRecorder : IComputerRecorder
 
     internal void ReceiveEnded(FlexBase rig)
     {
+        Listenback.PlaybackTakeCapture[] captures;
+        lock (_gate) captures = _takeCaptures.Where(t => ReferenceEquals(t.Rig, rig)).Select(t => t.Capture).ToArray();
+        foreach (var capture in captures) capture.ReceiveEnded();
         Session session;
         lock (_gate) session = _session;
         if (session == null || session.Rig != rig) return;
