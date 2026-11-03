@@ -331,16 +331,29 @@ public sealed class HelperEngineTests
     /// line from 0 at construction, would meet a changed delay at its first
     /// produced frame and silence the untouched side for one delay length.
     /// </summary>
-    [Fact]
-    public void An_open_that_misses_the_construction_wait_never_becomes_available_or_changes_its_delay()
+    /// <remarks>Both late paths: a slow handshake (so the open is never sent in
+    /// time), and a prompt handshake with a slow acknowledgement (so the open
+    /// was sent, and its answer arrives after the constructor returned).</remarks>
+    [Theory]
+    [InlineData("--slow-start", "1200")]
+    [InlineData("--slow-open", "nnr:1200")]
+    public void An_open_that_misses_the_construction_wait_never_becomes_available_or_changes_its_delay(string fault, string how)
     {
         var policy = HelperTestRig.Fast with { ConstructionWait = TimeSpan.FromMilliseconds(300) };
-        using var rig = new HelperTestRig(_ => new[] { "--slow-start", "1200" }, policy);
+        using var rig = new HelperTestRig(_ => new[] { fault, how }, policy);
+        if (fault == "--slow-open")
+        {
+            // The helper must already be up, so the open goes out at once and
+            // only its answer is late. Starting it takes longer than 300 ms, so
+            // this first engine itself misses the wait; it only keeps the helper up.
+            rig.Engine("nr2");
+            HelperTestRig.Until(() => rig.Host.State == WdspHelperState.Running, "the helper up first");
+        }
         var engine = rig.Engine("nnr");
         Assert.False(engine.IsAvailable);
         Assert.Equal(0, engine.LatencySamples);
         HelperTestRig.Until(() => rig.Host.State == WdspHelperState.Running, "the late handshake");
-        Thread.Sleep(800); // room for the late OpenChannelAck
+        Thread.Sleep(1500); // room for the late OpenChannelAck
         Assert.False(engine.IsAvailable);
         Assert.Equal(0, engine.LatencySamples);
         // An engine that did open in time, on the same helper, is unaffected.

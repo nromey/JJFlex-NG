@@ -24,6 +24,7 @@
 //   --break-after <n>        after n frames, close the pipe
 //   --refuse-setting <name>  refuse every SetSetting for that name
 //   --refuse-open <engine>   refuse every OpenChannel for that engine (ChannelBuildFailed)
+//   --slow-open <engine>:<ms> hold every OpenChannelAck for that engine back by ms
 //   --bad-applied <how>      answer every Ok OpenChannelAck with malformed applied values:
 //                            missing, order, duplicate or refused
 
@@ -60,6 +61,8 @@ internal static class Program
     private static readonly HashSet<string> RefuseOpen = new(StringComparer.Ordinal);
     private static string? _refuseSetting;
     private static string? _badApplied;
+    private static string? _slowOpenEngine;
+    private static int _slowOpenMs;
     private static long _framesProcessed;
     private static bool _answered;
 
@@ -105,6 +108,7 @@ internal static class Program
                     case "--refuse-setting": _refuseSetting = Next(); break;
                     case "--refuse-open": RefuseOpen.Add(Next()); break;
                     case "--bad-applied": _badApplied = Next(); break;
+                    case "--slow-open": { var p = Next().Split(':'); _slowOpenEngine = p[0]; _slowOpenMs = int.Parse(p[1], CultureInfo.InvariantCulture); break; }
                     default: throw new FormatException("unknown argument " + args[i]);
                 }
             }
@@ -308,7 +312,9 @@ internal static class Program
                 }
             }
         }
-        Send(ack);
+        if (open.EngineId == _slowOpenEngine && ack.Result == WdspResult.Ok)
+            new Thread(() => { Thread.Sleep(_slowOpenMs); Send(ack); }) { IsBackground = true }.Start();
+        else Send(ack);
     }
 
     /// <summary>The applied values, broken the way --bad-applied asks (unchanged when it does not).</summary>
