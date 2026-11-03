@@ -127,6 +127,9 @@ public static partial class TakeSession
         }
     }
 
+    /// <summary>Run <paramref name="body"/> holding the store's lock (the take deletion guard's final check and delete).</summary>
+    internal static T WithStoreLock<T>(string root, Func<T> body) => Transaction(root, body);
+
     /// <summary>Write JSON atomically: a flushed temporary file, then one replace. A failed write leaves the old file.</summary>
     private static void WriteAtomically<T>(string path, T value)
     {

@@ -208,6 +208,15 @@ public sealed class ComputerFlacRecorder : IComputerRecorder
         return capture;
     }
 
+    /// <summary>Whether a playback take is being captured into <paramref name="directory"/> now: the deletion guard's busy test.</summary>
+    public bool IsCapturing(string directory)
+    {
+        lock (_gate)
+            return _takeCaptures.Any(t => t.Capture.State != Listenback.PlaybackCaptureState.Closed &&
+                string.Equals(System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(t.Capture.DirectoryPath)),
+                    System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(directory)), StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>Copy one raw packet to every playback take of this radio. Never blocks, never throws.</summary>
     private void OfferToTakes(FlexBase rig, byte[] packet, int sequence, double timestamp, bool muted)
     {
