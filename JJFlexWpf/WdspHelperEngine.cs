@@ -245,12 +245,25 @@ namespace JJFlexWpf
             var ch = Volatile.Read(ref _channel);
             if (ch == null) return false;
             ulong n = ch.NextSeq++;
-            if (ch.Opened && !ch.Closed && ch.TrySend(input, n)) ch.Conn.Wake.Set();
+            if (ch.Opened && !ch.Closed && (ch.TrySend(input, n) || (OfflineWait && WaitToSend(ch, input, n)))) ch.Conn.Wake.Set();
             if (n < (ulong)PipelineDepth) return false;
             ulong want = n - (ulong)PipelineDepth;
             if ((long)want < Volatile.Read(ref ch.DiscardBelow)) return false;
             if (OfflineWait) WaitOffline(ch, want);
             return ch.TryTake(want, output);
+        }
+
+        /// <summary>Offline only: a caller faster than real time waits for room rather than dropping a frame.</summary>
+        private bool WaitToSend(WdspChannel ch, ReadOnlySpan<float> input, ulong seq)
+        {
+            long deadline = WdspHost.Now + WdspHost.Ticks(Host.Policy.OfflineFrameWait);
+            while (ch.Opened && !ch.Closed && WdspHost.Now < deadline)
+            {
+                ch.Conn.Wake.Set();
+                Thread.Sleep(1);
+                if (ch.TrySend(input, seq)) return true;
+            }
+            return false;
         }
 
         private void WaitOffline(WdspChannel ch, ulong want)

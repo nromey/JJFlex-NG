@@ -37,6 +37,9 @@ internal sealed class HelperTestRig : IDisposable
         RestartDelays = new[] { TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(150) },
         Linger = TimeSpan.FromMilliseconds(400),
         HandshakeDeadline = TimeSpan.FromSeconds(10),
+        // Longer than the app's 500 ms so a busy test machine's scheduling is
+        // not mistaken for a stall; the stall tests hold the stub for 1.5 s.
+        Stall = TimeSpan.FromSeconds(1),
         ConstructionWait = TimeSpan.FromSeconds(15),
     };
 
@@ -84,8 +87,9 @@ internal sealed class HelperTestRig : IDisposable
             if (ch == null || !ch.Opened) continue;
             ulong n = ch.NextSeq;
             if (n < (ulong)e.PipelineDepth) continue;
+            // Waits for discarded start-up answers too, so a test can tell the
+            // discard (false although the answer is there) from mere lateness.
             ulong want = n - (ulong)e.PipelineDepth;
-            if ((long)want < Volatile.Read(ref ch.DiscardBelow)) continue;
             var t = Stopwatch.StartNew();
             while (!ch.Has(want) && t.ElapsedMilliseconds < 3000 && ch.Opened) Thread.Sleep(0);
         }
