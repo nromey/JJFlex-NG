@@ -2152,6 +2152,24 @@ namespace Radios.Tests
                 "audio.takes.phrase.diagnostic",
                 "audio.takes.phrase.unknown",
                 "audio.takes.no_detune",
+                // Unified takes part 2: the header contract's sentences for mic gain,
+                // boost and bias, the compander, the speech processor and the transmit
+                // equalizer, and the several-settings warning. Draft prose.
+                "audio.takes.setup_mic_gain",
+                "audio.takes.setup_mic_boost",
+                "audio.takes.setup_mic_bias",
+                "audio.takes.setup_compander",
+                "audio.takes.setup_processor",
+                "audio.takes.setup_eq_switched",
+                "audio.takes.setup_eq_bands",
+                "audio.takes.setup_eq_bands_off",
+                "audio.takes.eq_band",
+                "audio.takes.state_on",
+                "audio.takes.state_off",
+                "audio.takes.state_on_level",
+                "audio.takes.state_off_level",
+                "audio.takes.and",
+                "audio.takes.setup_several",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

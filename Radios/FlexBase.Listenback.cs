@@ -506,8 +506,12 @@ public partial class FlexBase
                 provenance["pan-centre-source"] = "unmoved-transmit-pan";
             }
             foreach (var fact in provenance) writer.Header.Write(fact.Key, fact.Value);
-            writer.Header.Event("tx-equalizer", GetTxEq() == null ? null :
-                new { GetTxEq().Enabled, GetTxEq().Hz32, GetTxEq().Hz63, GetTxEq().Hz125, GetTxEq().Hz250, GetTxEq().Hz500, GetTxEq().Hz1000, GetTxEq().Hz2000, GetTxEq().Hz4000, GetTxEq().Hz8000 });
+            // Read ONCE (Unified takes, design section 7): ten separate reads
+            // could each see a different snapshot if a report arrived between
+            // them. The record's shape is TakeSetup's, shared with playback takes.
+            var txEq = GetTxEq();
+            writer.Header.Event("tx-equalizer", txEq == null ? null : TakeSetup.TxEqualizerRecord(txEq.Enabled,
+                txEq.Hz32, txEq.Hz63, txEq.Hz125, txEq.Hz250, txEq.Hz500, txEq.Hz1000, txEq.Hz2000, txEq.Hz4000, txEq.Hz8000));
             snapshot.ResourceCreationPending = true; // stream ID is not known until status arrives
             store.Save(snapshot);
             writer.Header.Event("prior-radio-state", snapshot);
