@@ -9,6 +9,53 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-11-03 (COVERS 2026-11-02 06:40 TO 2026-11-03 14:00) — THREE LANES BUILD ON THEIR BRANCHES, NOTHING NEW ON MAIN BUT THE JUNK BOX PROCESS
+
+**Why this is a day late:** Noel gated the 2026-11-02 seal on this window and the Check your audio window both finishing (20:18). This window then waited to be told rather than asking the other windows, and nothing ran overnight. Noel, 2026-11-03 13:52: *"You need to query the other windows to check this kind of thing."* Recorded in memory `feedback_query_other_windows_for_seal_readiness.md`; both windows were asked, and both answered done.
+
+**Main:** one commit since the last seal, `c490a7b0` (CLAUDE.md step 3c-ter, junk box intake), plus this seal. **59 commits landed across all branches in the span; 57 of them are on unmerged branches**, and rigmeter (main only) does not see them.
+
+**The junk box, now a standing process (Noel's request, 2026-11-02 afternoon).** The handoff and brief template are at `jjf-private/planning/junkbox-harness/`. `regen-open-tasks-summary.py` now also writes `open-junkbox.md`: the junk box is every open entry targeted JUNKBOX, with no list of its own. All 229 junk box entries got a priority. The seal gained step 3c-ter.
+
+**Junk box batch 2026-11-02, built, not merged:** `junkbox/2026-11-02-batch` (worktree `jjflex-jb1102`), eleven commits to `5cb24086`, one Opus ruled track. Ten items: #237 the SWR ladder (warning now SWR 4 everywhere, 36 percent reflected), #651, #596 (the key drops when the radio drops; a held key cannot re-key), #861 with #600, #642 (F reads by setting), #496, #863 (say which slice, then key), #372, #774 (Delete in lists), #718 step one. Noel's rulings at 17:36 are in the entries. The agent reports Radios.Tests 6,529 passed and the windowless filter 612 passed; **not yet re-run by the orchestrator, and no Codex check yet.** One ruling owed: push to talk in a dialog can't wait for #863's sentence.
+
+**Unified takes (#864), built, not merged:** `takes/unified` (worktree `jjflex-takes`), to `fcf2c2b0`. Seven of eight parts built; part 4's capture is an unwired engine. **Do not push it as it stands: `e1d97c59` has a tester's name in its diff;** it is to be squashed at merge. Three tests fail on purpose until the help changes.
+
+**Sprint 49 (#808), the second wave, paused by Noel at 19:57:** Track D (RNNoise built for x64 and x86, the level and comb fixed), Track C (NR4 through libspecbleach), Track B (JJ Flexible's side of the WDSP helper), and a bench fix round on `sprint49/integration`. Codex checks: B and C MERGE, D MERGE AFTER FIXES (applied), not merged until D's dummy-load bench. A trial merge of D, C and B (`sprint49/merge-trial`) is green on x64. Two real defects were caught by checks: the helper outliving the app at launch, and a stale-warming race. One trap: Codex runs reusing each other's MSBuild nodes (memory `feedback_codex_runs_poison_each_others_msbuild_nodes.md`).
+
+**Seal checks:**
+- No dependency advisories.
+- Memory drift: three new flags, all false positives (example paths, Claude Code setting names).
+- The register holds no control characters. **But a text-mode Python write had turned `tasks.md` and the archive into CRLF** against an LF index (every line showed as changed). Fixed before commit, and recorded in the register-editing memory.
+- Codex instruction tests pass (5), Codex loads `AGENTS.md`, the sandbox is healthy.
+- NVDA logs archived; the old log is at speech level (54 lines).
+- Backups: memory (10 projects), AppData (65 files), Claude state, private docs (after the AAR), dev mirror.
+- MEMORY.md 16.2 KB, still over 12 KB.
+
+**Junk box intake (3c-ter), its first run:**
+- Six entries opened since the last seal (#864 to #869), all targeted.
+- #866 and #867 had each been given out twice. The junk box pair is renumbered #868 and #869; the Sprint 49 documents cite the originals.
+- Both of those are JUNKBOX low; 0 JUNKBOX entries are unprioritized, 231 in the junk box, 464 open.
+- 24 closed entries, #859 among them, moved from `tasks.md` to `tasks-archive.md`.
+- **Carried over:** the reading pass's list of about 22 junk box entries that look already done, which need checking against main before closing.
+
+**Cross-surface:** Codex: 9 commits carry its trailer, and every run is logged in `codex-evaluation.md` by its lane. Briefs left in `for-codex/` are the same older carry-overs as before (#638, the tape deck T4 design, ANSWER files). Freight Fate 16 unpushed (one dirty file), Civ VI two dirty files, rigmeter 13 unpushed with no remote: Noel's call. jjf-data and jjflexible-connect idle. No debug build and no nightly promote: nothing testable reached main.
+
+**Pushed:** main only. **Not pushed:** the eight `sprint49/*` branches, `takes/unified` (tester name) and the junk box branch. The Sprint 49 lane left pushing its branches to Noel, and the junk box branch has not been grepped for names.
+
+**Carried over:**
+- Re-run the junk box batch's tests, then Codex checks each fix, then repair, harness, and Noel's sheet.
+- #863's push to talk ruling.
+- Unified takes: tests, the flat-key question, part 4's wiring, the squash, the help edits, and the merge on Noel's word.
+- Sprint 49: D's bench, then the D, C, B merge.
+- The ~22 likely-done junk box entries.
+- Changelog fragments not yet folded.
+- **Noel's eye surgery Thursday 2026-11-05.**
+
+### Rigmeter snapshot — end of 2026-11-03
+
+Main since 2026-11-02 midnight: 8 commits, 19 files, +739 / −125 (net +614): C# +646 / −96 across 13 files, docs +56. About 5,400 authored words. **Branch scope:** this counts main only; the 57 commits on the junk box, takes and Sprint 49 branches are not in it. Snapshot `historical/stats/2026-11-02-c490a7b0.json`.
+
 ## END-OF-DAY SEAL — 2026-11-02 (COVERS 2026-10-31 AFTER ITS SEAL TO 2026-11-02 06:40) — THE 2026-10-31 JUNK BOX MERGES, THE 6300 GETS ITS ZERO-WATT AND TUNE FIXES, AND THE TESTERS GET A BUILD
 
 **Measured from the 2026-10-31 seal (`376ff2c8`, 05:26):** 62 commits on main, 133 files, +8,910 / −416. Two of them (`f88032c2`, `03c5e599`, #855's countdown pip and alert delay wording) were pushed after that seal; the rest are the junk box batch and this morning.
