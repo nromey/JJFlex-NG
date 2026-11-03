@@ -3986,6 +3986,40 @@ namespace Radios
                     + ". The restore points stay on the radio.", TraceLevel.Error);
             }
 
+            // Stop PC audio, and so put back what it changed, while the
+            // connection still answers (#861, #600). Until this it was stopped
+            // only AFTER theRadio.Disconnect() and the wait for the link to
+            // fall, so the mic input's put-back went into a closed connection,
+            // where FlexLib's send returns without sending, and traced
+            // success; and the shack speaker's unmute, which refuses while
+            // Disconnecting is set, never ran at all, leaving the speaker dead
+            // for whoever is in the room (Noel, 2026-09-22: "mute the shack
+            // speaker if you're going PC audio, unmute it if you're not using
+            // it"). So here: after the profile put-back, which keeps the last
+            // word, and before Disconnecting is set and the link is closed.
+            //
+            // With another client still on the radio, each put-back writes
+            // only what still matches what this session set (Noel, 2026-11-02:
+            // "Put back only what matches"): the mic input only while the
+            // radio still reports the PC we chose (PutBackNow), the speaker
+            // only while the radio still mutes it. Another operator's own
+            // change is left alone.
+            //
+            // A DROPPED connection never reaches this line; putting things
+            // back after a drop is #590's put-back executor, not this.
+            if (PCAudio)
+            {
+                try
+                {
+                    Tracing.TraceLine("Disconnect: stopping PC audio while the connection still answers", TraceLevel.Info);
+                    PCAudio = false;
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("Disconnect: stopping PC audio threw: " + ex.Message, TraceLevel.Error);
+                }
+            }
+
             // The connection attempt ends here: every wait in the station
             // coordinator sees the cancellation, pending queue work is
             // invalidated by generation, and the next connection starts clean.
@@ -4138,7 +4172,16 @@ namespace Radios
                     Tracing.TraceLine("Disconnect:the radio didn't disconnect", TraceLevel.Info);
                 }
 
-                PCAudio = false;
+                // Normally a no-op: PC audio was stopped above while the link
+                // still answered (#861). If something started it again since,
+                // it is stopped here, and nothing it puts back can reach the
+                // radio any more, so the trace says so rather than claiming it.
+                if (PCAudio)
+                {
+                    Tracing.TraceLine("Disconnect: PC audio was running again after the hang-up; stopping it now,"
+                        + " and nothing it puts back can reach the radio", TraceLevel.Warning);
+                    PCAudio = false;
+                }
 
                 // Sprint 26 Phase 4: SmartLink session is owned by the coordinator
                 // and lives across radio connect/disconnect cycles. FlexBase no

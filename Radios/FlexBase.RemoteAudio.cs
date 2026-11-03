@@ -1391,9 +1391,11 @@ namespace Radios
             // Only while the connection is still live and we are not tearing
             // it down: a command sent into a closing transport returns 0
             // without going anywhere, which is how the pre-Track-G3 TNF write
-            // came to be dead for years. A disconnect leaves the radio's own
-            // setting as it stands, which is the operator's to change at the
-            // radio. Company on the radio is not consulted here either.
+            // came to be dead for years. A deliberate disconnect now stops PC
+            // audio BEFORE it sets Disconnecting and closes the link (#600,
+            // #861), so it reaches this point with the link up and gives the
+            // speaker back; only a DROPPED connection leaves the radio's
+            // setting as it stands, and that is #590's put-back executor.
             //
             // And only if THIS run is still the current one (Track G5). The
             // connection checks alone let an abandoned thread from an earlier
@@ -1405,9 +1407,17 @@ namespace Radios
                 speakerRadio != null, IsConnected, Disconnecting);
             if (speakerRefusal == null)
             {
+                // Put back only what matches (Noel, 2026-11-02): this run
+                // muted the speaker, so it unmutes it only while the radio
+                // still mutes it. Already unmuted means somebody else gave it
+                // back, and that is left alone.
                 if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop"))
                 {
-                    speakerRadio.IsMuteLocalAudioWhenRemoteOn = false;
+                    if (speakerRadio.IsMuteLocalAudioWhenRemoteOn)
+                        speakerRadio.IsMuteLocalAudioWhenRemoteOn = false;
+                    else
+                        Tracing.TraceLine("remoteAudioProc: the shack speaker is already unmuted, so it is left as it is",
+                            TraceLevel.Info);
                 }
             }
             else

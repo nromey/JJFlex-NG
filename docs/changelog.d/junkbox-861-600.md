@@ -1,0 +1,1 @@
+When you disconnect while using your computer's audio, JJ Flexible now puts the radio's microphone input back and unmutes the shack speaker before it hangs up, so whoever is in the room hears the radio again. If someone else on the radio has already changed either one, their choice is left alone.
