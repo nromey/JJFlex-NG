@@ -28,6 +28,9 @@
   <ItemGroup>
     <Compile Include="..\JJFlexWpf\WdspProtocol.cs" Link="Linked\WdspProtocol.cs" />
     <Compile Include="..\JJFlexWpf\EngineSettingDescriptor.cs" Link="Linked\EngineSettingDescriptor.cs" />
+    <!-- JJ Flexible's own start code, MIT, linked so the sacrificial-parent
+         mode starts its child exactly as the host does. -->
+    <Compile Include="..\JJFlexWpf\WdspNative.cs" Link="Linked\WdspNative.cs" />
   </ItemGroup>
 
 </Project>

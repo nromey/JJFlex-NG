@@ -7,7 +7,11 @@
 // exception, so Windows Error Reporting is never involved.
 //
 // Command line: --pipe <name> [test options], or --sleep <ms> to act as a
-// short-lived hidden "parent" for the parent-exit test.
+// short-lived hidden "parent" for the parent-exit test, or
+// --sacrificial-parent <pid file> to start a child through JJ Flexible's own
+// start code (WdspNative.StartInJob, linked) and freeze the moment the child
+// exists, writing its pid, so a test can kill this process at exactly that
+// point and see whether the child goes with it.
 //   --no-server-check        skip the pipe-server-is-my-parent check (exit 5)
 //   --delay <samples>        algorithmic delay of every engine (default 2448)
 //   --slow-start <ms>        wait this long before answering Hello
@@ -81,6 +85,7 @@ internal static class Program
                 switch (args[i])
                 {
                     case "--sleep": Thread.Sleep(int.Parse(Next(), CultureInfo.InvariantCulture)); Environment.Exit(ExitClean); break;
+                    case "--sacrificial-parent": SacrificialParent(Next()); break;
                     case "--pipe": pipeName = Next(); break;
                     case "--no-server-check": _noServerCheck = true; break;
                     case "--delay": _delay = int.Parse(Next(), CultureInfo.InvariantCulture); break;
@@ -118,6 +123,28 @@ internal static class Program
         new Thread(ProcessLoop) { IsBackground = true, Priority = ThreadPriority.AboveNormal }.Start();
         ReadLoop();
         return ExitClean;
+    }
+
+    /// <summary>
+    /// Start a child exactly as JJ Flexible starts its helper, and stop dead the
+    /// moment CreateProcess has returned: the pid goes to the file (written
+    /// whole, then renamed, so a reader never sees half of it) and this thread
+    /// never returns. The child is this same stub told to sleep a minute and
+    /// exit, so even a child that somehow ran would end by itself; it never
+    /// runs, because it is still suspended.
+    /// </summary>
+    private static void SacrificialParent(string pidFile)
+    {
+        string? self = Environment.ProcessPath;
+        if (self == null) { Environment.Exit(ExitBadCommandLine); return; }
+        WdspNative.StartInJob(self, "\"" + self + "\" --sleep 60000", pid =>
+        {
+            string partial = pidFile + ".partial";
+            File.WriteAllText(partial, pid.ToString(CultureInfo.InvariantCulture));
+            File.Move(partial, pidFile);
+            Thread.Sleep(Timeout.Infinite);
+        });
+        Environment.Exit(ExitClean);
     }
 
     private static void Send(object message)

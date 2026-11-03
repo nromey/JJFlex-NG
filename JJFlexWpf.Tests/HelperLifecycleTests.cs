@@ -20,7 +20,13 @@ namespace JJFlexWpf.Tests;
 /// </summary>
 public sealed class HelperLifecycleTests
 {
-    public HelperLifecycleTests() => NoiseReductionPerChannelTests.AssertWindowless();
+    private readonly Xunit.Abstractions.ITestOutputHelper _out;
+
+    public HelperLifecycleTests(Xunit.Abstractions.ITestOutputHelper output)
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        _out = output;
+    }
 
     /// <summary>Feeds an engine from a background thread, as an audio thread would, until disposed.</summary>
     private sealed class Feeder : IDisposable
@@ -360,6 +366,52 @@ public sealed class HelperLifecycleTests
             child.Job.Dispose();
             Assert.True(HelperTestRig.Gone(child.ProcessId, 3000));
             child.Process.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// The creation boundary. A hidden sacrificial parent, itself in a job of
+    /// this test's, starts a child through the production start code and
+    /// freezes the moment CreateProcess returns; the test then kills that
+    /// parent there. The child must go with it, because it must already be in
+    /// the parent's kill-on-close job. (Under the old order, create, then
+    /// assign, then resume, it stays: suspended, in no job of the dead
+    /// parent's, and only this test's outer job ends it.) Never the operator's
+    /// application: every process here is a stub, and every pid is recorded
+    /// and ended in the finally.
+    /// </summary>
+    [Fact]
+    public void E_a_parent_killed_the_moment_it_creates_the_helper_takes_the_helper_with_it()
+    {
+        string pidFile = Path.Combine(Path.GetTempPath(), "jjflex-sacrificial-" + Guid.NewGuid().ToString("N") + ".pid");
+        string stub = HelperTestRig.StubPath;
+        var parent = WdspNative.StartInJob(stub, "\"" + stub + "\" --sacrificial-parent \"" + pidFile + "\"");
+        _out.WriteLine($"sacrificial parent pid {parent.ProcessId}");
+        int childPid = 0;
+        Process? child = null;
+        try
+        {
+            HelperTestRig.Until(() => File.Exists(pidFile), "the sacrificial parent to create its child");
+            childPid = int.Parse(File.ReadAllText(pidFile), System.Globalization.CultureInfo.InvariantCulture);
+            _out.WriteLine($"child pid {childPid}");
+            child = Process.GetProcessById(childPid);
+            _ = child.Handle; // held from here, so the pid cannot be reused under us
+            Assert.False(child.HasExited, "the child should exist, suspended, at the moment of the kill");
+            WdspNative.Terminate(parent.Process, 1); // killed at exactly that point
+            Assert.True(HelperTestRig.Gone(parent.ProcessId, 5000), "the sacrificial parent did not die");
+            Assert.True(child.WaitForExit(5000), "the helper outlived a parent killed the moment it created it");
+        }
+        finally
+        {
+            if (child != null && !child.HasExited) { HelperTestRig.Survivors.Add(childPid); child.Kill(); child.WaitForExit(2000); }
+            parent.Job.Dispose(); // ends anything still in this test's job, the child included
+            bool parentGone = HelperTestRig.Gone(parent.ProcessId, 3000);
+            bool childGone = childPid == 0 || HelperTestRig.Gone(childPid, 3000);
+            _out.WriteLine($"after cleanup: parent {parent.ProcessId} gone {parentGone}, child {childPid} gone {childGone}");
+            child?.Dispose();
+            parent.Process.Dispose();
+            try { File.Delete(pidFile); } catch (IOException) { }
+            Assert.True(parentGone && childGone, "a sacrificial process survived its cleanup");
         }
     }
 

@@ -266,8 +266,10 @@ namespace JJFlexWpf
     /// channels share the one helper and the one pipe.
     /// </summary>
     /// <remarks>
-    /// <para><b>Never orphaned.</b> The helper is started suspended and with no
-    /// window, put in a job whose last handle closing kills it, then resumed.
+    /// <para><b>Never orphaned.</b> The helper is created suspended, with no
+    /// window, and already a member of a job whose last handle closing kills
+    /// it (the job goes to CreateProcess itself, so there is no moment outside
+    /// it), then resumed.
     /// The job handle exists only in this process, so when JJ Flexible exits
     /// for any reason Windows closes it and kills the helper; no code of ours
     /// has to run. The helper's own guards (parent handle, broken pipe) are the

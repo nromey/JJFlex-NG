@@ -12,9 +12,10 @@ namespace JJFlexWpf
     /// <summary>
     /// The Windows calls the WDSP helper's host needs, and nothing else: a job
     /// object that kills the helper when JJ Flexible's last handle to it
-    /// closes, a suspended, windowless start, and a pipe only this user can
-    /// open. Process.Start cannot do the first two (it leaves a moment in which
-    /// the child runs outside the job), so this is CreateProcess directly.
+    /// closes, a suspended, windowless start that is a member of that job from
+    /// the moment it exists, and a pipe only this user can open. Process.Start
+    /// cannot do the first two (it leaves a moment in which the child exists
+    /// outside the job), so this is CreateProcess directly.
     /// </summary>
     internal static class WdspNative
     {
@@ -32,6 +33,11 @@ namespace JJFlexWpf
         private const uint PIPE_REJECT_REMOTE_CLIENTS = 0x00000008;
         private const int STARTF_USESHOWWINDOW = 0x00000001;
         private const short SW_HIDE = 0;
+        internal const uint EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
+        // ProcThreadAttributeValue(ProcThreadAttributeJobList = 13, FALSE, TRUE, FALSE):
+        // 13 | PROC_THREAD_ATTRIBUTE_INPUT (0x00020000). WinBase.h, SDK
+        // 10.0.26100.0; Windows 10 and later.
+        internal const int PROC_THREAD_ATTRIBUTE_JOB_LIST = 0x0002000D;
 
         /// <summary>The job's limit flags, both of them required: see <see cref="CreateKillOnCloseJob"/>.</summary>
         internal const uint JobLimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION;
@@ -65,6 +71,11 @@ namespace JJFlexWpf
             or ERROR_SYSTEM_INTEGRITY_REPUTATION_DANGEROUS_EXT or ERROR_SYSTEM_INTEGRITY_REPUTATION_OFFLINE
             or ERROR_SYSTEM_INTEGRITY_REPUTATION_UNFRIENDLY_FILE or ERROR_SYSTEM_INTEGRITY_REPUTATION_UNATTAINABLE
             or ERROR_SYSTEM_INTEGRITY_REPUTATION_EXPLICIT_DENY_FILE;
+
+        // Not a Windows code from the call itself: the child came back from
+        // CreateProcess outside its job. ERROR_NOT_SUPPORTED, so it reads as an
+        // ordinary failed start, neither missing nor blocked.
+        internal const int ERROR_JOB_NOT_TAKEN = 50;
 
         internal static bool IsNotThere(int error) => error is ERROR_FILE_NOT_FOUND or ERROR_PATH_NOT_FOUND;
 
@@ -111,6 +122,13 @@ namespace JJFlexWpf
         }
 
         [StructLayout(LayoutKind.Sequential)]
+        private struct STARTUPINFOEXW
+        {
+            public STARTUPINFOW StartupInfo;
+            public IntPtr lpAttributeList;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
         private struct PROCESS_INFORMATION
         {
             public IntPtr hProcess, hThread;
@@ -133,16 +151,24 @@ namespace JJFlexWpf
             ref JOBOBJECT_EXTENDED_LIMIT_INFORMATION info, int length);
 
         [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool AssignProcessToJobObject(SafeFileHandle hJob, SafeProcessHandle hProcess);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool IsProcessInJob(SafeProcessHandle process, SafeFileHandle job, out bool result);
 
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         private static extern bool CreateProcessW(string lpApplicationName, StringBuilder lpCommandLine,
             IntPtr lpProcessAttributes, IntPtr lpThreadAttributes, bool bInheritHandles, uint dwCreationFlags,
-            IntPtr lpEnvironment, string? lpCurrentDirectory, ref STARTUPINFOW lpStartupInfo,
+            IntPtr lpEnvironment, string? lpCurrentDirectory, ref STARTUPINFOEXW lpStartupInfo,
             out PROCESS_INFORMATION lpProcessInformation);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool InitializeProcThreadAttributeList(IntPtr lpAttributeList, int dwAttributeCount,
+            int dwFlags, ref IntPtr lpSize);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool UpdateProcThreadAttribute(IntPtr lpAttributeList, uint dwFlags, IntPtr attribute,
+            IntPtr lpValue, IntPtr cbSize, IntPtr lpPreviousValue, IntPtr lpReturnSize);
+
+        [DllImport("kernel32.dll")]
+        private static extern void DeleteProcThreadAttributeList(IntPtr lpAttributeList);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern uint ResumeThread(IntPtr hThread);
@@ -213,31 +239,85 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// Start <paramref name="path"/> suspended and with no window, assign it to
-        /// a new kill-on-close job, then let it run. If the job cannot take it, the
-        /// suspended child is terminated before it ever runs and the start fails:
-        /// running a helper we cannot guarantee to kill is worse than not running it.
-        /// No handle is inherited; the pipe name travels on the command line.
+        /// Start <paramref name="path"/> suspended and with no window, ALREADY a
+        /// member of a new kill-on-close job, then let it run.
         /// </summary>
-        internal static Started StartInJob(string path, string commandLine)
+        /// <remarks>
+        /// <para><b>The job is part of creation, not a step after it.</b> The job
+        /// goes to <c>CreateProcess</c> in a <c>PROC_THREAD_ATTRIBUTE_JOB_LIST</c>
+        /// (Windows 10 and later), so there is no instant at which the child
+        /// exists outside it. The earlier order, create then
+        /// <c>AssignProcessToJobObject</c> then resume, had one: if JJ Flexible
+        /// died between the first two calls, Windows closed an empty job and left
+        /// a suspended child that no guard of its own could ever end, because its
+        /// only thread never ran. A suspended start keeps the child's code from
+        /// running before it is in the job; it does not keep the child from
+        /// outliving a parent that dies before the job has it.</para>
+        /// <para><b>Fail closed.</b> If the job cannot take the child (for example
+        /// a job JJ Flexible is itself in refuses nesting), <c>CreateProcess</c>
+        /// itself fails and nothing was started. There is no fallback to assigning
+        /// afterwards. The membership is also checked before the child is resumed,
+        /// and a child not in the job is terminated before it ever runs: running a
+        /// helper we cannot guarantee to kill is worse than not running it.</para>
+        /// <para>No handle is inherited (<c>bInheritHandles</c> false; the job
+        /// handle is not inheritable either); the pipe name travels on the command
+        /// line.</para>
+        /// </remarks>
+        /// <param name="afterCreate">
+        /// Tests only, and null in production: called with the child's pid the
+        /// moment <c>CreateProcess</c> returns, before anything else, so a test
+        /// can kill the calling process at exactly that point.
+        /// </param>
+        internal static Started StartInJob(string path, string commandLine, Action<int>? afterCreate = null)
         {
             var job = CreateKillOnCloseJob();
-            var si = new STARTUPINFOW { cb = Marshal.SizeOf<STARTUPINFOW>(), dwFlags = STARTF_USESHOWWINDOW, wShowWindow = SW_HIDE };
-            var line = new StringBuilder(commandLine);
-            if (!CreateProcessW(path, line, IntPtr.Zero, IntPtr.Zero, false, StartFlags, IntPtr.Zero, null, ref si, out var pi))
+            IntPtr attributes = IntPtr.Zero, jobList = IntPtr.Zero;
+            bool attributesReady = false, jobAddRef = false;
+            PROCESS_INFORMATION pi;
+            try
             {
-                int error = Marshal.GetLastWin32Error();
+                IntPtr size = IntPtr.Zero;
+                InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref size); // asks for the size; fails by design
+                if (size == IntPtr.Zero) throw new StartFailure("InitializeProcThreadAttributeList", Marshal.GetLastWin32Error());
+                attributes = Marshal.AllocHGlobal(size);
+                if (!InitializeProcThreadAttributeList(attributes, 1, 0, ref size))
+                    throw new StartFailure("InitializeProcThreadAttributeList", Marshal.GetLastWin32Error());
+                attributesReady = true;
+                job.DangerousAddRef(ref jobAddRef);
+                jobList = Marshal.AllocHGlobal(IntPtr.Size);
+                Marshal.WriteIntPtr(jobList, job.DangerousGetHandle());
+                if (!UpdateProcThreadAttribute(attributes, 0, (IntPtr)PROC_THREAD_ATTRIBUTE_JOB_LIST, jobList, (IntPtr)IntPtr.Size, IntPtr.Zero, IntPtr.Zero))
+                    throw new StartFailure("UpdateProcThreadAttribute (job list)", Marshal.GetLastWin32Error());
+                var si = new STARTUPINFOEXW
+                {
+                    StartupInfo = new STARTUPINFOW { cb = Marshal.SizeOf<STARTUPINFOEXW>(), dwFlags = STARTF_USESHOWWINDOW, wShowWindow = SW_HIDE },
+                    lpAttributeList = attributes,
+                };
+                var line = new StringBuilder(commandLine);
+                if (!CreateProcessW(path, line, IntPtr.Zero, IntPtr.Zero, false, StartFlags | EXTENDED_STARTUPINFO_PRESENT,
+                        IntPtr.Zero, null, ref si, out pi))
+                    throw new StartFailure("CreateProcess (in its job)", Marshal.GetLastWin32Error());
+            }
+            catch
+            {
                 job.Dispose();
-                throw new StartFailure("CreateProcess", error);
+                throw;
+            }
+            finally
+            {
+                if (attributesReady) DeleteProcThreadAttributeList(attributes);
+                if (attributes != IntPtr.Zero) Marshal.FreeHGlobal(attributes);
+                if (jobList != IntPtr.Zero) Marshal.FreeHGlobal(jobList);
+                if (jobAddRef) job.DangerousRelease();
             }
             var process = new SafeProcessHandle(pi.hProcess, ownsHandle: true);
             try
             {
-                if (!AssignProcessToJobObject(job, process))
+                afterCreate?.Invoke(pi.dwProcessId);
+                if (!InJob(process, job))
                 {
-                    int error = Marshal.GetLastWin32Error();
                     TerminateProcess(process, 1);
-                    throw new StartFailure("AssignProcessToJobObject", error);
+                    throw new StartFailure("CreateProcess (the child is not in its job)", ERROR_JOB_NOT_TAKEN);
                 }
                 if (ResumeThread(pi.hThread) == uint.MaxValue)
                 {
