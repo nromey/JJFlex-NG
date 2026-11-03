@@ -123,6 +123,58 @@ internal static class UnifiedTakeFixtures
         return directory;
     }
 
+    /// <summary>
+    /// A complete, playable IQ take of <paramref name="kind"/> (the shape the
+    /// listen-back comparison tests use): 8 kHz IQ of speech-like partials,
+    /// keyed throughout, USB, closed clean. Its render is real.
+    /// </summary>
+    public static string IqTake(string root, string kind, int seed = 7, string serial = "same-radio",
+        double lowGain = 1, double highGain = 1, IDictionary<string, string?>? facts = null)
+    {
+        const int rate = 8000, samples = rate * 3;
+        string directory = Path.Combine(root, "iq-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(directory);
+        var random = new Random(seed);
+        double[] frequencies = new double[80];
+        for (int t = 0; t < frequencies.Length; t++) frequencies[t] = t < 20 ? 140 + t * 21.3 : 1200 + (t - 20) * 21.7;
+        double[] phases = new double[frequencies.Length], envelopes = new double[frequencies.Length];
+        for (int t = 0; t < frequencies.Length; t++) phases[t] = random.NextDouble() * 2 * Math.PI;
+        string iq = Path.Combine(directory, "rf.iq");
+        using (var writer = new BinaryWriter(File.Create(iq)))
+            for (int i = 0; i < samples; i++)
+            {
+                if (i % 240 == 0) for (int t = 0; t < frequencies.Length; t++) envelopes[t] = 0.45 + random.NextDouble() * 0.55;
+                double re = 0, im = 0;
+                for (int t = 0; t < frequencies.Length; t++)
+                {
+                    double gain = t < 20 ? lowGain / Math.Sqrt(20) : highGain / Math.Sqrt(60);
+                    double phase = phases[t] + 2 * Math.PI * frequencies[t] * i / rate;
+                    re += gain * envelopes[t] * Math.Cos(phase); im += gain * envelopes[t] * Math.Sin(phase);
+                }
+                writer.Write((float)(32768 * 0.025 * re)); writer.Write((float)(32768 * 0.025 * im));
+            }
+        using (var header = new TakeHeader(Path.Combine(directory, "take.txt")))
+        {
+            var written = new Dictionary<string, string?>
+            {
+                ["kind"] = kind, ["serial"] = serial, ["model"] = "FLEX-8600", ["nickname"] = "Bench", ["transport"] = "LAN",
+                ["mode"] = "USB", ["rate-echoed"] = rate.ToString(), ["rate-requested"] = rate.ToString(),
+                ["receive-antenna"] = "XVTB", ["rf-gain"] = "32", ["tx-antenna"] = "XVTA", ["rf-power"] = "10",
+                ["tx-frequency-mhz"] = "14.2", ["pan-centre-mhz"] = "14.2", ["tx-filter-low"] = "100", ["tx-filter-high"] = "3000",
+                ["dummy-load"] = "False", ["mic-input"] = "PC", ["pc-microphone-device"] = "Yeti", ["mic-profile"] = "Default",
+                ["reference-audio"] = "False", ["render-scale"] = "1/32768; fixed; no normalization; no AGC", ["classifier"] = "noise-like",
+            };
+            if (facts != null) foreach (var fact in facts) written[fact.Key] = fact.Value;
+            foreach (var fact in written) if (fact.Value != null) header.Write(fact.Key, fact.Value);
+            header.Event("keying", new { Source = "radio-TransmitChange", Keyed = true, AtPair = 0 });
+            header.Event("keying", new { Source = "radio-TransmitChange", Keyed = false, AtPair = samples });
+            header.Write("pairs-written", samples);
+            header.Write("sha256", TakeHeader.Checksum(iq));
+            header.Write("closed", "clean");
+        }
+        return directory;
+    }
+
     /// <summary>A minimal IQ header, for the catalog: no rf.iq unless asked.</summary>
     public static string IqHeader(string root, string name, string? kind, bool heardWav = true)
     {

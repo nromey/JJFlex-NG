@@ -11,7 +11,7 @@ namespace Radios.Listenback;
 public sealed record ToneSurvivalResult(bool Identified, string Reason, double OffsetHz = 0, double AboveRestDb = 0);
 public sealed record TakeAnalysisResult(AudioAlignmentResult Alignment, AudioDifference Difference, ToneSurvivalResult Tone);
 
-public static class TakeAnalysis
+public static partial class TakeAnalysis
 {
     private static double Number(TakeInspection take, string key) => double.Parse(take.Get(key), CultureInfo.InvariantCulture);
     public static TakeAnalysisResult Run(string directory)
@@ -167,9 +167,9 @@ public static class TakeAnalysis
         bool reuseRenders = false)
     {
         var a = TakeReader.Inspect(previousDirectory); var b = TakeReader.Inspect(currentDirectory);
-        // Until the audio road's comparison exists, a pair involving an audio
-        // take is refused by kind rather than sent down the IQ road.
-        if (a.IsAudio || b.IsAudio) return new(false, "unlike-takes:kind");
+        // A pair involving a playback take travels the audio road (design
+        // sections 2 and 3); two IQ takes keep today's road, verbatim.
+        if (a.IsAudio || b.IsAudio) return CompareOnAudioRoad(a, b, previousDirectory, currentDirectory, reuseRenders);
         if (!a.Playable || !b.Playable) return new(false, "corrupt-take");
         string mismatch = AudioDifferential.Compatibility(a, b);
         if (mismatch == "source")

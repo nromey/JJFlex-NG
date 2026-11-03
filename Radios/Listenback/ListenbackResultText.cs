@@ -98,6 +98,8 @@ public static class ListenbackResultText
             }
             case TakeSetup.GroupEqualizer:
                 return EqualizerSentence(change);
+            case "radio":
+                return Lexicon.Get("audio.takes.setup_radio", ("previous", change.Previous), ("current", change.Current));
             default:
                 return "";
         }
@@ -155,6 +157,67 @@ public static class ListenbackResultText
         0 => "",
         1 => items[0],
         _ => string.Join(", ", items.Take(items.Count - 1)) + " " + Lexicon.Get("audio.takes.and") + " " + items[^1]
+    };
+
+    // ── Unified takes, the audio road's comparison sentences (design sections 2 and 3) ──
+    // DRAFT PROSE: awaiting Noel, except the two mixed-kind sentences, whose
+    // structure Noel RULED 2026-11-02 17:31 ("yep that's fine").
+
+    /// <summary>
+    /// The whole spoken result of a comparison on the audio road, assembled:
+    /// what was compared and why anything was left out, then the setup
+    /// differences, then the numbers. For a refusal, one sentence that says
+    /// why and what to do.
+    /// </summary>
+    public static string AudioRoadSentence(AudioDifference difference)
+    {
+        string first = TakeKindWords.Phrase(difference.FirstKind ?? ""), second = TakeKindWords.Phrase(difference.SecondKind ?? "");
+        bool mixed = difference.FirstKind != difference.SecondKind;
+        if (!difference.Comparable)
+        {
+            if (difference.Reason == "unlike-takes:source") return UnlikeSource(difference);
+            if (mixed && difference.Reason is "unlike-takes:kind" or "too-little-audio")
+                return Lexicon.Get("audio.takes.mixed_nothing_fair", ("first", first), ("second", second));
+            string refusal = difference.Reason switch
+            {
+                "unlike-takes:kind" => "audio.takes.refused_kind",
+                "unlike-takes:source-unknown" => "audio.takes.refused_source_unknown",
+                "unlike-takes:mode" => "audio.takes.refused_mode",
+                "unlike-takes:tx-antenna" => "audio.takes.refused_tx_antenna",
+                "unlike-takes:receive-antenna" => "audio.takes.refused_receive_antenna",
+                "unlike-takes:serial" => "audio.takes.refused_radio",
+                "too-little-audio" => "audio.takes.refused_too_little",
+                _ => "audio.takes.refused_unreadable"
+            };
+            return Lexicon.Get(refusal);
+        }
+        string intro = mixed ? Lexicon.Get("audio.takes.mixed_tone_only", ("first", first), ("second", second))
+            : difference.LevelCompared ? ""
+            : Lexicon.Get(LevelWithheldKey(difference.LevelWithheld));
+        bool toneChanged = System.Math.Abs(difference.TiltDb) >= 0.5;
+        string numbers = difference.LevelCompared
+            ? Lexicon.Get(toneChanged ? "audio.takes.level_and_tone" : "audio.takes.level_same_tone",
+                ("level_word", Lexicon.Get(difference.LevelDb >= 0 ? "audio.iq.louder" : "audio.iq.quieter")),
+                ("level", System.Math.Abs(difference.LevelDb).ToString("F1")),
+                ("brightness_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.brighter" : "audio.iq.darker")),
+                ("high_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.stronger" : "audio.iq.weaker")),
+                ("tilt", System.Math.Abs(difference.TiltDb).ToString("F1")))
+            : toneChanged
+                ? Lexicon.Get("audio.takes.tone_changed",
+                    ("brightness_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.brighter" : "audio.iq.darker")),
+                    ("high_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.stronger" : "audio.iq.weaker")),
+                    ("tilt", System.Math.Abs(difference.TiltDb).ToString("F1")))
+                : Lexicon.Get("audio.takes.tone_same");
+        string changes = SetupChanges(difference);
+        return string.Join(" ", new[] { intro, changes, numbers }.Where(s => s.Length > 0));
+    }
+
+    private static string LevelWithheldKey(string reason) => reason switch
+    {
+        "transport" => "audio.takes.level_withheld_transport",
+        "slice-volume" => "audio.takes.level_withheld_slice_volume",
+        "receive-chain" => "audio.takes.level_withheld_receive_chain",
+        _ => "audio.takes.level_withheld_boundary"
     };
 
     // "1 watt", never "1 watts" (Codex's round 14 check).

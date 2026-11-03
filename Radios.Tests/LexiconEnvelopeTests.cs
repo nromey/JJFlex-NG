@@ -2170,6 +2170,28 @@ namespace Radios.Tests
                 "audio.takes.state_off_level",
                 "audio.takes.and",
                 "audio.takes.setup_several",
+                // Unified takes part 6: the audio road's comparison sentences. The two
+                // mixed-kind sentences follow Noel's ruled structure (2026-11-02 17:31);
+                // the rest are draft prose.
+                "audio.takes.mixed_tone_only",
+                "audio.takes.mixed_nothing_fair",
+                "audio.takes.level_withheld_boundary",
+                "audio.takes.level_withheld_transport",
+                "audio.takes.level_withheld_slice_volume",
+                "audio.takes.level_withheld_receive_chain",
+                "audio.takes.tone_same",
+                "audio.takes.tone_changed",
+                "audio.takes.level_and_tone",
+                "audio.takes.level_same_tone",
+                "audio.takes.setup_radio",
+                "audio.takes.refused_kind",
+                "audio.takes.refused_source_unknown",
+                "audio.takes.refused_mode",
+                "audio.takes.refused_tx_antenna",
+                "audio.takes.refused_receive_antenna",
+                "audio.takes.refused_radio",
+                "audio.takes.refused_too_little",
+                "audio.takes.refused_unreadable",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
