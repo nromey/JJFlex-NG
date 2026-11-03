@@ -13,7 +13,7 @@ namespace Radios.Listenback;
 /// night was made under conditions nobody remembers, so numbers against it
 /// mislead more than they inform; a second take is cheap.
 /// </summary>
-public static class TakeSession
+public static partial class TakeSession
 {
     private const string NameStamp = "yyyyMMdd-HHmmss-fff";
 
