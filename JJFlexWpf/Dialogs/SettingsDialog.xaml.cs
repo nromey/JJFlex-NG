@@ -232,6 +232,13 @@ namespace JJFlexWpf.Dialogs
             // The tune reminder (#860). DRAFT PROSE: awaiting Noel
             JJFlexHelp.SetText(PttTuneReminderBox, Lexicon.Get("settings.ptt.tune_reminder_help"));
 
+            // Name the slice in the transmit and receive announcements (#496).
+            // DRAFT PROSE (#496): awaiting Noel
+            PttAnnounceSliceCheckbox.Content = Lexicon.Get("settings.ptt.announce_slice_label");
+            System.Windows.Automation.AutomationProperties.SetName(PttAnnounceSliceCheckbox,
+                Lexicon.Get("settings.ptt.announce_slice_label"));
+            JJFlexHelp.SetText(PttAnnounceSliceCheckbox, Lexicon.Get("settings.ptt.announce_slice_help"));
+
             // The VOX send box (#835). DRAFT PROSE (#835): awaiting Noel
             VoxSendBoxCheckbox.Content = Lexicon.Get("audio.send.box_label");
             System.Windows.Automation.AutomationProperties.SetName(VoxSendBoxCheckbox,
@@ -257,6 +264,7 @@ namespace JJFlexWpf.Dialogs
             PttAlcBox.Text = _pttConfig.AlcAutoReleaseSeconds.ToString();
             PttTuneReminderBox.Text = _pttConfig.TuneReminderSeconds.ToString();
             PttSpeechCheckbox.IsChecked = _pttConfig.SpeechEnabled;
+            PttAnnounceSliceCheckbox.IsChecked = _pttConfig.AnnounceTransmitSlice;
             ChirpEnabledCheckbox.IsChecked = _pttConfig.ChirpEnabled;
             VoxSendBoxCheckbox.IsChecked = _audioConfig.VoxSendKeysRadio;
 
@@ -1399,6 +1407,7 @@ namespace JJFlexWpf.Dialogs
             _pttConfig.OhCrapSecondsBeforeTimeout = ohCrap;
             _pttConfig.AlcAutoReleaseSeconds = alc;
             _pttConfig.SpeechEnabled = PttSpeechCheckbox.IsChecked == true;
+            _pttConfig.AnnounceTransmitSlice = PttAnnounceSliceCheckbox.IsChecked == true;
             _pttConfig.ChirpEnabled = ChirpEnabledCheckbox.IsChecked == true;
             // The VOX send box (#835): saved with the audio settings, made live by
             // _audioConfig.Apply() below.

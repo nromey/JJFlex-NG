@@ -46,16 +46,20 @@ namespace Radios
         public SliceRoles(string selectedLetter, ulong selectedHz, bool hasTransmit,
                           string transmitLetter, ulong transmitHz, bool same)
         {
-            SelectedLetter = selectedLetter ?? "";
+            _selectedLetter = selectedLetter ?? "";
             SelectedHz = selectedHz;
             HasTransmit = hasTransmit;
-            TransmitLetter = transmitLetter ?? "";
+            _transmitLetter = transmitLetter ?? "";
             TransmitHz = transmitHz;
             Same = same;
         }
 
-        /// <summary>The selected slice's letter.</summary>
-        public string SelectedLetter { get; }
+        private readonly string _selectedLetter;
+        private readonly string _transmitLetter;
+
+        /// <summary>The selected slice's letter, or empty (never null, even
+        /// for a default value).</summary>
+        public string SelectedLetter => _selectedLetter ?? "";
 
         /// <summary>The selected slice's own frequency, in hertz.</summary>
         public ulong SelectedHz { get; }
@@ -64,7 +68,7 @@ namespace Radios
         public bool HasTransmit { get; }
 
         /// <summary>The transmit slice's letter, or empty.</summary>
-        public string TransmitLetter { get; }
+        public string TransmitLetter => _transmitLetter ?? "";
 
         /// <summary>The transmit slice's frequency, in hertz, or 0.</summary>
         public ulong TransmitHz { get; }
@@ -84,12 +88,47 @@ namespace Radios
             if (rig == null) return default;
             int rx = rig.RXVFO;
             int tx = rig.TXVFO;
+            bool hasRx = rig.ValidVFO(rx);
             bool hasTx = rig.ValidVFO(tx);
+            // No letter for a slice that is not there: VFOToLetter falls back
+            // to the index, and "slice minus one" is worse than no slice.
             return new SliceRoles(
-                rig.VFOToLetter(rx), rig.RXFrequency,
+                hasRx ? rig.VFOToLetter(rx) : "", rig.RXFrequency,
                 hasTx, hasTx ? rig.VFOToLetter(tx) : "", hasTx ? rig.TXFrequency : 0UL,
                 hasTx && tx == rx);
         }
+    }
+
+    /// <summary>
+    /// The push-to-talk announcements, with or without their slice (#496).
+    /// Pure, so the choice is tested without a radio; the controller speaks
+    /// what this returns.
+    /// </summary>
+    /// <remarks>
+    /// Ruled 2026-09-01 (#496, recorded in the archived #497): extend the
+    /// EXISTING announcements, all three, "transmitting on slice a",
+    /// "receiving on slice b". Transmitting and locked name the TRANSMIT
+    /// slice, which is where the RF goes; receiving names the SELECTED slice,
+    /// which is where the operator is. With the switch off, or with no slice
+    /// to name, the three sentences are exactly the ones that shipped.
+    /// DRAFT PROSE (#496), awaiting Noel.
+    /// </remarks>
+    public static class PttSliceWords
+    {
+        public static string Transmitting(SliceRoles roles, bool nameSlice) =>
+            nameSlice && roles.HasTransmit && roles.TransmitLetter.Length > 0
+                ? Lexicon.Get("audio.ptt.announce_transmitting_on", ("slice", roles.TransmitLetter))
+                : Lexicon.Get("audio.ptt.announce_transmitting");
+
+        public static string Locked(SliceRoles roles, bool nameSlice) =>
+            nameSlice && roles.HasTransmit && roles.TransmitLetter.Length > 0
+                ? Lexicon.Get("audio.ptt.announce_locked_on", ("slice", roles.TransmitLetter))
+                : Lexicon.Get("audio.ptt.announce_locked");
+
+        public static string Receiving(SliceRoles roles, bool nameSlice) =>
+            nameSlice && roles.SelectedLetter.Length > 0
+                ? Lexicon.Get("audio.ptt.announce_receiving_on", ("slice", roles.SelectedLetter))
+                : Lexicon.Get("audio.ptt.announce_receiving");
     }
 
     /// <summary>

@@ -988,6 +988,8 @@
   "settings.sound.typing_random_tones": "Random tones",
   "settings.sound.typing_single_tone": "Single tone",
   "settings.sound.typing_touch_tone": "Touch-tone (DTMF)",
+  "settings.ptt.announce_slice_help": {"text": "When checked, the transmit and receive announcements name their slice every time: Transmitting on slice A, Receiving on slice B. Turn it off to hear only Transmitting and Receiving. Your speech verbosity does not change it.", "delivery": null},
+  "settings.ptt.announce_slice_label": {"text": "Name the slice when announcing transmit and receive", "delivery": null},
   "settings.speech.frequency_key_both": {"text": "Transmit slice, then selected slice (default)", "delivery": null},
   "settings.speech.frequency_key_help": {"text": "Which slice's frequency F speaks when your transmit slice is not the selected one. The default speaks the transmit slice first, then the selected slice. When they are the same slice you hear one frequency whichever you choose, and your speech verbosity never shortens it.", "delivery": null},
   "settings.speech.frequency_key_label": {"text": "F reads", "delivery": null},

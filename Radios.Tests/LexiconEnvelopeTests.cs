@@ -2112,6 +2112,14 @@ namespace Radios.Tests
                 "settings.speech.frequency_key_label",
                 "settings.speech.frequency_key_selected",
                 "settings.speech.frequency_key_transmit",
+                // Junk box 2026-11-02 (#496): the transmit and receive
+                // announcements name their slice, and the switch for it.
+                // DRAFT prose, awaiting Noel.
+                "audio.ptt.announce_locked_on",
+                "audio.ptt.announce_receiving_on",
+                "audio.ptt.announce_transmitting_on",
+                "settings.ptt.announce_slice_help",
+                "settings.ptt.announce_slice_label",
                 // Reworded by the JJ Flex naming sweep (#851), so classified.
                 "audio.micprofile.create_reason",
                 "audio.micprofile.load_reason",

@@ -935,7 +935,7 @@ namespace JJFlexWpf
                 StartFreshAudioSample();
                 if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
                 _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_transmitting"));
-                SpeakKeyDownFirstLine(Lexicon.Get("audio.ptt.announce_transmitting"));
+                SpeakKeyDownFirstLine(TransmittingWords());
                 if (!AudioCheckNarration) SpeakKeyDownExtra();
                 _healthReflectedWarned = false;
                 _reflectedRun.Reset();
@@ -961,7 +961,7 @@ namespace JJFlexWpf
                 // means the screen reader is synthesising pairs (#216). The
                 // release still happens — detection only, no behaviour change.
                 NotePttRelease();
-                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"));
+                GoIdle(ReceivingWords());
             }
             // If locked/warning, key-up does nothing (still locked)
         }
@@ -996,7 +996,7 @@ namespace JJFlexWpf
             else
             {
                 // Any TX state — unlock
-                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"));
+                GoIdle(ReceivingWords());
             }
         }
 
@@ -1045,6 +1045,23 @@ namespace JJFlexWpf
             return true;
         }
 
+        // The three announcements, with their slice when the operator has
+        // asked for it (#496). One reading of the slices per sentence.
+        private Radios.SliceRoles CurrentSliceRoles()
+        {
+            try { return Radios.SliceRoles.Of(_getRigControl()); }
+            catch { return default; }
+        }
+
+        private string TransmittingWords() =>
+            Radios.PttSliceWords.Transmitting(CurrentSliceRoles(), _config.AnnounceTransmitSlice);
+
+        private string ReceivingWords() =>
+            Radios.PttSliceWords.Receiving(CurrentSliceRoles(), _config.AnnounceTransmitSlice);
+
+        private string LockedWords() =>
+            Radios.PttSliceWords.Locked(CurrentSliceRoles(), _config.AnnounceTransmitSlice);
+
         /// <summary>
         /// Escape — unlock TX from any state.
         /// </summary>
@@ -1052,7 +1069,7 @@ namespace JJFlexWpf
         {
             if (State != PttState.Idle)
             {
-                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"));
+                GoIdle(ReceivingWords());
             }
         }
 
@@ -1175,9 +1192,9 @@ namespace JJFlexWpf
             StartFreshAudioSample(); // SC_MIC peak-hold and LUFS sample both start here
 
             _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_locked"));
-            if (fromIdle) SpeakKeyDownFirstLine(Lexicon.Get("audio.ptt.announce_locked"));
+            if (fromIdle) SpeakKeyDownFirstLine(LockedWords());
             else if (_config.SpeechEnabled && !AudioCheckNarration)
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.announce_locked"), VerbosityLevel.Critical, interrupt: true);
+                ScreenReaderOutput.Speak(LockedWords(), VerbosityLevel.Critical, interrupt: true);
             if (!AudioCheckNarration) SpeakKeyDownExtra();
             Tracing.TraceLine("PTT: Locked", TraceLevel.Info);
 

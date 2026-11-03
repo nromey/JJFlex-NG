@@ -175,6 +175,11 @@
                               Margin="0,12,0,0"
                               AutomationProperties.Name="Announce transmit and receive state changes"/>
 
+                    <!-- #496: name the slice in those announcements. Label, name and
+                         Ctrl+F1 text from the Lexicon in code. DRAFT PROSE. -->
+                    <CheckBox x:Name="PttAnnounceSliceCheckbox"
+                              Margin="0,8,0,0"/>
+
                     <CheckBox x:Name="ChirpEnabledCheckbox"
                               Content="Play chirp tones on transmit and receive"
                               Margin="0,8,0,0"

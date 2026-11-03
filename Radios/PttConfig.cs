@@ -151,6 +151,23 @@ namespace Radios
         public bool SpeechEnabled { get; set; } = true;
 
         /// <summary>
+        /// When true, the transmit and receive announcements name their slice:
+        /// "Transmitting on slice A", "Receiving on slice B", "Transmitting on
+        /// slice A, locked" (#496; Noel, 2026-09-01: "with a toggle on or in
+        /// verbose 'transmitting on slice a' 'receiving on slice b' ... bingo
+        /// done"). Every time when on, never only when the slices differ, so
+        /// silence is never ambiguous.
+        /// </summary>
+        /// <remarks>
+        /// Its own switch rather than the Chatty level, because verbosity is one
+        /// dial (#322) and a declaration is not a hint; on by default, because
+        /// it is the fact that would have stopped a check keying a slice nobody
+        /// was listening to. Both are the orchestrator's decisions, 2026-11-02,
+        /// not rulings.
+        /// </remarks>
+        public bool AnnounceTransmitSlice { get; set; } = true;
+
+        /// <summary>
         /// When true, band jumps save/recall frequency per band+mode.
         /// When false, band jumps always go to band center.
         /// </summary>
