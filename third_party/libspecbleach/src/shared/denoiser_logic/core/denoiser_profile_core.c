@@ -1,0 +1,149 @@
+/*
+libspecbleach - A spectral processing library
+
+Copyright 2022 Luciano Dato <lucianodato@gmail.com>
+
+This library is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 2.1 of the License, or (at your option) any later version.
+
+This library is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this library; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+*/
+
+#include "shared/denoiser_logic/core/denoiser_profile_core.h"
+#include "shared/denoiser_logic/core/noise_profile.h"
+#include "shared/denoiser_logic/estimators/adaptive_noise_estimator.h"
+#include "shared/denoiser_logic/estimators/noise_estimator.h"
+#include "shared/utils/simd_utils.h"
+#include "shared/utils/spectral_utils.h"
+#include <math.h>
+#include <string.h>
+
+bool denoiser_profile_core_handle_learning_mode(NoiseEstimator* noise_estimator,
+                                                float* reference_spectrum,
+                                                int learn_noise_flag,
+                                                bool* was_learning) {
+  if (learn_noise_flag > 0) {
+    sb_simd_state_t old_simd_state = sb_simd_enable_ftz_daz();
+    // Learn all modes simultaneously
+    for (int mode = ROLLING_MEAN; mode <= CV_MASK; mode++) {
+      noise_estimation_run(noise_estimator, (NoiseEstimatorType)mode,
+                           reference_spectrum);
+    }
+    sb_simd_restore_state(old_simd_state);
+    *was_learning = true;
+    return true;
+  }
+
+  if (*was_learning) {
+    sb_simd_state_t old_simd_state = sb_simd_enable_ftz_daz();
+    // User just stopped learning -> Finalize all captures
+    for (int mode = ROLLING_MEAN; mode <= CV_MASK; mode++) {
+      noise_estimation_finalize(noise_estimator, (NoiseEstimatorType)mode);
+    }
+    sb_simd_restore_state(old_simd_state);
+    *was_learning = false;
+  }
+
+  return false;
+}
+
+void denoiser_profile_core_update(DenoiserProfileCoreParams params,
+                                  const float* reference_spectrum) {
+  if (params.adaptive_enabled && params.adaptive_estimator) {
+    // Check if user has captured a manual noise profile
+    bool has_manual_profile =
+        is_noise_estimation_available(params.noise_profile, 1);
+
+    if (has_manual_profile) {
+      // Hybrid Mode: Manual baseline profile exists
+      int state_changed = *params.last_adaptive_state == 0;
+      bool mode_changed =
+          fabsf(*params.aggressiveness - params.param_aggressiveness) > 0.01f;
+
+      if (state_changed || mode_changed) {
+        // Calculate morphed base profile from manual profile
+        get_morphed_profile(
+            params.manual_noise_floor,
+            get_noise_profile(params.noise_profile, ROLLING_MEAN),
+            get_noise_profile(params.noise_profile, MEDIAN),
+            get_noise_profile(params.noise_profile, STD_DEV),
+            get_noise_profile(params.noise_profile, CV_MASK),
+            params.spectrum_size, params.param_aggressiveness);
+
+        adaptive_estimator_update_seed(params.adaptive_estimator,
+                                       params.manual_noise_floor);
+
+        *params.last_adaptive_state = 1;
+      }
+
+      // Run adaptive estimator
+      adaptive_estimator_run(params.adaptive_estimator, reference_spectrum,
+                             params.noise_spectrum, params.aggressiveness,
+                             params.param_aggressiveness);
+
+      // Apply morphed manual profile as baseline floor
+      adaptive_estimator_apply_floor(params.adaptive_estimator,
+                                     params.manual_noise_floor);
+      for (uint32_t k = 0U; k < params.spectrum_size; k++) {
+        if (params.noise_spectrum[k] < params.manual_noise_floor[k]) {
+          params.noise_spectrum[k] = params.manual_noise_floor[k];
+        }
+      }
+    } else {
+      // Standalone Adaptive Mode: No manual profile exists
+      *params.last_adaptive_state = 0;
+      memset(params.manual_noise_floor, 0,
+             params.spectrum_size * sizeof(float));
+
+      // Run adaptive estimator directly to track background noise
+      adaptive_estimator_run(params.adaptive_estimator, reference_spectrum,
+                             params.noise_spectrum, params.aggressiveness,
+                             params.param_aggressiveness);
+    }
+  } else {
+    // Manual Denoising Mode
+    *params.last_adaptive_state = 0;
+
+    // Use morphed profile
+    get_morphed_profile(params.noise_spectrum,
+                        get_noise_profile(params.noise_profile, ROLLING_MEAN),
+                        get_noise_profile(params.noise_profile, MEDIAN),
+                        get_noise_profile(params.noise_profile, STD_DEV),
+                        get_noise_profile(params.noise_profile, CV_MASK),
+                        params.spectrum_size, params.param_aggressiveness);
+    if (params.aggressiveness) {
+      *params.aggressiveness = params.param_aggressiveness;
+    }
+  }
+
+  // Apply noise profile offset (threshold scalar shift). When a distinct
+  // tonal offset is provided together with the previous frame's tonal mask,
+  // both offsets are blended per-bin using the tonal mask strength so tonal
+  // components receive their own threshold shift.
+  const float broadband_offset = params.noise_profile_offset_linear;
+  const bool tonal_active = params.tonal_noise_profile_offset_linear != 1.0f &&
+                            params.tonal_mask != NULL;
+  if (broadband_offset != 1.0f || tonal_active) {
+    sb_simd_state_t old_simd_state = sb_simd_enable_ftz_daz();
+    const float tonal_offset = params.tonal_noise_profile_offset_linear;
+    for (uint32_t k = 0U; k < params.spectrum_size; k++) {
+      float scale = broadband_offset;
+      if (tonal_active && params.tonal_mask[k] > 0.0f) {
+        float mask = fminf(params.tonal_mask[k], 1.0f);
+        mask = sqrtf(sqrtf(mask));
+        scale = (broadband_offset * (1.0f - mask)) + (tonal_offset * mask);
+      }
+      params.noise_spectrum[k] *= scale;
+    }
+    sb_simd_restore_state(old_simd_state);
+  }
+}

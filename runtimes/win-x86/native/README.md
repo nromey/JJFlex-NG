@@ -7,7 +7,9 @@ noise reduction, built here at the same pin as x64), `prism.dll` (speech and bra
 whether an utterance was spoken to the end — #521; downloaded, not built, LGPL
 text beside it), and `deepfilter.dll` with `DeepFilterNet3_onnx.tar.gz` and its
 two licence files (DeepFilterNet3 noise reduction, #731; built and benched,
-not yet selectable). This paragraph
+not yet selectable), and `specbleach.dll` with `LICENSE-libspecbleach.txt` and
+`LICENSE-libspecbleach-pffft.txt` (libspecbleach, NR4, LGPL 2.1, built from the
+source vendored in `third_party/libspecbleach/`; not yet selectable). This paragraph
 named Tolk and its bridge DLLs (`SAAPI32.dll`, `nvdaControllerClient32.dll`,
 `dolapi32.dll`) until 2026-08-21 — Tolk was removed 2026-08-17 and Prism
 replaced the lot; those files no longer exist here.
@@ -30,6 +32,11 @@ the x64 recipe already builds both targets in one loop, and the x86 library is
 `target/i686-pc-windows-msvc/release-lto/df.dll`, copied here as
 `deepfilter.dll`. The model archive and both licence files are the same bytes
 in both folders.
+
+**libspecbleach's recipe already builds both architectures in one loop**
+(`-A Win32` into `build-jjflex-x86`), from the vendored tree, with the same
+flags; `build-jjflex-x86\Release\specbleach.dll` is copied here unrenamed, and
+the two licence files are the same bytes as in the x64 folder.
 
 Everything else — the pinned Opus tag, the pinned PortAudio commit, the
 mandatory `-DPA_GIT_REVISION` stamp, and the `opus.dll` to `libopus.dll` rename
@@ -60,6 +67,13 @@ embedded, and the binary is the authority:
   (10,491,904 bytes). The model must hash to
   `C94D91F70911001C946E0FABB4AA9ADC37045F45A03B56008CB0C8244CB63616` in both
   folders, or the engine refuses it.
+- libspecbleach: `libspecbleach 0.4.1` (via `specbleach_get_version_string()`),
+  but that string is a header macro and says the same past the tag, so the
+  record is the commit, `ab4ae8b4be74f5c52c5a3386a6d9bbea29fbd129`. Machine
+  `14C`, its only import `KERNEL32.dll`, no `ymm` register anywhere in it, and
+  SHA-256 `4409D2C1FA0E8F69F707F52425CBF2BFB33DAC8B60D2E01BA342EBFFE2E3CC86`
+  (222,208 bytes). Its parameter block is 76 bytes here against 88 on x64; the
+  x64 README's libspecbleach section says why that matters.
 
 Both architectures were confirmed matching on 2026-08-11 (audio pair),
 2026-08-21 (Prism) and 2026-09-06 (NVDA client, both hashed against the

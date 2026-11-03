@@ -52,6 +52,11 @@ Public Module NativeLoader
             WireDeepFilterLocator()
             WireRnnoiseLocator()
 
+            ' libspecbleach (NR4, Sprint 49 Track C) is loaded the same way and
+            ' for the same reason: by absolute path, bound by name, so the
+            ' search order can never hand the engine a stray copy.
+            WireSpecbleachLocator()
+
             _initialized = True
         Catch ex As Exception
             ' Log but don't throw - let default resolution attempt to work
@@ -80,6 +85,15 @@ Public Module NativeLoader
                                        MappedFileName("rnnoise.dll"))
         Return If(File.Exists(p), p, Nothing)
     End Function
+
+    ''' <summary>
+    ''' The libspecbleach locator, kept out of Initialize's body for the same
+    ''' reason as <see cref="WireDeepFilterLocator"/>.
+    ''' </summary>
+    <System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)>
+    Private Sub WireSpecbleachLocator()
+        JJFlexWpf.SpecbleachEngine.LibraryLocator = AddressOf LocateSpecbleach
+    End Sub
 
     Private Function ResolveNativeLibrary(
             libraryName As String,
@@ -150,6 +164,10 @@ Public Module NativeLoader
                 ' DeepFilterNet3's C API, built from upstream as df.dll and
                 ' shipped renamed (see runtimes\win-x64\native\README.md).
                 Return "deepfilter.dll"
+            Case "specbleach.dll", "specbleach", "libspecbleach"
+                ' libspecbleach, NR4 (LGPL 2.1), built from the source vendored
+                ' in third_party\libspecbleach (see runtimes\win-x64\native\README.md).
+                Return "specbleach.dll"
             Case Else
                 Return libraryName
         End Select
@@ -165,6 +183,20 @@ Public Module NativeLoader
         Dim arch As String = If(Environment.Is64BitProcess, "x64", "x86")
         Dim p As String = Path.Combine(AppContext.BaseDirectory, "runtimes", $"win-{arch}", "native",
                                        MappedFileName("deepfilter.dll"))
+        Return If(File.Exists(p), p, Nothing)
+    End Function
+
+    ''' <summary>
+    ''' Absolute path of this architecture's specbleach.dll, or Nothing when it
+    ''' is not there. No app-directory fallback, for the reason on
+    ''' <see cref="LocateDeepFilter"/>: the library is new, and a stray copy
+    ''' elsewhere (an older build linking a GPL FFT, say) is exactly what must
+    ''' not be loaded.
+    ''' </summary>
+    Private Function LocateSpecbleach() As String
+        Dim arch As String = If(Environment.Is64BitProcess, "x64", "x86")
+        Dim p As String = Path.Combine(AppContext.BaseDirectory, "runtimes", $"win-{arch}", "native",
+                                       MappedFileName("specbleach.dll"))
         Return If(File.Exists(p), p, Nothing)
     End Function
 End Module

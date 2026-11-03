@@ -1,0 +1,211 @@
+/*
+libspecbleach - A spectral processing library
+
+Copyright 2022 Luciano Dato <lucianodato@gmail.com>
+
+This library is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 2.1 of the License, or (at your option) any later version.
+
+This library is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this library; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+*/
+
+/*
+ * Unit tests for Spectral Whitening
+ */
+
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "shared/denoiser_logic/core/noise_profile.h"
+#include "shared/denoiser_logic/processing/spectral_whitening.h"
+
+#define TEST_ASSERT(condition, message)                                        \
+  do {                                                                         \
+    if (!(condition)) {                                                        \
+      fprintf(stderr, "TEST FAILED: %s\n", message);                           \
+      exit(1);                                                                 \
+    }                                                                          \
+  } while (0)
+
+#define TEST_FLOAT_CLOSE(a, b, tolerance)                                      \
+  TEST_ASSERT(fabsf((a) - (b)) < (tolerance), "Float values not close enough")
+
+void test_whitening_lifecycle(void) {
+  printf("Testing Spectral Whitening lifecycle...\n");
+
+  TEST_ASSERT(spectral_whitening_initialize(0) == NULL,
+              "Initialization with 0 fft_size should fail");
+
+  SpectralWhitening* sw = spectral_whitening_initialize(1024);
+  TEST_ASSERT(sw != NULL, "Initialization should succeed");
+
+  spectral_whitening_free(NULL); // Coverage: free NULL
+  spectral_whitening_free(sw);
+  printf("✓ Spectral Whitening lifecycle tests passed\n");
+}
+
+void test_whitening_get_ideal_reduction_db(void) {
+  printf("Testing Spectral Whitening get_ideal_reduction_db...\n");
+
+  uint32_t fft_size = 1024;
+  uint32_t real_size = (fft_size / 2) + 1;
+  SpectralWhitening* sw = spectral_whitening_initialize(fft_size);
+
+  float* weights = (float*)calloc(real_size, sizeof(float));
+  float* noise_profile = (float*)calloc(real_size, sizeof(float));
+
+  // Initialize noise profile with a ramp
+  for (uint32_t k = 0; k < real_size; k++) {
+    noise_profile[k] = 1.0f + (float)k;
+  }
+
+  // Coverage: NULL inputs
+  spectral_whitening_get_ideal_reduction_db(NULL, 0.1778f, noise_profile,
+                                            weights);
+  spectral_whitening_get_ideal_reduction_db(sw, 0.1778f, NULL, weights);
+  spectral_whitening_get_ideal_reduction_db(sw, 0.1778f, noise_profile, NULL);
+
+  // Test with standard reduction limit (15 dB / 0.1778f)
+  spectral_whitening_get_ideal_reduction_db(sw, 0.1778f, noise_profile,
+                                            weights);
+
+  // Values above reference receive primary reduction depth (delta) + excess
+  // Values below reference receive excess reduction when target reduction >
+  // delta_max
+  TEST_ASSERT(weights[real_size - 1] > 0.0f,
+              "Bins above reference should get reduction weight > 0.0");
+  TEST_ASSERT(
+      weights[0] > 0.0f,
+      "Bins below reference should receive excess reduction weight > 0.0");
+
+  // Test with reduction_amount >= 1.0f (r_db <= 0.0f)
+  spectral_whitening_get_ideal_reduction_db(sw, 1.0f, noise_profile, weights);
+
+  // Test with reduction_amount where r_db <= delta_max (e.g., reduction_amount
+  // = 0.9f -> r_db ~0.91 dB)
+  spectral_whitening_get_ideal_reduction_db(sw, 0.9f, noise_profile, weights);
+
+  // Test with reduction_amount > 1.0f (r_db < 0.0f branch in line 79)
+  spectral_whitening_get_ideal_reduction_db(sw, 2.0f, noise_profile, weights);
+
+  // Test with r_db > delta_max but r_db <= 1.0f (e.g. reduction_amount = 0.95f)
+  // for flat profile where delta_max is 0.0f
+  for (uint32_t k = 0; k < real_size; k++) {
+    noise_profile[k] = 1.0f;
+  }
+  spectral_whitening_get_ideal_reduction_db(sw, 0.95f, noise_profile, weights);
+
+  // Test with zero noise profile (1e-12 floor handling, count == 0 scenario)
+  memset(noise_profile, 0, real_size * sizeof(float));
+  spectral_whitening_get_ideal_reduction_db(sw, 0.1778f, noise_profile,
+                                            weights);
+
+  free(weights);
+  free(noise_profile);
+  spectral_whitening_free(sw);
+  printf("✓ Spectral Whitening get_ideal_reduction_db tests passed\n");
+}
+
+void test_whitening_tonal_peak(void) {
+  printf("Testing Spectral Whitening with tonal peak...\n");
+
+  uint32_t fft_size = 1024;
+  uint32_t real_size = (fft_size / 2) + 1;
+  SpectralWhitening* sw = spectral_whitening_initialize(fft_size);
+
+  float* weights = (float*)calloc(real_size, sizeof(float));
+  float* noise_profile = (float*)calloc(real_size, sizeof(float));
+
+  // Create a profile: Mostly quiet (0.1), one BIG peak (10.0) at index 100
+  for (uint32_t i = 0; i < real_size; i++) {
+    noise_profile[i] = 0.1f;
+  }
+  noise_profile[100] = 10.0f; // The hum/tonal noise
+
+  // Standard Reduction (15 dB / 0.1778f)
+  spectral_whitening_get_ideal_reduction_db(sw, 0.1778f, noise_profile,
+                                            weights);
+
+  // Quiet bins at or under median anchor level (e.g. 200, val=0.1) should have
+  // 0.0 reduction depth weight at whitening=1.0 (left alone)
+  TEST_ASSERT(
+      weights[200] == 0.0f,
+      "Quiet bins at anchor level should have 0 reduction depth weight");
+
+  // The Hum spike (index 100, val=10.0) is far above median anchor level (0.1),
+  // so h = 1 - 0.1/10 = 0.9 Weight should be close to 0.99
+  TEST_ASSERT(weights[100] > 0.9f,
+              "Hum spike should receive high reduction depth weight");
+
+  free(weights);
+  free(noise_profile);
+  spectral_whitening_free(sw);
+  printf("✓ Spectral Whitening tonal peak tests passed\n");
+}
+
+void test_whitening_band_limited(void) {
+  printf("Testing Spectral Whitening with band-limited audio...\n");
+
+  uint32_t fft_size = 1024;
+  uint32_t real_size = (fft_size / 2) + 1;
+  SpectralWhitening* sw = spectral_whitening_initialize(fft_size);
+
+  float* weights = (float*)calloc(real_size, sizeof(float));
+  float* noise_profile = (float*)calloc(real_size, sizeof(float));
+
+  // Band-limited audio: Only bins 0..100 have noise energy (0.1f).
+  // Upper sub-bands (bins 101..512, >80% of spectrum) are zero.
+  for (uint32_t i = 0; i <= 100; i++) {
+    noise_profile[i] = 0.1f;
+  }
+  // Add a hum spike at bin 30 inside the passband
+  noise_profile[30] = 1.0f;
+
+  spectral_whitening_get_ideal_reduction_db(sw, 0.1778f, noise_profile,
+                                            weights);
+
+  // Bins at baseline passband level (0.1f) are at/under reference, so they
+  // receive excess reduction weight > 0.0f
+  TEST_ASSERT(weights[50] > 0.0f,
+              "Active passband bins at reference should have excess reduction "
+              "weight > 0.0");
+
+  // Hum spike in active passband (1.0f vs 0.1f) should receive high reduction
+  // depth weight (h = 0.9)
+  TEST_ASSERT(weights[30] > 0.8f,
+              "Tonal peak in band-limited profile should receive high "
+              "reduction weight");
+
+  // Inactive stopband bins also receive excess reduction to uniformly shift the
+  // floor
+  TEST_ASSERT(weights[300] > 0.0f,
+              "Stopband bins should have excess reduction weight > 0.0");
+
+  free(weights);
+  free(noise_profile);
+  spectral_whitening_free(sw);
+  printf("✓ Spectral Whitening band-limited tests passed\n");
+}
+
+int main(void) {
+  printf("Running Spectral Whitening tests...\n\n");
+
+  test_whitening_lifecycle();
+  test_whitening_get_ideal_reduction_db();
+  test_whitening_tonal_peak();
+  test_whitening_band_limited();
+
+  printf("\n✅ All Spectral Whitening tests passed!\n");
+  return 0;
+}

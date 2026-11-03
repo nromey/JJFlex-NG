@@ -1,0 +1,593 @@
+/*
+libspecbleach - A spectral processing library
+
+Copyright 2022 Luciano Dato <lucianodato@gmail.com>
+
+This library is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 2.1 of the License, or (at your option) any later version.
+
+This library is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this library; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+*/
+
+/*
+ * Unit tests for NLM Filter (Non-Local Means)
+ */
+
+#define _POSIX_C_SOURCE 200112L
+
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "shared/denoiser_logic/processing/nlm_filter_internal.h"
+
+#define TEST_ASSERT(condition, message)                                        \
+  do {                                                                         \
+    if (!(condition)) {                                                        \
+      fprintf(stderr, "TEST FAILED: %s\n", message);                           \
+      exit(1);                                                                 \
+    }                                                                          \
+  } while (0)
+
+#define TEST_FLOAT_CLOSE(a, b, tolerance)                                      \
+  TEST_ASSERT(fabsf((a) - (b)) < (tolerance), "Float values not close enough")
+
+void test_nlm_filter_lifecycle(void) {
+  printf("Testing NLM filter lifecycle...\n");
+
+  NlmFilterConfig config = {
+      .spectrum_size = 513,
+      .time_buffer_size = 21,
+      .patch_size = 8,
+      .paste_block_size = 4,
+      .search_range_freq = 8,
+      .search_range_time_past = 16,
+      .search_range_time_future = 4,
+      .h_parameter = 1.0f,
+      .distance_threshold = 0.0f,
+  };
+
+  NlmFilter* filter = nlm_filter_initialize(config);
+  TEST_ASSERT(filter != NULL, "NLM filter initialization should succeed");
+
+  nlm_filter_free(filter);
+
+  // Test with NULL config values (should use defaults)
+  NlmFilterConfig config_minimal = {
+      .spectrum_size = 256,
+  };
+
+  filter = nlm_filter_initialize(config_minimal);
+  TEST_ASSERT(filter != NULL,
+              "NLM filter initialization with minimal config should succeed");
+  nlm_filter_free(filter);
+
+  // Test with invalid spectrum_size
+  NlmFilterConfig config_invalid = {
+      .spectrum_size = 0,
+  };
+
+  filter = nlm_filter_initialize(config_invalid);
+  TEST_ASSERT(filter == NULL,
+              "NLM filter initialization with zero spectrum_size should fail");
+
+  printf("✓ NLM filter lifecycle tests passed\n");
+}
+
+void test_nlm_filter_push_frame(void) {
+  printf("Testing NLM filter push frame...\n");
+
+  NlmFilterConfig config = {
+      .spectrum_size = 64,
+      .time_buffer_size = 5,
+      .patch_size = 4,
+      .paste_block_size = 2,
+      .search_range_freq = 4,
+      .search_range_time_past = 2,
+      .search_range_time_future = 2,
+      .h_parameter = 1.0f,
+  };
+
+  NlmFilter* filter = nlm_filter_initialize(config);
+  TEST_ASSERT(filter != NULL, "NLM filter initialization should succeed");
+
+  // Initially not ready
+  TEST_ASSERT(!nlm_filter_is_ready(filter),
+              "Filter should not be ready initially");
+
+  // Push frames
+  float frame[64];
+  for (int i = 0; i < 64; i++) {
+    frame[i] = 1.0f;
+  }
+
+  for (int f = 0; f < 4; f++) {
+    nlm_filter_push_frame(filter, frame);
+    TEST_ASSERT(!nlm_filter_is_ready(filter),
+                "Filter should not be ready until buffer is full");
+  }
+
+  // Push one more frame to fill buffer
+  nlm_filter_push_frame(filter, frame);
+  TEST_ASSERT(nlm_filter_is_ready(filter),
+              "Filter should be ready after buffer is filled");
+
+  nlm_filter_free(filter);
+  printf("✓ NLM filter push frame tests passed\n");
+}
+
+void test_nlm_filter_process_uniform(void) {
+  printf("Testing NLM filter process with uniform input...\n");
+
+  NlmFilterConfig config = {
+      .spectrum_size = 32,
+      .time_buffer_size = 5,
+      .patch_size = 4,
+      .paste_block_size = 2,
+      .search_range_freq = 2,
+      .search_range_time_past = 2,
+      .search_range_time_future = 2,
+      .h_parameter = 1.0f,
+  };
+
+  NlmFilter* filter = nlm_filter_initialize(config);
+  TEST_ASSERT(filter != NULL, "NLM filter initialization should succeed");
+
+  // Push uniform frames (should result in identical output)
+  float frame[32];
+  float output[32];
+  for (int i = 0; i < 32; i++) {
+    frame[i] = 5.0f; // Uniform SNR value
+  }
+
+  // Fill buffer
+  for (int f = 0; f < 5; f++) {
+    nlm_filter_push_frame(filter, frame);
+  }
+
+  // Process generic
+  filter->process_fn = nlm_filter_process_generic;
+  TEST_ASSERT(nlm_filter_process(filter, output),
+              "Process should succeed when buffer is full (generic)");
+
+  // With uniform input, output should be close to input
+  for (int i = 0; i < 32; i++) {
+    TEST_FLOAT_CLOSE(output[i], 5.0f, 0.01f);
+  }
+
+#if defined(__x86_64__) || defined(__i386__)
+  if (__builtin_cpu_supports("avx")) {
+    float output_avx[32];
+    filter->process_fn = nlm_filter_process_avx;
+    TEST_ASSERT(nlm_filter_process(filter, output_avx),
+                "Process should succeed when buffer is full (AVX)");
+
+    for (int i = 0; i < 32; i++) {
+      TEST_FLOAT_CLOSE(output_avx[i], 5.0f, 0.01f);
+    }
+  }
+#endif
+
+  nlm_filter_free(filter);
+  printf("✓ NLM filter uniform process tests passed\n");
+}
+
+void test_nlm_filter_process_noisy(void) {
+  printf("Testing NLM filter process with noisy input...\n");
+
+  NlmFilterConfig config = {
+      .spectrum_size = 32,
+      .time_buffer_size = 5,
+      .patch_size = 4,
+      .paste_block_size = 2,
+      .search_range_freq = 2,
+      .search_range_time_past = 2,
+      .search_range_time_future = 2,
+      .h_parameter = 5.0f, // Higher h for more smoothing
+  };
+
+  NlmFilter* filter = nlm_filter_initialize(config);
+  TEST_ASSERT(filter != NULL, "NLM filter initialization should succeed");
+
+  // Create frames with a consistent signal + some noise
+  float frames[5][32];
+  for (int f = 0; f < 5; f++) {
+    for (int i = 0; i < 32; i++) {
+      // Base pattern: harmonic-like structure
+      frames[f][i] = 2.0f + sinf((float)i * 0.5f);
+      // Add some "noise" (different per frame)
+      frames[f][i] += 0.1f * (float)(f % 3);
+    }
+  }
+
+  // Push frames
+  for (int f = 0; f < 5; f++) {
+    nlm_filter_push_frame(filter, frames[f]);
+  }
+
+  float output[32];
+
+  // Process generic
+  filter->process_fn = nlm_filter_process_generic;
+  TEST_ASSERT(nlm_filter_process(filter, output),
+              "Process should succeed when buffer is full (generic)");
+
+  // Output should be non-negative (SNR values)
+  for (int i = 0; i < 32; i++) {
+    TEST_ASSERT(output[i] >= 0.0f, "Output SNR (generic) should be >= 0");
+  }
+
+#if defined(__x86_64__) || defined(__i386__)
+  if (__builtin_cpu_supports("avx")) {
+    float output_avx[32];
+    filter->process_fn = nlm_filter_process_avx;
+    TEST_ASSERT(nlm_filter_process(filter, output_avx),
+                "Process should succeed when buffer is full (AVX)");
+
+    for (int i = 0; i < 32; i++) {
+      TEST_ASSERT(output_avx[i] >= 0.0f, "Output SNR (AVX) should be >= 0");
+    }
+  }
+#endif
+
+  nlm_filter_free(filter);
+  printf("✓ NLM filter noisy process tests passed\n");
+}
+
+void test_nlm_filter_reset(void) {
+  printf("Testing NLM filter reset...\n");
+
+  NlmFilterConfig config = {
+      .spectrum_size = 32,
+      .time_buffer_size = 3,
+      .h_parameter = 1.0f,
+  };
+
+  NlmFilter* filter = nlm_filter_initialize(config);
+  TEST_ASSERT(filter != NULL, "NLM filter initialization should succeed");
+
+  float frame[32];
+  for (int i = 0; i < 32; i++) {
+    frame[i] = 1.0f;
+  }
+
+  // Fill buffer
+  for (int f = 0; f < 3; f++) {
+    nlm_filter_push_frame(filter, frame);
+  }
+  TEST_ASSERT(nlm_filter_is_ready(filter), "Filter should be ready");
+
+  // Reset
+  nlm_filter_reset(filter);
+  TEST_ASSERT(!nlm_filter_is_ready(filter),
+              "Filter should not be ready after reset");
+
+  nlm_filter_free(filter);
+  printf("✓ NLM filter reset tests passed\n");
+}
+
+void test_nlm_filter_h_parameter(void) {
+  printf("Testing NLM filter h parameter update and bypass...\n");
+
+  NlmFilterConfig config = {
+      .spectrum_size = 32,
+      .time_buffer_size = 3,
+      .h_parameter = 1.0f,
+  };
+
+  NlmFilter* filter = nlm_filter_initialize(config);
+  TEST_ASSERT(filter != NULL, "NLM filter initialization should succeed");
+
+  // Update h parameter to 2.5
+  nlm_filter_set_h_parameter(filter, 2.5f);
+
+  float input[32];
+  for (int i = 0; i < 32; i++) {
+    input[i] = (float)(i + 1);
+  }
+
+  // Push enough frames to fill the buffer
+  for (int i = 0; i < 3; i++) {
+    nlm_filter_push_frame(filter, input);
+  }
+
+  float output[32];
+  TEST_ASSERT(nlm_filter_process(filter, output),
+              "Process should succeed after h parameter update");
+
+  // Update h parameter to 0.0 (bypass mode)
+  nlm_filter_set_h_parameter(filter, 0.0f);
+  TEST_ASSERT(nlm_filter_process(filter, output),
+              "Process should succeed with h=0.0f bypass");
+  for (int i = 0; i < 32; i++) {
+    TEST_FLOAT_CLOSE(output[i], input[i], 1e-6f);
+  }
+
+  nlm_filter_free(filter);
+  printf("✓ NLM filter h parameter tests passed\n");
+}
+
+void test_nlm_filter_latency(void) {
+  printf("Testing NLM filter latency reporting...\n");
+
+  NlmFilterConfig config = {
+      .spectrum_size = 64,
+      .search_range_time_past = 16,
+      .search_range_time_future = 4,
+      .h_parameter = 1.0f,
+  };
+
+  NlmFilter* filter = nlm_filter_initialize(config);
+  TEST_ASSERT(filter != NULL, "NLM filter initialization should succeed");
+
+  uint32_t latency = nlm_filter_get_latency_frames(filter);
+  TEST_ASSERT(latency == 4, "Latency should equal search_range_time_future");
+
+  nlm_filter_free(filter);
+
+  // Test with NULL
+  TEST_ASSERT(nlm_filter_get_latency_frames(NULL) == 0,
+              "NULL filter should return 0 latency");
+
+  printf("✓ NLM filter latency tests passed\n");
+}
+
+void test_nlm_filter_null_handling(void) {
+  printf("Testing NLM filter NULL handling...\n");
+
+  // Test NULL filter operations
+  nlm_filter_free(NULL); // Should not crash
+
+  nlm_filter_set_h_parameter(NULL, 1.0f); // Should not crash
+
+  nlm_filter_push_frame(NULL, NULL); // Should not crash
+
+  TEST_ASSERT(!nlm_filter_is_ready(NULL), "NULL filter should not be ready");
+
+  float output[32];
+  TEST_ASSERT(!nlm_filter_process(NULL, output),
+              "NULL filter process should fail");
+
+  NlmFilterConfig config = {.spectrum_size = 32};
+  NlmFilter* filter = nlm_filter_initialize(config);
+  TEST_ASSERT(!nlm_filter_process(filter, NULL),
+              "NULL output process should fail");
+
+  nlm_filter_reset(NULL); // Should not crash
+
+  nlm_filter_free(filter);
+  printf("✓ NLM filter NULL handling tests passed\n");
+}
+
+void test_nlm_filter_process_silent(void) {
+  printf("Testing NLM filter process with silent input...\n");
+
+  NlmFilterConfig config = {
+      .spectrum_size = 32,
+      .time_buffer_size = 5,
+      .patch_size = 4,
+      .paste_block_size = 2,
+      .search_range_freq = 2,
+      .search_range_time_past = 2,
+      .search_range_time_future = 2,
+      .h_parameter = 1.0f,
+  };
+
+  NlmFilter* filter = nlm_filter_initialize(config);
+  TEST_ASSERT(filter != NULL, "NLM filter initialization should succeed");
+
+  float frame[32] = {0.0f};
+  float output[32];
+
+  // Fill buffer
+  for (int f = 0; f < 5; f++) {
+    nlm_filter_push_frame(filter, frame);
+  }
+
+  // Process generic
+  filter->process_fn = nlm_filter_process_generic;
+  TEST_ASSERT(nlm_filter_process(filter, output),
+              "Process should succeed when buffer is full (generic)");
+
+  // With silent input, output should be zero
+  for (int i = 0; i < 32; i++) {
+    TEST_FLOAT_CLOSE(output[i], 0.0f, 1e-6f);
+  }
+
+#if defined(__x86_64__) || defined(__i386__)
+  if (__builtin_cpu_supports("avx")) {
+    float output_avx[32];
+    filter->process_fn = nlm_filter_process_avx;
+    TEST_ASSERT(nlm_filter_process(filter, output_avx),
+                "Process should succeed when buffer is full (AVX)");
+    for (int i = 0; i < 32; i++) {
+      TEST_FLOAT_CLOSE(output_avx[i], 0.0f, 1e-6f);
+    }
+  }
+#endif
+
+  nlm_filter_free(filter);
+  printf("✓ NLM filter silent process tests passed\n");
+}
+
+void test_nlm_filter_process_patch8(void) {
+  printf("Testing NLM filter process with patch_size=8...\n");
+
+  NlmFilterConfig config = {
+      .spectrum_size = 128, // Larger spectrum
+      .time_buffer_size = 5,
+      .patch_size = 8,
+      .paste_block_size = 8,
+      .search_range_freq = 8,
+      .search_range_time_past = 2,
+      .search_range_time_future = 2,
+      .h_parameter = 2.0f,
+  };
+
+  NlmFilter* filter = nlm_filter_initialize(config);
+  TEST_ASSERT(filter != NULL, "NLM filter initialization should succeed");
+
+  float frame[128];
+  float output[128];
+  for (int i = 0; i < 128; i++) {
+    frame[i] = 5.0f + (float)(i % 2);
+  }
+
+  for (int f = 0; f < 5; f++) {
+    nlm_filter_push_frame(filter, frame);
+  }
+
+  filter->process_fn = nlm_filter_process_generic;
+  TEST_ASSERT(nlm_filter_process(filter, output),
+              "Process should succeed with patch_size=8 (generic)");
+
+  for (int i = 0; i < 128; i++) {
+    TEST_ASSERT(output[i] > 0.0f, "Output should be positive");
+  }
+
+  nlm_filter_free(filter);
+  printf("✓ NLM filter patch_size=8 process tests passed\n");
+}
+
+void test_nlm_filter_thread_config(void) {
+  printf("Testing NLM filter threading configuration...\n");
+
+  NlmFilterConfig config = {.spectrum_size = 32};
+  NlmFilter* filter = nlm_filter_initialize(config);
+  TEST_ASSERT(filter != NULL, "Initialization failed");
+  TEST_ASSERT(filter->num_threads == NLM_NUM_THREADS_DEFAULT,
+              "Zero thread count should fall back to default");
+  nlm_filter_free(filter);
+
+  NlmFilterConfig single_config = {.spectrum_size = 32, .num_threads = 1};
+  NlmFilter* single_filter = nlm_filter_initialize(single_config);
+  TEST_ASSERT(single_filter != NULL, "Single-threaded initialization failed");
+  TEST_ASSERT(single_filter->num_threads == 1U, "Thread count should be 1");
+  TEST_ASSERT(single_filter->pool == NULL,
+              "Single-threaded filter should not create a worker pool");
+  nlm_filter_free(single_filter);
+
+  NlmFilterConfig multi_config = {.spectrum_size = 32, .num_threads = 3};
+  NlmFilter* multi_filter = nlm_filter_initialize(multi_config);
+  TEST_ASSERT(multi_filter != NULL, "Multi-threaded initialization failed");
+  TEST_ASSERT(multi_filter->num_threads == 3U, "Thread count should be 3");
+  TEST_ASSERT(multi_filter->pool != NULL,
+              "Multi-threaded filter should create a worker pool");
+  TEST_ASSERT(sb_thread_pool_num_workers(multi_filter->pool) == 2U,
+              "Pool should have num_threads - 1 workers");
+  nlm_filter_free(multi_filter);
+
+  printf("✓ NLM filter threading configuration tests passed\n");
+}
+
+void test_nlm_filter_snr_and_reconstruct(void) {
+  printf("Testing NLM filter SNR calculation and reconstruction...\n");
+
+  NlmFilterConfig config = {
+      .spectrum_size = 4,
+  };
+
+  NlmFilter* filter = nlm_filter_initialize(config);
+  TEST_ASSERT(filter != NULL, "NLM filter initialization should succeed");
+
+  float reference[4] = {10.0f, 20.0f, 0.0f, 40.0f};
+  float noise[4] = {2.0f, 10.0f, 0.0f, 0.0f}; // Test with zero noise bins
+  float snr[4] = {0.0f};
+
+  nlm_filter_calculate_snr(filter, reference, noise, snr);
+
+  TEST_FLOAT_CLOSE(snr[0], sqrtf(5.0f), 1e-4f);
+  TEST_FLOAT_CLOSE(snr[1], sqrtf(2.0f), 1e-4f);
+  TEST_ASSERT(snr[2] == 0.0f, "Zero reference with zero noise should be 0 SNR");
+  TEST_ASSERT(snr[3] > 30.0f,
+              "High reference with zero noise should produce large SNR");
+
+  float reconstructed[4] = {0.0f};
+  float smoothed_snr[4] = {sqrtf(5.0f), sqrtf(2.0f), 1.0f, 10.0f};
+
+  nlm_filter_reconstruct_magnitude(filter, smoothed_snr, noise, reconstructed);
+
+  TEST_FLOAT_CLOSE(reconstructed[0], 10.0f, 1e-4f); // (sqrt(5))^2 * 2
+  TEST_FLOAT_CLOSE(reconstructed[1], 20.0f, 1e-4f); // (sqrt(2))^2 * 10
+  TEST_FLOAT_CLOSE(reconstructed[2], 0.0f, 1e-4f);  // 1^2 * epsilon ~ 0
+  TEST_FLOAT_CLOSE(reconstructed[3], 0.0f, 1e-4f);  // 10^2 * epsilon ~ 0
+
+  // Null testing
+  nlm_filter_calculate_snr(NULL, reference, noise, snr);
+  nlm_filter_calculate_snr(filter, NULL, noise, snr);
+  nlm_filter_calculate_snr(filter, reference, NULL, snr);
+  nlm_filter_calculate_snr(filter, reference, noise, NULL);
+
+  nlm_filter_reconstruct_magnitude(NULL, smoothed_snr, noise, reconstructed);
+  nlm_filter_reconstruct_magnitude(filter, NULL, noise, reconstructed);
+  nlm_filter_reconstruct_magnitude(filter, smoothed_snr, NULL, reconstructed);
+  nlm_filter_reconstruct_magnitude(filter, smoothed_snr, noise, NULL);
+
+  nlm_filter_free(filter);
+  printf("✓ NLM filter SNR calculation and reconstruction tests passed\n");
+}
+
+void test_nlm_filter_frame_cache(void) {
+  printf("Testing NLM filter frame cache indexing...\n");
+
+  NlmFilterConfig config = {
+      .spectrum_size = 32,
+      .time_buffer_size = 32,
+      .search_range_time_past = 8,
+      .search_range_time_future = 8,
+  };
+
+  NlmFilter* filter = nlm_filter_initialize(config);
+  TEST_ASSERT(filter != NULL, "Initialization failed");
+
+  // Fill buffer
+  float frame[32] = {0.0f};
+  for (int f = 0; f < 32; f++) {
+    nlm_filter_push_frame(filter, frame);
+  }
+
+  // Precompute cache
+  populate_frame_ptrs(filter);
+
+  // Check offsets in cache range (-past-4 to +future+4)
+  // For past=8, future=8, range is -12 to 12.
+  for (int32_t dt = -12; dt <= 12; dt++) {
+    float* cached = cached_get_frame(filter, dt);
+    float* direct = get_frame(filter, dt);
+    TEST_ASSERT(cached == direct, "Cached pointer should match direct lookup");
+  }
+
+  nlm_filter_free(filter);
+  printf("✓ NLM filter frame cache tests passed\n");
+}
+
+int main(void) {
+  printf("Running NLM filter tests...\n\n");
+
+  test_nlm_filter_lifecycle();
+  test_nlm_filter_push_frame();
+  test_nlm_filter_process_uniform();
+  test_nlm_filter_process_noisy();
+  test_nlm_filter_process_silent();
+  test_nlm_filter_process_patch8();
+  test_nlm_filter_reset();
+  test_nlm_filter_h_parameter();
+  test_nlm_filter_latency();
+  test_nlm_filter_null_handling();
+  test_nlm_filter_snr_and_reconstruct();
+  test_nlm_filter_frame_cache();
+  test_nlm_filter_thread_config();
+
+  printf("\n✅ All NLM filter tests passed!\n");
+  return 0;
+}

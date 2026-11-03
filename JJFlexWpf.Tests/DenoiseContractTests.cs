@@ -29,7 +29,7 @@ public sealed class DenoiseContractTests
         }
         foreach (var reason in Enum.GetValues<Unavailability>())
             Assert.NotEqual(DenoiseEngineCatalog.UnavailabilityKey(reason), Lexicon.Get(DenoiseEngineCatalog.UnavailabilityKey(reason)));
-        foreach (string id in new[] { "nnr", "nr2", "nr4", "nvidia_afx" }) Assert.Null(catalog.Find(id)!.Factory);
+        foreach (string id in new[] { "nnr", "nr2", "nvidia_afx" }) Assert.Null(catalog.Find(id)!.Factory);
         Assert.NotNull(catalog.Find("spectral_capture")!.Factory);
         Assert.NotNull(catalog.Find("radio_nrl")!.WriteRadio);
         Assert.Throws<ArgumentException>(() => new DenoiseEngineCatalog(new[] { catalog.Entries[0], catalog.Entries[0] }));
