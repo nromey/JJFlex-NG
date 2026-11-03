@@ -2101,6 +2101,17 @@ namespace Radios.Tests
                 // Junk box 2026-11-02 (#596): the key drops with the radio's
                 // connection and says why. DRAFT prose, awaiting Noel.
                 "connect.drop.transmit_ended",
+                // Junk box 2026-11-02 (#642): F names its slice by role when
+                // the transmit slice is not the selected one, and the setting
+                // that chooses which. DRAFT prose, awaiting Noel.
+                "connect.home.frequency_both",
+                "connect.home.frequency_selected",
+                "connect.home.frequency_transmit",
+                "settings.speech.frequency_key_both",
+                "settings.speech.frequency_key_help",
+                "settings.speech.frequency_key_label",
+                "settings.speech.frequency_key_selected",
+                "settings.speech.frequency_key_transmit",
                 // Reworded by the JJ Flex naming sweep (#851), so classified.
                 "audio.micprofile.create_reason",
                 "audio.micprofile.load_reason",

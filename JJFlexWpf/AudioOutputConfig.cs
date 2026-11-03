@@ -353,6 +353,15 @@ namespace JJFlexWpf
         /// </summary>
         public int MicVerdictOutput { get; set; } = (int)MicVerdictOutputMode.Both;
 
+        /// <summary>
+        /// Which slice F reads when the transmit slice is not the selected one
+        /// (#642): 0 = both, transmit first (the default), 1 = the transmit
+        /// slice, 2 = the selected slice. Ruled by Noel 2026-10-18, "Active,
+        /// transmit, or both". Stored as int; see
+        /// <see cref="Radios.FrequencyKeySlices"/>.
+        /// </summary>
+        public int FrequencyKeyReads { get; set; } = (int)Radios.FrequencyKeySlices.Both;
+
         /// <summary>Per-slot meter tone configurations. LEGACY: retained so old
         /// config files still deserialize, but the live meter list is
         /// <see cref="Meters"/> (Track D2). Anything found here is folded
@@ -927,6 +936,11 @@ namespace JJFlexWpf
             // there rather than being looked up four different ways.
             MicAudioReport.VerdictMode =
                 (MicVerdictOutputMode)Math.Clamp(MicVerdictOutput, 0, 2);
+
+            // Which slice F reads (#642), the same way: the readout lives in
+            // Radios, which cannot see this class.
+            Radios.FrequencyKeyReadout.Setting =
+                (Radios.FrequencyKeySlices)Math.Clamp(FrequencyKeyReads, 0, 2);
 
             // #128: restoring saved state is not a toggle. The engine's
             // operator booleans tone in their setters (so every road answers

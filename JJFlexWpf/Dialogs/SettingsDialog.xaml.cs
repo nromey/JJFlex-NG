@@ -403,6 +403,18 @@ namespace JJFlexWpf.Dialogs
             MicVerdictOutputCombo.Items.Add(Lexicon.Get("settings.speech.mic_verdict_numbers")); // 2 Numbers
             MicVerdictOutputCombo.SelectedIndex = Math.Clamp(_audioConfig.MicVerdictOutput, 0, 2);
 
+            // Which slice F reads (#642). Items in FrequencyKeySlices order.
+            // DRAFT PROSE (#642), awaiting Noel.
+            FrequencyKeyLabel.Text = Lexicon.Get("settings.speech.frequency_key_label") + ":";
+            System.Windows.Automation.AutomationProperties.SetName(FrequencyKeyCombo,
+                Lexicon.Get("settings.speech.frequency_key_label"));
+            JJFlexHelp.SetText(FrequencyKeyCombo, Lexicon.Get("settings.speech.frequency_key_help"));
+            FrequencyKeyCombo.Items.Clear();
+            FrequencyKeyCombo.Items.Add(Lexicon.Get("settings.speech.frequency_key_both"));      // 0 Both
+            FrequencyKeyCombo.Items.Add(Lexicon.Get("settings.speech.frequency_key_transmit"));  // 1 Transmit
+            FrequencyKeyCombo.Items.Add(Lexicon.Get("settings.speech.frequency_key_selected"));  // 2 Selected
+            FrequencyKeyCombo.SelectedIndex = Math.Clamp(_audioConfig.FrequencyKeyReads, 0, 2);
+
             EarconsEnabledCheck.IsChecked = _audioConfig.EarconsEnabled;
             EarconConnectionCheck.IsChecked = _audioConfig.EarconConnectionEnabled;
             EarconTransmitCheck.IsChecked = _audioConfig.EarconTransmitEnabled;
@@ -1483,6 +1495,7 @@ namespace JJFlexWpf.Dialogs
             // Verbosity & Notifications tab
             _audioConfig.SpeechVerbosity = SpeechVerbosityCombo.SelectedIndex;
             _audioConfig.MicVerdictOutput = Math.Clamp(MicVerdictOutputCombo.SelectedIndex, 0, 2);
+            _audioConfig.FrequencyKeyReads = Math.Clamp(FrequencyKeyCombo.SelectedIndex, 0, 2);
             _audioConfig.EarconsEnabled = EarconsEnabledCheck.IsChecked == true;
             _audioConfig.EarconConnectionEnabled = EarconConnectionCheck.IsChecked == true;
             _audioConfig.EarconTransmitEnabled = EarconTransmitCheck.IsChecked == true;

@@ -1521,6 +1521,17 @@
                                           AutomationProperties.Name="Mic audio readout"
                            local:JJFlexHelp.Text="How spoken mic-audio checks read: plain English plus decibels, plain English only, or decibels only. Applies to the transmit status key and the JJ key mic check."/>
                             </StackPanel>
+
+                            <!-- Which slice F reads (#642, ruled 2026-10-18: "Active,
+                                 transmit, or both"). Label, name, items and Ctrl+F1
+                                 text are set in code from the Lexicon. DRAFT PROSE. -->
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <controls:DecorativeText x:Name="FrequencyKeyLabel"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="FrequencyKeyCombo" Width="260"
+                                          Style="{StaticResource DialogComboBox}"/>
+                            </StackPanel>
                         </StackPanel>
                     </GroupBox>
 

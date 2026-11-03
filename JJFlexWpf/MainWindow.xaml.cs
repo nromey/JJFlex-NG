@@ -4845,7 +4845,15 @@ public partial class MainWindow : UserControl
             // Update title bar with compact status for Insert+T (screen reader reads window title)
             if (UpdateTitleBar != null)
             {
-                string sliceLetter = RigControl.ActiveSliceLetter;
+                // The title names the slice its frequency comes from (#642).
+                // While transmitting, or showing the transmit frequency, the
+                // number is the transmit slice's (as in the Frequency field),
+                // so the letter is too; it used to be the selected slice's
+                // letter over the transmit slice's frequency.
+                bool showsTransmit = RigControl.Transmit || RigControl.ShowingXmitFrequency;
+                string sliceLetter = showsTransmit && RigControl.ValidVFO(RigControl.TXVFO)
+                    ? RigControl.VFOToLetter(RigControl.TXVFO)
+                    : RigControl.ActiveSliceLetter;
                 string mode = RigControl.Mode ?? "";
                 double freqMhz = (RigControl.Transmit ? RigControl.TXFrequency : RigControl.VirtualRXFrequency) / 1_000_000.0;
                 UpdateTitleBar($"JJ Flexible Radio Access — Slice {sliceLetter}, {freqMhz:F3}, {mode}");
@@ -7236,13 +7244,14 @@ public partial class MainWindow : UserControl
 
         try
         {
-            ulong freq = RigControl.Transmit
-                ? RigControl.TXFrequency
-                : RigControl.VirtualRXFrequency;
-            string freqText = OpenParms.FormatFreq(freq);
-            int slice = RigControl.RXVFO;
-            string speech = Radios.Lexicon.Get("connect.home.frequency",
-                ("freqText", freqText), ("slice", RigControl.VFOToLetter(slice)));
+            // #642: which slice, by the operator's setting, read off the
+            // transmit and selected slices deliberately. Until then this
+            // spoke the transmit frequency while keyed and the radio's active
+            // slice otherwise, under the active slice's letter either way.
+            var formatFreq = OpenParms.FormatFreq;
+            string speech = Radios.FrequencyKeyReadout.Sentence(
+                Radios.FrequencyKeyReadout.Setting, Radios.SliceRoles.Of(RigControl),
+                hz => formatFreq(hz));
 
             // In Modern mode, append both step sizes — tuning unity removed
             // the "current mode" concept, so we report what Up and Shift+Up
