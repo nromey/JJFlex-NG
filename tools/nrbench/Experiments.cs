@@ -10,7 +10,7 @@ partial class BenchApp
     static void AddPairs(Recording data)
     {
         var r=RawPair(data,Rn());
-        r.Notes.Add("Today's 80 percent RNNoise blend carries the unaligned dry-path comb filter. No residual for this blended render in Part 1.");
+        r.Notes.Add("RNNoise at 80 percent, its untouched side now delayed to line up with the cleaned side, so the blend no longer combs. No residual is made for a render below full strength.");
         RawPair(data,Neural(9));
     }
 }

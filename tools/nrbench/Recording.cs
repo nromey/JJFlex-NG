@@ -56,10 +56,9 @@ partial class BenchApp
     static void AddTodaysEngines(Recording data)
     {
         data.Add("today's RNNoise",new(){Rn()});
-        data.Add("today's RNNoise",new(){Rn(.8f,"Corrected")});
+        data.Add("today's RNNoise",new(){Rn(.8f,"Historical")});
         data.Add("today's RNNoise",new(){Rn(1)});
-        foreach(var r in data.Renders.Where(r=>r.Stages.Any(s=>s.Settings.EngineId=="rnnoise" && s.Settings.Strength<1)))
-            r.Notes.Add("Today's 80 percent blend carries the unaligned dry-path comb filter (RNNoise repair, task 740). No residual is written for this blended render in Part 1.");
+        data.Renders[^2].Notes.Add("Historical reproduces the input level used before Sprint 49, through the new aligned blend. The preserved 2026-10-17 render is the true before file.");
         var quiet=data.Windows.Quiet;
         if(quiet!=null) data.RawProfile=CaptureProfile(data.Input,data.Channels,quiet);
         foreach(double amount in new[]{.7,0})

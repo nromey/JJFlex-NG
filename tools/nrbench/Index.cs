@@ -49,7 +49,7 @@ partial class BenchApp
             var lines=section.Split(new[]{"\r\n","\n"},StringSplitOptions.RemoveEmptyEntries);
             if(section.Contains("File: "+name,StringComparison.Ordinal) || section.Contains(": "+name+".",StringComparison.Ordinal))
                 return string.Join(" ",lines.Take(2))+" Earlier render, not delay-aligned for comparison. "+
-                    (stem=="rnnoise" ? "This is today's combed 80 percent blend." : "");
+                    (stem=="rnnoise" ? "This is the preserved pre-Sprint-49 combed 80 percent blend." : "");
         }
         return "Not made by this bench; preserved as found. No processing or alignment claim is made.";
     }

@@ -21,7 +21,7 @@ partial class BenchApp
         }, Variant=Variant, ProfileSource=ProfileSource, Profile=Profile, TestFactory=TestFactory };
         public string Words => Settings.EngineId switch {
             "deepfilternet3" => $"DeepFilterNet3 limit {(Value("attenuation_limit_db") == 100 ? "unlimited" : Value("attenuation_limit_db").ToString("0.###", CultureInfo.InvariantCulture) + " dB")}",
-            "rnnoise" => $"RNNoise {Variant} {Settings.Strength * 100:0} percent",
+            "rnnoise" => $"{(Variant == "Historical" ? "rnnoise-before-sprint49 (old input level, aligned blend)" : "rnnoise (corrected input level, aligned blend)")} {Settings.Strength * 100:0} percent",
             "spectral_capture" => $"capture subtract {Value("subtraction_amount"):0.##} floor {Value("spectral_floor"):0.###}, {ProfileSource}",
             _ => Settings.EngineId
         };
@@ -46,7 +46,7 @@ partial class BenchApp
     }
     static Stage Neural(double limit) => new() { Settings = new() { EngineId="deepfilternet3", Direction=DenoiseDirection.Receive,
         Strength=1, Values=new() { new() { Name="attenuation_limit_db", Number=limit }, new() { Name="post_filter_beta", Number=0 } } } };
-    static Stage Rn(float strength=.8f, string scaling="Historical") => new() { Variant=scaling,
+    static Stage Rn(float strength=.8f, string scaling="Corrected") => new() { Variant=scaling,
         Settings = new() { EngineId="rnnoise", Direction=DenoiseDirection.Receive, Strength=strength } };
     static Stage CaptureStage(double[][]? profile, string source, double amount=.7) => new() {
         Profile=profile, ProfileSource=source, Settings=new() { EngineId="spectral_capture", Direction=DenoiseDirection.Receive, Strength=1,
