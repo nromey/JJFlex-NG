@@ -50,6 +50,7 @@ Public Module NativeLoader
             ' WHERE it lives, the same way it does for every other native
             ' library; the engine asks through this locator.
             WireDeepFilterLocator()
+            WireRnnoiseLocator()
 
             _initialized = True
         Catch ex As Exception
@@ -67,6 +68,18 @@ Public Module NativeLoader
     Private Sub WireDeepFilterLocator()
         JJFlexWpf.DeepFilterNet3Engine.LibraryLocator = AddressOf LocateDeepFilter
     End Sub
+
+    <System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)>
+    Private Sub WireRnnoiseLocator()
+        JJFlexWpf.RnnoiseEngine.LibraryLocator = AddressOf LocateRnnoise
+    End Sub
+
+    Private Function LocateRnnoise() As String
+        Dim arch As String = If(Environment.Is64BitProcess, "x64", "x86")
+        Dim p As String = Path.Combine(AppContext.BaseDirectory, "runtimes", $"win-{arch}", "native",
+                                       MappedFileName("rnnoise.dll"))
+        Return If(File.Exists(p), p, Nothing)
+    End Function
 
     Private Function ResolveNativeLibrary(
             libraryName As String,
@@ -131,6 +144,8 @@ Public Module NativeLoader
                 ' Screen-reader and braille output (ethindp/prism). Talks to
                 ' NVDA, JAWS and SAPI itself - one file, no per-reader clients.
                 Return "prism.dll"
+            Case "rnnoise.dll", "rnnoise"
+                Return "rnnoise.dll"
             Case "deepfilter.dll", "deepfilter", "df.dll", "df"
                 ' DeepFilterNet3's C API, built from upstream as df.dll and
                 ' shipped renamed (see runtimes\win-x64\native\README.md).

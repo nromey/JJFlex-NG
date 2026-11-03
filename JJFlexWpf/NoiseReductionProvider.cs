@@ -28,9 +28,9 @@ namespace JJFlexWpf
     /// <para>
     /// The transmit chain uses this class too (<c>TxAudioConditioning</c>). Its
     /// stream carries the mono microphone duplicated on both channels, and a
-    /// deterministic engine fed identical channels produces identical output,
-    /// so transmit audio is unchanged; it now costs two engine instances
-    /// instead of one.
+    /// deterministic engine fed identical channels produces identical output.
+    /// Transmit shares the corrected input level, aligned blend, and delayed
+    /// dropout path, with one engine per channel.
     /// </para>
     /// </remarks>
     public class NoiseReductionProvider : ISampleProvider, IDisposable
@@ -82,12 +82,16 @@ namespace JJFlexWpf
         /// </summary>
         public int LatencySamples => _bank?.LatencySamples ?? 0;
 
+        /// <summary>Delay applied to the most recent buffer, zero when bypassed.</summary>
+        public int AppliedLatencySamples { get; private set; }
+
         /// <summary>The bank, for tests and the bench.</summary>
         internal PerChannelDenoiserBank? Bank => _bank;
 
         // NAudio 3.0: ISampleProvider.Read takes a Span<float>.
         public int Read(Span<float> buffer)
         {
+            AppliedLatencySamples = 0;
             int totalRead = _source?.Read(buffer) ?? 0;
 
             // Pass through if disabled or no engine
@@ -108,6 +112,7 @@ namespace JJFlexWpf
         /// </summary>
         public void ProcessInPlace(float[] buffer, int offset, int count, int channels)
         {
+            AppliedLatencySamples = 0;
             if (!Enabled || count == 0)
             {
                 _carryStale = true;
@@ -131,20 +136,17 @@ namespace JJFlexWpf
             }
             if (bank == null) return;
 
-            // No engine on any channel, and nothing held in the carry: step
-            // aside entirely, so an engine that never loaded leaves the audio
-            // exactly as it was. Once anything is queued, keep going through
-            // the bank, which passes failed frames through itself; bypassing
-            // it then would drop the queued audio and jump the timeline.
-            if (!bank.AnyAvailable && bank.CarryLatencySamples == 0) return;
-
             if (_carryStale)
             {
                 bank.ClearCarry();
                 _carryStale = false;
             }
 
+            // A never-started engine leaves audio untouched. Once the bank
+            // has delayed audio in this stretch, retain its timeline on loss.
+            if (!bank.AnyAvailable && !bank.HasProcessedSinceGap) return;
             bank.Process(samples, Strength);
+            AppliedLatencySamples = samples.Length >= channels ? bank.LatencySamples : 0;
         }
 
         private PerChannelDenoiserBank? CreateBank(int channels)

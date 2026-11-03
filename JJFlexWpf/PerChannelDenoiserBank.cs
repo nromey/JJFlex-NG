@@ -26,7 +26,7 @@ namespace JJFlexWpf
     /// with a seam at every buffer boundary.
     /// </para>
     /// <para>
-    /// <b>Latency: none while the input is frame-aligned, and that is the live
+    /// <b>Frame carry adds no delay while input is frame-aligned, the live
     /// path.</b> The receive decoder hands over one Opus packet per call, and
     /// the radio sends 10 ms packets, so every buffer is exactly 480 frames
     /// (see the comment on <c>OpenOpus</c> in <c>FlexBase</c>). While every
@@ -45,21 +45,14 @@ namespace JJFlexWpf
     /// never shrinks on its own.
     /// </para>
     /// <para>
-    /// <b>Strength</b> is the same wet/dry mix the provider always applied,
-    /// computed with the same expression; the dry signal is delayed with the
-    /// wet so the two stay sample-aligned.
+    /// <b>Strength</b> blends wet and dry with the same arithmetic as before.
+    /// Dry is delayed by each channel's engine latency, to the sample, so
+    /// mixing it with wet does not create a comb filter.
     /// </para>
     /// <para>
-    /// <b>A failing engine costs that channel its processing, never its audio.</b>
-    /// Availability is read per frame, because an engine can stop working
-    /// mid-stream (one running in another process can die). A frame whose
-    /// engine is unavailable, or throws, goes out exactly as it came in, for
-    /// that channel only, and the bank asks again on the next frame. Ruled by
-    /// Noel 2026-10-17 for the out-of-process engine (#737): never silence,
-    /// never stall the audio thread, never pass the exception on. Note that a
-    /// passed-through frame does not carry the engine's own delay, so the
-    /// moment of failure, and of recovery, is a jump of
-    /// <see cref="EngineLatencySamples"/> in the timeline.
+    /// A failed or late frame uses that same delayed dry frame. The last
+    /// adopted delay is held until the engine produces again: ruling 2
+    /// (2026-10-18), no timeline jump during failure or recovery.
     /// </para>
     /// <para>
     /// Not thread-safe: <see cref="Process"/> belongs to one audio thread.
@@ -74,6 +67,9 @@ namespace JJFlexWpf
         private int _inCount;              // identical across channels by construction
         private int _outCount;
         private bool _carrying;
+        private readonly float[][] _delay;
+        private readonly int[] _delayAt;
+        internal bool HasProcessedSinceGap { get; private set; }
         private readonly bool[] _failing; // per channel: currently in a fallback stretch
 
         /// <param name="engineFactory">Called once per channel. Every instance must report the same frame length.</param>
@@ -102,11 +98,14 @@ namespace JJFlexWpf
                 throw new InvalidOperationException("An engine reported a frame length below one sample.");
 
             _failing = new bool[channels];
+            _delay = new float[channels][];
+            _delayAt = new int[channels];
             _in = new float[channels][];
             _wet = new float[channels][];
             _dry = new float[channels][];
             for (int c = 0; c < channels; c++)
             {
+                _delay[c] = new float[Math.Max(0, _engines[c].LatencySamples)];
                 _in[c] = new float[FrameLength];
                 _wet[c] = new float[FrameLength * 2];
                 _dry[c] = new float[FrameLength * 2];
@@ -148,13 +147,13 @@ namespace JJFlexWpf
         /// </summary>
         public int CarryLatencySamples => _carrying ? FrameLength - 1 : 0;
 
-        /// <summary>The engines' own delay (the largest across channels), in samples.</summary>
+        /// <summary>Last adopted engine delay (the largest across channels), in samples.</summary>
         public int EngineLatencySamples
         {
             get
             {
                 int max = 0;
-                foreach (var e in _engines) max = Math.Max(max, e.LatencySamples);
+                for (int ch = 0; ch < _delay.Length; ch++) max = Math.Max(max, _delay[ch].Length);
                 return max;
             }
         }
@@ -227,15 +226,10 @@ namespace JJFlexWpf
 
                     if (inCount == f)
                     {
-                        if (!RunEngine(ch, engine, inBuf, wet.AsSpan(outCount, f)))
-                        {
-                            // Unavailable or threw: this frame goes out as it
-                            // came in, for this channel only. Never silence,
-                            // never a stall, never the exception.
-                            Array.Copy(inBuf, 0, wet, outCount, f);
-
-                        }
-                        Array.Copy(inBuf, 0, dry, outCount, f);
+                        bool produced = RunEngine(ch, engine, inBuf, wet.AsSpan(outCount, f));
+                        if (produced) AdoptDelay(ch, engine.LatencySamples);
+                        DelayFrame(ch, inBuf, dry.AsSpan(outCount, f));
+                        if (!produced) Array.Copy(dry, outCount, wet, outCount, f);
                         outCount += f;
                         inCount = 0;
                     }
@@ -259,6 +253,7 @@ namespace JJFlexWpf
             _inCount = inEnd;
             _outCount = outEnd;
             if (switchNow) _carrying = true;
+            HasProcessedSinceGap = true;
         }
 
         /// <summary>
@@ -272,13 +267,20 @@ namespace JJFlexWpf
             _inCount = 0;
             _outCount = 0;
             _carrying = false;
+            HasProcessedSinceGap = false;
         }
 
         /// <summary><see cref="ClearCarry"/>, and reset every engine as if new.</summary>
         public void Reset()
         {
             ClearCarry();
-            foreach (var e in _engines) e.Reset();
+            for (int ch = 0; ch < _engines.Length; ch++)
+            {
+                _engines[ch].Reset();
+                AdoptDelay(ch, _engines[ch].LatencySamples);
+                Array.Clear(_delay[ch]);
+                _delayAt[ch] = 0;
+            }
         }
 
         public void Dispose()
@@ -323,6 +325,32 @@ namespace JJFlexWpf
                                 "passing that channel through unprocessed until it recovers.");
             }
             return false;
+        }
+
+        private void AdoptDelay(int channel, int samples)
+        {
+            samples = Math.Max(0, samples);
+            if (_delay[channel].Length == samples) return;
+            int before = _delay[channel].Length;
+            // A deliberate latency change starts zeroed, like a new engine.
+            // ClearCarry alone keeps this history, just as it keeps the engine's.
+            _delay[channel] = new float[samples];
+            _delayAt[channel] = 0;
+            Trace.WriteLine($"PerChannelDenoiserBank: channel {channel} delay changed from {before} to {samples} samples.");
+        }
+
+        private void DelayFrame(int channel, float[] input, Span<float> output)
+        {
+            float[] line = _delay[channel];
+            if (line.Length == 0) { input.AsSpan().CopyTo(output); return; }
+            int at = _delayAt[channel];
+            for (int i = 0; i < input.Length; i++)
+            {
+                output[i] = line[at];
+                line[at] = input[i];
+                if (++at == line.Length) at = 0;
+            }
+            _delayAt[channel] = at;
         }
 
         private void EnsureOutCapacity(int needed)
