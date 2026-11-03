@@ -2098,6 +2098,9 @@ namespace Radios.Tests
                 "audio.tune.refused_rx_only",
                 "audio.tune.refused_no_tx_slice",
                 "audio.tune.refused_amplifier",
+                // Junk box 2026-11-02 (#596): the key drops with the radio's
+                // connection and says why. DRAFT prose, awaiting Noel.
+                "connect.drop.transmit_ended",
                 // Reworded by the JJ Flex naming sweep (#851), so classified.
                 "audio.micprofile.create_reason",
                 "audio.micprofile.load_reason",

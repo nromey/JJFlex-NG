@@ -4809,6 +4809,7 @@ namespace Radios
             if (!nowConnected) ForgetPowerReports();
             if (!nowConnected) NoteTuneRequest(false);
             if (!nowConnected) ForgetTuneWrites();
+            if (!nowConnected) dropTransmitWithConnection(trace);
             ConnectionStateChanged?.Invoke(nowConnected);
 #if zero
             bool justReconnected = false;
@@ -6365,6 +6366,66 @@ namespace Radios
         /// UI layers subscribe to rebuild menus and update connection-dependent controls.
         /// </summary>
         public event Action<bool> ConnectionStateChanged;
+
+        /// <summary>
+        /// Our connection fell, and with it our side of any transmission
+        /// (#596). Raised on every fall of THIS rig's connection, keyed or not,
+        /// BEFORE <see cref="TransmitChange"/>(false) and before
+        /// <see cref="ConnectionStateChanged"/>: the first argument says
+        /// whether the radio had reported itself keyed, the second whether the
+        /// fall was our own deliberate disconnect.
+        /// </summary>
+        /// <remarks>
+        /// Raised first on purpose. The push-to-talk controller and its key
+        /// input live in the application, and the ordinary unkey path that
+        /// <see cref="TransmitChange"/>(false) drives forgets whether a key was
+        /// being held. This event is what lets the application read that, and
+        /// keep a key held through the drop from keying the radio when it
+        /// comes back, before anything else has reset it. Raised on FlexLib's
+        /// transport thread; a subscriber marshals.
+        /// </remarks>
+        public event Action<bool, bool> TransmitDroppedWithConnection;
+
+        /// <summary>
+        /// The connection fell: our side of the transmission falls with it
+        /// (#596; Noel, 2026-10-18: "if the radio drops, so should the key").
+        /// The radio cannot be unkeyed, there is nothing left to send to; what
+        /// collapses is OUR state, so every cue and every guard that asks
+        /// whether we are transmitting is honest from here on, and a reconnect
+        /// starts from receive.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Here, where the Radio's <c>Connected</c> property falls, and not on
+        /// the <c>ConnectionLostOurRadio</c> removal arm: FlexLib never raises
+        /// <c>RadioRemoved</c> for a radio reached only through SmartLink (see
+        /// <see cref="apiRadioRemovedHandler"/>), so that arm would never run
+        /// for exactly the operators furthest from their radio.
+        /// </para>
+        /// <para>
+        /// After the capture archive's claim, so the window the drop flushes
+        /// still records the state the link fell in; before
+        /// <see cref="ConnectionStateChanged"/>, whose subscribers begin the
+        /// application's teardown.
+        /// </para>
+        /// </remarks>
+        private void dropTransmitWithConnection(Action<string, TraceLevel> trace)
+        {
+            bool wasKeyed = _Transmit;
+            bool deliberate = Disconnecting || Volatile.Read(ref _selfDisconnects) > 0;
+            // The fall's own line, so bound to the fall's session like the rest.
+            trace("connection fell: our transmit state falls with it (radio "
+                + (wasKeyed ? "was keyed" : "was not keyed") + ", "
+                + (deliberate ? "our own disconnect" : "not asked for") + ")", TraceLevel.Info);
+            try { TransmitDroppedWithConnection?.Invoke(wasKeyed, deliberate); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TransmitDroppedWithConnection subscriber threw: " + ex.Message, TraceLevel.Error);
+            }
+            // The radio's own unkey, as if its Mox had fallen: clears the flag
+            // and raises TransmitChange(false) through the one path that does.
+            if (wasKeyed) noteRadioMox(false);
+        }
 
         private void sliceAdded(Slice slc, ObservationBinding binding)
         {

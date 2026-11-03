@@ -866,6 +866,17 @@ public partial class MainWindow : UserControl
     private readonly Radios.PttHoldFilter _pttHoldFilter = BuildPttHoldFilter();
 
     /// <summary>
+    /// A push-to-talk key held when the radio's connection fell stays dead
+    /// until it is let go (#596): a reconnect never inherits a transmit intent
+    /// from before the drop. Consulted by every door before its own gate, so
+    /// a held key's repeats and a screen reader's synthesised pairs are
+    /// swallowed while the radio is gone and after it comes back alike. Never
+    /// disarmed at teardown, because what it remembers is the operator's
+    /// finger, not the rig.
+    /// </summary>
+    private readonly Radios.PttHeldThroughDrop _pttHeldThroughDrop = new Radios.PttHeldThroughDrop();
+
+    /// <summary>
     /// Hand the filter the two things it cannot work out for itself: this
     /// machine's keyboard repeat delay, and a way to ask Windows whether the
     /// space bar is physically down.
@@ -2840,6 +2851,17 @@ public partial class MainWindow : UserControl
             }
         }
 
+        // 2z. A push-to-talk key held through a dropped connection (#596) is
+        //     not a press, with or without a radio: swallowed BEFORE step 3's
+        //     gate, so the stream it keeps sending is seen whole and cannot
+        //     key the radio the moment it comes back.
+        if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.Control
+            && PttHeldThroughDrop(down: true))
+        {
+            e.Handled = true;
+            return;
+        }
+
         // 3. PTT keys — Ctrl+Space (hold), Shift+Space (lock toggle), Escape (unlock)
         //    Active when focus is in the Home fields OR the Home field groups
         //    (ScreenFields expanders), radio powered on. Requires modifier
@@ -2923,6 +2945,9 @@ public partial class MainWindow : UserControl
         {
             // #778c round three: the measurement trace, see the key-down.
             SpaceKeyTimingTrace.Note(down: false, WpfKeyConverter.ToWinFormsKeys(e), e.IsRepeat, SpaceKeyTimingTrace.HomeDoor);
+            // #596: a key held through a dropped connection has its up seen
+            // whole, before anything else reads it.
+            PttHeldThroughDrop(down: false);
             // Detection only (#800): a lock release too fast to be human is
             // counted and traced, and changes nothing.
             _lockPairDetector.NoteUp(Environment.TickCount64);
@@ -3161,12 +3186,108 @@ public partial class MainWindow : UserControl
     /// </summary>
     private void PttEdgeFromOutsideHome(bool down, PttDoor door)
     {
+        // #596, before the gate: a key held through a dropped connection says
+        // nothing and keys nothing, radio or no radio.
+        if (PttHeldThroughDrop(down)) return;
         if (_pttController == null || !_radioPowerOn)
         {
             if (down) Radios.ScreenReaderOutput.SpeakNoRadioConnected();
             return;
         }
         if (down) PttKeyDownEdge(door); else PttKeyUpEdge();
+    }
+
+    /// <summary>
+    /// One push-to-talk edge, asked first of <see cref="_pttHeldThroughDrop"/>
+    /// (#596). True when it belongs to a key held through a dropped connection
+    /// and the door must do nothing more with it.
+    /// </summary>
+    private bool PttHeldThroughDrop(bool down)
+    {
+        var guard = _pttHeldThroughDrop;
+        if (guard == null || !guard.Armed) return false;
+        long now = Environment.TickCount64;
+        if (down)
+        {
+            bool swallow = guard.SwallowDown(now);
+            if (!swallow)
+                Tracing.TraceLine("PTT: the key held through the dropped connection was let go; this press keys as usual",
+                    TraceLevel.Info);
+            return swallow;
+        }
+        guard.NoteUp(now);
+        return true;
+    }
+
+    /// <summary>
+    /// The radio's connection fell (#596): raised by the rig on FlexLib's
+    /// thread BEFORE its TransmitChange(false), so this is queued ahead of
+    /// <see cref="TransmitChangeHandler"/> and reads the key input before the
+    /// ordinary unkey path forgets it.
+    /// </summary>
+    private void TransmitDroppedWithConnectionHandler(bool radioWasKeyed, bool deliberate)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            // BeginInvoke, never Invoke: FlexLib's transport thread, mid-teardown.
+            Dispatcher.BeginInvoke(() => TransmitDroppedWithConnectionHandler(radioWasKeyed, deliberate));
+            return;
+        }
+        ReleaseKeyForDroppedConnection(radioWasKeyed, deliberate);
+    }
+
+    /// <summary>
+    /// Our side of the transmission falls with the connection (#596; Noel,
+    /// 2026-10-18: "if the radio drops, so should the key" and "You need to
+    /// know if you're talking into dead air"). Releases the push-to-talk
+    /// controller DIRECTLY, held or locked, rather than through
+    /// <see cref="TransmitChangeHandler"/>: the application's teardown
+    /// unsubscribes that handler, and nothing may depend on it still being
+    /// subscribed when a connection dies. Then remembers a key still held, so
+    /// it cannot key the radio when it comes back, forgets the edges in
+    /// flight, and says why with the warning tone first.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The SystemWideKeyDecider's held-chord memory is deliberately left
+    /// alone: while it holds, the chord's repeats are eaten in the hook and
+    /// never reach a door, and its one up clears it. Forcing it released would
+    /// turn the next repeat into a fresh down at the door.
+    /// </para>
+    /// <para>
+    /// A deliberate disconnect is not a drop: the controller is released the
+    /// ordinary way and nothing extra is said.
+    /// </para>
+    /// </remarks>
+    private void ReleaseKeyForDroppedConnection(bool radioWasKeyed, bool deliberate)
+    {
+        bool keyInFlight = _pttKeyDown || _pttHoldFilter.ReleasePending
+            || (_pttController != null && _pttController.State == PttSafetyController.PttState.PttHold);
+        if (keyInFlight)
+        {
+            _pttHeldThroughDrop.Arm(_pttHoldFilter.FirstGapDeferMs);
+            Tracing.TraceLine("PTT: a push-to-talk key was held as the connection fell; it keys nothing until it is let go",
+                TraceLevel.Info);
+        }
+
+        // DRAFT PROSE (#596), awaiting Noel.
+        string sentence = Lexicon.Get("connect.drop.transmit_ended");
+        bool said = false;
+        if (_pttController != null && _pttController.IsTransmitting)
+        {
+            if (deliberate) _pttController.EscapeUnlock();
+            else said = _pttController.DropWithConnection(sentence);
+        }
+        ResetPttInput();
+
+        if (!deliberate && radioWasKeyed && !said)
+        {
+            // Keyed by something other than our push to talk (a foot switch,
+            // VOX, CW, a send): the operator is still talking into dead air.
+            EarconPlayer.WarningAlarmTone();
+            Radios.ScreenReaderOutput.Speak(sentence, Radios.Speech.SpeechIntent.Urgent, VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.TransmitDroppedWithConnection);
+        }
     }
 
     /// <summary>
@@ -3974,6 +4095,7 @@ public partial class MainWindow : UserControl
             RigControl.PowerStatus -= PowerStatusHandler;
             RigControl.NoSliceError -= NoSliceErrorHandler;
             RigControl.FeatureLicenseChanged -= FeatureLicenseChangedHandler;
+            RigControl.TransmitDroppedWithConnection -= TransmitDroppedWithConnectionHandler;
             RigControl.TransmitChange -= TransmitChangeHandler;
             RigControl.TransmitChange -= TuneReminderTransmitEdge;
             RigControl.TuneCarrierFell -= TuneCarrierFellHandler;
@@ -5304,6 +5426,7 @@ public partial class MainWindow : UserControl
         // Wire additional event handlers
         if (RigControl != null)
         {
+            RigControl.TransmitDroppedWithConnection += TransmitDroppedWithConnectionHandler;
             RigControl.TransmitChange += TransmitChangeHandler;
             RigControl.TransmitChange += TuneReminderTransmitEdge;
             RigControl.TuneCarrierFell += TuneCarrierFellHandler;
@@ -5792,6 +5915,7 @@ public partial class MainWindow : UserControl
 
         if (RigControl != null)
         {
+            RigControl.TransmitDroppedWithConnection -= TransmitDroppedWithConnectionHandler;
             RigControl.TransmitChange -= TransmitChangeHandler;
             RigControl.TransmitChange -= TuneReminderTransmitEdge;
             RigControl.TuneCarrierFell -= TuneCarrierFellHandler;

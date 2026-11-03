@@ -1,0 +1,1 @@
+If the radio's connection drops while you are transmitting, your key now drops with it: you hear the warning tone and a sentence saying you are no longer on the air, and a push-to-talk key you were still holding will not key the radio again when it comes back until you let go and press it afresh.

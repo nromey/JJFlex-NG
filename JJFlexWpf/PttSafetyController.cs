@@ -1017,6 +1017,35 @@ namespace JJFlexWpf
         private bool _keyingForCheck;
 
         /// <summary>
+        /// The radio's connection fell (#596; Noel, 2026-10-18: "if the radio
+        /// drops, so should the key"). Whatever this controller was doing,
+        /// held, locked or warning, it goes to Idle, and the operator is told
+        /// why with the warning tone first, because they are talking into
+        /// dead air and the key dropping is the only other cue they get. On a
+        /// station with transmit sounds off, that cue is silent and the
+        /// sentence carries it all.
+        /// </summary>
+        /// <param name="sentence">What happened, already worded. The caller
+        /// owns it, because the same sentence is said when the radio was keyed
+        /// by something other than this controller.</param>
+        /// <returns>True when the controller was transmitting and has been
+        /// released, which means the sentence has been said.</returns>
+        /// <remarks>
+        /// <see cref="GoIdle"/>'s unkey write goes to a connection that is
+        /// gone, which is harmless: it is an unkey, and the queue that carries
+        /// it traps a dead radio's exception.
+        /// </remarks>
+        public bool DropWithConnection(string sentence)
+        {
+            if (State == PttState.Idle) return false;
+            Tracing.TraceLine($"PTT: the connection fell while {State}; the key drops with it", TraceLevel.Warning);
+            EarconPlayer.WarningAlarmTone();
+            GoIdle(sentence, forceSpeech: true,
+                   subject: Radios.Speech.SpeechSubject.TransmitDroppedWithConnection);
+            return true;
+        }
+
+        /// <summary>
         /// Escape — unlock TX from any state.
         /// </summary>
         public void EscapeUnlock()

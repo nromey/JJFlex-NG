@@ -126,6 +126,7 @@
   "connect.discovery.still_searching": "Still searching.",
   "connect.disconnecting_from": "Disconnecting from {radioName}",
   "connect.disconnecting_plain": "Disconnecting",
+  "connect.drop.transmit_ended": {"text": "The radio connection dropped while you were transmitting. You are no longer on the air.", "delivery": null},
   "connect.failure.auth_summary": "SmartLink did not accept the saved sign-in for {email}. Connect from the radio list to sign in again.",
   "connect.failure.radio_not_found_lan": "{radioName} was not found on the local network. It may be powered off or on a different network.",
   "connect.failure.radio_not_found_wan": "{radioName} never appeared in the SmartLink radio list. It may be powered off, offline, or registered to a different account.",
