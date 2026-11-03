@@ -1,9 +1,33 @@
-// Offline only: reads WAV files and writes WAVs/text; no audio devices.
+// Offline noise reduction bench: reads WAV files, writes 48 kHz 16-bit WAVs and
+// listening indexes. It opens no audio device and makes no sound. Engines and
+// pairs are checked for health; the operator judges how they sound.
+//
 // nrbench suite <recordingsRoot> [--out <resultsRoot>] [--deepfilter <nativeDir>]
+//     [--stereo-recording <audio.wav>]
+// Renders each child folder containing audio.wav; other folders are skipped.
+// Default output is <recordingsRoot>/results. --out redirects all suite output.
 // nrbench <input.wav> <outDir> [--deepfilter <nativeDir>]
+//     [--stereo-recording <audio.wav>] [--external <render.wav>]...
+// --external imports a WAV made elsewhere as a 48 kHz copy, lists its source and
+// preserves its level. It makes no alignment or engine-setting claim. Single-input
+// mode only: each imported render belongs to that one recording.
+// --stereo-recording supplies the distinct right-channel input. Otherwise the
+// suite uses another input, then tries C:\dev\nr-test-audio read-only.
+// --deepfilter names the directory holding the native library and model; by
+// default use the bundled copy, then the repository's pinned native library.
+// nrbench selftest [--recording <audio.wav>] [--mutation <control-name>]
+// --recording supplies the real delay-finder control; default is bin/input.
+// --mutation deliberately disables one check and must return failure.
+// Every suite runs selftest first and refuses to render if any control fails.
 // nrbench cpu [input.wav] [--out <report.txt>] [--deepfilter <nativeDir>]
-// nrbench selftest [--mutation <control-name>]
-// nrbench synth <speech.wav> <outDir> [--start s] [--seconds s] [--snr dB] [--carrier Hz] [--seed n]
+// CPU mode defaults to generated noise and cpu-report.txt; it opens no device.
+// nrbench synth <speech.wav> <outDir> [--start s] [--seconds s] [--snr dB]
+//     [--carrier Hz] [--seed n]
+// Synth writes clean/noisy band-limited controls with a common level scale.
+//
+// Example: nrbench selftest --recording C:\dev\nr-test-audio\wa-qso-party-40m\audio.wav
+// Example: nrbench suite C:\dev\nr-test-audio --out tools\nrbench\bin\proof
+// Existing files are never deleted. Only files this run writes are replaced.
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
@@ -102,15 +126,19 @@ static float[] LoadWav(string path, out int channels, out string description)
     return list.GetRange(0, whole).ToArray();
 }
 
-static void WriteWav(string path, float[] samples, int channels)
+static void WriteWav(string path, ReadOnlySpan<float> samples, int channels, double gain=1)
 {
-    using var w = new WaveFileWriter(path, new WaveFormat(Rate, 16, channels));
-    var clamped = new float[samples.Length];
-    for (int i = 0; i < samples.Length; i++) {
-        if (!float.IsFinite(samples[i]) || Math.Abs(samples[i]) > 1f) throw new InvalidOperationException("Refusing a WAV that would clip or contain non-finite samples");
-        clamped[i] = samples[i];
+    foreach(float sample in samples)
+        if(!float.IsFinite(sample) || !double.IsFinite(sample*gain) || Math.Abs(sample*gain)>1)
+            throw new InvalidOperationException("Refusing a WAV that would clip or contain non-finite samples");
+    using var w=new WaveFileWriter(path,new WaveFormat(Rate,16,channels));
+    var packet=new float[8192];
+    for(int p=0;p<samples.Length;p+=packet.Length)
+    {
+        int n=Math.Min(packet.Length,samples.Length-p);
+        for(int i=0;i<n;i++)packet[i]=(float)(samples[p+i]*gain);
+        w.WriteSamples(packet,0,n);
     }
-    w.WriteSamples(clamped, 0, clamped.Length);
 }
 
 static float[] Mono(float[] interleaved, int channels)
@@ -217,25 +245,6 @@ static int DelaySamples(float[] a, float[] b)
     for (int lag = 0; lag <= maxLag; lag++)
         if (fa[lag].Real > bestV) { bestV = fa[lag].Real; best = lag; }
     return best;
-}
-
-/// Scale-invariant signal-to-distortion ratio of `estimate` against `reference`, after delay removal.
-static double Fidelity(float[] reference, float[] estimate)
-{
-    int d = DelaySamples(reference, estimate);
-    int n = Math.Min(reference.Length, estimate.Length - d);
-    if (n <= 0) return double.NaN;
-    double dot = 0, rr = 0;
-    for (int i = 0; i < n; i++) { dot += (double)reference[i] * estimate[i + d]; rr += (double)reference[i] * reference[i]; }
-    double alpha = dot / Math.Max(1e-20, rr);
-    double es = 0, en = 0;
-    for (int i = 0; i < n; i++)
-    {
-        double t = alpha * reference[i];
-        double e = estimate[i + d] - t;
-        es += t * t; en += e * e;
-    }
-    return 10 * Math.Log10(es / Math.Max(1e-20, en));
 }
 
 static void Fft(System.Numerics.Complex[] x, bool inverse)

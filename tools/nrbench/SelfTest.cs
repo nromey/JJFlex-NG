@@ -20,6 +20,24 @@ partial class BenchApp
         public void Reset(){Array.Clear(ring);next=0;}
         public void Dispose(){}
     }
+    // The bank processes left before right. Share one frame so the fake right engine
+    // deliberately emits the left input, exercising the real interleaving path.
+    sealed class CopyChannelEngine(float[] shared,bool copy) : IDenoiseEngine
+    {
+        public string Id=>"fake-copy";
+        public int SampleRate=>Rate;
+        public int FrameLength=>Frame;
+        public int LatencySamples=>0;
+        public bool IsAvailable=>true;
+        public bool ProcessFrame(ReadOnlySpan<float> input,Span<float> output)
+        {
+            if(copy)shared.CopyTo(output);
+            else {input.CopyTo(shared);input.CopyTo(output);}
+            return true;
+        }
+        public void Reset(){}
+        public void Dispose(){}
+    }
     static float[] Delay(float[] input,int delay)
     {
         var result=new float[input.Length+delay];input.CopyTo(result,delay);return result;
@@ -73,20 +91,26 @@ partial class BenchApp
             double level=MeanLoudness(LoudnessBlocks(sine,1).Skip(10).Select(b=>b.Level));
             Assert(Math.Abs(level+20)<.2,$"-20 dBFS sine read {level} LUFS instead of about -20");
         }));
-        string temporary=Path.Combine(Path.GetTempPath(),"nrbench-selftest-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(temporary);
-        // Retained, never deleted: the bench's no-deletion rule also covers its controls.
+        string temporary=Path.Combine(AppContext.BaseDirectory,"selftest");Directory.CreateDirectory(temporary);
+        // One scratch WAV is rewritten each run. Earlier temporary folders are left alone.
         WriteWav(Path.Combine(temporary,"control.wav"),new float[480],1);
         tests.Add(("index-extra",()=>MustRefuse(()=>CheckIndex(temporary,""),"Index accepted an extra unlisted WAV")));
         tests.Add(("index-missing",()=>MustRefuse(()=>CheckIndex(temporary,"File: control.wav\nFile: absent.wav\n"),"Index accepted a named missing WAV")));
         tests.Add(("crosstalk",()=>{
-            var other=Noise(7,83);var fakeCopy=(float[])other.Clone();
-            Assert(Math.Abs(Correlation(fakeCopy,other,0))>LeakageThreshold,"Channel-copying fake was not flagged");
-            Assert(Math.Abs(Correlation(noise,other,0))<LeakageThreshold,"Independent channels were flagged");
+            var other=Noise(7,83);var stereo=new float[noise.Length*2];
+            for(int i=0;i<noise.Length;i++){stereo[2*i]=noise[i];stereo[2*i+1]=other[i];}
+            var shared=new float[Frame];int made=0;
+            var fake=new Stage {Settings=new(){EngineId="fake-copy",Direction=Radios.DenoiseDirection.Receive,Strength=1},
+                TestFactory=()=>new CopyChannelEngine(shared,(made++%2)==1)};
+            var output=ProcessChain(stereo,2,new(){fake},library,out int delay);
+            var result=MeasureStereo(output,noise,other,delay);
+            Assert(result.LeftInRight>.99,"Channel-copying fake did not reach the stereo measurement");
+            Assert(result.Flagged,"Channel-copying fake was not flagged");
+            Assert(!MeasureStereo(ProcessChain(stereo,2,new(),library,out delay),noise,other,delay).Flagged,"Independent channels were flagged");
         }));
         tests.Add(("capture-channels",()=>MustRefuse(()=>CaptureProfile(planted,1,new(Rate*6,Rate*3,"planted quiet"),providerChannels:2),"Mismatched capture shape was accepted")));
         tests.Add(("ripple-profile",()=> {
-            using var engine=new SpectralCaptureEngine();
-            MustRefuse(()=>EnvelopeRipple(noise,noise,engine.LatencySamples,engine.LatencySamples==992),"Profile-less ripple engine was accepted");
+            MustRefuse(()=>ProcessChain(noise,1,new(){CaptureStage(null,"missing profile",0)},library,out _),"Profile-less ripple engine was accepted");
         }));
         foreach(var test in tests)
         {

@@ -18,14 +18,12 @@ partial class BenchApp
         string file=SafeFile($"{r.Number:00} {r.Words}, {data.Name}.wav");
         if(file.Length>250)throw new InvalidOperationException("Render description exceeds the file-name limit: "+file);
         double gain=Math.Pow(10,r.GainDb/20);
-        var listening=new float[r.Audio.Length];
-        for(int i=0;i<listening.Length;i++)listening[i]=(float)(r.Audio[i]*gain);
         // Flush is retained in the full WAV. The excerpt starts at raw time + chain delay.
-        WriteWav(Path.Combine(data.Output,file),listening,data.Channels);
+        WriteWav(Path.Combine(data.Output,file),r.Audio,data.Channels,gain);
         int start=(data.Windows.Excerpt+r.Latency)*data.Channels;
-        int count=Math.Min(Rate*60*data.Channels,listening.Length-start);
+        int count=Math.Min(Rate*60*data.Channels,r.Audio.Length-start);
         if(count<=0)throw new InvalidOperationException("No aligned excerpt available");
-        WriteWav(Path.Combine(data.Output,"one minute",file),listening.AsSpan(start,count).ToArray(),data.Channels);
+        WriteWav(Path.Combine(data.Output,"one minute",file),r.Audio.AsSpan(start,count),data.Channels,gain);
         r.FileName=file;
     }
     static void CheckIndex(string directory,string text)
@@ -43,31 +41,50 @@ partial class BenchApp
     {
         if(Regex.IsMatch(name,@"^\d+ "))return "Superseded numbered render from an earlier run; retained, not rewritten by this run.";
         string stem=Path.GetFileNameWithoutExtension(name);
+        string external=name.StartsWith("nnr-",StringComparison.Ordinal) && name.EndsWith("-src.wav",StringComparison.Ordinal)
+            ? "external-"+name.Replace("-src.wav",".wav",StringComparison.Ordinal) : name;
         var sections=Regex.Split(report,@"(?m)^Variant \d+: ");
         foreach(var section in sections.Skip(1))
         {
             var lines=section.Split(new[]{"\r\n","\n"},StringSplitOptions.RemoveEmptyEntries);
-            if(section.Contains("File: "+name,StringComparison.Ordinal) || section.Contains(": "+name+".",StringComparison.Ordinal))
-                return string.Join(" ",lines.Take(2))+" Earlier render, not delay-aligned for comparison. "+
+            if(section.Contains("File: "+external,StringComparison.Ordinal) || section.Contains(": "+name+".",StringComparison.Ordinal))
+            {
+                string description=lines.Skip(1).FirstOrDefault() ?? "No description recorded.";
+                string relation=name.StartsWith("external-nnr-",StringComparison.Ordinal)
+                    ? $"This is the copy of {name[9..].Replace(".wav","-src.wav",StringComparison.Ordinal)} that the earlier bench measured; it differs from it only by 16-bit rounding. "
+                    : name!=external ? $"This is the source for {external}, the copy that the earlier bench measured. " : "";
+                return relation+"report.txt said: "+description+" Earlier render, not delay-aligned for comparison. "+
                     (stem=="rnnoise" ? "This is today's combed 80 percent blend." : "");
+            }
         }
         return "Not made by this bench; preserved as found. No processing or alignment claim is made.";
     }
     static void WriteIndex(Recording data)
     {
         Directory.CreateDirectory(data.Output);Directory.CreateDirectory(Path.Combine(data.Output,"one minute"));
-        foreach(var r in data.Renders)WriteListening(r,data);
         var text=new StringBuilder();void Line(string s="")=>text.AppendLine(s);
         Line("Noise reduction listening index: "+data.Name);Line();
-        Line("How to use this file");
+        Line("HOW TO USE THIS FILE");
         Line("Listen in the groups below. Each numbered file says its engine, settings and recording. Compare with the numbered entry named below it. This bench checks health and does not rank engines.");
         Line("The same speech blocks from the unprocessed input set the listening level for every render. Figures describe unscaled output. Residuals keep their natural level.");
         Line("Full files retain startup and the flushed tail. The one minute subfolder starts every excerpt at the same raw time plus that render's expected latency.");
         Line($"Excerpt raw start: {ClockTime(data.Windows.Excerpt)}. All files use this minute (or all remaining audio if shorter).");
-        Line($"Windows use 400 ms loudness blocks every 100 ms. Noise floor is the tenth percentile. Quiet: every block no more than {Windows.QuietAbove} LU above that floor; speech: every block at least {Windows.SpeechAbove} LU above it. A quiet window also requires at least {Windows.SpeechAbove} LU of contrast in the recording.");
         Line($"Raw noise floor: {data.Windows.Floor:F1} LUFS. Quiet window: {data.Windows.Quiet?.Words ?? "none found"}. Speech window: {data.Windows.Speech?.Words ?? "none found"}. Each capture lasts three seconds.");
+        Line($"Windows use 400 ms loudness blocks every 100 ms. Noise floor is the tenth percentile. Quiet: every block no more than {Windows.QuietAbove} LU above that floor; speech: every block at least {Windows.SpeechAbove} LU above it. A quiet window also requires at least {Windows.SpeechAbove} LU of contrast in the recording.");
         Line("00 renders.xml records settings, profile magnitudes, source windows and commit for exact reruns. You can ignore it.");Line();
-        Line("What the tool already judged");
+        Line("WHAT THE TOOL ALREADY JUDGED");
+        var windowRefusals=data.Renders.Where(r=>r.Refusal!=null && (r.Refusal.Contains("quiet window",StringComparison.Ordinal) || r.Refusal.Contains("speech window",StringComparison.Ordinal))).ToArray();
+        if(windowRefusals.Length>0)
+        {
+            string missing=data.Windows.Quiet==null && data.Windows.Speech==null ? "quiet or speech" : data.Windows.Quiet==null ? "quiet" : "speech";
+            Line($"No qualifying three-second {missing} window was found, so {windowRefusals.Length} capture renders are refused.");
+        }
+        foreach(var cause in data.Renders.Where(r=>r.Refusal!=null && !windowRefusals.Contains(r))
+            .GroupBy(r=>Regex.Replace(r.Refusal!,@"^(?:(?:Source|Residual) render \d+ refused: )+","")))
+            if(cause.Count()>1)Line($"{cause.Key.TrimEnd('.')}, so {cause.Count()} renders are refused.");
+        if(data.Windows.ExcerptFallback)Line("No minute held a pause, so the excerpt starts at 0:00.");
+        int floorLevels=data.Renders.Count(r=>r.Refusal==null && r.SpeechFallback);
+        if(floorLevels>0)Line($"No eligible block was classed as speech for {floorLevels} renders; their speech levels use the meter's reporting floor.");
         foreach(var r in data.Renders)
         {
             if(r.Refusal!=null)Line($"REFUSED {r.Number:00}, {r.Words}: {r.Refusal}.");
@@ -79,7 +96,13 @@ partial class BenchApp
         Line();
         foreach(var group in GroupOrder)
         {
-            Line(group);
+            Line(group switch {
+                "pairs"=>"PAIRS, SPECTRAL THEN NEURAL",
+                "capture after neural"=>"CAPTURE AFTER NEURAL, EXPERIMENT",
+                "capture on residuals"=>"CAPTURE ON RESIDUALS, EXPERIMENT",
+                _=>group.ToUpperInvariant()
+            });
+            if(group=="DeepFilterNet3 curve")Line("The attenuation limit is a wet/dry blend. Each limited residual is a scaled copy of the unlimited one: these settings change how much is removed, not how the model behaves.");
             if(group=="old capture subtraction")foreach(var ripple in data.Ripple)Line(ripple);
             foreach(var r in data.Renders.Where(r=>r.Group==group))
             {
@@ -89,7 +112,8 @@ partial class BenchApp
                 {
                     Line("File: "+r.FileName);
                     Line("File: "+Path.Combine("one minute",r.FileName!));
-                    Line(r.Number==1?"This is the unprocessed reference.":$"Compare with {r.Compare:00}.");
+                    Line(r.Number==1?"This is the unprocessed reference.":$"Compare with {(r.NearestComparison?"nearest setting, ":"")}{r.Compare:00}.");
+                    if(r.SpeechFallback)Line("Speech level uses the meter's reporting floor because no eligible block was classed as speech.");
                     if(r.Noise<=JJPortaudio.LufsMeter.Floor+.01)
                         Line($"Speech level: {r.Speech:F1} LUFS. Noise between words is at the meter's reporting floor; speech above noise cannot be measured as a finite gap.");
                     else Line($"Speech level: {r.Speech:F1} LUFS. Noise between words (tenth percentile): {r.Noise:F1} LUFS. Speech above noise: {r.Speech-r.Noise:F1} LU.");
@@ -100,13 +124,13 @@ partial class BenchApp
                 Line();
             }
         }
-        Line("Earlier renders in this folder");
+        Line("EARLIER RENDERS IN THIS FOLDER");
         string oldReport=Path.Combine(data.Output,"report.txt");string report=File.Exists(oldReport)?File.ReadAllText(oldReport):"";
         var current=data.Renders.Where(r=>r.FileName!=null).SelectMany(r=>new[]{r.FileName!,Path.Combine("one minute",r.FileName!)}).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var earlier=Directory.GetFiles(data.Output,"*.wav").Select(Path.GetFileName).Cast<string>().Concat(
             Directory.GetFiles(Path.Combine(data.Output,"one minute"),"*.wav").Select(p=>Path.Combine("one minute",Path.GetFileName(p))));
         foreach(string file in earlier.Order(StringComparer.OrdinalIgnoreCase))if(!current.Contains(file))
-            {Line("File: "+file);Line(EarlierDescription(Path.GetFileName(file),report));Line();}
+            {Line("File: "+file);Line(data.ExternalDescriptions.GetValueOrDefault(file) ?? EarlierDescription(Path.GetFileName(file),report));Line();}
         string index=text.ToString();CheckIndex(data.Output,index);
         File.WriteAllText(Path.Combine(data.Output,"00 index.txt"),index);
         WriteManifest(data);
@@ -122,6 +146,7 @@ partial class BenchApp
         var root=new XElement("nrbench",new XAttribute("format","part1-1"),new XAttribute("commit",Commit()),new XAttribute("uncommittedBench",true),
             new XAttribute("recording",data.Name),new XAttribute("rate",Rate),new XAttribute("channels",data.Channels),new XAttribute("excerptStart",data.Windows.Excerpt));
         foreach(var w in new[]{data.Windows.Quiet,data.Windows.Speech})if(w!=null)root.Add(new XElement("captureWindow",new XAttribute("kind",w.Kind),new XAttribute("start",w.Start),new XAttribute("length",w.Length)));
+        foreach(var external in data.ExternalDescriptions)root.Add(new XElement("external",new XAttribute("file",external.Key),external.Value));
         foreach(var r in data.Renders)
         {
             var element=new XElement("render",new XAttribute("number",r.Number),new XAttribute("group",r.Group),new XAttribute("description",r.Words),
