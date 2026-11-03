@@ -11,6 +11,7 @@ The same recipes build the x86 set — substitute `Win32` for `x64` and target
 
 ## What is currently shipped — verify, do not trust this heading
 
+- **RNNoise v0.1.1, pinned at `6cbfd53eb348a8d394e0757b4025c6ded34eb2b6`** (both architectures built here; no version string)
 - **Opus 1.6.1**
 - **PortAudio: master pinned at `a880212` (commit date 2026-08-07)**
 - **Prism v0.18.1, pinned at tag commit `d2998e9281806fe1efd3394971c6e44ac11b9e75`**
@@ -189,6 +190,94 @@ omission.
 you want, record the archive hash, copy `x64/` and `x86/nvdaControllerClient.dll`
 here and into `win-x86`, run the recipe above on both, and update the three
 lines that name what should be present and absent.
+
+### RNNoise (rnnoise.dll) — built here from upstream
+
+RNNoise is Xiph's BSD-style speech denoiser. We build both architectures
+because the retired package shipped the same x64 binary in its x86 folder
+(#739). The model remains the classic one: repository
+`https://github.com/xiph/rnnoise`, tag `v0.1.1`, full commit
+`6cbfd53eb348a8d394e0757b4025c6ded34eb2b6`. Its weights are `src/rnn_data.c`
+in git; no model download is needed. Build only at that SHA, with a clean
+tree. Sources below are `librnnoise_la_SOURCES` from its `Makefile.am`.
+
+Exact build run 2026-11-02, from the repository root, after placing the
+upstream checkout at `build-native/rnnoise`:
+
+```powershell
+$nativeRoot = 'C:\dev\jjflex-49d\build-native'
+$sourceRoot = Join-Path $nativeRoot 'rnnoise'
+if ((git -C $sourceRoot rev-parse HEAD) -ne '6cbfd53eb348a8d394e0757b4025c6ded34eb2b6') { throw 'Wrong RNNoise pin' }
+if (git -C $sourceRoot status --porcelain) { throw 'Dirty RNNoise source' }
+$compiler = 'C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\Llvm\x64\bin\clang-cl.exe'
+$msvcRoot = 'C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231'
+$sdkRoot = 'C:\Program Files (x86)\Windows Kits\10'
+$includes = @('/imsvc' + $msvcRoot + '\include', '/imsvc' + $sdkRoot + '\Include\10.0.26100.0\ucrt', '/imsvc' + $sdkRoot + '\Include\10.0.26100.0\shared', '/imsvc' + $sdkRoot + '\Include\10.0.26100.0\um')
+$sources = @('denoise','rnn','rnn_data','rnn_reader','pitch','kiss_fft','celt_lpc') | ForEach-Object { Join-Path $sourceRoot "src\$_.c" }
+foreach ($nativeArch in @('x64','x86')) {
+    $outputRoot = Join-Path $nativeRoot "rnnoise-$nativeArch"
+    New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+    Push-Location $outputRoot
+    try {
+        $target = if ($nativeArch -eq 'x64') { 'x86_64-pc-windows-msvc' } else { 'i686-pc-windows-msvc' }
+        & $compiler "--target=$target" /nologo /LD /O2 /MT /fp:precise /DWIN32 /DRNNOISE_BUILD /DDLL_EXPORT /D_USE_MATH_DEFINES "/I$sourceRoot\include" "/I$sourceRoot\src" @includes @sources /link /DEBUG:NONE /INCREMENTAL:NO "/LIBPATH:$msvcRoot\lib\$nativeArch" "/LIBPATH:$sdkRoot\Lib\10.0.26100.0\ucrt\$nativeArch" "/LIBPATH:$sdkRoot\Lib\10.0.26100.0\um\$nativeArch" /OUT:rnnoise.dll
+        if ($LASTEXITCODE -ne 0) { throw "Native build $nativeArch failed: $LASTEXITCODE" }
+    } finally { Pop-Location }
+}
+```
+
+Compiler: clang 22.1.3, LLVM commit
+`e9846648fd6183ee6d8cbdb4502213fcf902a211`, MSVC libraries 14.51.36231,
+Windows SDK 10.0.26100.0. The MSBuild ClangCL toolset is not required.
+
+- `--target` selects genuine x64 or x86 code; `/LD` makes a DLL.
+- `/O2 /fp:precise` optimizes without fast-math changes. clang-cl accepts
+  the upstream variable-length arrays that Microsoft's C compiler rejects.
+- `/MT` links the C runtime statically. Both binaries depend only on
+  `KERNEL32.dll`, verified with `dumpbin /dependents`.
+- `WIN32`, `RNNOISE_BUILD`, and `DLL_EXPORT` enable the exports in the pinned
+  header; `_WIN32` alone does not. `_USE_MATH_DEFINES` exposes `M_PI`.
+- Include and library paths explicitly select the installed toolchain.
+- `/DEBUG:NONE /INCREMENTAL:NO` avoids a PDB path and incremental link state.
+  Neither DLL contains a `.pdb` reference or the builder's user-profile path.
+
+Copy `build-native/rnnoise-x64/rnnoise.dll` to this folder and the x86
+counterpart to `runtimes/win-x86/native/`. Copy upstream's unmodified
+`COPYING` beside each as `rnnoise.COPYING.txt`.
+
+Shipped SHA-256 and sizes:
+
+- x64 DLL: `97C0940D963B549D5DC97F1A165AAD8A6EA4815BEA9774FF8004DFE265DE57F6`, 293,888 bytes.
+- x86 DLL: `48EF23974BDD824A805CEB6E55DAF4C8DB7D12C37C121C5793EC3F71FD527F82`, 254,976 bytes.
+- `rnnoise.COPYING.txt` (both): `E2F59FF41D9D03ADC3DCF3DEFF170F8C8CF4A6EB4A9B174762A7656D23200FFA`, 1,581 bytes, as git stores and checks it out (`.gitattributes` sets `eol=lf`); byte-identical to upstream's own `COPYING` blob `01ea4b1a`. A Windows checkout that converts it to CRLF reads 1,612 bytes and a different hash.
+
+There is no version function or embedded version string. The full source
+SHA is the record; machine field, DLL hash and exports identify a copy.
+Read the PE offset at byte 0x3c, then the two-byte machine field at that
+offset plus 4: x86 is `0x14C`, x64 is `0x8664`. Positive control: the retired
+package's **x86** DLL reads `0x8664` (SHA-256
+`12E19BF7A18D13E092A5FBE5A7C5B2081F5E7B56F6D77AEAB5837335F44CEEDF`).
+
+Run `dumpbin /exports` on both files. Positive control:
+`rnnoise_process_frame` must be present, along with `rnnoise_create`.
+The complete undecorated export list is `rnnoise_create`, `rnnoise_destroy`,
+`rnnoise_get_frame_size`, `rnnoise_get_size`, `rnnoise_init`,
+`rnnoise_model_free`, `rnnoise_model_from_file`, `rnnoise_process_frame`.
+The binding is cdecl, output pointer before input, 480 samples at 48 kHz,
+16-bit-range floats. The process return value is voice probability.
+The export list alone cannot distinguish our pin from the old package.
+
+Model comparison before retiring the package: 300 identical 480-sample
+frames through each x64 DLL in **separate processes**, at equal 16-bit
+input level, gave largest absolute sample difference **0.0** over 144,000
+samples. This confirms the classic model is unchanged for that input.
+
+To bump: place a clean checkout at the new full pin, read `Makefile.am`
+and `include/rnnoise.h` again, check whether weights now need a separate
+download (v0.2 and later do), rebuild both architectures, replace both DLLs
+and licences, update pin, recipe and hashes here, and run the RNNoise tests
+on both architectures. Compare model output deliberately before adopting a
+new model. A linker timestamp can change hashes on an otherwise equal rebuild.
 
 ### DeepFilterNet3 (deepfilter.dll, DeepFilterNet3_onnx.tar.gz) — built here from upstream
 
