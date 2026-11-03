@@ -2137,6 +2137,21 @@ namespace Radios.Tests
                 "settings.radio.register.confirm_body",
                 "settings.radio.unregister.confirm_body",
                 "settings.radio.way_in.set",
+                // Unified takes part 1: the kind names (ruled) and phrases, and the
+                // refusal to detune a playback take. TextOnly: labels and status
+                // lines the windows show. Draft wording where not ruled.
+                "audio.takes.kind.off_air",
+                "audio.takes.kind.radio_recording",
+                "audio.takes.kind.looped_back",
+                "audio.takes.kind.diagnostic",
+                "audio.takes.kind.unknown",
+                "audio.takes.kind.damaged",
+                "audio.takes.phrase.off_air",
+                "audio.takes.phrase.radio_recording",
+                "audio.takes.phrase.looped_back",
+                "audio.takes.phrase.diagnostic",
+                "audio.takes.phrase.unknown",
+                "audio.takes.no_detune",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

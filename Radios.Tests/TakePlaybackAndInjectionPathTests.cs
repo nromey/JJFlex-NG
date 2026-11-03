@@ -107,7 +107,10 @@ namespace Radios.Tests
             // your microphone, Monitor, Loopback), asked of one rule.
             Assert.Contains("if (!AudioCheckMethods.MakesTake(method))", selection, StringComparison.Ordinal);
             Assert.Contains("NewestRadioTake()", selection, StringComparison.Ordinal);
-            Assert.Contains("ListenbackTakes.NewestDirectory()", selection, StringComparison.Ordinal);
+            // Unified takes part 1: the off-air method asks for Heard on the
+            // air takes BY KIND, so a newer playback take never becomes its
+            // "last take".
+            Assert.Contains("ListenbackTakes.NewestDirectory(ListenbackTakes.OffAirOnly)", selection, StringComparison.Ordinal);
             Assert.DoesNotContain("RecordingStore.Newest", selection, StringComparison.Ordinal);
             Assert.Contains("TakePlaybackSelector.Choose(method", selection, StringComparison.Ordinal);
             string label = MethodBody(ReadWorkshop("AudioCheck"), "private void SyncPlayTakeLabel()");

@@ -67,12 +67,67 @@ public sealed record TakeInspection(string State, string Reason,
     IReadOnlyList<KeyValuePair<string, string>> Fields)
 {
     public string Get(string key) => Fields.LastOrDefault(x => x.Key == key).Value;
+
+    /// <summary>
+    /// The IQ road's own answer, unchanged since before audio takes existed:
+    /// not corrupt, and its noise-like classifier passed. An audio take has no
+    /// classifier, so this is always false for one, which keeps every IQ-only
+    /// reader (the renderer, the analysis) off audio takes by construction.
+    /// Ask <see cref="CanPlay"/> when the kind does not matter.
+    /// </summary>
     public bool Playable => State != "corrupt" && Get("classifier") == "noise-like";
+
+    /// <summary>The header's format line.</summary>
+    public string Format => Get("format");
+    /// <summary>The kind, from <see cref="TakeKind.Of"/>.</summary>
+    public string Kind => TakeKind.Of(Fields);
+    /// <summary>An audio-format take: heard.wav is the capture and there is no IQ.</summary>
+    public bool IsAudio => Format == TakeKind.AudioFormat;
+    /// <summary>An IQ-format take, whose heard.wav is a render of rf.iq.</summary>
+    public bool HasIq => Format == TakeKind.IqFormat;
+
+    /// <summary>
+    /// For an audio take whose header was never closed: true when its WAV
+    /// cannot be read as it stands (a crash leaves the RIFF lengths
+    /// unwritten). Such a take is listed but cannot be played; it is never
+    /// patched in place.
+    /// </summary>
+    public bool AudioUnreadable { get; init; }
+
+    /// <summary>Whether the take can be played, whichever road it is on.</summary>
+    public bool CanPlay => IsAudio ? State != "corrupt" && !AudioUnreadable : Playable;
+
+    /// <summary>
+    /// Whether the take's numbers may be measured at all: a playable IQ take,
+    /// or a closed, readable audio take. Which measures survive is the
+    /// comparison's question, not this one.
+    /// </summary>
+    public bool CanMeasure => IsAudio ? CanPlay && Get("closed") != null : Playable;
 }
 
 public static class TakeReader
 {
+    /// <summary>
+    /// Inspect a take, dispatching FIRST on the header's format (design
+    /// section 1). An IQ take, and any header that is not the audio format,
+    /// takes <see cref="InspectIq"/>, the inspection that existed before audio
+    /// takes did, unchanged, including its salvage of an unclosed IQ capture.
+    /// </summary>
     public static TakeInspection Inspect(string directory)
+    {
+        IReadOnlyList<KeyValuePair<string, string>> fields;
+        try { fields = TakeHeader.Read(Path.Combine(directory, "take.txt")); }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is InvalidDataException)
+        { return InspectIq(directory); }
+        string format = fields.LastOrDefault(f => f.Key == "format").Value;
+        if (format == TakeKind.AudioFormat) return AudioTakeInspector.Inspect(directory, fields);
+        // An IQ header claiming an audio kind is not a take this build made.
+        if (format == TakeKind.IqFormat && TakeKind.Of(fields) == TakeKind.Damaged)
+            return new("corrupt", "kind", fields);
+        return InspectIq(directory);
+    }
+
+    private static TakeInspection InspectIq(string directory)
     {
         IReadOnlyList<KeyValuePair<string, string>> fields = Array.Empty<KeyValuePair<string, string>>();
         try

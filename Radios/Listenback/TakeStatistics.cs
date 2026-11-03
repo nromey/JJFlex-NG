@@ -14,6 +14,7 @@ public sealed record TakeStatistics(bool Available, string Reason = "", double L
     public static TakeStatistics Measure(string directory, bool reuseRender = false)
     {
         var take = TakeReader.Inspect(directory);
+        if (take.IsAudio) return new(false, "audio takes are not measured yet");
         if (!take.Playable) return new(false, "take is not playable");
         if (take.Get("mode") is not ("USB" or "LSB")) return new(false, "this mode has no speech render");
         // The Workshop has just rendered the current take for playback and

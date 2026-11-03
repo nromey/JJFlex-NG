@@ -35,24 +35,21 @@ internal static class ListenbackTakes
     /// <summary>Where takes live. Resolved from <see cref="RadioConfig.AppDataRoot"/>, so a test run's settings root holds its own.</summary>
     internal static string Root => Path.Combine(RadioConfig.AppDataRoot, "Recordings", "takes");
 
-    /// <summary>The newest playable take, or null.</summary>
-    internal static string? NewestDirectory()
-    {
-        string root = Root;
-        return !Directory.Exists(root) ? null : Directory.EnumerateDirectories(root)
-            .Where(d => File.Exists(Path.Combine(d, "heard.wav")))
-            .OrderByDescending(d => File.GetLastWriteTimeUtc(Path.Combine(d, "take.txt"))).FirstOrDefault();
-    }
+    /// <summary>Only Heard on the air takes: what Check your audio's off-air results and playback use.</summary>
+    internal static readonly string[] OffAirOnly = { TakeKind.OffAir };
+    /// <summary>Only diagnostic takes: what the Diagnostics page's bench tools use.</summary>
+    internal static readonly string[] DiagnosticOnly = { TakeKind.Diagnostic };
 
-    /// <summary>The newest playable take other than <paramref name="current"/>, or null.</summary>
-    internal static string? PreviousDirectory(string current)
-    {
-        string root = Root;
-        return !Directory.Exists(root) ? null : Directory.EnumerateDirectories(root)
-            .Where(d => d != current && File.Exists(Path.Combine(d, "heard.wav")) &&
-                File.Exists(Path.Combine(d, "take.txt")))
-            .OrderByDescending(d => File.GetLastWriteTimeUtc(Path.Combine(d, "take.txt"))).FirstOrDefault();
-    }
+    /// <summary>
+    /// The newest playable take of one of <paramref name="kinds"/>, or null.
+    /// The kind is required (Unified takes, design section 1): before audio
+    /// takes existed this took any folder with a heard.wav, and an audio take
+    /// would have become the off-air "last take" without anyone noticing.
+    /// </summary>
+    internal static string? NewestDirectory(string[] kinds) => TakeCatalog.Newest(Root, kinds);
+
+    /// <summary>The newest playable take of one of <paramref name="kinds"/> other than <paramref name="current"/>, or null.</summary>
+    internal static string? PreviousDirectory(string current, string[] kinds) => TakeCatalog.Newest(Root, kinds, current);
 
     /// <summary>When this run of the app began: the start of the session the
     /// automatic comparison is confined to (<see cref="TakeSession"/>).</summary>
@@ -83,10 +80,8 @@ internal static class ListenbackTakes
         rendered != null && rendered.PlaybackPath.Length > 0 && System.IO.File.Exists(rendered.PlaybackPath)
             ? rendered.PlaybackPath : System.IO.Path.Combine(directory, "heard.wav");
 
-    /// <summary>The take's length in seconds, as the status lines say it.</summary>
-    internal static string Seconds(TakeInspection take) =>
-        (double.Parse(take.Get("pairs-written") ?? "0", System.Globalization.CultureInfo.InvariantCulture) /
-         int.Parse(take.Get("rate-requested"), System.Globalization.CultureInfo.InvariantCulture)).ToString("F1");
+    /// <summary>The take's length in seconds, as the status lines say it, whichever road the take is on.</summary>
+    internal static string Seconds(TakeInspection take) => TakeFacts.Seconds(take).ToString("F1");
 
     /// <summary>The sentence for a take that failed, from the failure's reason key.</summary>
     internal static string FailureText(Exception ex)
@@ -154,14 +149,37 @@ internal static class ListenbackTakes
     internal static async Task<string?> RenderAndPlayAsync(string directory, int detune, FlexBase? rig,
         Func<FlexBase?, bool> stillWanted)
     {
-        var take = await Task.Run(() => TakeReader.Inspect(directory));
-        if (!take.Playable) return Lexicon.Get("audio.iq.corrupt", ("check", take.Reason));
-        var rendered = await Task.Run(() => SsbTakeRenderer.Render(directory, detune));
+        var prepared = await PreparePlaybackAsync(directory, detune);
+        if (prepared.Trouble != null) return prepared.Trouble;
         if (!stillWanted(rig)) return null;
-        string playbackKey = take.State == "incomplete" ? "audio.iq.playing_incomplete" : detune == 0 ? "audio.iq.playing" : "audio.iq.playing_detuned";
-        await PlayAfterClickAsync(PlaybackPath(directory, rendered), Lexicon.Get(playbackKey), rig, stillWanted,
-            offAirListeningGain: true);
+        // An off-air render is quiet and gets the listening gain it always
+        // had; an audio take is what the radio played and is played as it is.
+        await PlayAfterClickAsync(prepared.Path!, Lexicon.Get(prepared.AnnouncementKey), rig, stillWanted,
+            offAirListeningGain: !prepared.Take.IsAudio);
         return null;
+    }
+
+    /// <summary>
+    /// What playing a take means on its road (design section 1): an IQ take is
+    /// rendered, optionally detuned, and its trimmed playback chosen; an audio
+    /// take IS its heard.wav and is never rendered or detuned. Returns the file
+    /// to play and the playback announcement's key, or the status sentence for
+    /// a take that cannot be played.
+    /// </summary>
+    internal static async Task<(string? Path, string AnnouncementKey, string? Trouble, TakeInspection Take)>
+        PreparePlaybackAsync(string directory, int detune)
+    {
+        var take = await Task.Run(() => TakeReader.Inspect(directory));
+        if (!take.CanPlay) return (null, "", Lexicon.Get("audio.iq.corrupt", ("check", take.Reason)), take);
+        if (take.IsAudio)
+        {
+            if (detune != 0) return (null, "", Lexicon.Get("audio.takes.no_detune"), take);
+            return (Path.Combine(directory, AudioTakeFields.WavName),
+                take.State == "incomplete" ? "audio.iq.playing_incomplete" : "audio.iq.playing", null, take);
+        }
+        var rendered = await Task.Run(() => SsbTakeRenderer.Render(directory, detune));
+        string key = take.State == "incomplete" ? "audio.iq.playing_incomplete" : detune == 0 ? "audio.iq.playing" : "audio.iq.playing_detuned";
+        return (PlaybackPath(directory, rendered), key, null, take);
     }
 
     /// <summary>One take's measurements, one per line, each a sentence.</summary>

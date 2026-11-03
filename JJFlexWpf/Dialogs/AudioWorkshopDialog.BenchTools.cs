@@ -331,7 +331,7 @@ public partial class AudioWorkshopDialog
     {
         if (RecordingPlayer.IsPlaying) { RecordingPlayer.Stop(); return; }
         if (_benchBusy || _benchRun != null || CheckYourAudioDialog.AnAudioCheckIsActive || _rig?.Transmit == true) return;
-        string? directory = ListenbackTakes.NewestDirectory();
+        string? directory = ListenbackTakes.NewestDirectory(ListenbackTakes.DiagnosticOnly);
         if (directory == null) { BenchStatus(Lexicon.Get("audio.iq.no_take")); return; }
         _benchBusy = true;
         try

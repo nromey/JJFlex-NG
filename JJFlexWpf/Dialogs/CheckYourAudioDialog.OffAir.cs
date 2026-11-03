@@ -130,7 +130,7 @@ public partial class CheckYourAudioDialog
         if (_iqRate != null) _iqRate.Visibility = options;
         if (_iqHearSelfDuringTake != null) _iqHearSelfDuringTake.Visibility = options;
 
-        string? newest = offAir && local ? ListenbackTakes.NewestDirectory() : null;
+        string? newest = offAir && local ? ListenbackTakes.NewestDirectory(ListenbackTakes.OffAirOnly) : null;
         SetShown(_iqAutoCompare, newest != null);
         SetShown(_playSentButton, newest != null && File.Exists(Path.Combine(newest, "sent.wav")));
         // Something to restore is shown whatever the method, because it blocks
@@ -266,7 +266,7 @@ public partial class CheckYourAudioDialog
                 }
                 if (_iqClosing || _tearingDown) { AnnounceClosedRecovery(run.Restored); return; }
             }
-            string? previousDirectory = ListenbackTakes.PreviousDirectory(run.DirectoryPath);
+            string? previousDirectory = ListenbackTakes.PreviousDirectory(run.DirectoryPath, ListenbackTakes.OffAirOnly);
             _lastIqDirectory = run.DirectoryPath;
             _iqAnalysisDetails = "";
             _iqComparisonSentence = "";
@@ -436,7 +436,7 @@ public partial class CheckYourAudioDialog
         _iqBusy = true;
         try
         {
-            string? directory = ListenbackTakes.NewestDirectory();
+            string? directory = ListenbackTakes.NewestDirectory(ListenbackTakes.OffAirOnly);
             if (directory == null || !File.Exists(Path.Combine(directory, "sent.wav")))
             { IqStatus(Lexicon.Get("audio.iq.sent_unavailable")); return; }
             string path = Path.Combine(directory, "sent.wav");

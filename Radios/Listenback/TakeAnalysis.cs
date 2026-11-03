@@ -17,6 +17,7 @@ public static class TakeAnalysis
     public static TakeAnalysisResult Run(string directory)
     {
         var take = TakeReader.Inspect(directory);
+        if (take.IsAudio) throw new InvalidDataException("audio-take-has-no-iq");
         if (!take.Playable) throw new InvalidDataException(take.Reason);
         var (rate, heard) = TakeAudio.ReadMono(Path.Combine(directory, "heard.wav"));
         var keyedSpans = TakeTimeline.KeyedSpans(take, heard.Length);
@@ -166,6 +167,9 @@ public static class TakeAnalysis
         bool reuseRenders = false)
     {
         var a = TakeReader.Inspect(previousDirectory); var b = TakeReader.Inspect(currentDirectory);
+        // Until the audio road's comparison exists, a pair involving an audio
+        // take is refused by kind rather than sent down the IQ road.
+        if (a.IsAudio || b.IsAudio) return new(false, "unlike-takes:kind");
         if (!a.Playable || !b.Playable) return new(false, "corrupt-take");
         string mismatch = AudioDifferential.Compatibility(a, b);
         if (mismatch == "source")

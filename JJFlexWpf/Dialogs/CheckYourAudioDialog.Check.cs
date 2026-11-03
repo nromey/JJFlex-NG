@@ -991,7 +991,7 @@ public partial class CheckYourAudioDialog
             return (method, TakePlaybackChoice.None, null, null, null);
         var (radioTarget, radioTime) = method == AudioCheckListenMethods.RecordPlayback
             ? NewestRadioTake() : (null, null);
-        string? iqDirectory = method == AudioCheckListenMethods.OffAir ? ListenbackTakes.NewestDirectory() : null;
+        string? iqDirectory = method == AudioCheckListenMethods.OffAir ? ListenbackTakes.NewestDirectory(ListenbackTakes.OffAirOnly) : null;
         DateTime? iqAt = iqDirectory != null && File.Exists(Path.Combine(iqDirectory, "take.txt"))
             ? File.GetLastWriteTimeUtc(Path.Combine(iqDirectory, "take.txt")) : null;
         var choice = TakePlaybackSelector.Choose(method, radioTarget != null, iqDirectory != null);
