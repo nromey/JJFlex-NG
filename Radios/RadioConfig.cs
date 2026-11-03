@@ -89,8 +89,8 @@ namespace Radios
         /// keyed window, play nothing back (ruled 2026-10-27 14:57).</summary>
         MicTest = 3,
 
-        /// <summary>"Hear your real signal, looped back through the transverter
-        /// port": the Loopback Check, as a method that records its listening
+        /// <summary>"Looped back" (until Unified takes, "Hear your real signal, looped back through the transverter
+        /// port"): the Loopback Check, as a method that records its listening
         /// slice and plays it back after you stop. Local only (15:32).</summary>
         Loopback = 4,
 

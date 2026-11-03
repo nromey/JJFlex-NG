@@ -13,8 +13,9 @@ using Radios.Listenback;
 namespace JJFlexWpf.Dialogs;
 
 /// <summary>
-/// Check your audio, the "Hear what you transmitted, received off the air"
-/// method: an IQ take of what actually went out, demodulated and played back
+/// Check your audio, the "Heard on the air" method (its label until Unified
+/// takes was "Hear what you transmitted, received off the air"): an IQ take
+/// of what actually went out, demodulated and played back
 /// after you stop, with its measurements in the reading box.
 /// </summary>
 /// <remarks>
