@@ -819,6 +819,9 @@ public partial class CheckYourAudioDialog
         // the off-air one with "another IQ take is running", but an ordinary
         // check would key straight into it.
         if (AudioWorkshopDialog.ABenchTakeIsRunning) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
+        // Unified takes: "start a new test or add to this one", before the
+        // countdown and never while keyed (CheckYourAudioDialog.SaveTakes.cs).
+        if (!AdmitTakeBeforeCountdown(SelectedMethod, ptt)) return;
         _lastAudioCheckSource = null;
         var method = SelectedMethod;
         if (method == AudioCheckListenMethods.OffAir) { _ = StartOffAirAsync(ptt); return; }

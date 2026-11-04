@@ -591,6 +591,14 @@ namespace Radios.Speech
         /// refused. One subject, because each answer replaces the last.
         /// </summary>
         public const string PlayTakes = "play-takes";
+        /// <summary>
+        /// Check your audio's notices about saving a playback as a take (Unified
+        /// takes, round two): the new-test question backed out, a take that could
+        /// not be saved or could not keep your other slices out. One subject,
+        /// because each notice is about the take now being made and replaces the
+        /// last. The slice mutes a saved playback makes and puts back say nothing.
+        /// </summary>
+        public const string PlaybackTake = "playback-take";
         /// A global-profile write refused because the radio is not declared
         /// the operator's, or its ownership is not yet answered (junkbox
         /// #777). Spoken from the funnel every global save passes through,

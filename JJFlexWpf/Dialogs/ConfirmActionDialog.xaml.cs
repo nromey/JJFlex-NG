@@ -37,6 +37,9 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         public bool StopAskingChosen => _offersStopAsking && _answered && DontShowAgainCheck.IsChecked == true;
 
+        /// <summary>True when Yes or No was pressed; false when Escape backed out of the whole question.</summary>
+        public bool Answered => _answered;
+
         /// <param name="radioModel">
         /// The connected radio's model, for actions that ask the user to go and touch
         /// the radio. When a verified panel reference exists for it, the dialog grows

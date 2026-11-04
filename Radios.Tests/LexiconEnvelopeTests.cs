@@ -2265,6 +2265,17 @@ namespace Radios.Tests
                 "audio.takes.help.close",
                 "audio.takes.open_button",
                 "audio.takes.help.open_button",
+                "audio.takes.admission_title",
+                "audio.takes.admission_message_one",
+                "audio.takes.admission_message_many",
+                "audio.takes.admission_what.mic_input",
+                "audio.takes.admission_what.pc_microphone",
+                "audio.takes.admission_what.mic_profile",
+                "audio.takes.admission_what.radio",
+                "audio.takes.admission_question",
+                "audio.takes.admission_new",
+                "audio.takes.admission_add",
+                "audio.takes.admission_backed_out",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

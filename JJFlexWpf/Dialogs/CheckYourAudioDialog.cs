@@ -213,8 +213,13 @@ public partial class CheckYourAudioDialog : JJFlexDialog
         _instance?.ToggleAudioCheck();
     }
 
-    public static void NotifyRigReady(FlexBase rig) =>
+    public static void NotifyRigReady(FlexBase rig)
+    {
+        // Whether or not this window is open: a test carries on only on the
+        // same radio (Unified takes, D3), so every connection is counted.
+        NoteTakeSeriesConnection(rig);
         DialogSections.PostRigChange(_instance, w => w.SetRig(rig), onlyIfLoaded: true);
+    }
 
     /// <summary>
     /// Radio teardown. The window outlives the radio, so the poll must stop
