@@ -6703,6 +6703,8 @@ namespace Radios
         /// </remarks>
         internal SliceRoles ReadSliceRoles()
         {
+            SliceRoles roles;
+            Slice selectedSlice;
             lock (mySlices)
             {
                 int rx = _RXVFO;
@@ -6727,11 +6729,20 @@ namespace Radios
                 }
 
                 bool hasTransmit = transmit != null && transmitLetter.Length > 0;
-                return new SliceRoles(
+                roles = new SliceRoles(
                     selected != null ? selectedLetter : "", selectedHz,
                     hasTransmit, hasTransmit ? transmitLetter : "", hasTransmit ? transmitHz : 0UL,
                     hasTransmit && selected != null && ReferenceEquals(selected, transmit));
+                selectedSlice = selected;
             }
+            // A listening slice a check made for itself (outside the roster's
+            // lock: the diagnostic set has its own).
+            bool diagnostic = false;
+            if (selectedSlice != null)
+                lock (_sliceSettleLock) diagnostic = _diagnosticSlices.ContainsKey(selectedSlice);
+            if (!diagnostic) return roles;
+            return new SliceRoles(roles.SelectedLetter, roles.SelectedHz, roles.HasTransmit, roles.TransmitLetter,
+                roles.TransmitHz, roles.Same, selectedIsDiagnostic: true);
         }
 
         /// <summary>The same for the active slice: the frequency and mode the
@@ -7562,6 +7573,22 @@ namespace Radios
             if (ownStartMs == 0) return true;
             long since = nowMs - ownStartMs;
             return since < 0 || since > OwnAudioSampleEchoWindowMs;
+        }
+
+        /// <summary>
+        /// Our own transmission has ended (the push-to-talk controller's
+        /// unkey): an own restart that no rising edge has claimed belongs to no
+        /// transmission any more, so it is retired here and cannot be claimed
+        /// by the next key-down, a foot switch, say, inside the echo window
+        /// (#651, Codex's follow-ups: a claim that outlived an unkey whose
+        /// rising edge never came, or came before the restart itself).
+        /// </summary>
+        public void RetireOwnAudioSampleClaim()
+        {
+            long was = Interlocked.Exchange(ref _ownAudioSampleStartMs, 0);
+            if (was != 0)
+                Tracing.TraceLine("Mox: our key ended with its audio-sample restart unclaimed; retired, so the next"
+                    + " key-down starts a fresh sample", TraceLevel.Info);
         }
 
         /// <summary>The radio reported a key-down: restart the spoken

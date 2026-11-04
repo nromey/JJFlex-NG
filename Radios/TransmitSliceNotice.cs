@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Diagnostics;
 using JJTrace;
@@ -24,10 +25,10 @@ namespace Radios
     }
 
     /// <summary>
-    /// Before a door keys the transmit slice while the operator is on another,
-    /// one sentence naming the slice and frequency it will transmit on, then
-    /// the transmission (#863). Built once, used by every door that keys from a
-    /// dialog.
+    /// Where a door is about to transmit, when that is not the selected slice
+    /// (#863). Built once, used by every door that keys: Check your audio
+    /// (Start and Ctrl+Enter, every method that keys), the box sends, voice
+    /// message sends with the box off, and push to talk inside a dialog.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -37,19 +38,33 @@ namespace Radios
     /// nothing said where. And for the other doors, <i>"Yes, all of them"</i>.
     /// </para>
     /// <para>
-    /// <b>The words are #642's</b>, "Frequency 14.100, slice A, transmit": the
-    /// same sentence F says for the transmit slice, so the operator meets one
-    /// phrasing for this fact wherever it is said. Silent when the transmit
-    /// slice IS the selected one, which is the common case and the safe one.
+    /// <b>Ruled 2026-11-03.</b> Push to talk inside a dialog keeps "go, then
+    /// say" (17:55: a held key under JAWS arrives as pairs and would never key
+    /// if it waited). Voice message sends with the box off say it too (18:03).
+    /// And (18:04) <b>once per split, not per key</b>: the sentence is said the
+    /// first time a door keys after the transmit slice stops being the
+    /// selected slice, and again only when the split changes (a different
+    /// transmit slice, a different selected slice, or the transmit slice's
+    /// frequency moved since it was last said); every other key while that
+    /// split stands gets the tri-tones only (<see cref="PlaysTones"/>). The
+    /// wording follows verbosity (<see cref="Wording"/>), and a setting has
+    /// three choices (<see cref="TransmitElsewhereNotice"/>). Check your audio
+    /// says it whatever the setting and every time, because it keys the radio
+    /// itself, after a countdown, from a window that does not show the slice
+    /// (the <c>mandatory</c> door). Not built, on purpose: any announcement
+    /// when the operator merely changes slices.
     /// </para>
     /// <para>
-    /// <b>Then go means after it has been heard.</b> The sentence goes out on
-    /// the countdown's own speech channel (<see cref="ScreenReaderOutput.CountdownSpeech"/>),
-    /// queued and followed, so a door can wait for the reader to finish it
-    /// before it keys; a check's countdown, when it is on, is queued behind it
-    /// and so comes after it. A sentence the reader never got, or that does
-    /// not finish within <see cref="CeilingMs"/>, is not heard, and the door
-    /// keys nothing.
+    /// <b>What was announced is what keys</b> (Codex's check, B2). A
+    /// <see cref="Notice"/> carries the place it decided about; at the moment
+    /// of keying the door asks <see cref="StillTheAnnouncedPlace"/>, which
+    /// reads the slices again. A place that changed and now owes a sentence is
+    /// refused, never keyed unannounced.
+    /// </para>
+    /// <para>
+    /// <b>Heard means heard whole</b> (B3): the sentence goes out on its own
+    /// subject through <see cref="Speech.CountdownSpeech.SayWhole"/>, where a
+    /// cut part-way is a failure, not a hearing.
     /// </para>
     /// </remarks>
     public static class TransmitSliceNotice
@@ -63,50 +78,164 @@ namespace Radios
         /// <summary>How often a door asks again when the reader gives no news.</summary>
         public const int PollMs = CountdownRun.SpeechPollMs;
 
+        // ── The words ──────────────────────────────────────────────────────
+
         /// <summary>
-        /// The sentence, or null when there is nothing to say: the transmit
-        /// slice is the selected one, or there is no transmit slice. Pure.
-        /// DRAFT PROSE (#642, #863), awaiting Noel.
+        /// The sentence for a split, or null when the transmit slice is the
+        /// selected one or there is none. Pure. By verbosity (Noel, 2026-11-03):
+        /// Terse and Off "B 14.100"; Chatty, the first time in a session, a
+        /// longer sentence that says what is happening; afterwards, and at
+        /// Diagnostic after the first, "Transmit slice B, 14.100". DRAFT PROSE.
         /// </summary>
-        public static string Sentence(SliceRoles roles, Func<ulong, string> format)
+        public static string Wording(SliceRoles roles, VerbosityLevel level, bool chattyFirst, Func<ulong, string> format)
         {
             if (!roles.TransmitsElsewhere) return null;
             if (format == null) throw new ArgumentNullException(nameof(format));
-            return Lexicon.Get("connect.home.frequency_transmit",
-                ("freqText", format(roles.TransmitHz)), ("slice", roles.TransmitLetter));
+            var slice = ("slice", (object)roles.TransmitLetter);
+            var freq = ("freq", (object)format(roles.TransmitHz));
+            if (level <= VerbosityLevel.Terse) return Lexicon.Get("audio.ptt.transmit_elsewhere_terse", slice, freq);
+            if (chattyFirst) return Lexicon.Get("audio.ptt.transmit_elsewhere_first", slice, freq);
+            return Lexicon.Get("audio.ptt.transmit_elsewhere", slice, freq);
         }
 
-        /// <summary>The sentence for this rig now, or null.</summary>
-        public static string For(FlexBase rig)
+        // ── The rules ──────────────────────────────────────────────────────
+
+        /// <summary>
+        /// True when <paramref name="now"/> is a split nobody has been told
+        /// about: elsewhere, and not the place last spoken. Pure.
+        /// </summary>
+        public static bool SplitIsNew(SliceRoles now, SliceRoles? lastSpoken) =>
+            now.TransmitsElsewhere && (lastSpoken == null || !now.SamePlaceAs(lastSpoken.Value));
+
+        /// <summary>
+        /// Whether a door speaks the sentence. A mandatory door (Check your
+        /// audio) speaks whenever it keys elsewhere, whatever the setting; any
+        /// other door only under speak-and-tone, and only for a new split. Pure.
+        /// </summary>
+        public static bool Speaks(TransmitElsewhereNotice setting, bool mandatory, SliceRoles now, SliceRoles? lastSpoken)
         {
-            if (rig == null) return null;
-            try { return Sentence(SliceRoles.Of(rig), FormatterFor(rig)); }
+            if (!now.TransmitsElsewhere) return false;
+            if (mandatory) return true;
+            return setting == TransmitElsewhereNotice.SpeakAndTone && SplitIsNew(now, lastSpoken);
+        }
+
+        /// <summary>Whether a key here gets the tri-tones: elsewhere, and the setting not off. Pure.</summary>
+        public static bool PlaysTones(TransmitElsewhereNotice setting, SliceRoles roles) =>
+            roles.TransmitsElsewhere && setting != TransmitElsewhereNotice.Off;
+
+        /// <summary>The tri-tones for this rig now, under the operator's setting.</summary>
+        public static bool PlaysTones(FlexBase rig)
+        {
+            if (rig == null) return false;
+            try { return PlaysTones(Setting, SliceRoles.Of(rig)); }
             catch (Exception ex)
             {
-                Tracing.TraceLine("TransmitSliceNotice: could not read the slices: " + ex.Message, TraceLevel.Warning);
-                return null;
+                Tracing.TraceLine("TransmitSliceNotice: could not read the slices for the tones: " + ex.Message, TraceLevel.Warning);
+                return false;
             }
+        }
+
+        // ── The memory, per connection ─────────────────────────────────────
+
+        private sealed class Memory
+        {
+            public SliceRoles? Spoken;
+            public bool ChattyFirstSaid;
+        }
+
+        /// <summary>One per rig, which is one per connection: a new connection starts with nothing said.</summary>
+        private static readonly ConditionalWeakTable<FlexBase, Memory> Memories = new();
+        private static readonly object MemoryLock = new();
+
+        private static Memory MemoryOf(FlexBase rig) => Memories.GetValue(rig, _ => new Memory());
+
+        // ── A door's notice ────────────────────────────────────────────────
+
+        /// <summary>
+        /// What one door decided before it keys: the place it read, whether it
+        /// spoke, and the words to wait on.
+        /// </summary>
+        public sealed class Notice
+        {
+            internal Notice(FlexBase rig, string door, SliceRoles announced, bool mandatory, bool spoke,
+                bool chattyFirst, ICountdownWords words)
+            {
+                Rig = rig;
+                Door = door ?? "";
+                Announced = announced;
+                Mandatory = mandatory;
+                Spoke = spoke;
+                ChattyFirst = chattyFirst;
+                Words = words;
+            }
+
+            public FlexBase Rig { get; }
+            public string Door { get; }
+            /// <summary>The place this notice read, spoken or not.</summary>
+            public SliceRoles Announced { get; }
+            /// <summary>Check your audio: speaks whatever the setting.</summary>
+            public bool Mandatory { get; }
+            /// <summary>True when the sentence was said and must be heard before the key.</summary>
+            public bool Spoke { get; }
+            internal bool ChattyFirst { get; }
+            /// <summary>The words to wait on, or null when nothing was said.</summary>
+            public ICountdownWords Words { get; }
         }
 
         /// <summary>
-        /// Say the sentence for this rig, if there is one, and return its
-        /// handle to wait on; null when there is nothing to say.
+        /// Read the slices for a door about to key, decide, and say the
+        /// sentence when it is owed. Null only with no rig. Never throws.
         /// </summary>
         /// <param name="rig">The radio about to be keyed.</param>
         /// <param name="door">Which door, for the trace.</param>
-        public static ICountdownWords Say(FlexBase rig, string door)
+        /// <param name="mandatory">Check your audio: speaks whatever the setting, every time.</param>
+        public static Notice Prepare(FlexBase rig, string door, bool mandatory)
         {
-            string sentence = For(rig);
-            if (sentence == null) return null;
+            if (rig == null) return null;
+            SliceRoles roles;
+            try { roles = SliceRoles.Of(rig); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TransmitSliceNotice (" + door + "): could not read the slices: " + ex.Message, TraceLevel.Warning);
+                return new Notice(rig, door, default, mandatory, false, false, null);
+            }
+            Memory memory = MemoryOf(rig);
+            SliceRoles? last;
+            bool chattyFirstSaid;
+            lock (MemoryLock) { last = memory.Spoken; chattyFirstSaid = memory.ChattyFirstSaid; }
+            if (!Speaks(Setting, mandatory, roles, last))
+                return new Notice(rig, door, roles, mandatory, false, false, null);
+
+            VerbosityLevel level = ScreenReaderOutput.CurrentVerbosity;
+            bool chattyFirst = level >= VerbosityLevel.Chatty && !chattyFirstSaid;
+            string sentence;
+            try { sentence = Wording(roles, level, chattyFirst, FormatterFor(rig)); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TransmitSliceNotice (" + door + "): could not word the sentence: " + ex.Message, TraceLevel.Warning);
+                return new Notice(rig, door, roles, mandatory, true, false, CountdownWords.Undelivered);
+            }
             Tracing.TraceLine("TransmitSliceNotice (" + door + "): the transmit slice is not the selected one; saying \""
                 + sentence + "\" before keying", TraceLevel.Info);
-            try { return ScreenReaderOutput.CountdownSpeech.Say(sentence, onlyWarning: true); }
+            ICountdownWords words;
+            try { words = ScreenReaderOutput.CountdownSpeech.SayWhole(sentence, Speech.SpeechSubject.TransmitSliceNotice); }
             catch (Exception ex)
             {
                 Tracing.TraceLine("TransmitSliceNotice (" + door + "): could not be said: " + ex.Message, TraceLevel.Warning);
-                return CountdownWords.Undelivered;
+                words = CountdownWords.Undelivered;
             }
+            return new Notice(rig, door, roles, mandatory, true, chattyFirst, words);
         }
+
+        /// <summary>
+        /// Wait until the reader has finished the notice's sentence, whole.
+        /// True: heard (or nothing was said), go. False: never delivered, cut
+        /// part-way, past the ceiling, or <paramref name="stillWanted"/> went
+        /// false; do not key.
+        /// </summary>
+        public static Task<bool> HeardAsync(Notice notice, Func<bool> stillWanted,
+            Func<int, Task> delay = null, int ceilingMs = CeilingMs) =>
+            HeardAsync(notice?.Words, stillWanted, delay, ceilingMs);
 
         /// <summary>
         /// Wait until the reader has finished <paramref name="words"/>. True:
@@ -114,10 +243,6 @@ namespace Radios
         /// or <paramref name="stillWanted"/> went false; do not key. Null words
         /// (nothing to say) are true at once.
         /// </summary>
-        /// <param name="words">The handle <see cref="Say"/> returned, or null.</param>
-        /// <param name="stillWanted">Asked on every poll: false once the door has been cancelled.</param>
-        /// <param name="delay">The wait between polls; a test passes its own.</param>
-        /// <param name="ceilingMs">The longest to wait.</param>
         public static async Task<bool> HeardAsync(ICountdownWords words, Func<bool> stillWanted,
             Func<int, Task> delay = null, int ceilingMs = CeilingMs)
         {
@@ -134,6 +259,97 @@ namespace Radios
                 await Task.WhenAny(news, delay(PollMs)).ConfigureAwait(true);
                 waited += PollMs;
             }
+        }
+
+        /// <summary>
+        /// At the moment of keying: true when the door may key, false when it
+        /// must refuse (Codex's check, B2). Reads the slices again. The same
+        /// place keys; a place where the transmit slice is now the selected one
+        /// keys (nothing is owed); a changed place that would need a sentence
+        /// is refused, because it was never announced. A selected slice that a
+        /// check made for itself (Loopback's and the off-air take's listening
+        /// slice) is not the operator's move and does not count as a change.
+        /// </summary>
+        public static bool StillTheAnnouncedPlace(Notice notice) => StillTheAnnouncedPlace(notice, out _);
+
+        public static bool StillTheAnnouncedPlace(Notice notice, out SliceRoles now)
+        {
+            now = default;
+            if (notice?.Rig == null) return true;
+            try { now = SliceRoles.Of(notice.Rig); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TransmitSliceNotice (" + notice.Door + "): could not read the slices at the key: " + ex.Message,
+                    TraceLevel.Warning);
+                return false;
+            }
+            bool ok = StillTheAnnouncedPlace(notice.Announced, now, notice.Mandatory, Setting, LastSpoken(notice.Rig));
+            if (!ok)
+                Tracing.TraceLine("TransmitSliceNotice (" + notice.Door + "): the place changed while it waited (transmit "
+                    + notice.Announced.TransmitLetter + " to " + now.TransmitLetter + ", selected " + notice.Announced.SelectedLetter
+                    + " to " + now.SelectedLetter + "); refusing rather than keying a place nobody was told about",
+                    TraceLevel.Warning);
+            return ok;
+        }
+
+        /// <summary>The rule above, pure.</summary>
+        public static bool StillTheAnnouncedPlace(SliceRoles announced, SliceRoles now, bool mandatory,
+            TransmitElsewhereNotice setting, SliceRoles? lastSpoken)
+        {
+            if (now.SamePlaceAs(announced)) return true;
+            if (!now.TransmitsElsewhere) return true;
+            if (now.SelectedIsDiagnostic && SameTransmit(now, announced)) return true;
+            // A changed place a door would have said nothing about (tone only,
+            // off, or a split already spoken) keys as it would have.
+            return !Speaks(setting, mandatory, now, lastSpoken);
+        }
+
+        private static bool SameTransmit(SliceRoles a, SliceRoles b) =>
+            a.HasTransmit == b.HasTransmit
+            && string.Equals(a.TransmitLetter, b.TransmitLetter, StringComparison.Ordinal)
+            && a.TransmitHz == b.TransmitHz;
+
+        private static SliceRoles? LastSpoken(FlexBase rig)
+        {
+            Memory memory = MemoryOf(rig);
+            lock (MemoryLock) return memory.Spoken;
+        }
+
+        /// <summary>
+        /// The door keyed. Remember what it told the operator: a split that
+        /// was spoken is the split now known, and a key on the selected slice
+        /// ends any split, so the next one is new. Only a door that keyed
+        /// remembers, so a cancelled attempt cannot silence the next one.
+        /// </summary>
+        public static void Keyed(Notice notice)
+        {
+            if (notice?.Rig == null) return;
+            Memory memory = MemoryOf(notice.Rig);
+            lock (MemoryLock)
+            {
+                if (notice.Spoke) memory.Spoken = notice.Announced;
+                else if (!notice.Announced.TransmitsElsewhere) memory.Spoken = null;
+                if (notice.ChattyFirst) memory.ChattyFirstSaid = true;
+            }
+        }
+
+        /// <summary>
+        /// Push to talk inside a dialog: "go, then say" (ruled 2026-11-03
+        /// 17:55). After the key, the sentence when it is owed, queued behind
+        /// the key-down line, and remembered at once, since the key is down.
+        /// </summary>
+        public static void SayAfterKey(FlexBase rig, string door)
+        {
+            Notice notice = Prepare(rig, door, mandatory: false);
+            if (notice == null) return;
+            Keyed(notice);
+        }
+
+        /// <summary>Forget what a rig has been told: for tests, and nothing else.</summary>
+        internal static void ForgetFor(FlexBase rig)
+        {
+            if (rig == null) return;
+            lock (MemoryLock) Memories.Remove(rig);
         }
 
         private static Func<ulong, string> FormatterFor(FlexBase rig)

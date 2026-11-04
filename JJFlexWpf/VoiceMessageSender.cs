@@ -105,6 +105,9 @@ internal static class VoiceMessageSender
         public PieceHolds? Holds;
         /// <summary>Push to talk's first sentence already said this send stopped, so Settle says nothing.</summary>
         public bool TakeoverSpoken;
+        /// <summary>This piece keyed on a slice other than the selected one and played the
+        /// three-note tone, so its unkey plays the falling one (#863).</summary>
+        public bool KeyedElsewhere;
     }
 
     /// <summary>
@@ -413,7 +416,78 @@ internal static class VoiceMessageSender
             return;
         }
 
+        // With the box off and VOX off, the send keys the radio itself, so it
+        // says where first (#863, ruled by Noel 2026-11-03 18:03: "yes, they
+        // say it too"), through the same notice, and waits for it, whole.
+        if (KeysItselfWithTheBoxOff(rig))
+        {
+            var notice = TransmitSliceNotice.Prepare(rig, "the send of " + Name(info), mandatory: false);
+            if (notice != null && notice.Spoke)
+            {
+                _ = BeginAfterNoticeAsync(rig, info, loaded, notice);
+                return;
+            }
+            BeginAndLaunch(rig, info, info.Label, loaded);
+            if (_send != null && _send.WeKeyed) KeyedWithNotice(info, notice);
+            return;
+        }
+
         BeginAndLaunch(rig, info, info.Label, loaded);
+    }
+
+    /// <summary>
+    /// What <see cref="VoiceMessageSend.Begin"/> will do with the box off: key
+    /// the radio itself when it is not transmitting and VOX is off. With VOX on
+    /// the radio keys itself, and a transmission already up is joined.
+    /// </summary>
+    private static bool KeysItselfWithTheBoxOff(FlexBase rig)
+    {
+        try { return !rig.Transmit && rig.Vox != FlexBase.OffOnValues.on; }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// The box-off send, after its notice: waits for the sentence whole, reads
+    /// the slices again at the key, and keys only the place it announced (#863).
+    /// Stop while it waits ends it as a box start's Stop does; a kill keys
+    /// nothing.
+    /// </summary>
+    private static async Task BeginAfterNoticeAsync(FlexBase rig, SendInfo info, TxAudioFile.Loaded loaded,
+        TransmitSliceNotice.Notice notice)
+    {
+        _starting = info;
+        long disarmsAtPress = TransmitKillSwitch.DisarmGeneration;
+        bool heard = await TransmitSliceNotice.HeardAsync(notice, () => ReferenceEquals(_starting, info));
+        if (!ReferenceEquals(_starting, info)) return;   // stopped, or replaced by another press
+        _starting = null;
+        if (TransmitKillSwitch.DisarmGeneration != disarmsAtPress)
+        {
+            Tracing.TraceLine("VoiceMessageSender: the send of " + Name(info) + " cancelled by a kill before it keyed",
+                TraceLevel.Warning);
+            return;
+        }
+        if (!heard || !TransmitSliceNotice.StillTheAnnouncedPlace(notice))
+        {
+            Dialogs.CheckYourAudioDialog.TransmitSliceNotHeard();
+            return;
+        }
+        BeginAndLaunch(rig, info, info.Label, loaded);
+        if (_send != null && _send.WeKeyed) KeyedWithNotice(info, notice);
+    }
+
+    /// <summary>
+    /// A send keyed the radio itself: what its notice said is now known, and
+    /// the three-note tone marks a key on a slice other than the selected one
+    /// (#863). Its unkey plays the falling one in <see cref="Settle"/>.
+    /// </summary>
+    private static void KeyedWithNotice(SendInfo info, TransmitSliceNotice.Notice? notice)
+    {
+        TransmitSliceNotice.Keyed(notice);
+        if (notice != null && TransmitSliceNotice.PlaysTones(TransmitSliceNotice.Setting, notice.Announced))
+        {
+            info.KeyedElsewhere = true;
+            EarconPlayer.TxElsewhereStartTone();
+        }
     }
 
     /// <summary>
@@ -789,9 +863,10 @@ internal static class VoiceMessageSender
     {
         _starting = info;
         // Say it, then go (#863; Noel, 2026-11-02, "Yes, all of them"): where
-        // this send will transmit, when that is not the selected slice. Said
-        // now, so it plays while VOX is paused; the key waits for it below.
-        ICountdownWords? sliceNotice = TransmitSliceNotice.Say(rig, "the box send of " + Name(info));
+        // this send will transmit, when that is not the selected slice and the
+        // split is new (once per split, ruled 2026-11-03). Said now, so it
+        // plays while VOX is paused; the key waits for it, whole, below.
+        TransmitSliceNotice.Notice? sliceNotice = TransmitSliceNotice.Prepare(rig, "the box send of " + Name(info), mandatory: false);
         // A kill from here on cancels this send's key, whatever route it takes
         // (fix round 1, Codex's follow-up 4). Escape invalidates _starting;
         // a kill moves this generation, and BoxSendOwnedRig.Own refuses.
@@ -884,6 +959,15 @@ internal static class VoiceMessageSender
             return false;
         }
 
+        // The place it announced, read again at the key (#863, Codex's check,
+        // B2): a slice or frequency changed while it waited is refused.
+        if (!TransmitSliceNotice.StillTheAnnouncedPlace(sliceNotice))
+        {
+            pause.Dispose();
+            Dialogs.CheckYourAudioDialog.TransmitSliceNotHeard();
+            return false;
+        }
+
         info.VoxPause = pause;
         var options = new KeyedSendOptions
         {
@@ -912,6 +996,7 @@ internal static class VoiceMessageSender
         }
         HandOffNow(info);
         var send = VoiceMessageSend.BeginKeyed(info.Owned, Name(info), Environment.TickCount64, options);
+        KeyedWithNotice(info, sliceNotice);
         Launch(rig, info, send, info.Path ?? "", "box", holds);
         return true;
     }
@@ -1323,6 +1408,12 @@ internal static class VoiceMessageSender
         SendInfo? info = _current;
         _send = null;
         _current = null;
+        if (info != null && info.KeyedElsewhere)
+        {
+            // The key-up of a piece that keyed on another slice (#863).
+            info.KeyedElsewhere = false;
+            EarconPlayer.TxElsewhereStopTone();
+        }
 
         if (_watchedBy != null)
         {

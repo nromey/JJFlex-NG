@@ -102,6 +102,54 @@ public sealed class AudioSampleKeyDownTests : IDisposable
             "an own reset already claimed by an earlier key-down kept this transmission's peak from restarting");
     }
 
+    [Fact]
+    public void An_own_key_the_radio_never_echoed_leaves_nothing_for_the_next_key_down()
+    {
+        // Codex's follow-up: our key restarted the sample, no rising edge came
+        // (or it came first), and our controller unkeyed. A foot switch inside
+        // the echo window must still start a fresh peak.
+        using var f = new RigOnVendorRadio("audio-sample-retired");
+        object copy = new object();
+
+        f.Rig.ResetScMicMax();
+        MicSample(f.Rig, copy, -3f);
+        f.Rig.RetireOwnAudioSampleClaim();   // our unkey
+
+        Mox(f.Rig, true);                     // a foot switch, well inside 3000 ms
+        Assert.False(f.Rig.ScMicReportedSinceReset,
+            "an own restart left unclaimed by our ended key kept the foot switch's transmission from starting fresh");
+    }
+
+    [Fact]
+    public void A_key_down_from_outside_restarts_ALC_and_the_integrated_loudness_too()
+    {
+        // Codex's follow-up: the added tests read SC_MIC only, so removing the
+        // ALC or the loudness reset left them green. Positive controls first.
+        using var f = new RigOnVendorRadio("audio-sample-alc-lufs");
+        object copy = new object();
+        var alc = (TransmitMeterElection)AlcElection.GetValue(f.Rig)!;
+        alc.Register(copy, "ALC test copy", 0);
+        alc.Report(copy, 0.5f, Environment.TickCount);
+        Assert.True(alc.ElectedReportedSinceReset, "positive control: the ALC sample reached its election");
+
+        var lufs = (JJPortaudio.LufsMeter)LufsField.GetValue(f.Rig)!;
+        var tone = new float[48_000 * 2];
+        for (int i = 0; i < tone.Length; i++) tone[i] = 0.3f * (float)Math.Sin(2 * Math.PI * 1000 * i / 48_000.0);
+        lufs.Process(tone, tone.Length, 48_000);
+        Assert.True(f.Rig.TxLufsIntegrated > JJPortaudio.LufsMeter.Floor, "positive control: the tone reached the loudness meter");
+
+        Mox(f.Rig, false);
+        Mox(f.Rig, true);   // from outside
+
+        Assert.False(alc.ElectedReportedSinceReset, "the radio's key-down left an earlier transmission's ALC standing");
+        Assert.Equal(JJPortaudio.LufsMeter.Floor, f.Rig.TxLufsIntegrated);
+    }
+
+    private static readonly FieldInfo AlcElection =
+        typeof(FlexBase).GetField("_swAlcElection", BindingFlags.NonPublic | BindingFlags.Instance)!;
+    private static readonly FieldInfo LufsField =
+        typeof(FlexBase).GetField("txLufsMeter", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
     [Theory]
     [InlineData(0L, 10_000L, true)]            // nothing of ours pending: a key-down from outside
     [InlineData(9_700L, 10_000L, false)]       // our key 300 ms ago: its echo

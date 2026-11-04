@@ -239,6 +239,17 @@ namespace JJFlexWpf.Dialogs
                 Lexicon.Get("settings.ptt.announce_slice_label"));
             JJFlexHelp.SetText(PttAnnounceSliceCheckbox, Lexicon.Get("settings.ptt.announce_slice_help"));
 
+            // What a door does when it keys a slice other than the active one
+            // (#863, ruled 2026-11-03), beside the switch above. DRAFT PROSE.
+            TransmitElsewhereLabel.Text = Lexicon.Get("settings.ptt.transmit_elsewhere_label") + ":";
+            System.Windows.Automation.AutomationProperties.SetName(TransmitElsewhereCombo,
+                Lexicon.Get("settings.ptt.transmit_elsewhere_label"));
+            JJFlexHelp.SetText(TransmitElsewhereCombo, Lexicon.Get("settings.ptt.transmit_elsewhere_help"));
+            TransmitElsewhereCombo.Items.Clear();
+            TransmitElsewhereCombo.Items.Add(Lexicon.Get("settings.ptt.transmit_elsewhere_speak_and_tone")); // 0
+            TransmitElsewhereCombo.Items.Add(Lexicon.Get("settings.ptt.transmit_elsewhere_tone_only"));      // 1
+            TransmitElsewhereCombo.Items.Add(Lexicon.Get("settings.ptt.transmit_elsewhere_off"));            // 2
+
             // The VOX send box (#835). DRAFT PROSE (#835): awaiting Noel
             VoxSendBoxCheckbox.Content = Lexicon.Get("audio.send.box_label");
             System.Windows.Automation.AutomationProperties.SetName(VoxSendBoxCheckbox,
@@ -265,6 +276,7 @@ namespace JJFlexWpf.Dialogs
             PttTuneReminderBox.Text = _pttConfig.TuneReminderSeconds.ToString();
             PttSpeechCheckbox.IsChecked = _pttConfig.SpeechEnabled;
             PttAnnounceSliceCheckbox.IsChecked = _pttConfig.AnnounceTransmitSlice;
+            TransmitElsewhereCombo.SelectedIndex = Math.Clamp(_audioConfig.TransmitElsewhereNotice, 0, 2);
             ChirpEnabledCheckbox.IsChecked = _pttConfig.ChirpEnabled;
             VoxSendBoxCheckbox.IsChecked = _audioConfig.VoxSendKeysRadio;
 
@@ -1408,6 +1420,8 @@ namespace JJFlexWpf.Dialogs
             _pttConfig.AlcAutoReleaseSeconds = alc;
             _pttConfig.SpeechEnabled = PttSpeechCheckbox.IsChecked == true;
             _pttConfig.AnnounceTransmitSlice = PttAnnounceSliceCheckbox.IsChecked == true;
+            // #863: with the audio settings, made live by _audioConfig.Apply().
+            _audioConfig.TransmitElsewhereNotice = Math.Clamp(TransmitElsewhereCombo.SelectedIndex, 0, 2);
             _pttConfig.ChirpEnabled = ChirpEnabledCheckbox.IsChecked == true;
             // The VOX send box (#835): saved with the audio settings, made live by
             // _audioConfig.Apply() below.

@@ -113,7 +113,7 @@ namespace Radios.Tests
             // And no consumer names a transmit slice.
             Assert.Equal(Lexicon.Get("audio.ptt.announce_transmitting"), PttSliceWords.Transmitting(roles, nameSlice: true));
             Assert.Equal(Lexicon.Get("audio.ptt.announce_locked"), PttSliceWords.Locked(roles, nameSlice: true));
-            Assert.Null(TransmitSliceNotice.Sentence(roles, Mhz));
+            Assert.Null(TransmitSliceNotice.Wording(roles, VerbosityLevel.Chatty, chattyFirst: false, Mhz));
             Assert.Equal(Lexicon.Get("connect.home.frequency", ("freqText", "7.030"), ("slice", "B")),
                          FrequencyKeyReadout.Sentence(FrequencyKeySlices.Transmit, roles, Mhz));
         }
@@ -156,7 +156,7 @@ namespace Radios.Tests
             Assert.True(rig.ValidVFO(rig.TXVFO)); // the position is still there
             SliceRoles roles = SliceRoles.Of(rig);
             Assert.False(roles.HasTransmit);
-            Assert.Null(TransmitSliceNotice.Sentence(roles, Mhz));
+            Assert.Null(TransmitSliceNotice.Wording(roles, VerbosityLevel.Chatty, chattyFirst: false, Mhz));
         }
 
         [Fact]
@@ -207,6 +207,53 @@ namespace Radios.Tests
             Assert.False(roles.HasTransmit);
             Assert.Equal(Lexicon.Get("connect.home.frequency_unavailable"),
                          FrequencyKeyReadout.Sentence(FrequencyKeySlices.Both, roles, Mhz));
+        }
+
+        [Fact]
+        public void A_door_speaks_once_per_split_and_again_when_the_split_changes()
+        {
+            // #863, ruled 2026-11-03: once per split, not per key. Driven on a
+            // real rig through Prepare and Keyed, the calls every door makes.
+            var setting = TransmitSliceNotice.Setting;
+            var verbosity = ScreenReaderOutput.CurrentVerbosity;
+            FlexBase rig = Rig();
+            try
+            {
+                TransmitSliceNotice.Setting = TransmitElsewhereNotice.SpeakAndTone;
+                ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+                Slice a = ReadySlice(0, tx: true, active: false, mhz: 14.100);
+                SliceArrives(rig, a);
+                SliceArrives(rig, ReadySlice(1, tx: false, active: true, mhz: 7.150));
+
+                var first = TransmitSliceNotice.Prepare(rig, "test", mandatory: false);
+                Assert.True(first.Spoke);
+                Assert.True(first.ChattyFirst);
+                // Not keyed (cancelled): the next attempt is not silenced by it.
+                var again = TransmitSliceNotice.Prepare(rig, "test", mandatory: false);
+                Assert.True(again.Spoke);
+                TransmitSliceNotice.Keyed(again);
+
+                Assert.False(TransmitSliceNotice.Prepare(rig, "test", mandatory: false).Spoke);   // the same split: tone only
+
+                Set(a, "_freq", 14.105);
+                SliceReports(rig, a, "Freq");
+                var moved = TransmitSliceNotice.Prepare(rig, "test", mandatory: false);
+                Assert.True(moved.Spoke);                 // the transmit frequency moved
+                Assert.False(moved.ChattyFirst);          // the long form is the session's first only
+                TransmitSliceNotice.Keyed(moved);
+
+                TransmitSliceNotice.Setting = TransmitElsewhereNotice.Off;
+                Set(a, "_freq", 14.110);
+                SliceReports(rig, a, "Freq");
+                Assert.False(TransmitSliceNotice.Prepare(rig, "test", mandatory: false).Spoke);  // off
+                Assert.True(TransmitSliceNotice.Prepare(rig, "check", mandatory: true).Spoke);   // Check your audio still says it
+            }
+            finally
+            {
+                TransmitSliceNotice.ForgetFor(rig);
+                TransmitSliceNotice.Setting = setting;
+                ScreenReaderOutput.CurrentVerbosity = verbosity;
+            }
         }
 
         [Fact]

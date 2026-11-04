@@ -2126,6 +2126,16 @@ namespace Radios.Tests
                 // Junk box 2026-11-02 (#863): a door that could not say where it
                 // would transmit keys nothing, and says so. DRAFT prose.
                 "audio.ptt.transmit_slice_not_heard",
+                // Repair round 1 (#863, ruled 2026-11-03): the notice by verbosity and
+                // its three-way setting. DRAFT prose, awaiting Noel.
+                "audio.ptt.transmit_elsewhere_terse",
+                "audio.ptt.transmit_elsewhere",
+                "audio.ptt.transmit_elsewhere_first",
+                "settings.ptt.transmit_elsewhere_label",
+                "settings.ptt.transmit_elsewhere_speak_and_tone",
+                "settings.ptt.transmit_elsewhere_tone_only",
+                "settings.ptt.transmit_elsewhere_off",
+                "settings.ptt.transmit_elsewhere_help",
                 // Reworded by the JJ Flex naming sweep (#851), so classified.
                 "audio.micprofile.create_reason",
                 "audio.micprofile.load_reason",

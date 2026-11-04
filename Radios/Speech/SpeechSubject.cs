@@ -683,5 +683,13 @@ namespace Radios.Speech
         /// on the air. True until they key again; nothing else covers it.
         /// </summary>
         public const string TransmitDroppedWithConnection = "transmit-dropped-with-connection";
+
+        /// <summary>
+        /// Where a door is about to transmit, when that is not the selected
+        /// slice (#863): said before a check or a send keys, and waited for
+        /// WHOLE. Its own subject, not the countdown's, so skipping the count
+        /// cannot take it back. A newer notice covers an unheard older one.
+        /// </summary>
+        public const string TransmitSliceNotice = "transmit-slice-notice";
     }
 }

@@ -3258,9 +3258,10 @@ public partial class MainWindow : UserControl
         if (down && door == PttDoor.Dialog && wasIdle
             && _pttController.State == PttSafetyController.PttState.PttHold)
         {
-            string? where = Radios.TransmitSliceNotice.For(RigControl);
-            if (where != null)
-                Radios.ScreenReaderOutput.Speak(where, Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Critical);
+            // Ruled 2026-11-03 17:55: go, then say. Once per split, by the
+            // operator's setting, queued behind the key-down line.
+            if (RigControl != null)
+                Radios.TransmitSliceNotice.SayAfterKey(RigControl, "push to talk in a dialog");
         }
     }
 

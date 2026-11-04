@@ -1481,6 +1481,7 @@ public partial class CheckYourAudioDialog
                 ScreenReaderOutput.Supersede("audio.iq.preparing", "off-air take ready to start");
             _ptt.AudioCheckNarration = true;
             _ptt.PlannedStopSeconds = Records ? FlexBase.SliceRecordBufferSeconds : null;
+            bool placeChanged = false;
             bool admitted = start.TryRun(() =>
             {
                 // And the link it set up on must still be up (#596, Codex's
@@ -1489,11 +1490,21 @@ public partial class CheckYourAudioDialog
                 if (_owner._iqClosing || !ReferenceEquals(rig, Rig) || _ptt.IsTransmitting || rig.Transmit
                     || rig.TeardownInProgress || !rig.IsConnected)
                     return false;
+                // And it keys the place it announced, read again now (#863,
+                // Codex's check, B2): a slice or frequency changed during the
+                // count is refused, never keyed unannounced.
+                if (!_owner.StillTheAnnouncedPlace())
+                {
+                    placeChanged = true;
+                    return false;
+                }
                 _ptt.KeyForCheck();
                 return true;
             });
+            if (admitted && _ptt.IsTransmitting) _owner.TransmitSliceNoticeKeyed();
             if (!admitted)
             {
+                if (placeChanged) TransmitSliceNotHeard();
                 _ptt.AudioCheckNarration = false;
                 _ptt.PlannedStopSeconds = null;
                 if (_method == AudioCheckListenMethods.OffAir) _owner._iqRun?.OwnKeying(false);

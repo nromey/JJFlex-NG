@@ -44,7 +44,8 @@ namespace Radios
     public readonly struct SliceRoles
     {
         public SliceRoles(string selectedLetter, ulong selectedHz, bool hasTransmit,
-                          string transmitLetter, ulong transmitHz, bool same)
+                          string transmitLetter, ulong transmitHz, bool same,
+                          bool selectedIsDiagnostic = false)
         {
             _selectedLetter = selectedLetter ?? "";
             SelectedHz = selectedHz;
@@ -52,7 +53,14 @@ namespace Radios
             _transmitLetter = transmitLetter ?? "";
             TransmitHz = transmitHz;
             Same = same;
+            SelectedIsDiagnostic = selectedIsDiagnostic;
         }
+
+        /// <summary>
+        /// The selected slice is one a check made for itself (Loopback's or
+        /// the off-air take's listening slice), not one the operator chose.
+        /// </summary>
+        public bool SelectedIsDiagnostic { get; }
 
         private readonly string _selectedLetter;
         private readonly string _transmitLetter;

@@ -102,6 +102,22 @@ namespace Radios.Speech
         }
 
         /// <summary>
+        /// Queue one sentence that only counts as heard WHOLE, on its own
+        /// subject, and return its handle (#863, Codex's check, B3). The
+        /// countdown's own pieces are single numbers, where a piece cut
+        /// part-way was heard; a sentence whose slice name comes after its
+        /// frequency is not heard when it is cut, so a cut here is a failure,
+        /// and on the estimate path it is held for the untracked margin.
+        /// </summary>
+        public Radios.ICountdownWords SayWhole(string text, string subject)
+        {
+            if (string.IsNullOrEmpty(text)) return Radios.CountdownWords.Undelivered;
+            var piece = _arbiter.EmitQueued(text, VerbosityLevel.Critical, "CountdownSpeech.SayWhole",
+                subject, additive: false);
+            return piece == null ? Radios.CountdownWords.Undelivered : new Words(this, piece, onlyWarning: true, wholeOnly: true);
+        }
+
+        /// <summary>
         /// Take back every piece not yet handed to the reader: the count was
         /// called off, or its words could not be delivered.
         /// </summary>
@@ -114,17 +130,30 @@ namespace Radios.Speech
             private readonly CountdownSpeech _owner;
             private readonly SpeechArbiter.FollowedPiece _piece;
             private readonly bool _onlyWarning;
+            private readonly bool _wholeOnly;
 
-            public Words(CountdownSpeech owner, SpeechArbiter.FollowedPiece piece, bool onlyWarning)
+            public Words(CountdownSpeech owner, SpeechArbiter.FollowedPiece piece, bool onlyWarning, bool wholeOnly = false)
             {
                 _owner = owner;
                 _piece = piece;
                 _onlyWarning = onlyWarning;
+                _wholeOnly = wholeOnly;
             }
 
             private SpeechArbiter.FollowedView View => _owner._arbiter.Inspect(_piece);
 
-            public bool Failed => View.Superseded;
+            /// <summary>A whole-only sentence cut part-way was not heard.</summary>
+            private static bool CutPartWay(SpeechArbiter.FollowedView v) =>
+                v.State is SpeechArbiter.Owed.CutByUs or SpeechArbiter.Owed.PausedUnknownCause;
+
+            public bool Failed
+            {
+                get
+                {
+                    var v = View;
+                    return v.Superseded || (_wholeOnly && CutPartWay(v));
+                }
+            }
 
             public System.Threading.Tasks.Task NextNews =>
                 _owner._nextProgress?.Invoke() ?? Radios.CountdownWords.NoNews;
@@ -154,7 +183,8 @@ namespace Radios.Speech
                     var v = View;
                     if (v.Superseded) return false;
                     if (v.State == SpeechArbiter.Owed.NeverStarted) return false;
-                    if (v.State != SpeechArbiter.Owed.Pending) return true;   // a one-word piece cut part-way was heard
+                    if (v.State != SpeechArbiter.Owed.Pending)
+                        return !_wholeOnly;   // a one-word piece cut part-way was heard; a sentence was not
                     if (v.Tracked) return !v.InLedger;
                     // The estimate path: an expired estimate is not proof. Where
                     // these words are the only warning, hold on for the margin.

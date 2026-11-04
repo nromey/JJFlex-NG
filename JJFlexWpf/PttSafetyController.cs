@@ -933,7 +933,7 @@ namespace JJFlexWpf
                 State = PttState.PttHold;
                 SetTx(true);   // RF off to on: a new transmission, and every sentence about the last one's end is now history
                 StartFreshAudioSample();
-                if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
+                KeyDownTone();
                 _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_transmitting"));
                 SpeakKeyDownFirstLine(TransmittingWords());
                 if (!AudioCheckNarration) SpeakKeyDownExtra();
@@ -1044,6 +1044,32 @@ namespace JJFlexWpf
                    subject: Radios.Speech.SpeechSubject.TransmitDroppedWithConnection);
             return true;
         }
+
+        /// <summary>
+        /// The key-down tone (#863, ruled by Noel 2026-11-03): the three-note
+        /// tone when this transmission goes out on a slice other than the
+        /// selected one and the operator has not turned that notice off, the
+        /// ordinary rising pair otherwise (under the chirp switch, as before).
+        /// The choice is remembered, so the key-up answers in the same family.
+        /// </summary>
+        private void KeyDownTone()
+        {
+            _keyedElsewhere = Radios.TransmitSliceNotice.PlaysTones(_getRigControl());
+            if (_keyedElsewhere) EarconPlayer.TxElsewhereStartTone();
+            else if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
+        }
+
+        /// <summary>The key-up in the family the key-down chose.</summary>
+        private void KeyUpTone()
+        {
+            bool elsewhere = _keyedElsewhere;
+            _keyedElsewhere = false;
+            if (elsewhere) EarconPlayer.TxElsewhereStopTone();
+            else if (_config.ChirpEnabled) EarconPlayer.TxStopTone();
+        }
+
+        /// <summary>This transmission's key-down played the three-note tone.</summary>
+        private bool _keyedElsewhere;
 
         // The three announcements, with their slice when the operator has
         // asked for it (#496). One reading of the slices per sentence.
@@ -1177,7 +1203,9 @@ namespace JJFlexWpf
             // tells the episode what it commanded and the episode decides
             // which of the two this was (Astra's Track IJK2 review, blocker 1).
             SetTx(true);
-            if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
+            if (fromIdle) KeyDownTone();
+            else if (_keyedElsewhere) EarconPlayer.TxElsewhereStartTone();
+            else if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
             _lockClock.Start(Environment.TickCount64);
             _alcZeroConsecutiveSeconds = 0;
             _healthSilentMicWarned = false;
@@ -1216,8 +1244,11 @@ namespace JJFlexWpf
             var wasState = State;
             State = PttState.Idle;
             SetTx(false);
+            // Our transmission is over: a restart of the audio sample it made
+            // and no rising edge claimed is retired (#651 follow-up).
+            try { _getRigControl()?.RetireOwnAudioSampleClaim(); } catch { }
             ScreenReaderOutput.Supersede(KeyDownExtraSubject, "transmission ended");
-            if (_config.ChirpEnabled) EarconPlayer.TxStopTone();
+            KeyUpTone();
 
             // Read the transmission's audio verdict BEFORE the counters below
             // are cleared. Only on an ordinary unkey: forceSpeech marks the

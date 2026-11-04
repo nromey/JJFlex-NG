@@ -3266,10 +3266,19 @@ namespace Radios.Tests
                 "            }\n";
             int step3Lock = main.IndexOf(step3LockOneTogglePerPress, home, StringComparison.Ordinal);
             Assert.True(step3Lock > home && step3Lock < homeStep4, "Home's Shift+Space branch must hand the repeat flag to LockKeyDown");
+            // CHANGED ON PURPOSE, junk box repair round 1 (#596, Codex's check,
+            // B3): the held-through-drop guard is asked first, repeats
+            // included, and the first down is remembered as the lock key held,
+            // so a held lock key cannot re-key after a dropped connection. The
+            // one-toggle-per-press rule below it is unchanged.
             const string lockKeyDownEdge =
                 "    internal void LockKeyDown(bool isRepeat)\n" +
                 "    {\n" +
+                "        // #596, Codex's check B3: a key held through a dropped connection is\n" +
+                "        // not a press, repeats included, so its stream is seen whole.\n" +
+                "        if (PttHeldThroughDrop(down: true)) return;\n" +
                 "        if (isRepeat) return;   // a held key is one press\n" +
+                "        _lockKeyDown = true;\n" +
                 "        _lockPairDetector.NoteDown(Environment.TickCount64);\n" +
                 "        _pttController?.ToggleLock();\n" +
                 "    }\n";
@@ -3277,10 +3286,13 @@ namespace Radios.Tests
             Assert.Equal(1, Regex.Matches(main, @"\bLockKeyDown\(e\.IsRepeat\);").Count);
 
             // 2. The system-wide lock: main's handler, body and all.
+            // CHANGED ON PURPOSE (#596, B3): the guard is asked first; the rest
+            // is main's handler.
             const string systemWideLockAsOnMain =
                 "    /// <summary>The system-wide transmit lock: what Shift+Space does inside the window.</summary>\n" +
                 "    internal void HandleSystemWideLockToggle()\n" +
                 "    {\n" +
+                "        if (ToggleHeldThroughDrop()) return;\n" +
                 "        if (_pttController == null || !_radioPowerOn)\n" +
                 "        {\n" +
                 "            Radios.ScreenReaderOutput.SpeakNoRadioConnected();\n" +

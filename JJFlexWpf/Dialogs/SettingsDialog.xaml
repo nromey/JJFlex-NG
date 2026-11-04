@@ -180,6 +180,20 @@
                     <CheckBox x:Name="PttAnnounceSliceCheckbox"
                               Margin="0,8,0,0"/>
 
+                    <!-- #863, ruled 2026-11-03: what a door does when it keys a
+                         slice other than the active one. Speak and tone (the
+                         default), tone only, or off. Stored with the audio
+                         settings so a choice made with no radio is kept. Label,
+                         name, items and Ctrl+F1 text from the Lexicon in code.
+                         DRAFT PROSE. -->
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <controls:DecorativeText x:Name="TransmitElsewhereLabel"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="TransmitElsewhereCombo" Width="260"
+                                  Style="{StaticResource DialogComboBox}"/>
+                    </StackPanel>
+
                     <CheckBox x:Name="ChirpEnabledCheckbox"
                               Content="Play chirp tones on transmit and receive"
                               Margin="0,8,0,0"
