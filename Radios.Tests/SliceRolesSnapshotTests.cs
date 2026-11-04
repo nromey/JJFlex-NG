@@ -105,6 +105,7 @@ namespace Radios.Tests
             SliceGoes(rig, a);
 
             Assert.True(rig.ValidVFO(rig.TXVFO)); // the position still stands
+            Assert.Equal("", rig.TXSliceLetter);   // and names nothing (repair round 2)
             SliceRoles roles = SliceRoles.Of(rig);
             Assert.False(roles.HasTransmit);
             Assert.Equal("", roles.TransmitLetter);
@@ -133,6 +134,7 @@ namespace Radios.Tests
 
             SliceRoles roles = SliceRoles.Of(rig);
             Assert.Equal("C", roles.TransmitLetter); // not B, which TXVFO fell back to
+            Assert.Equal("C", rig.TXSliceLetter);    // the status surfaces agree (repair round 2)
             Assert.Equal(3_800_000UL, roles.TransmitHz);
             Assert.Equal(rig.TXFrequency, roles.TransmitHz); // agrees with TXFrequency
             Assert.Equal("B", roles.SelectedLetter);
@@ -192,7 +194,11 @@ namespace Radios.Tests
 
             SliceGoes(rig, a);
 
-            Assert.Equal(7_150_000UL, rig.RXFrequency); // the cache is stale
+            // The cache is stale, and RXFrequency no longer hands it out for a
+            // slice it does not belong to (repair round 2: this line pinned
+            // the stale 7.150 as RXFrequency's answer, and the tuning
+            // arithmetic reads RXFrequency).
+            Assert.Equal(14_200_000UL, rig.RXFrequency);
             SliceRoles roles = SliceRoles.Of(rig);
             Assert.Equal("B", roles.SelectedLetter);
             Assert.Equal(14_200_000UL, roles.SelectedHz); // B's own, not A's
@@ -256,6 +262,79 @@ namespace Radios.Tests
             }
         }
 
+        /// <summary>
+        /// Repair round 2 (Codex's re-check of #642): selecting a slice moves
+        /// RXVFO at once and queues Active; FlexLib raises the slice's Active
+        /// BEFORE the radio's ActiveSlice, and only the latter refreshed the
+        /// receive cache. In between, A was selected and Active while the
+        /// cache still held B's frequency, and F, the title and the notice
+        /// read A with B's number. Now each cache carries the slice it belongs
+        /// to, and a reader whose slice is not the cache's reads the slice.
+        /// </summary>
+        [Fact]
+        public void Selecting_a_slice_whose_Active_arrives_before_the_cache_reads_that_slice_off_itself()
+        {
+            FlexBase rig = Rig();
+            Slice a = ReadySlice(0, tx: true, active: false, mhz: 14.100);
+            Slice b = ReadySlice(1, tx: false, active: true, mhz: 7.150);
+            SliceArrives(rig, a);
+            SliceArrives(rig, b);
+            SliceRoles before = SliceRoles.Of(rig);
+            Assert.Equal("B", before.SelectedLetter);          // positive control: B is selected,
+            Assert.Equal(7_150_000UL, before.SelectedHz);       // on its own frequency
+            Assert.Equal(7_150_000UL, rig.RXFrequency);
+
+            rig.RXVFO = 0;                                       // the production setter: A selected, Active queued
+            Set(b, "_active", false);
+            Set(a, "_active", true);
+            SliceReports(rig, a, "Active");                      // FlexLib raises A's Active first
+
+            SliceRoles roles = SliceRoles.Of(rig);
+            Assert.Equal("A", roles.SelectedLetter);
+            Assert.Equal(14_100_000UL, roles.SelectedHz);       // not B's 7.150
+            Assert.Equal("A", roles.TransmitLetter);
+            Assert.Equal(14_100_000UL, roles.TransmitHz);
+            Assert.True(roles.Same);
+            Assert.Equal(Lexicon.Get("connect.home.frequency", ("freqText", "14.100"), ("slice", "A")),
+                         FrequencyKeyReadout.Sentence(FrequencyKeySlices.Transmit, roles, Mhz));
+            // The tuning arithmetic's own reading agrees: a step from here
+            // starts from A's frequency, not B's.
+            Assert.Equal(14_100_000UL, rig.RXFrequency);
+
+            // And once the radio's ActiveSlice refreshes the cache, the same.
+            typeof(FlexBase).GetMethod("NoteActiveSliceAsFound", Private)!.Invoke(rig, new object[] { a });
+            SliceRoles after = SliceRoles.Of(rig);
+            Assert.Equal(14_100_000UL, after.SelectedHz);
+            Assert.Equal(14_100_000UL, rig.RXFrequency);
+        }
+
+        /// <summary>
+        /// The same for the transmit cache: a cached transmit frequency
+        /// belongs to the slice it was written for. When the designation moves
+        /// to another slice before that slice reports, TXFrequency and the
+        /// reading name the new slice with its own frequency.
+        /// </summary>
+        [Fact]
+        public void A_transmit_cache_written_for_one_slice_is_never_read_as_anothers()
+        {
+            FlexBase rig = Rig();
+            Slice a = ReadySlice(0, tx: true, active: true, mhz: 14.100);
+            Slice c = ReadySlice(2, tx: false, active: false, mhz: 21.300);
+            SliceArrives(rig, a);
+            SliceArrives(rig, c);
+            Assert.Equal(14_100_000UL, rig.TXFrequency);        // positive control: the cache is A's
+
+            // The radio moves the designation to C; neither report has reached
+            // this class yet, so the cache still holds A's frequency.
+            Set(a, "_isTransmitSlice", false);
+            Set(c, "_isTransmitSlice", true);
+
+            SliceRoles roles = SliceRoles.Of(rig);
+            Assert.Equal("C", roles.TransmitLetter);
+            Assert.Equal(21_300_000UL, roles.TransmitHz);
+            Assert.Equal(21_300_000UL, rig.TXFrequency);
+        }
+
         [Fact]
         public void Every_reading_pairs_a_letter_with_its_own_slice_while_the_roster_changes()
         {
@@ -268,17 +347,27 @@ namespace Radios.Tests
             Slice churn = ReadySlice(0, tx: false, active: false, mhz: 1.900);
 
             using var stop = new CancellationTokenSource();
+            long churns = 0;
+            using var churning = new ManualResetEventSlim();
             var churner = new Thread(() =>
             {
                 while (!stop.IsCancellationRequested)
                 {
                     SliceArrives(rig, churn);
                     SliceGoes(rig, churn);
+                    Interlocked.Increment(ref churns);
+                    churning.Set();
                 }
             }) { IsBackground = true };
             churner.Start();
+            long churnsAtStart = 0, churnsAtEnd = 0;
             try
             {
+                // The readings must overlap real roster changes (Codex's
+                // re-check of #496): wait for the churn to be running, and
+                // count it across the readings.
+                Assert.True(churning.Wait(TimeSpan.FromSeconds(10)));
+                churnsAtStart = Interlocked.Read(ref churns);
                 for (int i = 0; i < 20_000; i++)
                 {
                     SliceRoles roles = SliceRoles.Of(rig);
@@ -287,12 +376,14 @@ namespace Radios.Tests
                     Assert.Equal("C", roles.TransmitLetter);
                     Assert.Equal(21_300_000UL, roles.TransmitHz);
                 }
+                churnsAtEnd = Interlocked.Read(ref churns);
             }
             finally
             {
                 stop.Cancel();
                 churner.Join();
             }
+            Assert.True(churnsAtEnd > churnsAtStart, "the roster never changed while the readings ran");
         }
     }
 }

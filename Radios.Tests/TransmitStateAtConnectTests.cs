@@ -52,8 +52,13 @@ namespace Radios.Tests
         private static void Set(object o, string field, object value)
             => o.GetType().GetField(field, Private)!.SetValue(o, value);
 
+        // The frequency caches became properties over one value carrying the
+        // number and its slice (#642, repair round 2), so a name may be either.
         private static object? Field(object o, string field)
-            => typeof(FlexBase).GetField(field, Private)!.GetValue(o);
+            // Property first: AllRadios has protected fields of the same names
+            // that FlexBase hides and never writes.
+            => typeof(FlexBase).GetProperty(field, Private | BindingFlags.DeclaredOnly)?.GetValue(o)
+               ?? typeof(FlexBase).GetField(field, Private)!.GetValue(o);
 
         /// <summary>The real connect path, on a slice that raises nothing.</summary>
         private static void SliceArrives(FlexBase rig, Slice slice)
