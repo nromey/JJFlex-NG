@@ -623,7 +623,7 @@ namespace Radios.Tests
         {
             // THE positive control for the rung, and #237's own case: 100 W at
             // a 2.5-to-1 match sends 18 W back at 18 percent — under the
-            // 40-percent warning, so the share rung can never cut here, and
+            // 36-percent (SWR 4) warning, so the share rung can never cut here, and
             // over ten watts of heat, so this one must.
             var mediocreMatchAtFullPower = Pair(100f, 18f);
             var run = Hot(mediocreMatchAtFullPower, 2);

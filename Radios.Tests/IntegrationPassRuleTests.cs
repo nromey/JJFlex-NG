@@ -206,11 +206,40 @@ namespace Radios.Tests
                 foreach (Condition c in rule.Needs.Concat(rule.BrokenWhen))
                 {
                     if (c.FactName != "swr" && c.FactName != "reflected-percent") continue;
-                    Match m = Regex.Match(c.Text, @"(\d+(?:\.\d+)?)");
-                    if (!m.Success) continue;
-                    yield return ("tx-chain-rules.txt/" + rule.Id, c.FactName,
-                                  double.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture));
+                    if (!TryNumberAsParsed(c, out double value)) continue;
+                    yield return ("tx-chain-rules.txt/" + rule.Id, c.FactName, value);
                 }
+        }
+
+        /// <summary>
+        /// The number a numeric condition compares against, AS THE PRODUCTION
+        /// PARSER READ IT (junk box repair round 2, Codex's re-check of #237):
+        /// a regex over the text read "swr above 4e1" as 4 and "reflected-percent
+        /// above .36" as 36, while the rule compares against 40 and 0.36.
+        /// </summary>
+        private static bool TryNumberAsParsed(Condition c, out double value)
+        {
+            const BindingFlags Hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            var op = typeof(Condition).GetField("_op", Hidden)!.GetValue(c)!.ToString();
+            value = (double)typeof(Condition).GetField("_number", Hidden)!.GetValue(c)!;
+            return op is "Below" or "Above" or "AtMost" or "AtLeast";
+        }
+
+        [Theory]
+        [InlineData("swr above 4e1", 40.0)]
+        [InlineData("reflected-percent above .36", 0.36)]
+        [InlineData("swr above 4", 4.0)]
+        [InlineData("reflected-percent above 36", 36.0)]
+        public void The_sweep_reads_each_threshold_as_the_rule_compares_it(string text, double expected)
+        {
+            Condition c = Condition.Parse(text, out string problem);
+            Assert.Null(problem);
+            Assert.True(TryNumberAsParsed(c, out double value));
+            Assert.Equal(expected, value, 6);
+            // And an off-ladder spelling is off the ladder.
+            if (expected is 40.0 or 0.36)
+                Assert.False(OnLadderSwr(value, new[] { SwrLadder.Suspect, SwrLadder.Warn, SwrLadder.Abort })
+                             && OnLadderPercent(value, new[] { SwrLadder.Suspect, SwrLadder.Warn, SwrLadder.Abort }));
         }
 
         private static bool OnLadderPercent(double percent, double[] rungs)
