@@ -82,6 +82,14 @@ public sealed class TakeMetadata
     public string TestId { get; set; } = "";
     public int TakeNumber { get; set; }
     public string Note { get; set; } = "";
+
+    /// <summary>
+    /// Whether slices this take muted for its playback have been put back
+    /// (D2): "" when it muted none; <c>owed</c> until the restore runs; then
+    /// <c>done</c> or <c>not-confirmed</c>. Here, not in take.txt, because the
+    /// restore runs after the capture has closed its header.
+    /// </summary>
+    public string MuteRestore { get; set; } = "";
 }
 
 /// <summary>What the next take is about to be made with, for the "start a new test?" question.</summary>
@@ -285,6 +293,15 @@ public static partial class TakeSession
     {
         var meta = Metadata(takeFolder) ?? new TakeMetadata();
         meta.Note = new string((note ?? "").Where(c => !char.IsControl(c)).ToArray()).Trim();
+        WriteAtomically(Path.Combine(takeFolder, TakeMetadata.FileName), meta);
+        return 0;
+    });
+
+    /// <summary>Record what became of the slices a take muted for its playback (<see cref="TakeMetadata.MuteRestore"/>).</summary>
+    public static void SetMuteRestore(string root, string takeFolder, string state) => Transaction(root, () =>
+    {
+        var meta = Metadata(takeFolder) ?? new TakeMetadata();
+        meta.MuteRestore = state ?? "";
         WriteAtomically(Path.Combine(takeFolder, TakeMetadata.FileName), meta);
         return 0;
     });

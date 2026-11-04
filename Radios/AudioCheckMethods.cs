@@ -126,6 +126,15 @@ namespace Radios
         public static bool MakesTake(AudioCheckListenMethods method) =>
             method is AudioCheckListenMethods.RecordPlayback or AudioCheckListenMethods.OffAir;
 
+        /// <summary>
+        /// Whether Play last take can offer anything for <paramref name="method"/>:
+        /// as above, and Looped back too when its playback is saved as a take,
+        /// or one was (Unified takes, part 4d). This does NOT prove a file
+        /// exists; the selection checks that.
+        /// </summary>
+        public static bool MakesTake(AudioCheckListenMethods method, bool savedPlayback) =>
+            MakesTake(method) || savedPlayback && method == AudioCheckListenMethods.Loopback;
+
         // ── Explaining the method (Noel 2026-10-28 00:15, ruled 00:20) ──────────
         // Ctrl+F1 on the method says what the control is and what the method
         // shown right now does; F1 opens the help at that method's section.

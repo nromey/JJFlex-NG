@@ -2276,6 +2276,14 @@ namespace Radios.Tests
                 "audio.takes.admission_new",
                 "audio.takes.admission_add",
                 "audio.takes.admission_backed_out",
+                "audio.takes.refused_contaminated",
+                "audio.takes.details_contaminated",
+                "audio.takes.details_playback_muted",
+                "audio.takes.not_saved",
+                "audio.takes.not_isolated",
+                "audio.takes.no_saved_take",
+                "audio.takes.help.play_last",
+                "audio.takes.needs_computer_audio",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

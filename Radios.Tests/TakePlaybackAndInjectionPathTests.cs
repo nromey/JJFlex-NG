@@ -105,7 +105,9 @@ namespace Radios.Tests
             Assert.Contains("SelectTakeForPlayback()", body, StringComparison.Ordinal);
             // #835: "Monitor" became "every method that makes no take" (Test
             // your microphone, Monitor, Loopback), asked of one rule.
-            Assert.Contains("if (!AudioCheckMethods.MakesTake(method))", selection, StringComparison.Ordinal);
+            // Unified takes round two: the rule also hears whether Looped back
+            // saves its playback; it is still the one rule.
+            Assert.Contains("if (!AudioCheckMethods.MakesTake(method, SavedPlaybackOffered(method)))", selection, StringComparison.Ordinal);
             Assert.Contains("NewestRadioTake()", selection, StringComparison.Ordinal);
             // Unified takes part 1: the off-air method asks for Heard on the
             // air takes BY KIND, so a newer playback take never becomes its
@@ -117,7 +119,7 @@ namespace Radios.Tests
             Assert.Contains("Visibility.Collapsed", label, StringComparison.Ordinal);
             // Collapsed is out of the tab order; since #835 the button is also
             // hidden until a take exists to play.
-            Assert.Contains("AudioCheckMethods.MakesTake(SelectedMethod)", label, StringComparison.Ordinal);
+            Assert.Contains("AudioCheckMethods.MakesTake(SelectedMethod, SavedPlaybackOffered(SelectedMethod))", label, StringComparison.Ordinal);
             Assert.Contains("selected.Choice != TakePlaybackChoice.None", label, StringComparison.Ordinal);
             Assert.Contains("selected.Method == AudioCheckListenMethods.OffAir", body, StringComparison.Ordinal);
             Assert.Contains("selected.Method == AudioCheckListenMethods.RecordPlayback", body, StringComparison.Ordinal);

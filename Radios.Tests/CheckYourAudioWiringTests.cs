@@ -210,7 +210,8 @@ namespace Radios.Tests
             string start = Body(check, "public async Task<bool> StartAsync(AudioCheckStartGate.Lease start)");
             Assert.Contains("_recorderTarget = SliceRecorderTarget.LoopbackEars;", start);
             string post = Body(check, "private void TickPostUnkey(FlexBase rig)");
-            int loop = post.IndexOf("if (_method == AudioCheckListenMethods.Loopback)", StringComparison.Ordinal);
+            // Unified takes round two: a saved Radio recording playback stays up too.
+            int loop = post.IndexOf("if (_method == AudioCheckListenMethods.Loopback || _take?.Capturing == true)", StringComparison.Ordinal);
             Assert.True(loop >= 0 && post.IndexOf("_phase = Phase.PlayingBack;", loop, StringComparison.Ordinal) > loop);
             Assert.Contains("AudioCheckListenMethods.Loopback, AudioCheckPowerModes.LowPower, 1,",
                 Body(check, "private async Task StartLoopbackCheckAsync()"));

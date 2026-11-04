@@ -278,9 +278,8 @@ public partial class CheckYourAudioDialog
             Visibility = Visibility.Collapsed
         };
         AutomationProperties.SetName(_playTakeButton, "Play last take");
-        JJFlexHelp.SetText(_playTakeButton,
-            "Plays the slice recording with Radio recording, or the off-air take "
-            + "with Heard on the air. Press again to stop.");
+        // DRAFT PROSE: awaiting Noel. Says the saved take too (Unified takes).
+        JJFlexHelp.SetText(_playTakeButton, Lexicon.Get("audio.takes.help.play_last"));
         _playTakeButton.Click += (s, e) => PlayLastTake();
         _playTakeButton.GotFocus += (s, e) => SyncPlayTakeLabel();
         _sections.Add(CheckContent, _playTakeButton);
@@ -912,14 +911,18 @@ public partial class CheckYourAudioDialog
         // A method that left the offer while the check ran comes off now.
         RefreshOfferedMethods();
         if (_iqWasOffAir && _iqRun != null) { await FinishIqAsync(_tearingDown ? "connection-ending" : "operator-stop"); return; }
-        if (_rig != null && _rig.LoopbackArranged)
+        // The radio as the check ended: a saved Looped back playback drains
+        // before the arrangement comes down (Unified takes, part 4d).
+        var endedRig = _rig;
+        await DrainEndingTakeAsync(endedRig);
+        if (endedRig != null && endedRig.LoopbackArranged)
         {
             try
             {
                 // Says only what was really put back (#835, 2026-10-29 item 2):
                 // after a disconnect while still transmitting, every restore was
                 // abandoned and this still said "settings restored".
-                var outcome = await _rig.EndLoopbackArrangementWithOutcomeAsync();
+                var outcome = await endedRig.EndLoopbackArrangementWithOutcomeAsync();
                 ScreenReaderOutput.Speak(outcome.Sentence(),
                     outcome.NotRestored.Count == 0 ? VerbosityLevel.Terse : VerbosityLevel.Critical);
             }
@@ -950,7 +953,7 @@ public partial class CheckYourAudioDialog
     /// </summary>
     private void PlayLastTake()
     {
-        if (!AudioCheckMethods.MakesTake(SelectedMethod)) return;
+        if (!AudioCheckMethods.MakesTake(SelectedMethod, SavedPlaybackOffered(SelectedMethod))) return;
         // Press again to stop, whichever thing is playing.
         if (RecordingPlayer.IsPlaying)
         {
@@ -980,8 +983,12 @@ public partial class CheckYourAudioDialog
             case TakePlaybackChoice.OffAir:
                 _ = PlayIqAsync(selected.IqDirectory, 0);
                 return;
+            case TakePlaybackChoice.Saved:
+                _ = PlaySavedTakeAsync(selected.IqDirectory!);
+                return;
             default:
-                if (selected.Method == AudioCheckListenMethods.RecordPlayback) SayNoTake("slice");
+                if (selected.Method == AudioCheckListenMethods.Loopback) SayNoSavedTake();
+                else if (selected.Method == AudioCheckListenMethods.RecordPlayback) SayNoTake("slice");
                 else if (selected.Method == AudioCheckListenMethods.OffAir) SayNoTake("off-air");
                 return;
         }
@@ -991,21 +998,25 @@ public partial class CheckYourAudioDialog
         SliceRecorderTarget? RadioTarget, string? IqDirectory, DateTime? MadeUtc) SelectTakeForPlayback()
     {
         var method = SelectedMethod;
-        if (!AudioCheckMethods.MakesTake(method))
+        if (!AudioCheckMethods.MakesTake(method, SavedPlaybackOffered(method)))
             return (method, TakePlaybackChoice.None, null, null, null);
         var (radioTarget, radioTime) = method == AudioCheckListenMethods.RecordPlayback
             ? NewestRadioTake() : (null, null);
         string? iqDirectory = method == AudioCheckListenMethods.OffAir ? ListenbackTakes.NewestDirectory(ListenbackTakes.OffAirOnly) : null;
         DateTime? iqAt = iqDirectory != null && File.Exists(Path.Combine(iqDirectory, "take.txt"))
             ? File.GetLastWriteTimeUtc(Path.Combine(iqDirectory, "take.txt")) : null;
-        var choice = TakePlaybackSelector.Choose(method, radioTarget != null, iqDirectory != null);
+        // A saved playback take is preferred, the radio's slot the fallback
+        // (Unified takes, part 4d). Its folder rides in the directory slot.
+        string? saved = SavedTakeFor(method);
+        var choice = TakePlaybackSelector.Choose(method, radioTarget != null, iqDirectory != null, saved != null);
         DateTime? madeUtc = choice switch
         {
             TakePlaybackChoice.Slice => radioTime,
             TakePlaybackChoice.OffAir => iqAt,
+            TakePlaybackChoice.Saved => Radios.Listenback.TakeSession.MadeUtc(saved!),
             _ => null
         };
-        return (method, choice, radioTarget, iqDirectory, madeUtc);
+        return (method, choice, radioTarget, choice == TakePlaybackChoice.Saved ? saved : iqDirectory, madeUtc);
     }
 
     private (SliceRecorderTarget? Target, DateTime? MadeUtc) NewestRadioTake()
@@ -1146,7 +1157,7 @@ public partial class CheckYourAudioDialog
         bool playing = RecordingPlayer.IsPlaying ||
             _rig?.IsSlicePlaying(RadioTakeTarget) == true;
         var selected = SelectTakeForPlayback();
-        bool available = AudioCheckMethods.MakesTake(SelectedMethod)
+        bool available = AudioCheckMethods.MakesTake(SelectedMethod, SavedPlaybackOffered(SelectedMethod))
             && (playing || selected.Choice != TakePlaybackChoice.None);
         if (!available && _playTakeButton.IsKeyboardFocusWithin) _startCheckButton?.Focus();
         _playTakeButton.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
@@ -1235,7 +1246,7 @@ public partial class CheckYourAudioDialog
     /// still-transmitting honesty check. This session alone stops a recording
     /// check (Record yourself, Loopback) at the radio's two-minute buffer limit.
     /// </summary>
-    private sealed class AudioCheckSession
+    private sealed partial class AudioCheckSession
     {
         private enum Phase { Idle, Keyed, AwaitPlayback, PlayingBack, Done }
 
@@ -1402,6 +1413,9 @@ public partial class CheckYourAudioDialog
                             VerbosityLevel.Critical, interrupt: true);
                     return false;
                 }
+                // Unified takes, part 4b: the take's facts as the radio
+                // records; nothing is on disk until the playback (SaveTakes.cs).
+                AdmitTake(rig);
             }
             if (!_loopback)
             {
@@ -1518,6 +1532,7 @@ public partial class CheckYourAudioDialog
                 return false;
             }
 
+            _take?.NoteKeyed();
             _owner._lastAudioCheckSource = rig.TxToneEngaged
                 ? $"{(int)rig.TxToneFrequency} hertz test tone"
                 : rig.TxFilePlaying ? "reference recording" : "microphone";
@@ -1612,11 +1627,13 @@ public partial class CheckYourAudioDialog
             // it; the arrangement comes down after End.
             if (Records)
                 _ = RecorderControls.ReportStopFailureAsync(_changedRig.StopSlicePlayAsync(_recorderTarget));
+            _take?.StopRequested("check-ended");
             End(reason);
         }
 
         private void End(string? reason)
         {
+            _owner._endingTake = _take;
             _phase = Phase.Done;
             Active = false;
             _watcher.Stop();
@@ -1802,7 +1819,9 @@ public partial class CheckYourAudioDialog
                     // up while it plays, and comes down when it finishes or is
                     // stopped; Record yourself's take stays on the radio and the
                     // check can end now.
-                    if (_method == AudioCheckListenMethods.Loopback)
+                    // A saved playback keeps Radio recording attached too,
+                    // until its capture closes (Unified takes, part 4d).
+                    if (_method == AudioCheckListenMethods.Loopback || _take?.Capturing == true)
                     {
                         _phase = Phase.PlayingBack;
                         _playingBackTicks = 0;
@@ -1811,7 +1830,11 @@ public partial class CheckYourAudioDialog
                     }
                     End(null);
                 }
-                else End(played?.Message ?? Lexicon.Get("audio.check.no_recording_available"));
+                else
+                {
+                    _take?.End("play-refused");
+                    End(played?.Message ?? Lexicon.Get("audio.check.no_recording_available"));
+                }
                 return;
             }
             if (_recordStop != null && !_recordStop.IsCompleted)
@@ -1826,6 +1849,9 @@ public partial class CheckYourAudioDialog
             }
             if (rig.SliceHasRecording(_recorderTarget))
             {
+                // Unified takes: the capture is armed BEFORE the playback is
+                // asked for, so a short one cannot end unheard (SaveTakes.cs).
+                if (!TakeReadyForPlayback(rig)) return;
                 RecorderControls.Observe(rig);
                 RecorderControls.PlayStartClick();
                 _playStart = rig.StartSlicePlayAsync(_recorderTarget);
@@ -1857,6 +1883,8 @@ public partial class CheckYourAudioDialog
             _owner._checkPlayTargets.Remove(_recorderTarget);
             if (rig.IsSlicePlaying(_recorderTarget))
                 _ = RecorderControls.ReportStopFailureAsync(rig.StopSlicePlayAsync(_recorderTarget));
+            // A saved playback's capture closes first (Unified takes, part 4d).
+            if (!TakeDrained()) return;
             End(null);
         }
 

@@ -181,6 +181,7 @@ public static class ListenbackResultText
             string refusal = difference.Reason switch
             {
                 "unlike-takes:kind" => "audio.takes.refused_kind",
+                "unlike-takes:contaminated" => "audio.takes.refused_contaminated",
                 "unlike-takes:source-unknown" => "audio.takes.refused_source_unknown",
                 "unlike-takes:mode" => "audio.takes.refused_mode",
                 "unlike-takes:tx-antenna" => "audio.takes.refused_tx_antenna",

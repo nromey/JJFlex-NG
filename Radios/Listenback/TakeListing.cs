@@ -107,6 +107,10 @@ public static class TakeListing
             lines.Add(Lexicon.Get("audio.takes.details_provenance"));
             if (take.Get(AudioTakeFields.BoundaryQuality) != AudioTakeFields.Verified)
                 lines.Add(Lexicon.Get("audio.takes.details_boundary_unverified"));
+            if (take.Get(TakeAnalysis.CaptureIsolation) != TakeAnalysis.Isolated)
+                lines.Add(Lexicon.Get("audio.takes.details_contaminated"));
+            if (take.Get("playback-slice-muted") == "True")
+                lines.Add(Lexicon.Get("audio.takes.details_playback_muted"));
         }
         if (stats == null || !stats.Available)
             lines.Add(Lexicon.Get("audio.takes.details_no_figures", ("reason", stats?.Reason ?? Lexicon.Get("audio.iq.unknown"))));

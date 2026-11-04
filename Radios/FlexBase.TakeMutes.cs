@@ -116,6 +116,16 @@ public partial class FlexBase
         lock (_temporaryMutes) foreach (var slice in slices) if (slice != null) _temporaryMutes.Remove(slice);
     }
 
+    /// <summary>
+    /// The slices the Loopback arrangement muted for its check, for a Looped
+    /// back take's header: the arrangement mutes every owned slice but its
+    /// listening slice and confirms each, so a saved Looped back playback does
+    /// not mute them a second time (round two). Empty when nothing is arranged.
+    /// </summary>
+    public IReadOnlyList<TakeSliceMute> LoopbackArrangementMutes =>
+        !_loopbackArranged || _lbSavedMutes == null ? Array.Empty<TakeSliceMute>()
+            : _lbSavedMutes.Select(m => new TakeSliceMute(m.Slice.Index, LetterOf(m.Slice), m.Muted, !m.Muted, true)).ToList();
+
     /// <summary>True while any check or take holds a slice's mute.</summary>
     internal bool HoldsTemporaryMutes { get { lock (_temporaryMutes) return _temporaryMutes.Count > 0; } }
 

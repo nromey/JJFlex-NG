@@ -261,6 +261,8 @@ public partial class CheckYourAudioDialog : JJFlexDialog
                 {
                     inst._tearingDown = true;
                     inst.CancelCheckStart();
+                    // A saved playback ends before its mutes are put back (Unified takes).
+                    inst._session?.EndTake("connection-ending");
                     inst._session?.ForceEnd("Radio disconnected, audio check ended");
                     inst._session = null;
                     inst.DisarmTone(speak: false);
@@ -618,9 +620,14 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             // the session only after _rig was null.
             if (oldRig != null)
             {
-                _session?.ForceEnd(rig == null ? "Radio disconnected, audio check ended" : "Radio changed, audio check ended");
+                // A saved playback ends incomplete, and is not waited for (Unified takes).
+                _session?.EndTake(rig == null ? "connection-ended" : "radio-changed");
+                _skipTakeDrain = true;
+                try { _session?.ForceEnd(rig == null ? "Radio disconnected, audio check ended" : "Radio changed, audio check ended"); }
+                finally { _skipTakeDrain = false; }
                 _session = null;
             }
+            _savedTakes.Clear();
             _iqRecoveryReader = null;
             _lastIqDirectory = null;
             _offAirStatus = "";

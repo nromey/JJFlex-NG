@@ -386,7 +386,7 @@ public sealed class PlayTakesDialog : JJFlexDialog
         var recorder = ComputerRecorder.Current as ComputerFlacRecorder;
         var verdict = TakeDeletionGuard.Delete(Root, row.Directory,
             Path.Combine(RadioConfig.AppDataRoot, "listenback-recovery"), new CheckRestoreReminderStore(RadioConfig.AppDataRoot),
-            busy: folder => recorder?.IsCapturing(folder) == true);
+            busy: folder => recorder?.IsCapturing(folder) == true || TakeObligations.IsOwed(folder));
         if (_chosen?.Directory == row.Directory && verdict.Allowed) _chosen = null;
         Populate(keepSelection: !verdict.Allowed);
         string key = verdict.Reason switch

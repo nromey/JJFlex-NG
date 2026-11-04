@@ -46,7 +46,7 @@ public sealed class UnifiedTakesFactsTests : IDisposable
         Field(c.Tx, "_rxant", "ANT1"); // as the radio reports it
         var facts = c.F.Rig.PlaybackTakeFacts(TakeKind.RadioRecording, SliceRecorderTarget.TransmitSlice, "record-playback");
 
-        foreach (string key in UnifiedTakeFixtures.BaseFacts().Keys.Where(k => k != "source"))
+        foreach (string key in UnifiedTakeFixtures.BaseFacts().Keys.Where(k => k != "source" && k != "capture-isolation"))
             Assert.False(Value(facts, key) == null, "missing: " + key);
         foreach (var field in TakeSetup.Registered)
             Assert.False(Value(facts, field.Key) == null, "missing registered field: " + field.Key);

@@ -34,6 +34,8 @@ internal static class UnifiedTakeFixtures
         ["source"] = TakeSetup.Voice,
         ["slice-audio-gain"] = "50",
         ["receive-antenna"] = "XVTB",
+        // Round two: what else reached the capture (D2); only "isolated" is ever measured against another take.
+        ["capture-isolation"] = "isolated",
         [AudioTakeFields.CaptureTap] = "pre-pc-output-processing",
         [AudioTakeFields.WireCodec] = "opus",
         [AudioTakeFields.Provenance] = "radio-playback-after-network-codec",

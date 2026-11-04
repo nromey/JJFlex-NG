@@ -185,7 +185,7 @@ public sealed class UnifiedTakesMuteTests : IDisposable
         Assert.False(c.F.Rig.HoldsTemporaryMutes);
     }
 
-    private static RadioCase Arranged(string? serial = null)
+    internal static RadioCase Arranged(string? serial = null)
     {
         var c = ThreeSlices(serial);
         Field(c.Tx.Panadapter, "_rx_antenna_list", new[] { "ANT1", "XVT-A", "XVT-B" });
@@ -203,7 +203,7 @@ public sealed class UnifiedTakesMuteTests : IDisposable
         return c;
     }
 
-    private static void RunQueue(RadioCase c)
+    internal static void RunQueue(RadioCase c)
     {
         while (c.F.Rig.q.Count > 0) if (c.F.Rig.q.Dequeue().Item is FlexBase.FunctionDel a) a();
     }

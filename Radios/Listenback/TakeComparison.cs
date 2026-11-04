@@ -106,6 +106,10 @@ public static partial class TakeAnalysis
         if (ka is TakeKind.Diagnostic or TakeKind.UnknownLegacy or TakeKind.Damaged ||
             kb is TakeKind.Diagnostic or TakeKind.UnknownLegacy or TakeKind.Damaged)
             return Refuse("unlike-takes:kind");
+        // A playback that also caught the other slices, or was keyed over, is
+        // kept and played but never measured against another (D2's fallback).
+        if (a.IsAudio && a.Get(CaptureIsolation) != Isolated || b.IsAudio && b.Get(CaptureIsolation) != Isolated)
+            return Refuse("unlike-takes:contaminated");
         string sa = SourceOf(a), sb = SourceOf(b);
         if (sa == null || sb == null) return Refuse("unlike-takes:source-unknown");
         if (sa != sb) return Refuse("unlike-takes:source", new[] { new SetupChange("source", sa, sb) });
@@ -142,6 +146,10 @@ public static partial class TakeAnalysis
     /// The first reason that applies wins, because it is the one the sentence
     /// gives.
     /// </summary>
+    /// <summary>A playback take's verdict on what else reached its capture: <see cref="Isolated"/>, <c>contaminated</c> or <c>unknown</c>.</summary>
+    public const string CaptureIsolation = "capture-isolation";
+    public const string Isolated = "isolated";
+
     private static string LevelWithheld(TakeInspection a, TakeInspection b)
     {
         if (a.Kind != b.Kind || !a.IsAudio || !b.IsAudio) return "kinds";

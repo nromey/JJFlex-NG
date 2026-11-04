@@ -228,6 +228,11 @@ public class Host
         private static string SourceFriendlyName(string s) => s;
         private void HandleUnkey(bool external) { _ptt.EscapeUnlock(); Active=false; _owner.OnSessionEnded(); }
         private void ForceEnd(string s) { HandleUnkey(false); }
+        // Unified takes, round two: StartAsync admits a saved playback's take
+        // (CheckYourAudioDialog.SaveTakes.cs). Saving is off in every scenario here.
+        private TakeStub _take;
+        private void AdmitTake(FlexBase rig) { }
+        private sealed class TakeStub { public void NoteKeyed() { } }
         /*StartAsync*/
         /*StopCheck*/
     }
