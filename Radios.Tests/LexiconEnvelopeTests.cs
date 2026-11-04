@@ -2130,7 +2130,6 @@ namespace Radios.Tests
                 // its three-way setting. DRAFT prose, awaiting Noel.
                 "audio.ptt.transmit_elsewhere_terse",
                 "audio.ptt.transmit_elsewhere",
-                "audio.ptt.transmit_elsewhere_first",
                 "settings.ptt.transmit_elsewhere_label",
                 "settings.ptt.transmit_elsewhere_speak_and_tone",
                 "settings.ptt.transmit_elsewhere_tone_only",

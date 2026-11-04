@@ -114,7 +114,7 @@ namespace Radios.Tests
             // And no consumer names a transmit slice.
             Assert.Equal(Lexicon.Get("audio.ptt.announce_transmitting"), PttSliceWords.Transmitting(roles, nameSlice: true));
             Assert.Equal(Lexicon.Get("audio.ptt.announce_locked"), PttSliceWords.Locked(roles, nameSlice: true));
-            Assert.Null(TransmitSliceNotice.Wording(roles, VerbosityLevel.Chatty, chattyFirst: false, Mhz));
+            Assert.Null(TransmitSliceNotice.Wording(roles, VerbosityLevel.Chatty, Mhz));
             Assert.Equal(Lexicon.Get("connect.home.frequency", ("freqText", "7.030"), ("slice", "B")),
                          FrequencyKeyReadout.Sentence(FrequencyKeySlices.Transmit, roles, Mhz));
         }
@@ -158,7 +158,7 @@ namespace Radios.Tests
             Assert.True(rig.ValidVFO(rig.TXVFO)); // the position is still there
             SliceRoles roles = SliceRoles.Of(rig);
             Assert.False(roles.HasTransmit);
-            Assert.Null(TransmitSliceNotice.Wording(roles, VerbosityLevel.Chatty, chattyFirst: false, Mhz));
+            Assert.Null(TransmitSliceNotice.Wording(roles, VerbosityLevel.Chatty, Mhz));
         }
 
         [Fact]
@@ -233,7 +233,6 @@ namespace Radios.Tests
 
                 var first = TransmitSliceNotice.Prepare(rig, "test", mandatory: false);
                 Assert.True(first.Spoke);
-                Assert.True(first.ChattyFirst);
                 // Not keyed (cancelled): the next attempt is not silenced by it.
                 var again = TransmitSliceNotice.Prepare(rig, "test", mandatory: false);
                 Assert.True(again.Spoke);
@@ -245,7 +244,6 @@ namespace Radios.Tests
                 SliceReports(rig, a, "Freq");
                 var moved = TransmitSliceNotice.Prepare(rig, "test", mandatory: false);
                 Assert.True(moved.Spoke);                 // the transmit frequency moved
-                Assert.False(moved.ChattyFirst);          // the long form is the session's first only
                 TransmitSliceNotice.Keyed(moved);
 
                 TransmitSliceNotice.Setting = TransmitElsewhereNotice.Off;

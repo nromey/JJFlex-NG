@@ -82,19 +82,20 @@ namespace Radios
 
         /// <summary>
         /// The sentence for a split, or null when the transmit slice is the
-        /// selected one or there is none. Pure. By verbosity (Noel, 2026-11-03):
-        /// Terse and Off "B 14.100"; Chatty, the first time in a session, a
-        /// longer sentence that says what is happening; afterwards, and at
-        /// Diagnostic after the first, "Transmit slice B, 14.100". DRAFT PROSE.
+        /// selected one or there is none. Pure. By verbosity: Terse and Off
+        /// "B 14.100"; Chatty and Diagnostic "Transmitting on slice B, 14.100",
+        /// every time it is said. RULED by Noel 2026-11-04 06:50 ("call a
+        /// spade a spade"): the longer first-of-session sentence and the
+        /// "Transmit slice B" wording are gone, so there is no first-time
+        /// branch any more. When it is said is unchanged: once per split.
         /// </summary>
-        public static string Wording(SliceRoles roles, VerbosityLevel level, bool chattyFirst, Func<ulong, string> format)
+        public static string Wording(SliceRoles roles, VerbosityLevel level, Func<ulong, string> format)
         {
             if (!roles.TransmitsElsewhere) return null;
             if (format == null) throw new ArgumentNullException(nameof(format));
             var slice = ("slice", (object)roles.TransmitLetter);
             var freq = ("freq", (object)format(roles.TransmitHz));
             if (level <= VerbosityLevel.Terse) return Lexicon.Get("audio.ptt.transmit_elsewhere_terse", slice, freq);
-            if (chattyFirst) return Lexicon.Get("audio.ptt.transmit_elsewhere_first", slice, freq);
             return Lexicon.Get("audio.ptt.transmit_elsewhere", slice, freq);
         }
 
@@ -140,7 +141,6 @@ namespace Radios
         private sealed class Memory
         {
             public SliceRoles? Spoken;
-            public bool ChattyFirstSaid;
         }
 
         /// <summary>One per rig, which is one per connection: a new connection starts with nothing said.</summary>
@@ -158,14 +158,13 @@ namespace Radios
         public sealed class Notice
         {
             internal Notice(FlexBase rig, string door, SliceRoles announced, bool mandatory, bool spoke,
-                bool chattyFirst, ICountdownWords words)
+                ICountdownWords words)
             {
                 Rig = rig;
                 Door = door ?? "";
                 Announced = announced;
                 Mandatory = mandatory;
                 Spoke = spoke;
-                ChattyFirst = chattyFirst;
                 Words = words;
             }
 
@@ -177,7 +176,6 @@ namespace Radios
             public bool Mandatory { get; }
             /// <summary>True when the sentence was said and must be heard before the key.</summary>
             public bool Spoke { get; }
-            internal bool ChattyFirst { get; }
             /// <summary>The words to wait on, or null when nothing was said.</summary>
             public ICountdownWords Words { get; }
         }
@@ -197,23 +195,21 @@ namespace Radios
             catch (Exception ex)
             {
                 Tracing.TraceLine("TransmitSliceNotice (" + door + "): could not read the slices: " + ex.Message, TraceLevel.Warning);
-                return new Notice(rig, door, default, mandatory, false, false, null);
+                return new Notice(rig, door, default, mandatory, false, null);
             }
             Memory memory = MemoryOf(rig);
             SliceRoles? last;
-            bool chattyFirstSaid;
-            lock (MemoryLock) { last = memory.Spoken; chattyFirstSaid = memory.ChattyFirstSaid; }
+            lock (MemoryLock) last = memory.Spoken;
             if (!Speaks(Setting, mandatory, roles, last))
-                return new Notice(rig, door, roles, mandatory, false, false, null);
+                return new Notice(rig, door, roles, mandatory, false, null);
 
             VerbosityLevel level = ScreenReaderOutput.CurrentVerbosity;
-            bool chattyFirst = level >= VerbosityLevel.Chatty && !chattyFirstSaid;
             string sentence;
-            try { sentence = Wording(roles, level, chattyFirst, FormatterFor(rig)); }
+            try { sentence = Wording(roles, level, FormatterFor(rig)); }
             catch (Exception ex)
             {
                 Tracing.TraceLine("TransmitSliceNotice (" + door + "): could not word the sentence: " + ex.Message, TraceLevel.Warning);
-                return new Notice(rig, door, roles, mandatory, true, false, CountdownWords.Undelivered);
+                return new Notice(rig, door, roles, mandatory, true, CountdownWords.Undelivered);
             }
             Tracing.TraceLine("TransmitSliceNotice (" + door + "): the transmit slice is not the selected one; saying \""
                 + sentence + "\" before keying", TraceLevel.Info);
@@ -224,7 +220,7 @@ namespace Radios
                 Tracing.TraceLine("TransmitSliceNotice (" + door + "): could not be said: " + ex.Message, TraceLevel.Warning);
                 words = CountdownWords.Undelivered;
             }
-            return new Notice(rig, door, roles, mandatory, true, chattyFirst, words);
+            return new Notice(rig, door, roles, mandatory, true, words);
         }
 
         /// <summary>
@@ -329,7 +325,6 @@ namespace Radios
             {
                 if (notice.Spoke) memory.Spoken = notice.Announced;
                 else if (!notice.Announced.TransmitsElsewhere) memory.Spoken = null;
-                if (notice.ChattyFirst) memory.ChattyFirstSaid = true;
             }
         }
 

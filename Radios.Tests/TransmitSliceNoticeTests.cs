@@ -29,31 +29,29 @@ public sealed class TransmitSliceNoticeTests
     private static readonly SliceRoles Together =
         new SliceRoles("A", 14_100_000UL, hasTransmit: true, "A", 14_100_000UL, same: true);
 
-    // ── The words, by verbosity (DRAFT) ──────────────────────────────────
+    // ── The words, by verbosity (ruled by Noel 2026-11-04 06:50) ─────────
 
     [Fact]
     public void Terse_and_off_say_the_slice_and_frequency_only()
     {
-        Assert.Equal("B 14.100", TransmitSliceNotice.Wording(Apart, VerbosityLevel.Terse, chattyFirst: true, Mhz));
-        Assert.Equal("B 14.100", TransmitSliceNotice.Wording(Apart, VerbosityLevel.Critical, chattyFirst: false, Mhz));
+        Assert.Equal("B 14.100", TransmitSliceNotice.Wording(Apart, VerbosityLevel.Terse, Mhz));
+        Assert.Equal("B 14.100", TransmitSliceNotice.Wording(Apart, VerbosityLevel.Critical, Mhz));
     }
 
     [Fact]
-    public void Chatty_says_what_is_happening_the_first_time_and_the_short_form_after()
+    public void Chatty_and_diagnostic_say_transmitting_on_slice_every_time()
     {
-        Assert.Equal("Transmitting on a different slice than the active slice: slice B, 14.100",
-            TransmitSliceNotice.Wording(Apart, VerbosityLevel.Chatty, chattyFirst: true, Mhz));
-        Assert.Equal("Transmit slice B, 14.100",
-            TransmitSliceNotice.Wording(Apart, VerbosityLevel.Chatty, chattyFirst: false, Mhz));
-        Assert.Equal("Transmit slice B, 14.100",
-            TransmitSliceNotice.Wording(Apart, VerbosityLevel.Diagnostic, chattyFirst: false, Mhz));
+        Assert.Equal("Transmitting on slice B, 14.100",
+            TransmitSliceNotice.Wording(Apart, VerbosityLevel.Chatty, Mhz));
+        Assert.Equal("Transmitting on slice B, 14.100",
+            TransmitSliceNotice.Wording(Apart, VerbosityLevel.Diagnostic, Mhz));
     }
 
     [Fact]
     public void On_the_selected_slice_or_with_no_transmit_slice_it_says_nothing()
     {
-        Assert.Null(TransmitSliceNotice.Wording(Together, VerbosityLevel.Chatty, true, Mhz));
-        Assert.Null(TransmitSliceNotice.Wording(default, VerbosityLevel.Chatty, true, Mhz));
+        Assert.Null(TransmitSliceNotice.Wording(Together, VerbosityLevel.Chatty, Mhz));
+        Assert.Null(TransmitSliceNotice.Wording(default, VerbosityLevel.Chatty, Mhz));
     }
 
     // ── Once per split ───────────────────────────────────────────────────
@@ -214,7 +212,7 @@ public sealed class TransmitSliceNoticeTests
     public void A_sentence_said_whole_is_heard()
     {
         var r = new Reader();
-        ICountdownWords words = r.Speech.SayWhole("Transmit slice B, 14.100", SpeechSubject.TransmitSliceNotice);
+        ICountdownWords words = r.Speech.SayWhole("Transmitting on slice B, 14.100", SpeechSubject.TransmitSliceNotice);
         Assert.False(words.Finished);
         r.Arbiter.OnOutcome(r.LastTicket, r.LastText, SpeechOutcome.Completed(4, 4, 900));
         Assert.True(words.Finished);
@@ -227,7 +225,7 @@ public sealed class TransmitSliceNoticeTests
     public void A_sentence_cut_after_its_first_word_is_not_heard(bool byUs)
     {
         var r = new Reader();
-        ICountdownWords words = r.Speech.SayWhole("Transmit slice B, 14.100", SpeechSubject.TransmitSliceNotice);
+        ICountdownWords words = r.Speech.SayWhole("Transmitting on slice B, 14.100", SpeechSubject.TransmitSliceNotice);
         r.Arbiter.OnOutcome(r.LastTicket, r.LastText, SpeechOutcome.Cancelled(1, 4, byUs, 200));
         Assert.False(words.Finished);
         Assert.True(words.Failed);
