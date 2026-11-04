@@ -31,6 +31,21 @@ namespace Radios
     /// While <see cref="Busy"/>, the removal a press started is still
     /// landing, and no down presses.
     /// </para>
+    /// <para>
+    /// <b>Repair round 2 (Codex's re-check).</b> The gap covers the repeat
+    /// PERIOD as well as the delay (<see cref="GapForKeyboard"/>): the slowest
+    /// repeat speed repeats every 400 ms, and a WinForms list sees no repeat
+    /// flag, so a gap sized from a 250 ms delay alone let a held key remove on
+    /// four downs of five. A down with no up since the last down, inside
+    /// <see cref="HeldWithoutUpMs"/>, is the same hold whatever its flag says.
+    /// Another key on the list after Delete came up (<see cref="OtherInput"/>)
+    /// is a new intent, so a deliberate press on the next item is not
+    /// swallowed; Delete's own pairs never count as another key, so a JAWS
+    /// hold stays one hold. The list losing focus while a hold is live
+    /// (<see cref="Interrupted"/>, a question opening) and getting it back
+    /// (<see cref="Resumed"/>) restarts the silence from the return, so the
+    /// key still held when the question closes cannot act again.
+    /// </para>
     /// </remarks>
     public sealed class DeleteKeyGate
     {
@@ -59,6 +74,33 @@ namespace Radios
             Math.Min(Math.Max(repeatDelayMs * 3 / 2, PttHoldFilter.DefaultDeferMs), PttHoldFilter.MaxFirstGapDeferMs);
 
         /// <summary>
+        /// About 250 ms between JAWS's synthesised pairs of a held key
+        /// (measured 242-272 ms, 2026-08-24).
+        /// </summary>
+        public const int JawsPairSpacingMs = 250;
+
+        /// <summary>
+        /// The gap for this keyboard (repair round 2): one and a half times
+        /// the LONGEST quiet a held key leaves, whichever of the repeat delay,
+        /// the repeat period and JAWS's pair spacing that is, within
+        /// <see cref="PttHoldFilter"/>'s bounds. Every supported setting fits:
+        /// the longest is a 1000 ms delay, giving 1500.
+        /// </summary>
+        public static int GapForKeyboard(int repeatDelayMs, int repeatPeriodMs)
+        {
+            int longest = Math.Max(Math.Max(repeatDelayMs, repeatPeriodMs), JawsPairSpacingMs);
+            return Math.Min(Math.Max(longest * 3 / 2, PttHoldFilter.DefaultDeferMs), PttHoldFilter.MaxFirstGapDeferMs);
+        }
+
+        /// <summary>
+        /// A down with no up seen since the previous down, this soon after it,
+        /// is the same hold whatever its repeat flag says: a key cannot go down
+        /// twice without coming up unless it is repeating. Bounded, so an up
+        /// lost to another window cannot hold the key forever.
+        /// </summary>
+        public const int HeldWithoutUpMs = PttHoldFilter.MaxFirstGapDeferMs;
+
+        /// <summary>
         /// Delete went down. True when this is a press to act on; false for a
         /// held key (repeat, or a synthesised pair) or while a removal lands.
         /// Every Delete down is reported here, acted on or not.
@@ -67,8 +109,7 @@ namespace Radios
         {
             if (_holding)
             {
-                bool letGo = (_lastUpMs != long.MinValue && nowMs - _lastUpMs > ReleaseGapMs)
-                             || nowMs - _lastDownMs > ReleaseGapMs;
+                bool letGo = !StillHeld(nowMs);
                 if (!letGo)
                 {
                     _lastDownMs = nowMs;
@@ -90,6 +131,55 @@ namespace Radios
         public void Up(long nowMs)
         {
             if (_holding) _lastUpMs = nowMs;
+        }
+
+        /// <summary>
+        /// Whether the last press's hold is still live at <paramref name="nowMs"/>:
+        /// no up since the last down and that down recent
+        /// (<see cref="HeldWithoutUpMs"/>), or quiet for no longer than the gap.
+        /// </summary>
+        private bool StillHeld(long nowMs)
+        {
+            if (!_holding) return false;
+            if (_lastUpMs == long.MinValue && nowMs - _lastDownMs <= Math.Max(ReleaseGapMs, HeldWithoutUpMs))
+                return true;
+            return !((_lastUpMs != long.MinValue && nowMs - _lastUpMs > ReleaseGapMs)
+                     || nowMs - _lastDownMs > ReleaseGapMs);
+        }
+
+        /// <summary>
+        /// Another key, or a click, on the list. After Delete has come up that
+        /// is a new intent (the operator moved to another item), so the hold
+        /// is over and the next Delete is a press. While Delete is still down
+        /// (no up seen) it changes nothing.
+        /// </summary>
+        public void OtherInput(long nowMs)
+        {
+            if (_holding && _lastUpMs != long.MinValue) _holding = false;
+        }
+
+        /// <summary>
+        /// The list lost keyboard focus (a question opened, or the operator
+        /// moved away). A hold live now stays held, with its up still to come:
+        /// the up may go to the question.
+        /// </summary>
+        public void Interrupted(long nowMs)
+        {
+            if (!StillHeld(nowMs)) { _holding = false; return; }
+            _lastDownMs = nowMs;
+            _lastUpMs = long.MinValue;
+        }
+
+        /// <summary>
+        /// The list has keyboard focus again. A hold still live counts its
+        /// silence from now, so the key still held as a question closes keys
+        /// nothing; a fresh press after the gap presses.
+        /// </summary>
+        public void Resumed(long nowMs)
+        {
+            if (!_holding) return;
+            _lastDownMs = Math.Max(_lastDownMs, nowMs);
+            _lastUpMs = nowMs;
         }
 
         /// <summary>
@@ -124,13 +214,17 @@ namespace Radios
         {
             if (list == null) throw new ArgumentNullException(nameof(list));
             if (button == null) throw new ArgumentNullException(nameof(button));
-            var gate = new DeleteKeyGate(DeleteKeyGate.GapForRepeatDelay(
-                KeyRepeatTiming.DelayMsFromSetting(System.Windows.Forms.SystemInformation.KeyboardDelay)));
+            // The repeat period as well as the delay (repair round 2): WinForms
+            // marks no repeats, and the slowest repeat speed is slower than the
+            // shortest delay.
+            var gate = new DeleteKeyGate(DeleteKeyGate.GapForKeyboard(
+                KeyRepeatTiming.DelayMsFromSetting(System.Windows.Forms.SystemInformation.KeyboardDelay),
+                KeyRepeatTiming.RepeatPeriodMsFromSetting(System.Windows.Forms.SystemInformation.KeyboardSpeed)));
             list.KeyDown += (_, e) =>
             {
-                if (e.KeyCode != System.Windows.Forms.Keys.Delete || e.Modifiers != System.Windows.Forms.Keys.None) return;
-                // WinForms does not mark repeats; the gate's timing covers them.
-                bool press = gate.Down(isRepeat: false, Environment.TickCount64);
+                bool bareDelete = e.KeyCode == System.Windows.Forms.Keys.Delete && e.Modifiers == System.Windows.Forms.Keys.None;
+                bool press = Decide(gate, bareDelete, Environment.TickCount64);
+                if (!bareDelete) return;
                 e.Handled = true;
                 e.SuppressKeyPress = true;
                 if (!press || list.SelectedIndex < 0 || !button.Enabled || !button.Visible) return;
@@ -159,6 +253,27 @@ namespace Radios
             {
                 if (e.KeyCode == System.Windows.Forms.Keys.Delete) gate.Up(Environment.TickCount64);
             };
+            // A click is another input; focus leaving (a question opening) and
+            // coming back is a hold's interruption (repair round 2).
+            list.MouseDown += (_, _) => gate.OtherInput(Environment.TickCount64);
+            list.LostFocus += (_, _) => gate.Interrupted(Environment.TickCount64);
+            list.GotFocus += (_, _) => gate.Resumed(Environment.TickCount64);
+        }
+
+        /// <summary>
+        /// One key-down on a WinForms list, decided: true when it is a press of
+        /// Delete to act on. Any other key is another input to the gate (a new
+        /// intent once Delete has come up). WinForms reports no repeat flag;
+        /// the gate tracks a down with no up since the last one instead.
+        /// </summary>
+        internal static bool Decide(DeleteKeyGate gate, bool bareDelete, long nowMs)
+        {
+            if (!bareDelete)
+            {
+                gate.OtherInput(nowMs);
+                return false;
+            }
+            return gate.Down(isRepeat: false, nowMs);
         }
     }
 }

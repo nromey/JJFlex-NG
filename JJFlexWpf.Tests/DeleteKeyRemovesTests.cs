@@ -87,6 +87,31 @@ public sealed class DeleteKeyRemovesTests
         Assert.True(D(jaws, false, 4500));
     }
 
+    /// <summary>
+    /// Repair round 2 (Codex's re-check, follow-up): a deliberate press on
+    /// ANOTHER item, after moving to it with an arrow, is a new intent and
+    /// presses, even inside the gap; Delete's own JAWS pairs still do not.
+    /// </summary>
+    [Fact]
+    public void A_press_after_moving_to_another_item_presses_and_a_held_key_still_does_not()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        bool D(Radios.DeleteKeyGate g, Key key, bool repeat, long t) =>
+            DeleteKeyRemoves.Decide(g, key, ModifierKeys.None, repeat, fromTextEntry: false,
+                selectedIndex: 0, buttonPresent: true, buttonEnabled: true, buttonVisible: true, nowMs: t);
+
+        var g = new Radios.DeleteKeyGate(750);
+        Assert.True(D(g, Key.Delete, false, 0));
+        g.Up(80);
+        Assert.False(D(g, Key.Down, false, 150));       // to the next item
+        Assert.True(D(g, Key.Delete, false, 300));      // a new press, inside the gap
+
+        var jaws = new Radios.DeleteKeyGate(750);
+        Assert.True(D(jaws, Key.Delete, false, 0));
+        jaws.Up(5);
+        Assert.False(D(jaws, Key.Delete, false, 512));  // the same hold
+    }
+
     [Fact]
     public void A_Delete_that_does_not_qualify_never_presses_however_fresh()
     {

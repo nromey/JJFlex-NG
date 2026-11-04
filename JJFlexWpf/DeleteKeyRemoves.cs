@@ -54,19 +54,42 @@ public static class DeleteKeyRemoves
         if (d is not Selector list) return;
         list.PreviewKeyDown -= OnPreviewKeyDown;
         list.PreviewKeyUp -= OnPreviewKeyUp;
+        list.PreviewMouseDown -= OnPreviewMouseDown;
+        list.IsKeyboardFocusWithinChanged -= OnFocusWithinChanged;
         if (e.NewValue != null)
         {
             list.PreviewKeyDown += OnPreviewKeyDown;
             list.PreviewKeyUp += OnPreviewKeyUp;
+            list.PreviewMouseDown += OnPreviewMouseDown;
+            list.IsKeyboardFocusWithinChanged += OnFocusWithinChanged;
         }
+    }
+
+    private static void OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is Selector list) GateFor(list).OtherInput(Environment.TickCount64);
+    }
+
+    /// <summary>
+    /// Focus leaving the list (a question opening, the operator moving away)
+    /// and coming back (repair round 2): a Delete still held as a question
+    /// closes cannot act again.
+    /// </summary>
+    private static void OnFocusWithinChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (sender is not Selector list) return;
+        var gate = GateFor(list);
+        if (e.NewValue is true) gate.Resumed(Environment.TickCount64);
+        else gate.Interrupted(Environment.TickCount64);
     }
 
     /// <summary>Each list's own one-press-one-removal filter (Codex's check of #774, blocker 1).</summary>
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Selector, Radios.DeleteKeyGate> Gates = new();
 
     private static Radios.DeleteKeyGate GateFor(Selector list) =>
-        Gates.GetValue(list, _ => new Radios.DeleteKeyGate(Radios.DeleteKeyGate.GapForRepeatDelay(
-            Radios.KeyRepeatTiming.DelayMsFromSetting(SystemParameters.KeyboardDelay))));
+        Gates.GetValue(list, _ => new Radios.DeleteKeyGate(Radios.DeleteKeyGate.GapForKeyboard(
+            Radios.KeyRepeatTiming.DelayMsFromSetting(SystemParameters.KeyboardDelay),
+            Radios.KeyRepeatTiming.RepeatPeriodMsFromSetting(SystemParameters.KeyboardSpeed))));
 
     /// <summary>
     /// One Delete key-down, decided: true when it presses the button. Every
@@ -78,7 +101,13 @@ public static class DeleteKeyRemoves
     internal static bool Decide(Radios.DeleteKeyGate gate, Key key, ModifierKeys mods, bool isRepeat, bool fromTextEntry,
         int selectedIndex, bool buttonPresent, bool buttonEnabled, bool buttonVisible, long nowMs)
     {
-        if (key != Key.Delete || mods != ModifierKeys.None || fromTextEntry) return false;
+        if (key != Key.Delete || mods != ModifierKeys.None || fromTextEntry)
+        {
+            // Another key on the list: once Delete has come up, a new intent
+            // (repair round 2), so a deliberate press on the next item counts.
+            gate.OtherInput(nowMs);
+            return false;
+        }
         bool press = gate.Down(isRepeat, nowMs);
         return press && Presses(key, mods, fromTextEntry, selectedIndex, buttonPresent, buttonEnabled, buttonVisible);
     }
