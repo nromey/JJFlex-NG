@@ -43,8 +43,10 @@ namespace JJFlexWpf
                 _ => new RnnoiseEngine(), ProbeRnnoise);
             yield return new("deepfilternet3", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.deepfilternet3", Both,
                 initial => new DeepFilterNet3Engine((float)initial["attenuation_limit_db"].Number), ProbeDeepFilter, SettingDescriptors: DeepFilterNet3Engine.SettingDescriptors);
-            yield return new("nnr", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.nnr", Both);
-            yield return new("nr2", DenoiseSide.Pc, DenoiseFamily.Spectral, "audio.denoise.nr2", Both);
+            yield return new("nnr", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.nnr", Both,
+                initial => new WdspHelperEngine("nnr", DenoiseDirection.Receive, initial), () => WdspHelperEngine.Probe("nnr"));
+            yield return new("nr2", DenoiseSide.Pc, DenoiseFamily.Spectral, "audio.denoise.nr2", Both,
+                initial => new WdspHelperEngine("nr2", DenoiseDirection.Receive, initial), () => WdspHelperEngine.Probe("nr2"));
             yield return new("nr4", DenoiseSide.Pc, DenoiseFamily.Spectral, "audio.denoise.nr4", Both,
                 initial => new SpecbleachEngine(initial), SpecbleachEngine.Probe, SettingDescriptors: SpecbleachEngine.SettingDescriptors);
             yield return new("spectral_capture", DenoiseSide.Pc, DenoiseFamily.Spectral, "audio.denoise.spectral_capture", Receive,

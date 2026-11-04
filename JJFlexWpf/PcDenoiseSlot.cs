@@ -35,7 +35,16 @@ namespace JJFlexWpf
         private sealed record Built(Choice Choice, PerChannelDenoiserBank Bank)
         {
             internal Parameters? Applied;
+            /// <summary>Made on the build worker, so the swap on the audio thread only publishes a reference.</summary>
+            internal RunningBuild? Running;
         }
+        /// <summary>
+        /// What the running bank was built from: its id and the starting values
+        /// it got, published together so Select can tell whether arrowing back
+        /// to it would keep an instance built with an out-of-date latency setting.
+        /// </summary>
+        private sealed record RunningBuild(string Id, IReadOnlyDictionary<string, EngineSettingValue> Initial);
+        private RunningBuild? _runningBuild;
         private readonly object _control = new();
         private readonly DenoiseEngineCatalog _catalog;
         private readonly int _channels;
@@ -66,6 +75,8 @@ namespace JJFlexWpf
         }
         public event EventHandler<DenoiseSelectionResult>? SelectionResult;
         internal Action<string>? InstallHook { get; set; }
+        /// <summary>Tests only: the bank the audio thread is running now.</summary>
+        internal PerChannelDenoiserBank? RunningBankForTest => Volatile.Read(ref _running);
         internal bool BuildDelivered(string id)
         {
             var choice = Volatile.Read(ref _choice);
@@ -88,11 +99,12 @@ namespace JJFlexWpf
                 PerChannelDenoiserBank? initial = null;
                 try
                 {
-                    initial = BuildBank(entry);
+                    initial = BuildBank(entry, out var builtFrom);
                     if (!initial.IsAvailable)
                         throw new InvalidOperationException(initial.EngineFor(0).UnavailabilityDetail);
                     _running = initial;
                     _runningId = initialId;
+                    _runningBuild = new RunningBuild(initialId, builtFrom);
                     initial = null;
                 }
                 catch (Exception ex)
@@ -154,8 +166,26 @@ namespace JJFlexWpf
             }
             // Arrowing away and back keeps the existing native state. Audio
             // cancels its warming bank and acknowledges on its next buffer.
-            if (!force && RunningEngineId == id) return true;
+            // Not when a latency setting changed since that bank was built: it
+            // can change only through a new build, and the change was stored
+            // while another engine was chosen, so nothing has rebuilt it yet.
+            if (!force && RunningEngineId == id && RunningLatencyCurrent(id)) return true;
             RequestBuild(choice);
+            return true;
+        }
+
+        private bool RunningLatencyCurrent(string id)
+        {
+            var built = Volatile.Read(ref _runningBuild);
+            if (built == null || built.Id != id) return false;
+            foreach (var descriptor in SettingsFor(id))
+            {
+                if (!descriptor.ChangesLatency) continue;
+                var wanted = GetSetting(id, descriptor.Name);
+                var had = built.Initial.TryGetValue(descriptor.Name, out var v) ? v : descriptor.Default;
+                if (!string.Equals(wanted.Choice, had.Choice, StringComparison.Ordinal) ||
+                    BitConverter.DoubleToInt64Bits(wanted.Number) != BitConverter.DoubleToInt64Bits(had.Number)) return false;
+            }
             return true;
         }
 
@@ -176,12 +206,12 @@ namespace JJFlexWpf
             PerChannelDenoiserBank? bank = null;
             try
             {
-                bank = BuildBank(entry!);
+                bank = BuildBank(entry!, out var builtFrom);
                 if (!bank.IsAvailable) throw new InvalidOperationException(bank.EngineFor(0).UnavailabilityDetail);
                 lock (_control)
                 {
                     if (_closed != 0 || !ReferenceEquals(choice, _choice)) { bank.Dispose(); return; }
-                    var previous = Interlocked.Exchange(ref _ready, new Built(choice, bank));
+                    var previous = Interlocked.Exchange(ref _ready, new Built(choice, bank) { Running = new RunningBuild(choice.Id, builtFrom) });
                     bank = null;
                     previous?.Bank.Dispose();
                 }
@@ -193,7 +223,7 @@ namespace JJFlexWpf
             }
         }
 
-        private PerChannelDenoiserBank BuildBank(DenoiseEngineEntry entry)
+        private PerChannelDenoiserBank BuildBank(DenoiseEngineEntry entry, out IReadOnlyDictionary<string, EngineSettingValue> builtFrom)
         {
             var parameters = ParametersFor(entry.Id);
             var values = entry.Settings.ToDictionary(s => s.Name, s => s.Default);
@@ -203,6 +233,7 @@ namespace JJFlexWpf
                 if (descriptor != null && descriptor.Accepts(setting.Value)) values[setting.Key] = setting.Value;
             }
             var initial = new System.Collections.ObjectModel.ReadOnlyDictionary<string, EngineSettingValue>(values);
+            builtFrom = initial;
             var bank = new PerChannelDenoiserBank(() => entry.Factory!(initial), _channels);
             try
             {
@@ -291,6 +322,7 @@ namespace JJFlexWpf
                     InstallHook?.Invoke("before-running-id");
                     CrossFade(audio, _nextAudio, _channels);
                     var old = Interlocked.Exchange(ref _running, _warming.Bank);
+                    Volatile.Write(ref _runningBuild, _warming.Running); // built on the worker: nothing is allocated here
                     Volatile.Write(ref _runningId, _warming.Choice.Id);
                     InstallHook?.Invoke("after-running-id");
                     _runningApplied = _warming.Applied;
@@ -318,6 +350,7 @@ namespace JJFlexWpf
             // including while disabled, before reporting that the slot stopped.
             var old = Interlocked.Exchange(ref _running, null);
             if (old != null) Retire(old);
+            Volatile.Write(ref _runningBuild, null);
             Volatile.Write(ref _runningId, "");
             _runningApplied = null;
             if (_warming != null) { Retire(_warming.Bank); _warming = null; }

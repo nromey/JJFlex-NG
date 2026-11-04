@@ -1,0 +1,21 @@
+# Acceptance cases against the descriptors in hello-ack.bin.
+# One case per line: engine id, setting name, value kind, value, expected answer.
+# A number is the f64's 64 bits as 16 hex digits, most significant first;
+# those digits are the authority, and the decimal after "#" is a comment.
+# A choice is the option name in double quotes; "" is the empty name.
+nnr mask_floor_db number C039000000000000 accept   # -25
+nnr mask_floor_db number C03A000000000000 refuse   # -26
+nnr mask_floor_db number C044000000000000 accept   # -40
+nnr mask_floor_db number C046800000000000 refuse   # -45
+nnr mask_floor_db number 7FF8000000000000 refuse   # NaN
+nnr mask_floor_db choice "standard" refuse
+nnr model choice "premium" accept
+nnr model choice "Premium" refuse
+nnr model choice "" refuse
+nnr model number 0000000000000000 refuse   # 0
+nr2 trained_t2 number 3FC999999999999A accept   # 0.2
+nr2 trained_t2 number 3FCA3D70A3D70A3D refuse   # 0.205
+nr2 trained_t2 number 3FD3333333333333 accept   # 0.3
+nr2 trained_t2 number 3F947AE147AE147B accept   # 0.02
+nr2 trained_t2 number 0000000000000000 refuse   # 0
+nr2 trained_t2 number 3FD3D70A3D70A3D7 refuse   # 0.31
