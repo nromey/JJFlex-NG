@@ -125,7 +125,9 @@ public sealed class CheckRestoreSpeechTests : IDisposable
             Assert.Contains("owner.Register(\"" + name + "\"", source);
             Assert.NotNull(FlexBase.LoopbackPartOf(name));
         }
-        Assert.Contains("owner.Register($\"loopback: slice {saved.Slice.Index} mute\"", source);
+        // Since Unified takes round two the per-slice step goes through the
+        // restore it shares with the playback take; its name is unchanged.
+        Assert.Contains("RegisterSliceMuteRestore(owner, $\"loopback: slice {saved.Slice.Index} mute\"", source);
         Assert.Equal(LoopbackEndOutcome.Mutes, FlexBase.LoopbackPartOf("loopback: slice 3 mute"));
         Assert.Null(FlexBase.LoopbackPartOf("loopback: listening slice removal"));
     }

@@ -201,6 +201,7 @@ public partial class FlexBase
         IqRadioCapture capture = null;
         Slice created = null;
         LoopbackSliceResources ownedLoopback = null;
+        List<Slice> offAirMuted = null;
         bool leaseTransferred = false;
         var store = IqRecovery;
         using var setupStatus = radio == null ? null : new RadioStatusTap(radio);
@@ -305,6 +306,9 @@ public partial class FlexBase
                     throw new InvalidOperationException(_lbSetupFailure ?? "arrangement-refused");
                 }
                 ownedLoopback = _lbResources;
+                // The slices the arrangement muted: the station layout keeps their
+                // own mutes until this take's restore has run (Unified takes).
+                offAirMuted = _lbSavedMutes?.Select(m => m.Slice).ToList();
                 if (ownedLoopback?.Slice != null)
                 {
                     var ears = ownedLoopback.Slice;
@@ -603,9 +607,13 @@ public partial class FlexBase
             {
                 try
                 {
-                    return SameConnection()
+                    var outcome = SameConnection()
                         ? await RestoreListenbackSnapshotOutcomeAsync(snapshot, true, identities).ConfigureAwait(false)
                         : RestoreOutcome.Failed;
+                    // Put back, or never to be on this connection: the layout reads
+                    // the slices again. A restore held by transmit keeps them held.
+                    if (outcome != RestoreOutcome.Retry) ReleaseTemporaryMutes(offAirMuted);
+                    return outcome;
                 }
                 finally { if (Interlocked.Exchange(ref leaseReleased, 1) == 0) _iqLease.Release(); }
             }, () => { TransmitChange -= edge; if (ownedLoopback != null && ReferenceEquals(_lbResources, ownedLoopback)) { _loopbackArranged = false; _lbResources = null; _lbDriveBand = null; } });
@@ -643,6 +651,7 @@ public partial class FlexBase
                     if (!restored) DescribeCheckRestoreOwedElsewhere(CheckRestorations.RecordFailure("IQ take start rollback"),
                         () => IqRecovery.Find(snapshot.Serial) != null);
                 }
+                ReleaseTemporaryMutes(offAirMuted);
             }
             throw;
         }

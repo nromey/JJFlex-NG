@@ -627,7 +627,9 @@ namespace Radios
                         hz,
                         s.DemodMode ?? "",
                         s.Letter ?? "",
-                        s.Mute ? SliceMuteState.Muted : SliceMuteState.Unmuted));
+                        // The operator's own mute, not one a check or take is
+                        // holding for the moment (Unified takes, round two).
+                        MutedForLayout(s) ? SliceMuteState.Muted : SliceMuteState.Unmuted));
                 }
             }
             if (layout.IsEmpty) return;
