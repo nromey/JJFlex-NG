@@ -6614,15 +6614,92 @@ namespace Radios
         /// </summary>
         private Slice DesignatedTransmitSlice()
         {
+            lock (mySlices) return DesignatedTransmitSliceLocked();
+        }
+
+        /// <summary>
+        /// <see cref="DesignatedTransmitSlice"/>'s body, for a caller that
+        /// already holds the roster's lock and wants this answer to agree with
+        /// the rest of what it reads under that lock.
+        /// </summary>
+        private Slice DesignatedTransmitSliceLocked()
+        {
+            // Cleared by us, with the radio's echo still on its way.
+            int vfo = _TXVFO;
+            if (vfo == noVFO) return null;
+            if (vfo >= 0 && vfo < mySlices.Count && mySlices[vfo].IsTransmitSlice) return mySlices[vfo];
+            foreach (Slice s in mySlices)
+                if (s.IsTransmitSlice) return s;
+            return null;
+        }
+
+        /// <summary>
+        /// The selected and transmit slices as one coherent reading, for
+        /// <see cref="SliceRoles.Of"/>: every sentence that names a slice and
+        /// its frequency (F, the title, Transmitting and Receiving, the notice
+        /// before a door keys) reads it here.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Slice objects, not positions, and all under one lock.</b> The
+        /// reading this replaced took RXVFO and TXVFO, tested them, then asked
+        /// for each letter and each frequency in separate calls. A slice
+        /// removed between those calls shifts every position behind it, so a
+        /// letter could be paired with another slice's frequency. Here the two
+        /// slice OBJECTS are taken under the roster's lock and every letter
+        /// and frequency comes from the object it describes.
+        /// </para>
+        /// <para>
+        /// <b>The transmit role is the designation, never a position.</b>
+        /// TXVFO falls back to the first remaining slice when the transmit
+        /// slice goes, and the radio's own "no longer transmit" leaves it
+        /// standing; a valid position therefore proves nothing about which
+        /// slice transmits (<see cref="DesignatedTransmitSlice"/> says the
+        /// same, and <see cref="TXFrequency"/> already reads through it). With
+        /// no designated slice, the reading says there is no transmit slice
+        /// and names none.
+        /// </para>
+        /// <para>
+        /// <b>Each frequency is its own slice's.</b> The transmit frequency is
+        /// the transmit cache only when the cache describes this very slice
+        /// (<see cref="_txCacheSlice"/>), otherwise the slice's own; the
+        /// selected frequency is the receive cache only while this slice is
+        /// the radio's active one (the cache follows the active slice),
+        /// otherwise the slice's own. The caches hold an operator's write the
+        /// moment it is made, which is what Home's Frequency field shows; the
+        /// slice's own value is the fallback that cannot belong to anyone else.
+        /// </para>
+        /// </remarks>
+        internal SliceRoles ReadSliceRoles()
+        {
             lock (mySlices)
             {
-                // Cleared by us, with the radio's echo still on its way.
-                int vfo = _TXVFO;
-                if (vfo == noVFO) return null;
-                if (vfo >= 0 && vfo < mySlices.Count && mySlices[vfo].IsTransmitSlice) return mySlices[vfo];
-                foreach (Slice s in mySlices)
-                    if (s.IsTransmitSlice) return s;
-                return null;
+                int rx = _RXVFO;
+                Slice selected = (rx >= 0 && rx < mySlices.Count) ? mySlices[rx] : null;
+                Slice transmit = DesignatedTransmitSliceLocked();
+
+                string selectedLetter = selected?.Letter ?? "";
+                ulong selectedHz = 0UL;
+                if (selected != null)
+                {
+                    ulong cached = _RXFrequency;
+                    selectedHz = (selected.Active && cached != 0UL) ? cached : LibFreqtoLong(selected.Freq);
+                }
+
+                string transmitLetter = transmit?.Letter ?? "";
+                ulong transmitHz = 0UL;
+                if (transmit != null)
+                {
+                    ulong cached = _TXFrequency;
+                    transmitHz = (ReferenceEquals(transmit, _txCacheSlice) && cached != 0UL)
+                        ? cached : LibFreqtoLong(transmit.Freq);
+                }
+
+                bool hasTransmit = transmit != null && transmitLetter.Length > 0;
+                return new SliceRoles(
+                    selected != null ? selectedLetter : "", selectedHz,
+                    hasTransmit, hasTransmit ? transmitLetter : "", hasTransmit ? transmitHz : 0UL,
+                    hasTransmit && selected != null && ReferenceEquals(selected, transmit));
             }
         }
 

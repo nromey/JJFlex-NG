@@ -64,6 +64,11 @@ namespace Radios
         /// <summary>The selected slice's own frequency, in hertz.</summary>
         public ulong SelectedHz { get; }
 
+        /// <summary>True when a selected slice was read; false with none, when
+        /// <see cref="SelectedLetter"/> is empty and <see cref="SelectedHz"/>
+        /// is not a frequency.</summary>
+        public bool HasSelected => SelectedLetter.Length > 0;
+
         /// <summary>False when the radio has designated no transmit slice.</summary>
         public bool HasTransmit { get; }
 
@@ -82,21 +87,28 @@ namespace Radios
         /// </summary>
         public bool TransmitsElsewhere => HasTransmit && !Same;
 
-        /// <summary>Read both roles off the rig, once.</summary>
-        public static SliceRoles Of(FlexBase rig)
-        {
-            if (rig == null) return default;
-            int rx = rig.RXVFO;
-            int tx = rig.TXVFO;
-            bool hasRx = rig.ValidVFO(rx);
-            bool hasTx = rig.ValidVFO(tx);
-            // No letter for a slice that is not there: VFOToLetter falls back
-            // to the index, and "slice minus one" is worse than no slice.
-            return new SliceRoles(
-                hasRx ? rig.VFOToLetter(rx) : "", rig.RXFrequency,
-                hasTx, hasTx ? rig.VFOToLetter(tx) : "", hasTx ? rig.TXFrequency : 0UL,
-                hasTx && tx == rx);
-        }
+        /// <summary>
+        /// Read both roles off the rig as one coherent snapshot of slice
+        /// objects (<see cref="FlexBase.ReadSliceRoles"/>): the transmit role
+        /// is the radio's designation, never a list position, and each letter
+        /// and frequency comes from the same slice object. With no designated
+        /// transmit slice the snapshot says so and names none.
+        /// </summary>
+        public static SliceRoles Of(FlexBase rig) => rig == null ? default : rig.ReadSliceRoles();
+
+        /// <summary>
+        /// True when this reading describes the same split as
+        /// <paramref name="other"/>: the same transmit slice, the same selected
+        /// slice, and the transmit slice on the same frequency. What
+        /// <see cref="TransmitSliceNotice"/> compares to decide whether a door
+        /// is still keying the place it announced.
+        /// </summary>
+        public bool SamePlaceAs(SliceRoles other) =>
+            HasTransmit == other.HasTransmit
+            && string.Equals(TransmitLetter, other.TransmitLetter, StringComparison.Ordinal)
+            && TransmitHz == other.TransmitHz
+            && string.Equals(SelectedLetter, other.SelectedLetter, StringComparison.Ordinal)
+            && Same == other.Same;
     }
 
     /// <summary>
@@ -159,6 +171,13 @@ namespace Radios
         public static string Sentence(FrequencyKeySlices setting, SliceRoles roles, Func<ulong, string> format)
         {
             if (format == null) throw new ArgumentNullException(nameof(format));
+            // No slice read at all, or only a transmit slice: a missing role
+            // is unavailable, never a frequency under an empty letter.
+            if (!roles.HasSelected && !roles.HasTransmit)
+                return Lexicon.Get("connect.home.frequency_unavailable");
+            if (!roles.HasSelected)
+                return Lexicon.Get("connect.home.frequency_transmit",
+                    ("freqText", format(roles.TransmitHz)), ("slice", roles.TransmitLetter));
             if (!roles.TransmitsElsewhere)
                 return Lexicon.Get("connect.home.frequency",
                     ("freqText", format(roles.SelectedHz)), ("slice", roles.SelectedLetter));

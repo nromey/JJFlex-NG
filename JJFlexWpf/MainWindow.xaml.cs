@@ -405,6 +405,12 @@ public partial class MainWindow : UserControl
                 // connect, so a session that never connects would otherwise
                 // play every sound at the default whatever was chosen.
                 EarconPlayer.SetAlertBuffer(userConfig.AlertBufferMs, userConfig.AlertBufferCount);
+                // #642 and #863: what F reads and what a door says before it
+                // keys elsewhere are this operator's choices, decided in root.
+                Radios.FrequencyKeyReadout.Setting =
+                    (Radios.FrequencyKeySlices)Math.Clamp(userConfig.FrequencyKeyReads, 0, 2);
+                Radios.TransmitSliceNotice.Setting =
+                    (Radios.TransmitElsewhereNotice)Math.Clamp(userConfig.TransmitElsewhereNotice, 0, 2);
             }
         }
         catch (Exception ex)
@@ -4875,12 +4881,18 @@ public partial class MainWindow : UserControl
                 // number is the transmit slice's (as in the Frequency field),
                 // so the letter is too; it used to be the selected slice's
                 // letter over the transmit slice's frequency.
+                // One reading of Transmit and one snapshot of the slices, so
+                // the letter and the number cannot come from two different
+                // moments (a key or an unkey between two reads paired one
+                // slice's letter with the other's frequency for a poll).
                 bool showsTransmit = RigControl.Transmit || RigControl.ShowingXmitFrequency;
-                string sliceLetter = showsTransmit && RigControl.ValidVFO(RigControl.TXVFO)
-                    ? RigControl.VFOToLetter(RigControl.TXVFO)
-                    : RigControl.ActiveSliceLetter;
+                Radios.SliceRoles titleRoles = Radios.SliceRoles.Of(RigControl);
+                bool titleOnTransmit = showsTransmit && titleRoles.HasTransmit;
+                string sliceLetter = titleOnTransmit ? titleRoles.TransmitLetter
+                    : (titleRoles.HasSelected ? titleRoles.SelectedLetter : RigControl.ActiveSliceLetter);
                 string mode = RigControl.Mode ?? "";
-                double freqMhz = (RigControl.Transmit ? RigControl.TXFrequency : RigControl.VirtualRXFrequency) / 1_000_000.0;
+                double freqMhz = (titleOnTransmit ? titleRoles.TransmitHz
+                    : (titleRoles.HasSelected ? titleRoles.SelectedHz : RigControl.VirtualRXFrequency)) / 1_000_000.0;
                 UpdateTitleBar($"JJ Flexible Radio Access — Slice {sliceLetter}, {freqMhz:F3}, {mode}");
                 _sessionTitle.SliceTitleShown();
             }
@@ -5533,6 +5545,18 @@ public partial class MainWindow : UserControl
         if (OpenParms != null)
         {
             CurrentAudioConfig = AudioOutputConfig.Load(OpenParms.ConfigDirectory);
+            // The operator's own choices are decided in root (#642, #863): a
+            // radio's older copy must not undo one made with no radio.
+            try
+            {
+                if (System.IO.Directory.Exists(Radios.RadioConfig.AppDataRoot))
+                    CurrentAudioConfig.TakeOperatorChoicesFrom(
+                        AudioOutputConfig.Load(Radios.RadioConfig.AppDataRoot));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"PowerOn: operator choices from root failed: {ex.Message}");
+            }
             MeterToneEngine.Initialize();
             CurrentAudioConfig.Apply();
             if (RigControl != null)

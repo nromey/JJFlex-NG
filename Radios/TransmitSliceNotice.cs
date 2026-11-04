@@ -7,6 +7,23 @@ using JJTrace;
 namespace Radios
 {
     /// <summary>
+    /// What a door does when it keys a transmit slice that is not the
+    /// selected one (#863). Ruled by Noel 2026-11-03: three choices, speak and
+    /// tone the default. Stored as an int in the operator's audio settings.
+    /// </summary>
+    public enum TransmitElsewhereNotice
+    {
+        /// <summary>The sentence, once per split, and the tri-tones at every key. The default.</summary>
+        SpeakAndTone = 0,
+
+        /// <summary>The tri-tones only.</summary>
+        ToneOnly = 1,
+
+        /// <summary>Neither. Check your audio still speaks it (see <see cref="TransmitSliceNotice"/>).</summary>
+        Off = 2,
+    }
+
+    /// <summary>
     /// Before a door keys the transmit slice while the operator is on another,
     /// one sentence naming the slice and frequency it will transmit on, then
     /// the transmission (#863). Built once, used by every door that keys from a
@@ -37,6 +54,9 @@ namespace Radios
     /// </remarks>
     public static class TransmitSliceNotice
     {
+        /// <summary>The operator's choice, pushed here from the audio settings.</summary>
+        public static TransmitElsewhereNotice Setting { get; set; } = TransmitElsewhereNotice.SpeakAndTone;
+
         /// <summary>The longest a door waits for the sentence: the countdown's own ceiling.</summary>
         public const int CeilingMs = CountdownRun.SpeechCeilingMs;
 

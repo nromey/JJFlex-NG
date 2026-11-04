@@ -3683,6 +3683,8 @@ public class NativeMenuBar : IDisposable
                     audioConfig.TuningHash = rootConfig.TuningHash;
                 if (rootConfig.TypingSound != TypingSoundMode.Beep)
                     audioConfig.TypingSound = rootConfig.TypingSound;
+                // #642, #863: root decides these, with a radio or without.
+                audioConfig.TakeOperatorChoicesFrom(rootConfig);
             }
             _window.CurrentAudioConfig = audioConfig;
         }
