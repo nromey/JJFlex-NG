@@ -105,21 +105,23 @@ namespace Radios.Tests
                     double v = Convert.ToDouble(raw, CultureInfo.InvariantCulture);
                     string where = t.Name + "." + f.Name;
 
-                    if (f.Name.IndexOf("Reflected", StringComparison.Ordinal) >= 0)
+                    switch (ClassifyThreshold(f.Name))
                     {
-                        bool percent = f.Name.EndsWith("Percent", StringComparison.Ordinal);
-                        bool fraction = f.Name.EndsWith("Fraction", StringComparison.Ordinal);
-                        if (percent || fraction)     // Watts and Seconds are other quantities
-                            percents.Add((where, fraction ? v * 100.0 : v));
-                    }
-                    else if (f.Name.IndexOf("Swr", StringComparison.Ordinal) >= 0)
-                    {
-                        swrs.Add((where, v));
+                        case ThresholdUnit.Percent: percents.Add((where, v)); break;
+                        case ThresholdUnit.Fraction: percents.Add((where, v * 100.0)); break;
+                        case ThresholdUnit.Swr: swrs.Add((where, v)); break;
                     }
                 }
             }
 
-            percents.Add(("tx-chain-rules.txt/power-coming-back", PowerComingBackThresholdPercent()));
+            // Every swr and reflected-percent condition in EVERY rule of the
+            // shipped file, not just power-coming-back's: high-swr sat at SWR 3
+            // for a day after the ladder was ruled because nothing read it.
+            foreach (var (where, fact, value) in ShippedRuleThresholds())
+            {
+                if (fact == "swr") swrs.Add((where, value));
+                else percents.Add((where, value));
+            }
 
             // POSITIVE CONTROLS. If a rename empties this sweep it must say
             // so, not report that every threshold is on the ladder.
@@ -130,6 +132,17 @@ namespace Radios.Tests
             Assert.Contains(percents, s => s.Where == "TransmitSafety.ReflectedWarnFraction");
             Assert.Contains(percents, s => s.Where == "TxTuneProbe.ReflectedAbortPercent");
             Assert.Contains(swrs, s => s.Where == "TxTuneProbe.SwrAbort");
+            Assert.Contains(percents, s => s.Where == "tx-chain-rules.txt/power-coming-back");
+            Assert.Contains(swrs, s => s.Where == "tx-chain-rules.txt/high-swr");
+            // The name classifier must see an SWR however it is written,
+            // including inside a Reflected name, and must not count watts.
+            Assert.Equal(ThresholdUnit.Swr, ClassifyThreshold("ReflectedSwrAbort"));
+            Assert.Equal(ThresholdUnit.Swr, ClassifyThreshold("SWRUnexpected"));
+            Assert.Equal(ThresholdUnit.Swr, ClassifyThreshold("SwrUnexpected"));
+            Assert.Equal(ThresholdUnit.Percent, ClassifyThreshold("ReflectedWarnPercent"));
+            Assert.Equal(ThresholdUnit.Fraction, ClassifyThreshold("ReflectedWarnFraction"));
+            Assert.Equal(ThresholdUnit.None, ClassifyThreshold("ReflectedCutWatts"));
+            Assert.Equal(ThresholdUnit.None, ClassifyThreshold("SWRNoReading"));
             // And the matcher must be able to say no: the old free-standing
             // percentages, 20, 40 and 50, and the old suspect SWR of 3, are
             // exactly what this rule exists to find.
@@ -155,6 +168,49 @@ namespace Radios.Tests
                  "Reflected power is one physical quantity. Every threshold on it should be a rung "
                  + "of the one SWR ladder, or the radio gets judged by two different rulers.",
                  findings);
+        }
+
+        internal enum ThresholdUnit { None, Percent, Fraction, Swr }
+
+        /// <summary>
+        /// What a constant's NAME says its number is. A name ending Percent or
+        /// Fraction is a reflected share; otherwise any spelling of SWR is a
+        /// ratio, inside a Reflected name too (the first version of this sweep
+        /// let the Reflected branch win and so skipped <c>ReflectedSwrAbort</c>).
+        /// Watts, seconds and counts are other quantities.
+        /// </summary>
+        internal static ThresholdUnit ClassifyThreshold(string name)
+        {
+            // A sentinel is not a threshold: SWRNoReading (-25) is what the radio
+            // publishes to mean "no reading", and judging it against the ladder
+            // would be judging a non-answer.
+            if (name.IndexOf("NoReading", StringComparison.OrdinalIgnoreCase) >= 0) return ThresholdUnit.None;
+            bool reflected = name.IndexOf("Reflected", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool swr = name.IndexOf("Swr", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (reflected || swr)
+            {
+                if (name.EndsWith("Percent", StringComparison.Ordinal)) return ThresholdUnit.Percent;
+                if (name.EndsWith("Fraction", StringComparison.Ordinal)) return ThresholdUnit.Fraction;
+            }
+            return swr ? ThresholdUnit.Swr : ThresholdUnit.None;
+        }
+
+        /// <summary>
+        /// Every numeric swr and reflected-percent condition, needs and
+        /// broken-when alike, in every rule of the shipped transmit-chain file.
+        /// </summary>
+        private static IEnumerable<(string Where, string Fact, double Value)> ShippedRuleThresholds()
+        {
+            DiagnosticRuleSet set = RuleSetLoader.TxChain();
+            foreach (DiagnosticRule rule in set.Rules)
+                foreach (Condition c in rule.Needs.Concat(rule.BrokenWhen))
+                {
+                    if (c.FactName != "swr" && c.FactName != "reflected-percent") continue;
+                    Match m = Regex.Match(c.Text, @"(\d+(?:\.\d+)?)");
+                    if (!m.Success) continue;
+                    yield return ("tx-chain-rules.txt/" + rule.Id, c.FactName,
+                                  double.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture));
+                }
         }
 
         private static bool OnLadderPercent(double percent, double[] rungs)

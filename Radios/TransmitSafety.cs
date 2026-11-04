@@ -814,7 +814,7 @@ namespace Radios
         /// on an earlier tick, the cut reads this one. The watts rung cannot
         /// borrow that, because it must fire when the share warning never
         /// does: 100 W at a 2.5-to-1 match sends 18 W back at 18 percent,
-        /// which is under the 40-percent warning and over this rung, and
+        /// which is under the 36-percent warning (SWR 4) and over this rung, and
         /// #237 says that cut is correct. So <see cref="ReflectedPowerRun"/>
         /// counts the rung's own streak. Persistence, not smoothing: a single
         /// key-down transient cannot cut, and a second hot sample a quarter

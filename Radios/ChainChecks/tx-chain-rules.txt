@@ -685,10 +685,18 @@ verdict: {reflected-percent} percent of your transmit power is coming straight b
 fix: Check that the antenna is connected to the port the radio is actually transmitting on, and that you have selected the port you think you have. Stop transmitting until you have.
 evidence: forward-power, reflected-power, swr, rf-power-setting, meter-patemp, tx-antenna
 
-# BENCH: 3 to 1. The figure hams generally treat as the point where a solid
-# state radio starts folding back, and where a Flex protects itself. The exact
-# point this radio folds back at has not been measured, and the guard of at
-# least one watt is there so a meter wandering at very low power cannot trip it.
+# THE 4 BELOW IS THE LADDER'S WARN RUNG, SwrLadder.Warn. Noel ruled one ladder
+# on 2026-11-02 ("Yes, SWR 4 everywhere") and confirmed on 2026-11-03 that it
+# covers this rule too. It said 3 until then, as a separate guess at where a solid
+# state radio folds back; that point has never been measured on this radio, so a
+# number of its own bought nothing but a third ruler. IntegrationPassRuleTests
+# reads every swr and reflected-percent condition in this file and fails if one
+# is off the ladder. The guard of at least one watt is there so a meter wandering
+# at very low power cannot trip it.
+#
+# SWR 4 is 36 percent reflected, the same point power-coming-back fires at, and
+# that rule is listed first, so where both can be worked out it is the one an
+# operator hears. This one speaks when only the SWR is known.
 #
 # The {swr} this quotes is no longer the radio's SWR meter. That meter reported
 # 1.008 into an open connector on 2026-08-22 while three quarters of the power
@@ -701,7 +709,7 @@ needs: transmitting is yes
 needs: dummy-load is no
 needs: atu-tuning is no
 needs: forward-power at least 1
-broken-when: swr above 3
+broken-when: swr above 4
 verdict: Your standing wave ratio is {swr}, which is high enough that the radio will reduce its own power to protect itself. You will be heard, but not at the power you set.
 fix: Check the antenna, the feedline and any tuner in the path before transmitting further.
 evidence: forward-power, reflected-power, reflected-percent, rf-power-setting, meter-revpwr, meter-patemp, tx-antenna

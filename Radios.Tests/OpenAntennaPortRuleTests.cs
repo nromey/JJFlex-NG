@@ -161,15 +161,36 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void A_mismatch_short_of_disconnection_still_reports_the_ratio()
+        public void Both_rules_stand_on_the_warn_rung_and_the_named_cause_is_heard_first()
         {
-            // SWR 4 is about 36 percent reflected — under the 40 percent gate on
-            // power-coming-back, over the 3 to 1 gate on high-swr. The two rules
-            // are meant to cover different territory rather than one shadowing
-            // the other, and this is the band that proves it.
-            ChainReport r = ChainAnalyzer.Run(Rules(), Transmitting(100, 36, 4.0));
+            // CHANGED ON PURPOSE 2026-11-03 (#237). This test used to pin a band
+            // where only high-swr fired: power-coming-back at 40 percent and
+            // high-swr at SWR 3 were meant to cover different territory. Noel ruled
+            // one ladder, "SWR 4 everywhere", and confirmed it covers high-swr, so
+            // both rules now fire at the warn rung (36 percent is SWR 4). Just under
+            // it neither fires; just over it power-coming-back, listed first, is the
+            // sentence the operator hears.
+            ChainReport under = ChainAnalyzer.Run(Rules(), Transmitting(100, 35.9, 3.99));
+            Assert.NotEqual("high-swr", Stage(under, 12).Rule?.Id);
+            Assert.NotEqual("power-coming-back", Stage(under, 12).Rule?.Id);
 
-            Assert.Equal("high-swr", Stage(r, 12).Rule?.Id);
+            ChainReport over = ChainAnalyzer.Run(Rules(), Transmitting(100, 36.1, 4.01));
+            Assert.Equal("power-coming-back", Stage(over, 12).Rule?.Id);
+        }
+
+        [Fact]
+        public void With_only_the_ratio_known_high_swr_speaks_above_the_warn_rung()
+        {
+            // The share cannot be worked out (too little forward power for the
+            // fraction, say) while an SWR is reported: high-swr is then the rule
+            // that speaks, at the same rung, and not below it.
+            DiagnosticFacts over = Transmitting(100, 40, 4.4);
+            over.Add(DiagnosticFact.Silent("reflected-percent", "Power coming back", "too little forward power"));
+            Assert.Equal("high-swr", Stage(ChainAnalyzer.Run(Rules(), over), 12).Rule?.Id);
+
+            DiagnosticFacts under = Transmitting(100, 30, 3.5);
+            under.Add(DiagnosticFact.Silent("reflected-percent", "Power coming back", "too little forward power"));
+            Assert.NotEqual("high-swr", Stage(ChainAnalyzer.Run(Rules(), under), 12).Rule?.Id);
         }
 
         [Fact]
