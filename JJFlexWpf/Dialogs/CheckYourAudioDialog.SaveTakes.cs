@@ -93,8 +93,14 @@ public partial class CheckYourAudioDialog
         return true;
     }
 
-    /// <summary>Whether a check of <paramref name="method"/> makes a take that joins a test.</summary>
-    private bool SavesTakeOf(AudioCheckListenMethods method) => SavesPlaybackTake(method);
+    /// <summary>
+    /// Whether a check of <paramref name="method"/> makes a take that joins a
+    /// test: a saved playback, or an off-air take, which is always saved
+    /// (part 4g). The off-air check is asked the same question before its own
+    /// countdown.
+    /// </summary>
+    private bool SavesTakeOf(AudioCheckListenMethods method) =>
+        SavesPlaybackTake(method) || method == AudioCheckListenMethods.OffAir;
 
     // ── The saved playback, from the check's side (part 4d) ──
 

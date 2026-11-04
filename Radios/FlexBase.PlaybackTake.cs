@@ -19,6 +19,32 @@ public partial class FlexBase
     /// </summary>
     public string PlaybackTakeSource => TxToneEngaged ? TakeSetup.Tone : TxFilePlaying ? TakeSetup.Reference : TakeSetup.Voice;
 
+    /// <summary>
+    /// An off-air or diagnostic IQ take joins the active test (design section
+    /// 6, part 4g): its number is reserved in its own sidecar beside take.txt,
+    /// which is never touched. Null when the registry cannot be written; the
+    /// take is made either way, exactly as before tests existed.
+    /// </summary>
+    private static (string Root, string TestId)? JoinActiveTest(string takeFolder)
+    {
+        string root = System.IO.Path.GetDirectoryName(takeFolder);
+        try { return (root, TakeSession.Series.Reserve(root, takeFolder).Test.Id); }
+        catch (Exception ex) when (ex is System.IO.IOException or System.IO.InvalidDataException or InvalidOperationException
+                                      or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            JJTrace.Tracing.TraceLine("IQ take test reservation: " + ex.Message, System.Diagnostics.TraceLevel.Warning);
+            return null;
+        }
+    }
+
+    private static void MarkJoinedTake((string Root, string TestId) member, string takeFolder, bool made)
+    {
+        try { TakeSession.MarkReservation(member.Root, member.TestId, takeFolder, made ? TakeReservation.Made : TakeReservation.Failed); }
+        catch (Exception ex) when (ex is System.IO.IOException or System.IO.InvalidDataException or InvalidOperationException
+                                      or UnauthorizedAccessException or System.Text.Json.JsonException)
+        { JJTrace.Tracing.TraceLine("IQ take test mark: " + ex.Message, System.Diagnostics.TraceLevel.Warning); }
+    }
+
     /// <summary>The facts the "start a new test or add to this one" question compares (Q7, D5).</summary>
     public TakeAdmissionFacts TakeAdmissionFactsNow() =>
         new(theRadio?.Serial ?? SelectedRadioSerial ?? "", CurrentMicProfileName ?? "", MicSource ?? "", PcMicrophoneDeviceName);

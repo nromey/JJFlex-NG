@@ -202,6 +202,7 @@ public partial class FlexBase
         Slice created = null;
         LoopbackSliceResources ownedLoopback = null;
         List<Slice> offAirMuted = null;
+        (string Root, string TestId)? joined = null;
         bool leaseTransferred = false;
         var store = IqRecovery;
         using var setupStatus = radio == null ? null : new RadioStatusTap(radio);
@@ -281,6 +282,9 @@ public partial class FlexBase
             writer = new IqTakeWriter(directory, options.Rate, new Dictionary<string, string> {
                 ["serial"] = radio.Serial, ["kind"] = options.OffAir ? "off-air" : "receive-only-diagnostic" });
             writer.Header.Event("prior-radio-state", snapshot);
+            // Unified takes, part 4g: an off-air or diagnostic take joins the
+            // active test too, its number held in its own sidecar.
+            joined = JoinActiveTest(directory);
             if (MicSource == "PC" && pipeline != null) sent = new SentAudioWriter(pipeline, directory);
             else writer.Header.Write("sent-absent-reason", MicSource == "PC" ? "PC pipeline unavailable" : "radio microphone jack; DAX MIC is outside this build");
             edge = (_, keyed) =>
@@ -618,11 +622,17 @@ public partial class FlexBase
                 finally { if (Interlocked.Exchange(ref leaseReleased, 1) == 0) _iqLease.Release(); }
             }, () => { TransmitChange -= edge; if (ownedLoopback != null && ReferenceEquals(_lbResources, ownedLoopback)) { _loopbackArranged = false; _lbResources = null; _lbDriveBand = null; } });
             if (heardKeying) run.NoteRadioKeying();
+            if (joined is { } member)
+            {
+                string takeFolder = directory;
+                _ = run.Stopped.ContinueWith(t => MarkJoinedTake(member, takeFolder, t.IsCompletedSuccessfully), TaskScheduler.Default);
+            }
             leaseTransferred = true;
             return run;
         }
         catch
         {
+            if (joined is { } member && writer != null) MarkJoinedTake(member, writer.DirectoryPath, made: false);
             if (edge != null) TransmitChange -= edge;
             try
             {
