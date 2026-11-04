@@ -9,6 +9,78 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-11-04 (COVERS 2026-11-03 14:00 TO 2026-11-04 00:30) — THE JUNK BOX REPAIRED AND RE-CHECKING, UNIFIED TAKES ROUND TWO PUSHED, SPRINT 49 D, C AND B MERGED INTO INTEGRATION
+
+**Main:** nothing since the last seal but this entry. **Twenty-five commits landed on three branches**, and rigmeter (main only) does not see them: the junk box 6, unified takes 13, Sprint 49 integration 6.
+
+**Junk box batch 2026-11-02 (`junkbox/2026-11-02-batch`, worktree `jjflex-jb1102`), repaired, re-checking, not merged.**
+- **Codex checked each fix separately** (ten checks, 18:06 to 18:31, `gpt-6.1-sol` high, 1.93 M tokens). Four passed: #237, #651, #718, #372. Six came back FIX FIRST, sixteen blockers in all, on #596, #861/#600, #863, #642, #496 and #774.
+- **Noel's rulings, 2026-11-03 17:55 to 18:04, on #863:**
+  - push to talk in a dialog keeps "go, then say";
+  - voice message sends with the box off get the notice too;
+  - the notice speaks once per split, and again only when the transmit slice, the selected slice or the transmit frequency changes;
+  - three-note tones;
+  - wording by verbosity;
+  - a three-way setting, with Check your audio speaking even when it is off.
+- **He also confirmed that "SWR 4 everywhere" covers the Fix tool's `high-swr` rule (#237).**
+- **Repair round 1 (Opus, one agent, 21:54 to 22:53), six commits to `1ea05255`.** All sixteen blockers were confirmed real in the code and fixed:
+  - one slice reader names the designated transmit slice;
+  - every teardown unkeys first and waits for receive;
+  - a drop stops every local transmit source;
+  - a held lock key cannot re-key;
+  - #863's gate covers every door and builds the rulings;
+  - one Delete press removes one item, in the WinForms lists too;
+  - `high-swr` moved to SWR 4.
+- **The orchestrator re-ran both suites at `1ea05255`:** Radios.Tests 6,575 of 6,575 and the windowless filter 624 of 624 (CLAUDE.md's 38 classes plus five new ones), exactly the agent's counts. **Pushed to origin** after a tester-name grep of all 17 commit messages and the added lines; the same grep finds names on main, as a positive control.
+- **Codex re-checks launched 00:20 on Noel's go, still running at the seal:** eight checks in three lanes, at `jjflex-cx1102b`, `-c` and `-d`.
+
+**Unified takes (#864, `takes/unified`): round two built, PUSHED, not merged.** Parts 4a to 4g, the playback-take wiring, are built to `de0daa90`. The other window re-verified them: Radios 6,596 of 6,596, windowless 589 of 589. **The history was rewritten before the push, so no commit carries the tester's name;** the orchestrator confirmed that `e1d97c59` is not in the pushed history. **The "do not push" note is retired.** Merge on Noel's word.
+
+**Sprint 49 (#808): Track D's dummy-load bench PASSED on x64 and x86, under the harness on the 8600.** D, C and B then merged into `sprint49/integration` (`867e8745`, `bf82b046`, `4d118ad1`, and a CLAUDE.md commit `520b2804` naming fifty-one windowless classes). The integration branch is pushed. Not on main. The bench recipe is in memory `project_transmit_nr_bench_recipe.md`, and the results in `planning/agile/sprint49-track-d-bench-results.md`. The bench found **#870**: a reused client identity makes every off-air take refuse with `pan-iq-in-use`. JUNKBOX, high.
+
+**Seal checks:**
+- No dependency advisories.
+- Memory drift: 94 paths and 55 symbols are candidates. The only new memory entry (the bench recipe) does not flag.
+- Codex instruction tests 5 of 5; Codex loads `AGENTS.md`; the sandbox is healthy.
+- NVDA logs archived; the old log is at speech level (54 lines).
+- Backups: memory (10 projects), Claude state, AppData (65 files), private docs (after the AAR), dev mirror.
+- MEMORY.md 16.2 KB, still over 12 KB; no banners awaiting archive.
+
+**Junk box intake (3c-ter):** two entries opened since the last seal, both targeted and prioritized when filed:
+- #870, JUNKBOX high;
+- #871, rigmeter across the whole estate, JUNKBOX low.
+
+That leaves 233 junk box entries, 0 unprioritized, and 466 open. Nothing merged, so nothing closed.
+
+**Cross-surface:** No commit carries a Codex trailer; Codex ran checks only. Every run is in `codex-evaluation.md`; the re-check entry is open until the lanes finish. Freight Fate has 16 unpushed commits (one dirty file) and Civ VI two dirty files: Noel's call. No debug build and no nightly promote: nothing testable reached main.
+
+**Pushed:** main; `junkbox/2026-11-02-batch`. Already pushed by their windows: `takes/unified`, `sprint49/integration` and `sprint49/track-d`. **Not pushed:** the other `sprint49/*` branches (Noel's call).
+
+**Carried over:**
+- **The Codex re-checks.** When they finish: their verdicts, any second repair, the harness bench checks, then Noel's sheet. The sheet covers the #863 wording and tri-tones, the drop sentence and the high-SWR sentence.
+- **The repair agent's seven questions for Noel**, one at a time:
+  - the verbosity mapping;
+  - whether the tri-tones obey the PTT chirp switch;
+  - once per split in Check your audio;
+  - `high-swr` shadowed at SWR 4;
+  - the quiet-release rule for a hold never seen released (#596);
+  - Home push to talk tones only;
+  - a sentence of its own for a changed transmit slice.
+- **Not yet filed:** the "For the register" items from the ten Codex reports and the repair report.
+- **Unified takes:** the merge on Noel's word, the flat key for Play takes, and the help edits.
+- **Sprint 49:** the integration branch's merge to main.
+- The ~22 likely-done junk box entries.
+- **Noel's eye surgery Thursday 2026-11-05.**
+
+### Rigmeter snapshot — end of 2026-11-04
+
+Main since 2026-11-03 midnight: 1 commit, the previous seal's Agent.md entry (+47 lines of docs). **Branch scope:** rigmeter counts main only.
+- **The junk box repair:** `5cb24086..1ea05255` is 49 files, +2,781 / −192.
+- **Unified takes round two:** 63 files, +5,112 / −97.
+- **Sprint 49 integration:** the merges carry 260 files, +47,659 / −154, mostly work built before this window.
+
+Snapshot `historical/stats/2026-11-03-b34f4dd2.json`.
+
 ## END-OF-DAY SEAL — 2026-11-03 (COVERS 2026-11-02 06:40 TO 2026-11-03 14:00) — THREE LANES BUILD ON THEIR BRANCHES, NOTHING NEW ON MAIN BUT THE JUNK BOX PROCESS
 
 **Why this is a day late:** Noel gated the 2026-11-02 seal on this window and the Check your audio window both finishing (20:18). This window then waited to be told rather than asking the other windows, and nothing ran overnight. Noel, 2026-11-03 13:52: *"You need to query the other windows to check this kind of thing."* Recorded in memory `feedback_query_other_windows_for_seal_readiness.md`; both windows were asked, and both answered done.
