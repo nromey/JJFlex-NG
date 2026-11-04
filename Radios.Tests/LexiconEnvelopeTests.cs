@@ -2117,6 +2117,12 @@ namespace Radios.Tests
                 "audio.denoise.unavailable.noton32bit",
                 "audio.denoise.subtraction_amount",
                 "audio.denoise.spectral_floor",
+                // Sprint 49 Track C: NR4's setting labels. Draft prose, awaiting Noel.
+                "audio.denoise.reduction_db",
+                "audio.denoise.smoothing",
+                "audio.denoise.whitening",
+                "audio.denoise.masking_depth",
+                "audio.denoise.suppression",
                 "audio.noise.capture.held_by_mode",
                 // The tune answer (#447). Draft prose, awaiting Noel.
                 "audio.tune.unconfirmed",

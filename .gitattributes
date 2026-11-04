@@ -46,6 +46,12 @@
 # npm integrity hash), so no line-ending conversion on checkout.
 docs/help/web/minisearch/minisearch-*.js -text
 
+# libspecbleach (LGPL-2.1), vendored as the exact tree of its pinned tag so the
+# source we offer is provably the source that built the shipped DLLs. No
+# line-ending conversion, so the folder's git tree hash equals the tag's
+# (see third_party/VENDORED-libspecbleach.md). Never edit a file under it.
+third_party/libspecbleach/** -text
+
 ###############################################################################
 # Set default behavior for command prompt diff.
 #

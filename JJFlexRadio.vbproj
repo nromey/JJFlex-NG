@@ -547,6 +547,24 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>runtimes\win-x64\native\deepfilter.LICENSE-APACHE.txt</Link>
     </Content>
+    <!-- libspecbleach (NR4, Sprint 49 Track C): LGPL 2.1, built from the source
+         vendored in third_party\libspecbleach at tag v0.4.1, with its own
+         licence and PFFFT's. Loaded by ABSOLUTE PATH from
+         JJFlexWpf\SpecbleachEngine.cs, with NativeLoader.vb saying where. Not
+         selectable by an operator yet, and the release installer leaves it out
+         until the operator surface lands. -->
+    <Content Include="runtimes\win-x64\native\specbleach.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\win-x64\native\specbleach.dll</Link>
+    </Content>
+    <Content Include="runtimes\win-x64\native\LICENSE-libspecbleach.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\win-x64\native\LICENSE-libspecbleach.txt</Link>
+    </Content>
+    <Content Include="runtimes\win-x64\native\LICENSE-libspecbleach-pffft.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\win-x64\native\LICENSE-libspecbleach-pffft.txt</Link>
+    </Content>
   </ItemGroup>
   <ItemGroup Condition="'$(Platform)'=='x86'">
     <Content Include="runtimes\win-x86\native\portaudio.dll">
@@ -589,6 +607,19 @@
     <Content Include="runtimes\win-x86\native\deepfilter.LICENSE-APACHE.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>runtimes\win-x86\native\deepfilter.LICENSE-APACHE.txt</Link>
+    </Content>
+    <!-- libspecbleach: the x86 build of the same pin. See the x64 group. -->
+    <Content Include="runtimes\win-x86\native\specbleach.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\win-x86\native\specbleach.dll</Link>
+    </Content>
+    <Content Include="runtimes\win-x86\native\LICENSE-libspecbleach.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\win-x86\native\LICENSE-libspecbleach.txt</Link>
+    </Content>
+    <Content Include="runtimes\win-x86\native\LICENSE-libspecbleach-pffft.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\win-x86\native\LICENSE-libspecbleach-pffft.txt</Link>
     </Content>
   </ItemGroup>
 

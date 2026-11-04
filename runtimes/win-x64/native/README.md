@@ -6,6 +6,8 @@ This folder holds the x64 native libraries: `libopus.dll` and `portaudio.dll`
 ask NVDA whether an utterance was spoken to the end — see #521), and
 `deepfilter.dll` with its model archive (DeepFilterNet3 noise reduction, built
 and benched but not yet selectable — see #731).
+`specbleach.dll` is libspecbleach, NR4 (LGPL 2.1, built from the source vendored
+in `third_party/libspecbleach/`, not yet selectable).
 The same recipes build the x86 set — substitute `Win32` for `x64` and target
 `runtimes/win-x86/native/`.
 
@@ -20,6 +22,10 @@ The same recipes build the x86 set — substitute `Win32` for `x64` and target
 - **DeepFilterNet v0.5.6, pinned at tag commit `978576aa8400552a4ce9730838c635aa30db5e61`**,
   C API only, plus the upstream `DeepFilterNet3_onnx.tar.gz` model from the
   same commit. No version string of its own; see its section for the hashes
+- **libspecbleach v0.4.1, pinned at tag commit `ab4ae8b4be74f5c52c5a3386a6d9bbea29fbd129`**
+  (`specbleach.dll`, NR4), built here from the vendored source in
+  `third_party/libspecbleach/`. Its string says `libspecbleach 0.4.1`; trust
+  the SHA, not the string (see its section)
 
 **Both DLLs embed a readable version string, so the binary is the authority.**
 `opus_get_version_string()` returns `libopus 1.6.1`, and `Pa_GetVersionText()`
@@ -430,6 +436,143 @@ between this tag and `main`), rebuild both targets with the recipe, replace all
 four files in BOTH folders, update every hash in this section and
 `DeepFilterNet3Engine.ModelSha256`, and run `DeepFilterNet3EngineTests`.
 
+### libspecbleach (specbleach.dll) — NR4, built here from vendored source
+
+**What it is.** libspecbleach is Luciano Dato's single-channel spectral
+denoiser, from `https://github.com/lucianodato/libspecbleach`, licensed **LGPL
+2.1**. It is JJ Flexible's **NR4**: an adaptive spectral subtractor that keeps
+estimating the noise continuously, with no capture step. As of Sprint 49 Track C
+it is built, tested and wrapped as an engine (`JJFlexWpf/SpecbleachEngine.cs`),
+but **nothing an operator can reach selects it**, and the release installer
+still leaves it out (`install template.nsi`, the `specbleach.*` exclusion) until
+the operator surface lands.
+
+**Loaded by absolute path, and replaceable.** The engine loads
+`runtimes\win-{arch}\native\specbleach.dll` by its full path (located by
+`NativeLoader.vb`) and binds its functions by name; it is never a `DllImport`
+and never found through the Windows search order. As the LGPL intends, an
+operator may replace this file with their own build of the library: the engine
+traces the version it finds and does not refuse a different one, and the
+parameter block carries a size check (below) that makes an incompatible layout
+fail safely rather than read the wrong memory.
+
+Three files, identical layout in both architecture folders:
+
+- `specbleach.dll`, the library. CMake's `OUTPUT_NAME` is `specbleach`, so MSVC
+  produces this name; it is not renamed.
+- `LICENSE-libspecbleach.txt`, the tag's `LICENSE` (LGPL 2.1), unchanged.
+- `LICENSE-libspecbleach-pffft.txt`, the tag's `thirdparty/pffft/LICENSE.txt`,
+  unchanged. PFFFT is the FFT library compiled into the DLL, under its own
+  BSD-style notice.
+
+The licence files are named `LICENSE-...` so that the installer's
+`specbleach.*` exclusion does not catch them when it is lifted.
+
+**Pinned at tag `v0.4.1`, commit `ab4ae8b4be74f5c52c5a3386a6d9bbea29fbd129`.**
+**The source offer: the exact tree of that tag is in this repository**, at
+`third_party/libspecbleach/`, and the DLLs are built from it. Its git tree hash
+equals the tag's (`f3875ef9dce587672da31dcd3fb660ecce01a44e`); how it was taken
+and how to check it is in `third_party/VENDORED-libspecbleach.md`. Nothing in
+that folder is ever edited: an edited LGPL library is a modified work with
+publishing obligations of its own.
+
+**Why 0.4.0 or later, and never an older copy.** Up to 0.3.1 libspecbleach
+links FFTW, which is GPL; 0.4.0 replaced it with the vendored PFFFT
+(`CHANGELOG.md`, "PFFFT Migration"). At this tag nothing compiled includes
+`fftw3.h` or calls an `fftw_` function: a case-insensitive search of the tree
+for `fftw` finds only two places, the changelog and a comment in
+`src/shared/spectral_processor.h`. **An older copy that links FFTW exists on
+the machine that built this, and must never be used, copied or built from**:
+it would put GPL code into JJ Flexible's process. It also has the old API
+(`specbleach_initialize` and friends), which this binding does not speak.
+
+**Exact build, as run 2026-11-02** with Visual Studio 2026 Community, MSVC
+19.51.36256 (toolset 14.51.36231), using the CMake that ships inside Visual
+Studio (4.3.1-msvc1), from PowerShell:
+
+```powershell
+$cm  = 'C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
+$src = '<repo>\third_party\libspecbleach'          # the vendored tree; build OUT of it
+foreach ($pair in @(@('x64','x64'), @('Win32','x86'))) {
+  $bld = "<a folder outside the repo>\build-jjflex-$($pair[1])"
+  & $cm --fresh -S $src -B $bld -G "Visual Studio 18 2026" -A $pair[0] `
+     -DBUILD_SHARED_LIBS=ON -DENABLE_AVX=OFF -DENABLE_TESTS=OFF -DENABLE_EXAMPLES=OFF `
+     -DENABLE_SANITIZERS=OFF -DENABLE_COVERAGE=OFF -DSPECBLEACH_BUILD_EXTRAS=OFF -DSPECBLEACH_INSTALL=OFF `
+     "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded" "-DCMAKE_C_FLAGS_INIT=/experimental:c11atomics"
+  & $cm --build $bld --config Release
+}
+# Copy build-jjflex-x64\Release\specbleach.dll here, and build-jjflex-x86\Release\specbleach.dll
+# to ..\..\win-x86\native\. Copy LICENSE and thirdparty\pffft\LICENSE.txt from the vendored
+# tree beside each, as LICENSE-libspecbleach.txt and LICENSE-libspecbleach-pffft.txt.
+```
+
+No source file was changed; every adjustment is a flag on the command line.
+Why each one:
+
+- **MSVC, not clang-cl.** Upstream builds only on Linux in CI, so MSVC was
+  unproven; it builds this tag cleanly with the two flags below. clang-cl would
+  NOT have: it defines `__x86_64__`, which makes `nlm_filter.c` reference the
+  AVX kernel that `-DENABLE_AVX=OFF` leaves out of the build.
+- **`/experimental:c11atomics`.** Three files include `<stdatomic.h>`, which
+  MSVC rejects with "C atomic support is not enabled" unless this flag is given.
+  `CMAKE_C_FLAGS_INIT` adds it to CMake's defaults rather than replacing them.
+- **`-DENABLE_AVX=OFF`, on both architectures.** Only the 2D smoother uses the
+  AVX kernel, and the low-latency mode NR4 runs (with temporal smoothing) never
+  reaches that smoother, so AVX buys nothing; and an AVX instruction on a
+  processor without AVX ends the whole process. With the option off the AVX
+  source file is not compiled, and under MSVC the run-time switch to it is
+  compiled out as well (its guard tests GCC and clang macros).
+  **Checked in the binary:** the x86 DLL contains no `ymm` register at all
+  (`dumpbin /disasm`). The x64 DLL contains 101, and a link map
+  (`/MAP`, on an otherwise identical scratch build) puts every one of them in
+  the Visual C++ runtime's own `memcpy` and `memset`, which choose their AVX
+  paths only after a processor check at start-up. None is libspecbleach's.
+- **`CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded`** links the C runtime in
+  statically, as `portaudio.dll` is built, so the DLL needs no Visual C++
+  redistributable. Its only import is `KERNEL32.dll` on both architectures
+  (`dumpbin /dependents`), which also proves no FFTW is linked.
+- **Tests, examples, sanitizers, coverage, the extras layer and the install
+  step are all off**; only the library is built.
+
+**Record of what is shipped:**
+
+- `specbleach.dll` x64: machine `8664`, SHA-256
+  `E8D4831D667D27C358B70437258FEB5DCD115C2D97A34052BD1D37E9723BFB68`, 267,264 bytes
+- `specbleach.dll` x86: machine `14C`, SHA-256
+  `4409D2C1FA0E8F69F707F52425CBF2BFB33DAC8B60D2E01BA342EBFFE2E3CC86`, 222,208 bytes
+- `LICENSE-libspecbleach.txt` (both folders):
+  `20C17D8B8C48A600800DFD14F95D5CB9FF47066A9641DDEAB48DC54AEC96E331`, LF line endings
+- `LICENSE-libspecbleach-pffft.txt` (both folders):
+  `6C99FCE38C991FF104307ECEBE20FF014B5E1F5D9E3426DA292DA8417C7A78CD`, LF line endings
+
+Both DLLs export the 25 functions of `include/specbleach_denoiser.h` and
+`include/specbleach_version.h` under their plain C names
+(`dumpbin /exports`), on x86 as well as x64. A rebuild will not reproduce the
+DLL hashes bit for bit (the linker stamps a time).
+
+**The version string is the Prism trap again.**
+`specbleach_get_version_string()` returns `libspecbleach 0.4.1`, but that text
+is a macro in a header (`SPECBLEACH_VERSION_STRING`), so any build made from a
+tree past the tag still says `0.4.1`. **The commit SHA above is the record**;
+the string is honest only because this DLL is built from the vendored tree
+exactly at the tag.
+
+**The parameter block is the dangerous part of the binding, and it is
+guarded.** `SpecbleachDenoiserParameters` mixes four-byte enums, floats,
+one-byte C `bool`s and a pointer, so its size differs by architecture: 88 bytes
+on x64 (the pointer at offset 64) and 76 on x86 (the pointer at 60).
+`specbleach_denoiser_load_parameters` takes the caller's size and refuses any
+other with `false`; the engine treats that `false` as a hard failure.
+`SpecbleachEngineTests` pins the layout field by field, by value, on both
+architectures.
+
+**To bump it:** take the new tag into `third_party/libspecbleach/` as
+`VENDORED-libspecbleach.md` describes, re-read `include/specbleach_denoiser.h`
+against the binding (field order of the parameter block above all), rebuild
+both architectures with the recipe, replace all three files in BOTH folders,
+update every hash and the SHA here, and run `SpecbleachEngineTests` on x64 and
+x86.
+
 ## Where the build trees live
 
 `build-native/` at the repo root holds working clones of both projects.
@@ -437,7 +580,10 @@ DeepFilterNet's clone is kept outside the repo entirely
 (`C:\dev\deepfilternet-build` on the machine that built it); like
 `build-native/`, it is a convenience and not a record. **That
 directory is gitignored**, so nothing in it is part of the repository — it is a
-local convenience, not a record. **This file is the record.** Anything future
+local convenience, not a record. libspecbleach is the exception that proves
+the rule: its source IS kept, in `third_party/libspecbleach/`, because the LGPL
+asks for it, and it builds out of that tree into a folder outside the repo.
+**This file is the record.** Anything future
 rebuilds need to know belongs here, not in a note inside `build-native/`.
 
 Deliberately not a git submodule: we ship binaries rather than source, rebuilds
