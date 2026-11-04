@@ -47,6 +47,8 @@ namespace Radios
         PowerMode,
         LowPowerWatts,
         CompareWithLastTake,
+        /// <summary>"Save each playback as a take" (Unified takes, round two).</summary>
+        SavePlaybackTakes,
     }
 
     public enum ConnectPathKind
@@ -620,6 +622,16 @@ namespace Radios
         /// </summary>
         public bool AudioCheckCompareWithLastTake { get; set; }
 
+        /// <summary>
+        /// "Save each playback as a take" (Unified takes, round two): Radio
+        /// recording and Looped back save what the radio plays back to this
+        /// computer as a take, muting the other audible slices while it plays
+        /// and putting them back. Per radio, as the design and every other
+        /// check setting are. Default off: it mutes slices, and a setting that
+        /// changes what the operator hears is never on by surprise.
+        /// </summary>
+        public bool AudioCheckSavePlaybackTakes { get; set; }
+
         // ---------------------------------------------------------------
         // PC audio on connect (Threads Track, 2026-08-12). Before this, PC
         // audio state was persisted nowhere: every connect started with it
@@ -698,9 +710,10 @@ namespace Radios
         // real values. RecordAudioCheckPref is the entry point.
         private static bool RecordAudioCheckPrefs(string radioId,
             AudioCheckListenMethods? method, AudioCheckPowerModes? power, int? watts,
-            bool? compareWithLastTake = null)
+            bool? compareWithLastTake = null, bool? savePlaybackTakes = null)
         {
             return Update(radioId, cfg => {
+                if (savePlaybackTakes.HasValue) cfg.AudioCheckSavePlaybackTakes = savePlaybackTakes.Value;
                 if (method.HasValue)
                 {
                     cfg.AudioCheckListenMethod = method.Value;
@@ -730,12 +743,13 @@ namespace Radios
         /// </remarks>
         public static bool RecordAudioCheckPref(string radioId, AudioCheckPref edited,
             AudioCheckListenMethods shownMethod, AudioCheckPowerModes shownPower,
-            int shownWatts, bool shownCompare) => edited switch
+            int shownWatts, bool shownCompare, bool shownSavePlaybackTakes = false) => edited switch
         {
             AudioCheckPref.ListenMethod => RecordAudioCheckPrefs(radioId, shownMethod, null, null),
             AudioCheckPref.PowerMode => RecordAudioCheckPrefs(radioId, null, shownPower, null),
             AudioCheckPref.LowPowerWatts => RecordAudioCheckPrefs(radioId, null, null, shownWatts),
             AudioCheckPref.CompareWithLastTake => RecordAudioCheckPrefs(radioId, null, null, null, shownCompare),
+            AudioCheckPref.SavePlaybackTakes => RecordAudioCheckPrefs(radioId, null, null, null, null, shownSavePlaybackTakes),
             _ => throw new ArgumentOutOfRangeException(nameof(edited), edited, null),
         };
 

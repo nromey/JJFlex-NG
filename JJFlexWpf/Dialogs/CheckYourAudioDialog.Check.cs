@@ -198,6 +198,8 @@ public partial class CheckYourAudioDialog
         // Off the air's own options sit in the method's section and appear only
         // while it is chosen.
         BuildOffAirOptions();
+        // "Save each playback as a take" (Unified takes; SaveTakes.cs).
+        BuildSavePlaybackTakesOption();
 
         // The sources. Arming never transmits; the operator keys.
         BuildTestToneSection();
@@ -427,6 +429,7 @@ public partial class CheckYourAudioDialog
             _powerSection.Visibility = AudioCheckMethods.UsesCheckPower(method) ? Visibility.Visible : Visibility.Collapsed;
         }
         ApplyOffAirLayout(method);
+        ApplySavePlaybackTakesLayout(method);
         SyncPlayTakeLabel();
         UpdateMethodStatus();
         UpdateMethodHelp(method);
@@ -557,6 +560,7 @@ public partial class CheckYourAudioDialog
             finally { _polling = false; }
         }
         UpdateCheckWattsVisibility();
+        LoadSavePlaybackTakesPref();
     }
 
     /// <summary>
@@ -575,12 +579,12 @@ public partial class CheckYourAudioDialog
             : (AudioCheckPowerModes)_checkPowerControl.SelectedIndex;
         int watts = _checkWattsControl?.Value ?? _radioCfg.AudioCheckLowPowerWatts;
         bool compare = _iqAutoCompare?.IsChecked == true;
-        RadioConfig.RecordAudioCheckPref(_radioCfgSerial, edited, method, power, watts, compare);
+        RadioConfig.RecordAudioCheckPref(_radioCfgSerial, edited, method, power, watts, compare, _savePlaybackTakes);
         // Setting a level on a radio with only Low power IS choosing Low power
         // (#859): without this, a saved dummy load would show 1 watt again at
         // the next open and lose the level the operator just set.
         if (edited == AudioCheckPref.LowPowerWatts && RadioPowerFloor.Applies(_rig?.RadioModel))
-            RadioConfig.RecordAudioCheckPref(_radioCfgSerial, AudioCheckPref.PowerMode, method, power, watts, compare);
+            RadioConfig.RecordAudioCheckPref(_radioCfgSerial, AudioCheckPref.PowerMode, method, power, watts, compare, _savePlaybackTakes);
         // Keep the in-memory copy in step, so a rebuild of the cycle resolves
         // against what was just saved.
         if (edited == AudioCheckPref.ListenMethod && _listenMethodControl != null)

@@ -634,6 +634,8 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             _offAirReading = "";
             _radioCfg = null;
             _radioCfgSerial = "";
+            // A per-radio setting: the next radio's is read when it arrives.
+            _savePlaybackTakes = false;
         }
         if (oldRig != null && !ReferenceEquals(oldRig, rig))
             _ = oldRig.StopSliceRecorderOwnedByAsync(this);

@@ -182,6 +182,60 @@ public partial class CheckYourAudioDialog
         SyncPlayTakeLabel();
     }
 
+    // ── The setting and its box (part 4e, LAST in the save path) ──
+
+    private System.Windows.Controls.CheckBox? _savePlaybackTakesBox;
+
+    /// <summary>
+    /// "Save each playback as a take" (DRAFT), in the method's own section,
+    /// shown for the two methods it changes: Radio recording and Looped back.
+    /// Per radio and off by default. A setting is an intent: it is shown for
+    /// the method chosen, never hidden for the connection's state. With no
+    /// radio the only method is this computer's microphone, so it is not
+    /// shown then because of the method, not the connection.
+    /// </summary>
+    private void BuildSavePlaybackTakesOption()
+    {
+        var box = new System.Windows.Controls.CheckBox
+        {
+            Content = Lexicon.Get("audio.takes.save_playback"),
+            Margin = new System.Windows.Thickness(2),
+            Visibility = System.Windows.Visibility.Collapsed,
+        };
+        System.Windows.Automation.AutomationProperties.SetName(box, Lexicon.Get("audio.takes.save_playback"));
+        JJFlexHelp.SetText(box, Lexicon.Get("audio.takes.help.save_playback"));
+        void Changed()
+        {
+            if (_polling) return;
+            _savePlaybackTakes = box.IsChecked == true;
+            SavePerRadioPrefs(AudioCheckPref.SavePlaybackTakes);
+            SyncPlayTakeLabel();
+        }
+        box.Checked += (s, e) => Changed();
+        box.Unchecked += (s, e) => Changed();
+        _savePlaybackTakesBox = box;
+        _sections.Add(CheckContent, box);
+    }
+
+    /// <summary>Shown only for the methods it changes, out of the tab order otherwise.</summary>
+    private void ApplySavePlaybackTakesLayout(AudioCheckListenMethods method)
+    {
+        if (_savePlaybackTakesBox == null) return;
+        bool shown = method is AudioCheckListenMethods.RecordPlayback or AudioCheckListenMethods.Loopback;
+        if (!shown && _savePlaybackTakesBox.IsKeyboardFocusWithin) _listenMethodControl?.Focus();
+        _savePlaybackTakesBox.Visibility = shown ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+    }
+
+    /// <summary>This radio's saved choice, reflected in the box without saving it straight back.</summary>
+    private void LoadSavePlaybackTakesPref()
+    {
+        _savePlaybackTakes = _radioCfg?.AudioCheckSavePlaybackTakes == true;
+        if (_savePlaybackTakesBox == null) return;
+        _polling = true;
+        try { _savePlaybackTakesBox.IsChecked = _savePlaybackTakes; }
+        finally { _polling = false; }
+    }
+
     /// <summary>The take part of the check session (Unified takes, part 4d).</summary>
     private sealed partial class AudioCheckSession
     {

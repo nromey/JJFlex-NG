@@ -1,3 +1,6 @@
 - Play takes is a new window that lists every take of your audio on this computer, newest first, whatever radio or method made it. You can play a take, compare it with another one you choose, read its details, add a note, save a copy as WAV or FLAC, or delete it. Ctrl+J then Alt+T opens it, and Check your audio has a Play takes button.
 - A comparison now names more of what changed between two takes: mic gain, the compander, the speech processor and the transmit equalizer. When more than one setting changed, it says so.
 - Check your audio's three methods that make a take now have clearer names: Radio recording, Heard on the air, and Looped back.
+- Check your audio can now save what the radio plays back as a take. Tick "Save each playback as a take" with Radio recording or Looped back, and each playback lands in Play takes, numbered in a test you can rename and come back to. While it plays, your other slices go quiet so only your take is recorded, and they come back on by themselves when it ends, however it ends. It is off until you turn it on, and remembered for each radio.
+- When you change radio, mic profile, mic input or computer microphone between takes, Check your audio asks whether to start a new test or add to the one you are in. Say "add to this test" once and it stops asking for that test.
+- Play last take plays your saved take when there is one.

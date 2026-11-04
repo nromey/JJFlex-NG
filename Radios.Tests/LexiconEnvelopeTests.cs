@@ -2284,6 +2284,8 @@ namespace Radios.Tests
                 "audio.takes.no_saved_take",
                 "audio.takes.help.play_last",
                 "audio.takes.needs_computer_audio",
+                "audio.takes.save_playback",
+                "audio.takes.help.save_playback",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

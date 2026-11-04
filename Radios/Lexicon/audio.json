@@ -1196,6 +1196,8 @@
   "audio.takes.no_saved_take": {"text": "There is no saved take to play.", "delivery": null},
   "audio.takes.help.play_last": {"text": "Plays the slice recording with Radio recording, or the off-air take with Heard on the air. With Save each playback as a take on, it plays the saved take instead. Press again to stop.", "delivery": null},
   "audio.takes.needs_computer_audio": {"text": "Saving a playback as a take needs the radio's audio on this computer, so this one won't be saved.", "delivery": null},
+  "audio.takes.save_playback": {"text": "Save each playback as a take", "delivery": null},
+  "audio.takes.help.save_playback": {"text": "When this is on, Radio recording and Looped back save what the radio plays back to this computer as a take, which you can play and compare in Play takes. While it plays, your other slices are muted, and they are put back when it ends. Remembered for this radio; off until you turn it on.", "delivery": null},
   "audio.full_duplex.label": {"text": "Full duplex", "delivery": null},
   "audio.full_duplex.command": {"text": "Toggle full duplex", "delivery": null},
   "audio.full_duplex.on": {"text": "Full duplex on", "delivery": null},
