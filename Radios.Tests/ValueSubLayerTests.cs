@@ -3270,7 +3270,9 @@ namespace Radios.Tests
             // B3): the held-through-drop guard is asked first, repeats
             // included, and the first down is remembered as the lock key held,
             // so a held lock key cannot re-key after a dropped connection. The
-            // one-toggle-per-press rule below it is unchanged.
+            // one-toggle-per-press rule below it is unchanged. And again in
+            // repair round 2 (#596 N2): a down starts the lock key's stream
+            // afresh, so the gap after its last up is measured from that up.
             const string lockKeyDownEdge =
                 "    internal void LockKeyDown(bool isRepeat)\n" +
                 "    {\n" +
@@ -3279,6 +3281,7 @@ namespace Radios.Tests
                 "        if (PttHeldThroughDrop(down: true)) return;\n" +
                 "        if (isRepeat) return;   // a held key is one press\n" +
                 "        _lockKeyDown = true;\n" +
+                "        _lockStreamUpMs = long.MinValue;\n" +
                 "        _lockPairDetector.NoteDown(Environment.TickCount64);\n" +
                 "        _pttController?.ToggleLock();\n" +
                 "    }\n";
@@ -3299,7 +3302,12 @@ namespace Radios.Tests
                 "            return;\n" +
                 "        }\n" +
                 "        _pttController.ToggleLock();\n" +
+                "        // A toggle is a press and its release at once: its stream may go on\n" +
+                "        // (#596 N2), so a drop in the gap after it remembers the key.\n" +
+                "        _lockStreamUpMs = Environment.TickCount64;\n" +
                 "    }\n";
+            // CHANGED ON PURPOSE again (repair round 2, #596 N2): a toggle
+            // records its moment, so a drop in the gap after it remembers it.
             Assert.Contains(systemWideLockAsOnMain, main);
 
             // 3. The Space key-up on Home: main's body. Ahead of it, the

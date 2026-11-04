@@ -191,6 +191,14 @@ namespace Radios
                                 {
                                     stopCW();
                                 }
+                                else if (TransmitWorkRevoked(cwt.Generation, cwt.IsChar ? "CW typing" : "a CW message"))
+                                {
+                                    // Admitted before a drop or a teardown (#596 N4).
+                                }
+                                else if (cwt.IsChar && !string.IsNullOrEmpty(cwt.Text))
+                                {
+                                    sendCWChar(cwt.Text[0]);
+                                }
                                 else
                                 {
                                     sendCWString(cwt.Text);
@@ -871,6 +879,7 @@ namespace Radios
             // send only if in transmit mode or VOX is on
             if (!Transmit & (Vox == OffOnValues.off)) return;
 
+            _cwSentThisConnection = true;
             cwx.Send(c.ToString());
 #if CWMonitor
             if (useCWMon)
@@ -887,6 +896,7 @@ namespace Radios
             // send only if in transmit mode or VOX is on
             if (!Transmit & (Vox == OffOnValues.off)) return;
 
+            _cwSentThisConnection = true;
             cwx.Send(str);
 #if CWMonitor
             //sentChars.Append(str);

@@ -3956,8 +3956,16 @@ namespace Radios
             // profile, the microphone input or the speaker is put back and
             // before the link closes. If receive cannot be confirmed, the
             // microphone input is not put back at all (FlexBase.TeardownUnkey.cs).
-            UnkeyBeforePuttingBack("Disconnect", TeardownUnkeyDrainBound, TeardownReceiveWaitMs);
-            DisconnectVoxPauses();
+            //
+            // Its answer is HONOURED (repair round 2, N3): when receive is not
+            // confirmed, nothing in the transmit chain is put back. VOX is not
+            // re-enabled (the next connect says it was paused), the profiles
+            // and the live transmit audio are left, with their restore points
+            // on the radio and the snapshot on disk, for the next connect, and
+            // the microphone input is not switched. The debt is kept, not
+            // replayed: a put-back executor is #590's.
+            bool receiveConfirmed = UnkeyBeforePuttingBack("Disconnect", TeardownUnkeyDrainBound, TeardownReceiveWaitMs);
+            DisconnectVoxPauses(restore: receiveConfirmed && !TeardownRefusesRestore("VOX"));
             // While the link is certainly up: end what a send holds on the
             // radio, the PTT source watch and a monitor it turned on (#835).
             try { RevokeSendHoldsForDisconnect("Disconnect"); }
@@ -4455,7 +4463,12 @@ namespace Radios
             // unrecoverable), but it narrows the window where a doomed rig is
             // still the intake from "until someone else engages" to "now".
             resignAsThePresenceIntake();
-            DisconnectVoxPauses();
+            // With a radio still attached, its VOX pauses are given back by
+            // Disconnect below, AFTER its unkey has confirmed receive (#596,
+            // repair round 2, N3): giving them back here wrote VOX on before
+            // anything had unkeyed. With no radio there is nothing to write,
+            // and only the local sources stop.
+            if (theRadio == null) DisconnectVoxPauses(restore: true);
 
             if (!disposed)
             {
@@ -4501,11 +4514,13 @@ namespace Radios
                     try
                     {
                         BeginTeardownOperation("Dispose");
-                        saveNewGlobalProfile(); // if any
-
-                        // Put this radio's own profiles back BEFORE the connection
-                        // goes away, and after saveNewGlobalProfile so the two
-                        // cannot fight over the global selection (#450).
+                        // The deferred global create and the profile put-back
+                        // (#450) run inside Disconnect, in the same order as
+                        // they ran here, but AFTER its unkey has confirmed
+                        // receive (#596, repair round 2, N3). They ran here
+                        // first until then, so a profile or the live transmit
+                        // audio could be put back under a carrier before
+                        // anything had unkeyed.
                         //
                         // BEST-EFFORT, AND NOTHING MAY ASSUME IT RAN. A remote
                         // client cannot guarantee cleanup, because the process
@@ -4515,14 +4530,6 @@ namespace Radios
                         // on the RADIO: the next JJ Flexible client to connect,
                         // ours or anyone's, sees it in the profile list and can
                         // offer to put things right.
-                        try { PutProfilesBackOnDisconnect(); }
-                        catch (Exception ex)
-                        {
-                            Tracing.TraceLine(
-                                "FlexBase.Dispose: putting profiles back threw: " + ex.Message
-                                + ". The restore points stay on the radio.", TraceLevel.Error);
-                        }
-
                         Disconnect();
                     }
                     catch (Exception ex)
@@ -6486,6 +6493,12 @@ namespace Radios
             {
                 TransmitKillSwitch.DisarmSources(this);
                 lock (cwBuffer) cwBuffer.Text = "";
+                // And work already admitted to the command queue (#596, repair
+                // round 2, N4): a key-on, a tune-on, CW text and characters
+                // queued before the fall are revoked, so none of it can run
+                // against a reconnected radio. The compose buffer above is a
+                // different thing from queued CW.
+                RevokeAdmittedTransmitWork("the connection fell", trace);
             }
             catch (Exception ex)
             {
@@ -8474,10 +8487,16 @@ namespace Radios
                 if (value && RefusedForCheckTeardown("transmit")) return;
                 if (!value) CancelSlicePlayback();
                 if (value && TxReferenceArmed) txFilePlayer.RestartOnNextBuffer();
+                // A key-on belongs to the connection it was asked on: a drop or
+                // a teardown revokes it while it waits in the queue (#596,
+                // repair round 2, N4), so it cannot key a reconnected radio.
+                long work = Volatile.Read(ref _transmitWorkGeneration);
                 q.Enqueue((FunctionDel)(() =>
                 {
                     if (value && TeardownHeldSilently("transmit")) return;
+                    if (value && TransmitWorkRevoked(work, "a key-on")) return;
                     theRadio.Mox = value;
+                    _ownKeyRequested = value;
                 }), "Mox");
             }
         }
@@ -13142,6 +13161,10 @@ namespace Radios
         {
             public string Text;
             public cwBufferState State;
+            /// <summary>The transmit-work generation it was admitted under (#596 N4).</summary>
+            public long Generation;
+            /// <summary>One typed character, sent as typing is.</summary>
+            public bool IsChar;
 
             public cwText() { }
 
@@ -13208,7 +13231,8 @@ namespace Radios
                 }
                 else
                 {
-                    q.Enqueue(new cwText(str), "SendCW");
+                    // Revoked by a drop or a teardown while queued (#596 N4).
+                    q.Enqueue(new cwText(str) { Generation = Volatile.Read(ref _transmitWorkGeneration) }, "SendCW");
                 }
             }
             return true;
@@ -13224,7 +13248,9 @@ namespace Radios
             }
             else
             {
-                q.Enqueue(c);
+                // A character carries its connection's work generation too
+                // (#596 N4), so it rides the queue as a one-character item.
+                q.Enqueue(new cwText(c.ToString()) { IsChar = true, Generation = Volatile.Read(ref _transmitWorkGeneration) });
             }
             return true;
         }

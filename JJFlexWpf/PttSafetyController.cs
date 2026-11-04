@@ -892,8 +892,34 @@ namespace JJFlexWpf
             _rfCommandedOn = on;
             NoteRf();
             var rig = _getRigControl();
-            if (rig != null)
-                rig.Transmit = on;
+            if (rig == null) return;
+            // A release at teardown or at a dropped connection unkeys only
+            // this client's own carrier, checked as the write goes out (#596
+            // N1, #861 B2; Codex's re-check). Every other unkey stays the
+            // unconditional one.
+            if (!on && _unkeyOwnCarrierOnly) rig.UnkeyOwnCarrier("push to talk released at " + _releaseWhy);
+            else rig.Transmit = on;
+        }
+
+        /// <summary>While set, <see cref="SetTx"/>'s unkey is <see cref="FlexBase.UnkeyOwnCarrier"/>.</summary>
+        private bool _unkeyOwnCarrierOnly;
+        private string _releaseWhy = "";
+
+        /// <summary>
+        /// The application is tearing the radio down (a disconnect, a radio
+        /// switch, exit, power-off): to Idle from any state, which drops this
+        /// controller's command to transmit and stops its timers, with an
+        /// unkey that touches only this client's own carrier (#596 N1, #861
+        /// B2). Escape's ordinary unlock is unchanged.
+        /// </summary>
+        public void ReleaseForTeardown()
+        {
+            _elsewhereStopOwed = false;
+            if (State == PttState.Idle) return;
+            _unkeyOwnCarrierOnly = true;
+            _releaseWhy = "teardown";
+            try { GoIdle(ReceivingWords()); }
+            finally { _unkeyOwnCarrierOnly = false; }
         }
 
         /// <summary>
@@ -1043,11 +1069,21 @@ namespace JJFlexWpf
         /// </remarks>
         public bool DropWithConnection(string sentence)
         {
+            _elsewhereStopOwed = false;
             if (State == PttState.Idle) return false;
             Tracing.TraceLine($"PTT: the connection fell while {State}; the key drops with it", TraceLevel.Warning);
             EarconPlayer.WarningAlarmTone();
-            GoIdle(sentence, forceSpeech: true,
-                   subject: Radios.Speech.SpeechSubject.TransmitDroppedWithConnection);
+            // Its unkey is this client's own carrier only (#596 N4): on a
+            // radio object reused by a reconnect, a queued xmit 0 must not
+            // reach whoever transmits on the new connection.
+            _unkeyOwnCarrierOnly = true;
+            _releaseWhy = "a dropped connection";
+            try
+            {
+                GoIdle(sentence, forceSpeech: true,
+                       subject: Radios.Speech.SpeechSubject.TransmitDroppedWithConnection);
+            }
+            finally { _unkeyOwnCarrierOnly = false; }
             return true;
         }
 

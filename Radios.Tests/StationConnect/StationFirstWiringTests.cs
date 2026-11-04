@@ -521,9 +521,16 @@ namespace Radios.Tests.StationConnect
         [Fact]
         public void TheDeferredCreateRunsFromTheCleanDisconnectAndFromDispose()
         {
+            // Changed on purpose (junk box repair round 2, #596 N3): Dispose
+            // reaches the deferred create through Disconnect, after its unkey,
+            // instead of calling it before anything had unkeyed.
             var text = Read(FlexBase);
-            int count = text.Split(new[] { "saveNewGlobalProfile();" }, StringSplitOptions.None).Length - 1;
-            Assert.True(count >= 2, "expected calls from Disconnect and from Dispose, found " + count);
+            int disconnect = IndexOf(text, "public void Disconnect()");
+            int unkey = text.IndexOf("UnkeyBeforePuttingBack(" + '"' + "Disconnect" + '"', disconnect, StringComparison.Ordinal);
+            int create = text.IndexOf("saveNewGlobalProfile();", disconnect, StringComparison.Ordinal);
+            Assert.True(unkey > disconnect && create > unkey, "the clean disconnect does not run the deferred create after its unkey");
+            int dispose = IndexOf(text, "protected virtual void Dispose(bool disposing)");
+            Assert.True(text.IndexOf("Disconnect();", dispose, StringComparison.Ordinal) > dispose, "Dispose no longer reaches Disconnect");
         }
 
         [Fact]

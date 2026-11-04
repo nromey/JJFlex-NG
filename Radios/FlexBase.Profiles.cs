@@ -1775,6 +1775,13 @@ namespace Radios
                 return;
             }
 
+            // The receive barrier (#596, repair round 2, N3): with the radio
+            // not positively receiving, nothing is put back and the debt is
+            // KEPT, as an unreadable radio's is above: the restore points stay
+            // on the radio, the live transmit-audio snapshot stays on disk, and
+            // an owed autosave notice stays for the next connect.
+            if (TeardownRefusesRestore("the profiles and the live transmit audio")) return;
+
             var plan = ProfileStewardship.PlanPutBack(situation, record, autosaveOff);
 
             foreach (var skip in plan.Skips)
@@ -1789,6 +1796,12 @@ namespace Radios
 
             foreach (var action in plan.Actions)
             {
+                // Asked again at each step (repair round 2, N3): something can
+                // key while the plan runs. The rest of the plan is then left
+                // too, autosave included, so nothing commits a half put-back.
+                if (TeardownRefusesRestore("the " + ProfileStewardship.Label(action.ProfileType) + " step " + action.Kind
+                    + " and everything after it"))
+                    return;
                 bool ok = RunProfileAction(action);
                 if (action.Kind == ProfileActionKind.TurnAutosaveOn && ok)
                 {
@@ -2765,12 +2778,17 @@ namespace Radios
             switch (type)
             {
                 case ProfileTypes.global:
-                    q.Enqueue((FunctionDel)(() => radio.ProfileGlobalSelection = name),
-                        "stewardship global selection", true);
+                    q.Enqueue((FunctionDel)(() =>
+                    {
+                        // At the queued write, during a teardown (repair round 2, N3).
+                        if (TeardownRefusesRestore("the global profile '" + name + "'")) return;
+                        radio.ProfileGlobalSelection = name;
+                    }), "stewardship global selection", true);
                     break;
                 case ProfileTypes.tx:
                     q.Enqueue((FunctionDel)(() =>
                     {
+                        if (TeardownRefusesRestore("the transmit profile '" + name + "'")) return;
                         if (!radio.ProfileTXList.Contains(name))
                         {
                             if (!mayCreate) return;
@@ -2782,6 +2800,7 @@ namespace Radios
                 case ProfileTypes.mic:
                     q.Enqueue((FunctionDel)(() =>
                     {
+                        if (TeardownRefusesRestore("the microphone profile '" + name + "'")) return;
                         if (!radio.ProfileMICList.Contains(name))
                         {
                             if (!mayCreate) return;

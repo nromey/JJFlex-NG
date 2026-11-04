@@ -80,6 +80,26 @@ namespace Radios
         /// Calling after transport loss is also safe: failed writes are reported,
         /// and old leases can never write into a later connection.
         /// </summary>
+        /// <summary>
+        /// The connection ends with the radio not confirmed receiving: write
+        /// nothing, forget every pause and pending restore, and say whether a
+        /// restore was owed (#596, repair round 2, N3).
+        /// </summary>
+        public bool Abandon()
+        {
+            lock (_gate)
+            {
+                if (_disconnected) return false;
+                _disconnected = true;
+                bool owed = false;
+                foreach (var entry in _pending) owed |= entry.Value.On;
+                foreach (var entry in _pauses) owed |= entry.Value.Restore;
+                _pending.Clear();
+                _pauses.Clear();
+                return owed;
+            }
+        }
+
         public void Disconnect()
         {
             lock (_gate)

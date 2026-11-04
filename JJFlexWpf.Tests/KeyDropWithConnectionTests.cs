@@ -302,6 +302,133 @@ public sealed class KeyDropWithConnectionTests : IDisposable
         _controller.EscapeUnlock();
     }
 
+    /// <summary>
+    /// #596 N2, junk box repair round 2 (Codex's re-check): under a reader
+    /// that sends down/up pairs, the lock key is "up" between pairs. A drop
+    /// landing in that gap found nothing held, and the next pair re-locked
+    /// after the reconnect. The lock's stream now counts as in flight for the
+    /// first gap after its last up.
+    /// </summary>
+    [Fact]
+    public void A_lock_key_dropped_between_its_pairs_is_still_remembered()
+    {
+        AssertTheDeskIsSafe();
+        Call("LockKeyDown", false);
+        Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);
+        Call("NoteLockSpaceUp", Environment.TickCount64);   // the pair's own up
+        Thread.Sleep(100);                                   // the drop lands between pairs
+
+        Drop();
+
+        Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
+        Assert.True(Guard.Armed, "a lock key dropped between its pairs was not remembered");
+        for (int pair = 0; pair < 4; pair++)
+        {
+            Call("LockKeyDown", false);
+            Assert.False(RfCommandedOn(), "the next pair re-locked after the reconnect, pair " + pair);
+            Thread.Sleep(5);
+            Call("PttHeldThroughDrop", false);
+            Thread.Sleep(245);
+        }
+        if (_controller.IsTransmitting) _controller.EscapeUnlock();
+    }
+
+    [Fact]
+    public void A_lock_key_dropped_inside_the_first_repeat_gap_is_still_remembered()
+    {
+        // The first gap of a synthesised hold is the repeat delay, longer than
+        // the pairs after it.
+        AssertTheDeskIsSafe();
+        Call("LockKeyDown", false);
+        Call("NoteLockSpaceUp", Environment.TickCount64 - (_filter.FirstGapDeferMs - 150));
+        Drop();
+        Assert.True(Guard.Armed, "a drop inside the first gap of a held lock key was not remembered");
+    }
+
+    [Fact]
+    public void A_lock_key_let_go_long_before_the_drop_is_not_remembered()
+    {
+        // Control: a lock pressed and let go well before the link fell is a
+        // finished press, and the next press after the reconnect is a press.
+        AssertTheDeskIsSafe();
+        Call("LockKeyDown", false);
+        Call("NoteLockSpaceUp", Environment.TickCount64 - (_filter.FirstGapDeferMs + 500));
+        Drop();
+        Assert.False(Guard.Armed, "a finished lock press armed the guard");
+    }
+
+    /// <summary>
+    /// #596 N1 and #861 B2, repair round 2: releasing our controller at a
+    /// teardown or a drop queues an unkey that checks, as it goes out, that
+    /// the carrier is still ours; never the unconditional xmit 0.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_teardown_or_a_drop_releases_with_an_own_carrier_unkey_only(bool teardown)
+    {
+        AssertTheDeskIsSafe();
+        QueueWrites(true);
+        HoldTheKey();
+        int before = QueuedNames().Count;
+        if (teardown) Call("ReleaseKeyForTeardown", "test");
+        else Drop();
+        Assert.False(RfCommandedOn());
+        var released = QueuedNames().Skip(before).ToList();
+        QueueWrites(false);
+        Assert.Contains("Mox (own carrier only)", released);
+        Assert.DoesNotContain("Mox", released);
+    }
+
+    /// <summary>
+    /// The names of the writes waiting on the rig's command queue, oldest
+    /// first, read without taking them (the rig's queue is internal to Radios,
+    /// and its loop is not running here).
+    /// </summary>
+    private object RigQueue() => typeof(FlexBase).GetField("q", Any)!.GetValue(_rig)!;
+
+    /// <summary>
+    /// Let the unconnected rig's queue HOLD writes (nothing runs them: no
+    /// command loop, no transport), so a test can read what was queued.
+    /// </summary>
+    private void QueueWrites(bool on)
+    {
+        object q = RigQueue();
+        q.GetType().GetProperty("MainLoop", Any)!.SetValue(q, on);
+    }
+
+    private System.Collections.Generic.List<string> QueuedNames()
+    {
+        object q = RigQueue();
+        var names = new System.Collections.Generic.List<string>();
+        foreach (var field in q.GetType().GetFields(Any))
+        {
+            if (field.GetValue(q) is not System.Collections.IEnumerable items || field.FieldType == typeof(string)) continue;
+            foreach (object item in items)
+            {
+                var name = item?.GetType().GetField("Name", Any)?.GetValue(item) as string;
+                if (name != null) names.Add(name);
+            }
+            if (names.Count > 0) break;
+        }
+        return names;
+    }
+
+    [Fact]
+    public void Escape_still_unkeys_unconditionally()
+    {
+        // Control: the ordinary and emergency unkeys are not narrowed.
+        AssertTheDeskIsSafe();
+        QueueWrites(true);
+        HoldTheKey();
+        int before = QueuedNames().Count;
+        Assert.True(before > 0, "positive control: the key-on was queued where this test can see it");
+        _controller.EscapeUnlock();
+        var released = QueuedNames().Skip(before).ToList();
+        QueueWrites(false);
+        Assert.Contains("Mox", released);
+    }
+
     [Fact]
     public void The_system_wide_lock_toggles_nothing_while_a_key_is_held_through_the_drop()
     {

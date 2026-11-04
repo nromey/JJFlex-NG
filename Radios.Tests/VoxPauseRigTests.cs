@@ -133,7 +133,7 @@ public sealed class VoxPauseRigTests : IDisposable
         Drain(f.Rig);
         var departingOwner = f.Rig.VoxPauses;
         typeof(FlexBase).GetMethod("DisconnectVoxPauses", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(f.Rig, null);
+            .Invoke(f.Rig, new object[] { true });   // receive confirmed: give VOX back
         Assert.False(f.Rig.TxToneEngaged);
         f.Rig.TxToneStop();
         Drain(f.Rig);

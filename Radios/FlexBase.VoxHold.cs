@@ -114,7 +114,12 @@ namespace Radios
             _voxPauses?.OperatorChanged(TXModeAsReported == "CW" ? VoxSetting.CwBreakIn : VoxSetting.SimpleVox);
         }
 
-        private void DisconnectVoxPauses()
+        /// <param name="restore">False when the teardown could not confirm
+        /// receive (#596, repair round 2, N3): VOX is NOT written back on under
+        /// a carrier. The pause is abandoned and remembered by serial, so the
+        /// next connect says VOX was paused, as it already does for a pause
+        /// the link took down.</param>
+        private void DisconnectVoxPauses(bool restore)
         {
             // Read slice leases before the VOX gate. Slice status can dispose
             // a lease while holding its own gate; reversing that order here
@@ -131,7 +136,9 @@ namespace Radios
                     _voxPausedAtDisconnectSerial = serial;
                 txToneGen.Stop();
                 TxFileStop();
-                _voxPauses?.Disconnect();
+                if (restore) _voxPauses?.Disconnect();
+                else if (_voxPauses?.Abandon() == true && theRadio?.Serial is string owedSerial)
+                    _voxPausedAtDisconnectSerial = owedSerial;
                 _localPlaybackVoxLeases.Clear();
                 _referenceVoxLease?.Dispose();
                 _referenceVoxLease = null;

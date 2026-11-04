@@ -2968,7 +2968,7 @@ public partial class MainWindow : UserControl
             // #596: a key held through a dropped connection has its up seen
             // whole, before anything else reads it.
             PttHeldThroughDrop(down: false);
-            _lockKeyDown = false;
+            NoteLockSpaceUp(Environment.TickCount64);
             // Detection only (#800): a lock release too fast to be human is
             // counted and traced, and changes nothing.
             _lockPairDetector.NoteUp(Environment.TickCount64);
@@ -3140,6 +3140,7 @@ public partial class MainWindow : UserControl
         if (PttHeldThroughDrop(down: true)) return;
         if (isRepeat) return;   // a held key is one press
         _lockKeyDown = true;
+        _lockStreamUpMs = long.MinValue;
         _lockPairDetector.NoteDown(Environment.TickCount64);
         _pttController?.ToggleLock();
     }
@@ -3150,6 +3151,34 @@ public partial class MainWindow : UserControl
     /// through them (#596, Codex's check, B3).
     /// </summary>
     private bool _lockKeyDown;
+
+    /// <summary>
+    /// When the lock key's last up arrived, while its stream may still be
+    /// going (a synthesising reader's next pair), or MinValue (#596 N2).
+    /// </summary>
+    private long _lockStreamUpMs = long.MinValue;
+
+    /// <summary>
+    /// A Space up on Home: a lock key in flight is now "up", but under a
+    /// synthesising reader the same hold's next pair may follow, so the time
+    /// is kept for the drop to read (#596 N2).
+    /// </summary>
+    internal void NoteLockSpaceUp(long nowMs)
+    {
+        if (_lockKeyDown) _lockStreamUpMs = nowMs;
+        _lockKeyDown = false;
+    }
+
+    /// <summary>
+    /// The lock key's stream may still be going: its last up is no older than
+    /// the first gap of a hold on this machine (one and a half repeat delays,
+    /// which covers the gap before a synthesising reader's first pair and
+    /// every gap after it). This only decides whether a drop REMEMBERS the
+    /// key; it never lets a remembered key go (Noel, 2026-11-04 06:56: a hold
+    /// remembered through a drop is not forgotten after silence).
+    /// </summary>
+    private bool LockStreamMayContinue(long nowMs) =>
+        _lockStreamUpMs != long.MinValue && nowMs - _lockStreamUpMs <= _pttHoldFilter.FirstGapDeferMs;
 
     /// <summary>
     /// A door that sees one toggle per press and no separate up (the
@@ -3180,6 +3209,9 @@ public partial class MainWindow : UserControl
             return;
         }
         _pttController.ToggleLock();
+        // A toggle is a press and its release at once: its stream may go on
+        // (#596 N2), so a drop in the gap after it remembers the key.
+        _lockStreamUpMs = Environment.TickCount64;
     }
 
     /// <summary>
@@ -3391,7 +3423,12 @@ public partial class MainWindow : UserControl
         // pressed into (the Transmit button's Space, the system-wide lock).
         bool spaceDown = false;
         try { spaceDown = _pttHoldFilter.PhysicalKeyDown?.Invoke() == true; } catch { }
-        bool keyInFlight = _pttKeyDown || _pttHoldFilter.ReleasePending || _lockKeyDown || spaceDown
+        // The lock key's stream counts as in flight inside the gap after its
+        // last up as well (#596 N2, Codex's re-check): a synthesising reader's
+        // pairs leave the key "up" between pairs, the first gap as long as the
+        // repeat delay, and a drop landing there must still be remembered.
+        bool lockStream = _lockKeyDown || LockStreamMayContinue(Environment.TickCount64);
+        bool keyInFlight = _pttKeyDown || _pttHoldFilter.ReleasePending || lockStream || spaceDown
             || (_pttController != null && _pttController.State == PttSafetyController.PttState.PttHold);
         if (keyInFlight)
         {
@@ -3400,6 +3437,7 @@ public partial class MainWindow : UserControl
                 + "; it keys nothing until it is let go", TraceLevel.Info);
         }
         _lockKeyDown = false;
+        _lockStreamUpMs = long.MinValue;
 
         // An unexpected drop ends a check that is counting down or waiting to
         // key (#596, Codex's check, B2): its start would otherwise key the
@@ -3415,7 +3453,10 @@ public partial class MainWindow : UserControl
         bool said = false;
         if (_pttController != null && _pttController.IsTransmitting)
         {
-            if (deliberate) _pttController.EscapeUnlock();
+            // Both unkey this client's own carrier only (#596 N1, #861 B2):
+            // a teardown's release must not send xmit 0 under a carrier that
+            // has passed to another client.
+            if (deliberate) _pttController.ReleaseForTeardown();
             else said = _pttController.DropWithConnection(sentence);
         }
         ResetPttInput();
@@ -6308,6 +6349,8 @@ public partial class MainWindow : UserControl
         {
             // Route through PTT safety controller for timeout/warning tracking
             _pttController.ToggleLock();
+            // A click is a press and its release: its stream may go on (#596 N2).
+            _lockStreamUpMs = Environment.TickCount64;
         }
         else
         {

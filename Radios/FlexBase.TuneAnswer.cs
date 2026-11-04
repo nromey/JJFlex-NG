@@ -57,8 +57,17 @@ namespace Radios
         /// is taken, and its flag is then up for every door to see, or never.
         /// </summary>
         /// <param name="held">Run instead of the write when an Audio Check teardown holds an ON.</param>
-        private void EnqueueTuneWrite(bool value, string what, Action held)
+        private void EnqueueTuneWrite(bool value, string what, Action held) =>
+            EnqueueTuneWrite(value, what, held, ownCarrierOnly: false);
+
+        /// <param name="ownCarrierOnly">An OFF that must not touch another
+        /// client's carrier (a teardown's, #596 repair round 2): at the write it
+        /// re-reads the radio's transmitting client and its connection, and
+        /// sends nothing when either has changed to someone else's.</param>
+        private void EnqueueTuneWrite(bool value, string what, Action held, bool ownCarrierOnly)
         {
+            Radio owner = theRadio;
+            object connection = owner?.CurrentCommandConnection;
             long gen;
             lock (_tuneWriteGate)
             {
@@ -82,6 +91,8 @@ namespace Radios
                         held?.Invoke();
                         return;
                     }
+                    if (!value && ownCarrierOnly && !OurCarrierToUnkey(owner, connection, "the " + what + " off"))
+                        return;
                     theRadio.TXTune = value;
                     if (latest) _tuneOnQueued = false;
                 }

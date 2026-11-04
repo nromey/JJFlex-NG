@@ -92,10 +92,36 @@ public sealed class DisconnectPutBackOrderTests
         int unkey = body.IndexOf("UnkeyBeforePuttingBack(\"Disconnect\"", StringComparison.Ordinal);
         int profiles = body.IndexOf("PutProfilesBackOnDisconnect();", StringComparison.Ordinal);
         int stop = body.IndexOf("PCAudio = false;", StringComparison.Ordinal);
-        int vox = body.IndexOf("DisconnectVoxPauses();", StringComparison.Ordinal);
+        int vox = body.IndexOf("DisconnectVoxPauses(restore: receiveConfirmed", StringComparison.Ordinal);
         Assert.True(unkey > 0 && profiles > 0 && stop > 0 && vox > 0, "a statement this test orders has moved");
         Assert.True(unkey < vox && unkey < profiles && unkey < stop,
             "something is put back before this session has unkeyed and the radio has reported receive");
+    }
+
+    [Fact]
+    public void A_teardown_that_cannot_confirm_receive_puts_nothing_in_the_transmit_chain_back()
+    {
+        // #596 N3, repair round 2: the disconnect honours its unkey's answer,
+        // and Dispose no longer restores the profiles before that unkey.
+        string body = DisconnectBody();
+        Assert.Contains("bool receiveConfirmed = UnkeyBeforePuttingBack(\"Disconnect\"", body, StringComparison.Ordinal);
+        Assert.Contains("DisconnectVoxPauses(restore: receiveConfirmed && !TeardownRefusesRestore(\"VOX\"));", body, StringComparison.Ordinal);
+        string text = FlexBasePartials.JoinedText();
+        int dispose = text.IndexOf("protected virtual void Dispose(bool disposing)", StringComparison.Ordinal);
+        int disconnect = text.IndexOf("Disconnect();", dispose, StringComparison.Ordinal);
+        string beforeDisconnect = text.Substring(dispose, disconnect - dispose);
+        Assert.DoesNotContain("PutProfilesBackOnDisconnect();", beforeDisconnect, StringComparison.Ordinal);
+        Assert.DoesNotContain("saveNewGlobalProfile();", beforeDisconnect, StringComparison.Ordinal);
+        Assert.Contains("if (theRadio == null) DisconnectVoxPauses(restore: true);", beforeDisconnect, StringComparison.Ordinal);
+        // Every restoration entry point asks the interlock.
+        int plan = text.IndexOf("private void PutProfilesBackOnDisconnect()", StringComparison.Ordinal);
+        string planBody = text.Substring(plan, 4000);
+        int barrier = planBody.IndexOf("if (TeardownRefusesRestore(\"the profiles and the live transmit audio\")) return;", StringComparison.Ordinal);
+        int run = planBody.IndexOf("bool ok = RunProfileAction(action);", StringComparison.Ordinal);
+        Assert.True(barrier > 0 && run > barrier, "the profile put-back writes before asking the interlock");
+        Assert.Contains("TeardownRefusesRestore(\"the transmit profile '\" + name + \"'\")", text, StringComparison.Ordinal);
+        Assert.Contains("TeardownRefusesRestore(\"the microphone profile '\" + name + \"'\")", text, StringComparison.Ordinal);
+        Assert.Contains("TeardownRefusesRestore(\"the global profile '\" + name + \"'\")", text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -115,15 +141,15 @@ public sealed class DisconnectPutBackOrderTests
     }
 
     [Fact]
-    public void Both_mic_put_backs_ask_the_teardown_first()
+    public void Both_mic_put_backs_ask_the_interlock_at_their_write()
     {
         string text = FlexBasePartials.JoinedText();
         int now = text.IndexOf("private void PutBackNow(Radio radio, MicInputSwap swap, string when)", StringComparison.Ordinal);
         int queued = text.IndexOf("private void WriteSwitchBackPutBack(Radio radio, MicInputSwap swap, PutBackPin pin, string when)", StringComparison.Ordinal);
         Assert.True(now > 0 && queued > 0, "a put-back moved");
-        Assert.Contains("TeardownWithholdsMicPutBack(when, swap.Saved)", text.Substring(now, 600), StringComparison.Ordinal);
+        Assert.Contains("if (MicPutBackWithheld(when, swap.Saved)) { KeepMicPutBackOwed(swap); return; }", text.Substring(now, 900), StringComparison.Ordinal);
         string queuedBody = text.Substring(queued, 3500);
-        int withhold = queuedBody.IndexOf("TeardownWithholdsMicPutBack(when, swap.Saved)", StringComparison.Ordinal);
+        int withhold = queuedBody.IndexOf("if (MicPutBackWithheld(when, swap.Saved)) { KeepMicPutBackOwed(swap); return; }", StringComparison.Ordinal);
         int raw = queuedBody.IndexOf("SendRadioCommandWithReply(radio, command", StringComparison.Ordinal);
         Assert.True(withhold > 0 && raw > withhold, "the raw switch-back write can go out without asking the teardown");
     }

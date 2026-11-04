@@ -2015,9 +2015,11 @@ namespace Radios
         {
             try
             {
-                // A clean disconnect that could not confirm receive puts
-                // nothing back: never the room microphone onto a carrier.
-                if (TeardownWithholdsMicPutBack(when, swap.Saved)) return;
+                // Asked AT THE WRITE (repair round 2, #861 B1): never the room
+                // microphone onto a carrier, whether the teardown's wait
+                // could not confirm receive or something keyed since. The
+                // value stays owed rather than lost.
+                if (MicPutBackWithheld(when, swap.Saved)) { KeepMicPutBackOwed(swap); return; }
                 string nowInput = radio.MicInput ?? "";
                 if (string.Equals(nowInput, "PC", StringComparison.OrdinalIgnoreCase))
                 {
@@ -2135,7 +2137,10 @@ namespace Radios
                         TraceLevel.Warning);
                     return;
                 }
-                if (TeardownWithholdsMicPutBack(when, swap.Saved)) return;
+                // At this queued write, the interlock as it is now (repair
+                // round 2, #861 B1), for the raw send below as much as for
+                // PutBackNow's own check.
+                if (MicPutBackWithheld(when, swap.Saved)) { KeepMicPutBackOwed(swap); return; }
                 string nowInput = radio.MicInput ?? "";
                 if (string.Equals(nowInput, "PC", StringComparison.OrdinalIgnoreCase))
                 {
