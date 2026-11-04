@@ -58,9 +58,10 @@ public class Host
     // The transmit-slice notice's seams (#863, repair round 1): the place a
     // start announced is read again at the key; a scenario can move it.
     public bool PlaceStands = true;
-    private bool StillTheAnnouncedPlace() => PlaceStands;
+    private bool StillTheAnnouncedPlace(out string? refusal) { refusal = PlaceStands ? null : "changed"; return PlaceStands; }
     private void TransmitSliceNoticeKeyed() { }
     private static void TransmitSliceNotHeard() { RecorderControls.Spoken++; }
+    private static void RefuseTransmit(string? sentence) { RecorderControls.Spoken++; }
     /*StartLoopbackCheckAsync*/
     /*StartAudioCheckSessionAsync*/
     public static async Task<int[]> Run(string scenario)

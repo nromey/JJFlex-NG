@@ -1482,6 +1482,7 @@ public partial class CheckYourAudioDialog
             _ptt.AudioCheckNarration = true;
             _ptt.PlannedStopSeconds = Records ? FlexBase.SliceRecordBufferSeconds : null;
             bool placeChanged = false;
+            string? placeRefusal = null;
             bool admitted = start.TryRun(() =>
             {
                 // And the link it set up on must still be up (#596, Codex's
@@ -1493,7 +1494,7 @@ public partial class CheckYourAudioDialog
                 // And it keys the place it announced, read again now (#863,
                 // Codex's check, B2): a slice or frequency changed during the
                 // count is refused, never keyed unannounced.
-                if (!_owner.StillTheAnnouncedPlace())
+                if (!_owner.StillTheAnnouncedPlace(out placeRefusal))
                 {
                     placeChanged = true;
                     return false;
@@ -1504,7 +1505,7 @@ public partial class CheckYourAudioDialog
             if (admitted && _ptt.IsTransmitting) _owner.TransmitSliceNoticeKeyed();
             if (!admitted)
             {
-                if (placeChanged) TransmitSliceNotHeard();
+                if (placeChanged) RefuseTransmit(placeRefusal);
                 _ptt.AudioCheckNarration = false;
                 _ptt.PlannedStopSeconds = null;
                 if (_method == AudioCheckListenMethods.OffAir) _owner._iqRun?.OwnKeying(false);

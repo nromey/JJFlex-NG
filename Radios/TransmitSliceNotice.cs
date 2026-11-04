@@ -275,7 +275,7 @@ namespace Radios
         /// check made for itself (Loopback's and the off-air take's listening
         /// slice) is not the operator's move and does not count as a change.
         /// </summary>
-        public static bool StillTheAnnouncedPlace(Notice notice) => StillTheAnnouncedPlace(notice, out _);
+        public static bool StillTheAnnouncedPlace(Notice notice) => StillTheAnnouncedPlace(notice, out SliceRoles _);
 
         public static bool StillTheAnnouncedPlace(Notice notice, out SliceRoles now)
         {
@@ -295,6 +295,40 @@ namespace Radios
                     + " to " + now.SelectedLetter + "); refusing rather than keying a place nobody was told about",
                     TraceLevel.Warning);
             return ok;
+        }
+
+        /// <summary>
+        /// The sentence a door refuses with when the place changed while it
+        /// waited (ruled by Noel 2026-11-04 06:59). The transmit slice itself
+        /// changed: "The transmit slice changed, so nothing was transmitted."
+        /// (his wording). Only its frequency moved: "The transmit frequency
+        /// changed, so nothing was transmitted." (DRAFT, the orchestrator's
+        /// extension). Any other change (the selected slice moved, so a new
+        /// split nobody was told about): the not-announced sentence, which is
+        /// also what a sentence that could not be said gets. Pure.
+        /// </summary>
+        public static string RefusalForChangedPlace(SliceRoles announced, SliceRoles now)
+        {
+            if (now.HasTransmit != announced.HasTransmit
+                || !string.Equals(now.TransmitLetter, announced.TransmitLetter, StringComparison.Ordinal))
+                return Lexicon.Get("audio.ptt.transmit_slice_changed");
+            if (now.TransmitHz != announced.TransmitHz)
+                return Lexicon.Get("audio.ptt.transmit_frequency_changed");
+            return Lexicon.Get("audio.ptt.transmit_slice_not_heard");
+        }
+
+        /// <summary>
+        /// At the moment of keying, as <see cref="StillTheAnnouncedPlace(Notice)"/>;
+        /// when it refuses, <paramref name="refusal"/> is the sentence to say.
+        /// </summary>
+        public static bool StillTheAnnouncedPlace(Notice notice, out string refusal)
+        {
+            refusal = null;
+            if (StillTheAnnouncedPlace(notice, out SliceRoles now)) return true;
+            refusal = notice?.Rig == null
+                ? Lexicon.Get("audio.ptt.transmit_slice_not_heard")
+                : RefusalForChangedPlace(notice.Announced, now);
+            return false;
         }
 
         /// <summary>The rule above, pure.</summary>

@@ -484,9 +484,14 @@ internal static class VoiceMessageSender
                 TraceLevel.Warning);
             return;
         }
-        if (!heard || !TransmitSliceNotice.StillTheAnnouncedPlace(notice))
+        if (!heard)
         {
             Dialogs.CheckYourAudioDialog.TransmitSliceNotHeard();
+            return;
+        }
+        if (!TransmitSliceNotice.StillTheAnnouncedPlace(notice, out string? changed))
+        {
+            Dialogs.CheckYourAudioDialog.RefuseTransmit(changed);
             return;
         }
         BeginAndLaunch(rig, info, info.Label, loaded);
@@ -981,10 +986,10 @@ internal static class VoiceMessageSender
 
         // The place it announced, read again at the key (#863, Codex's check,
         // B2): a slice or frequency changed while it waited is refused.
-        if (!TransmitSliceNotice.StillTheAnnouncedPlace(sliceNotice))
+        if (!TransmitSliceNotice.StillTheAnnouncedPlace(sliceNotice, out string? changed))
         {
             pause.Dispose();
-            Dialogs.CheckYourAudioDialog.TransmitSliceNotHeard();
+            Dialogs.CheckYourAudioDialog.RefuseTransmit(changed);
             return false;
         }
 

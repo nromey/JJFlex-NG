@@ -132,8 +132,11 @@ public partial class CheckYourAudioDialog
     /// announced (or one nobody needed telling about). False refuses the key;
     /// the caller says so.
     /// </summary>
-    private bool StillTheAnnouncedPlace() =>
-        _transmitSliceNotice == null || TransmitSliceNotice.StillTheAnnouncedPlace(_transmitSliceNotice);
+    private bool StillTheAnnouncedPlace(out string? refusal)
+    {
+        refusal = null;
+        return _transmitSliceNotice == null || TransmitSliceNotice.StillTheAnnouncedPlace(_transmitSliceNotice, out refusal);
+    }
 
     /// <summary>The start keyed: what it said is now what the operator knows.</summary>
     private void TransmitSliceNoticeKeyed()
@@ -145,12 +148,20 @@ public partial class CheckYourAudioDialog
     /// <summary>
     /// The sentence naming the transmit slice never reached the reader, so
     /// nothing keyed (#863). Said with a sound as well, since speech is what
-    /// just failed. DRAFT PROSE (#863), awaiting Noel.
+    /// just failed. Wording ruled by Noel 2026-11-04 06:59.
     /// </summary>
-    internal static void TransmitSliceNotHeard()
+    internal static void TransmitSliceNotHeard() =>
+        RefuseTransmit(Lexicon.Get("audio.ptt.transmit_slice_not_heard"));
+
+    /// <summary>
+    /// A door refused to key because the place changed while it waited, with
+    /// the sentence for what changed (<see cref="TransmitSliceNotice.RefusalForChangedPlace"/>).
+    /// </summary>
+    internal static void RefuseTransmit(string? sentence)
     {
         EarconPlayer.LeaderInvalidTone();
-        ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.transmit_slice_not_heard"), VerbosityLevel.Critical, interrupt: true);
+        ScreenReaderOutput.Speak(sentence ?? Lexicon.Get("audio.ptt.transmit_slice_not_heard"),
+            VerbosityLevel.Critical, interrupt: true);
     }
 
     // ── The bare Control that skips the count ─────────────────────────────

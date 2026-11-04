@@ -118,6 +118,52 @@ public sealed class TransmitSliceNoticeTests
         Assert.Contains("info.KeyedElsewhere = true;\n            EarconPlayer.TxElsewhereStartTone();", sender.Replace("\r\n", "\n"));
     }
 
+    /// <summary>
+    /// Ruled by Noel 2026-11-04 06:59: a door that refuses because the place
+    /// changed while it waited says what changed. The transmit slice: his
+    /// sentence. Only the transmit frequency: the orchestrator's DRAFT
+    /// extension. The control: a notice that could not be announced, and a
+    /// change of the selected slice alone, keep the not-announced sentence.
+    /// </summary>
+    [Fact]
+    public void Each_changed_place_refuses_with_its_own_sentence()
+    {
+        var otherSlice = new SliceRoles("A", 14_175_000UL, hasTransmit: true, "C", 21_300_000UL, same: false);
+        var movedFreq = new SliceRoles("A", 14_175_000UL, hasTransmit: true, "B", 14_105_000UL, same: false);
+        var noTransmit = new SliceRoles("A", 14_175_000UL, hasTransmit: false, "", 0UL, same: false);
+        var otherSelected = new SliceRoles("D", 3_800_000UL, hasTransmit: true, "B", 14_100_000UL, same: false);
+
+        Assert.Equal("The transmit slice changed, so nothing was transmitted.",
+            TransmitSliceNotice.RefusalForChangedPlace(Apart, otherSlice));
+        Assert.Equal("The transmit slice changed, so nothing was transmitted.",
+            TransmitSliceNotice.RefusalForChangedPlace(Apart, noTransmit));
+        Assert.Equal("The transmit frequency changed, so nothing was transmitted.",
+            TransmitSliceNotice.RefusalForChangedPlace(Apart, movedFreq));
+        Assert.Equal("The transmit slice could not be announced, so nothing was transmitted.",
+            TransmitSliceNotice.RefusalForChangedPlace(Apart, otherSelected));
+        Assert.Equal("The transmit slice could not be announced, so nothing was transmitted.",
+            Lexicon.Get("audio.ptt.transmit_slice_not_heard"));   // the unspoken notice keeps its own
+    }
+
+    [Fact]
+    public void Every_door_that_refuses_a_changed_place_says_what_changed()
+    {
+        string sender = Source("JJFlexWpf/VoiceMessageSender.cs");
+        Assert.Equal(2, Count(sender, "Dialogs.CheckYourAudioDialog.RefuseTransmit(changed);"));
+        string check = Source("JJFlexWpf/Dialogs/CheckYourAudioDialog.Check.cs");
+        Assert.Contains("if (placeChanged) RefuseTransmit(placeRefusal);", check);
+        // The not-heard doors keep the not-announced sentence.
+        string countdown = Source("JJFlexWpf/Dialogs/CheckYourAudioDialog.Countdown.cs");
+        Assert.Contains("if (!_closing) TransmitSliceNotHeard();", countdown);
+    }
+
+    private static int Count(string s, string what)
+    {
+        int n = 0;
+        for (int i = s.IndexOf(what, StringComparison.Ordinal); i >= 0; i = s.IndexOf(what, i + 1, StringComparison.Ordinal)) n++;
+        return n;
+    }
+
     // ── B2: what was announced is what keys ──────────────────────────────
 
     [Fact]
@@ -284,7 +330,7 @@ public sealed class TransmitSliceNoticeTests
         Assert.True(lets > 0);
         int ready = countdown.IndexOf("run.ReadyToKeyAsync()", lets, StringComparison.Ordinal);
         int heard = countdown.IndexOf("TransmitSliceNotice.HeardAsync(_transmitSliceNotice", lets, StringComparison.Ordinal);
-        int end = countdown.IndexOf("private bool StillTheAnnouncedPlace()", lets, StringComparison.Ordinal);
+        int end = countdown.IndexOf("private bool StillTheAnnouncedPlace(out string? refusal)", lets, StringComparison.Ordinal);
         Assert.True(ready > lets && heard > ready && heard < end, "the notice must be waited for after the count, outside its branch");
         string between = countdown.Substring(ready, heard - ready);
         Assert.DoesNotContain("return go;", between);
@@ -301,7 +347,7 @@ public sealed class TransmitSliceNoticeTests
         // send before it owns the carrier, the box-off send before it begins.
         string check = Source("JJFlexWpf/Dialogs/CheckYourAudioDialog.Check.cs");
         int tryRun = check.IndexOf("bool admitted = start.TryRun(() =>", StringComparison.Ordinal);
-        int place = check.IndexOf("_owner.StillTheAnnouncedPlace()", tryRun, StringComparison.Ordinal);
+        int place = check.IndexOf("_owner.StillTheAnnouncedPlace(out placeRefusal)", tryRun, StringComparison.Ordinal);
         int key = check.IndexOf("_ptt.KeyForCheck();", tryRun, StringComparison.Ordinal);
         Assert.True(tryRun > 0 && place > tryRun && key > place, "the check keys before reading the place again");
 
@@ -309,13 +355,13 @@ public sealed class TransmitSliceNoticeTests
         int core = sender.IndexOf("private static async Task<bool> BeginBoxCoreAsync(", StringComparison.Ordinal);
         int prep = sender.IndexOf("TransmitSliceNotice.Prepare(rig, \"the box send of \"", core, StringComparison.Ordinal);
         int wait = sender.IndexOf("TransmitSliceNotice.HeardAsync(sliceNotice,", core, StringComparison.Ordinal);
-        int again = sender.IndexOf("TransmitSliceNotice.StillTheAnnouncedPlace(sliceNotice)", core, StringComparison.Ordinal);
+        int again = sender.IndexOf("TransmitSliceNotice.StillTheAnnouncedPlace(sliceNotice, out string? changed)", core, StringComparison.Ordinal);
         int own = sender.IndexOf("BoxSendOwnedRig.Own(", core, StringComparison.Ordinal);
         Assert.True(prep > core && wait > prep && again > wait && own > again, "box send: said, waited for, read again, then keyed");
 
         int after = sender.IndexOf("private static async Task BeginAfterNoticeAsync(", StringComparison.Ordinal);
         int afterWait = sender.IndexOf("TransmitSliceNotice.HeardAsync(notice,", after, StringComparison.Ordinal);
-        int afterAgain = sender.IndexOf("TransmitSliceNotice.StillTheAnnouncedPlace(notice)", after, StringComparison.Ordinal);
+        int afterAgain = sender.IndexOf("TransmitSliceNotice.StillTheAnnouncedPlace(notice, out string? changed)", after, StringComparison.Ordinal);
         int afterBegin = sender.IndexOf("BeginAndLaunch(rig, info, info.Label, loaded);", after, StringComparison.Ordinal);
         Assert.True(after > 0 && afterWait > after && afterAgain > afterWait && afterBegin > afterAgain,
             "box-off send: said, waited for, read again, then keyed");
