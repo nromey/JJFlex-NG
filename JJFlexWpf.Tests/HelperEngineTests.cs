@@ -138,7 +138,8 @@ public sealed class HelperEngineTests
                 Assert.Equal(lateBefore + 1, bank.LateFrames);
                 Assert.Equal(0, bank.FallbackFrames);
                 Assert.True(engine.IsAvailable);
-                Assert.Equal(signal.AsSpan(f * 480, 480).ToArray(), buffer); // passed through, today undelayed
+                // Passed through, delayed by the engine's own latency (Track D's fallback), so the timing never jumps.
+                for (int i = 0; i < 480; i++) Assert.Equal(signal[f * 480 + i - 3408], buffer[i]);
                 Thread.Sleep(250); // seq 20's answer now arrives, after its deadline
             }
             else if (f > 22)

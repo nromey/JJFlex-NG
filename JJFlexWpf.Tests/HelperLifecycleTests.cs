@@ -350,7 +350,7 @@ public sealed class HelperLifecycleTests
     /// life's start-up history: the stub's first answers carry zeros, the
     /// delayed pass-through carries the real past.
     /// </summary>
-    [Fact(Skip = "Waits on Track D's delayed fallback in PerChannelDenoiserBank: today a fallback frame goes out undelayed. Un-skip when this branch is rebased onto Track D.")]
+    [Fact]
     public void No_jump_through_a_stall_a_crash_and_the_restarts()
     {
         using var rig = new HelperTestRig(n => n switch
