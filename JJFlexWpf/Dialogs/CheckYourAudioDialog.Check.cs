@@ -1483,8 +1483,11 @@ public partial class CheckYourAudioDialog
             _ptt.PlannedStopSeconds = Records ? FlexBase.SliceRecordBufferSeconds : null;
             bool admitted = start.TryRun(() =>
             {
+                // And the link it set up on must still be up (#596, Codex's
+                // check, B2): a start that outlived a dropped connection keys
+                // nothing, whatever came back.
                 if (_owner._iqClosing || !ReferenceEquals(rig, Rig) || _ptt.IsTransmitting || rig.Transmit
-                    || rig.TeardownInProgress)
+                    || rig.TeardownInProgress || !rig.IsConnected)
                     return false;
                 _ptt.KeyForCheck();
                 return true;

@@ -2015,6 +2015,9 @@ namespace Radios
         {
             try
             {
+                // A clean disconnect that could not confirm receive puts
+                // nothing back: never the room microphone onto a carrier.
+                if (TeardownWithholdsMicPutBack(when, swap.Saved)) return;
                 string nowInput = radio.MicInput ?? "";
                 if (string.Equals(nowInput, "PC", StringComparison.OrdinalIgnoreCase))
                 {
@@ -2132,6 +2135,7 @@ namespace Radios
                         TraceLevel.Warning);
                     return;
                 }
+                if (TeardownWithholdsMicPutBack(when, swap.Saved)) return;
                 string nowInput = radio.MicInput ?? "";
                 if (string.Equals(nowInput, "PC", StringComparison.OrdinalIgnoreCase))
                 {

@@ -3949,6 +3949,14 @@ namespace Radios
             // teardown because cancellation came only after it (review
             // section 8).
             BeginTeardownOperation("Disconnect");
+            // Every teardown unkeys FIRST (#596, #861; Codex's checks of the
+            // 2026-11-02 batch): stop what this computer feeds the
+            // transmitter, drop this session's own carriers, let the writes
+            // reach the radio and wait for it to report receive, before a
+            // profile, the microphone input or the speaker is put back and
+            // before the link closes. If receive cannot be confirmed, the
+            // microphone input is not put back at all (FlexBase.TeardownUnkey.cs).
+            UnkeyBeforePuttingBack("Disconnect", TeardownUnkeyDrainBound, TeardownReceiveWaitMs);
             DisconnectVoxPauses();
             // While the link is certainly up: end what a send holds on the
             // radio, the PTT source watch and a monitor it turned on (#835).
@@ -4019,6 +4027,11 @@ namespace Radios
                     Tracing.TraceLine("Disconnect: stopping PC audio threw: " + ex.Message, TraceLevel.Error);
                 }
             }
+
+            // A put-back the switch-back left on the command queue runs NOW,
+            // before the loop is stopped below; joining the audio thread only
+            // proved it was queued (#861, Codex's check, blocker 2).
+            DrainQueuedMicPutBack("Disconnect", TeardownPutBackDrainBound);
 
             // The connection attempt ends here: every wait in the station
             // coordinator sees the cancellation, pending queue work is
@@ -4212,6 +4225,9 @@ namespace Radios
             }
             else
                 Tracing.TraceLine("Disconnect: the radio still reports connected; its handlers stay until it lets go", TraceLevel.Info);
+
+            // Nothing the unkey withheld outlives this teardown.
+            EndTeardownUnkey();
 
             // Now collect the farewell started at the top of this method. See the
             // long comment there: this path plays SK and suppresses the only
@@ -6460,6 +6476,21 @@ namespace Radios
             trace("connection fell: our transmit state falls with it (radio "
                 + (wasKeyed ? "was keyed" : "was not keyed") + ", "
                 + (deliberate ? "our own disconnect" : "not asked for") + ")", TraceLevel.Info);
+            // Every source this computer feeds the transmitter stops with the
+            // link (#596, Codex's check, blocker 2): the voice file and test
+            // tone (a VOX send otherwise flows on while the radio is gone, and
+            // keys it the moment it is back), slice playback, a send getting
+            // ready to key (the disarm generation), and CW still buffered. The
+            // kill routes' own stop, reused rather than restated.
+            try
+            {
+                TransmitKillSwitch.DisarmSources(this);
+                lock (cwBuffer) cwBuffer.Text = "";
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("connection fell: stopping the local transmit sources threw: " + ex.Message, TraceLevel.Error);
+            }
             try { TransmitDroppedWithConnection?.Invoke(wasKeyed, deliberate); }
             catch (Exception ex)
             {

@@ -72,7 +72,7 @@ public sealed class DisconnectPutBackOrderTests
         // The mic input: only while the radio still reports the PC we chose.
         int putBack = text.IndexOf("private void PutBackNow(Radio radio, MicInputSwap swap, string when)", StringComparison.Ordinal);
         Assert.True(putBack > 0, "PutBackNow moved");
-        string mic = text.Substring(putBack, 700);
+        string mic = text.Substring(putBack, 1200);   // widened: the teardown withhold sits ahead of it
         Assert.Contains("if (string.Equals(nowInput, \"PC\", StringComparison.OrdinalIgnoreCase))", mic, StringComparison.Ordinal);
 
         // The shack speaker: only while the radio still mutes it.
@@ -80,5 +80,51 @@ public sealed class DisconnectPutBackOrderTests
         Assert.True(write > 0);
         string speaker = text.Substring(Math.Max(0, write - 300), 300);
         Assert.Contains("if (!speakerRadio.IsMuteLocalAudioWhenRemoteOn)", speaker, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_disconnect_unkeys_and_confirms_receive_before_anything_is_put_back()
+    {
+        // #596 and #861, Codex's checks: the profile put-back, the mic input
+        // and the speaker are put back only after this session has unkeyed and
+        // the radio has reported receive.
+        string body = DisconnectBody();
+        int unkey = body.IndexOf("UnkeyBeforePuttingBack(\"Disconnect\"", StringComparison.Ordinal);
+        int profiles = body.IndexOf("PutProfilesBackOnDisconnect();", StringComparison.Ordinal);
+        int stop = body.IndexOf("PCAudio = false;", StringComparison.Ordinal);
+        int vox = body.IndexOf("DisconnectVoxPauses();", StringComparison.Ordinal);
+        Assert.True(unkey > 0 && profiles > 0 && stop > 0 && vox > 0, "a statement this test orders has moved");
+        Assert.True(unkey < vox && unkey < profiles && unkey < stop,
+            "something is put back before this session has unkeyed and the radio has reported receive");
+    }
+
+    [Fact]
+    public void A_queued_mic_put_back_runs_before_the_command_loop_stops()
+    {
+        // #861, Codex's check, blocker 2: the switch-back's put-back is queued,
+        // so the disconnect drains it after PC audio stops and before the
+        // attempt is cancelled and the loop is told to stop.
+        string body = DisconnectBody();
+        int stop = body.IndexOf("PCAudio = false;", StringComparison.Ordinal);
+        int drain = body.IndexOf("DrainQueuedMicPutBack(\"Disconnect\"", StringComparison.Ordinal);
+        int cancel = body.IndexOf("CancelStationAttempt(\"Disconnect\");", StringComparison.Ordinal);
+        int loop = body.IndexOf("stopMainThread = true;", StringComparison.Ordinal);
+        Assert.True(stop > 0 && drain > 0 && cancel > 0 && loop > 0, "a statement this test orders has moved");
+        Assert.True(stop < drain && drain < cancel && drain < loop,
+            "the queued mic put-back can be left behind when the command loop stops");
+    }
+
+    [Fact]
+    public void Both_mic_put_backs_ask_the_teardown_first()
+    {
+        string text = FlexBasePartials.JoinedText();
+        int now = text.IndexOf("private void PutBackNow(Radio radio, MicInputSwap swap, string when)", StringComparison.Ordinal);
+        int queued = text.IndexOf("private void WriteSwitchBackPutBack(Radio radio, MicInputSwap swap, PutBackPin pin, string when)", StringComparison.Ordinal);
+        Assert.True(now > 0 && queued > 0, "a put-back moved");
+        Assert.Contains("TeardownWithholdsMicPutBack(when, swap.Saved)", text.Substring(now, 600), StringComparison.Ordinal);
+        string queuedBody = text.Substring(queued, 3500);
+        int withhold = queuedBody.IndexOf("TeardownWithholdsMicPutBack(when, swap.Saved)", StringComparison.Ordinal);
+        int raw = queuedBody.IndexOf("SendRadioCommandWithReply(radio, command", StringComparison.Ordinal);
+        Assert.True(withhold > 0 && raw > withhold, "the raw switch-back write can go out without asking the teardown");
     }
 }

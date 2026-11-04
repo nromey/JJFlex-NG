@@ -146,7 +146,7 @@ public sealed class KeyDropWithConnectionTests : IDisposable
 
         Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
         Assert.False(RfCommandedOn(), "the radio dropped and our side still says transmit");
-        Assert.Equal(Lexicon.Get("connect.drop.transmit_ended"), heard);
+        Assert.Equal(Lexicon.Get("connect.drop.transmit_released"), heard);
         Assert.True(Guard.Armed, "the key held through the drop was not remembered");
     }
 
@@ -162,7 +162,7 @@ public sealed class KeyDropWithConnectionTests : IDisposable
         string heard = Spoken(() => Drop(radioWasKeyed: false));
 
         Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
-        Assert.Equal(Lexicon.Get("connect.drop.transmit_ended"), heard);
+        Assert.Equal(Lexicon.Get("connect.drop.transmit_released"), heard);
     }
 
     [Fact]
@@ -244,7 +244,7 @@ public sealed class KeyDropWithConnectionTests : IDisposable
 
         Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
         Assert.False(RfCommandedOn());
-        Assert.NotEqual(Lexicon.Get("connect.drop.transmit_ended"), heard);
+        Assert.NotEqual(Lexicon.Get("connect.drop.transmit_released"), heard);
     }
 
     [Fact]
@@ -255,7 +255,147 @@ public sealed class KeyDropWithConnectionTests : IDisposable
 
         string heard = Spoken(() => Drop(radioWasKeyed: true));
 
-        Assert.Equal(Lexicon.Get("connect.drop.transmit_ended"), heard);
+        Assert.Equal(Lexicon.Get("connect.drop.transmit_released"), heard);
         Assert.False(Guard.Armed, "nothing of ours was held");
+    }
+
+    // ── Repair round 1 (Codex's check of #596) ─────────────────────────────
+
+    [Fact]
+    public void The_drop_sentence_never_claims_the_radio_is_off_the_air()
+    {
+        // B4: a lost connection cannot show that RF stopped; a foot switch or
+        // VOX may still be keying the radio.
+        AssertTheDeskIsSafe();
+        string said = Lexicon.Get("connect.drop.transmit_released");
+        Assert.DoesNotContain("no longer on the air", said);
+        Assert.Contains("dropped while you were transmitting", said);
+        Assert.Contains("cannot tell whether the radio has stopped", said);
+    }
+
+    [Fact]
+    public void A_lock_key_held_through_the_drop_under_jaws_does_not_toggle_the_lock_when_the_radio_returns()
+    {
+        // B3: Home's Shift+Space held as the link falls, then down/up pairs
+        // about 250 ms apart, each a fresh-looking down, after the reconnect.
+        AssertTheDeskIsSafe();
+        Call("LockKeyDown", false);
+        Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);
+        Assert.True(RfCommandedOn(), "positive control: the lock key keyed");
+
+        Drop();
+        Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
+        Assert.True(Guard.Armed, "the lock key held through the drop was not remembered");
+
+        for (int pair = 0; pair < 5; pair++)
+        {
+            Call("LockKeyDown", false);
+            Assert.False(RfCommandedOn(), "a synthesised lock-key down keyed the radio after the reconnect, pair " + pair);
+            Thread.Sleep(5);
+            Call("PttHeldThroughDrop", false);   // the Space up, as Home's key-up hands it over
+            Thread.Sleep(245);
+        }
+
+        Thread.Sleep(_filter.FirstGapDeferMs + 150);
+        Call("LockKeyDown", false);
+        Assert.True(RfCommandedOn(), "a real lock press after the release did not key");
+        _controller.EscapeUnlock();
+    }
+
+    [Fact]
+    public void The_system_wide_lock_toggles_nothing_while_a_key_is_held_through_the_drop()
+    {
+        // B3: the system-wide lock's chord and the Transmit button's Space
+        // reach a door that sees one toggle per press and no separate up.
+        AssertTheDeskIsSafe();
+        HoldTheKey();
+        Drop();
+        Assert.True(Guard.Armed);
+
+        for (int pair = 0; pair < 5; pair++)
+        {
+            Call("HandleSystemWideLockToggle");
+            Assert.False(RfCommandedOn(), "a system-wide lock toggle keyed the radio after the reconnect, pair " + pair);
+            Thread.Sleep(250);
+        }
+
+        Thread.Sleep(_filter.FirstGapDeferMs + 150);
+        Call("HandleSystemWideLockToggle");
+        Assert.True(RfCommandedOn(), "a real lock toggle after the release did not key");
+        _controller.EscapeUnlock();
+    }
+
+    [Fact]
+    public void A_teardown_releases_a_held_key_and_remembers_it()
+    {
+        // B1: every teardown route unkeys first, through this.
+        AssertTheDeskIsSafe();
+        HoldTheKey();
+
+        Call("ReleaseKeyForTeardown", "test teardown");
+
+        Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
+        Assert.False(RfCommandedOn(), "the teardown left our command to transmit standing");
+        Assert.True(Guard.Armed, "a key held through the teardown could key the next radio");
+    }
+
+    [Fact]
+    public void A_teardown_releases_a_lock_with_nothing_held_and_leaves_the_next_press_alone()
+    {
+        AssertTheDeskIsSafe();
+        _controller.ToggleLock();
+        Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);
+
+        Call("ReleaseKeyForTeardown", "test teardown");
+
+        Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
+        Assert.False(RfCommandedOn());
+        Assert.False(Guard.Armed);
+    }
+
+    [Fact]
+    public void Every_teardown_route_releases_the_key_before_anything_else()
+    {
+        // B1, the routes themselves: CloseTheRadio reaches UnwireRadioEvents
+        // (menu disconnect, radio switch, exit, connecting elsewhere); the
+        // power-off notification reaches PowerNowOffInternal. Each releases
+        // the key first, before the cut hold, the check teardown and the
+        // handlers that would otherwise have released it.
+        AssertTheDeskIsSafe();
+        string src = System.IO.File.ReadAllText(System.IO.Path.Combine(Repo(), "JJFlexWpf", "MainWindow.xaml.cs"));
+
+        string unwire = Body(src, "public void UnwireRadioEvents()");
+        int release = unwire.IndexOf("ReleaseKeyForTeardown(", StringComparison.Ordinal);
+        Assert.True(release > 0, "UnwireRadioEvents no longer releases the key");
+        Assert.True(release < unwire.IndexOf("ReleaseRigForTeardown(", StringComparison.Ordinal));
+        Assert.True(release < unwire.IndexOf("EndCheckBeforeTeardown(", StringComparison.Ordinal));
+        Assert.True(release < unwire.IndexOf("RigControl.TransmitChange -= TransmitChangeHandler", StringComparison.Ordinal));
+
+        string off = Body(src, "private void PowerNowOffInternal()");
+        int offRelease = off.IndexOf("ReleaseKeyForTeardown(", StringComparison.Ordinal);
+        Assert.True(offRelease > 0, "the power-off notification no longer releases the key");
+        Assert.True(offRelease < off.IndexOf("RigControl.TransmitChange -= TransmitChangeHandler", StringComparison.Ordinal));
+        Assert.True(offRelease < off.IndexOf("_pttController?.Dispose();", StringComparison.Ordinal));
+
+        string globals = System.IO.File.ReadAllText(System.IO.Path.Combine(Repo(), "globals.vb"));
+        string close = globals.Substring(globals.IndexOf("Friend Sub CloseTheRadio()", StringComparison.Ordinal), 400);
+        Assert.True(close.IndexOf("WpfMainWindow?.UnwireRadioEvents()", StringComparison.Ordinal)
+                    < close.IndexOf("RigControl.Dispose()", StringComparison.Ordinal),
+            "CloseTheRadio disposes the rig before the window releases the key");
+    }
+
+    private static string Body(string src, string signature)
+    {
+        int at = src.IndexOf(signature, StringComparison.Ordinal);
+        Assert.True(at > 0, signature + " moved");
+        return src.Substring(at, Math.Min(6000, src.Length - at));
+    }
+
+    private static string Repo()
+    {
+        var d = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+        while (d != null && !System.IO.File.Exists(System.IO.Path.Combine(d.FullName, "JJFlexRadio.sln"))) d = d.Parent;
+        Assert.NotNull(d);
+        return d!.FullName;
     }
 }

@@ -2863,9 +2863,13 @@ public partial class MainWindow : UserControl
         //     not a press, with or without a radio: swallowed BEFORE step 3's
         //     gate, so the stream it keeps sending is seen whole and cannot
         //     key the radio the moment it comes back.
-        if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.Control
+        if (rawKey == Key.Space
+            && (Keyboard.Modifiers == ModifierKeys.Control || Keyboard.Modifiers == ModifierKeys.Shift)
             && PttHeldThroughDrop(down: true))
         {
+            // Shift+Space too (Codex's check, B3): the lock key's stream must be
+            // seen whole while the radio is gone, or a held lock key's next pair
+            // after the reconnect would read as a fresh press and key.
             e.Handled = true;
             return;
         }
@@ -2964,6 +2968,7 @@ public partial class MainWindow : UserControl
             // #596: a key held through a dropped connection has its up seen
             // whole, before anything else reads it.
             PttHeldThroughDrop(down: false);
+            _lockKeyDown = false;
             // Detection only (#800): a lock release too fast to be human is
             // counted and traced, and changes nothing.
             _lockPairDetector.NoteUp(Environment.TickCount64);
@@ -3130,14 +3135,45 @@ public partial class MainWindow : UserControl
     /// </summary>
     internal void LockKeyDown(bool isRepeat)
     {
+        // #596, Codex's check B3: a key held through a dropped connection is
+        // not a press, repeats included, so its stream is seen whole.
+        if (PttHeldThroughDrop(down: true)) return;
         if (isRepeat) return;   // a held key is one press
+        _lockKeyDown = true;
         _lockPairDetector.NoteDown(Environment.TickCount64);
         _pttController?.ToggleLock();
+    }
+
+    /// <summary>
+    /// Home's lock key is physically down (its first down seen, its Space up
+    /// not yet): read by the drop and the teardown, which remember a key held
+    /// through them (#596, Codex's check, B3).
+    /// </summary>
+    private bool _lockKeyDown;
+
+    /// <summary>
+    /// A door that sees one toggle per press and no separate up (the
+    /// system-wide lock's chord, the Transmit button's Space, which clicks on
+    /// release) asks the held-through-drop guard as a press and its release
+    /// together. True when it belongs to a key held through a dropped
+    /// connection and must toggle nothing (#596, Codex's check, B3).
+    /// </summary>
+    private bool ToggleHeldThroughDrop()
+    {
+        var guard = _pttHeldThroughDrop;
+        if (guard == null || !guard.Armed) return false;
+        long now = Environment.TickCount64;
+        bool swallow = guard.SwallowDown(now);
+        if (swallow) guard.NoteUp(now);
+        else Tracing.TraceLine("PTT: the key held through the dropped connection was let go; this toggle acts as usual",
+            TraceLevel.Info);
+        return swallow;
     }
 
     /// <summary>The system-wide transmit lock: what Shift+Space does inside the window.</summary>
     internal void HandleSystemWideLockToggle()
     {
+        if (ToggleHeldThroughDrop()) return;
         if (_pttController == null || !_radioPowerOn)
         {
             Radios.ScreenReaderOutput.SpeakNoRadioConnected();
@@ -3256,15 +3292,70 @@ public partial class MainWindow : UserControl
     /// <see cref="TransmitChangeHandler"/> and reads the key input before the
     /// ordinary unkey path forgets it.
     /// </summary>
-    private void TransmitDroppedWithConnectionHandler(bool radioWasKeyed, bool deliberate)
+    private void TransmitDroppedWithConnectionHandler(FlexBase origin, bool radioWasKeyed, bool deliberate)
     {
         if (!Dispatcher.CheckAccess())
         {
             // BeginInvoke, never Invoke: FlexLib's transport thread, mid-teardown.
-            Dispatcher.BeginInvoke(() => TransmitDroppedWithConnectionHandler(radioWasKeyed, deliberate));
+            Dispatcher.BeginInvoke(() => TransmitDroppedWithConnectionHandler(origin, radioWasKeyed, deliberate));
+            return;
+        }
+        // The fall carries the rig it came from (#596, Codex's follow-up F2):
+        // a late fall from a radio already replaced must not release the new
+        // radio's controller or speak about the new session.
+        if (!ReferenceEquals(origin, RigControl))
+        {
+            Tracing.TraceLine("PTT: a connection fall from a radio that is no longer this window's arrived late; ignored",
+                TraceLevel.Info);
             return;
         }
         ReleaseKeyForDroppedConnection(radioWasKeyed, deliberate);
+    }
+
+    /// <summary>The fall's subscription, kept so it is removed from the rig it was added to.</summary>
+    private Action<bool, bool>? _dropHandler;
+    private FlexBase? _dropHandlerRig;
+
+    private void WireDropHandler(FlexBase rig)
+    {
+        UnwireDropHandler();
+        _dropHandlerRig = rig;
+        _dropHandler = (keyed, deliberate) => TransmitDroppedWithConnectionHandler(rig, keyed, deliberate);
+        rig.TransmitDroppedWithConnection += _dropHandler;
+    }
+
+    private void UnwireDropHandler()
+    {
+        if (_dropHandlerRig != null && _dropHandler != null)
+            _dropHandlerRig.TransmitDroppedWithConnection -= _dropHandler;
+        _dropHandlerRig = null;
+        _dropHandler = null;
+    }
+
+    /// <summary>
+    /// Every teardown route unkeys first (#596, #861; Codex's checks of the
+    /// 2026-11-02 batch). Menu disconnect, a radio switch, exit and connecting
+    /// to another radio all reach <see cref="UnwireRadioEvents"/> through
+    /// <c>globals.CloseTheRadio</c>; the power-off notification reaches
+    /// <see cref="PowerNowOffInternal"/>. Both call this FIRST, before the
+    /// radio's events are unwired and before anything is put back: this
+    /// controller to Idle (held, locked or warning, which also drops its
+    /// command to transmit and stops its timers), the key edges in flight
+    /// forgotten, a key still held remembered so it cannot key the next radio,
+    /// and every source this computer feeds the transmitter stopped. The rig's
+    /// own disconnect then confirms receive before it puts the microphone
+    /// input back (<c>FlexBase.UnkeyBeforePuttingBack</c>).
+    /// </summary>
+    internal void ReleaseKeyForTeardown(string why)
+    {
+        Tracing.TraceLine("PTT: teardown (" + why + "): releasing the key before anything else", TraceLevel.Info);
+        ReleaseKeyForDroppedConnection(radioWasKeyed: false, deliberate: true);
+        try { Radios.TransmitKillSwitch.DisarmSources(RigControl); }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("PTT: teardown (" + why + "): stopping the local transmit sources threw: " + ex.Message,
+                TraceLevel.Error);
+        }
     }
 
     /// <summary>
@@ -3292,17 +3383,34 @@ public partial class MainWindow : UserControl
     /// </remarks>
     private void ReleaseKeyForDroppedConnection(bool radioWasKeyed, bool deliberate)
     {
-        bool keyInFlight = _pttKeyDown || _pttHoldFilter.ReleasePending
+        // A lock key held is a key in flight too (#596, Codex's check, B3): a
+        // held Shift+Space whose down/up pairs reach the lock door after a
+        // reconnect would otherwise toggle the lock and key the radio. And so
+        // is a space bar Windows still reports down, whichever door it was
+        // pressed into (the Transmit button's Space, the system-wide lock).
+        bool spaceDown = false;
+        try { spaceDown = _pttHoldFilter.PhysicalKeyDown?.Invoke() == true; } catch { }
+        bool keyInFlight = _pttKeyDown || _pttHoldFilter.ReleasePending || _lockKeyDown || spaceDown
             || (_pttController != null && _pttController.State == PttSafetyController.PttState.PttHold);
         if (keyInFlight)
         {
             _pttHeldThroughDrop.Arm(_pttHoldFilter.FirstGapDeferMs);
-            Tracing.TraceLine("PTT: a push-to-talk key was held as the connection fell; it keys nothing until it is let go",
-                TraceLevel.Info);
+            Tracing.TraceLine("PTT: a transmit key was held as the connection " + (deliberate ? "closed" : "fell")
+                + "; it keys nothing until it is let go", TraceLevel.Info);
         }
+        _lockKeyDown = false;
 
-        // DRAFT PROSE (#596), awaiting Noel.
-        string sentence = Lexicon.Get("connect.drop.transmit_ended");
+        // An unexpected drop ends a check that is counting down or waiting to
+        // key (#596, Codex's check, B2): its start would otherwise key the
+        // radio again when the link came back, with no new press. A
+        // deliberate teardown ends checks its own way (EndCheckBeforeTeardown).
+        if (!deliberate) Dialogs.CheckYourAudioDialog.EndCheckForDroppedConnection(RigControl);
+
+        // DRAFT PROSE (#596), awaiting Noel. Says only what is known: the
+        // connection dropped while transmitting and JJ Flexible released its
+        // own keying. A lost connection cannot show that RF stopped, so the
+        // sentence never claims it (Codex's check, B4).
+        string sentence = Lexicon.Get("connect.drop.transmit_released");
         bool said = false;
         if (_pttController != null && _pttController.IsTransmitting)
         {
@@ -4099,6 +4207,7 @@ public partial class MainWindow : UserControl
         // that path disposed the PTT controller, so a hold after a cut could
         // outlive the radio with VOX still off. The hold ends here and the VOX
         // restore is written immediately, not queued.
+        ReleaseKeyForTeardown("radio events unwired");
         _pttController?.ReleaseRigForTeardown("radio events unwired");
 
         // Then any check in Check your audio (#835), for the same reason: its
@@ -4126,13 +4235,13 @@ public partial class MainWindow : UserControl
             RigControl.PowerStatus -= PowerStatusHandler;
             RigControl.NoSliceError -= NoSliceErrorHandler;
             RigControl.FeatureLicenseChanged -= FeatureLicenseChangedHandler;
-            RigControl.TransmitDroppedWithConnection -= TransmitDroppedWithConnectionHandler;
             RigControl.TransmitChange -= TransmitChangeHandler;
             RigControl.TransmitChange -= TuneReminderTransmitEdge;
             RigControl.TuneCarrierFell -= TuneCarrierFellHandler;
             RigControl.FlexAntTunerStartStop -= FlexAntTuneStartStopHandler;
             RigControl.ConnectedEvent -= ConnectedEventHandler;
         }
+        UnwireDropHandler();
 
         FreqOut.Clear();
         _comboControls.Clear();
@@ -5471,7 +5580,7 @@ public partial class MainWindow : UserControl
         // Wire additional event handlers
         if (RigControl != null)
         {
-            RigControl.TransmitDroppedWithConnection += TransmitDroppedWithConnectionHandler;
+            WireDropHandler(RigControl);
             RigControl.TransmitChange += TransmitChangeHandler;
             RigControl.TransmitChange += TuneReminderTransmitEdge;
             RigControl.TuneCarrierFell += TuneCarrierFellHandler;
@@ -5968,11 +6077,14 @@ public partial class MainWindow : UserControl
     private void PowerNowOffInternal()
     {
         Tracing.TraceLine("MainWindow PowerNowOff", TraceLevel.Info);
+        // Every teardown unkeys first (#596): before the handlers that would
+        // have released it are gone.
+        ReleaseKeyForTeardown("the radio powered off");
         Radios.ConnectBriefing.Current.RadioGone();
+        UnwireDropHandler();
 
         if (RigControl != null)
         {
-            RigControl.TransmitDroppedWithConnection -= TransmitDroppedWithConnectionHandler;
             RigControl.TransmitChange -= TransmitChangeHandler;
             RigControl.TransmitChange -= TuneReminderTransmitEdge;
             RigControl.TuneCarrierFell -= TuneCarrierFellHandler;
@@ -6181,6 +6293,10 @@ public partial class MainWindow : UserControl
     /// </summary>
     private void ToggleTransmit()
     {
+        // The Transmit button's Space clicks on release, so a held Space under
+        // a reader that sends pairs clicks once a pair: a key held through a
+        // dropped connection toggles nothing (#596, Codex's check, B3).
+        if (ToggleHeldThroughDrop()) return;
         if (!_radioPowerOn || RigControl == null)
         {
             Tracing.TraceLine("toggleTransmit: no power", TraceLevel.Error);
