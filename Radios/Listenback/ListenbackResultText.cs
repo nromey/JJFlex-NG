@@ -169,7 +169,10 @@ public static class ListenbackResultText
     /// differences, then the numbers. For a refusal, one sentence that says
     /// why and what to do.
     /// </summary>
-    public static string AudioRoadSentence(AudioDifference difference)
+    /// <param name="chosen">True when the operator chose both takes in Play takes: the
+    /// numbers then say "this take" and "the one you chose", never "your new
+    /// take" and "your last take" (DRAFT, round two).</param>
+    public static string AudioRoadSentence(AudioDifference difference, bool chosen = false)
     {
         string first = TakeKindWords.Phrase(difference.FirstKind ?? ""), second = TakeKindWords.Phrase(difference.SecondKind ?? "");
         bool mixed = difference.FirstKind != difference.SecondKind;
@@ -196,19 +199,25 @@ public static class ListenbackResultText
             : difference.LevelCompared ? ""
             : Lexicon.Get(LevelWithheldKey(difference.LevelWithheld));
         bool toneChanged = System.Math.Abs(difference.TiltDb) >= 0.5;
+        // The key is chosen first: the lexicon scanner reads literal keys.
+        string levelKey = chosen
+            ? toneChanged ? "audio.takes.level_and_tone_chosen" : "audio.takes.level_same_tone_chosen"
+            : toneChanged ? "audio.takes.level_and_tone" : "audio.takes.level_same_tone";
+        string toneKey = chosen ? "audio.takes.tone_changed_chosen" : "audio.takes.tone_changed";
+        string sameKey = chosen ? "audio.takes.tone_same_chosen" : "audio.takes.tone_same";
         string numbers = difference.LevelCompared
-            ? Lexicon.Get(toneChanged ? "audio.takes.level_and_tone" : "audio.takes.level_same_tone",
+            ? Lexicon.Get(levelKey,
                 ("level_word", Lexicon.Get(difference.LevelDb >= 0 ? "audio.iq.louder" : "audio.iq.quieter")),
                 ("level", System.Math.Abs(difference.LevelDb).ToString("F1")),
                 ("brightness_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.brighter" : "audio.iq.darker")),
                 ("high_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.stronger" : "audio.iq.weaker")),
                 ("tilt", System.Math.Abs(difference.TiltDb).ToString("F1")))
             : toneChanged
-                ? Lexicon.Get("audio.takes.tone_changed",
+                ? Lexicon.Get(toneKey,
                     ("brightness_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.brighter" : "audio.iq.darker")),
                     ("high_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.stronger" : "audio.iq.weaker")),
                     ("tilt", System.Math.Abs(difference.TiltDb).ToString("F1")))
-                : Lexicon.Get("audio.takes.tone_same");
+                : Lexicon.Get(sameKey);
         string changes = SetupChanges(difference);
         return string.Join(" ", new[] { intro, changes, numbers }.Where(s => s.Length > 0));
     }

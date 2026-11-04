@@ -37,9 +37,8 @@ namespace JJFlexWpf.Dialogs;
 /// <see cref="TakeDeletionGuard"/>, which are tested without this window.
 /// </para>
 /// <para>
-/// <b>Not built here</b>, reported instead: "Add a take to this test",
-/// because no take this build can make joins a test yet (the playback
-/// capture is not wired into Check your audio).
+/// <b>Add a take to this test</b> (round two) resumes the selected take's test
+/// and opens Check your audio; it never connects, starts a check or keys.
 /// </para>
 /// </remarks>
 public sealed class PlayTakesDialog : JJFlexDialog
@@ -52,7 +51,7 @@ public sealed class PlayTakesDialog : JJFlexDialog
     private readonly TextBox _note = new() { MinWidth = 240 };
     private readonly TextBox _testName = new() { MinWidth = 240 };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
-    private readonly Button _play, _choose, _compare, _detailsButton, _saveNote, _rename, _saveWav, _saveFlac, _delete;
+    private readonly Button _play, _choose, _compare, _detailsButton, _saveNote, _rename, _addToTest, _saveWav, _saveFlac, _delete;
     private IReadOnlyList<TakeRow> _rows = Array.Empty<TakeRow>();
     private TakeRow? _chosen;
     private bool _busy, _quiet;
@@ -121,6 +120,7 @@ public sealed class PlayTakesDialog : JJFlexDialog
         JJFlexHelp.SetText(_testName, Lexicon.Get("audio.takes.help.rename"));
         testRow.Children.Add(_testName);
         _rename = AddButton(testRow, Lexicon.Get("audio.takes.rename"), Rename, "audio.takes.help.rename");
+        _addToTest = AddButton(testRow, Lexicon.Get("audio.takes.add_to_test"), AddToTest, "audio.takes.help.add_to_test");
         bottom.Children.Add(testRow);
         var close = AddButton(bottom, Lexicon.Get("audio.takes.close"), Close, "audio.takes.help.close");
         close.HorizontalAlignment = HorizontalAlignment.Right;
@@ -222,6 +222,7 @@ public sealed class PlayTakesDialog : JJFlexDialog
         _note.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
         bool member = any && row!.TestId.Length > 0;
         Shown(_rename, member);
+        Shown(_addToTest, member);
         _testName.Visibility = member ? Visibility.Visible : Visibility.Collapsed;
         if (any)
         {
@@ -275,12 +276,17 @@ public sealed class PlayTakesDialog : JJFlexDialog
         {
             string first = _chosen.Directory, second = row.Directory;
             var difference = await Task.Run(() => TakeAnalysis.CompareTakes(first, second));
-            string sentence = difference.Road == "audio" ? ListenbackResultText.AudioRoadSentence(difference)
+            // Takes the operator chose: an earlier session is named for each
+            // take it describes, and the numbers say "this take" and "the one
+            // you chose" (DRAFT, round two).
+            string notes = TakeSession.EarlierSessionNotes(first, second, ListenbackTakes.SessionStartUtc, DateTime.Now);
+            string result = difference.Road == "audio" ? ListenbackResultText.AudioRoadSentence(difference, chosen: true)
                 : difference.Comparable
                     ? ListenbackTakes.WithSetupChanges(difference, difference.Reason == "overall-average"
                         ? ListenbackTakes.AverageDifferenceSentence(difference) : ListenbackTakes.DifferenceSentence(difference))
                     : difference.Reason == "unlike-takes:source" ? ListenbackResultText.UnlikeSource(difference)
                     : Lexicon.Get("audio.iq.auto_unavailable");
+            string sentence = notes.Length == 0 ? result : notes + " " + result;
             _details.Text = sentence;
             Say(sentence);
         }
@@ -343,6 +349,30 @@ public sealed class PlayTakesDialog : JJFlexDialog
             Say(Lexicon.Get("audio.takes.renamed", ("name", _testName.Text.Trim())));
         }
         catch (Exception ex) { Fail("rename", ex); }
+    }
+
+    /// <summary>
+    /// Resume the selected take's test and open Check your audio, so the next
+    /// take saved there joins it. Never connects, starts a check or keys. This
+    /// window closes first: it is modal, and the check's window is not.
+    /// </summary>
+    private void AddToTest()
+    {
+        var row = Current;
+        if (row == null || row.TestId.Length == 0) return;
+        TakeSession.Series.Resume(row.TestId);
+        string name = row.TestName;
+        var rig = _rig;
+        var dispatcher = Dispatcher;
+        Close();
+        dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(async () =>
+        {
+            CheckYourAudioDialog.ShowOrFocus(rig);
+            // Speech flushes on the window change; said once focus has landed.
+            await Task.Delay(400);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.takes.add_to_test_done", ("test", name)), SpeechIntent.Queue,
+                VerbosityLevel.Terse, subject: SpeechSubject.PlayTakes);
+        }));
     }
 
     private async Task SaveCopyAsync(bool flac)

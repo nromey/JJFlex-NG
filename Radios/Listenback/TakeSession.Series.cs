@@ -359,6 +359,8 @@ public sealed class TakeSeriesContext
     private readonly object _gate = new();
     private string? _activeTestId;
     private string? _serial;
+    /// <summary>Set by an explicit resume: the next connection, to any radio, keeps it until a take joins.</summary>
+    private bool _resumed;
 
     /// <summary>The active test's permanent ID, or null when the next take starts a new one.</summary>
     public string? ActiveTestId { get { lock (_gate) return _activeTestId; } }
@@ -368,16 +370,20 @@ public sealed class TakeSeriesContext
     {
         lock (_gate)
         {
-            if (_serial != null && !string.Equals(_serial, serial, StringComparison.Ordinal)) _activeTestId = null;
+            if (_serial != null && !string.Equals(_serial, serial, StringComparison.Ordinal) && !_resumed) _activeTestId = null;
             _serial = serial;
         }
     }
 
     /// <summary>Resume a test explicitly ("Add a take to this test"); the next take joins it.</summary>
-    public void Resume(string testId) { lock (_gate) _activeTestId = testId; }
+    /// <remarks>An explicit choice outlasts the connection that follows it ("offline
+    /// resume stays pending until the operator connects"); the radio change is
+    /// then asked about at admission, unless "add to this one" was chosen. It
+    /// is spent when a take joins.</remarks>
+    public void Resume(string testId) { lock (_gate) { _activeTestId = testId; _resumed = true; } }
 
     /// <summary>Forget everything, as a new run of the app would.</summary>
-    public void Reset() { lock (_gate) { _activeTestId = null; _serial = null; } }
+    public void Reset() { lock (_gate) { _activeTestId = null; _serial = null; _resumed = false; } }
 
     /// <summary>
     /// Whether the next take may join the active test now, or the operator
@@ -434,6 +440,7 @@ public sealed class TakeSeriesContext
             lock (_gate) _activeTestId = test.Id;
         }
         int number = TakeSession.Reserve(root, test.Id, takeFolder);
+        lock (_gate) _resumed = false;
         return (TakeSession.Test(root, test.Id)!, number);
     }
 }

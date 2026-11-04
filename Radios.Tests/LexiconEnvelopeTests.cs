@@ -2286,6 +2286,15 @@ namespace Radios.Tests
                 "audio.takes.needs_computer_audio",
                 "audio.takes.save_playback",
                 "audio.takes.help.save_playback",
+                "audio.takes.tone_same_chosen",
+                "audio.takes.tone_changed_chosen",
+                "audio.takes.level_and_tone_chosen",
+                "audio.takes.level_same_tone_chosen",
+                "audio.takes.earlier_session_chosen",
+                "audio.takes.earlier_session_this",
+                "audio.takes.add_to_test",
+                "audio.takes.help.add_to_test",
+                "audio.takes.add_to_test_done",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
