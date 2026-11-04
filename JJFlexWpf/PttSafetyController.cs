@@ -1248,6 +1248,10 @@ namespace JJFlexWpf
             // and no rising edge claimed is retired (#651 follow-up).
             try { _getRigControl()?.RetireOwnAudioSampleClaim(); } catch { }
             ScreenReaderOutput.Supersede(KeyDownExtraSubject, "transmission ended");
+            // A where-it-transmits notice still unsaid is about a transmission
+            // that has ended (#863; Codex's check of #496 noted push to talk's
+            // queued notice outliving a short hold).
+            ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.TransmitSliceNotice, "transmission ended");
             KeyUpTone();
 
             // Read the transmission's audio verdict BEFORE the counters below

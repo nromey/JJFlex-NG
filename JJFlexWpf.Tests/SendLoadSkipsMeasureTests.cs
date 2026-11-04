@@ -42,7 +42,12 @@ public sealed class SendLoadSkipsMeasureTests : IDisposable
     public void The_send_path_loads_without_measuring()
     {
         NoiseReductionPerChannelTests.AssertWindowless();
+        int measuredBefore = TxAudioFile.MeasureCallsOnThisThread;
         Assert.True(TxAudioFile.TryLoadPieceInto(_rig, _wav, 0, out var loaded, out string trouble), trouble);
+        // The measurement itself, not only the flag the load returns
+        // (Codex's follow-up: Measure called unconditionally with the flag
+        // left false would have passed the flag check).
+        Assert.Equal(measuredBefore, TxAudioFile.MeasureCallsOnThisThread);
         Assert.False(loaded!.Measured, "the send path measured loudness before keying");
         Assert.DoesNotContain("dBFS", loaded.Describe());
         Assert.DoesNotContain("LUFS", loaded.Describe());
@@ -53,8 +58,11 @@ public sealed class SendLoadSkipsMeasureTests : IDisposable
     public void Everything_that_reports_a_level_still_measures()
     {
         NoiseReductionPerChannelTests.AssertWindowless();
-        // The reference audio's loader.
+        // The reference audio's loader. Positive control for the counter: a
+        // measuring load moves it.
+        int measuredBefore = TxAudioFile.MeasureCallsOnThisThread;
         Assert.True(TxAudioFile.TryLoad(_wav, 48000, out var reference, out string trouble), trouble);
+        Assert.True(TxAudioFile.MeasureCallsOnThisThread > measuredBefore, "the counter does not see a measurement");
         Assert.True(reference!.Measured);
         Assert.InRange(reference.PeakDb, -7f, -5f);   // half scale is about -6 dBFS
         Assert.Contains("LUFS", reference.Describe());
@@ -66,5 +74,19 @@ public sealed class SendLoadSkipsMeasureTests : IDisposable
         // And the public piece loader keeps its old meaning.
         Assert.True(TxAudioFile.TryLoadPiece(_wav, 48000, 0, out var piece, out trouble), trouble);
         Assert.True(piece!.Measured);
+    }
+
+    [Fact]
+    public void An_unmeasured_file_never_reports_a_level_even_with_numbers_in_it()
+    {
+        // Codex's follow-up: the loader fills the "nothing" values, so the
+        // Measured guards in Describe were never exercised. Zero is a loud
+        // peak and a loud loudness; unmeasured, neither may be spoken.
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var unmeasured = new TxAudioFile.Loaded { Name = "x", Seconds = 1, Measured = false, PeakDb = 0f, IntegratedLufs = 0f };
+        Assert.DoesNotContain("dBFS", unmeasured.Describe());
+        Assert.DoesNotContain("LUFS", unmeasured.Describe());
+        var measured = new TxAudioFile.Loaded { Name = "x", Seconds = 1, Measured = true, PeakDb = 0f, IntegratedLufs = 0f };
+        Assert.Contains("dBFS", measured.Describe());   // positive control
     }
 }

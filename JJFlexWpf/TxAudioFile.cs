@@ -224,6 +224,14 @@ public static class TxAudioFile
     /// choosing whether to measure the piece's level. The send path does not
     /// (#718); everything that reports a level does.
     /// </summary>
+    /// <summary>
+    /// How many times <see cref="Measure"/> has run on this thread: the test of
+    /// the send path's load watches the measurement itself, not only the flag
+    /// the load returns (#718, Codex's follow-up). Per thread, so tests running
+    /// beside each other cannot move it. Nothing in the product reads it.
+    /// </summary>
+    [ThreadStatic] internal static int MeasureCallsOnThisThread;
+
     internal static bool TryLoadPiece(string path, int targetRate, double fromSeconds, bool measure,
         out Loaded? loaded, out string trouble)
     {
@@ -441,6 +449,7 @@ public static class TxAudioFile
     /// </summary>
     private static void Measure(float[] mono, int sampleRate, out float peakDb, out float lufs)
     {
+        MeasureCallsOnThisThread++;
         float peak = 0f;
         for (int i = 0; i < mono.Length; i++)
         {
