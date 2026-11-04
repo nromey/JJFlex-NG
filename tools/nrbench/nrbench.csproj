@@ -26,7 +26,6 @@
   <ItemGroup>
     <PackageReference Include="FftSharp" Version="2.2.0" />
     <PackageReference Include="NAudio.Core" Version="3.0.0" />
-    <PackageReference Include="YellowDogMan.RRNoise.NET" Version="0.1.9" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\JJFlexWpf\SpectralSubtractionProvider.cs" Link="src\SpectralSubtractionProvider.cs" />
@@ -47,5 +46,9 @@
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <Content Include="run-cpu.bat;NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\..\runtimes\win-x64\native\rnnoise.dll;..\..\runtimes\win-x64\native\rnnoise.COPYING.txt" Link="runtimes\win-x64\native\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\runtimes\win-x86\native\rnnoise.dll;..\..\runtimes\win-x86\native\rnnoise.COPYING.txt" Link="runtimes\win-x86\native\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -24,7 +24,7 @@ partial class BenchApp
         // Distinct content per ear, never one recording duplicated into both channels.
         var stereo=new float[n*2];for(int i=0;i<n;i++){stereo[i*2]=first[i];stereo[i*2+1]=second[i];}
         first=first[..n];second=second[..n];
-        var variants=new List<List<Stage>>{new(){Rn()},new(){Rn(.8f,"Corrected")},new(){Rn(1)},new(){Neural(9)},new(){CaptureStage(profile,"own raw quiet per channel")},
+        var variants=new List<List<Stage>>{new(){Rn()},new(){Rn(.8f,"Historical")},new(){Rn(1)},new(){Neural(9)},new(){CaptureStage(profile,"own raw quiet per channel")},
             new(){CaptureStage(profile,"own raw quiet per channel"),Rn()},new(){CaptureStage(profile,"own raw quiet per channel"),Neural(9)}};
         data.Flags.Add($"Stereo check uses {data.Name} on the left and {Path.GetFileName(Path.GetDirectoryName(secondPath))} on the right, first {n/(double)Rate:F1} seconds, own quiet profile per side. Absolute wrong-input correlation above {LeakageThreshold:F2} is a flag, not a leak percentage.");
         double baseline=Math.Abs(Correlation(first,second,0));

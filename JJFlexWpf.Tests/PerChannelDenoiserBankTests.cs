@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using RNNoise.NET;
 using Xunit;
 
 namespace JJFlexWpf.Tests;
@@ -361,66 +360,6 @@ public sealed class PerChannelDenoiserBankTests
         nr.ProcessInPlace(buf, 0, buf.Length, 2);   // must not throw
         for (int i = 0; i < buf.Length; i++)
             Assert.True(Math.Abs(before[i] - buf[i]) <= 1e-6f, $"sample {i}");
-    }
-
-    /// <summary>
-    /// "Behaviour unchanged" for the case that was always right: with both
-    /// channels identical (one slice, centred; and the transmit chain, which
-    /// duplicates the mono microphone), the provider's output is bit-for-bit
-    /// what the pre-Track-G code produced. The old algorithm is restated here
-    /// verbatim against the same wrapper.
-    /// </summary>
-    [Fact]
-    public void IdenticalChannelsComeOutBitForBitAsTheOldProviderMadeThem()
-    {
-        NoiseReductionPerChannelTests.AssertWindowless();
-        var rng = new Random(8);
-        int frames = F * 25;
-        var input = new float[frames * 2];
-        for (int i = 0; i < frames; i++)
-        {
-            float v = (float)(0.2 * Math.Sin(i * 0.05) + (rng.NextDouble() - 0.5) * 0.05);
-            input[2 * i] = v;
-            input[2 * i + 1] = v;
-        }
-
-        var expected = (float[])input.Clone();
-        OldProcessSamples(expected, frames * 2, 2, strength: 0.8f);
-
-        using var nr = new NoiseReductionProvider(48000, 2, () => new RnnoiseEngine()) { Enabled = true };
-        var got = (float[])input.Clone();
-        for (int pos = 0; pos < got.Length; pos += F * 2)
-            nr.ProcessInPlace(got, pos, F * 2, 2);
-
-        Assert.Equal(expected, got);
-    }
-
-    /// <summary>The pre-Track-G NoiseReductionProvider.ProcessSamples, restated.</summary>
-    private static void OldProcessSamples(float[] buffer, int count, int channels, float strength)
-    {
-        using var denoiser = new Denoiser();
-        var frameBuffer = new float[F];
-        var originalBuffer = new float[F];
-        int sampleIdx = 0, remaining = count;
-        while (remaining >= F * channels)
-        {
-            for (int i = 0; i < F; i++)
-            {
-                float sample = buffer[sampleIdx + i * channels];
-                originalBuffer[i] = sample;
-                frameBuffer[i] = sample * 32767f;
-            }
-            denoiser.Denoise(new Span<float>(frameBuffer));
-            for (int i = 0; i < F; i++)
-            {
-                float processed = frameBuffer[i] / 32767f;
-                float blended = originalBuffer[i] * (1f - strength) + processed * strength;
-                int dst = sampleIdx + i * channels;
-                for (int ch = 0; ch < channels; ch++) buffer[dst + ch] = blended;
-            }
-            sampleIdx += F * channels;
-            remaining -= F * channels;
-        }
     }
 
     private static IEnumerable<int> Repeat(int value, int times)

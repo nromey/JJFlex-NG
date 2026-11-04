@@ -54,7 +54,7 @@ partial class BenchApp
         WriteWav(Path.Combine(data.Output,file),audio,channels);
         data.ExternalDescriptions.Add(file,$"Imported by --external: the 48 kHz copy of {Path.GetFileName(path)} ({format}). Preserved at its original level; no alignment or engine-setting claim is made.");
     }
-    static void Usage()=>Console.Error.WriteLine("nrbench suite <recordingsRoot> [--out <resultsRoot>] [--deepfilter <nativeDir>] [--stereo-recording <audio.wav>]\nnrbench <input.wav> <outDir> [--deepfilter <nativeDir>] [--stereo-recording <audio.wav>] [--external <render.wav>]\nnrbench selftest [--recording <audio.wav>] [--mutation <control>]\nnrbench cpu [input.wav] [--out <report.txt>] [--deepfilter <nativeDir>]\nnrbench synth <speech.wav> <outDir> [--start s] [--seconds s] [--snr dB] [--carrier Hz] [--seed n]");
+    static void Usage()=>Console.Error.WriteLine("nrbench suite <recordingsRoot> [--out <resultsRoot>] [--deepfilter <nativeDir>] [--stereo-recording <audio.wav>]\nnrbench <input.wav> <outDir> [--deepfilter <nativeDir>] [--stereo-recording <audio.wav>] [--external <render.wav>]\nnrbench selftest [--recording <audio.wav>] [--mutation <control>]\nnrbench cpu [input.wav] [--out <report.txt>] [--deepfilter <nativeDir>]\nnrbench synth <speech.wav> <outDir> [--start s] [--seconds s] [--snr dB] [--carrier Hz] [--seed n]\nnrbench synth <speech.wav> <outDir> --noise <file[@gainDb]> [--noise ...] [--noise-skip s] [--start s] [--seconds s] [--snr dB]");
     static string LibraryPath(string? directory=null)
     {
         if(directory!=null)return Path.Combine(Path.GetFullPath(directory),JJFlexWpf.DeepFilterNet3Engine.LibraryFileName);

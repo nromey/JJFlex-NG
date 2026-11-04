@@ -5,7 +5,6 @@ This kit stays on the project owner's machines. It opens no audio device and mak
 nrbench and the linked JJ Flexible noise reduction code: MIT.
 DeepFilterNet3 code and bundled model: Hendrik Schroeter and contributors, Apache-2.0 OR MIT. The two licence texts are beside deepfilter.dll under runtimes\win-x64\native. Model licence provenance remains subject to the project's public-release review.
 RNNoise: Xiph.Org and contributors, BSD-3-Clause.
-YellowDogMan.RRNoise.NET 0.1.9 (RNNoise.NET managed wrapper): MIT.
 NAudio.Core 3.0.0: Mark Heath and contributors, MIT.
 FftSharp 2.2.0: Scott Harden and contributors, MIT.
 Microsoft .NET runtime: MIT.

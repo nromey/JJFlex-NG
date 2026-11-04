@@ -24,6 +24,9 @@
 // nrbench synth <speech.wav> <outDir> [--start s] [--seconds s] [--snr dB]
 //     [--carrier Hz] [--seed n]
 // Synth writes clean/noisy band-limited controls with a common level scale.
+// nrbench synth <speech.wav> <outDir> --noise <file[@gainDb]> [--noise <file[@gainDb]>...] [--noise-skip s] [--start s] [--seconds s] [--snr dB]
+//     A microphone scene: full-band speech at its own level with recorded noise looped under it at the stated SNR.
+//     Layers sum at their relative gains before the SNR scaling. Writes noisy.wav, clean.wav, noise.wav and mix.txt.
 //
 // Example: nrbench selftest --recording C:\dev\nr-test-audio\wa-qso-party-40m\audio.wav
 // Example: nrbench suite C:\dev\nr-test-audio --out tools\nrbench\bin\proof
@@ -44,21 +47,34 @@ static int Synth(string[] a)
 {
     if (a.Length < 2) { Console.Error.WriteLine("synth wants <speech.wav> <outDir>"); return 2; }
     string speechPath = a[0], outDir = a[1];
-    double start = 0, len = 30, snrDb = 5, carrierHz = 0;
+    double start = 0, len = 30, snrDb = 5, carrierHz = 0, noiseSkip = 8;
     int seed = 731;
+    var noiseFiles = new List<(string Path, double GainDb)>();
     for (int i = 2; i < a.Length; i++)
     {
         switch (a[i])
         {
-            case "--start": start = double.Parse(a[++i]); break;
-            case "--seconds": len = double.Parse(a[++i]); break;
-            case "--snr": snrDb = double.Parse(a[++i]); break;
-            case "--carrier": carrierHz = double.Parse(a[++i]); break;
-            case "--seed": seed = int.Parse(a[++i]); break;
+            case "--start": start = double.Parse(a[++i], CultureInfo.InvariantCulture); break;
+            case "--seconds": len = double.Parse(a[++i], CultureInfo.InvariantCulture); break;
+            case "--snr": snrDb = double.Parse(a[++i], CultureInfo.InvariantCulture); break;
+            case "--carrier": carrierHz = double.Parse(a[++i], CultureInfo.InvariantCulture); break;
+            case "--seed": seed = int.Parse(a[++i], CultureInfo.InvariantCulture); break;
+            case "--noise":
+            {
+                // path, or path@gainDb for a layer's level relative to the others before the SNR scaling
+                string v = a[++i];
+                int at = v.LastIndexOf('@');
+                noiseFiles.Add(at > 0
+                    ? (v[..at], double.Parse(v[(at + 1)..], CultureInfo.InvariantCulture))
+                    : (v, 0));
+                break;
+            }
+            case "--noise-skip": noiseSkip = double.Parse(a[++i], CultureInfo.InvariantCulture); break;
             default: Console.Error.WriteLine($"unknown option {a[i]}"); return 2;
         }
     }
     Directory.CreateDirectory(outDir);
+    if (noiseFiles.Count > 0) return SynthWithNoiseFiles(speechPath, outDir, start, len, snrDb, noiseSkip, noiseFiles);
 
     var all = Mono(LoadWav(speechPath, out int ch, out _), ch);
     int s0 = Math.Clamp((int)(start * Rate), 0, all.Length);
@@ -99,6 +115,87 @@ static int Synth(string[] a)
                       $"band noise at {snrDb:F1} dB SNR against active speech{(carrierHz > 0 ? $", carrier at {carrierHz:F0} Hz" : "")}, seed {seed}.");
     Console.WriteLine($"wrote {Path.Combine(outDir, "noisy.wav")} and clean.wav");
     return 0;
+}
+
+/// <summary>
+/// A microphone scene for the transmit bench: speech with recorded noise under it (Sprint 49, the noise set).
+/// Unlike the band-noise mode above, nothing is band-limited: this stands in for a microphone, not a receiver.
+/// The speech keeps its own level in every mix, so every mix drives the transmitter the same, and the noise is
+/// scaled to the stated SNR against the speech's active level. Each noise file is looped under the speech with
+/// a one-second equal-power splice, after skipping its first seconds (a generator's fade-in).
+/// </summary>
+static int SynthWithNoiseFiles(string speechPath, string outDir, double start, double len, double snrDb,
+    double noiseSkip, List<(string Path, double GainDb)> noiseFiles)
+{
+    var all = Mono(LoadWav(speechPath, out int ch, out _), ch);
+    int s0 = Math.Clamp((int)(start * Rate), 0, all.Length);
+    int n = Math.Clamp((int)(len * Rate), 0, all.Length - s0);
+    var speech = all.AsSpan(s0, n).ToArray();
+
+    var noise = new float[n];
+    var layers = new List<string>();
+    foreach (var (path, gainDb) in noiseFiles)
+    {
+        var src = Mono(LoadWav(path, out int nch, out _), nch);
+        int skip = Math.Clamp((int)(noiseSkip * Rate), 0, Math.Max(0, src.Length - Rate * 5));
+        src = src.AsSpan(skip).ToArray();
+        var looped = LoopWithSplice(src, n, Rate);
+        double g = Math.Pow(10, gainDb / 20);
+        for (int i = 0; i < n; i++) noise[i] += (float)(looped[i] * g);
+        layers.Add($"{Path.GetFileName(Path.GetDirectoryName(Path.GetFullPath(path)))}/{Path.GetFileName(path)}"
+            + (gainDb != 0 ? $" at {gainDb:+0.#;-0.#} dB" : "")
+            + $" ({src.Length / (double)Rate:F1} s after skipping {skip / (double)Rate:F1} s"
+            + (src.Length < n ? ", looped" : "") + ")");
+    }
+
+    double speechActive = ActiveRms(speech);
+    double noiseRms = Math.Sqrt(noise.Average(v => (double)v * v));
+    if (noiseRms <= 1e-9) throw new InvalidOperationException("the noise is silent; refusing a mix that would prove nothing");
+    double gain = speechActive / noiseRms / Math.Pow(10, snrDb / 20);
+    for (int i = 0; i < n; i++) noise[i] = (float)(noise[i] * gain);
+
+    var noisy = new float[n];
+    for (int i = 0; i < n; i++) noisy[i] = speech[i] + noise[i];
+
+    // Only turn everything down if the mix would come within 1 dB of full scale; say so when it happens.
+    double peak = Math.Max(noisy.Max(Math.Abs), speech.Max(Math.Abs));
+    double limit = Math.Pow(10, -1 / 20.0), k = peak > limit ? limit / peak : 1.0;
+    if (k < 1) for (int i = 0; i < n; i++) { noisy[i] *= (float)k; speech[i] *= (float)k; noise[i] *= (float)k; }
+
+    WriteWav(Path.Combine(outDir, "noisy.wav"), noisy, 1);
+    WriteWav(Path.Combine(outDir, "clean.wav"), speech, 1);
+    WriteWav(Path.Combine(outDir, "noise.wav"), noise, 1);
+    bool myNoise = noiseFiles.Any(f => f.Path.Contains("mynoise", StringComparison.OrdinalIgnoreCase));
+    var desc = new StringBuilder();
+    desc.AppendLine($"{n / (double)Rate:F1} s of {Path.GetFileName(speechPath)} from {start:F1} s, full band (a microphone scene).");
+    desc.AppendLine($"Noise at {snrDb:F1} dB below the speech's active level:");
+    foreach (var l in layers) desc.AppendLine("  " + l);
+    desc.AppendLine(k < 1 ? $"Everything turned down {20 * Math.Log10(k):F1} dB so the mix peaks at -1 dBFS."
+                          : "Speech at its original level; no scaling.");
+    desc.AppendLine($"Speech active level {20 * Math.Log10(speechActive * k):F1} dBFS, noise {20 * Math.Log10(noiseRms * gain * k):F1} dBFS RMS.");
+    if (myNoise) desc.AppendLine("Noise recordings: myNoise (https://mynoise.net) by Dr. Stephane Pigeon. For testing only; never distributed.");
+    File.WriteAllText(Path.Combine(outDir, "mix.txt"), desc.ToString());
+    Console.Write(desc);
+    Console.WriteLine($"wrote noisy.wav, clean.wav, noise.wav and mix.txt in {outDir}");
+    return 0;
+}
+
+/// Repeats src to fill n samples, overlapping each repeat by one second with an equal-power crossfade.
+static float[] LoopWithSplice(float[] src, int n, int rate)
+{
+    var outp = new float[n];
+    int x = Math.Min(rate, src.Length / 4), step = src.Length - x;
+    for (int pos = 0; pos < n; pos += step)
+    {
+        for (int j = 0; j < src.Length && pos + j < n; j++)
+        {
+            double g = 1;
+            if (pos > 0 && j < x) g *= Math.Sin(Math.PI / 2 * j / x);
+            if (j >= src.Length - x) g *= Math.Cos(Math.PI / 2 * (j - (src.Length - x)) / x);
+            outp[pos + j] += (float)(src[j] * g);
+        }
+    }
+    return outp;
 }
 
 // ===========================================================================

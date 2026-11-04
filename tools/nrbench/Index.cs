@@ -54,7 +54,7 @@ partial class BenchApp
                     ? $"This is the copy of {name[9..].Replace(".wav","-src.wav",StringComparison.Ordinal)} that the earlier bench measured; it differs from it only by 16-bit rounding. "
                     : name!=external ? $"This is the source for {external}, the copy that the earlier bench measured. " : "";
                 return relation+"report.txt said: "+description+" Earlier render, not delay-aligned for comparison. "+
-                    (stem=="rnnoise" ? "This is today's combed 80 percent blend." : "");
+                    (stem=="rnnoise" ? "This is the preserved pre-Sprint-49 combed 80 percent blend." : "");
             }
         }
         return "Not made by this bench; preserved as found. No processing or alignment claim is made.";

@@ -5,7 +5,8 @@ namespace JJPortaudio
     /// <summary>
     /// The PC-side transmit conditioning chain (Track I): noise reduction,
     /// then the noise gate, with a monitor tap that can play what the chain
-    /// REMOVED. Sits in the PortAudio input callback as the third thing at
+    /// REMOVED, after aligning the input copy to the applied reducer delay.
+    /// Sits in the PortAudio input callback as the third thing at
     /// the established insertion point — the tone source injects, this
     /// modifies, the LUFS meter observes:
     ///
@@ -46,7 +47,7 @@ namespace JJPortaudio
     /// Thread model: Process runs on the PortAudio callback thread. Setters
     /// run on UI threads; delegate and enum reads are single-word and read
     /// once per buffer. The only allocation is growing the two scratch
-    /// buffers, which happens once per stream shape.
+    /// buffers and input delay line, on a stream shape or delay change.
     /// </summary>
     public class TxAudioConditioner
     {
@@ -73,6 +74,10 @@ namespace JJPortaudio
         /// attached. The delegate itself decides whether to touch the buffer.
         /// </summary>
         public Action<float[], int, uint> NoiseReducer { get; set; }
+
+        /// <summary>Called after NoiseReducer: actual delay for THIS buffer,
+        /// in samples per channel; zero when the reducer bypassed it.</summary>
+        public Func<int> NoiseReducerAppliedLatencySamples { get; set; }
 
         /// <summary>
         /// Monitor sink: (buffer, floatCount, sampleRate), interleaved
@@ -109,6 +114,8 @@ namespace JJPortaudio
         // and the buffer handed to the monitor sink.
         private float[] _inputCopy = Array.Empty<float>();
         private float[] _monitorBuf = Array.Empty<float>();
+        private float[] _inputDelay = Array.Empty<float>();
+        private int _inputDelayAt;
 
         /// <summary>
         /// Process one buffer of interleaved stereo float samples in place.
@@ -120,6 +127,7 @@ namespace JJPortaudio
             if (_bypassAll) return;
 
             var nr = NoiseReducer;
+            var appliedLatency = NoiseReducerAppliedLatencySamples;
             var sink = MonitorSink;
             var mode = (MonitorModes)_monitorMode;
             bool wantMonitor = mode != MonitorModes.Off && sink != null;
@@ -142,6 +150,10 @@ namespace JJPortaudio
 
             // NR first, gate second — see class remarks.
             nr?.Invoke(buffer, count, sampleRate);
+            // Keep this history even while the monitor is off. Zero bypass
+            // leaves it frozen, just as the bypassed engine freezes its state.
+            int delay = nr == null ? 0 : Math.Max(0, appliedLatency?.Invoke() ?? 0);
+            DelayInputCopy(count, delay);
             Gate.Process(buffer, count, sampleRate);
 
             if (!wantMonitor) return;
@@ -168,6 +180,31 @@ namespace JJPortaudio
                     break;
             }
             sink(_monitorBuf, count, sampleRate);
+        }
+        private void DelayInputCopy(int count, int delaySamples)
+        {
+            if (delaySamples == 0) return;
+            int length = checked(delaySamples * 2); // stereo interleaved
+            if (_inputDelay.Length != length)
+            {
+                var next = new float[length];
+                int keep = Math.Min(length, _inputDelay.Length);
+                // Preserve the latest pending samples. Increasing carry adds
+                // silence before them, the same one-time lead as the bank.
+                for (int i = 0; i < keep; i++)
+                    next[length - keep + i] = _inputDelay[(_inputDelayAt + _inputDelay.Length - keep + i) % _inputDelay.Length];
+                _inputDelay = next;
+                _inputDelayAt = 0;
+            }
+            int at = _inputDelayAt;
+            for (int i = 0; i < count; i++)
+            {
+                float raw = _inputCopy[i];
+                _inputCopy[i] = _inputDelay[at];
+                _inputDelay[at] = raw;
+                if (++at == length) at = 0;
+            }
+            _inputDelayAt = at;
         }
     }
 }

@@ -8,6 +8,11 @@ using System.IO;
 //       outDir belongs under JJFlex-private or a scratch folder, never the
 //       repository: a recording holds whatever the machine played.
 //
+//   soundtiming record <seconds> <outDir> --process <name or pid>
+//       Record only what that process and its children play (process
+//       loopback), so a screen reader speaking meanwhile stays out of the
+//       file. Writes capture.wav only, 48 kHz stereo float; no packet stamps.
+//
 //   soundtiming analyze <outDir> <trace file> [more trace files] [--window <ms>]
 //       Pair a recording with the app's SoundTiming lines (the app writes them
 //       with the detailed capture on, or when started with
@@ -63,7 +68,10 @@ try
         case "record":
         {
             string? dev = Opt("--device");
+            string? proc = Opt("--process");
             if (rest.Count < 3) break;
+            if (proc != null)
+                return Recorder.RunProcess(rest[2], double.Parse(rest[1], CultureInfo.InvariantCulture), proc);
             return Recorder.Run(rest[2], double.Parse(rest[1], CultureInfo.InvariantCulture), dev);
         }
         case "analyze":
@@ -89,7 +97,7 @@ catch (Exception ex)
     return 1;
 }
 
-Console.WriteLine("usage: soundtiming record <seconds> <outDir> [--device <name>]");
+Console.WriteLine("usage: soundtiming record <seconds> <outDir> [--device <name> | --process <name or pid>]");
 Console.WriteLine("       soundtiming analyze <outDir> <trace> [<trace>...] [--window <ms>] [--voice-set rich|simple]");
 Console.WriteLine("       soundtiming synth [--runs <n>] [--out <file>] [--voice-set rich|simple]");
 Console.WriteLine("       soundtiming devices");
