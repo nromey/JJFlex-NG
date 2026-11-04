@@ -69,7 +69,15 @@ Friend Class Lister
     Private Sub Lister_Load(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles MyBase.Load
         DialogResult = DialogResult.None
         wasActive = False
+        ' Delete on the list presses Delete, the same button, question included (#774).
+        ' This is the operator list the product opens; the WPF ListerDialog is unused.
+        If Not deleteKeyWired Then
+            Radios.WinFormsDeleteKey.Wire(ScreenList, DeleteButton, "the operator list")
+            deleteKeyWired = True
+        End If
     End Sub
+
+    Private deleteKeyWired As Boolean
 
     Private Sub AddButton_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles AddButton.Click
         Dim id As Integer = listObj.Add()

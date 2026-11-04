@@ -53,7 +53,39 @@ public static class DeleteKeyRemoves
     {
         if (d is not Selector list) return;
         list.PreviewKeyDown -= OnPreviewKeyDown;
-        if (e.NewValue != null) list.PreviewKeyDown += OnPreviewKeyDown;
+        list.PreviewKeyUp -= OnPreviewKeyUp;
+        if (e.NewValue != null)
+        {
+            list.PreviewKeyDown += OnPreviewKeyDown;
+            list.PreviewKeyUp += OnPreviewKeyUp;
+        }
+    }
+
+    /// <summary>Each list's own one-press-one-removal filter (Codex's check of #774, blocker 1).</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Selector, Radios.DeleteKeyGate> Gates = new();
+
+    private static Radios.DeleteKeyGate GateFor(Selector list) =>
+        Gates.GetValue(list, _ => new Radios.DeleteKeyGate(Radios.DeleteKeyGate.GapForRepeatDelay(
+            Radios.KeyRepeatTiming.DelayMsFromSetting(SystemParameters.KeyboardDelay))));
+
+    /// <summary>
+    /// One Delete key-down, decided: true when it presses the button. Every
+    /// bare Delete down outside a text box is reported to the gate, so a
+    /// held key (NVDA's repeats, JAWS's down/up pairs) and a removal still
+    /// landing press nothing. Pure apart from the gate, so a test replays
+    /// both readers' streams through the same decision the list makes.
+    /// </summary>
+    internal static bool Decide(Radios.DeleteKeyGate gate, Key key, ModifierKeys mods, bool isRepeat, bool fromTextEntry,
+        int selectedIndex, bool buttonPresent, bool buttonEnabled, bool buttonVisible, long nowMs)
+    {
+        if (key != Key.Delete || mods != ModifierKeys.None || fromTextEntry) return false;
+        bool press = gate.Down(isRepeat, nowMs);
+        return press && Presses(key, mods, fromTextEntry, selectedIndex, buttonPresent, buttonEnabled, buttonVisible);
+    }
+
+    private static void OnPreviewKeyUp(object sender, KeyEventArgs e)
+    {
+        if (sender is Selector list && e.Key == Key.Delete) GateFor(list).Up(Environment.TickCount64);
     }
 
     /// <summary>
@@ -70,11 +102,8 @@ public static class DeleteKeyRemoves
     /// Where selection goes after a press, or -1 for "leave it": nothing was
     /// removed, or the list is now empty. Next item, else the previous one.
     /// </summary>
-    internal static int LandingIndex(int removedAt, int countBefore, int countAfter)
-    {
-        if (countAfter >= countBefore || countAfter <= 0) return -1;
-        return Math.Min(Math.Max(removedAt, 0), countAfter - 1);
-    }
+    internal static int LandingIndex(int removedAt, int countBefore, int countAfter) =>
+        Radios.DeleteKeyGate.LandingIndex(removedAt, countBefore, countAfter);
 
     private static void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
@@ -82,11 +111,13 @@ public static class DeleteKeyRemoves
         var button = GetButton(list);
         bool fromText = e.OriginalSource is TextBoxBase || e.OriginalSource is PasswordBox
                         || (e.OriginalSource is ComboBox combo && combo.IsEditable);
-        if (!Presses(e.Key, Keyboard.Modifiers, fromText, list.SelectedIndex,
-                button != null, button?.IsEnabled == true, button?.IsVisible == true))
+        var gate = GateFor(list);
+        if (!Decide(gate, e.Key, Keyboard.Modifiers, e.IsRepeat, fromText, list.SelectedIndex,
+                button != null, button?.IsEnabled == true, button?.IsVisible == true, Environment.TickCount64))
             return;
 
         e.Handled = true;
+        gate.Busy = true;
         int at = list.SelectedIndex;
         int before = list.Items.Count;
         Tracing.TraceLine("DeleteKeyRemoves: Delete on " + Describe(list) + " presses its "
@@ -100,11 +131,18 @@ public static class DeleteKeyRemoves
         catch (Exception ex)
         {
             Tracing.TraceLine("DeleteKeyRemoves: the button threw: " + ex.Message, TraceLevel.Error);
+            gate.Busy = false;
             return;
         }
 
         // After the button's own work, including any list refresh it queued.
-        list.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => Land(list, at, before)));
+        // The gate stays busy until then, so a second Delete cannot press
+        // the button again on an item that is going.
+        list.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            try { Land(list, at, before); }
+            finally { gate.Busy = false; }
+        }));
     }
 
     private static void Land(Selector list, int at, int before)

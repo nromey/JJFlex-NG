@@ -58,6 +58,46 @@ public sealed class DeleteKeyRemovesTests
         Assert.Equal(landing, DeleteKeyRemoves.LandingIndex(at, before, after));
     }
 
+    /// <summary>
+    /// The list's own decision, fed a whole held key: one press under NVDA's
+    /// auto-repeat, one under JAWS's down/up pairs, and a release then a later
+    /// press presses again (Codex's check of #774, blocker 1: a held Delete
+    /// removed item after item).
+    /// </summary>
+    [Fact]
+    public void A_held_Delete_presses_once_under_either_reader_and_a_later_press_presses_again()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        bool D(Radios.DeleteKeyGate g, bool repeat, long t) =>
+            DeleteKeyRemoves.Decide(g, Key.Delete, ModifierKeys.None, repeat, fromTextEntry: false,
+                selectedIndex: 0, buttonPresent: true, buttonEnabled: true, buttonVisible: true, nowMs: t);
+
+        var nvda = new Radios.DeleteKeyGate(750);
+        int pressed = D(nvda, false, 0) ? 1 : 0;
+        for (long t = 500; t < 3000; t += 30) if (D(nvda, true, t)) pressed++;
+        nvda.Up(3000);
+        Assert.Equal(1, pressed);
+        Assert.True(D(nvda, false, 4000));
+
+        var jaws = new Radios.DeleteKeyGate(750);
+        pressed = D(jaws, false, 0) ? 1 : 0;
+        jaws.Up(5);
+        for (long t = 512; t < 3000; t += 250) { if (D(jaws, false, t)) pressed++; jaws.Up(t + 5); }
+        Assert.Equal(1, pressed);
+        Assert.True(D(jaws, false, 4500));
+    }
+
+    [Fact]
+    public void A_Delete_that_does_not_qualify_never_presses_however_fresh()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var g = new Radios.DeleteKeyGate(750);
+        Assert.False(DeleteKeyRemoves.Decide(g, Key.Delete, ModifierKeys.None, false, fromTextEntry: true,
+            0, true, true, true, 0));
+        Assert.False(DeleteKeyRemoves.Decide(g, Key.Delete, ModifierKeys.Shift, false, false, 0, true, true, true, 0));
+        Assert.False(DeleteKeyRemoves.Decide(g, Key.Delete, ModifierKeys.None, false, false, -1, true, true, true, 5000));
+    }
+
     private static string Root()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

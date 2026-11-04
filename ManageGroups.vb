@@ -23,6 +23,9 @@ Public Class ManageGroups
             Return
         End If
 
+        ' Delete on the groups list presses Delete Group, the same button (#774).
+        ' This is the form the product opens; the WPF ManageGroupsDialog is unused.
+        Radios.WinFormsDeleteKey.Wire(GroupsControl.GroupsListBox, DeleteButton, "the memory groups list")
         DialogResult = System.Windows.Forms.DialogResult.None
     End Sub
 
