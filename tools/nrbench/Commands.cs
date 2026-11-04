@@ -42,7 +42,7 @@ partial class BenchApp
         }
         catch(Exception ex){Console.Error.WriteLine("REFUSED: "+ex);return 1;}
     }
-    static void Usage()=>Console.Error.WriteLine("nrbench suite <recordingsRoot> [--out <resultsRoot>] [--deepfilter <nativeDir>]\nnrbench <input.wav> <outDir> [--deepfilter <nativeDir>]\nnrbench selftest [--recording <audio.wav>] [--mutation <control>]\nnrbench cpu [input.wav] [--out <report.txt>] [--deepfilter <nativeDir>]\nnrbench synth <speech.wav> <outDir> [--start s] [--seconds s] [--snr dB] [--carrier Hz] [--seed n]");
+    static void Usage()=>Console.Error.WriteLine("nrbench suite <recordingsRoot> [--out <resultsRoot>] [--deepfilter <nativeDir>]\nnrbench <input.wav> <outDir> [--deepfilter <nativeDir>]\nnrbench selftest [--recording <audio.wav>] [--mutation <control>]\nnrbench cpu [input.wav] [--out <report.txt>] [--deepfilter <nativeDir>]\nnrbench synth <speech.wav> <outDir> [--start s] [--seconds s] [--snr dB] [--carrier Hz] [--seed n]\nnrbench synth <speech.wav> <outDir> --noise <file[@gainDb]> [--noise ...] [--noise-skip s] [--start s] [--seconds s] [--snr dB]");
     static string LibraryPath(string? directory=null)
     {
         if(directory!=null)return Path.Combine(Path.GetFullPath(directory),JJFlexWpf.DeepFilterNet3Engine.LibraryFileName);

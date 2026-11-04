@@ -112,5 +112,76 @@ internal static class Recorder
         return 0;
     }
 
+    /// <summary>
+    /// Records only what one process tree plays (Windows process loopback, 10 version 2004 and later), so a
+    /// screen reader or any other program sounding at the same time stays out of the file. Used for the Sprint 49
+    /// noise loops (Chrome playing myNoise) and for the transmit "What was removed" monitor (JJ Flexible).
+    /// </summary>
+    /// <param name="processMatch">A process id, or a process name such as <c>chrome</c>. For a name, the
+    /// earliest-started process of that name is taken as the root of the tree; for Chrome that is the browser
+    /// process, and its audio service is a child, so the tree includes it.</param>
+    public static int RunProcess(string outDir, double seconds, string processMatch)
+    {
+        Directory.CreateDirectory(outDir);
+        uint pid;
+        string what;
+        if (uint.TryParse(processMatch, NumberStyles.None, CultureInfo.InvariantCulture, out pid))
+        {
+            what = $"{Process.GetProcessById((int)pid).ProcessName} ({pid})";
+        }
+        else
+        {
+            var root = Process.GetProcessesByName(processMatch)
+                .Select(p => { try { return (p, start: p.StartTime); } catch { return (p, start: DateTime.MaxValue); } })
+                .OrderBy(t => t.start).Select(t => t.p).FirstOrDefault()
+                ?? throw new InvalidOperationException($"no running process is named '{processMatch}'");
+            pid = (uint)root.Id;
+            what = $"{root.ProcessName} ({pid}) and its child processes";
+        }
+
+        var format = WaveFormat.CreateIeeeFloatWaveFormat(48000, 2);
+        using var recorder = new WasapiRecorderBuilder()
+            .WithProcessLoopback(pid, ProcessLoopbackMode.IncludeTargetProcessTree)
+            .WithFormat(format)
+            .BuildAsync().GetAwaiter().GetResult();
+
+        string wavPath = Path.Combine(outDir, "capture.wav");
+        using var writer = new WaveFileWriter(wavPath, recorder.WaveFormat);
+        long bytes = 0, silentPackets = 0, packetsSeen = 0;
+        var stopped = new ManualResetEventSlim();
+        recorder.RecordingStopped += (_, e) =>
+        {
+            if (e.Exception != null) Console.Error.WriteLine("soundtiming: capture stopped on an error: " + e.Exception.Message);
+            stopped.Set();
+        };
+        recorder.DataAvailable += (ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags, long devicePos, long qpc) =>
+        {
+            if ((flags & AudioClientBufferFlags.Silent) != 0)
+            {
+                writer.Write(new byte[buffer.Length]);
+                silentPackets++;
+            }
+            else
+            {
+                writer.Write(buffer);
+            }
+            bytes += buffer.Length;
+            packetsSeen++;
+        };
+
+        Console.WriteLine($"process: {what}");
+        Console.WriteLine($"format: {recorder.WaveFormat}");
+        Console.WriteLine($"recording {seconds:0.#} s from {DateTime.Now:HH:mm:ss.fff} into {outDir}");
+        recorder.StartRecording();
+        Thread.Sleep(TimeSpan.FromSeconds(seconds));
+        recorder.StopRecording();
+        stopped.Wait(TimeSpan.FromSeconds(5));
+
+        Console.WriteLine($"done: {bytes / (double)recorder.WaveFormat.AverageBytesPerSecond:0.00} s of audio in "
+            + $"{packetsSeen} packets, {silentPackets} of them flagged silent");
+        Console.WriteLine($"wrote {wavPath}");
+        return 0;
+    }
+
     public static long QpcNow100ns() => (long)(Stopwatch.GetTimestamp() * (10_000_000.0 / Stopwatch.Frequency));
 }
