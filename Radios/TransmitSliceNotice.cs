@@ -120,15 +120,22 @@ namespace Radios
             return setting == TransmitElsewhereNotice.SpeakAndTone && SplitIsNew(now, lastSpoken);
         }
 
-        /// <summary>Whether a key here gets the tri-tones: elsewhere, and the setting not off. Pure.</summary>
-        public static bool PlaysTones(TransmitElsewhereNotice setting, SliceRoles roles) =>
-            roles.TransmitsElsewhere && setting != TransmitElsewhereNotice.Off;
+        /// <summary>
+        /// Whether a key here gets the tri-tones: elsewhere, the setting not
+        /// off, and push to talk's chirps on. Pure. RULED by Noel 2026-11-04
+        /// 06:51: unchecking "Play chirp tones on transmit and receive"
+        /// silences the tri-tones too, as it does the two-tone pair; the
+        /// <paramref name="chirps"/> passed is that same PTT setting, never a
+        /// new one. The spoken notice is not governed by it.
+        /// </summary>
+        public static bool PlaysTones(TransmitElsewhereNotice setting, bool chirps, SliceRoles roles) =>
+            chirps && roles.TransmitsElsewhere && setting != TransmitElsewhereNotice.Off;
 
-        /// <summary>The tri-tones for this rig now, under the operator's setting.</summary>
-        public static bool PlaysTones(FlexBase rig)
+        /// <summary>The tri-tones for this rig now, under the operator's setting and chirp switch.</summary>
+        public static bool PlaysTones(FlexBase rig, bool chirps)
         {
-            if (rig == null) return false;
-            try { return PlaysTones(Setting, SliceRoles.Of(rig)); }
+            if (rig == null || !chirps) return false;
+            try { return PlaysTones(Setting, chirps, SliceRoles.Of(rig)); }
             catch (Exception ex)
             {
                 Tracing.TraceLine("TransmitSliceNotice: could not read the slices for the tones: " + ex.Message, TraceLevel.Warning);

@@ -85,10 +85,37 @@ public sealed class TransmitSliceNoticeTests
     [Fact]
     public void Tones_play_at_every_key_elsewhere_unless_the_notice_is_off()
     {
-        Assert.True(TransmitSliceNotice.PlaysTones(TransmitElsewhereNotice.SpeakAndTone, Apart));
-        Assert.True(TransmitSliceNotice.PlaysTones(TransmitElsewhereNotice.ToneOnly, Apart));
-        Assert.False(TransmitSliceNotice.PlaysTones(TransmitElsewhereNotice.Off, Apart));
-        Assert.False(TransmitSliceNotice.PlaysTones(TransmitElsewhereNotice.SpeakAndTone, Together));
+        Assert.True(TransmitSliceNotice.PlaysTones(TransmitElsewhereNotice.SpeakAndTone, true, Apart));
+        Assert.True(TransmitSliceNotice.PlaysTones(TransmitElsewhereNotice.ToneOnly, true, Apart));
+        Assert.False(TransmitSliceNotice.PlaysTones(TransmitElsewhereNotice.Off, true, Apart));
+        Assert.False(TransmitSliceNotice.PlaysTones(TransmitElsewhereNotice.SpeakAndTone, true, Together));
+    }
+
+    /// <summary>
+    /// Ruled by Noel 2026-11-04 06:51: unchecking "Play chirp tones on
+    /// transmit and receive" silences the three-note tones too, key-down and
+    /// key-up, for push to talk and for a send that keys itself. Both key-ups
+    /// play only when their key-down did (the controller's _keyedElsewhere,
+    /// the send's KeyedElsewhere), so silencing the decision silences both.
+    /// </summary>
+    [Fact]
+    public void Chirps_off_silences_both_three_note_tones_and_chirps_on_still_plays_them()
+    {
+        foreach (var setting in new[] { TransmitElsewhereNotice.SpeakAndTone, TransmitElsewhereNotice.ToneOnly })
+        {
+            Assert.False(TransmitSliceNotice.PlaysTones(setting, chirps: false, Apart));
+            Assert.True(TransmitSliceNotice.PlaysTones(setting, chirps: true, Apart));   // the control
+        }
+        // Every door that plays them asks with the same PTT chirp switch.
+        string ptt = Source("JJFlexWpf/PttSafetyController.cs");
+        Assert.Contains("PlaysTones(_getRigControl(), _config.ChirpEnabled)", ptt);
+        Assert.Contains("public bool ChirpEnabled => _config.ChirpEnabled;", ptt);
+        string sender = Source("JJFlexWpf/VoiceMessageSender.cs");
+        Assert.Contains("PttControllerSource?.Invoke()?.ChirpEnabled ?? true;", sender);
+        Assert.Contains("TransmitSliceNotice.PlaysTones(TransmitSliceNotice.Setting, chirps, notice.Announced)", sender);
+        // And the stop tones play only after their start tone did.
+        Assert.Contains("if (elsewhere) EarconPlayer.TxElsewhereStopTone();", ptt);
+        Assert.Contains("info.KeyedElsewhere = true;\n            EarconPlayer.TxElsewhereStartTone();", sender.Replace("\r\n", "\n"));
     }
 
     // ── B2: what was announced is what keys ──────────────────────────────
@@ -303,7 +330,7 @@ public sealed class TransmitSliceNoticeTests
     public void The_controller_plays_the_three_note_tones_for_a_key_elsewhere()
     {
         string ptt = Source("JJFlexWpf/PttSafetyController.cs");
-        Assert.Contains("_keyedElsewhere = Radios.TransmitSliceNotice.PlaysTones(_getRigControl());", ptt);
+        Assert.Contains("_keyedElsewhere = Radios.TransmitSliceNotice.PlaysTones(_getRigControl(), _config.ChirpEnabled);", ptt);
         Assert.Contains("if (_keyedElsewhere) EarconPlayer.TxElsewhereStartTone();", ptt);
         Assert.Contains("if (elsewhere) EarconPlayer.TxElsewhereStopTone();", ptt);
         Assert.DoesNotContain("if (_config.ChirpEnabled) EarconPlayer.TxStartTone();\n                _updateStatusDisplay", ptt.Replace("\r\n", "\n"));

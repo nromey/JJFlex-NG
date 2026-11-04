@@ -1054,7 +1054,7 @@ namespace JJFlexWpf
         /// </summary>
         private void KeyDownTone()
         {
-            _keyedElsewhere = Radios.TransmitSliceNotice.PlaysTones(_getRigControl());
+            _keyedElsewhere = Radios.TransmitSliceNotice.PlaysTones(_getRigControl(), _config.ChirpEnabled);
             if (_keyedElsewhere) EarconPlayer.TxElsewhereStartTone();
             else if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
         }
@@ -1070,6 +1070,13 @@ namespace JJFlexWpf
 
         /// <summary>This transmission's key-down played the three-note tone.</summary>
         private bool _keyedElsewhere;
+
+        /// <summary>
+        /// "Play chirp tones on transmit and receive": the one switch both the
+        /// two-tone pair and the three-note tones obey (ruled 2026-11-04 06:51),
+        /// for a send that keys the radio itself.
+        /// </summary>
+        public bool ChirpEnabled => _config.ChirpEnabled;
 
         // The three announcements, with their slice when the operator has
         // asked for it (#496). One reading of the slices per sentence.

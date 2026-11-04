@@ -483,7 +483,9 @@ internal static class VoiceMessageSender
     private static void KeyedWithNotice(SendInfo info, TransmitSliceNotice.Notice? notice)
     {
         TransmitSliceNotice.Keyed(notice);
-        if (notice != null && TransmitSliceNotice.PlaysTones(TransmitSliceNotice.Setting, notice.Announced))
+        // The same chirp switch push to talk's tones obey (ruled 2026-11-04 06:51).
+        bool chirps = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke()?.ChirpEnabled ?? true;
+        if (notice != null && TransmitSliceNotice.PlaysTones(TransmitSliceNotice.Setting, chirps, notice.Announced))
         {
             info.KeyedElsewhere = true;
             EarconPlayer.TxElsewhereStartTone();
