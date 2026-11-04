@@ -416,10 +416,14 @@ internal static class VoiceMessageSender
             return;
         }
 
-        // With the box off and VOX off, the send keys the radio itself, so it
-        // says where first (#863, ruled by Noel 2026-11-03 18:03: "yes, they
-        // say it too"), through the same notice, and waits for it, whole.
-        if (KeysItselfWithTheBoxOff(rig))
+        // With the box off, a send that starts a carrier says where first
+        // (#863, ruled by Noel 2026-11-03 18:03: "yes, they say it too"),
+        // through the same notice, and waits for it, whole: with VOX off it
+        // keys the radio itself, and with VOX on the file it releases keys
+        // the radio through VOX (Codex's re-check, R1), so the sentence comes
+        // before the file is released. VOX still owns its keying. A send that
+        // joins a transmission already up starts no carrier and does not wait.
+        if (StartsACarrierWithTheBoxOff(rig))
         {
             var notice = TransmitSliceNotice.Prepare(rig, "the send of " + Name(info), mandatory: false);
             if (notice != null && notice.Spoke)
@@ -428,7 +432,7 @@ internal static class VoiceMessageSender
                 return;
             }
             BeginAndLaunch(rig, info, info.Label, loaded);
-            if (_send != null && _send.WeKeyed) KeyedWithNotice(info, notice);
+            AfterBoxOffBegin(info, notice);
             return;
         }
 
@@ -436,14 +440,28 @@ internal static class VoiceMessageSender
     }
 
     /// <summary>
-    /// What <see cref="VoiceMessageSend.Begin"/> will do with the box off: key
-    /// the radio itself when it is not transmitting and VOX is off. With VOX on
-    /// the radio keys itself, and a transmission already up is joined.
+    /// What <see cref="VoiceMessageSend.Begin"/> will do with the box off when
+    /// the radio is not already transmitting: start a carrier, by keying the
+    /// radio itself with VOX off, or by releasing the file to VOX with VOX on
+    /// (#863 R1). A transmission already up is joined, and starts nothing.
     /// </summary>
-    private static bool KeysItselfWithTheBoxOff(FlexBase rig)
+    internal static bool StartsACarrierWithTheBoxOff(FlexBase rig)
     {
-        try { return !rig.Transmit && rig.Vox != FlexBase.OffOnValues.on; }
+        try { return !rig.Transmit; }
         catch { return false; }
+    }
+
+    /// <summary>
+    /// A box-off send has begun. Keyed by us: the notice is remembered and the
+    /// three-note tone plays (<see cref="KeyedWithNotice"/>). Released to VOX:
+    /// the notice was heard before the release, so it is remembered; the
+    /// tones mark our own key edges, and VOX's are its own, so none plays.
+    /// </summary>
+    private static void AfterBoxOffBegin(SendInfo info, TransmitSliceNotice.Notice? notice)
+    {
+        if (_send == null) return;
+        if (_send.WeKeyed) KeyedWithNotice(info, notice);
+        else TransmitSliceNotice.Keyed(notice);
     }
 
     /// <summary>
@@ -472,7 +490,7 @@ internal static class VoiceMessageSender
             return;
         }
         BeginAndLaunch(rig, info, info.Label, loaded);
-        if (_send != null && _send.WeKeyed) KeyedWithNotice(info, notice);
+        AfterBoxOffBegin(info, notice);
     }
 
     /// <summary>
@@ -1402,6 +1420,17 @@ internal static class VoiceMessageSender
         return line;
     }
 
+    /// <summary>What happens to a keyed-elsewhere send's falling tone when it ends.</summary>
+    internal enum ElsewhereStopTone { PlayNow, OwedToTheRealUnkey }
+
+    /// <summary>
+    /// A send that keyed on another slice ended with <paramref name="outcome"/>:
+    /// its falling tone plays now, unless it was taken over, when the carrier
+    /// stays up and the tone is owed to the real unkey (#863 R3). Pure.
+    /// </summary>
+    internal static ElsewhereStopTone StopToneAtTheEnd(VoiceMessageOutcome? outcome) =>
+        outcome == VoiceMessageOutcome.TakenOver ? ElsewhereStopTone.OwedToTheRealUnkey : ElsewhereStopTone.PlayNow;
+
     /// <summary>The send has ended. Stop watching, give VOX back, say how it ended, forget it.</summary>
     private static void Settle()
     {
@@ -1412,9 +1441,15 @@ internal static class VoiceMessageSender
         _current = null;
         if (info != null && info.KeyedElsewhere)
         {
-            // The key-up of a piece that keyed on another slice (#863).
+            // The key-up of a piece that keyed on another slice (#863). Only
+            // when the send's own carrier came down: a takeover leaves the
+            // carrier up under the operator, and its falling tone is the real
+            // unkey's, carried to the controller (Codex's re-check, R3).
             info.KeyedElsewhere = false;
-            EarconPlayer.TxElsewhereStopTone();
+            if (StopToneAtTheEnd(send?.Outcome) == ElsewhereStopTone.PlayNow)
+                EarconPlayer.TxElsewhereStopTone();
+            else
+                Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke()?.TakeOverElsewhereStopTone();
         }
 
         if (_watchedBy != null)

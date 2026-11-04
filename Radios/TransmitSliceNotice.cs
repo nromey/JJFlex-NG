@@ -148,6 +148,8 @@ namespace Radios
         private sealed class Memory
         {
             public SliceRoles? Spoken;
+            /// <summary>Bumped by every key, so a sentence finishing late commits only if nothing keyed since.</summary>
+            public long Generation;
         }
 
         /// <summary>One per rig, which is one per connection: a new connection starts with nothing said.</summary>
@@ -312,7 +314,8 @@ namespace Radios
             && string.Equals(a.TransmitLetter, b.TransmitLetter, StringComparison.Ordinal)
             && a.TransmitHz == b.TransmitHz;
 
-        private static SliceRoles? LastSpoken(FlexBase rig)
+        /// <summary>The split last HEARD on this rig, or null. For tests and the key-time rule.</summary>
+        internal static SliceRoles? LastSpoken(FlexBase rig)
         {
             Memory memory = MemoryOf(rig);
             lock (MemoryLock) return memory.Spoken;
@@ -320,25 +323,105 @@ namespace Radios
 
         /// <summary>
         /// The door keyed. Remember what it told the operator: a split that
-        /// was spoken is the split now known, and a key on the selected slice
-        /// ends any split, so the next one is new. Only a door that keyed
-        /// remembers, so a cancelled attempt cannot silence the next one.
+        /// was spoken AND HEARD is the split now known, and a key on the
+        /// selected slice ends any split, so the next one is new. Only a door
+        /// that keyed remembers, so a cancelled attempt cannot silence the
+        /// next one.
         /// </summary>
+        /// <remarks>
+        /// <b>Heard means finished</b> (repair round 2, Codex's re-check R2).
+        /// <see cref="Notice.Spoke"/> means the sentence was REQUESTED. A door
+        /// that waited has it finished by now and commits at once. Push to
+        /// talk in a dialog keys first and says after (ruled), so its sentence
+        /// may still be queued, may be cut, or may be retired by the unkey:
+        /// the split is then committed only when the sentence finishes whole,
+        /// and never when it fails, is cut part-way, or is retired, so the
+        /// next door on that split still says it. A key in between (any door)
+        /// supersedes a late commit.
+        /// </remarks>
         public static void Keyed(Notice notice)
         {
             if (notice?.Rig == null) return;
             Memory memory = MemoryOf(notice.Rig);
+            long generation;
             lock (MemoryLock)
             {
-                if (notice.Spoke) memory.Spoken = notice.Announced;
-                else if (!notice.Announced.TransmitsElsewhere) memory.Spoken = null;
+                generation = ++memory.Generation;
+                if (!notice.Spoke)
+                {
+                    if (!notice.Announced.TransmitsElsewhere) memory.Spoken = null;
+                    return;
+                }
+                if (notice.Words == null || notice.Words.Finished)
+                {
+                    memory.Spoken = notice.Announced;
+                    return;
+                }
+                if (notice.Words.Failed) return;   // never heard: still owed
+            }
+            _ = CommitWhenHeardAsync(notice, memory, generation);
+        }
+
+        /// <summary>
+        /// Commit a door's split once its sentence has finished whole, unless
+        /// another key has happened since. Failed, cut, retired or past the
+        /// ceiling: nothing is committed, and the split stays owed.
+        /// </summary>
+        private static async Task CommitWhenHeardAsync(Notice notice, Memory memory, long generation)
+        {
+            bool heard;
+            try
+            {
+                heard = await HeardAsync(notice.Words, () =>
+                {
+                    lock (MemoryLock) return memory.Generation == generation;
+                }).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TransmitSliceNotice (" + notice.Door + "): waiting for the sentence threw: " + ex.Message,
+                    TraceLevel.Warning);
+                return;
+            }
+            lock (MemoryLock)
+            {
+                if (heard && memory.Generation == generation)
+                {
+                    memory.Spoken = notice.Announced;
+                    return;
+                }
+            }
+            Tracing.TraceLine("TransmitSliceNotice (" + notice.Door + "): the sentence after the key was not heard whole;"
+                + " this split is still owed to the next door", TraceLevel.Info);
+        }
+
+        /// <summary>
+        /// A key that did not come through a notice (Home's push to talk, the
+        /// lock, the system-wide lock): on the selected slice it ends any
+        /// remembered split, as a door's key there does (Codex's re-check of
+        /// #863, F1), so returning to the old split later is said again. It
+        /// says nothing itself; whether these doors speak is Noel's question.
+        /// </summary>
+        public static void KeyedWithoutNotice(FlexBase rig)
+        {
+            if (rig == null) return;
+            SliceRoles roles;
+            try { roles = SliceRoles.Of(rig); }
+            catch { return; }
+            if (roles.TransmitsElsewhere) return;
+            Memory memory = MemoryOf(rig);
+            lock (MemoryLock)
+            {
+                memory.Generation++;
+                memory.Spoken = null;
             }
         }
 
         /// <summary>
         /// Push to talk inside a dialog: "go, then say" (ruled 2026-11-03
         /// 17:55). After the key, the sentence when it is owed, queued behind
-        /// the key-down line, and remembered at once, since the key is down.
+        /// the key-down line; the split is remembered only once that sentence
+        /// has been heard whole (<see cref="Keyed"/>).
         /// </summary>
         public static void SayAfterKey(FlexBase rig, string door)
         {

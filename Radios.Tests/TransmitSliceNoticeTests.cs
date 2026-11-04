@@ -213,7 +213,7 @@ public sealed class TransmitSliceNoticeTests
 
     // ── B3: heard means heard whole, through the real speech layer ───────
 
-    private sealed class Reader
+    internal sealed class Reader
     {
         public readonly FakeSpeechClock Clock = new();
         public readonly SpeechArbiter Arbiter;

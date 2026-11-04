@@ -528,6 +528,12 @@ namespace JJFlexWpf
         public void NoteRadioTransmit(bool on)
         {
             _radioReportsTransmit = on;
+            if (!on && _elsewhereStopOwed && State == PttState.Idle)
+            {
+                // The carrier a taken-over send started has really come down (#863 R3).
+                _elsewhereStopOwed = false;
+                EarconPlayer.TxElsewhereStopTone();
+            }
             if (!on) { _tuneCarrierOn = false; _atuTuning = false; }
             NoteRf();
         }
@@ -1055,6 +1061,12 @@ namespace JJFlexWpf
         private void KeyDownTone()
         {
             _keyedElsewhere = Radios.TransmitSliceNotice.PlaysTones(_getRigControl(), _config.ChirpEnabled);
+            // This key owns its own key-up tone now, whatever a taken-over
+            // send owed (#863 R3).
+            _elsewhereStopOwed = false;
+            // A key on the selected slice ends a remembered split, whichever
+            // door it came through (#863, Codex's re-check F1).
+            try { Radios.TransmitSliceNotice.KeyedWithoutNotice(_getRigControl()); } catch { }
             if (_keyedElsewhere) EarconPlayer.TxElsewhereStartTone();
             else if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
         }
@@ -1070,6 +1082,33 @@ namespace JJFlexWpf
 
         /// <summary>This transmission's key-down played the three-note tone.</summary>
         private bool _keyedElsewhere;
+
+        /// <summary>
+        /// A send that keyed on another slice was taken over by a key this
+        /// controller did not make (a foot switch, a hand mic): the carrier
+        /// stays up, so the falling three-note tone is owed to the radio's own
+        /// unkey (<see cref="NoteRadioTransmit"/>), never to the file's end.
+        /// </summary>
+        private bool _elsewhereStopOwed;
+
+        /// <summary>For tests: a taken-over send's falling tone is still owed.</summary>
+        internal bool ElsewhereStopOwed => _elsewhereStopOwed;
+
+        /// <summary>For tests: this transmission's key-up will play the three-note tone.</summary>
+        internal bool KeyedElsewhere => _keyedElsewhere;
+
+        /// <summary>
+        /// A box send that keyed on a slice other than the selected one has
+        /// been taken over and its carrier stays up under the operator (#863,
+        /// Codex's re-check R3). The falling tone belongs to the real unkey:
+        /// this controller's own, when it is the one now keying (a push to
+        /// talk or lock takeover), otherwise the radio's report of receive.
+        /// </summary>
+        public void TakeOverElsewhereStopTone()
+        {
+            if (State != PttState.Idle) { _keyedElsewhere = true; return; }
+            _elsewhereStopOwed = true;
+        }
 
         /// <summary>
         /// "Play chirp tones on transmit and receive": the one switch both the

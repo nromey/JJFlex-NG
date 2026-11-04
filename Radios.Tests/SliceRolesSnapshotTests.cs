@@ -236,7 +236,9 @@ namespace Radios.Tests
                 // Not keyed (cancelled): the next attempt is not silenced by it.
                 var again = TransmitSliceNotice.Prepare(rig, "test", mandatory: false);
                 Assert.True(again.Spoke);
-                TransmitSliceNotice.Keyed(again);
+                // Heard whole (repair round 2: only a sentence that finished
+                // is remembered; this host has no reader to finish one).
+                TransmitSliceNotice.Keyed(Heard(rig, again));
 
                 Assert.False(TransmitSliceNotice.Prepare(rig, "test", mandatory: false).Spoke);   // the same split: tone only
 
@@ -244,7 +246,7 @@ namespace Radios.Tests
                 SliceReports(rig, a, "Freq");
                 var moved = TransmitSliceNotice.Prepare(rig, "test", mandatory: false);
                 Assert.True(moved.Spoke);                 // the transmit frequency moved
-                TransmitSliceNotice.Keyed(moved);
+                TransmitSliceNotice.Keyed(Heard(rig, moved));
 
                 TransmitSliceNotice.Setting = TransmitElsewhereNotice.Off;
                 Set(a, "_freq", 14.110);
@@ -258,6 +260,119 @@ namespace Radios.Tests
                 TransmitSliceNotice.Setting = setting;
                 ScreenReaderOutput.CurrentVerbosity = verbosity;
             }
+        }
+
+        /// <summary>
+        /// #863, repair round 2 (Codex's re-check R2, its probe made a test).
+        /// Push to talk in a dialog keys first and says after, so its notice
+        /// is remembered when it keys; but "spoke" meant REQUESTED. A short
+        /// press unkeyed before the sentence was heard, the unkey retired it,
+        /// and the split stayed remembered, so the next box send keyed with no
+        /// sentence ever heard. Now the split is remembered only when the
+        /// sentence finishes whole.
+        /// </summary>
+        [Fact]
+        public void A_notice_retired_before_it_was_heard_leaves_the_split_owed()
+        {
+            FlexBase rig = Rig();
+            try
+            {
+                TransmitSliceNotice.Setting = TransmitElsewhereNotice.SpeakAndTone;
+                SliceArrives(rig, ReadySlice(0, tx: true, active: false, mhz: 14.100));
+                SliceArrives(rig, ReadySlice(1, tx: false, active: true, mhz: 7.150));
+                SliceRoles roles = SliceRoles.Of(rig);
+                Assert.True(TransmitSliceNotice.Speaks(TransmitSliceNotice.Setting, false, roles, null)); // control
+
+                var r = new TransmitSliceNoticeTests.Reader();
+                ICountdownWords words = r.Speech.SayWhole("Transmitting on slice A, 14.100", Speech.SpeechSubject.TransmitSliceNotice);
+                var notice = new TransmitSliceNotice.Notice(rig, "dialog push to talk", roles, false, true, words);
+                Assert.False(words.Finished);
+                TransmitSliceNotice.Keyed(notice);                       // exactly what SayAfterKey does
+                r.Arbiter.Supersede(Speech.SpeechSubject.TransmitSliceNotice, "transmission ended", "test"); // the unkey
+                Assert.True(words.Failed);
+
+                Assert.Null(WaitForSpoken(rig, expectSet: false));
+                Assert.True(TransmitSliceNotice.Speaks(TransmitSliceNotice.Setting, false, SliceRoles.Of(rig),
+                    TransmitSliceNotice.LastSpoken(rig)));               // the next door still owes the sentence
+            }
+            finally { TransmitSliceNotice.ForgetFor(rig); }
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void A_notice_cut_after_its_first_word_leaves_the_split_owed_and_one_heard_whole_does_not(bool cut)
+        {
+            FlexBase rig = Rig();
+            try
+            {
+                TransmitSliceNotice.Setting = TransmitElsewhereNotice.SpeakAndTone;
+                SliceArrives(rig, ReadySlice(0, tx: true, active: false, mhz: 14.100));
+                SliceArrives(rig, ReadySlice(1, tx: false, active: true, mhz: 7.150));
+                SliceRoles roles = SliceRoles.Of(rig);
+                var r = new TransmitSliceNoticeTests.Reader();
+                ICountdownWords words = r.Speech.SayWhole("Transmitting on slice A, 14.100", Speech.SpeechSubject.TransmitSliceNotice);
+                TransmitSliceNotice.Keyed(new TransmitSliceNotice.Notice(rig, "dialog push to talk", roles, false, true, words));
+                r.Arbiter.OnOutcome(r.LastTicket, r.LastText, cut
+                    ? Speech.SpeechOutcome.Cancelled(1, 4, true, 200)
+                    : Speech.SpeechOutcome.Completed(4, 4, 900));
+                SliceRoles? spoken = WaitForSpoken(rig, expectSet: !cut);
+                if (cut) Assert.Null(spoken);
+                else Assert.True(spoken.HasValue && spoken.Value.SamePlaceAs(roles));   // the positive control
+            }
+            finally { TransmitSliceNotice.ForgetFor(rig); }
+        }
+
+        [Fact]
+        public void A_key_on_the_selected_slice_from_any_door_ends_a_remembered_split()
+        {
+            // Codex's re-check F1: Home's push to talk and the locks never went
+            // through a notice, so a key on the selected slice there did not
+            // end the split, and returning to it later was silent.
+            FlexBase rig = Rig();
+            try
+            {
+                TransmitSliceNotice.Setting = TransmitElsewhereNotice.SpeakAndTone;
+                Slice a = ReadySlice(0, tx: true, active: false, mhz: 14.100);
+                Slice b = ReadySlice(1, tx: false, active: true, mhz: 7.150);
+                SliceArrives(rig, a);
+                SliceArrives(rig, b);
+                SliceRoles split = SliceRoles.Of(rig);
+                TransmitSliceNotice.Keyed(new TransmitSliceNotice.Notice(rig, "box send", split, false, true, null));
+                Assert.NotNull(TransmitSliceNotice.LastSpoken(rig));
+
+                TransmitSliceNotice.KeyedWithoutNotice(rig);              // keyed while the split stands: no change
+                Assert.NotNull(TransmitSliceNotice.LastSpoken(rig));
+
+                rig.RXVFO = 0;                                            // select A, the transmit slice
+                TransmitSliceNotice.KeyedWithoutNotice(rig);              // Home push to talk on it
+                Assert.Null(TransmitSliceNotice.LastSpoken(rig));
+            }
+            finally { TransmitSliceNotice.ForgetFor(rig); }
+        }
+
+        /// <summary>A door's notice whose sentence the reader finished whole.</summary>
+        private static TransmitSliceNotice.Notice Heard(FlexBase rig, TransmitSliceNotice.Notice said)
+        {
+            var r = new TransmitSliceNoticeTests.Reader();
+            ICountdownWords words = r.Speech.SayWhole("Transmitting on slice A", Speech.SpeechSubject.TransmitSliceNotice);
+            r.Arbiter.OnOutcome(r.LastTicket, r.LastText, Speech.SpeechOutcome.Completed(4, 4, 900));
+            Assert.True(words.Finished);
+            return new TransmitSliceNotice.Notice(rig, said.Door, said.Announced, said.Mandatory, said.Spoke, words);
+        }
+
+        /// <summary>The commit after a sentence finishes is asynchronous: wait for it, bounded.</summary>
+        private static SliceRoles? WaitForSpoken(FlexBase rig, bool expectSet)
+        {
+            var until = DateTime.UtcNow.AddSeconds(expectSet ? 5 : 0.5);
+            SliceRoles? spoken;
+            do
+            {
+                spoken = TransmitSliceNotice.LastSpoken(rig);
+                if (spoken.HasValue == expectSet) return spoken;
+                Thread.Sleep(20);
+            } while (DateTime.UtcNow < until);
+            return spoken;
         }
 
         /// <summary>
