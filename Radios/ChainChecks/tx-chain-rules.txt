@@ -696,7 +696,14 @@ evidence: forward-power, reflected-power, swr, rf-power-setting, meter-patemp, t
 #
 # SWR 4 is 36 percent reflected, the same point power-coming-back fires at, and
 # that rule is listed first, so where both can be worked out it is the one an
-# operator hears. This one speaks when only the SWR is known.
+# operator hears. This one speaks when only the SWR is known. Noel accepted that
+# order on 2026-11-04; leave it.
+#
+# The verdict says only what is known. It used to add that the radio "will
+# reduce its own power to protect itself", and nobody has measured where, or
+# whether, this radio folds back; Noel ruled the claim out on 2026-11-04 ("I'd
+# just not even say it. That sentence is getting long as it is."). DRAFT
+# wording, for his sheet.
 #
 # The {swr} this quotes is no longer the radio's SWR meter. That meter reported
 # 1.008 into an open connector on 2026-08-22 while three quarters of the power
@@ -710,6 +717,6 @@ needs: dummy-load is no
 needs: atu-tuning is no
 needs: forward-power at least 1
 broken-when: swr above 4
-verdict: Your standing wave ratio is {swr}, which is high enough that the radio will reduce its own power to protect itself. You will be heard, but not at the power you set.
+verdict: Your standing wave ratio is {swr}, which is high.
 fix: Check the antenna, the feedline and any tuner in the path before transmitting further.
 evidence: forward-power, reflected-power, reflected-percent, rf-power-setting, meter-revpwr, meter-patemp, tx-antenna
