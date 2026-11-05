@@ -199,16 +199,54 @@ namespace Radios.Tests
         /// Every numeric swr and reflected-percent condition, needs and
         /// broken-when alike, in every rule of the shipped transmit-chain file.
         /// </summary>
-        private static IEnumerable<(string Where, string Fact, double Value)> ShippedRuleThresholds()
+        private static IEnumerable<(string Where, string Fact, double Value)> ShippedRuleThresholds() =>
+            RuleThresholds(RuleSetLoader.TxChain());
+
+        /// <summary>
+        /// The collector itself, over any rule set (junk box repair round 3,
+        /// Codex's #237 follow-ups): a synthetic rule goes through exactly what
+        /// the shipped file goes through. Fact names compare case-insensitively,
+        /// as production's fact lookup does (<c>DiagnosticFacts.Find</c>), and
+        /// come back lowercase so the unit is chosen the same way.
+        /// </summary>
+        private static IEnumerable<(string Where, string Fact, double Value)> RuleThresholds(DiagnosticRuleSet set)
         {
-            DiagnosticRuleSet set = RuleSetLoader.TxChain();
             foreach (DiagnosticRule rule in set.Rules)
                 foreach (Condition c in rule.Needs.Concat(rule.BrokenWhen))
                 {
-                    if (c.FactName != "swr" && c.FactName != "reflected-percent") continue;
+                    string fact = (c.FactName ?? "").ToLowerInvariant();
+                    if (fact != "swr" && fact != "reflected-percent") continue;
                     if (!TryNumberAsParsed(c, out double value)) continue;
-                    yield return ("tx-chain-rules.txt/" + rule.Id, c.FactName, value);
+                    yield return ("tx-chain-rules.txt/" + rule.Id, fact, value);
                 }
+        }
+
+        /// <summary>The finding the sweep makes for one collected threshold, by its own unit, or null when it is on the ladder.</summary>
+        private static string? OffLadder((string Where, string Fact, double Value) t, double[] rungs) =>
+            t.Fact == "swr"
+                ? (OnLadderSwr(t.Value, rungs) ? null : t.Where)
+                : (OnLadderPercent(t.Value, rungs) ? null : t.Where);
+
+        [Theory]
+        [InlineData("swr above 4e1", false)]
+        [InlineData("reflected-percent above .36", false)]
+        [InlineData("SWR above 3", false)]
+        [InlineData("REFLECTED-PERCENT above 40", false)]
+        [InlineData("swr above 4", true)]
+        [InlineData("Swr above 5", true)]
+        [InlineData("reflected-percent above 36", true)]
+        public void A_rule_with_any_spelling_goes_through_the_collector_and_is_judged_by_its_own_unit(string condition, bool onLadder)
+        {
+            // Junk box repair round 3, Codex's #237 follow-ups: the theory below
+            // tested the number helper, not the collector that must call it,
+            // and the collector skipped a mixed-case fact name production reads.
+            var set = DiagnosticRuleSet.Parse(
+                "ruleset: test\n\nrule: synthetic\nin-stage: 12\nneeds: transmitting is yes\nbroken-when: " + condition
+                + "\nverdict: test\nfix: test\n", "test");
+            var found = RuleThresholds(set).ToList();
+            Assert.Single(found);
+            var rungs = new[] { SwrLadder.Suspect, SwrLadder.Warn, SwrLadder.Abort };
+            Assert.Equal(onLadder, OffLadder(found[0], rungs) == null);
         }
 
         /// <summary>
