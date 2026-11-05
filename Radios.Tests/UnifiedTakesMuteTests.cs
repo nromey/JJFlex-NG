@@ -281,4 +281,33 @@ public sealed class UnifiedTakesMuteTests : IDisposable
             Assert.DoesNotContain(word, source);
         Assert.Contains("audio_mute=1", source);
     }
+
+    // ── Round three (5c): the trace names whose mute it is ──
+
+    [Fact]
+    public void The_playback_takes_mutes_and_their_restores_trace_under_its_own_name_and_the_Loopbacks_keep_theirs()
+    {
+        // The bench trace said "Loopback mute restore: sent ..." for a Radio
+        // recording take, because the shared helper kept Loopback's label.
+        string root = FlexBasePartials.RepoRoot();
+        string mutes = File.ReadAllText(Path.Combine(root, "Radios", "FlexBase.TakeMutes.cs"));
+        string flex = File.ReadAllText(Path.Combine(root, "Radios", "FlexBase.cs"));
+        Assert.Contains("internal const string PlaybackTakeTraceOwner = \"Playback take\";", mutes);
+        int take = mutes.IndexOf("$\"playback take: slice {slice.Index} mute\"", StringComparison.Ordinal);
+        Assert.True(take > 0);
+        string call = mutes[take..mutes.IndexOf(';', take)];
+        Assert.Contains("traceOwner: PlaybackTakeTraceOwner", call);
+        Assert.Contains("\"mute\", PlaybackTakeTraceOwner)", mutes);
+        Assert.Contains("asRestore: true, traceOwner)", mutes);
+        Assert.Contains("Tracing.TraceLine(traceOwner + \" mute restore: \"", mutes);
+        Assert.DoesNotContain("\"Loopback mute restore: \"", mutes);
+        // Every trace the shared send writes names its owner; the Loopback is the default, so its own lines are unchanged.
+        int send = flex.IndexOf("private async Task<RestoreOutcome> LoopbackSliceSendAsync(", StringComparison.Ordinal);
+        Assert.True(send > 0);
+        string sendBody = flex[send..flex.IndexOf("Tear the loopback arrangement down", send, StringComparison.Ordinal)];
+        Assert.DoesNotContain("$\"Loopback {purpose}:", sendBody);
+        Assert.Equal(4, System.Text.RegularExpressions.Regex.Matches(sendBody, @"\$""\{traceOwner\} \{purpose\}:").Count);
+        Assert.Contains("bool asRestore, string traceOwner = \"Loopback\")", flex);
+        Assert.Contains("RegisterSliceMuteRestore(owner, $\"loopback: slice {saved.Slice.Index} mute\"", flex);
+    }
 }

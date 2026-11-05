@@ -154,6 +154,9 @@ public partial class FlexBase
         return saved;
     }
 
+    /// <summary>How the playback take's mute commands and their restores name themselves in the trace (round three; they said "Loopback").</summary>
+    internal const string PlaybackTakeTraceOwner = "Playback take";
+
     /// <summary>
     /// Register one slice's mute restore with <paramref name="owner"/>: the
     /// command, refused while the radio transmits (Retry), then a fresh report
@@ -162,9 +165,10 @@ public partial class FlexBase
     /// run. A confirmed restore gives the slice's mute back to the layout.
     /// </summary>
     /// <param name="trouble">Told what was not confirmed, in the Loopback ending's words.</param>
+    /// <param name="traceOwner">Whose restore this is, for the trace only: the Loopback's by default, so its trace is unchanged.</param>
     private CheckRestorations.Entry RegisterSliceMuteRestore(CheckRestorations owner, string name, Radio radio,
         CommandConnection connection, (Slice Slice, bool Muted) saved, Func<bool> same, Action<string> trouble,
-        bool held = false) =>
+        bool held = false, string traceOwner = "Loopback") =>
         owner.Register(name, async () =>
         {
             if (!same()) return RestoreOutcome.Failed;
@@ -172,7 +176,7 @@ public partial class FlexBase
             {
                 var sent = await LoopbackSliceSendAsync(radio, connection,
                     saved.Slice, $"slice set {saved.Slice.Index} audio_mute={(saved.Muted ? 1 : 0)}", "mute restore",
-                    asRestore: true).ConfigureAwait(false);
+                    asRestore: true, traceOwner).ConfigureAwait(false);
                 if (sent == RestoreOutcome.Retry) return RestoreOutcome.Retry;
                 if (sent != RestoreOutcome.Done)
                 {
@@ -196,7 +200,7 @@ public partial class FlexBase
             }
             catch (Exception ex)
             {
-                Tracing.TraceLine("Loopback mute restore: " + ex.Message, TraceLevel.Error);
+                Tracing.TraceLine(traceOwner + " mute restore: " + ex.Message, TraceLevel.Error);
                 trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
                 return RestoreOutcome.Failed;
             }
@@ -247,7 +251,8 @@ public partial class FlexBase
             HoldTemporaryMute(slice, false);
             held.Add(slice);
             var entry = RegisterSliceMuteRestore(owner, $"playback take: slice {slice.Index} mute", radio, connection,
-                (slice, false), Same, text => Tracing.TraceLine("Playback take: " + text.Trim(), TraceLevel.Warning), held: true);
+                (slice, false), Same, text => Tracing.TraceLine("Playback take: " + text.Trim(), TraceLevel.Warning), held: true,
+                traceOwner: PlaybackTakeTraceOwner);
             // Slices belong to the connection: after a disconnect this owes
             // the station nothing (the Loopback ending's mutes say the same).
             DescribeCheckPutBack(entry);
@@ -256,7 +261,7 @@ public partial class FlexBase
             try
             {
                 ok = Same() && await LoopbackSliceCommandAsync(radio, connection, slice,
-                    $"slice set {slice.Index} audio_mute=1", "playback take mute").ConfigureAwait(false);
+                    $"slice set {slice.Index} audio_mute=1", "mute", PlaybackTakeTraceOwner).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is InvalidOperationException or TimeoutException)
             {

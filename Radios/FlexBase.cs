@@ -11700,8 +11700,8 @@ namespace Radios
         }
 
         private async Task<bool> LoopbackSliceCommandAsync(Radio radio, CommandConnection connection,
-            Slice slice, string command, string purpose) =>
-            await LoopbackSliceSendAsync(radio, connection, slice, command, purpose, asRestore: false).ConfigureAwait(false)
+            Slice slice, string command, string purpose, string traceOwner = "Loopback") =>
+            await LoopbackSliceSendAsync(radio, connection, slice, command, purpose, asRestore: false, traceOwner).ConfigureAwait(false)
                 == RestoreOutcome.Done;
 
         /// <summary>
@@ -11712,8 +11712,9 @@ namespace Radios
         /// R2-B1: the mute restore used to go out unasked after the owner's
         /// earlier question). The arrangement's own set-up writes do not ask.
         /// </summary>
+        /// <param name="traceOwner">Whose command this is, for the trace: the Loopback's by default; the playback take names itself.</param>
         private async Task<RestoreOutcome> LoopbackSliceSendAsync(Radio radio, CommandConnection connection,
-            Slice slice, string command, string purpose, bool asRestore)
+            Slice slice, string command, string purpose, bool asRestore, string traceOwner = "Loopback")
         {
             var reply = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             bool refused = false;
@@ -11726,22 +11727,22 @@ namespace Radios
                 if (asRestore && RestoreRefusalAtRun() is string why)
                 {
                     refused = true;
-                    Tracing.TraceLine($"Loopback {purpose}: refused at its run, {why}; waits for receive", TraceLevel.Warning);
+                    Tracing.TraceLine($"{traceOwner} {purpose}: refused at its run, {why}; waits for receive", TraceLevel.Warning);
                     return;
                 }
                 int sent = radio.SendReplyCommand((sequence, code, response) =>
                 {
-                    Tracing.TraceLine($"Loopback {purpose}: reply {sequence} {code:X8} {response}", TraceLevel.Info);
+                    Tracing.TraceLine($"{traceOwner} {purpose}: reply {sequence} {code:X8} {response}", TraceLevel.Info);
                     reply.TrySetResult(code == 0);
                 }, command);
-                Tracing.TraceLine($"Loopback {purpose}: sent {sent} {command}", TraceLevel.Info);
+                Tracing.TraceLine($"{traceOwner} {purpose}: sent {sent} {command}", TraceLevel.Info);
             }).ConfigureAwait(false);
             if (refused) return RestoreOutcome.Retry;
             using var timeout = new CancellationTokenSource(ListenbackConfirmationWait);
             try { return await reply.Task.WaitAsync(timeout.Token).ConfigureAwait(false) ? RestoreOutcome.Done : RestoreOutcome.Failed; }
             catch (OperationCanceledException)
             {
-                Tracing.TraceLine($"Loopback {purpose}: reply timed out for {command}", TraceLevel.Error);
+                Tracing.TraceLine($"{traceOwner} {purpose}: reply timed out for {command}", TraceLevel.Error);
                 return RestoreOutcome.Failed;
             }
         }
