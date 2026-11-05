@@ -60,7 +60,73 @@ namespace Radios
         /// itself plays on the radio's real receive, not on our cache's
         /// (#863, repair round 3, Codex's second re-check B1).
         /// </summary>
-        public bool WhenReallyReceiving(Action<bool> then) => WhenRadioReallyReceives(then);
+        /// <remarks>
+        /// <para>
+        /// <b>Positive, since repair round 4</b> (ruled by Noel 2026-11-04
+        /// 22:24: every falling transmit cue waits for the radio's own receive
+        /// report). "Really receiving" here is our cached Transmit false AND a
+        /// recognised receive report on the connection the wait began on,
+        /// still connected (<see cref="RadioInterlockConfirmsReceive"/>), not
+        /// merely "the interlock does not say transmit": a tone means really
+        /// off the air, so a state we do not recognise is not receive.
+        /// </para>
+        /// <para>
+        /// <b>Woken by the reports, not polled</b>, so a tone follows the
+        /// radio's word with no delay of our own: FlexLib's interlock and Mox
+        /// notifications and our own record of the report each wake it. A
+        /// slow fallback check catches a connection that ends quietly.
+        /// </para>
+        /// </remarks>
+        public bool WhenReallyReceiving(Action<bool> then) => WhenRadioReportsReceive(then);
+
+        private bool WhenRadioReportsReceive(Action<bool> then)
+        {
+            Radio? radio = theRadio;
+            CommandConnection? connection = radio?.Connected == true ? radio.CurrentCommandConnection : null;
+            bool SameConnection() => radio != null && connection != null && ReferenceEquals(theRadio, radio)
+                && radio.Connected && ReferenceEquals(connection, radio.CurrentCommandConnection)
+                && connection.State == CommandConnectionState.Connected;
+            bool ReportsReceive() => !_Transmit && RadioInterlockConfirmsReceive;
+
+            if (!SameConnection()) { then(false); return false; }
+            if (ReportsReceive()) { then(true); return false; }
+
+            var wake = new System.Threading.SemaphoreSlim(0);
+            System.ComponentModel.PropertyChangedEventHandler onRadio = (_, e) =>
+            {
+                if (e.PropertyName is "InterlockState" or "Mox") { try { wake.Release(); } catch { } }
+            };
+            Action<CommandConnection> onReport = c =>
+            {
+                if (ReferenceEquals(c, connection)) { try { wake.Release(); } catch { } }
+            };
+            radio!.PropertyChanged += onRadio;
+            InterlockReports.Reported += onReport;
+            _ = Task.Run(async () =>
+            {
+                bool same;
+                try
+                {
+                    while ((same = SameConnection()) && !ReportsReceive())
+                        await wake.WaitAsync(ReceiveReportFallbackMs).ConfigureAwait(false);
+                }
+                finally
+                {
+                    radio.PropertyChanged -= onRadio;
+                    InterlockReports.Reported -= onReport;
+                }
+                then(same);
+            });
+            return true;
+        }
+
+        /// <summary>
+        /// How often a wait for the receive report looks again with nothing to
+        /// wake it: only for a connection that ends without a word. Every
+        /// report wakes it at once, so this never delays a tone that has its
+        /// report.
+        /// </summary>
+        internal const int ReceiveReportFallbackMs = 250;
 
         private bool WhenRadioReallyReceives(Action<bool> then, Action? beforeWaiting = null)
         {

@@ -30,18 +30,15 @@ namespace JJFlexWpf.Tests;
 /// </remarks>
 public sealed class NoticeRepairThreeTests : IDisposable
 {
-    private const BindingFlags Any = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
-    private readonly FlexBase _rig = new(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
-    private readonly Radio _radio;
+    // Repair round 4: the falling tone needs the radio's own receive REPORT on
+    // a live connection, so the radio now has a transport its reports travel
+    // through (ReportingRadio), not only FlexLib's cache.
+    private readonly ReportingRadio _r = new();
     private readonly PttSafetyController _controller;
 
     public NoticeRepairThreeTests()
     {
-        _radio = (Radio)Activator.CreateInstance(typeof(Radio), BindingFlags.Instance | BindingFlags.NonPublic,
-            binder: null, args: new object[] { false }, culture: null)!;
-        typeof(Radio).GetProperty(nameof(Radio.Connected))!.GetSetMethod(nonPublic: true)!.Invoke(_radio, new object[] { true });
-        typeof(FlexBase).GetField("theRadio", Any)!.SetValue(_rig, _radio);
-        _controller = new PttSafetyController(() => _rig, () => true,
+        _controller = new PttSafetyController(() => _r.Rig, () => true,
             new PttConfig { ChirpEnabled = false, SpeechEnabled = false });
     }
 
@@ -49,8 +46,7 @@ public sealed class NoticeRepairThreeTests : IDisposable
     {
         if (_controller.IsTransmitting) _controller.EscapeUnlock();
         _controller.Dispose();
-        typeof(FlexBase).GetField("theRadio", Any)!.SetValue(_rig, null);   // never FlexBase's to disconnect
-        _rig.Dispose();
+        _r.Dispose();
     }
 
     private static void AssertTheDeskIsSafe()
@@ -61,11 +57,10 @@ public sealed class NoticeRepairThreeTests : IDisposable
     }
 
     /// <summary>Our cached Transmit, which follows FlexLib's Mox.</summary>
-    private void MoxCache(bool on) => typeof(FlexBase).GetField("_Transmit", Any)!.SetValue(_rig, on);
+    private void MoxCache(bool on) => _r.MoxCache(on);
 
-    /// <summary>The radio's interlock, as its status line sets it.</summary>
-    private void Interlock(InterlockState state) =>
-        typeof(Radio).GetProperty(nameof(Radio.InterlockState))!.GetSetMethod(nonPublic: true)!.Invoke(_radio, new object[] { state });
+    /// <summary>The radio's interlock, as its status line sets it and as the app reads the line.</summary>
+    private void Interlock(InterlockState state) => _r.Interlock(state);
 
     private static bool Within(int ms, Func<bool> condition)
     {

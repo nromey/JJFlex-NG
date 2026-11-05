@@ -77,9 +77,12 @@ public sealed class NoticeRepairTwoTests : IDisposable
         AssertTheDeskIsSafe();
         Assert.Equal(VoiceMessageSender.ElsewhereStopTone.OwedToTheRealUnkey,
             VoiceMessageSender.StopToneAtTheEnd(VoiceMessageOutcome.TakenOver));
+        // Repair round 4 (ruled 2026-11-04 22:24): a send's own end no longer
+        // plays its falling tone at the file's end; it is owed to the radio's
+        // receive report. This assertion pinned the old "play now" as desired.
         foreach (var ended in new VoiceMessageOutcome?[]
                  { VoiceMessageOutcome.Sent, VoiceMessageOutcome.Stopped, VoiceMessageOutcome.Interrupted, null })
-            Assert.Equal(VoiceMessageSender.ElsewhereStopTone.PlayNow, VoiceMessageSender.StopToneAtTheEnd(ended));
+            Assert.Equal(VoiceMessageSender.ElsewhereStopTone.OwedToTheRadiosReceive, VoiceMessageSender.StopToneAtTheEnd(ended));
     }
 
     // The hardware-takeover test that stood here called NoteRadioTransmit(false)
@@ -106,9 +109,12 @@ public sealed class NoticeRepairTwoTests : IDisposable
         AssertTheDeskIsSafe();
         string src = Source("JJFlexWpf/VoiceMessageSender.cs");
         int settle = src.IndexOf("private static void Settle()", StringComparison.Ordinal);
-        int decide = src.IndexOf("if (StopToneAtTheEnd(send?.Outcome) == ElsewhereStopTone.PlayNow)", settle, StringComparison.Ordinal);
-        int hand = src.IndexOf(".TakeOverElsewhereStopTone();", decide, StringComparison.Ordinal);
-        Assert.True(settle > 0 && decide > settle && hand > decide);
+        int decide = src.IndexOf("if (StopToneAtTheEnd(send?.Outcome) == ElsewhereStopTone.OwedToTheRadiosReceive)", settle, StringComparison.Ordinal);
+        int owe = src.IndexOf("owner?.OweElsewhereStopTone();", decide, StringComparison.Ordinal);
+        int hand = src.IndexOf("owner?.TakeOverElsewhereStopTone();", decide, StringComparison.Ordinal);
+        Assert.True(settle > 0 && decide > settle && owe > decide && hand > owe);
+        // Repair round 4: the send plays no falling tone of its own anywhere.
+        Assert.DoesNotContain("EarconPlayer.TxElsewhereStopTone()", src);
         // And a controller key-down takes over any owed tone and clears a split on the selected slice.
         string ptt = Source("JJFlexWpf/PttSafetyController.cs");
         Assert.Contains("ForgetEdgeTones();", ptt);

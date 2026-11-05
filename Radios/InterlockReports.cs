@@ -94,6 +94,13 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// A new interlock report was recorded on the connection given
+        /// (repair round 4): a wait for the radio's receive wakes on it rather
+        /// than polling. Raised on the transport's reader; keep handlers cheap.
+        /// </summary>
+        internal static event Action<CommandConnection>? Reported;
+
         /// <summary>The radio's last interlock report on <paramref name="connection"/>, or null when it has sent none.</summary>
         internal static Report? LastOn(CommandConnection? connection)
         {
@@ -133,6 +140,8 @@ namespace Radios
                 bool recognised = state is "RECEIVE" or "READY" or "NOT_READY" or "PTT_REQUESTED" or "TRANSMITTING"
                     or "TX_FAULT" or "TIMEOUT" or "STUCK_INPUT" or "UNKEY_REQUESTED";
                 Reports.AddOrUpdate(data!.Connection, new Report(state, recognised));
+                // After the record is written, so a waiter woken here reads it.
+                try { Reported?.Invoke(data.Connection); } catch { }
             }
             catch (Exception ex)
             {

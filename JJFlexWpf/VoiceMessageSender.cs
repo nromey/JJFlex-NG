@@ -1480,15 +1480,23 @@ internal static class VoiceMessageSender
     }
 
     /// <summary>What happens to a keyed-elsewhere send's falling tone when it ends.</summary>
-    internal enum ElsewhereStopTone { PlayNow, OwedToTheRealUnkey }
+    internal enum ElsewhereStopTone
+    {
+        /// <summary>The send's own carrier is coming down: the tone is owed to the radio's receive report (repair round 4).</summary>
+        OwedToTheRadiosReceive,
+        /// <summary>Taken over: the carrier stays up, and the tone is the real unkey's, carried to the controller (#863 R3).</summary>
+        OwedToTheRealUnkey,
+    }
 
     /// <summary>
-    /// A send that keyed on another slice ended with <paramref name="outcome"/>:
-    /// its falling tone plays now, unless it was taken over, when the carrier
-    /// stays up and the tone is owed to the real unkey (#863 R3). Pure.
+    /// A send that keyed on another slice ended with <paramref name="outcome"/>.
+    /// Never played at the file's end (ruled by Noel 2026-11-04 22:24): its
+    /// own carrier coming down owes the tone to the radio's receive report,
+    /// and a takeover leaves the carrier up under the operator, so the tone
+    /// is the real unkey's. Pure.
     /// </summary>
     internal static ElsewhereStopTone StopToneAtTheEnd(VoiceMessageOutcome? outcome) =>
-        outcome == VoiceMessageOutcome.TakenOver ? ElsewhereStopTone.OwedToTheRealUnkey : ElsewhereStopTone.PlayNow;
+        outcome == VoiceMessageOutcome.TakenOver ? ElsewhereStopTone.OwedToTheRealUnkey : ElsewhereStopTone.OwedToTheRadiosReceive;
 
     /// <summary>The send has ended. Stop watching, give VOX back, say how it ended, forget it.</summary>
     private static void Settle()
@@ -1512,10 +1520,16 @@ internal static class VoiceMessageSender
             // carrier up under the operator, and its falling tone is the real
             // unkey's, carried to the controller (Codex's re-check, R3).
             info.KeyedElsewhere = false;
-            if (StopToneAtTheEnd(send?.Outcome) == ElsewhereStopTone.PlayNow)
-                EarconPlayer.TxElsewhereStopTone();
+            // Both through the controller, the one owner of every falling
+            // transmit cue (repair round 4): never played here at the file's end.
+            PttSafetyController? owner = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
+            if (StopToneAtTheEnd(send?.Outcome) == ElsewhereStopTone.OwedToTheRadiosReceive)
+                owner?.OweElsewhereStopTone();
             else
-                Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke()?.TakeOverElsewhereStopTone();
+                owner?.TakeOverElsewhereStopTone();
+            if (owner == null)
+                Tracing.TraceLine("VoiceMessageSender: no push-to-talk controller to own the falling tri-tone, so none is played",
+                    TraceLevel.Info);
         }
 
         if (_watchedBy != null)

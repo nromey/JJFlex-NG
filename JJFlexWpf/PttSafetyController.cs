@@ -1108,14 +1108,24 @@ namespace JJFlexWpf
             else if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
         }
 
-        /// <summary>The key-up in the family the key-down chose.</summary>
+        /// <summary>
+        /// The key-up in the family the key-down chose, OWED to the radio's own
+        /// report that it is back in receive (ruled by Noel 2026-11-04 22:24 and
+        /// 22:26, before repair round 4): every falling transmit cue, the
+        /// three notes and the ordinary chirp alike, means "really off the
+        /// air". Our release only asks the radio to unkey; the tone waits for
+        /// its answer, with no delay of our own on top.
+        /// </summary>
         private void KeyUpTone()
         {
             bool elsewhere = _keyedElsewhere;
             _keyedElsewhere = false;
-            if (elsewhere) EarconPlayer.TxElsewhereStopTone();
-            else if (_config.ChirpEnabled) EarconPlayer.TxStopTone();
+            if (elsewhere) OweStopToneAtRealReceive(FallingTone.Elsewhere);
+            else if (_config.ChirpEnabled) OweStopToneAtRealReceive(FallingTone.Chirp);
         }
+
+        /// <summary>Which falling cue a debt plays: the three notes or the ordinary two.</summary>
+        private enum FallingTone { Elsewhere, Chirp }
 
         /// <summary>This transmission's key-down played the three-note tone.</summary>
         private bool _keyedElsewhere;
@@ -1145,11 +1155,29 @@ namespace JJFlexWpf
         // A generation voids every older debt: a key this controller makes
         // (KeyDownTone), a drop and a teardown take the tones over or end them.
 
+        // Repair round 4 (ruled by Noel 2026-11-04 22:24 and 22:26): this owner
+        // now holds EVERY falling transmit cue, both families, including this
+        // controller's own key-up and a send's own end (VoiceMessageSender
+        // hands its debt here). One owner per debt: a debt carries its family
+        // and its generation, and a newer one voids it.
+        //
+        // NO REPORT, NO TONE (the design for Noel's review). A falling cue is
+        // played only on the radio's own receive report on the connection it
+        // was owed on: FlexBase.WhenReallyReceiving, which needs our cached
+        // Transmit false AND a recognised receive report on that still-live
+        // connection. If the report never comes, nothing plays: the connection
+        // ending or being replaced ends the debt silently (traced), a key of
+        // this controller's voids it, and a carrier that never falls keeps it
+        // waiting, silent. Never a timed tone: a tone on a timer would be a
+        // claim the radio has not made.
+
         private readonly object _edgeToneLock = new();
         private long _edgeToneGeneration;
         private bool _edgeStopOwed;
+        private FallingTone _edgeStopFamily;
         private bool _edgeStartOwed;
         private int _edgeStopTonesPlayed;
+        private int _chirpStopTonesPlayed;
         private int _edgeStartTonesPlayed;
 
         /// <summary>For tests: a falling tri-tone is still owed to the radio's real receive.</summary>
@@ -1160,6 +1188,19 @@ namespace JJFlexWpf
 
         /// <summary>For tests: how many owed falling tri-tones this controller has played.</summary>
         internal int ElsewhereStopTonesPlayed { get { lock (_edgeToneLock) return _edgeStopTonesPlayed; } }
+
+        /// <summary>For tests: how many owed ordinary falling chirps this controller has played.</summary>
+        internal int ChirpStopTonesPlayed { get { lock (_edgeToneLock) return _chirpStopTonesPlayed; } }
+
+        /// <summary>For tests: an ordinary falling chirp is owed to the radio's real receive.</summary>
+        internal bool ChirpStopOwed { get { lock (_edgeToneLock) return _edgeStopOwed && _edgeStopFamily == FallingTone.Chirp; } }
+
+        /// <summary>
+        /// For tests: every falling tone actually handed to the earcon player,
+        /// by its earcon's name, in order. Recorded at the call itself, so a
+        /// test sees the submission, not only the accounting.
+        /// </summary>
+        internal System.Collections.Generic.List<string> FallingTonesSubmitted { get; } = new();
 
         /// <summary>For tests: how many owed rising tri-tones this controller has played.</summary>
         internal int ElsewhereStartTonesPlayed { get { lock (_edgeToneLock) return _edgeStartTonesPlayed; } }
@@ -1176,11 +1217,11 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// Owe the falling tri-tone to the radio's real receive. When the radio
+        /// Owe a falling tone to the radio's real receive. When the radio
         /// already really receives, it plays now, so a hand-off after the
         /// carrier fell waits for no further notification.
         /// </summary>
-        private void OweStopToneAtRealReceive(long? generation = null)
+        private void OweStopToneAtRealReceive(FallingTone family, long? generation = null)
         {
             long gen;
             lock (_edgeToneLock)
@@ -1188,6 +1229,7 @@ namespace JJFlexWpf
                 gen = generation ?? ++_edgeToneGeneration;
                 if (gen != _edgeToneGeneration) return;
                 _edgeStopOwed = true;
+                _edgeStopFamily = family;
             }
             FlexBase? rig = null;
             try { rig = _getRigControl(); } catch { }
@@ -1196,20 +1238,47 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// The radio really receives (or the connection went): the owed falling
-        /// tone plays once, unless something newer took it over. Any thread.
+        /// The radio reported receive on the connection the tone was owed on
+        /// (or that connection went): the owed falling tone plays once, in its
+        /// family, unless something newer took it over. A connection that went
+        /// first ends it silently, with a trace. Any thread.
         /// </summary>
         private void PayStopTone(long generation, bool sameConnection)
         {
             bool pay;
+            FallingTone family;
             lock (_edgeToneLock)
             {
                 pay = _edgeStopOwed && generation == _edgeToneGeneration;
+                family = _edgeStopFamily;
                 if (pay) _edgeStopOwed = false;
-                if (pay && sameConnection) _edgeStopTonesPlayed++;
+                if (pay && sameConnection)
+                {
+                    if (family == FallingTone.Elsewhere) _edgeStopTonesPlayed++;
+                    else _chirpStopTonesPlayed++;
+                }
             }
-            if (pay && sameConnection) EarconPlayer.TxElsewhereStopTone();
+            if (!pay) return;
+            if (!sameConnection)
+            {
+                Tracing.TraceLine("PTT: the falling " + (family == FallingTone.Elsewhere ? "three-note tone" : "chirp")
+                    + " was NOT played: the connection it was owed on ended before the radio reported receive",
+                    TraceLevel.Info);
+                return;
+            }
+            lock (FallingTonesSubmitted)
+                FallingTonesSubmitted.Add(family == FallingTone.Elsewhere ? nameof(EarconPlayer.TxElsewhereStopTone) : nameof(EarconPlayer.TxStopTone));
+            if (family == FallingTone.Elsewhere) EarconPlayer.TxElsewhereStopTone();
+            else EarconPlayer.TxStopTone();
         }
+
+        /// <summary>
+        /// The connection is dropping or being torn down (repair round 4):
+        /// every falling tone still owed ends here, unplayed, whether or not
+        /// this controller was transmitting. A debt must not outlive its
+        /// connection, and the wait pinned to it would end it anyway.
+        /// </summary>
+        public void EndEdgeTonesWithConnection() => ForgetEdgeTones();
 
         /// <summary>The radio reported it keyed: a rising tri-tone owed to that edge plays, and its falling one is owed.</summary>
         private void RadioKeyedForOwedStartTone()
@@ -1223,7 +1292,7 @@ namespace JJFlexWpf
                 _edgeStartTonesPlayed++;
             }
             EarconPlayer.TxElsewhereStartTone();
-            OweStopToneAtRealReceive(gen);
+            OweStopToneAtRealReceive(FallingTone.Elsewhere, gen);
         }
 
         /// <summary>
@@ -1272,8 +1341,16 @@ namespace JJFlexWpf
         public void TakeOverElsewhereStopTone()
         {
             if (State != PttState.Idle) { _keyedElsewhere = true; return; }
-            OweStopToneAtRealReceive();
+            OweStopToneAtRealReceive(FallingTone.Elsewhere);
         }
+
+        /// <summary>
+        /// A send on another slice ended its OWN carrier (repair round 4, ruled
+        /// by Noel 2026-11-04 22:24): its falling tri-tone is owed to the
+        /// radio's report that it really receives, through this one owner, not
+        /// played at the file's end. A key of this controller's takes it over.
+        /// </summary>
+        public void OweElsewhereStopTone() => OweStopToneAtRealReceive(FallingTone.Elsewhere);
 
         /// <summary>
         /// "Play chirp tones on transmit and receive": the one switch both the

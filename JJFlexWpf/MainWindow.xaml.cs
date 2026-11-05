@@ -3457,6 +3457,10 @@ public partial class MainWindow : UserControl
         // sentence never claims it (Codex's check, B4).
         string sentence = Lexicon.Get("connect.drop.transmit_released");
         bool said = false;
+        // Every falling tone still owed ends with the connection, transmitting
+        // or not (repair round 4): a VOX send's or a hand-mic takeover's debt
+        // leaves the controller idle, and must not outlive its connection.
+        _pttController?.EndEdgeTonesWithConnection();
         if (_pttController != null && _pttController.IsTransmitting)
         {
             // Both unkey this client's own carrier only (#596 N1, #861 B2):

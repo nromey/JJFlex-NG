@@ -113,8 +113,9 @@ public sealed class TransmitSliceNoticeTests
         string sender = Source("JJFlexWpf/VoiceMessageSender.cs");
         Assert.Contains("PttControllerSource?.Invoke()?.ChirpEnabled ?? true;", sender);
         Assert.Contains("TransmitSliceNotice.PlaysTones(TransmitSliceNotice.Setting, chirps, notice.Announced)", sender);
-        // And the stop tones play only after their start tone did.
-        Assert.Contains("if (elsewhere) EarconPlayer.TxElsewhereStopTone();", ptt);
+        // And the stop tones are owed only after their start tone played
+        // (repair round 4: owed to the radio's receive report, not played at once).
+        Assert.Contains("if (elsewhere) OweStopToneAtRealReceive(FallingTone.Elsewhere);", ptt);
         Assert.Contains("info.KeyedElsewhere = true;\n            EarconPlayer.TxElsewhereStartTone();", sender.Replace("\r\n", "\n"));
     }
 
@@ -410,7 +411,8 @@ public sealed class TransmitSliceNoticeTests
         string ptt = Source("JJFlexWpf/PttSafetyController.cs");
         Assert.Contains("_keyedElsewhere = Radios.TransmitSliceNotice.PlaysTones(_getRigControl(), _config.ChirpEnabled);", ptt);
         Assert.Contains("if (_keyedElsewhere) EarconPlayer.TxElsewhereStartTone();", ptt);
-        Assert.Contains("if (elsewhere) EarconPlayer.TxElsewhereStopTone();", ptt);
+        Assert.Contains("if (elsewhere) OweStopToneAtRealReceive(FallingTone.Elsewhere);", ptt);
+        Assert.Contains("else if (_config.ChirpEnabled) OweStopToneAtRealReceive(FallingTone.Chirp);", ptt);
         Assert.DoesNotContain("if (_config.ChirpEnabled) EarconPlayer.TxStartTone();\n                _updateStatusDisplay", ptt.Replace("\r\n", "\n"));
     }
 }
