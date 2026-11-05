@@ -1,4 +1,5 @@
 using Flex.Smoothlake.FlexLib;
+using JJTrace;
 
 namespace Radios
 {
@@ -24,13 +25,42 @@ namespace Radios
         // Optimistic tuning writes keep their value with the slice they were
         // written to, so a step still reads back at once.
 
+        // Repair round 3 (Codex's second re-check, ruled by Noel 2026-11-04 to
+        // be fixed in this round). Three more gaps in the same core:
+        //
+        // - A queued tune resolved its slice when it RAN (VFOToSlice(RXVFO)
+        //   inside the closure), so a step pressed on A landed on B selected
+        //   meanwhile. Every tune is now bound to the slice it was pressed on
+        //   (WriteTuneTo), and a slice gone by then gets nothing.
+        // - The echo guard armed against the raw receive cache, which during a
+        //   selection still held the OLD slice's number, so the new slice's own
+        //   stale report rewound a step. The guard is now one per slice
+        //   (EchoGuardFor), armed against that slice's own value, and every
+        //   refresh of a cache from a slice's own number asks it
+        //   (ObservedOrPending), including the ActiveSlice refresh.
+        // - The receive and transmit caches could hold different optimistic
+        //   values for ONE slice, so F and the title disagreed. A tune now
+        //   publishes the slice's one new value to every cache that describes
+        //   it (PublishTuning), and a reader takes the newer of the two when
+        //   both describe the slice it asks about (ValueOf), so one slice has
+        //   one number by construction.
+
+        private static long _cacheSeq;
+
         /// <summary>A frequency and the slice it belongs to. Immutable.</summary>
         private sealed class SliceHz
         {
-            public SliceHz(Slice slice, ulong hz) { Slice = slice; Hz = hz; }
+            public SliceHz(Slice slice, ulong hz)
+            {
+                Slice = slice;
+                Hz = hz;
+                Seq = System.Threading.Interlocked.Increment(ref _cacheSeq);
+            }
             /// <summary>The slice this frequency is about; null when written with no slice to name.</summary>
             public Slice Slice { get; }
             public ulong Hz { get; }
+            /// <summary>Publication order, so a reader can tell which of two caches is newer.</summary>
+            public long Seq { get; }
         }
 
         /// <summary>The receive cache: the active slice's frequency, or an operator's write to the selected slice.</summary>
@@ -55,13 +85,75 @@ namespace Radios
         private void SetTxCache(Slice slice, ulong hz) => _txCache = new SliceHz(slice, hz);
 
         /// <summary>
-        /// <paramref name="cache"/>'s number when it belongs to
-        /// <paramref name="slice"/> and holds one, otherwise the slice's own.
+        /// <paramref name="slice"/>'s one frequency: the newer of the two
+        /// caches that belong to it and hold a number, otherwise the slice's
+        /// own. Take each cache once and pass both, so a reading that names two
+        /// slices reads both from the same pair.
         /// </summary>
-        private ulong FrequencyOf(Slice slice, SliceHz cache) =>
-            cache != null && cache.Hz != 0UL && ReferenceEquals(cache.Slice, slice)
-                ? cache.Hz
-                : LibFreqtoLong(slice.Freq);
+        private ulong ValueOf(Slice slice, SliceHz rx, SliceHz tx)
+        {
+            SliceHz best = null;
+            if (rx != null && rx.Hz != 0UL && ReferenceEquals(rx.Slice, slice)) best = rx;
+            if (tx != null && tx.Hz != 0UL && ReferenceEquals(tx.Slice, slice) && (best == null || tx.Seq > best.Seq))
+                best = tx;
+            return best?.Hz ?? LibFreqtoLong(slice.Freq);
+        }
+
+        /// <summary>Each slice's own echo guard (#266, made per slice in repair round 3).</summary>
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Slice, FrequencyEchoGuard> _freqEcho = new();
+
+        private FrequencyEchoGuard EchoGuardFor(Slice slice) =>
+            _freqEcho.GetValue(slice, s => new FrequencyEchoGuard("slice " + (s.Letter ?? s.Index.ToString())));
+
+        /// <summary>
+        /// What a cache should hold for <paramref name="slice"/> when the slice
+        /// reports <paramref name="reported"/>: the report, unless it is the
+        /// stale echo of a value our own pending tune replaced, in which case
+        /// the pending value.
+        /// </summary>
+        private ulong ObservedOrPending(Slice slice, ulong reported)
+        {
+            var guard = EchoGuardFor(slice);
+            if (guard.Accept(reported)) return reported;
+            return guard.TryPending(out ulong pending) ? pending : reported;
+        }
+
+        /// <summary>
+        /// A tune's optimistic value, published as the slice's ONE value: to
+        /// the receive cache when this is the selected slice's tune or the
+        /// receive cache already describes it, and to the transmit cache when
+        /// the slice is designated for transmit.
+        /// </summary>
+        private void PublishTuning(Slice slice, ulong hz, bool selectedTune)
+        {
+            if (selectedTune || ReferenceEquals(_rxCache?.Slice, slice) || ReferenceEquals(SelectedSliceNow(), slice))
+                SetRxCache(slice, hz);
+            if (slice.IsTransmitSlice)
+            {
+                if (!ReferenceEquals(_txCacheSlice, slice)) NoteTransmitSliceAsFound(slice);
+                SetTxCache(slice, hz);
+            }
+        }
+
+        /// <summary>
+        /// The queued half of a tune, bound to the slice it was pressed on.
+        /// A slice no longer ours by the time it runs gets nothing, and no
+        /// other slice gets it either.
+        /// </summary>
+        private void WriteTuneTo(Slice slice, double mhz, string what)
+        {
+            bool ours;
+            var slices = mySlices;
+            if (slices == null) ours = false;
+            else lock (slices) ours = slices.Contains(slice);
+            if (!ours)
+            {
+                Tracing.TraceLine(what + ": slice " + slice.Letter + " is gone, so its tune to " + mhz
+                    + " was not sent to any slice", System.Diagnostics.TraceLevel.Info);
+                return;
+            }
+            slice.Freq = mhz;
+        }
 
         /// <summary>The slice at RXVFO, under the roster's lock; null when there is none.</summary>
         private Slice SelectedSliceNow()

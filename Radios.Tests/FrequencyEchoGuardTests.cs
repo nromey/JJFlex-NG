@@ -143,15 +143,77 @@ namespace Radios.Tests
             // Every FlexBase partial, not FlexBase.cs alone.
             string text = FlexBasePartials.JoinedText();
 
-            foreach (string guard in new[] { "_rxFreqEcho", "_txFreqEcho" })
-            {
-                Assert.True(text.Contains(guard + ".Requested(", StringComparison.Ordinal),
-                    guard + " is never armed in FlexBase, so it can never reject anything "
-                    + "and tuning is back to racing the radio's echo. See task #266.");
-                Assert.True(text.Contains(guard + ".Accept(", StringComparison.Ordinal),
-                    guard + " is never consulted in FlexBase, so every echo goes straight "
-                    + "into the cache and the guard is decoration. See task #266.");
-            }
+            // One guard per slice since repair round 3 (EchoGuardFor). Both
+            // tune setters arm it, and the Freq report and every refresh of a
+            // cache from a slice's own number consult it.
+            Assert.Equal(2, CountOf(text, "EchoGuardFor(slice).Requested(replaced, value);"));
+            Assert.True(text.Contains("bool accepted = EchoGuardFor(s).Accept(echoed);", StringComparison.Ordinal),
+                "the slice's guard is never consulted on a Freq report, so every echo goes straight "
+                + "into the cache and the guard is decoration. See task #266.");
+            Assert.True(text.Contains("if (guard.Accept(reported)) return reported;", StringComparison.Ordinal),
+                "a cache refreshed from a slice's own number does not ask its guard (repair round 3).");
+            Assert.True(CountOf(text, "ObservedOrPending(s, LibFreqtoLong(s.Freq))") >= 3,
+                "the ActiveSlice refresh and both found-slice refreshes ask the guard (repair round 3).");
+        }
+
+        private static int CountOf(string text, string what)
+        {
+            int n = 0, at = 0;
+            while ((at = text.IndexOf(what, at, StringComparison.Ordinal)) >= 0) { n++; at += what.Length; }
+            return n;
+        }
+
+        /// <summary>
+        /// Repair round 3: a held key's chain. Each queued write's own report
+        /// of ITS value arrives while a newer one is pending; every one of them
+        /// is stale, not only the last write's predecessor.
+        /// </summary>
+        [Fact]
+        public void Every_value_a_run_of_steps_superseded_is_rejected_until_the_last_arrives()
+        {
+            var g = Guard();
+            g.Requested(Was, Asked);
+            g.Requested(Asked, 14_200_200);
+            g.Requested(14_200_200, 14_200_300);
+
+            Assert.False(g.Accept(Was));
+            Assert.False(g.Accept(Asked));
+            Assert.False(g.Accept(14_200_200));
+            Assert.True(g.TryPending(out ulong pending));
+            Assert.Equal(14_200_300UL, pending);
+            Assert.True(g.Accept(14_200_300));
+            Assert.False(g.TryPending(out _));
+            Assert.True(g.Accept(Was));        // settled: the old number is news again
+        }
+
+        [Fact]
+        public void A_value_outside_the_chain_is_still_believed_at_once()
+        {
+            var g = Guard();
+            g.Requested(Was, Asked);
+            g.Requested(Asked, 14_200_200);
+            Assert.True(g.Accept(14_350_000));
+            Assert.True(g.Accept(Asked));      // disarmed by the foreign report
+        }
+
+        [Fact]
+        public void A_chain_started_after_giving_up_forgets_the_old_one()
+        {
+            var g = Guard();
+            g.Requested(Was, Asked);
+            _now += FrequencyEchoGuard.GiveUpMs;
+            g.Requested(14_300_000, 14_300_100);
+            Assert.True(g.Accept(Was));
+        }
+
+        [Fact]
+        public void Stepping_back_onto_an_earlier_value_settles_on_it()
+        {
+            var g = Guard();
+            g.Requested(Was, Asked);
+            g.Requested(Asked, Was);           // back down
+            Assert.False(g.Accept(Asked));
+            Assert.True(g.Accept(Was));
         }
 
         [Fact]

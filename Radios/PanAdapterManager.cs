@@ -425,7 +425,12 @@ namespace Radios
             }
             else
             {
-                rig.q.Enqueue((FlexBase.FunctionDel)(() => { theRadio.ActiveSlice.Freq = freq; }), "ActiveSlice.Freq");
+                // Bound at the key too (#642, repair round 3): the active
+                // slice when the operator pressed, not whichever is active
+                // when the queue runs.
+                Slice active = theRadio?.ActiveSlice;
+                if (active != null)
+                    rig.q.Enqueue((FlexBase.FunctionDel)(() => { active.Freq = freq; }), "ActiveSlice.Freq");
             }
             rig.q.Enqueue((FlexBase.FunctionDel)(() => { rig.Callouts.GotoHome(); }), "goto home");
         }

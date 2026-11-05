@@ -4961,7 +4961,11 @@ namespace Radios
                         if ((s != null) && myClient(s.ClientHandle))
                         {
                             Tracing.TraceLine("ActiveSlice:mine " + SliceToVFO(s), TraceLevel.Info);
-                            SetRxCache(s, LibFreqtoLong(s.Freq));
+                            // The slice's own number, unless it is the stale
+                            // predecessor of a tune still on its way (repair
+                            // round 3): a step taken while this selection
+                            // settled must not be rewound by the refresh.
+                            SetRxCache(s, ObservedOrPending(s, LibFreqtoLong(s.Freq)));
                             _RXMode = s.DemodMode;
                             _RXVFO = SliceToVFO(s);
                             s.Panadapter.GetRFGainInfo();
@@ -5497,9 +5501,13 @@ namespace Radios
                         {
                             Tracing.TraceLine("Freq:slice " + s.Index.ToString() + " " + s.Freq.ToString(), TraceLevel.Verbose);
                             ulong echoed = LibFreqtoLong(s.Freq);
-                            if (s.Active && _rxFreqEcho.Accept(echoed))
-                            {
+                            // This slice's own guard, asked ONCE for both
+                            // caches (repair round 3): one slice, one answer.
+                            bool accepted = EchoGuardFor(s).Accept(echoed);
+                            if (accepted && (s.Active || ReferenceEquals(_rxCache?.Slice, s)))
                                 SetRxCache(s, echoed);
+                            if (accepted && s.Active)
+                            {
                                 // The filter edges and the where-you-are memory
                                 // are both derived from this number, so a
                                 // rejected echo must not move them either — a
@@ -5513,8 +5521,16 @@ namespace Radios
                             }
                             if (s.IsTransmitSlice)
                             {
-                                FollowTransmitSlice(s);
-                                if (_txFreqEcho.Accept(echoed)) SetTxCache(s, echoed);
+                                if (!ReferenceEquals(s, _txCacheSlice))
+                                {
+                                    // The caches move over whole, holding a
+                                    // tune still on its way rather than its
+                                    // stale predecessor.
+                                    ulong held = accepted ? echoed
+                                        : EchoGuardFor(s).TryPending(out ulong pending) ? pending : echoed;
+                                    NoteTransmitSliceAsFound(s, held);
+                                }
+                                else if (accepted) SetTxCache(s, echoed);
                             }
                         }
                         break;
@@ -6596,9 +6612,11 @@ namespace Radios
         /// <summary>Fill the transmit caches from the transmit slice as found:
         /// the frequency, the mode and the XIT that the IsTransmitSlice, Freq,
         /// DemodMode, XITOn and XITFreq cases would have written.</summary>
-        private void NoteTransmitSliceAsFound(Slice s)
+        private void NoteTransmitSliceAsFound(Slice s, ulong? hz = null)
         {
-            SetTxCache(s, LibFreqtoLong(s.Freq));   // the number and its slice, as one value
+            // The number and its slice, as one value; a tune still on its way
+            // keeps its value over the slice's stale own (repair round 3).
+            SetTxCache(s, hz ?? ObservedOrPending(s, LibFreqtoLong(s.Freq)));
             _TXMode = s.DemodMode;
             lock (_XIT)
             {
@@ -6726,11 +6744,14 @@ namespace Radios
                 // round 2: Active is raised before the cache follows a new
                 // selection, so Active proved nothing about whose number it was).
                 SliceHz rxCache = _rxCache, txCache = _txCache;
+                // One slice, one number (repair round 3): each role's slice
+                // reads the newer of the caches that belong to it, so a slice
+                // both selected and transmitting has one frequency.
                 string selectedLetter = selected?.Letter ?? "";
-                ulong selectedHz = selected != null ? FrequencyOf(selected, rxCache) : 0UL;
+                ulong selectedHz = selected != null ? ValueOf(selected, rxCache, txCache) : 0UL;
 
                 string transmitLetter = transmit?.Letter ?? "";
-                ulong transmitHz = transmit != null ? FrequencyOf(transmit, txCache) : 0UL;
+                ulong transmitHz = transmit != null ? ValueOf(transmit, rxCache, txCache) : 0UL;
 
                 bool hasTransmit = transmit != null && transmitLetter.Length > 0;
                 roles = new SliceRoles(
@@ -6756,7 +6777,7 @@ namespace Radios
         /// the time its active flag is.</summary>
         private void NoteActiveSliceAsFound(Slice s)
         {
-            SetRxCache(s, LibFreqtoLong(s.Freq));
+            SetRxCache(s, ObservedOrPending(s, LibFreqtoLong(s.Freq)));
             _RXMode = s.DemodMode;
             lock (_RIT)
             {
@@ -9356,9 +9377,9 @@ namespace Radios
 
         // #266. Both setters below write the cache before the radio has seen
         // the value, so both need a guard against the radio's own in-flight
-        // report of what the frequency WAS. See FrequencyEchoGuard.
-        private readonly FrequencyEchoGuard _rxFreqEcho = new FrequencyEchoGuard("RX");
-        private readonly FrequencyEchoGuard _txFreqEcho = new FrequencyEchoGuard("TX");
+        // report of what the frequency WAS. See FrequencyEchoGuard. One guard
+        // per SLICE since repair round 3 (EchoGuardFor), armed against that
+        // slice's own value.
 
         public ulong RXFrequency
         {
@@ -9371,35 +9392,35 @@ namespace Radios
                 SliceHz cache = _rxCache;
                 Slice selected = SelectedSliceNow();
                 if (selected == null) return cache?.Hz ?? 0UL;
-                return FrequencyOf(selected, cache);
+                return ValueOf(selected, cache, _txCache);
             }
             set
             {
-                ulong replaced = _RXFrequency;
-                // The optimistic value is held WITH the slice it is written to.
-                SetRxCache(ValidVFO(RXVFO) ? VFOToSlice(RXVFO) : null, value);
-                if (!ValidVFO(RXVFO))
-                {
-                    Tracing.TraceLine("RXFrequency: no valid RX slice", TraceLevel.Warning);
-                    return;
-                }
-                var slice = VFOToSlice(RXVFO);
+                // The slice is taken HERE, at the key (repair round 3): the
+                // queued write goes to this slice whatever is selected by the
+                // time it runs.
+                Slice slice = ValidVFO(RXVFO) ? VFOToSlice(RXVFO) : null;
                 if (slice == null)
                 {
-                    Tracing.TraceLine("RXFrequency: RX slice missing", TraceLevel.Warning);
+                    SetRxCache(null, value);
+                    Tracing.TraceLine(ValidVFO(RXVFO) ? "RXFrequency: RX slice missing" : "RXFrequency: no valid RX slice",
+                        TraceLevel.Warning);
                     return;
                 }
+                // What this write replaces is THIS slice's own value, not the
+                // raw cache, which during a selection can still hold the old
+                // slice's number (repair round 3).
+                ulong replaced = ValueOf(slice, _rxCache, _txCache);
+                // The optimistic value is held WITH the slice it is written
+                // to, in every cache that describes that slice.
+                PublishTuning(slice, value, selectedTune: true);
                 double freq = LongFreqToLibFreq(value);
-                // Arm HERE, not at the top of the setter: the early returns
-                // above leave without writing anything to the radio, and a
+                // Arm HERE, not at the top of the setter: the early return
+                // above leaves without writing anything to the radio, and a
                 // guard armed for a write that never went out would reject the
                 // radio's perfectly truthful report of where it still is.
-                _rxFreqEcho.Requested(replaced, value);
-                q.Enqueue((FunctionDel)(() =>
-                {
-                    var s = VFOToSlice(RXVFO);
-                    if (s != null) s.Freq = freq;
-                }), "RXFreq");
+                EchoGuardFor(slice).Requested(replaced, value);
+                q.Enqueue((FunctionDel)(() => WriteTuneTo(slice, freq, "RXFreq")), "RXFreq");
             }
         }
 
@@ -9457,17 +9478,17 @@ namespace Radios
                 // transmit slice designated some other way. The cache is read
                 // once, number and slice together, and believed only for the
                 // designated slice it was written for (repair round 2).
-                SliceHz cache = _txCache;
+                SliceHz rx = _rxCache, cache = _txCache;
                 Slice s = DesignatedTransmitSlice();
-                if (cache != null && cache.Hz != 0UL && cache.Slice?.IsTransmitSlice == true
-                    && (s == null || ReferenceEquals(cache.Slice, s)))
+                // The designated slice's ONE value (repair round 3): the newer
+                // of the caches that describe it, or the slice's own.
+                if (s != null) return ValueOf(s, rx, cache);
+                if (cache != null && cache.Hz != 0UL && cache.Slice?.IsTransmitSlice == true)
                     return cache.Hz;
-                return s != null ? LibFreqtoLong(s.Freq) : 0UL;
+                return 0UL;
             }
             set
             {
-                SliceHz before = _txCache;
-                ulong replaced = before?.Hz ?? 0UL;
 
                 // A REFUSED WRITE MUST NOT LEAVE ITS VALUE BEHIND. Both bails
                 // below used to return with _TXFrequency holding a frequency
@@ -9494,32 +9515,30 @@ namespace Radios
                                       TraceLevel.Warning);
                     return;
                 }
+                // What this write replaces is this slice's own value (repair
+                // round 3), read before the optimistic value is published.
+                ulong replaced = ValueOf(slice, _rxCache, _txCache);
                 // The optimistic value belongs to this slice, so it goes when
                 // this slice does. Only a slice the radio has designated may
                 // stand in the transmit caches: TXVFO can be a position left
                 // over from a removal, on an ordinary receive slice, and that
                 // slice's frequency and mode are not transmit facts. The write
-                // below still goes where it always went; that positional target
-                // is older than this and is on the register.
+                // below goes to the slice at TXVFO NOW, at the key (repair
+                // round 3); that the target is positional is older than this
+                // and is on the register.
                 if (!slice.IsTransmitSlice)
                 {
                     Tracing.TraceLine("TXFrequency: the slice at TXVFO is not designated for transmit, "
                                       + "so the requested " + value + " is not held as a transmit fact",
                                       TraceLevel.Warning);
                 }
-                else
-                {
-                    // The optimistic value, held WITH the slice it belongs to.
-                    if (!ReferenceEquals(slice, before?.Slice)) _TXMode = slice.DemodMode;
-                    SetTxCache(slice, value);
-                }
+                // The slice's one value, in every cache that describes it
+                // (PublishTuning holds it as a transmit fact only when the
+                // slice is designated).
+                PublishTuning(slice, value, selectedTune: false);
                 double freq = LongFreqToLibFreq(value);
-                _txFreqEcho.Requested(replaced, value);
-                q.Enqueue((FunctionDel)(() =>
-                {
-                    var s = VFOToSlice(TXVFO);
-                    if (s != null) s.Freq = freq;
-                }), "TXFreq");
+                EchoGuardFor(slice).Requested(replaced, value);
+                q.Enqueue((FunctionDel)(() => WriteTuneTo(slice, freq, "TXFreq")), "TXFreq");
             }
         }
 
