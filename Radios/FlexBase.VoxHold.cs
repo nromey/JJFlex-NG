@@ -99,7 +99,10 @@ namespace Radios
                                 if (!q.MainLoop) return false;
                                 q.Enqueue((FunctionDel)(() => action()), "VoxPause");
                                 return true;
-                            });
+                            },
+                            // The family's one question, at every restore write
+                            // (repair round 3): never VOX back on under a carrier.
+                            () => radio != null && ReferenceEquals(radio, theRadio) ? RestoreRefusedAtWrite(radio) : null);
                         OperatorChangedRadioSetting -= NoteVoxPauseOperatorChange;
                         OperatorChangedRadioSetting += NoteVoxPauseOperatorChange;
                     }
@@ -136,7 +139,13 @@ namespace Radios
                     _voxPausedAtDisconnectSerial = serial;
                 txToneGen.Stop();
                 TxFileStop();
-                if (restore) _voxPauses?.Disconnect();
+                if (restore)
+                {
+                    // Each restore asks at its own write; one withheld there
+                    // is remembered, as an abandoned one is (repair round 3).
+                    if (_voxPauses?.Disconnect() == true && theRadio?.Serial is string withheldSerial)
+                        _voxPausedAtDisconnectSerial = withheldSerial;
+                }
                 else if (_voxPauses?.Abandon() == true && theRadio?.Serial is string owedSerial)
                     _voxPausedAtDisconnectSerial = owedSerial;
                 _localPlaybackVoxLeases.Clear();

@@ -41,6 +41,20 @@ namespace Radios.Tests.StationConnect
             return true;
         }
         public override void Disconnect() { }
+
+        /// <summary>
+        /// A line arriving from the radio, as the real transport delivers one:
+        /// to every <c>DataReceived</c> subscriber, with this connection. The
+        /// Radio's own parser is not subscribed to this fake (see above); what
+        /// is, is the app's own reader of the radio's interlock reports (repair
+        /// round 3, <c>Radios.InterlockReports</c>).
+        /// </summary>
+        public void Deliver(string line)
+        {
+            var connection = CurrentConnection;
+            if (connection != null) PublishData(connection, line);
+        }
+
         public Action<string>? CommandWritten;
         public override void Write(string msg)
         {
@@ -113,8 +127,14 @@ namespace Radios.Tests.StationConnect
         public void Reply(int seq, uint code, string text) =>
             ParseReplyMethod.Invoke(Radio, new object[] { "R" + seq + "|" + code.ToString("X") + "|" + (text ?? "") });
 
-        /// <summary>A status line from the radio, e.g. "profile tx current=K5NER-TX".</summary>
-        public void Status(string body) => ParseStatusMethod.Invoke(Radio, new object[] { "S0|" + body });
+        /// <summary>A status line from the radio, e.g. "profile tx current=K5NER-TX".
+        /// Parsed by FlexLib, and delivered through the transport as the real
+        /// line would be, so the app's own readers of it see it too.</summary>
+        public void Status(string body)
+        {
+            ParseStatusMethod.Invoke(Radio, new object[] { "S0|" + body });
+            Transport.Deliver("S0|" + body);
+        }
 
         /// <summary>The last command written, as text.</summary>
         public string LastCommand => Transport.Commands.Last();
@@ -186,6 +206,12 @@ namespace Radios.Tests.StationConnect
             TheRadioField.SetValue(Rig, Vendor.Radio);
             ClientHandleField.SetValue(Rig, OurHandle);
             Rig.BeginStationAttempt(Vendor.Radio, "vendor fixture");
+            // A connected radio reports its interlock at connect; the app reads
+            // that report itself (repair round 3, #861 R3), so the fixture
+            // starts where a real connect does: watched, and READY reported.
+            // A test of "never reported" builds its own radio.
+            Assert.True(Radios.InterlockReports.Watch(Vendor.Radio), "the interlock report watch did not attach to the fixture's transport");
+            Vendor.Status("interlock state=READY");
             Binding = Rig.BindingFor(Vendor.Radio);
             // The PRODUCTION radio property feed, subscribed the way
             // radioPropertyChangedHandler subscribes it (pinned in

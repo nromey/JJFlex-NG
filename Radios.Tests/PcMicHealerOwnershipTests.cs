@@ -135,6 +135,10 @@ namespace Radios.Tests
             {
                 Vendor = new VendorRadioFixture(serial);
                 TheRadioField.SetValue(Rig, Vendor.Radio);
+                // A connect: the radio reports its interlock, and the app reads
+                // that report itself (repair round 3, #861 R3).
+                Assert.True(Radios.InterlockReports.Watch(Vendor.Radio));
+                Vendor.Status("interlock state=READY");
                 OutputChannelField.SetValue(Rig, null);
                 RadioReports(micInput);
             }
@@ -581,6 +585,35 @@ namespace Radios.Tests
             Assert.Equal(new[] { "mic input PC", "mic input MIC" }, rig.MicWrites);
             Assert.Equal("MIC", rig.MicInput);
             Assert.False(rig.PcMicExpected);
+        }
+
+        /// <summary>
+        /// Repair round 3 (#861 R2, Codex's second re-check): a put-back withheld
+        /// at its write (a carrier was up) is a debt the NEXT run keeps. Before
+        /// this, the run's start re-kept it and then its session reset cleared
+        /// it, and the new channel saved the PC we had left as "original", so
+        /// the owner's input was forgotten for good.
+        /// </summary>
+        [Fact]
+        public void A_put_back_withheld_under_a_carrier_survives_the_next_run_and_is_paid_at_its_stop()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            rig.Vendor.Status("interlock state=TRANSMITTING source=RCA tx_client_handle=0x0BADF00D");
+
+            rig.StopPcAudio();                       // withheld: the room mic must not go on the air
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+
+            rig.NextRunBegins();                     // still keyed: withheld again, and KEPT
+            rig.StartPcAudio();                      // adopts MIC as the owner's, not the PC we left
+            Assert.Equal("PC", rig.MicInput);
+
+            rig.Vendor.Status("interlock state=READY source= tx_client_handle=0x00000000");
+            rig.StopPcAudio();
+            Assert.Equal("mic input MIC", rig.MicWrites.Last());
+            Assert.Equal("MIC", rig.MicInput);
         }
 
         [Fact]

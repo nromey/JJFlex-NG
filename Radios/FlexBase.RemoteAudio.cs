@@ -1899,11 +1899,19 @@ namespace Radios
                 Serial = radio?.Serial ?? "";
                 Run = run;
                 MadeBySwitchBack = madeBySwitchBack;
+                Connection = radio?.CurrentCommandConnection;
             }
             public string Saved { get; }
             public Radio Radio { get; }
             public string Serial { get; }
             public long Run { get; }
+
+            /// <summary>
+            /// The command connection it was saved on (repair round 3): a debt
+            /// withheld at its write is kept across a new PC-audio run on the
+            /// SAME connection, and only there.
+            /// </summary>
+            public object Connection { get; }
 
             /// <summary>
             /// Saved by the Radio menu's Switch Mic Input Back to PC, whose
@@ -2024,8 +2032,10 @@ namespace Radios
                 if (string.Equals(nowInput, "PC", StringComparison.OrdinalIgnoreCase))
                 {
                     radio.MicInput = swap.Saved;
-                    Tracing.TraceLine("PutBackSavedMicInput (" + when + "): mic input put back to '"
-                        + swap.Saved + "'", TraceLevel.Info);
+                    // Sent, not confirmed (Codex's follow-up): FlexLib's setter
+                    // attaches no reply, and on a dead link sends nothing at all.
+                    Tracing.TraceLine("PutBackSavedMicInput (" + when + "): mic input put-back to '"
+                        + swap.Saved + "' sent; the radio has not acknowledged it", TraceLevel.Info);
                 }
                 else
                 {
@@ -2214,13 +2224,26 @@ namespace Radios
         internal void ResetPcMicSession(string why)
         {
             MicInputSwap swap;
+            bool kept;
             lock (_micSwitchLock)
             {
                 swap = _micInputSwap;
-                _micInputSwap = null;
+                // A put-back withheld at its write (a carrier was up) is a DEBT
+                // to this radio on this connection (repair round 3, #861 R2):
+                // kept, so the next run adopts the owner's input as the one to
+                // put back, instead of saving the PC we left as "original". A
+                // value from another radio or connection is discarded as before.
+                kept = OwedOnThisConnection(swap);
+                if (!kept) _micInputSwap = null;
                 _micSessionOpen = false;
             }
-            if (swap != null)
+            if (swap != null && kept)
+            {
+                Tracing.TraceLine("ResetPcMicSession (" + why + "): keeping the mic input '" + swap.Saved
+                    + "' still owed to radio " + swap.Serial + " on this connection; the next PC-audio run adopts it",
+                    TraceLevel.Info);
+            }
+            else if (swap != null)
             {
                 Tracing.TraceLine("ResetPcMicSession (" + why + "): discarding the mic input '" + swap.Saved
                     + "' saved from radio " + swap.Serial + " in run " + swap.Run + " without writing it",
@@ -2229,6 +2252,19 @@ namespace Radios
             _pcMicExpected = false;
             _pcMicDiverged = false;
             Volatile.Write(ref _pcMicSwitchQuietUntil, PcMicNoSwitchQuiet);
+        }
+
+        /// <summary>
+        /// A saved microphone input that belongs to the radio, serial and
+        /// command connection now attached: an owed put-back this connection
+        /// may still pay. Call under <see cref="_micSwitchLock"/>.
+        /// </summary>
+        private bool OwedOnThisConnection(MicInputSwap swap)
+        {
+            var radio = theRadio;
+            return swap != null && radio != null && ReferenceEquals(swap.Radio, radio)
+                && string.Equals(radio.Serial ?? "", swap.Serial, StringComparison.Ordinal)
+                && swap.Connection != null && ReferenceEquals(swap.Connection, radio.CurrentCommandConnection);
         }
 
         /// <summary>
@@ -2286,6 +2322,7 @@ namespace Radios
                     // saving the cache would lose the owner's input for good.
                     string saved = theRadio.MicInput;
                     PutBackPin adopted = null;
+                    MicInputSwap adoptedDebt = null;
                     lock (_micSwitchLock)
                     {
                         var owed = _queuedPutBack;
@@ -2296,9 +2333,20 @@ namespace Radios
                             saved = owed.Swap.Saved;
                             _queuedPutBack = null;   // the queued write now finds it gone
                         }
+                        else if (OwedOnThisConnection(_micInputSwap))
+                        {
+                            // A put-back withheld at its write (repair round 3,
+                            // #861 R2): the radio is on the PC we left, and the
+                            // owner's input is the debt's, not the cache's.
+                            adoptedDebt = _micInputSwap;
+                            saved = adoptedDebt.Saved;
+                        }
                         _micInputSwap = new MicInputSwap(saved, theRadio,
                             Interlocked.Read(ref _remoteAudioRun));
                     }
+                    if (adoptedDebt != null)
+                        Tracing.TraceLine("startOpusOutputChannel: took over the withheld put-back of '" + saved
+                            + "'; this session's stop owes it now", TraceLevel.Info);
                     if (adopted != null)
                         Tracing.TraceLine("startOpusOutputChannel: took over the put-back of '" + saved
                             + "' that the last stop queued" + (adopted.Writing ? " (its write was already going out)" : "")

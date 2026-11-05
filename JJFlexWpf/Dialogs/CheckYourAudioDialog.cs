@@ -256,7 +256,7 @@ public partial class CheckYourAudioDialog : JJFlexDialog
                 {
                     inst._tearingDown = true;
                     inst.CancelCheckStart();
-                    inst._session?.ForceEnd("Radio disconnected, audio check ended");
+                    inst._session?.ForceEnd("Radio disconnected, audio check ended", connectionEnding: true);
                     inst._session = null;
                     inst.DisarmTone(speak: false);
                     inst.DisarmReference(speak: false);
@@ -352,7 +352,7 @@ public partial class CheckYourAudioDialog : JJFlexDialog
                 JJTrace.Tracing.TraceLine("Check your audio: the radio's connection fell; ending any start and check",
                     System.Diagnostics.TraceLevel.Info);
                 inst.CancelCheckStart();
-                inst._session?.ForceEnd("Radio connection dropped, audio check ended");
+                inst._session?.ForceEnd("Radio connection dropped, audio check ended", connectionEnding: true);
                 inst._session = null;
                 inst.DisarmTone(speak: false);
                 inst.DisarmReference(speak: false);
@@ -648,7 +648,8 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             // the session only after _rig was null.
             if (oldRig != null)
             {
-                _session?.ForceEnd(rig == null ? "Radio disconnected, audio check ended" : "Radio changed, audio check ended");
+                _session?.ForceEnd(rig == null ? "Radio disconnected, audio check ended" : "Radio changed, audio check ended",
+                    connectionEnding: true);
                 _session = null;
             }
             _iqRecoveryReader = null;

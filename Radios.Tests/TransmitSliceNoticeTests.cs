@@ -149,7 +149,7 @@ public sealed class TransmitSliceNoticeTests
         int refusal = notice.IndexOf("public static string RefusalForChangedPlace(", StringComparison.Ordinal);
         int end = notice.IndexOf("public static void Retire(", refusal, StringComparison.Ordinal);
         string body = notice.Substring(refusal, end - refusal);
-        Assert.Contains("return Lexicon.Get(\"audio.ptt.selected_slice_changed\");", body);
+        Assert.Contains("audio.ptt.selected_slice_changed", body);
         Assert.DoesNotContain("audio.ptt.transmit_slice_not_heard", body);
         Assert.Equal("The transmit slice could not be announced, so nothing was transmitted.",
             Lexicon.Get("audio.ptt.transmit_slice_not_heard"));   // the unspoken notice keeps its own

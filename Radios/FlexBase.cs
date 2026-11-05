@@ -2804,6 +2804,10 @@ namespace Radios
             // connection-fall archive, and a second copy would dispatch it
             // twice.
             wireProducerHandlers(theRadio);
+            // Read what the radio itself says about its interlock from the
+            // first line on (#861 R3, repair round 3): before the connect, so
+            // the connect-time report is seen. FlexLib's cache alone is not it.
+            InterlockReports.Watch(theRadio);
             theRadio.MessageReceived += new Radio.MessageReceivedEventHandler(messageReceivedHandler);
             theRadio.WaterfallRemoved += new Radio.WaterfallRemovedEventHandler(waterfallRemoved);
             theRadio.TNFAdded += new Radio.TNFAddedEventHandler(tnfAdded);
@@ -8512,12 +8516,26 @@ namespace Radios
                 // a teardown revokes it while it waits in the queue (#596,
                 // repair round 2, N4), so it cannot key a reconnected radio.
                 long work = Volatile.Read(ref _transmitWorkGeneration);
+                // And to the radio and command connection it was asked on, with
+                // the final check and the write as ONE step that a revocation
+                // waits for (repair round 3): a key-on past its check cannot
+                // be overtaken by a drop and then key the reconnected radio.
+                Radio keyedOn = theRadio;
+                object keyedConnection = keyedOn?.CurrentCommandConnection;
                 q.Enqueue((FunctionDel)(() =>
                 {
                     if (value && TeardownHeldSilently("transmit")) return;
-                    if (value && TransmitWorkRevoked(work, "a key-on")) return;
-                    theRadio.Mox = value;
-                    _ownKeyRequested = value;
+                    if (value)
+                    {
+                        SendIfStillAdmitted(work, keyedOn, keyedConnection, "a key-on", () =>
+                        {
+                            theRadio.Mox = true;
+                            _ownKeyRequested = true;
+                        });
+                        return;
+                    }
+                    theRadio.Mox = false;
+                    _ownKeyRequested = false;
                 }), "Mox");
             }
         }
@@ -13184,6 +13202,9 @@ namespace Radios
             public long Generation;
             /// <summary>One typed character, sent as typing is.</summary>
             public bool IsChar;
+            /// <summary>The radio and command connection it was admitted on (repair round 3).</summary>
+            public Radio Owner;
+            public object Connection;
 
             public cwText() { }
 
@@ -13251,10 +13272,23 @@ namespace Radios
                 else
                 {
                     // Revoked by a drop or a teardown while queued (#596 N4).
-                    q.Enqueue(new cwText(str) { Generation = Volatile.Read(ref _transmitWorkGeneration) }, "SendCW");
+                    q.Enqueue(AdmittedCw(new cwText(str)), "SendCW");
                 }
             }
             return true;
+        }
+
+        /// <summary>
+        /// CW admitted now: it carries this connection's work generation, and
+        /// the radio and command connection it was admitted on (#596 N4,
+        /// repair round 3), all checked again with the send as one step.
+        /// </summary>
+        private cwText AdmittedCw(cwText cw)
+        {
+            cw.Generation = Volatile.Read(ref _transmitWorkGeneration);
+            cw.Owner = theRadio;
+            cw.Connection = cw.Owner?.CurrentCommandConnection;
+            return cw;
         }
 
         public bool SendCW(char c)
@@ -13269,7 +13303,7 @@ namespace Radios
             {
                 // A character carries its connection's work generation too
                 // (#596 N4), so it rides the queue as a one-character item.
-                q.Enqueue(new cwText(c.ToString()) { IsChar = true, Generation = Volatile.Read(ref _transmitWorkGeneration) });
+                q.Enqueue(AdmittedCw(new cwText(c.ToString()) { IsChar = true }));
             }
             return true;
         }

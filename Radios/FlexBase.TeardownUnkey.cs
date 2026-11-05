@@ -42,6 +42,29 @@ public partial class FlexBase
     //    unknown state withholds.
     // 4. Withheld means kept, not lost: the restoration debt stays where the
     //    next connect can find it. Nothing here replays it; that is #590.
+    //
+    // ── Repair round 3: the mechanism, not the instance ─────────────────
+    //
+    // Codex's second re-check found each of round two's rules applied where
+    // the named blocker was and broken one route over. So the rules are now
+    // mechanisms that a route nobody named passes through by construction:
+    //
+    // 1. ONE question for every restoration write of the transmit chain,
+    //    asked at the write: RestoreRefusedAtWrite. The teardown's profile
+    //    loads and the live transmit-audio setters run under one
+    //    restore-scoped QueuedWriteGate that asks it (RunRestoreStepAtTheWrite);
+    //    the microphone put-back asks it; VOX's restore writes ask it inside
+    //    the VOX pause owner, the one owner every VOX restore goes through.
+    // 2. A debt is discharged only when its writes ran: a step's record, the
+    //    live snapshot on disk and a VOX or microphone debt are kept unless
+    //    every write they stand for went out.
+    // 3. Receive means a report received (InterlockReports): FlexLib's cache
+    //    starting at Ready, or keeping it through a state it does not know, is
+    //    not the radio saying so.
+    // 4. The check and the send are one step: key-ons and CW take
+    //    _transmitWorkGate around the final check and the send, and revocation
+    //    takes it too, so nothing admitted before a revocation can send after
+    //    it returns.
 
     /// <summary>How long the teardown waits for its unkey writes to leave the command queue.</summary>
     internal static readonly TimeSpan TeardownUnkeyDrainBound = TimeSpan.FromMilliseconds(1500);
@@ -84,6 +107,39 @@ public partial class FlexBase
     private volatile bool _cwSentThisConnection;
 
     /// <summary>
+    /// Serialises revocation with every admitted key-on and CW send (#596 N4,
+    /// repair round 3): the final check and the write are one step, as the
+    /// tune's are under <c>_tuneWriteGate</c>. Held across a FlexLib setter,
+    /// which writes to the transport without taking its dispatch lock.
+    /// </summary>
+    private readonly object _transmitWorkGate = new();
+
+    /// <summary>
+    /// Admitted transmit work, at its write: run <paramref name="send"/> only
+    /// if nothing has revoked <paramref name="generation"/> and the radio and
+    /// its command connection are still the ones it was admitted on. The check
+    /// and the send hold <see cref="_transmitWorkGate"/>, which
+    /// <see cref="RevokeAdmittedTransmitWork"/> takes too, so once a revocation
+    /// returns, no work admitted before it is part-way to the radio.
+    /// </summary>
+    private bool SendIfStillAdmitted(long generation, Radio owner, object connection, string what, Action send)
+    {
+        lock (_transmitWorkGate)
+        {
+            if (TransmitWorkRevoked(generation, what)) return false;
+            var radio = theRadio;
+            if (owner != null && (!ReferenceEquals(radio, owner) || !ReferenceEquals(radio?.CurrentCommandConnection, connection)))
+            {
+                Tracing.TraceLine("TransmitWork: " + what + " was admitted on another radio or connection, so it was dropped, not sent",
+                    TraceLevel.Warning);
+                return false;
+            }
+            send();
+            return true;
+        }
+    }
+
+    /// <summary>
     /// Revoke every piece of transmit work already admitted to the command
     /// queue: key-ons, tune-ons, CW text and CW characters. They are dropped
     /// when the loop reaches them. Unkeys are never revoked.
@@ -92,7 +148,11 @@ public partial class FlexBase
     /// session-bound trace, so the line is filed with the fall's session.</param>
     internal void RevokeAdmittedTransmitWork(string why, Action<string, TraceLevel> trace = null)
     {
-        long now = Interlocked.Increment(ref _transmitWorkGeneration);
+        // Taken with the admitted sends' final check (repair round 3): a send
+        // already past its check finishes before this returns, and none
+        // starts after it.
+        long now;
+        lock (_transmitWorkGate) now = Interlocked.Increment(ref _transmitWorkGeneration);
         ForgetTuneWrites();
         string line = "TransmitWork: " + why + "; work admitted before this (generation " + (now - 1) + ") keys nothing";
         if (trace != null) trace(line, TraceLevel.Info);
@@ -125,8 +185,86 @@ public partial class FlexBase
         {
             var radio = theRadio;
             if (radio == null) return false;
-            return radio.InterlockState is InterlockState.Receive or InterlockState.Ready or InterlockState.NotReady;
+            // Repair round 3 (#861 R3): FlexLib's cache AND the radio's own last
+            // report on this connection. The cache alone reads Ready before any
+            // report, and keeps Ready through a state it does not recognise.
+            return radio.InterlockState is InterlockState.Receive or InterlockState.Ready or InterlockState.NotReady
+                && InterlockReports.ConfirmsReceive(radio);
         }
+    }
+
+    /// <summary>
+    /// THE question every restoration of the transmit chain asks at its write
+    /// (repair round 3, rule 1): the profile loads and the live transmit-audio
+    /// setters through the restore gate, the microphone put-back, and VOX's
+    /// restore writes. Null means the write may go; otherwise why not. No,
+    /// when the radio or its command connection is not the one the write was
+    /// for, when this computer is keying the radio, or when the radio does not
+    /// positively report receive (a report received, rule 3).
+    /// </summary>
+    internal string RestoreRefusedAtWrite(Radio expectedRadio = null, object expectedConnection = null)
+    {
+        var radio = theRadio;
+        if (radio == null) return "there is no radio";
+        if (expectedRadio != null && !ReferenceEquals(radio, expectedRadio))
+            return "the radio it was for is no longer this one";
+        if (expectedConnection != null && !ReferenceEquals(radio.CurrentCommandConnection, expectedConnection))
+            return "the radio's command connection has changed since";
+        if (_Transmit) return "this computer is keying the radio";
+        return WhyNotReceiving();
+    }
+
+    /// <summary>
+    /// One teardown restoration step under ONE restore-scoped gate (repair
+    /// round 3, rules 1 and 2): every write <paramref name="queueIt"/> queues,
+    /// through any setter, asks <see cref="RestoreRefusedAtWrite"/> when it
+    /// RUNS, pinned to the radio and connection the step began on. The step
+    /// counts as done only when the queue has reached its writes and every one
+    /// of them ran; a write refused, one that threw, or a queue that never got
+    /// there leaves the step NOT done, and its debt is the caller's to keep.
+    /// </summary>
+    internal RestoreStep RunRestoreStepAtTheWrite(string what, Func<bool> queueIt, TimeSpan bound)
+    {
+        var radio = theRadio;
+        object connection = radio?.CurrentCommandConnection;
+        // Sticky: once one write of the step is refused, the rest of the step
+        // is refused too, so a carrier that rises and falls inside a step
+        // cannot leave it applied out of order.
+        string refused = null;
+        var gate = StationConnect.QueuedWriteGate.Open(() => refused ??= RestoreRefusedAtWrite(radio, connection));
+        bool queued;
+        try { queued = queueIt(); }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("Restore step (" + what + "): threw while queueing: " + ex.Message, TraceLevel.Error);
+            queued = false;
+        }
+        finally { gate.Dispose(); }
+        bool reached = DrainCommandQueueAsync(bound).GetAwaiter().GetResult();
+        RestoreStep outcome =
+            gate.Refused > 0 ? RestoreStep.Withheld
+            : !reached ? RestoreStep.NotReached
+            : gate.Threw > 0 || !queued ? RestoreStep.Failed
+            : RestoreStep.Ran;
+        if (outcome != RestoreStep.Ran)
+            Tracing.TraceLine("Restore step (" + what + "): " + outcome
+                + (gate.FirstRefusal != null ? " - " + gate.FirstRefusal : "")
+                + (gate.FirstThrow != null ? " - " + gate.FirstThrow : "")
+                + "; its debt is kept, not discharged", TraceLevel.Warning);
+        return outcome;
+    }
+
+    /// <summary>What became of one restoration step's writes.</summary>
+    internal enum RestoreStep
+    {
+        /// <summary>Every write ran: the debt it stands for may be discharged.</summary>
+        Ran,
+        /// <summary>A write was refused at its run (a carrier, a changed connection).</summary>
+        Withheld,
+        /// <summary>The queue did not reach the writes in time.</summary>
+        NotReached,
+        /// <summary>A write threw, or the step could not be queued.</summary>
+        Failed,
     }
 
     private string InterlockNow()
@@ -226,31 +364,28 @@ public partial class FlexBase
         {
             RevokeAdmittedTransmitWork("teardown (" + why + ")");
             TransmitKillSwitch.DisarmSources(this);
+            // CW this connection handed to the radio's own CW queue is pending
+            // there whether or not the radio reports a carrier yet (#596 N4,
+            // repair round 3): a message sent before its key report, or one
+            // between break-in transmissions. So it is cleared whenever this
+            // connection sent CW, keyed or not, through the same owned route.
+            bool cwOwed = _cwSentThisConnection;
+            if (cwOwed) EnqueueOwnCwClear(radio, why);
             bool mayBeKeyed = _Transmit || radio.Mox || radio.TXTune || _ownKeyRequested
                               || !RadioInterlockConfirmsReceive;
             if (!mayBeKeyed)
             {
                 Tracing.TraceLine("Teardown (" + why + "): nothing transmitting; nothing to unkey before putting back",
                     TraceLevel.Info);
+                if (cwOwed && !DrainCommandQueueAsync(drainBound).GetAwaiter().GetResult())
+                    Tracing.TraceLine("Teardown (" + why + "): the CW queue's clear had not left the command queue after "
+                        + (int)drainBound.TotalMilliseconds + " ms", TraceLevel.Warning);
                 return true;
             }
             Tracing.TraceLine("Teardown (" + why + "): the radio may be transmitting (interlock " + InterlockNow()
                 + "); unkeying this session's own carriers, each checked again as it goes out", TraceLevel.Warning);
             UnkeyOwnCarrier("teardown (" + why + ")");
             EnqueueTuneWrite(false, "teardown tune", null, ownCarrierOnly: true);
-            if (_cwSentThisConnection)
-            {
-                // The radio's own CW queue holds only what this client sent,
-                // but it keys the shared transmitter, so it is cleared only
-                // when the carrier is not someone else's.
-                Radio owner = radio;
-                object connection = radio.CurrentCommandConnection;
-                q.Enqueue((FunctionDel)(() =>
-                {
-                    if (!OurCarrierToUnkey(owner, connection, "the CW queue")) return;
-                    cwx?.ClearBuffer();
-                }), "CWX clear (own carrier only)");
-            }
             bool drained = DrainCommandQueueAsync(drainBound).GetAwaiter().GetResult();
             if (!drained)
                 Tracing.TraceLine("Teardown (" + why + "): the unkey had not left the command queue after "
@@ -275,6 +410,23 @@ public partial class FlexBase
             _teardownStillOnAir = "the unkey before the put-back could not be confirmed (" + ex.Message + ")";
             return false;
         }
+    }
+
+    /// <summary>
+    /// Clear the radio's own CW queue of what this connection sent. It holds
+    /// only this client's text, but it keys the shared transmitter, so it is
+    /// cleared only when the carrier is not someone else's, checked as the
+    /// write goes out (<see cref="OurCarrierToUnkey"/>).
+    /// </summary>
+    private void EnqueueOwnCwClear(Radio radio, string why)
+    {
+        Radio owner = radio;
+        object connection = radio.CurrentCommandConnection;
+        q.Enqueue((FunctionDel)(() =>
+        {
+            if (!OurCarrierToUnkey(owner, connection, "the CW queue")) return;
+            cwx?.ClearBuffer();
+        }), "CWX clear (own carrier only)");
     }
 
     /// <summary>
@@ -312,7 +464,8 @@ public partial class FlexBase
     /// </summary>
     private bool MicPutBackWithheld(string when, string saved)
     {
-        string onAir = WhyNotReceiving();
+        // The family's one question (repair round 3, rule 1).
+        string onAir = RestoreRefusedAtWrite();
         if (onAir == null) return false;
         Tracing.TraceLine("PutBackSavedMicInput (" + when + "): NOT writing '" + saved + "' - " + onAir
             + ". The mic input is not written, and the value is kept as still owed.", TraceLevel.Warning);

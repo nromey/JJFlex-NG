@@ -115,7 +115,7 @@ namespace Radios.Tests
             Assert.DoesNotContain("DummyLoadMode = false", unkey);
             Assert.DoesNotContain("XmitPower = _savedPower", unkey);
             Assert.Contains("RestoreWhenReceiving(rig);", unkey);
-            Assert.Contains("RestoreWhenReceiving(_changedRig);", Body(check, "public void ForceEnd(string? reason)"));
+            Assert.Contains("RestoreWhenReceiving(_changedRig);", Body(check, "public void ForceEnd(string? reason, bool connectionEnding = false)"));
             // Fix round 3: the session no longer restores anything itself. It
             // hands its changes to the radio's owner, which asks the radio
             // before EACH write; CheckRestorationTests runs that behaviour.

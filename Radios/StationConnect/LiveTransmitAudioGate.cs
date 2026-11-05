@@ -26,6 +26,10 @@ namespace Radios.StationConnect
     {
         [ThreadStatic] private static QueuedWriteGate _ambient;
 
+        /// <summary>The gate whose item is running on this thread, if any (repair round 3).</summary>
+        [ThreadStatic] private static QueuedWriteGate _running;
+        [ThreadStatic] private static bool _runningWithheld;
+
         private readonly Func<string> _refusal;
         private readonly QueuedWriteGate _previous;
         private int _ran;
@@ -47,6 +51,41 @@ namespace Radios.StationConnect
 
         /// <summary>The gate ambient on this thread, or null.</summary>
         public static QueuedWriteGate Ambient => _ambient;
+
+        /// <summary>
+        /// Called by gated work that decided, itself, not to write (repair
+        /// round 3): the item counts as REFUSED, not as run, so a step whose
+        /// own check withheld it is never mistaken for one that was applied.
+        /// False when no gated item is running on this thread.
+        /// </summary>
+        public static bool WithholdRunning(string why)
+        {
+            var gate = _running;
+            if (gate == null) return false;
+            _runningWithheld = true;
+            Interlocked.CompareExchange(ref gate._firstRefusal, why, null);
+            return true;
+        }
+
+        /// <summary>
+        /// Nothing queued until the returned scope ends carries any gate: for
+        /// a marker that only waits for the queue (<c>DrainCommandQueueAsync</c>),
+        /// which must never be refused, or a wait for it would never end.
+        /// </summary>
+        public static IDisposable Suspend() => new Suspension();
+
+        private sealed class Suspension : IDisposable
+        {
+            private readonly QueuedWriteGate _saved = _ambient;
+            private bool _done;
+            public Suspension() => _ambient = null;
+            public void Dispose()
+            {
+                if (_done) return;
+                _done = true;
+                _ambient = _saved;
+            }
+        }
 
         /// <summary>Items that ran TO COMPLETION. Counted after the work
         /// returns, not before it starts (Track G2 re-review, step 9: an
@@ -88,6 +127,11 @@ namespace Radios.StationConnect
                     onRefused?.Invoke(name, why);
                     return;
                 }
+                var outerRunning = _running;
+                bool outerWithheld = _runningWithheld;
+                _running = this;
+                _runningWithheld = false;
+                bool withheld;
                 try
                 {
                     work();
@@ -97,6 +141,18 @@ namespace Radios.StationConnect
                     Interlocked.Increment(ref _threw);
                     Interlocked.CompareExchange(ref _firstThrow, name + ": " + ex.Message, null);
                     throw;
+                }
+                finally
+                {
+                    withheld = _runningWithheld;
+                    _running = outerRunning;
+                    _runningWithheld = outerWithheld;
+                }
+                if (withheld)
+                {
+                    Interlocked.Increment(ref _refused);
+                    onRefused?.Invoke(name, _firstRefusal ?? "withheld by its own check");
+                    return;
                 }
                 Interlocked.Increment(ref _ran);
             };

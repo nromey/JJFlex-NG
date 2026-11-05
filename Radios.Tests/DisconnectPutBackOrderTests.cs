@@ -117,7 +117,8 @@ public sealed class DisconnectPutBackOrderTests
         int plan = text.IndexOf("private void PutProfilesBackOnDisconnect()", StringComparison.Ordinal);
         string planBody = text.Substring(plan, 4000);
         int barrier = planBody.IndexOf("if (TeardownRefusesRestore(\"the profiles and the live transmit audio\")) return;", StringComparison.Ordinal);
-        int run = planBody.IndexOf("bool ok = RunProfileAction(action);", StringComparison.Ordinal);
+        // Repair round 3: every step runs under the one restore gate.
+        int run = planBody.IndexOf("var step = RunRestoreStepAtTheWrite(label, () => RunProfileAction(action), TeardownRestoreStepBound);", StringComparison.Ordinal);
         Assert.True(barrier > 0 && run > barrier, "the profile put-back writes before asking the interlock");
         Assert.Contains("TeardownRefusesRestore(\"the transmit profile '\" + name + \"'\")", text, StringComparison.Ordinal);
         Assert.Contains("TeardownRefusesRestore(\"the microphone profile '\" + name + \"'\")", text, StringComparison.Ordinal);

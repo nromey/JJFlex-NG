@@ -21,6 +21,24 @@ namespace Radios
         private readonly Func<Action, bool>? _enqueue;
         private readonly Dictionary<FlexBase.VoxSetting, PendingWrite> _pending = new();
 
+        /// <summary>
+        /// Asked at every RESTORE write, the moment it goes out (repair round 3,
+        /// rules 1, 2 and 5): null means it may go, otherwise why not. Every VOX
+        /// restore, from every holder, goes through this owner, so a route
+        /// nobody named (the reflected-power cut's hold given up at teardown,
+        /// a send's release, the disconnect's own flush) asks the same
+        /// question. Null for an owner built without it.
+        /// </summary>
+        private readonly Func<string?>? _restoreRefusal;
+
+        /// <summary>
+        /// A restore that was owed and withheld at its write: VOX stays off for
+        /// now, and the debt is KEPT here, not lost. The next pause of the same
+        /// setting inherits it, the disconnect's flush tries it again at its own
+        /// write, and an abandon reports it owed.
+        /// </summary>
+        private readonly HashSet<FlexBase.VoxSetting> _withheld = new();
+
         private sealed class PendingWrite
         {
             public bool On;
@@ -33,11 +51,19 @@ namespace Radios
         }
 
         public VoxPauseOwner(Func<FlexBase.VoxSetting, bool> isOn,
-            Func<FlexBase.VoxSetting, bool, bool, bool> write, Func<Action, bool>? enqueue = null)
+            Func<FlexBase.VoxSetting, bool, bool, bool> write, Func<Action, bool>? enqueue = null,
+            Func<string?>? restoreRefusal = null)
         {
             _isOn = isOn ?? throw new ArgumentNullException(nameof(isOn));
             _write = write ?? throw new ArgumentNullException(nameof(write));
             _enqueue = enqueue;
+            _restoreRefusal = restoreRefusal;
+        }
+
+        /// <summary>For tests: a restore of <paramref name="which"/> was withheld and is still owed.</summary>
+        internal bool RestoreOwed(FlexBase.VoxSetting which)
+        {
+            lock (_gate) return _withheld.Contains(which);
         }
 
         /// <summary>
@@ -56,7 +82,10 @@ namespace Radios
                     try { on = _pending.TryGetValue(which, out var pending) ? pending.On : _isOn(which); }
                     catch { return null; }
                     if (on && !Write(which, false, false)) return null;
-                    pause = new Pause { Restore = on };
+                    // A restore withheld earlier passes to this pause: the
+                    // setting is off only because it could not be put back.
+                    bool owed = _withheld.Remove(which);
+                    pause = new Pause { Restore = on || owed };
                     _pauses.Add(which, pause);
                 }
                 pause.Holders++;
@@ -71,6 +100,7 @@ namespace Radios
             {
                 if (_pauses.TryGetValue(which, out var pause)) pause.Restore = false;
                 _pending.Remove(which); // a queued application write cannot undo the operator
+                _withheld.Remove(which); // nor can a withheld restore
             }
         }
 
@@ -91,29 +121,39 @@ namespace Radios
             {
                 if (_disconnected) return false;
                 _disconnected = true;
-                bool owed = false;
+                bool owed = _withheld.Count > 0;
                 foreach (var entry in _pending) owed |= entry.Value.On;
                 foreach (var entry in _pauses) owed |= entry.Value.Restore;
                 _pending.Clear();
                 _pauses.Clear();
+                _withheld.Clear();
                 return owed;
             }
         }
 
-        public void Disconnect()
+        /// <returns>True when a restore is STILL owed: one was withheld at its
+        /// write, here or earlier, so VOX was not put back (repair round 3).</returns>
+        public bool Disconnect()
         {
             lock (_gate)
             {
-                if (_disconnected) return;
+                if (_disconnected) return false;
                 _disconnected = true;
                 // Flush an owed restore whose last holder already released,
                 // then discard every queued callback before transport teardown.
+                // Each write asks at its own moment, a withheld one too.
+                var owedBefore = new List<FlexBase.VoxSetting>(_withheld);
+                _withheld.Clear();
+                foreach (var which in owedBefore) WriteNow(which, true, true);
                 foreach (var entry in _pending)
                     if (entry.Value.On) WriteNow(entry.Key, true, true);
                 _pending.Clear();
                 foreach (var entry in _pauses)
                     if (entry.Value.Restore) Write(entry.Key, true, true);
                 _pauses.Clear();
+                bool stillOwed = _withheld.Count > 0;
+                _withheld.Clear();
+                return stillOwed;
             }
         }
 
@@ -156,6 +196,19 @@ namespace Radios
 
         private bool WriteNow(FlexBase.VoxSetting which, bool on, bool immediate)
         {
+            if (on && _restoreRefusal != null)
+            {
+                string? why;
+                try { why = _restoreRefusal(); }
+                catch (Exception ex) { why = "the radio could not be read (" + ex.Message + ")"; }
+                if (why != null)
+                {
+                    _withheld.Add(which);
+                    Tracing.TraceLine("VoxPauseOwner: " + which + " NOT put back on - " + why
+                        + ". It stays off, and the restore is kept as still owed.", TraceLevel.Warning);
+                    return false;
+                }
+            }
             try
             {
                 if (_write(which, on, immediate)) return true;

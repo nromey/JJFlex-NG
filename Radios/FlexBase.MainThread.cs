@@ -177,37 +177,7 @@ namespace Radios
                         q_t.QItem_t el = q.Dequeue();
                         try
                         {
-                            if (el.Item is FunctionDel)
-                            {
-                                Tracing.TraceLine("mainLoop:" + el.Name, TraceLevel.Info);
-                                FunctionDel func = (FunctionDel)el.Item;
-                                if (func != null) func();
-                                Tracing.TraceLine("mainLoop:done " + el.Name, TraceLevel.Info);
-                            }
-                            else if (el.Item is cwText)
-                            {
-                                cwText cwt = (cwText)el.Item;
-                                if (cwt.State == cwBufferState.stop)
-                                {
-                                    stopCW();
-                                }
-                                else if (TransmitWorkRevoked(cwt.Generation, cwt.IsChar ? "CW typing" : "a CW message"))
-                                {
-                                    // Admitted before a drop or a teardown (#596 N4).
-                                }
-                                else if (cwt.IsChar && !string.IsNullOrEmpty(cwt.Text))
-                                {
-                                    sendCWChar(cwt.Text[0]);
-                                }
-                                else
-                                {
-                                    sendCWString(cwt.Text);
-                                }
-                            }
-                            else if (el.Item is char)
-                            {
-                                sendCWChar(((char)el.Item));
-                            }
+                            RunQueuedItem(el);
                         }
                         catch (Exception ex)
                         {
@@ -245,6 +215,44 @@ namespace Radios
                     Tracing.ErrMessageTrace(ex, true);
             }
         }
+        /// <summary>
+        /// One item off the command queue, run as the main loop runs it (repair
+        /// round 3: one method, so a test drains the queue through the
+        /// production dispatch rather than a copy of it). Admitted CW is
+        /// checked against its generation, radio and connection with its send
+        /// as one step (<see cref="SendIfStillAdmitted"/>).
+        /// </summary>
+        internal void RunQueuedItem(q_t.QItem_t el)
+        {
+            if (el.Item is FunctionDel)
+            {
+                Tracing.TraceLine("mainLoop:" + el.Name, TraceLevel.Info);
+                FunctionDel func = (FunctionDel)el.Item;
+                if (func != null) func();
+                Tracing.TraceLine("mainLoop:done " + el.Name, TraceLevel.Info);
+            }
+            else if (el.Item is cwText)
+            {
+                cwText cwt = (cwText)el.Item;
+                if (cwt.State == cwBufferState.stop)
+                {
+                    stopCW();
+                    return;
+                }
+                // Admitted before a drop or a teardown, or on another
+                // connection (#596 N4): dropped, not sent.
+                SendIfStillAdmitted(cwt.Generation, cwt.Owner, cwt.Connection, cwt.IsChar ? "CW typing" : "a CW message", () =>
+                {
+                    if (cwt.IsChar && !string.IsNullOrEmpty(cwt.Text)) sendCWChar(cwt.Text[0]);
+                    else sendCWString(cwt.Text);
+                });
+            }
+            else if (el.Item is char)
+            {
+                sendCWChar(((char)el.Item));
+            }
+        }
+
         public class cfg7620
         {
             public int BreakinDelay = 300;

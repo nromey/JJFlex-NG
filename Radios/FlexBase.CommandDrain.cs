@@ -30,7 +30,13 @@ public partial class FlexBase
         var queue = q;
         if (queue == null || !queue.MainLoop) return false;
         var reached = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        try { queue.Enqueue((FunctionDel)(() => reached.TrySetResult(true)), "DrainCommandQueue"); }
+        // Never under a write gate (repair round 3): the marker only waits for
+        // the queue, and a refused marker would leave the wait to time out.
+        try
+        {
+            using (Radios.StationConnect.QueuedWriteGate.Suspend())
+                queue.Enqueue((FunctionDel)(() => reached.TrySetResult(true)), "DrainCommandQueue");
+        }
         catch (Exception ex)
         {
             JJTrace.Tracing.TraceLine("DrainCommandQueueAsync: " + ex.Message, System.Diagnostics.TraceLevel.Warning);
