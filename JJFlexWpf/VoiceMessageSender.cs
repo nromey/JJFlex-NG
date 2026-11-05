@@ -368,6 +368,14 @@ internal static class VoiceMessageSender
             Refuse(info, Lexicon.Get("audio.reference.tone_already_armed"));
             return;
         }
+        // The reference in Check your audio shares the transmit player, and its
+        // end now ends the transmission (round three): a send would replace it.
+        // DRAFT PROSE (#864, round three): awaiting Noel.
+        if (rig.TxReferenceArmed)
+        {
+            Refuse(info, Lexicon.Get("audio.check.reference_already_armed"));
+            return;
+        }
 
         string trouble = rig.TxTonePathTrouble;
         if (!string.IsNullOrEmpty(trouble))
@@ -522,6 +530,14 @@ internal static class VoiceMessageSender
         if (rig.TxToneEngaged)
         {
             Refuse(info, Lexicon.Get("audio.reference.tone_already_armed"));
+            return;
+        }
+        // The reference in Check your audio shares the transmit player, and its
+        // end now ends the transmission (round three): a send would replace it.
+        // DRAFT PROSE (#864, round three): awaiting Noel.
+        if (rig.TxReferenceArmed)
+        {
+            Refuse(info, Lexicon.Get("audio.check.reference_already_armed"));
             return;
         }
         string trouble = rig.TxTonePathTrouble;
@@ -1137,6 +1153,12 @@ internal static class VoiceMessageSender
         if (rig.TxToneEngaged)
         {
             RefuseOrHold(info, Lexicon.Get("audio.reference.tone_already_armed"));
+            return;
+        }
+        // DRAFT PROSE (#864, round three): awaiting Noel.
+        if (rig.TxReferenceArmed)
+        {
+            RefuseOrHold(info, Lexicon.Get("audio.check.reference_already_armed"));
             return;
         }
         string trouble = rig.TxTonePathTrouble;

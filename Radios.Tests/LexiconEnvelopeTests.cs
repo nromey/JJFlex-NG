@@ -2295,12 +2295,23 @@ namespace Radios.Tests
                 "audio.takes.add_to_test",
                 "audio.takes.help.add_to_test",
                 "audio.takes.add_to_test_done",
+                // Unified takes, round three (5b): a reference reaching its end
+                // ends the transmission (Noel, 2026-11-04), so the finished
+                // sentence no longer says the microphone is back; reworded, it
+                // leaves the legacy manifest. Today's wording moves to a key of
+                // its own for a transmission the app does not hold, and the two
+                // users of the transmit file player refuse each other.
+                "audio.reference.finished",
+                "audio.check.reference_finished_mic_back",
+                "audio.check.reference_already_armed",
+                "audio.check.send_already_playing",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
             // 3,133: main's junk box classified two (3,140 to 3,138) and Check
             // your audio five (3,140 to 3,135); the two sets are disjoint.
-            Assert.Equal(3095, unclassified);
+            // 3094: Unified takes round three reworded audio.reference.finished.
+            Assert.Equal(3094, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

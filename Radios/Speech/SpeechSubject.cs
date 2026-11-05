@@ -599,6 +599,15 @@ namespace Radios.Speech
         /// last. The slice mutes a saved playback makes and puts back say nothing.
         /// </summary>
         public const string PlaybackTake = "playback-take";
+        /// <summary>
+        /// The reference recording's own notices in Check your audio (Unified
+        /// takes, round three): that it played to its end, which since Noel's
+        /// 2026-11-04 ruling also ends the transmission, and that it was not
+        /// armed because a recording was already being sent. One subject,
+        /// because each is about the reference now and the newer replaces an
+        /// unheard older one.
+        /// </summary>
+        public const string ReferenceAudio = "reference-audio";
         /// A global-profile write refused because the radio is not declared
         /// the operator's, or its ownership is not yet answered (junkbox
         /// #777). Spoken from the funnel every global save passes through,

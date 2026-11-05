@@ -92,7 +92,9 @@ public partial class CheckYourAudioDialog
             + "you key the radio as usual and the recording goes out in place "
             + "of your microphone, through exactly the same processing your "
             + "voice goes through. It starts from the beginning each time you "
-            + "key, and your microphone comes back when it finishes.");
+            // DRAFT PROSE (#864, round three): the transmission ends with the
+            // reference (Noel, 2026-11-04); the microphone is not handed back.
+            + "key, and when it finishes, the transmission ends.");
         _sections.Add(CheckContent, _refArmCheck);
 
         _refRecordButton = new Button
@@ -332,6 +334,21 @@ public partial class CheckYourAudioDialog
             return;
         }
 
+        // A send or Play from computer has the same transmit player: arming now
+        // would load the reference over the recording going out (round three).
+        if (rig.TxFilePlaying && !rig.TxReferenceArmed)
+        {
+            SetReferenceArmSilently(false);
+            EarconPlayer.Warning2Beep();
+            // DRAFT PROSE (#864, round three): awaiting Noel.
+            ScreenReaderOutput.Speak(
+                Lexicon.Get("audio.reference.not_armed",
+                    ("reason", Lexicon.Get("audio.check.send_already_playing"))),
+                Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.ReferenceAudio);
+            return;
+        }
+
         // The reference rides the PC-audio transmit path, exactly as the test
         // tone does, so it needs the identical preconditions — and goes through
         // the identical helper (#458) rather than growing a second opinion
@@ -508,18 +525,24 @@ public partial class CheckYourAudioDialog
             // would happen, silently, at the next key-down.
             _refPassRunning = false;
             EarconPlayer.ConfirmTone();
-            // "Your microphone is back" has to be TRUE, and since #458 an arm
-            // may have moved the transmit input to get here — so this path
-            // restores it too, exactly as the operator-initiated disarm does.
-            // Without this the sentence would have been the lie the whole
-            // finding is about.
+            // Since #458 an arm may have moved the transmit input to get here,
+            // so this path restores it, exactly as the operator-initiated
+            // disarm does.
             rig.TxFileStop();
             RestoreInjectionPath(rig, out string pathNote);
-            string finished = Lexicon.Get("audio.reference.finished");
+            // And the transmission it rode ends (Noel, 2026-11-04): a check
+            // stops as Stop stops it, a key the app holds is let go. Only a
+            // transmission the app does not hold carries on, and only that
+            // one is told its microphone is back (ReferenceEnd.cs).
+            var holder = ReferenceHolderNow(rig);
+            string finished = ReferenceFinishedSentence(holder);
             if (!string.IsNullOrEmpty(pathNote)) finished += " " + pathNote;
-            ScreenReaderOutput.Speak(finished, VerbosityLevel.Terse, interrupt: false);
+            ScreenReaderOutput.Speak(finished, Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
+                subject: Radios.Speech.SpeechSubject.ReferenceAudio);
             SetReferenceArmSilently(false);
             UpdateReferenceStatus();
+            if (holder is ReferenceEndHolder.Check or ReferenceEndHolder.App)
+                EndTransmissionAfterReferenceTail(rig, holder);
             return;
         }
 
