@@ -43,6 +43,25 @@ namespace Radios.Tests.StationConnect
         public override void Disconnect() { }
 
         /// <summary>
+        /// The link falls (repair round 4): FlexLib marks the current
+        /// connection Disconnected and KEEPS it as the current one, as the
+        /// real transports do.
+        /// </summary>
+        public void Fall()
+        {
+            var connection = CurrentConnection;
+            if (connection != null) PublishDisconnected(connection);
+        }
+
+        /// <summary>The same transport connects again: a NEW command connection, as a same-Radio reconnect makes.</summary>
+        public void Reconnect()
+        {
+            Fall();
+            var connection = BeginConnection();
+            PublishConnected(connection);
+        }
+
+        /// <summary>
         /// A line arriving from the radio, as the real transport delivers one:
         /// to every <c>DataReceived</c> subscriber, with this connection. The
         /// Radio's own parser is not subscribed to this fake (see above); what

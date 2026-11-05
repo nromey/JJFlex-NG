@@ -73,7 +73,10 @@ public sealed class DisconnectPutBackOrderTests
         int putBack = text.IndexOf("private void PutBackNow(Radio radio, MicInputSwap swap, string when)", StringComparison.Ordinal);
         Assert.True(putBack > 0, "PutBackNow moved");
         string mic = text.Substring(putBack, 1200);   // widened: the teardown withhold sits ahead of it
-        Assert.Contains("if (string.Equals(nowInput, \"PC\", StringComparison.OrdinalIgnoreCase))", mic, StringComparison.Ordinal);
+        // Repair round 4 (Codex's F3): the PC check comes first, so a newer
+        // choice leaves no debt, and the write is gated on it.
+        Assert.Contains("bool stillOurPc = string.Equals(nowInput, \"PC\", StringComparison.OrdinalIgnoreCase);", mic, StringComparison.Ordinal);
+        Assert.Contains("if (stillOurPc)", mic, StringComparison.Ordinal);
 
         // The shack speaker: only while the radio still mutes it.
         int write = text.IndexOf("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop", StringComparison.Ordinal);
@@ -148,8 +151,8 @@ public sealed class DisconnectPutBackOrderTests
         int now = text.IndexOf("private void PutBackNow(Radio radio, MicInputSwap swap, string when)", StringComparison.Ordinal);
         int queued = text.IndexOf("private void WriteSwitchBackPutBack(Radio radio, MicInputSwap swap, PutBackPin pin, string when)", StringComparison.Ordinal);
         Assert.True(now > 0 && queued > 0, "a put-back moved");
-        Assert.Contains("if (MicPutBackWithheld(when, swap.Saved)) { KeepMicPutBackOwed(swap); return; }", text.Substring(now, 900), StringComparison.Ordinal);
-        string queuedBody = text.Substring(queued, 3500);
+        Assert.Contains("if (stillOurPc && MicPutBackWithheld(when, swap.Saved)) { KeepMicPutBackOwed(swap); return; }", text.Substring(now, 1200), StringComparison.Ordinal);
+        string queuedBody = text.Substring(queued, 4500);   // repair round 4 added the newer-choice check ahead
         int withhold = queuedBody.IndexOf("if (MicPutBackWithheld(when, swap.Saved)) { KeepMicPutBackOwed(swap); return; }", StringComparison.Ordinal);
         int raw = queuedBody.IndexOf("SendRadioCommandWithReply(radio, command", StringComparison.Ordinal);
         Assert.True(withhold > 0 && raw > withhold, "the raw switch-back write can go out without asking the teardown");

@@ -2560,11 +2560,18 @@ namespace Radios
             {
                 try
                 {
+                    bool eqQueued;
                     using (AppInitiatedSettingChanges())
                         // applyEq only when the snapshot actually captured the EQ —
                         // a band the snapshot never read must not be written.
-                        snapshot.ApplyTo(this, applyEq: snapshot.TxEqCaptured);
-                    return true;
+                        snapshot.ApplyTo(this, applyEq: snapshot.TxEqCaptured, out eqQueued);
+                    // An owed equaliser that could not be queued (the radio
+                    // has not reported one) leaves the restore incomplete, and
+                    // its snapshot kept (repair round 4, Codex's F2).
+                    if (!eqQueued)
+                        Tracing.TraceLine("ProfileStewardship: the snapshot owes the equaliser and the radio has none to write",
+                            TraceLevel.Warning);
+                    return eqQueued;
                 }
                 catch (Exception ex)
                 {

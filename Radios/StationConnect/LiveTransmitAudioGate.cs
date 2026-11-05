@@ -68,6 +68,27 @@ namespace Radios.StationConnect
         }
 
         /// <summary>
+        /// Ask the gate of the item running on this thread again, at ONE write
+        /// inside that item (repair round 4, rule 3): an item that makes
+        /// several writes (the equaliser's ten) re-asks before each, because a
+        /// gate asked once before the first is no gate on the later ones. Null
+        /// means the write may go, and also when no gated item is running. A
+        /// refusal marks the item withheld, so it counts as refused, not run.
+        /// </summary>
+        public static string RefusedNow()
+        {
+            var gate = _running;
+            if (gate == null) return null;
+            string why;
+            try { why = gate._refusal(); }
+            catch (Exception ex) { why = "the gate could not be asked (" + ex.Message + ")"; }
+            if (why == null) return null;
+            _runningWithheld = true;
+            Interlocked.CompareExchange(ref gate._firstRefusal, why, null);
+            return why;
+        }
+
+        /// <summary>
         /// Nothing queued until the returned scope ends carries any gate: for
         /// a marker that only waits for the queue (<c>DrainCommandQueueAsync</c>),
         /// which must never be refused, or a wait for it would never end.

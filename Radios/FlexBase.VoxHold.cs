@@ -60,6 +60,8 @@ namespace Radios
         private VoxPauseOwner.Lease? _referenceVoxLease;
         private string? _voxPausedAtDisconnectSerial;
         private object? _voxPauseRadio;
+        /// <summary>The command connection the shared VOX owner belongs to (repair round 4, #596 B6).</summary>
+        private object? _voxPauseConnection;
         private readonly object _voxReplyGate = new object();
         private readonly System.Collections.Generic.Dictionary<VoxSetting, (Radio Radio, bool On, Task<bool> Reply)> _voxReplies = new();
 
@@ -81,19 +83,40 @@ namespace Radios
             {
                 lock (_voxPauseGate)
                 {
-                    if (_voxPauses == null || !ReferenceEquals(_voxPauseRadio, theRadio))
+                    var current = theRadio;
+                    object? currentConnection = current?.CurrentCommandConnection;
+                    if (_voxPauses == null || !ReferenceEquals(_voxPauseRadio, current)
+                        || !ReferenceEquals(_voxPauseConnection, currentConnection))
                     {
-                        // An old lease must never restore its snapshot into
-                        // a different radio now attached to this wrapper.
-                        _voxPauses?.Disconnect();
-                        var radio = theRadio;
+                        // An old lease must never restore its snapshot into a
+                        // different radio, nor onto another command connection
+                        // of the same radio (repair round 4, Codex's B6): VOX
+                        // debt belongs to the connection that incurred it, and
+                        // writing it onto a new one would turn on autonomous
+                        // keying nobody asked for there. So the old owner is
+                        // abandoned, never flushed, and what it still owed is
+                        // remembered by serial for the next connect's sentence.
+                        if (_voxPauses != null)
+                        {
+                            string? oldSerial = (_voxPauseRadio as Radio)?.Serial;
+                            if (_voxPauses.Abandon() && oldSerial != null)
+                            {
+                                _voxPausedAtDisconnectSerial = oldSerial;
+                                Tracing.TraceLine("VoxPauses: the radio or its command connection changed with a VOX "
+                                    + "restore still owed; it is NOT written on the new one, and is remembered", TraceLevel.Warning);
+                            }
+                        }
+                        var radio = current;
+                        object? connection = currentConnection;
                         _voxPauseRadio = radio;
+                        _voxPauseConnection = connection;
+                        bool Ours() => radio != null && ReferenceEquals(radio, theRadio)
+                            && ReferenceEquals(radio.CurrentCommandConnection, connection);
                         _voxPauses = new VoxPauseOwner(
-                            which => radio != null && ReferenceEquals(radio, theRadio)
-                                ? (which == VoxSetting.CwBreakIn ? radio.CWBreakIn : radio.SimpleVOXEnable)
-                                : throw new InvalidOperationException("The radio is no longer attached."),
-                            (which, on, immediate) => radio != null && ReferenceEquals(radio, theRadio)
-                                && WriteVoxSetting(which, on, immediate),
+                            which => Ours()
+                                ? (which == VoxSetting.CwBreakIn ? radio!.CWBreakIn : radio!.SimpleVOXEnable)
+                                : throw new InvalidOperationException("The radio or its command connection is no longer this one."),
+                            (which, on, immediate) => Ours() && WriteVoxSetting(which, on, immediate),
                             action =>
                             {
                                 if (!q.MainLoop) return false;
@@ -101,8 +124,10 @@ namespace Radios
                                 return true;
                             },
                             // The family's one question, at every restore write
-                            // (repair round 3): never VOX back on under a carrier.
-                            () => radio != null && ReferenceEquals(radio, theRadio) ? RestoreRefusedAtWrite(radio) : null);
+                            // (repair round 3), pinned to this owner's radio AND
+                            // command connection (repair round 4).
+                            () => radio == null ? "there is no radio"
+                                : RestoreRefusedAtWrite(radio, (object?)connection ?? NoConnection));
                         OperatorChangedRadioSetting -= NoteVoxPauseOperatorChange;
                         OperatorChangedRadioSetting += NoteVoxPauseOperatorChange;
                     }
@@ -155,6 +180,7 @@ namespace Radios
                 _toneVoxLease = null;
                 _voxPauses = null;
                 _voxPauseRadio = null;
+                _voxPauseConnection = null;
             }
         }
 

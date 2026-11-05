@@ -616,6 +616,101 @@ namespace Radios.Tests
             Assert.Equal("MIC", rig.MicInput);
         }
 
+        /// <summary>
+        /// Repair round 4 (Codex's F3): the owner chose BAL while the withheld
+        /// debt for MIC was kept. Their newer choice wins: the next run saves
+        /// BAL as the original, and its stop puts BAL back, never the older MIC.
+        /// The round-3 test above, with no newer choice, is the control.
+        /// </summary>
+        [Fact]
+        public void A_newer_input_chosen_while_a_withheld_debt_is_kept_wins_over_the_debt()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            rig.Vendor.Status("interlock state=TRANSMITTING source=RCA tx_client_handle=0x0BADF00D");
+
+            rig.StopPcAudio();                       // withheld: MIC kept as owed
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+            rig.RadioReports("BAL");                 // the owner's newer choice while PC audio is off
+
+            rig.NextRunBegins();                     // still keyed
+            rig.StartPcAudio();
+            Assert.Equal("PC", rig.MicInput);
+
+            rig.Vendor.Status("interlock state=READY source= tx_client_handle=0x00000000");
+            rig.StopPcAudio();
+            Assert.Equal("mic input BAL", rig.MicWrites.Last());
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+            Assert.Equal("BAL", rig.MicInput);
+        }
+
+        /// <summary>
+        /// The same newer choice reported while the debt is kept, with the
+        /// radio receiving again and no new run: the stop that owed MIC finds
+        /// BAL, not the PC we set, and writes nothing (match only).
+        /// </summary>
+        [Fact]
+        public void A_withheld_debt_meets_a_newer_choice_and_writes_nothing()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            rig.Vendor.Status("interlock state=TRANSMITTING source=RCA tx_client_handle=0x0BADF00D");
+            rig.StopPcAudio();
+            rig.RadioReports("BAL");
+            rig.Vendor.Status("interlock state=READY source= tx_client_handle=0x00000000");
+            rig.NextRunBegins();                     // the start's own put-back pass meets BAL
+
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+            Assert.Equal("BAL", rig.MicInput);
+        }
+
+        /// <summary>
+        /// The adoption itself (repair round 4, F3): a new channel start on the
+        /// same run, with the withheld MIC debt kept and the owner's BAL
+        /// reported since, saves BAL as the original. No run-start pass runs
+        /// first here, so this is the start's own check of the debt.
+        /// </summary>
+        [Fact]
+        public void A_channel_start_does_not_adopt_a_debt_a_newer_choice_has_voided()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            rig.Vendor.Status("interlock state=TRANSMITTING source=RCA tx_client_handle=0x0BADF00D");
+            rig.StopPcAudio();                       // withheld: MIC kept as owed
+            rig.RadioReports("BAL");
+
+            rig.StartPcAudio();                      // the same run, a fresh channel start
+            rig.Vendor.Status("interlock state=READY source= tx_client_handle=0x00000000");
+            rig.StopPcAudio();
+            Assert.Equal("mic input BAL", rig.MicWrites.Last());
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+        }
+
+        /// <summary>
+        /// A stop that finds a newer choice than the PC we set keeps no debt
+        /// for it, carrier or not (repair round 4, F3): there is nothing of
+        /// ours to put back over another operator's choice.
+        /// </summary>
+        [Fact]
+        public void A_stop_that_finds_a_newer_choice_keeps_no_debt_even_under_a_carrier()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("BAL");                 // the owner chose BAL while PC audio was on
+            rig.Vendor.Status("interlock state=TRANSMITTING source=RCA tx_client_handle=0x0BADF00D");
+            rig.StopPcAudio();
+
+            Assert.Null(SwapField.GetValue(rig.Rig));
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+        }
+
         [Fact]
         public void ARunStartLeavesALaterChoiceAlone()
         {

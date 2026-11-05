@@ -103,14 +103,20 @@ namespace Radios
 
         /// <summary>
         /// True only when the radio's own last report on its current connection
-        /// was a recognised receive state. Never reported, or something
-        /// unrecognised since, is not receive.
+        /// was a recognised receive state, AND that connection is still up.
+        /// Never reported, or something unrecognised since, is not receive.
+        /// Nor is a report on a connection that has ended (repair round 4,
+        /// Codex's F4): FlexLib keeps the ended connection as the current one,
+        /// so its old READY would otherwise outlive it, and a write sent into
+        /// the dead link would count as run.
         /// </summary>
         internal static bool ConfirmsReceive(Radio? radio)
         {
             if (radio == null) return false;
             Watch(radio);
-            return LastOn(radio.CurrentCommandConnection)?.IsReceive == true;
+            var connection = radio.CurrentCommandConnection;
+            if (connection == null || connection.State != CommandConnectionState.Connected) return false;
+            return LastOn(connection)?.IsReceive == true;
         }
 
         private static void Received(CommandDataReceived data)

@@ -11532,19 +11532,39 @@ namespace Radios
             s.Hz8000 = eq.level_8000Hz;
         }
 
+        /// <summary>
+        /// The equaliser's ten writes. Each one re-asks the gate of the item it
+        /// runs in (repair round 4, rule 3; Codex's F1): one item writes every
+        /// band, so a carrier rising after the first band must stop the rest,
+        /// and the item then counts as withheld, not run. Outside a gated
+        /// item every write goes, as before.
+        /// </summary>
         private static void PushEqTo(Equalizer eq, EqSettings s)
         {
             static int Clamp(int v) => Math.Max(EqLevelMin, Math.Min(EqLevelMax, v));
-            eq.level_32Hz = Clamp(s.Hz32);
-            eq.level_63Hz = Clamp(s.Hz63);
-            eq.level_125Hz = Clamp(s.Hz125);
-            eq.level_250Hz = Clamp(s.Hz250);
-            eq.level_500Hz = Clamp(s.Hz500);
-            eq.level_1000Hz = Clamp(s.Hz1000);
-            eq.level_2000Hz = Clamp(s.Hz2000);
-            eq.level_4000Hz = Clamp(s.Hz4000);
-            eq.level_8000Hz = Clamp(s.Hz8000);
-            eq.EQ_enabled = s.Enabled;
+            Action[] writes =
+            {
+                () => eq.level_32Hz = Clamp(s.Hz32),
+                () => eq.level_63Hz = Clamp(s.Hz63),
+                () => eq.level_125Hz = Clamp(s.Hz125),
+                () => eq.level_250Hz = Clamp(s.Hz250),
+                () => eq.level_500Hz = Clamp(s.Hz500),
+                () => eq.level_1000Hz = Clamp(s.Hz1000),
+                () => eq.level_2000Hz = Clamp(s.Hz2000),
+                () => eq.level_4000Hz = Clamp(s.Hz4000),
+                () => eq.level_8000Hz = Clamp(s.Hz8000),
+                () => eq.EQ_enabled = s.Enabled,
+            };
+            foreach (var write in writes)
+            {
+                string refused = StationConnect.QueuedWriteGate.RefusedNow();
+                if (refused != null)
+                {
+                    Tracing.TraceLine("PushEqTo: the rest of the equaliser was NOT written - " + refused, TraceLevel.Warning);
+                    return;
+                }
+                write();
+            }
         }
 
         private void RequestEqualizer(EqualizerSelect which, string traceName)
@@ -11583,7 +11603,13 @@ namespace Radios
             q.Enqueue((FunctionDel)(() =>
             {
                 var eq = theRadio?.FindEqualizerByEQSelect(which);
-                if (eq == null) return;
+                if (eq == null)
+                {
+                    // Gone by the time it ran (repair round 4, Codex's F2): a
+                    // restore step must not count it as written.
+                    StationConnect.QueuedWriteGate.WithholdRunning("the radio's " + which + " equaliser was not there to write");
+                    return;
+                }
                 PushEqTo(eq, s);
             }), traceName);
             return true;

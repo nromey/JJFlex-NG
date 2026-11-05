@@ -43,11 +43,16 @@ namespace Radios
         private readonly IVoiceMessageRig _source;
         private IDisposable? _arm;
 
+        // The radio and command connection at the press (repair round 4, #596
+        // B5): a box send outlived by its connection keys and unkeys nothing.
+        private readonly object _admission;
+
         private BoxSendOwnedRig(FlexBase rig, IVoiceMessageRig source, IDisposable arm)
         {
             _rig = rig;
             _source = source;
             _arm = arm;
+            _admission = rig.TransmitAdmissionNow();
         }
 
         /// <summary>
@@ -105,6 +110,11 @@ namespace Radios
             get => _source.Transmit;
             set
             {
+                if (!_rig.TransmitAdmissionStands(_admission, value ? "a box send's key" : "a box send's unkey"))
+                {
+                    if (value) KeyRefused = true;
+                    return;
+                }
                 if (value)
                 {
                     if (!TransmitKillSwitch.RaiseCarrier(_rig, TransmitKillSwitch.Carrier.Mox))

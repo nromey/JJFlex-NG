@@ -3439,6 +3439,12 @@ public partial class MainWindow : UserControl
         _lockKeyDown = false;
         _lockStreamUpMs = long.MinValue;
 
+        // Every send in hand ends with the connection (repair round 4, Codex's
+        // #596 B5), drop or teardown, before anything else: its next tick
+        // could otherwise read a carrier on a returned connection as its own
+        // and unkey it.
+        VoiceMessageSender.EndForConnection(deliberate ? "teardown" : "the connection fell");
+
         // An unexpected drop ends a check that is counting down or waiting to
         // key (#596, Codex's check, B2): its start would otherwise key the
         // radio again when the link came back, with no new press. A

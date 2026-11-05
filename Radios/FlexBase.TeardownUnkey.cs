@@ -202,6 +202,13 @@ public partial class FlexBase
     /// for, when this computer is keying the radio, or when the radio does not
     /// positively report receive (a report received, rule 3).
     /// </summary>
+    /// <summary>
+    /// Stands for "there was no command connection" when a write is pinned
+    /// to one (repair round 4): never the current connection, so a write
+    /// admitted with none is refused once one exists.
+    /// </summary>
+    internal static readonly object NoConnection = new object();
+
     internal string RestoreRefusedAtWrite(Radio expectedRadio = null, object expectedConnection = null)
     {
         var radio = theRadio;
@@ -210,6 +217,11 @@ public partial class FlexBase
             return "the radio it was for is no longer this one";
         if (expectedConnection != null && !ReferenceEquals(radio.CurrentCommandConnection, expectedConnection))
             return "the radio's command connection has changed since";
+        // The connection itself must still be up (repair round 4, Codex's
+        // F4): FlexLib keeps an ended connection as the current one, and a
+        // write sent into it goes nowhere while its item counts as run.
+        if (radio.CurrentCommandConnection?.State != CommandConnectionState.Connected)
+            return "the radio's command connection has ended";
         if (_Transmit) return "this computer is keying the radio";
         return WhyNotReceiving();
     }
@@ -252,6 +264,55 @@ public partial class FlexBase
                 + (gate.FirstThrow != null ? " - " + gate.FirstThrow : "")
                 + "; its debt is kept, not discharged", TraceLevel.Warning);
         return outcome;
+    }
+
+    // ── A send's admission (repair round 4, Codex's #596 B5) ──
+
+    /// <summary>The radio and command connection a piece of transmit work was admitted on.</summary>
+    private sealed class TransmitAdmission
+    {
+        public TransmitAdmission(Radio radio, object connection) { Radio = radio; Connection = connection; }
+        public Radio Radio { get; }
+        public object Connection { get; }
+    }
+
+    /// <summary>
+    /// The radio and command connection now, for a send to carry from its
+    /// press (repair round 4, #596 B5). Its later key and unkey go out only
+    /// while <see cref="TransmitAdmissionStands"/>: a send outlived by its
+    /// connection must never unkey a carrier on the next one, which may be
+    /// another client's.
+    /// </summary>
+    public object TransmitAdmissionNow()
+    {
+        var radio = theRadio;
+        return new TransmitAdmission(radio, radio?.CurrentCommandConnection);
+    }
+
+    /// <summary>
+    /// True while <paramref name="admission"/> is still this radio on the same,
+    /// still-connected command connection. False, traced with
+    /// <paramref name="what"/>, otherwise: then that work's key or unkey is not
+    /// this connection's to send. The teardown and the drop own the release
+    /// of a carrier whose connection has gone.
+    /// </summary>
+    public bool TransmitAdmissionStands(object admission, string what)
+    {
+        string why;
+        var radio = theRadio;
+        if (admission is not TransmitAdmission a) why = "it carries no admission";
+        // Admitted with no radio attached: nothing it does can reach a radio,
+        // so it stands while there is still none, and never once one is.
+        else if (a.Radio == null) { if (radio == null) return true; why = "a radio was attached after it was admitted"; }
+        else if (radio == null) why = "there is no radio";
+        else if (!ReferenceEquals(radio, a.Radio)) why = "the radio it was admitted on is no longer this one";
+        else if (a.Connection == null || !ReferenceEquals(radio.CurrentCommandConnection, a.Connection))
+            why = "the radio's command connection has changed since it was admitted";
+        else if (radio.CurrentCommandConnection?.State != CommandConnectionState.Connected)
+            why = "the command connection it was admitted on has ended";
+        else return true;
+        Tracing.TraceLine("TransmitAdmission: " + what + " NOT sent - " + why, TraceLevel.Warning);
+        return false;
     }
 
     /// <summary>What became of one restoration step's writes.</summary>
@@ -467,7 +528,10 @@ public partial class FlexBase
         // The family's one question (repair round 3, rule 1).
         string onAir = RestoreRefusedAtWrite();
         if (onAir == null) return false;
-        Tracing.TraceLine("PutBackSavedMicInput (" + when + "): NOT writing '" + saved + "' - " + onAir
+        // Logged only, never spoken (ruled by Noel 2026-11-04 22:22): the next
+        // connection to this radio completes it. The line names the place.
+        Tracing.TraceLine("MicPutBackWithheld: radio " + (theRadio?.Serial ?? "(none)") + ", PutBackSavedMicInput ("
+            + when + "): NOT writing '" + saved + "' - " + onAir
             + ". The mic input is not written, and the value is kept as still owed.", TraceLevel.Warning);
         return true;
     }

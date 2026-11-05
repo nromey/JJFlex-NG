@@ -1139,6 +1139,44 @@ internal static class VoiceMessageSender
     }
 
     /// <summary>
+    /// The connection dropped or is being torn down (repair round 4, Codex's
+    /// #596 B5). Every send in hand ends NOW, before the push-to-talk release
+    /// and before anything is put back, so nothing it scheduled can act after
+    /// the drop: a send going out ends without touching the key (the drop and
+    /// the teardown own the release of this connection's carrier), its next
+    /// tick never comes, a box send getting ready is cancelled, and a paused
+    /// send ends as a disconnect ends it. Quiet apart from the paused case's
+    /// own sentence: the drop says what happened. Idempotent; UI thread.
+    /// </summary>
+    public static void EndForConnection(string why)
+    {
+        SendInfo? starting = _starting;
+        if (starting != null)
+        {
+            _starting = null;
+            starting.Session.Stop();
+            Tracing.TraceLine("VoiceMessageSender: " + Name(starting) + " ended before it keyed: " + why, TraceLevel.Info);
+        }
+        VoiceMessageSend? send = _send;
+        if (send != null && !send.Finished)
+        {
+            send.EndWithConnection();
+            Tracing.TraceLine("VoiceMessageSender: " + (_current != null ? Name(_current) : "a send")
+                + " ended with its connection (" + why + "); the key is the drop's or the teardown's to release",
+                TraceLevel.Info);
+            _settlingQuietly = true;
+            try { Settle(); }
+            finally { _settlingQuietly = false; }
+        }
+        SendInfo? paused = _paused;
+        if (paused != null) EndPausedOnDisconnect(paused);
+        if (_send == null && _paused == null) StopTimer();
+    }
+
+    /// <summary>True while <see cref="EndForConnection"/> settles a send: it says nothing of its own.</summary>
+    private static bool _settlingQuietly;
+
+    /// <summary>
     /// Stop the send going out, the box send getting ready, or the send that
     /// is paused (Escape, and every door that ends a send). Idempotent.
     /// </summary>
@@ -1530,6 +1568,7 @@ internal static class VoiceMessageSender
                     || send.Outcome == VoiceMessageOutcome.VoxDidNotKey
                     || send.Outcome == VoiceMessageOutcome.RanLong
                     || send.Outcome == VoiceMessageOutcome.SourceStopped;
+        if (_settlingQuietly) return;
         Speak(info, send.Outcome, trouble);
     }
 
@@ -1613,14 +1652,29 @@ internal static class VoiceMessageSender
         private readonly SliceRecorderTarget _target;
         private bool _started, _stopAsked;
         private volatile bool _confirmed, _failed;
+        // The radio and command connection at the press (repair round 4, #596 B5).
+        private readonly object _admission;
 
-        internal SliceSendRig(FlexBase rig, SliceRecorderTarget target) { _rig = rig; _target = target; }
+        internal SliceSendRig(FlexBase rig, SliceRecorderTarget target)
+        {
+            _rig = rig;
+            _target = target;
+            _admission = rig.TransmitAdmissionNow();
+        }
 
         /// <summary>The slice recorder refused or failed the start; its own outcome says why.</summary>
         internal bool Failed => _failed;
         internal RecorderOutcome? Failure { get; private set; }
 
-        public bool Transmit { get => _rig.Transmit; set => _rig.Transmit = value; }
+        public bool Transmit
+        {
+            get => _rig.Transmit;
+            set
+            {
+                if (!_rig.TransmitAdmissionStands(_admission, value ? "a slice send's key" : "a slice send's unkey")) return;
+                _rig.Transmit = value;
+            }
+        }
 
         // Playing only once asked and not failed: the recorder marks a slice
         // playing BEFORE the radio confirms, so a refused start reads as

@@ -2027,9 +2027,13 @@ namespace Radios
                 // microphone onto a carrier, whether the teardown's wait
                 // could not confirm receive or something keyed since. The
                 // value stays owed rather than lost.
-                if (MicPutBackWithheld(when, swap.Saved)) { KeepMicPutBackOwed(swap); return; }
+                // A newer choice first (repair round 4, Codex's F3): when the
+                // radio no longer reports the PC we set there is nothing to put
+                // back over it, so no debt is kept for it below.
                 string nowInput = radio.MicInput ?? "";
-                if (string.Equals(nowInput, "PC", StringComparison.OrdinalIgnoreCase))
+                bool stillOurPc = string.Equals(nowInput, "PC", StringComparison.OrdinalIgnoreCase);
+                if (stillOurPc && MicPutBackWithheld(when, swap.Saved)) { KeepMicPutBackOwed(swap); return; }
+                if (stillOurPc)
                 {
                     radio.MicInput = swap.Saved;
                     // Sent, not confirmed (Codex's follow-up): FlexLib's setter
@@ -2145,6 +2149,15 @@ namespace Radios
                     Tracing.TraceLine("PutBackSavedMicInput (" + when + "): NOT writing '" + swap.Saved
                         + "' - " + stale + ", so this queued put-back belongs to a session that is over",
                         TraceLevel.Warning);
+                    return;
+                }
+                // A newer choice than both the PC and the saved value is not
+                // ours to overwrite and leaves no debt (repair round 4, F3).
+                if (NewerMicChoice(radio.MicInput, swap))
+                {
+                    Tracing.TraceLine("PutBackSavedMicInput (" + when + "): mic input is now '" + (radio.MicInput ?? "")
+                        + "', a newer choice than the PC this app set, so it is left there rather than"
+                        + " restored to '" + swap.Saved + "'", TraceLevel.Info);
                     return;
                 }
                 // At this queued write, the interlock as it is now (repair
@@ -2264,7 +2277,22 @@ namespace Radios
             var radio = theRadio;
             return swap != null && radio != null && ReferenceEquals(swap.Radio, radio)
                 && string.Equals(radio.Serial ?? "", swap.Serial, StringComparison.Ordinal)
-                && swap.Connection != null && ReferenceEquals(swap.Connection, radio.CurrentCommandConnection);
+                && swap.Connection != null && ReferenceEquals(swap.Connection, radio.CurrentCommandConnection)
+                && !NewerMicChoice(radio.MicInput, swap);
+        }
+
+        /// <summary>
+        /// The radio now reports a microphone input that is neither the PC we
+        /// set nor the value we saved: someone chose it since, and their newer
+        /// choice wins (repair round 4, Codex's F3; the match-only ruling of
+        /// 2026-11-02). A debt to put back the saved value is void then, and
+        /// a new PC-audio run saves THIS as the original.
+        /// </summary>
+        private static bool NewerMicChoice(string nowInput, MicInputSwap swap)
+        {
+            string now = nowInput ?? "";
+            return !string.Equals(now, "PC", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(now, swap.Saved ?? "", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
