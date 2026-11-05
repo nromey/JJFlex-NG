@@ -101,6 +101,11 @@ public static class DeleteKeyRemoves
     internal static bool Decide(Radios.DeleteKeyGate gate, Key key, ModifierKeys mods, bool isRepeat, bool fromTextEntry,
         int selectedIndex, bool buttonPresent, bool buttonEnabled, bool buttonVisible, long nowMs)
     {
+        // A modifier on its own (repair round 4) does not stop a held key's
+        // stream, so it is not a new intent and changes nothing. So does a key
+        // whose real identity was not read (Key.System, an IME key): it is not
+        // known to be another key.
+        if (IsModifierOrUnread(key)) return false;
         if (key == Key.Delete && (mods != ModifierKeys.None || fromTextEntry))
         {
             // Still the Delete key: it continues a hold and never ends one
@@ -128,8 +133,39 @@ public static class DeleteKeyRemoves
 
     private static void OnPreviewKeyUp(object sender, KeyEventArgs e)
     {
-        if (sender is Selector list && e.Key == Key.Delete) GateFor(list).Up(Environment.TickCount64);
+        if (sender is Selector list && RealKey(e.Key, e.SystemKey, e.ImeProcessedKey, e.DeadCharProcessedKey) == Key.Delete)
+            GateFor(list).Up(Environment.TickCount64);
     }
+
+    /// <summary>
+    /// The key a key event is really about (repair round 4). With Alt held WPF
+    /// reports <c>Key.System</c> and puts the real key in <c>SystemKey</c>
+    /// (CLAUDE.md's keyboard audit, item 7); an IME or a dead key reports its
+    /// own placeholder the same way. Both the down and the up read this.
+    /// </summary>
+    internal static Key RealKey(Key key, Key systemKey, Key imeProcessedKey, Key deadCharProcessedKey) => key switch
+    {
+        Key.System => systemKey,
+        Key.ImeProcessed => imeProcessedKey,
+        Key.DeadCharProcessed => deadCharProcessedKey,
+        _ => key,
+    };
+
+    /// <summary>
+    /// A modifier on its own, either side (Shift, Ctrl, Alt, the Windows key),
+    /// a screen reader's own key or a lock key (Insert, Caps Lock, Num Lock,
+    /// Scroll Lock),
+    /// or a key whose real identity is unread (still <c>Key.System</c> or an
+    /// IME placeholder, or none): never a new intent (repair round 4).
+    /// </summary>
+    internal static bool IsModifierOrUnread(Key key) => key switch
+    {
+        Key.LeftShift or Key.RightShift or Key.LeftCtrl or Key.RightCtrl
+            or Key.LeftAlt or Key.RightAlt or Key.LWin or Key.RWin
+            or Key.Insert or Key.CapsLock or Key.NumLock or Key.Scroll
+            or Key.System or Key.ImeProcessed or Key.DeadCharProcessed or Key.None => true,
+        _ => false,
+    };
 
     /// <summary>
     /// Whether Delete on a list should press its button: bare Delete, an item
@@ -155,7 +191,8 @@ public static class DeleteKeyRemoves
         bool fromText = e.OriginalSource is TextBoxBase || e.OriginalSource is PasswordBox
                         || (e.OriginalSource is ComboBox combo && combo.IsEditable);
         var gate = GateFor(list);
-        if (!Decide(gate, e.Key, Keyboard.Modifiers, e.IsRepeat, fromText, list.SelectedIndex,
+        if (!Decide(gate, RealKey(e.Key, e.SystemKey, e.ImeProcessedKey, e.DeadCharProcessedKey), Keyboard.Modifiers,
+                e.IsRepeat, fromText, list.SelectedIndex,
                 button != null, button?.IsEnabled == true, button?.IsVisible == true, Environment.TickCount64))
             return;
 

@@ -244,6 +244,86 @@ namespace Radios.Tests
             Assert.True(WinFormsDeleteKey.Decide(k, bareDelete: true, 300));
         }
 
+        /// <summary>
+        /// Codex's third re-check, reproduced through the WinForms list's own
+        /// key decision (repair round 4): a press, the first JAWS pair's
+        /// synthetic up at 5, a modifier tapped at 200 while Delete is still
+        /// physically held, then the hold's next pair at 512. A modifier does
+        /// not stop the held key's stream, so it is not a new intent and the
+        /// next pair is the same hold. Every modifier, either side.
+        /// </summary>
+        [Theory]
+        [InlineData(System.Windows.Forms.Keys.ShiftKey, System.Windows.Forms.Keys.Shift)]
+        [InlineData(System.Windows.Forms.Keys.LShiftKey, System.Windows.Forms.Keys.Shift)]
+        [InlineData(System.Windows.Forms.Keys.ControlKey, System.Windows.Forms.Keys.Control)]
+        [InlineData(System.Windows.Forms.Keys.RControlKey, System.Windows.Forms.Keys.Control)]
+        [InlineData(System.Windows.Forms.Keys.Menu, System.Windows.Forms.Keys.Alt)]
+        [InlineData(System.Windows.Forms.Keys.LMenu, System.Windows.Forms.Keys.Alt)]
+        [InlineData(System.Windows.Forms.Keys.LWin, System.Windows.Forms.Keys.None)]
+        [InlineData(System.Windows.Forms.Keys.RWin, System.Windows.Forms.Keys.None)]
+        [InlineData(System.Windows.Forms.Keys.Insert, System.Windows.Forms.Keys.None)]
+        [InlineData(System.Windows.Forms.Keys.CapsLock, System.Windows.Forms.Keys.None)]
+        public void A_modifier_tapped_during_a_jaws_hold_does_not_make_its_next_pair_a_press_on_a_WinForms_list(
+            System.Windows.Forms.Keys modifierKey, System.Windows.Forms.Keys modifiers)
+        {
+            var g = AdapterGate(1, 31);
+            Assert.Equal(750, g.ReleaseGapMs);
+            Assert.True(WinFormsDeleteKey.DecideKey(g, System.Windows.Forms.Keys.Delete, System.Windows.Forms.Keys.None, 0));
+            g.Up(5);
+            Assert.False(WinFormsDeleteKey.DecideKey(g, modifierKey, modifiers, 200));
+            Assert.False(WinFormsDeleteKey.DecideKey(g, System.Windows.Forms.Keys.Delete, System.Windows.Forms.Keys.None, 512));
+            g.Up(517);
+            Assert.False(WinFormsDeleteKey.DecideKey(g, System.Windows.Forms.Keys.Delete, System.Windows.Forms.Keys.None, 762));
+        }
+
+        /// <summary>
+        /// The controls for the modifier rule: a modifier after Delete was
+        /// really released, then a press, presses; and round two's arrow on the
+        /// next item still makes a prompt press a press, through the same key
+        /// decision.
+        /// </summary>
+        [Fact]
+        public void A_modifier_after_a_real_release_and_an_arrow_after_an_up_still_leave_the_next_press_a_press()
+        {
+            var g = AdapterGate(1, 31);
+            Assert.True(WinFormsDeleteKey.DecideKey(g, System.Windows.Forms.Keys.Delete, System.Windows.Forms.Keys.None, 0));
+            g.Up(80);
+            Assert.False(WinFormsDeleteKey.DecideKey(g, System.Windows.Forms.Keys.ShiftKey, System.Windows.Forms.Keys.Shift, 80 + g.ReleaseGapMs + 10));
+            Assert.True(WinFormsDeleteKey.DecideKey(g, System.Windows.Forms.Keys.Delete, System.Windows.Forms.Keys.None, 80 + g.ReleaseGapMs + 50));
+
+            var k = AdapterGate(1, 31);
+            Assert.True(WinFormsDeleteKey.DecideKey(k, System.Windows.Forms.Keys.Delete, System.Windows.Forms.Keys.None, 0));
+            k.Up(80);
+            Assert.False(WinFormsDeleteKey.DecideKey(k, System.Windows.Forms.Keys.Down, System.Windows.Forms.Keys.None, 150));
+            Assert.True(WinFormsDeleteKey.DecideKey(k, System.Windows.Forms.Keys.Delete, System.Windows.Forms.Keys.None, 300));
+        }
+
+        /// <summary>
+        /// A held Delete with Alt held over it for longer than the gap (Codex's
+        /// sustained non-qualifying pairs): each modified pair continues the
+        /// hold, so the bare pair after them is still the same hold. The
+        /// control: the same history with nothing between is a release.
+        /// </summary>
+        [Fact]
+        public void Modified_Delete_pairs_held_past_the_gap_keep_the_next_bare_pair_held_on_a_WinForms_list()
+        {
+            var g = AdapterGate(1, 31);
+            Assert.True(WinFormsDeleteKey.DecideKey(g, System.Windows.Forms.Keys.Delete, System.Windows.Forms.Keys.None, 0));
+            g.Up(5);
+            Assert.False(WinFormsDeleteKey.DecideKey(g, System.Windows.Forms.Keys.Menu, System.Windows.Forms.Keys.Alt, 200));
+            foreach (long t in new long[] { 512, 762, 1012, 1262 })
+            {
+                Assert.False(WinFormsDeleteKey.DecideKey(g, System.Windows.Forms.Keys.Delete, System.Windows.Forms.Keys.Alt, t));
+                g.Up(t + 5);
+            }
+            Assert.False(WinFormsDeleteKey.DecideKey(g, System.Windows.Forms.Keys.Delete, System.Windows.Forms.Keys.None, 1512));
+
+            var quiet = AdapterGate(1, 31);
+            Assert.True(WinFormsDeleteKey.DecideKey(quiet, System.Windows.Forms.Keys.Delete, System.Windows.Forms.Keys.None, 0));
+            quiet.Up(5);
+            Assert.True(WinFormsDeleteKey.DecideKey(quiet, System.Windows.Forms.Keys.Delete, System.Windows.Forms.Keys.None, 1512));
+        }
+
         [Fact]
         public void A_click_during_a_hold_with_no_up_yet_changes_nothing()
         {
@@ -275,6 +355,9 @@ namespace Radios.Tests
             Assert.Contains("list.LostFocus += (_, _) => gate.Interrupted(", winforms);
             Assert.Contains("list.GotFocus += (_, _) => gate.Resumed(", winforms);
             Assert.Contains("list.MouseDown += (_, _) => Clicked(gate, ", winforms);
+            // The key handler decides by the real key, so a modifier alone is
+            // not another key (repair round 4).
+            Assert.Contains("bool press = DecideKey(gate, e.KeyCode, e.Modifiers, Environment.TickCount64);", winforms);
             string wpf = System.IO.File.ReadAllText(System.IO.Path.Combine(root, "JJFlexWpf", "DeleteKeyRemoves.cs"));
             Assert.Contains("SystemParameters.KeyboardSpeed", wpf);
             Assert.Contains("list.IsKeyboardFocusWithinChanged += OnFocusWithinChanged;", wpf);

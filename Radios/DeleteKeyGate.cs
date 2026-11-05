@@ -55,6 +55,15 @@ namespace Radios
     /// second item. A Delete with a modifier, or typed into a text box,
     /// continues a hold and never ends one (<see cref="DeleteThatDoesNotPress"/>).
     /// </para>
+    /// <para>
+    /// <b>Repair round 4 (Codex's third re-check).</b> A MODIFIER on its own
+    /// (Shift, Ctrl, Alt, the Windows key) is not a new intent: pressing one
+    /// does not stop a held Delete's stream, so it never reaches
+    /// <see cref="OtherInput"/>. Both adapters read the key's real identity
+    /// first (WPF reports Alt+Delete as <c>Key.System</c> with the real key in
+    /// <c>SystemKey</c>), so a modified Delete continues a hold on its down
+    /// and counts as Delete's up on its up.
+    /// </para>
     /// </remarks>
     public sealed class DeleteKeyGate
     {
@@ -254,16 +263,8 @@ namespace Radios
                 KeyRepeatTiming.RepeatPeriodMsFromSetting(System.Windows.Forms.SystemInformation.KeyboardSpeed)));
             list.KeyDown += (_, e) =>
             {
-                bool isDelete = e.KeyCode == System.Windows.Forms.Keys.Delete;
-                bool bareDelete = isDelete && e.Modifiers == System.Windows.Forms.Keys.None;
-                if (isDelete && !bareDelete)
-                {
-                    // Shift+Delete and the like: still the Delete key, so it
-                    // continues a hold rather than ending one (repair round 3).
-                    gate.DeleteThatDoesNotPress(Environment.TickCount64);
-                    return;
-                }
-                bool press = Decide(gate, bareDelete, Environment.TickCount64);
+                bool bareDelete = e.KeyCode == System.Windows.Forms.Keys.Delete && e.Modifiers == System.Windows.Forms.Keys.None;
+                bool press = DecideKey(gate, e.KeyCode, e.Modifiers, Environment.TickCount64);
                 if (!bareDelete) return;
                 e.Handled = true;
                 e.SuppressKeyPress = true;
@@ -302,17 +303,72 @@ namespace Radios
         }
 
         /// <summary>
-        /// One key-down on a WinForms list, decided: true when it is a press of
-        /// Delete to act on. Any other key is another input to the gate (a new
-        /// intent once Delete has come up). WinForms reports no repeat flag;
-        /// the gate tracks a down with no up since the last one instead.
-        /// </summary>
-        /// <summary>
         /// A mouse press on a WinForms list, decided: a new intent only once
         /// Delete has really been released (<see cref="DeleteKeyGate.Pointer"/>).
         /// </summary>
         internal static void Clicked(DeleteKeyGate gate, long nowMs) => gate.Pointer(nowMs);
 
+        /// <summary>
+        /// A modifier key on its own (repair round 4): Shift, Ctrl, Alt or the
+        /// Windows key, either side, and the keys a screen reader takes for its
+        /// own (Insert, Caps Lock) or that only toggle a lock. Pressing one does
+        /// not stop a held key's stream and moves to no other item, so it is
+        /// not a new intent.
+        /// </summary>
+        internal static bool IsModifierOnly(System.Windows.Forms.Keys keyCode)
+        {
+            switch (keyCode & System.Windows.Forms.Keys.KeyCode)
+            {
+                case System.Windows.Forms.Keys.ShiftKey:
+                case System.Windows.Forms.Keys.LShiftKey:
+                case System.Windows.Forms.Keys.RShiftKey:
+                case System.Windows.Forms.Keys.ControlKey:
+                case System.Windows.Forms.Keys.LControlKey:
+                case System.Windows.Forms.Keys.RControlKey:
+                case System.Windows.Forms.Keys.Menu:
+                case System.Windows.Forms.Keys.LMenu:
+                case System.Windows.Forms.Keys.RMenu:
+                case System.Windows.Forms.Keys.LWin:
+                case System.Windows.Forms.Keys.RWin:
+                // The screen readers' own keys and the lock keys: not a move
+                // to another item either.
+                case System.Windows.Forms.Keys.Insert:
+                case System.Windows.Forms.Keys.CapsLock:
+                case System.Windows.Forms.Keys.NumLock:
+                case System.Windows.Forms.Keys.Scroll:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// One key-down on a WinForms list, by its real key and modifiers, the
+        /// way the list's own handler decides it: true when it is a press of
+        /// Delete to act on. A modifier alone changes nothing (repair round 4);
+        /// a Delete with a modifier continues a hold and never ends one (repair
+        /// round 3); any other key is another input (<see cref="Decide"/>).
+        /// </summary>
+        internal static bool DecideKey(DeleteKeyGate gate, System.Windows.Forms.Keys keyCode,
+            System.Windows.Forms.Keys modifiers, long nowMs)
+        {
+            if (IsModifierOnly(keyCode)) return false;
+            bool isDelete = (keyCode & System.Windows.Forms.Keys.KeyCode) == System.Windows.Forms.Keys.Delete;
+            if (isDelete && modifiers != System.Windows.Forms.Keys.None)
+            {
+                gate.DeleteThatDoesNotPress(nowMs);
+                return false;
+            }
+            return Decide(gate, isDelete, nowMs);
+        }
+
+        /// <summary>
+        /// One key-down on a WinForms list, decided: true when it is a press of
+        /// Delete to act on. Any other key is another input to the gate (a new
+        /// intent once Delete has come up). WinForms reports no repeat flag;
+        /// the gate tracks a down with no up since the last one instead.
+        /// Modifier keys never reach here (<see cref="DecideKey"/>).
+        /// </summary>
         internal static bool Decide(DeleteKeyGate gate, bool bareDelete, long nowMs)
         {
             if (!bareDelete)

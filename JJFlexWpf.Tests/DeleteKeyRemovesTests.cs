@@ -166,6 +166,98 @@ public sealed class DeleteKeyRemovesTests
         Assert.False(DeleteKeyRemoves.Decide(g, Key.Delete, ModifierKeys.None, false, false, 0, true, true, true, 450));
     }
 
+    /// <summary>
+    /// Codex's third re-check (repair round 4), through the list's own
+    /// decision with the key read the way the list reads it: a press, the
+    /// first JAWS pair's synthetic up at 5, a modifier at 200 while Delete is
+    /// still physically held, then the hold's next pair at 512. Alt arrives
+    /// as Key.System with the real key in SystemKey. Controls: after a real
+    /// release a modifier then a press presses, and an arrow after an up
+    /// still makes a prompt press a press.
+    /// </summary>
+    [Theory]
+    [InlineData(Key.LeftShift, Key.None, ModifierKeys.Shift)]
+    [InlineData(Key.RightShift, Key.None, ModifierKeys.Shift)]
+    [InlineData(Key.LeftCtrl, Key.None, ModifierKeys.Control)]
+    [InlineData(Key.RightCtrl, Key.None, ModifierKeys.Control)]
+    [InlineData(Key.System, Key.LeftAlt, ModifierKeys.Alt)]
+    [InlineData(Key.System, Key.RightAlt, ModifierKeys.Alt)]
+    [InlineData(Key.LWin, Key.None, ModifierKeys.Windows)]
+    [InlineData(Key.Insert, Key.None, ModifierKeys.None)]
+    [InlineData(Key.CapsLock, Key.None, ModifierKeys.None)]
+    public void A_modifier_tapped_during_a_jaws_hold_does_not_make_its_next_pair_a_press(Key key, Key systemKey, ModifierKeys mods)
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var g = new Radios.DeleteKeyGate(750);
+        Assert.True(Event(g, Key.Delete, Key.None, ModifierKeys.None, 0));
+        g.Up(5);
+        Assert.False(Event(g, key, systemKey, mods, 200));
+        Assert.False(Event(g, Key.Delete, Key.None, ModifierKeys.None, 512));
+        g.Up(517);
+        Assert.False(Event(g, Key.Delete, Key.None, ModifierKeys.None, 762));
+
+        var released = new Radios.DeleteKeyGate(750);
+        Assert.True(Event(released, Key.Delete, Key.None, ModifierKeys.None, 0));
+        released.Up(80);
+        Assert.False(Event(released, key, systemKey, mods, 900));
+        Assert.True(Event(released, Key.Delete, Key.None, ModifierKeys.None, 950));
+
+        var arrow = new Radios.DeleteKeyGate(750);
+        Assert.True(Event(arrow, Key.Delete, Key.None, ModifierKeys.None, 0));
+        arrow.Up(80);
+        Assert.False(Event(arrow, Key.Down, Key.None, ModifierKeys.None, 150));
+        Assert.True(Event(arrow, Key.Delete, Key.None, ModifierKeys.None, 300));
+    }
+
+    /// <summary>
+    /// Alt+Delete is reported as Key.System with Delete in SystemKey (repair
+    /// round 4; CLAUDE.md's keyboard audit, item 7). Read for its real key it
+    /// is a Delete that does not qualify, so its pairs held past the gap
+    /// continue the hold and the bare pair after them is the same hold. The
+    /// control: the same history with nothing between is a release.
+    /// </summary>
+    [Fact]
+    public void Alt_Delete_is_read_as_Delete_so_its_pairs_continue_a_hold_past_the_gap()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Assert.Equal(Key.Delete, DeleteKeyRemoves.RealKey(Key.System, Key.Delete, Key.None, Key.None));
+        Assert.Equal(Key.Delete, DeleteKeyRemoves.RealKey(Key.ImeProcessed, Key.None, Key.Delete, Key.None));
+        Assert.Equal(Key.Delete, DeleteKeyRemoves.RealKey(Key.Delete, Key.None, Key.None, Key.None));
+
+        var g = new Radios.DeleteKeyGate(750);
+        Assert.True(Event(g, Key.Delete, Key.None, ModifierKeys.None, 0));
+        g.Up(5);
+        foreach (long t in new long[] { 512, 762, 1012, 1262 })
+        {
+            Assert.False(Event(g, Key.System, Key.Delete, ModifierKeys.Alt, t));
+            g.Up(t + 5);
+        }
+        Assert.False(Event(g, Key.Delete, Key.None, ModifierKeys.None, 1512));
+
+        var quiet = new Radios.DeleteKeyGate(750);
+        Assert.True(Event(quiet, Key.Delete, Key.None, ModifierKeys.None, 0));
+        quiet.Up(5);
+        Assert.True(Event(quiet, Key.Delete, Key.None, ModifierKeys.None, 1512));
+    }
+
+    /// <summary>
+    /// The list's handlers read the real key on the down AND the up (repair
+    /// round 4), so Alt+Delete is Delete in both directions.
+    /// </summary>
+    [Fact]
+    public void Both_key_handlers_read_the_real_key()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        string src = File.ReadAllText(Path.Combine(Root(), "JJFlexWpf", "DeleteKeyRemoves.cs"));
+        Assert.Equal(2, Regex.Matches(src, @"RealKey\(e\.Key, e\.SystemKey, e\.ImeProcessedKey, e\.DeadCharProcessedKey\)").Count);
+        Assert.DoesNotContain("e.Key == Key.Delete", src);
+    }
+
+    /// <summary>A key event as the list's handler decides it: its real key first.</summary>
+    private static bool Event(Radios.DeleteKeyGate g, Key key, Key systemKey, ModifierKeys mods, long t) =>
+        DeleteKeyRemoves.Decide(g, DeleteKeyRemoves.RealKey(key, systemKey, Key.None, Key.None), mods, false,
+            fromTextEntry: false, selectedIndex: 0, buttonPresent: true, buttonEnabled: true, buttonVisible: true, nowMs: t);
+
     [Fact]
     public void A_Delete_that_does_not_qualify_never_presses_however_fresh()
     {
