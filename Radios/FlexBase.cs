@@ -7706,7 +7706,11 @@ namespace Radios
                 if (TxReferenceArmed)
                 {
                     if (txFilePlayer.Engaged) txFilePlayer.RestartOnNextBuffer();
-                    else TxFileStop();
+                    // A reference past its end holds silence until the radio
+                    // REALLY receives (round four): this is our Mox cache,
+                    // which falls the moment we ask for an unkey and while a
+                    // hand mic may still key the radio. Its own wait ends it.
+                    else if (!txFilePlayer.HoldingEndSilence) TxFileStop();
                 }
             }
             if (_Transmit != oldTransmit)

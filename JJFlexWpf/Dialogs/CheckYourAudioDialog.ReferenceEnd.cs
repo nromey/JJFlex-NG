@@ -48,10 +48,21 @@ namespace JJFlexWpf.Dialogs;
 /// <b>The tail.</b> <c>ReachedEnd</c> means the player handed over its last
 /// samples, not that the radio has sent them: the encoder, the network and
 /// the radio's own buffer lie between. So the unkey waits
-/// <see cref="ReferenceEndTail"/> after the end is seen. Unmeasured; the
-/// marker recording's closing 2 kHz beep makes it measurable at the bench.
-/// The microphone is already back on the encoder during the tail, as it was
-/// for the whole rest of the transmission before this ruling.
+/// <see cref="ReferenceEndTail"/> after the end is seen. The evening bench of
+/// 2026-11-04 found the end beep whole in every take, the take running about
+/// 0.55 s past the reference's end.
+/// </para>
+/// <para>
+/// <b>Silence from the end until the radio receives (round four, part 6;
+/// Noel 2026-11-05 01:37 and 01:38).</b> Until then the microphone came back
+/// on the encoder at the end, so it went out for the tail, the poll and, under
+/// a hardware push to talk, for as long as the operator held it. Now the
+/// player holds silence by itself the moment the recording runs out
+/// (<c>TxFilePlayer.StartHoldingSilenceAtEnd</c>), the tail runs over that
+/// silence, and the microphone and the transmit input come back only when the
+/// radio reports receive (<c>FlexBase.TxReferenceEndSilenceUntilReceive</c>),
+/// whoever held the key. A hardware line held as it ends is told to let go;
+/// that sentence is the only thing the holder changes about the silence.
 /// </para>
 /// </remarks>
 public partial class CheckYourAudioDialog
@@ -83,15 +94,113 @@ public partial class CheckYourAudioDialog
         : ReferenceEndHolder.Nobody;
 
     /// <summary>
-    /// What is said when the reference reaches its end. Only a transmission the
-    /// app does not hold carries on, with the microphone, so only that one says so.
+    /// True when the operator must be told to let go of a push to talk: a
+    /// hardware line keys the radio (the PTT source watch, held while the
+    /// reference is armed, makes that reading honest) and something is still
+    /// transmitting. With nothing transmitting, the last source the radio
+    /// reported is history, not a held key.
     /// </summary>
-    internal static string ReferenceFinishedSentence(ReferenceEndHolder holder) =>
-        holder == ReferenceEndHolder.Elsewhere
-            // Today's wording, kept for the case Noel has not ruled on.
-            ? Lexicon.Get("audio.check.reference_finished_mic_back")
-            // DRAFT PROSE (#864, round three): awaiting Noel.
-            : Lexicon.Get("audio.reference.finished");
+    internal static bool PushToTalkStillHeld(ReferenceEndHolder holder, bool hardwareLine) =>
+        hardwareLine && holder != ReferenceEndHolder.Nobody;
+
+    /// <summary>
+    /// What is said when the reference reaches its end, at the operator's
+    /// verbosity. Ruled by Noel 2026-11-05 01:39 to 01:41, both forms. A
+    /// hardware push to talk still held adds the release; nothing else does,
+    /// because "release your push to talk" would be false for any other holder.
+    /// </summary>
+    internal static string ReferenceFinishedSentence(ReferenceEndHolder holder, bool hardwareLine, VerbosityLevel level) =>
+        // DRAFT PROSE (#864, round three) until part 6b puts in Noel's ruled
+        // ladders. The microphone is back for no holder now, so none is told it is.
+        Lexicon.Get("audio.reference.finished");
+
+    /// <summary>
+    /// The lowest verbosity the finished sentence is spoken at. Asking the
+    /// operator to let go of a keyed radio is said at every verbosity; the
+    /// plain end is said as it always was, from terse up.
+    /// </summary>
+    internal static VerbosityLevel ReferenceFinishedLevel(ReferenceEndHolder holder, bool hardwareLine) =>
+        PushToTalkStillHeld(holder, hardwareLine) ? VerbosityLevel.Critical : VerbosityLevel.Terse;
+
+    /// <summary>
+    /// Stands in for <see cref="FlexBase.TxReferenceEndSilenceUntilReceive"/>
+    /// in a test, which cannot build a connected radio here. Production never
+    /// sets it.
+    /// </summary>
+    internal static Action<FlexBase, Action<ReferenceSilenceEnd>>? ReferenceSilenceWaitForTests;
+
+    /// <summary>The PTT source watch, held from a successful arm until the silence after its pass ends, or a disarm.</summary>
+    private IDisposable? _refPttWatch;
+
+    /// <summary>Which silence the window is waiting on, so an older one ending cannot act for a newer pass.</summary>
+    private int _refSilenceToken;
+
+    /// <summary>
+    /// The reference has played to its end. Say so at the operator's
+    /// verbosity, stand the arm down, and leave the microphone and the transmit
+    /// input where they are until the radio receives: the player is already
+    /// holding silence. Ending the transmission itself, after the tail, is the
+    /// caller's (<see cref="EndTransmissionAfterReferenceTail"/>). Returns the
+    /// sentence spoken.
+    /// </summary>
+    internal string FinishReferencePass(FlexBase rig, ReferenceEndHolder holder, bool hardwareLine)
+    {
+        _refPassRunning = false;
+        EarconPlayer.ConfirmTone();
+        string finished = ReferenceFinishedSentence(holder, hardwareLine, ScreenReaderOutput.CurrentVerbosity);
+        ScreenReaderOutput.Speak(finished, Radios.Speech.SpeechIntent.Queue,
+            ReferenceFinishedLevel(holder, hardwareLine),
+            subject: Radios.Speech.SpeechSubject.ReferenceAudio);
+        SetReferenceArmSilently(false);
+        UpdateReferenceStatus();
+        BeginReferenceEndSilence(rig);
+        return finished;
+    }
+
+    /// <summary>
+    /// Wait for the radio to receive, then put the transmit input back and let
+    /// the PTT source watch go. The microphone itself is handed back by the
+    /// radio's own wait, before this runs.
+    /// </summary>
+    private void BeginReferenceEndSilence(FlexBase rig)
+    {
+        int token = ++_refSilenceToken;
+        void Ended(ReferenceSilenceEnd how)
+        {
+            void OnUi() => ReferenceEndSilenceEnded(rig, token, how);
+            var ui = Dispatcher;
+            if (ui == null || ui.CheckAccess()) OnUi();
+            else ui.BeginInvoke(new Action(OnUi));
+        }
+        if (ReferenceSilenceWaitForTests is { } wait) wait(rig, Ended);
+        else rig.TxReferenceEndSilenceUntilReceive(Ended);
+    }
+
+    /// <summary>
+    /// The silence after a pass has ended. Anything still to undo is undone
+    /// only if this window still has this radio and nothing since has done it
+    /// already: a disarm, a close or a teardown restores the input itself.
+    /// </summary>
+    private void ReferenceEndSilenceEnded(FlexBase rig, int token, ReferenceSilenceEnd how)
+    {
+        if (token != _refSilenceToken || !ReferenceEquals(rig, _rig)) return;
+        ReleaseReferencePttWatch();
+        if (how == ReferenceSilenceEnd.AlreadyReleased) return;
+        // Not while transmitting: back on the Mic input, the radio would put
+        // the hand microphone straight on the air. Only now is it receiving.
+        if (RestoreInjectionPath(rig, out string pathNote) && !string.IsNullOrEmpty(pathNote))
+            ScreenReaderOutput.Speak(pathNote, Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
+                subject: Radios.Speech.SpeechSubject.ReferenceAudio);
+        UpdateReferenceStatus();
+    }
+
+    /// <summary>Let the PTT source watch go, if this window holds one. Safe to call twice.</summary>
+    private void ReleaseReferencePttWatch()
+    {
+        var watch = _refPttWatch;
+        _refPttWatch = null;
+        watch?.Dispose();
+    }
 
     private ReferenceEndHolder ReferenceHolderNow(FlexBase rig)
     {

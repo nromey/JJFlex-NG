@@ -1210,6 +1210,7 @@
   "audio.check.reference_finished_mic_back": {"text": "Reference finished. Your microphone is back.", "delivery": null},
   "audio.check.reference_already_armed": {"text": "The reference recording is armed in Check your audio, and only one thing can replace your microphone at a time. Turn the reference off first.", "delivery": null},
   "audio.check.send_already_playing": {"text": "A recording is being sent, and only one thing can replace your microphone at a time. Let it finish or stop it first.", "delivery": null},
+  "audio.check.reference_end_silence_held": {"text": "The last pass has ended, and the radio has not yet gone back to receive. Arm it again once it has.", "delivery": null},
   "audio.full_duplex.label": {"text": "Full duplex", "delivery": null},
   "audio.full_duplex.command": {"text": "Toggle full duplex", "delivery": null},
   "audio.full_duplex.on": {"text": "Full duplex on", "delivery": null},

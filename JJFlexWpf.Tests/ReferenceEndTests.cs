@@ -132,16 +132,17 @@ public sealed class ReferenceEndTests : IDisposable
         Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);
     }
 
+    /// <summary>
+    /// Round four (6a): the microphone is back at a reference's end for no
+    /// holder now, so no holder is told it is. Part 6b puts in the ruled wording.
+    /// </summary>
     [Fact]
-    public void The_finished_sentence_says_the_microphone_is_back_only_where_the_transmission_carries_on()
+    public void The_finished_sentence_never_says_the_microphone_is_back()
     {
         AssertTheDeskIsSafe();
-        foreach (var holder in new[] { Holder.Check, Holder.App, Holder.Nobody })
-            Assert.DoesNotContain("microphone", CheckYourAudioDialog.ReferenceFinishedSentence(holder),
-                StringComparison.OrdinalIgnoreCase);
-        Assert.Equal("Reference finished.", CheckYourAudioDialog.ReferenceFinishedSentence(Holder.App));
-        // A transmission the app does not hold goes on with the microphone: today's words, still true there.
-        Assert.Equal("Reference finished. Your microphone is back.",
-            CheckYourAudioDialog.ReferenceFinishedSentence(Holder.Elsewhere));
+        foreach (var holder in new[] { Holder.Check, Holder.App, Holder.Elsewhere, Holder.Nobody })
+            foreach (bool hardware in new[] { false, true })
+                Assert.Equal("Reference finished.",
+                    CheckYourAudioDialog.ReferenceFinishedSentence(holder, hardware, VerbosityLevel.Chatty));
     }
 }

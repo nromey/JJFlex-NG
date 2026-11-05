@@ -2305,6 +2305,9 @@ namespace Radios.Tests
                 "audio.check.reference_finished_mic_back",
                 "audio.check.reference_already_armed",
                 "audio.check.send_already_playing",
+                // Unified takes, round four (6a): an arm during the silence after
+                // a pass refuses.
+                "audio.check.reference_end_silence_held",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

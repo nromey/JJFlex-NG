@@ -349,6 +349,22 @@ public partial class CheckYourAudioDialog
             return;
         }
 
+        // The last pass ended and the radio has not yet said it is receiving:
+        // the player is holding silence for it, and arming would load over it
+        // (round four).
+        if (rig.TxReferenceEndSilenceHeld)
+        {
+            SetReferenceArmSilently(false);
+            EarconPlayer.Warning2Beep();
+            // DRAFT PROSE (#864, round four): awaiting Noel.
+            ScreenReaderOutput.Speak(
+                Lexicon.Get("audio.reference.not_armed",
+                    ("reason", Lexicon.Get("audio.check.reference_end_silence_held"))),
+                Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.ReferenceAudio);
+            return;
+        }
+
         // The reference rides the PC-audio transmit path, exactly as the test
         // tone does, so it needs the identical preconditions — and goes through
         // the identical helper (#458) rather than growing a second opinion
@@ -413,6 +429,12 @@ public partial class CheckYourAudioDialog
             return;
         }
         _refPassRunning = true;
+        // Held while armed, so a hardware push to talk pressed under the
+        // app's own key still reads as hardware when the pass ends (round
+        // four; FlexLib's own source goes stale under our key). Let go when
+        // the silence after the pass ends, or on any disarm.
+        ReleaseReferencePttWatch();
+        _refPttWatch = rig.WatchPttSource();
 
         // #128 sweep audit (2026-08-21): arm answers back, mirroring the test
         // tone checkbox one tab over — the two arms are siblings on the same
@@ -433,8 +455,12 @@ public partial class CheckYourAudioDialog
     private void DisarmReference(bool speak, FlexBase? rig = null)
     {
         FlexBase? live = rig ?? _rig;
+        // Also ends the silence after a finished pass, if it is still held:
+        // a disarm, a closing window and a departing radio never leave it on.
         live?.TxFileStop();
         _refPassRunning = false;
+        _refSilenceToken++;
+        ReleaseReferencePttWatch();
         SetReferenceArmSilently(false);
         // #458: put the transmit input back if arming moved it, on every exit
         // path — same rule, same helper, as the test tone's release.
@@ -522,25 +548,14 @@ public partial class CheckYourAudioDialog
         {
             // Played to the end. Say so and stand down — leaving the box armed
             // after the recording has run out would promise a second pass that
-            // would happen, silently, at the next key-down.
-            _refPassRunning = false;
-            EarconPlayer.ConfirmTone();
-            // Since #458 an arm may have moved the transmit input to get here,
-            // so this path restores it, exactly as the operator-initiated
-            // disarm does.
-            rig.TxFileStop();
-            RestoreInjectionPath(rig, out string pathNote);
-            // And the transmission it rode ends (Noel, 2026-11-04): a check
-            // stops as Stop stops it, a key the app holds is let go. Only a
-            // transmission the app does not hold carries on, and only that
-            // one is told its microphone is back (ReferenceEnd.cs).
+            // would happen, silently, at the next key-down. The player is
+            // already sending silence, and the microphone and the transmit
+            // input (#458) come back only once the radio receives (round four,
+            // ReferenceEnd.cs). The transmission it rode ends (Noel,
+            // 2026-11-04): a check stops as Stop stops it, a key the app holds
+            // is let go; a hardware line is asked to let go.
             var holder = ReferenceHolderNow(rig);
-            string finished = ReferenceFinishedSentence(holder);
-            if (!string.IsNullOrEmpty(pathNote)) finished += " " + pathNote;
-            ScreenReaderOutput.Speak(finished, Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
-                subject: Radios.Speech.SpeechSubject.ReferenceAudio);
-            SetReferenceArmSilently(false);
-            UpdateReferenceStatus();
+            FinishReferencePass(rig, holder, hardwareLine: rig.PttSourceIsHardware);
             if (holder is ReferenceEndHolder.Check or ReferenceEndHolder.App)
                 EndTransmissionAfterReferenceTail(rig, holder);
             return;

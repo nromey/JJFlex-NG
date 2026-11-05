@@ -234,11 +234,32 @@ namespace Radios.Tests
         [InlineData("TestTone", "private void DisarmTone(bool speak, FlexBase? rig = null)")]
         [InlineData("TestTone", "private void SyncToneArmUi()")]
         [InlineData("ReferenceAudio", "private void DisarmReference(bool speak, FlexBase? rig = null)")]
-        [InlineData("ReferenceAudio", "private void SyncReferenceUi()")]
+        // Unified takes round four (part 6): the recording playing itself out
+        // no longer restores in SyncReferenceUi. The transmitter carries
+        // silence until the radio receives (Noel, 2026-11-05), and moving the
+        // input back to Mic while it still transmits would put the hand
+        // microphone on the air, so that restore waits for receive.
+        [InlineData("ReferenceEnd", "private void ReferenceEndSilenceEnded(")]
         public void EveryReleasePathRestoresTheTransmitInput(string file, string signature)
         {
             Assert.Contains("RestoreInjectionPath",
                 MethodBody(ReadWorkshop(file), signature), StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The played-out road reaches that restore: SyncReferenceUi finishes
+        /// the pass, and the finish begins the wait that ends in it.
+        /// </summary>
+        [Fact]
+        public void APlayedOutReferenceRestoresTheTransmitInputOnceTheRadioReceives()
+        {
+            Assert.Contains("FinishReferencePass(rig, holder",
+                MethodBody(ReadWorkshop("ReferenceAudio"), "private void SyncReferenceUi()"), StringComparison.Ordinal);
+            string end = ReadWorkshop("ReferenceEnd");
+            Assert.Contains("BeginReferenceEndSilence(rig);",
+                MethodBody(end, "internal string FinishReferencePass("), StringComparison.Ordinal);
+            Assert.Contains("ReferenceEndSilenceEnded(rig, token, how)",
+                MethodBody(end, "private void BeginReferenceEndSilence("), StringComparison.Ordinal);
         }
 
         /// <summary>

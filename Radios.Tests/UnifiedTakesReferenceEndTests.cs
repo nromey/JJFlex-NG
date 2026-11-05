@@ -76,7 +76,8 @@ public sealed class UnifiedTakesReferenceEndTests
     {
         string sync = Body(Dialog("CheckYourAudioDialog.ReferenceAudio.cs"), "private void SyncReferenceUi()");
         int holder = sync.IndexOf("var holder = ReferenceHolderNow(rig);", StringComparison.Ordinal);
-        int speak = sync.IndexOf("ReferenceFinishedSentence(holder)", StringComparison.Ordinal);
+        // Round four: the sentence and the silence are FinishReferencePass's.
+        int speak = sync.IndexOf("FinishReferencePass(rig, holder, hardwareLine: rig.PttSourceIsHardware);", StringComparison.Ordinal);
         int end = sync.IndexOf("if (holder is ReferenceEndHolder.Check or ReferenceEndHolder.App)\n                EndTransmissionAfterReferenceTail(rig, holder);",
             StringComparison.Ordinal);
         if (end < 0) end = sync.IndexOf("if (holder is ReferenceEndHolder.Check or ReferenceEndHolder.App)\r\n                EndTransmissionAfterReferenceTail(rig, holder);",
@@ -86,6 +87,14 @@ public sealed class UnifiedTakesReferenceEndTests
         // The finished sentence is chosen by holder, never said straight from the old key.
         // (Split, so the lexicon key scanner does not read this literal as a key.)
         Assert.DoesNotContain("Lexicon" + ".Get(\"audio.reference.finished\")", sync);
+        // Round four: nothing on the end path hands the microphone back or
+        // moves the transmit input; both wait for the radio to receive.
+        Assert.DoesNotContain("TxFileStop", sync);
+        Assert.DoesNotContain("RestoreInjectionPath", sync);
+        string finish = Body(Dialog("CheckYourAudioDialog.ReferenceEnd.cs"), "internal string FinishReferencePass(");
+        Assert.DoesNotContain("TxFileStop", finish);
+        Assert.DoesNotContain("RestoreInjectionPath", finish);
+        Assert.Contains("BeginReferenceEndSilence(rig);", finish);
         string tail = Body(Dialog("CheckYourAudioDialog.ReferenceEnd.cs"),
             "private async void EndTransmissionAfterReferenceTail(");
         Assert.Contains("await Task.Delay(ReferenceEndTail);", tail);
