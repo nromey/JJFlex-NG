@@ -1239,6 +1239,30 @@ namespace Radios.Speech
             }
         }
 
+        /// <summary>
+        /// Take back ONE followed piece, and only that one (#863, repair round
+        /// 3, Codex's second re-check F1): a cancelled check's own notice must
+        /// not stay queued, and a newer attempt's notice on the same subject
+        /// must not go with it, which a supersession by subject would do. A
+        /// piece already finished, or no longer owed, is left alone, so a
+        /// sentence that was heard is never turned into one that was not.
+        /// </summary>
+        internal void Withdraw(FollowedPiece piece, string by, string? origin)
+        {
+            if (piece == null) return;
+            lock (_lock)
+            {
+                var e = (BelievedQueued)piece.Entry;
+                if (e.SupersededBy != null) return;
+                if (!_believedQueued.Contains(e) && !_held.Contains(e)) return;
+                var now = _clock.UtcNow;
+                e.SupersededBy = by;
+                e.SupersededByOrigin = origin;
+                e.SupersededAtUtc = now;
+                WithdrawSupersededFromPumpLocked(now);
+            }
+        }
+
         /// <summary>Read where a followed piece stands. Read-only: no pruning, no tracing.</summary>
         internal FollowedView Inspect(FollowedPiece piece)
         {

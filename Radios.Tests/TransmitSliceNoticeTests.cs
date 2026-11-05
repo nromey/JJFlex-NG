@@ -141,8 +141,39 @@ public sealed class TransmitSliceNoticeTests
             TransmitSliceNotice.RefusalForChangedPlace(Apart, movedFreq));
         Assert.Equal("The transmit slice could not be announced, so nothing was transmitted.",
             TransmitSliceNotice.RefusalForChangedPlace(Apart, otherSelected));
+        // Repair round 3: the selected slice alone has its OWN key, with the
+        // same text for now, so Noel's answer is a lexicon edit only.
+        Assert.Equal(Lexicon.Get("audio.ptt.selected_slice_changed"),
+            TransmitSliceNotice.RefusalForChangedPlace(Apart, otherSelected));
+        string notice = Source("Radios/TransmitSliceNotice.cs");
+        int refusal = notice.IndexOf("public static string RefusalForChangedPlace(", StringComparison.Ordinal);
+        int end = notice.IndexOf("public static void Retire(", refusal, StringComparison.Ordinal);
+        string body = notice.Substring(refusal, end - refusal);
+        Assert.Contains("return Lexicon.Get(\"audio.ptt.selected_slice_changed\");", body);
+        Assert.DoesNotContain("audio.ptt.transmit_slice_not_heard", body);
         Assert.Equal("The transmit slice could not be announced, so nothing was transmitted.",
             Lexicon.Get("audio.ptt.transmit_slice_not_heard"));   // the unspoken notice keeps its own
+    }
+
+    /// <summary>
+    /// Repair round 3 (Codex's second re-check F1): a cancelled check takes
+    /// back its own notice, stops waiting for it at once, and says no refusal
+    /// of its own; ending a start that never keyed does the same.
+    /// </summary>
+    [Fact]
+    public void A_cancelled_check_takes_back_its_own_notice_and_stops_waiting_for_it()
+    {
+        string check = Source("JJFlexWpf/Dialogs/CheckYourAudioDialog.Check.cs");
+        int cancel = check.IndexOf("private void CancelCheckStart()", StringComparison.Ordinal);
+        int cancelEnd = check.IndexOf("\n    }", cancel, StringComparison.Ordinal);
+        Assert.Contains("TransmitSliceNotice.Retire(_transmitSliceNotice,", check.Substring(cancel, cancelEnd - cancel));
+        string countdown = Source("JJFlexWpf/Dialogs/CheckYourAudioDialog.Countdown.cs");
+        Assert.Contains("TransmitSliceNotice.HeardAsync(_transmitSliceNotice, () => !_closing && !_checkStarts.IsCancelled)", countdown);
+        Assert.Contains("if (!_closing && !_checkStarts.IsCancelled) TransmitSliceNotHeard();", countdown);
+        int end = countdown.IndexOf("private void EndStartCountdown()", StringComparison.Ordinal);
+        int retire = countdown.IndexOf("TransmitSliceNotice.Retire(_transmitSliceNotice,", end, StringComparison.Ordinal);
+        int clear = countdown.IndexOf("_transmitSliceNotice = null;", end, StringComparison.Ordinal);
+        Assert.True(end > 0 && retire > end && clear > retire, "EndStartCountdown forgets its notice without taking it back");
     }
 
     [Fact]
@@ -154,7 +185,7 @@ public sealed class TransmitSliceNoticeTests
         Assert.Contains("if (placeChanged) RefuseTransmit(placeRefusal);", check);
         // The not-heard doors keep the not-announced sentence.
         string countdown = Source("JJFlexWpf/Dialogs/CheckYourAudioDialog.Countdown.cs");
-        Assert.Contains("if (!_closing) TransmitSliceNotHeard();", countdown);
+        Assert.Contains("if (!_closing && !_checkStarts.IsCancelled) TransmitSliceNotHeard();", countdown);
     }
 
     private static int Count(string s, string what)

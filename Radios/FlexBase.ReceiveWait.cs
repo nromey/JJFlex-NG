@@ -54,6 +54,14 @@ namespace Radios
         /// False when nothing had to be waited for: <paramref name="then"/> has
         /// already run, on this thread. True when it runs later, on the pool.
         /// </returns>
+        /// <summary>
+        /// <see cref="WhenRadioReallyReceives"/> for the push-to-talk controller:
+        /// the falling tri-tone of a carrier this computer did not key for
+        /// itself plays on the radio's real receive, not on our cache's
+        /// (#863, repair round 3, Codex's second re-check B1).
+        /// </summary>
+        public bool WhenReallyReceiving(Action<bool> then) => WhenRadioReallyReceives(then);
+
         private bool WhenRadioReallyReceives(Action<bool> then, Action? beforeWaiting = null)
         {
             Radio? radio = theRadio;

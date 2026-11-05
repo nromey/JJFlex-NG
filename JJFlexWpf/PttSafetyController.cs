@@ -528,12 +528,13 @@ namespace JJFlexWpf
         public void NoteRadioTransmit(bool on)
         {
             _radioReportsTransmit = on;
-            if (!on && _elsewhereStopOwed && State == PttState.Idle)
-            {
-                // The carrier a taken-over send started has really come down (#863 R3).
-                _elsewhereStopOwed = false;
-                EarconPlayer.TxElsewhereStopTone();
-            }
+            // The radio says it keyed: a VOX send's rising tri-tone, owed to
+            // this edge, plays now (#863, ruled 2026-11-04). Its "off" is NOT
+            // paid here: this notification follows FlexLib's Mox, which falls
+            // the moment our own software key is withdrawn while a hand mic or
+            // foot switch still holds the carrier (Codex's second re-check,
+            // B1). The falling tone waits for real receive instead.
+            if (on) RadioKeyedForOwedStartTone();
             if (!on) { _tuneCarrierOn = false; _atuTuning = false; }
             NoteRf();
         }
@@ -914,7 +915,7 @@ namespace JJFlexWpf
         /// </summary>
         public void ReleaseForTeardown()
         {
-            _elsewhereStopOwed = false;
+            ForgetEdgeTones();
             if (State == PttState.Idle) return;
             _unkeyOwnCarrierOnly = true;
             _releaseWhy = "teardown";
@@ -1069,7 +1070,7 @@ namespace JJFlexWpf
         /// </remarks>
         public bool DropWithConnection(string sentence)
         {
-            _elsewhereStopOwed = false;
+            ForgetEdgeTones();
             if (State == PttState.Idle) return false;
             Tracing.TraceLine($"PTT: the connection fell while {State}; the key drops with it", TraceLevel.Warning);
             EarconPlayer.WarningAlarmTone();
@@ -1098,8 +1099,8 @@ namespace JJFlexWpf
         {
             _keyedElsewhere = Radios.TransmitSliceNotice.PlaysTones(_getRigControl(), _config.ChirpEnabled);
             // This key owns its own key-up tone now, whatever a taken-over
-            // send owed (#863 R3).
-            _elsewhereStopOwed = false;
+            // send or a VOX send owed (#863 R3).
+            ForgetEdgeTones();
             // A key on the selected slice ends a remembered split, whichever
             // door it came through (#863, Codex's re-check F1).
             try { Radios.TransmitSliceNotice.KeyedWithoutNotice(_getRigControl()); } catch { }
@@ -1119,16 +1120,144 @@ namespace JJFlexWpf
         /// <summary>This transmission's key-down played the three-note tone.</summary>
         private bool _keyedElsewhere;
 
-        /// <summary>
-        /// A send that keyed on another slice was taken over by a key this
-        /// controller did not make (a foot switch, a hand mic): the carrier
-        /// stays up, so the falling three-note tone is owed to the radio's own
-        /// unkey (<see cref="NoteRadioTransmit"/>), never to the file's end.
-        /// </summary>
-        private bool _elsewhereStopOwed;
+        // ── The tri-tones on the radio's own edges (#863) ──────────────────
+        //
+        // ONE owner for a falling tri-tone this controller did not key for
+        // itself, and for a rising one owed to a radio edge. Two routes reach
+        // it:
+        //
+        // - A send on another slice taken over by a hand mic or foot switch
+        //   (repair round 2, R3). Its carrier stays up under the operator, so
+        //   the falling tone is owed to the REAL unkey. Repair round 3 (Codex's
+        //   second re-check, B1): round 2 paid it on NoteRadioTransmit(false),
+        //   which follows FlexLib's Mox, and Mox falls the moment our own
+        //   software key is withdrawn while the hand mic still holds the
+        //   carrier. "You stopped transmitting" was then false. It is now paid
+        //   only when the radio really receives: our cached Transmit false AND
+        //   the interlock out of transmit, on the same connection
+        //   (FlexBase.WhenReallyReceiving, the wait the monitor and VOX
+        //   releases already use).
+        // - A box-off voice message released to VOX (ruled by Noel 2026-11-04
+        //   before repair round 3): the rising tone when the radio reports it
+        //   keyed, the falling one when it really receives. Nothing waits on
+        //   these tones, so VOX is never delayed.
+        //
+        // A generation voids every older debt: a key this controller makes
+        // (KeyDownTone), a drop and a teardown take the tones over or end them.
 
-        /// <summary>For tests: a taken-over send's falling tone is still owed.</summary>
-        internal bool ElsewhereStopOwed => _elsewhereStopOwed;
+        private readonly object _edgeToneLock = new();
+        private long _edgeToneGeneration;
+        private bool _edgeStopOwed;
+        private bool _edgeStartOwed;
+        private int _edgeStopTonesPlayed;
+        private int _edgeStartTonesPlayed;
+
+        /// <summary>For tests: a falling tri-tone is still owed to the radio's real receive.</summary>
+        internal bool ElsewhereStopOwed { get { lock (_edgeToneLock) return _edgeStopOwed; } }
+
+        /// <summary>For tests: a rising tri-tone is owed to the radio's report that it keyed.</summary>
+        internal bool ElsewhereStartOwed { get { lock (_edgeToneLock) return _edgeStartOwed; } }
+
+        /// <summary>For tests: how many owed falling tri-tones this controller has played.</summary>
+        internal int ElsewhereStopTonesPlayed { get { lock (_edgeToneLock) return _edgeStopTonesPlayed; } }
+
+        /// <summary>For tests: how many owed rising tri-tones this controller has played.</summary>
+        internal int ElsewhereStartTonesPlayed { get { lock (_edgeToneLock) return _edgeStartTonesPlayed; } }
+
+        /// <summary>Every owed edge tone is void: a key of ours, a drop or a teardown has them now.</summary>
+        private void ForgetEdgeTones()
+        {
+            lock (_edgeToneLock)
+            {
+                _edgeToneGeneration++;
+                _edgeStopOwed = false;
+                _edgeStartOwed = false;
+            }
+        }
+
+        /// <summary>
+        /// Owe the falling tri-tone to the radio's real receive. When the radio
+        /// already really receives, it plays now, so a hand-off after the
+        /// carrier fell waits for no further notification.
+        /// </summary>
+        private void OweStopToneAtRealReceive(long? generation = null)
+        {
+            long gen;
+            lock (_edgeToneLock)
+            {
+                gen = generation ?? ++_edgeToneGeneration;
+                if (gen != _edgeToneGeneration) return;
+                _edgeStopOwed = true;
+            }
+            FlexBase? rig = null;
+            try { rig = _getRigControl(); } catch { }
+            if (rig == null) { PayStopTone(gen, sameConnection: false); return; }
+            rig.WhenReallyReceiving(same => PayStopTone(gen, same));
+        }
+
+        /// <summary>
+        /// The radio really receives (or the connection went): the owed falling
+        /// tone plays once, unless something newer took it over. Any thread.
+        /// </summary>
+        private void PayStopTone(long generation, bool sameConnection)
+        {
+            bool pay;
+            lock (_edgeToneLock)
+            {
+                pay = _edgeStopOwed && generation == _edgeToneGeneration;
+                if (pay) _edgeStopOwed = false;
+                if (pay && sameConnection) _edgeStopTonesPlayed++;
+            }
+            if (pay && sameConnection) EarconPlayer.TxElsewhereStopTone();
+        }
+
+        /// <summary>The radio reported it keyed: a rising tri-tone owed to that edge plays, and its falling one is owed.</summary>
+        private void RadioKeyedForOwedStartTone()
+        {
+            long gen;
+            lock (_edgeToneLock)
+            {
+                if (!_edgeStartOwed) return;
+                _edgeStartOwed = false;
+                gen = _edgeToneGeneration;
+                _edgeStartTonesPlayed++;
+            }
+            EarconPlayer.TxElsewhereStartTone();
+            OweStopToneAtRealReceive(gen);
+        }
+
+        /// <summary>
+        /// A box-off voice message on another slice has been released to VOX
+        /// (#863, ruled by Noel 2026-11-04): its rising tri-tone plays when the
+        /// radio reports it keyed, and its falling one when the radio really
+        /// receives. The caller has already applied the notice setting and the
+        /// chirp switch. Nothing here delays VOX.
+        /// </summary>
+        public void TonesOnVoxEdges()
+        {
+            lock (_edgeToneLock)
+            {
+                _edgeToneGeneration++;
+                _edgeStopOwed = false;
+                _edgeStartOwed = true;
+            }
+            bool keyedAlready = _radioReportsTransmit;
+            if (!keyedAlready)
+            {
+                try { keyedAlready = _getRigControl()?.RadioInterlockReportsTransmit == true; } catch { }
+            }
+            if (keyedAlready) RadioKeyedForOwedStartTone();
+        }
+
+        /// <summary>
+        /// The VOX send has ended: a rising tone VOX never keyed for is not
+        /// owed any more. A falling tone already owed stays owed to the real
+        /// receive.
+        /// </summary>
+        public void EndVoxEdgeTones()
+        {
+            lock (_edgeToneLock) _edgeStartOwed = false;
+        }
 
         /// <summary>For tests: this transmission's key-up will play the three-note tone.</summary>
         internal bool KeyedElsewhere => _keyedElsewhere;
@@ -1143,7 +1272,7 @@ namespace JJFlexWpf
         public void TakeOverElsewhereStopTone()
         {
             if (State != PttState.Idle) { _keyedElsewhere = true; return; }
-            _elsewhereStopOwed = true;
+            OweStopToneAtRealReceive();
         }
 
         /// <summary>

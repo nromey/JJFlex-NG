@@ -2128,6 +2128,9 @@ namespace Radios.Tests
                 "audio.ptt.transmit_slice_not_heard",
                 "audio.ptt.transmit_slice_changed",
                 "audio.ptt.transmit_frequency_changed",
+                // Repair round 3 (#863): the selected slice alone changed. Its
+                // own key, same text for now, so Noel's answer is a lexicon edit.
+                "audio.ptt.selected_slice_changed",
                 // Repair round 1 (#863, ruled 2026-11-03): the notice by verbosity and
                 // its three-way setting. DRAFT prose, awaiting Noel.
                 "audio.ptt.transmit_elsewhere_terse",

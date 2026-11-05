@@ -314,7 +314,28 @@ namespace Radios
                 return Lexicon.Get("audio.ptt.transmit_slice_changed");
             if (now.TransmitHz != announced.TransmitHz)
                 return Lexicon.Get("audio.ptt.transmit_frequency_changed");
-            return Lexicon.Get("audio.ptt.transmit_slice_not_heard");
+            // Only the SELECTED slice changed. Its own key (repair round 3), so
+            // Noel's answer to "should this have a sentence of its own?" is a
+            // lexicon edit only. For now its text is the not-announced
+            // sentence's, word for word. DRAFT.
+            return Lexicon.Get("audio.ptt.selected_slice_changed");
+        }
+
+        /// <summary>
+        /// Take back this notice's own sentence if it is still queued (#863,
+        /// repair round 3, Codex's second re-check F1): the attempt that said
+        /// it was cancelled before it keyed. Only this notice's piece goes; a
+        /// newer attempt's notice on the same subject stays. Never throws.
+        /// </summary>
+        public static void Retire(Notice notice, string why)
+        {
+            if (notice?.Words == null) return;
+            try { ScreenReaderOutput.CountdownSpeech.Withdraw(notice.Words, why); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TransmitSliceNotice (" + notice.Door + "): could not take its sentence back: " + ex.Message,
+                    TraceLevel.Warning);
+            }
         }
 
         /// <summary>

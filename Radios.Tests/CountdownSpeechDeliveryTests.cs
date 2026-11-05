@@ -287,6 +287,40 @@ namespace Radios.Tests
             Assert.Empty(bench.QueuedTexts);
         }
 
+        // ── One notice taken back, and only that one (#863, repair round 3) ──
+
+        [Fact]
+        public void Withdrawing_a_notice_takes_back_that_notice_and_not_a_newer_one()
+        {
+            var bench = new Bench();
+            bench.BusyWithOtherSpeechUntil(long.MaxValue);
+            var speech = bench.Speech;
+            var cancelled = speech.SayWhole("Transmitting on slice B, 14.100", SpeechSubject.TransmitSliceNotice);
+            speech.Withdraw(cancelled, "the check was stopped before it keyed");
+            Assert.True(cancelled.Failed);
+            Assert.Contains("Transmitting on slice B, 14.100", bench.Withdrawn);
+            Assert.Empty(bench.QueuedTexts);
+
+            var newer = speech.SayWhole("Transmitting on slice C, 21.300", SpeechSubject.TransmitSliceNotice);
+            speech.Withdraw(cancelled, "a late second cancel of the old attempt");
+            Assert.False(newer.Failed);
+            Assert.Equal(new[] { "Transmitting on slice C, 21.300" }, bench.QueuedTexts);
+        }
+
+        [Fact]
+        public async Task Withdrawing_a_notice_that_was_heard_whole_leaves_it_heard()
+        {
+            var bench = new Bench();
+            var words = bench.Speech.SayWhole("Transmitting on slice B, 14.100", SpeechSubject.TransmitSliceNotice);
+            _ = bench.Clock.Delay(1_000, CancellationToken.None);   // something for the clock to move to
+            var heard = Task.Run(async () => { while (!words.Finished) await Task.Delay(1); });
+            await bench.Run(until: 5_000, stopIf: heard);
+            Assert.True(words.Finished);
+            bench.Speech.Withdraw(words, "after it was heard");
+            Assert.True(words.Finished);
+            Assert.False(words.Failed);
+        }
+
         // ── The bench ──────────────────────────────────────────────────
 
         private sealed class Bench

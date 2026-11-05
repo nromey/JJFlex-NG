@@ -125,6 +125,18 @@ namespace Radios.Speech
         public void Withdraw(string by) =>
             _arbiter.Supersede(SpeechSubject.CheckCountdown, by, "CountdownSpeech.Withdraw");
 
+        /// <summary>
+        /// Take back one piece this class handed out, and nothing else
+        /// (#863, repair round 3): a cancelled attempt's own sentence, never a
+        /// newer attempt's on the same subject. Words from elsewhere (a fixed
+        /// handle) have nothing queued to take back.
+        /// </summary>
+        public void Withdraw(Radios.ICountdownWords words, string by)
+        {
+            if (words is Words w && ReferenceEquals(w.Owner, this))
+                _arbiter.Withdraw(w.Piece, by, "CountdownSpeech.Withdraw(piece)");
+        }
+
         private sealed class Words : Radios.ICountdownWords
         {
             private readonly CountdownSpeech _owner;
@@ -139,6 +151,9 @@ namespace Radios.Speech
                 _onlyWarning = onlyWarning;
                 _wholeOnly = wholeOnly;
             }
+
+            internal CountdownSpeech Owner => _owner;
+            internal SpeechArbiter.FollowedPiece Piece => _piece;
 
             private SpeechArbiter.FollowedView View => _owner._arbiter.Inspect(_piece);
 

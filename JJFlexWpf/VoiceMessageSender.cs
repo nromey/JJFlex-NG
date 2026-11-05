@@ -108,6 +108,9 @@ internal static class VoiceMessageSender
         /// <summary>This piece keyed on a slice other than the selected one and played the
         /// three-note tone, so its unkey plays the falling one (#863).</summary>
         public bool KeyedElsewhere;
+        /// <summary>This piece was released to VOX on another slice, and the controller
+        /// plays its tri-tones on the radio's own edges (#863, ruled 2026-11-04).</summary>
+        public bool VoxEdgeTones;
     }
 
     /// <summary>
@@ -454,14 +457,27 @@ internal static class VoiceMessageSender
     /// <summary>
     /// A box-off send has begun. Keyed by us: the notice is remembered and the
     /// three-note tone plays (<see cref="KeyedWithNotice"/>). Released to VOX:
-    /// the notice was heard before the release, so it is remembered; the
-    /// tones mark our own key edges, and VOX's are its own, so none plays.
+    /// the notice was heard before the release, so it is remembered, and the
+    /// tri-tones play on the RADIO's edges, under the same switches as every
+    /// other send (ruled by Noel 2026-11-04, before repair round 3): the
+    /// rising one when the radio reports it keyed, the falling one when it
+    /// really receives. The controller owns both edges, with the same real
+    /// receive a taken-over send's falling tone waits for; nothing waits on
+    /// them, so VOX is not delayed.
     /// </summary>
     private static void AfterBoxOffBegin(SendInfo info, TransmitSliceNotice.Notice? notice)
     {
         if (_send == null) return;
-        if (_send.WeKeyed) KeyedWithNotice(info, notice);
-        else TransmitSliceNotice.Keyed(notice);
+        if (_send.WeKeyed) { KeyedWithNotice(info, notice); return; }
+        TransmitSliceNotice.Keyed(notice);
+        var ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
+        bool chirps = ptt?.ChirpEnabled ?? true;
+        if (ptt != null && notice != null
+            && TransmitSliceNotice.PlaysTones(TransmitSliceNotice.Setting, chirps, notice.Announced))
+        {
+            info.VoxEdgeTones = true;
+            ptt.TonesOnVoxEdges();
+        }
     }
 
     /// <summary>
@@ -1444,6 +1460,13 @@ internal static class VoiceMessageSender
         SendInfo? info = _current;
         _send = null;
         _current = null;
+        if (info != null && info.VoxEdgeTones)
+        {
+            // A VOX send's rising tone VOX never keyed for is not owed now; a
+            // falling one already owed waits for the radio's real receive.
+            info.VoxEdgeTones = false;
+            Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke()?.EndVoxEdgeTones();
+        }
         if (info != null && info.KeyedElsewhere)
         {
             // The key-up of a piece that keyed on another slice (#863). Only

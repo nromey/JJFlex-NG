@@ -121,8 +121,12 @@ public partial class CheckYourAudioDialog
         // The notice holds the key on its OWN gate (#863, Codex's check, B1):
         // a count that ends, beeps without words, or is skipped with a bare
         // Control proves nothing about the sentence before it.
-        if (await TransmitSliceNotice.HeardAsync(_transmitSliceNotice, () => !_closing)) return true;
-        if (!_closing) TransmitSliceNotHeard();
+        // A start cancelled while its notice is queued stops waiting at once
+        // (repair round 3, Codex's second re-check F1): the cancel takes the
+        // notice back, and a cancelled start says no refusal of its own.
+        if (await TransmitSliceNotice.HeardAsync(_transmitSliceNotice, () => !_closing && !_checkStarts.IsCancelled))
+            return true;
+        if (!_closing && !_checkStarts.IsCancelled) TransmitSliceNotHeard();
         return false;
     }
 
@@ -290,6 +294,10 @@ public partial class CheckYourAudioDialog
     {
         _startCountdown?.Cancel();
         _startCountdown = null;
+        // This start's own notice, if it never keyed: taken back, so it is
+        // not said after the start has ended (repair round 3). A keyed start
+        // has already handed its notice on (TransmitSliceNoticeKeyed).
+        TransmitSliceNotice.Retire(_transmitSliceNotice, "the check ended before it keyed");
         _transmitSliceNotice = null;
     }
 }

@@ -82,19 +82,10 @@ public sealed class NoticeRepairTwoTests : IDisposable
             Assert.Equal(VoiceMessageSender.ElsewhereStopTone.PlayNow, VoiceMessageSender.StopToneAtTheEnd(ended));
     }
 
-    [Fact]
-    public void A_hardware_takeover_plays_the_falling_tone_when_the_radio_reports_receive()
-    {
-        AssertTheDeskIsSafe();
-        Assert.False(_controller.IsTransmitting);
-        _controller.NoteRadioTransmit(true);
-        _controller.TakeOverElsewhereStopTone();          // a foot switch took the send over
-        Assert.True(_controller.ElsewhereStopOwed);
-        _controller.NoteRadioTransmit(true);              // still up: nothing yet
-        Assert.True(_controller.ElsewhereStopOwed);
-        _controller.NoteRadioTransmit(false);             // the real unkey
-        Assert.False(_controller.ElsewhereStopOwed);
-    }
+    // The hardware-takeover test that stood here called NoteRadioTransmit(false)
+    // "the real unkey"; it is Mox falling, which a hand mic can outlive. Repair
+    // round 3 replaces it with NoticeRepairThreeTests, which drives the
+    // radio's interlock (Codex's second re-check, B1).
 
     [Fact]
     public void A_push_to_talk_takeover_hands_the_falling_tone_to_the_controllers_own_unkey()
@@ -120,7 +111,7 @@ public sealed class NoticeRepairTwoTests : IDisposable
         Assert.True(settle > 0 && decide > settle && hand > decide);
         // And a controller key-down takes over any owed tone and clears a split on the selected slice.
         string ptt = Source("JJFlexWpf/PttSafetyController.cs");
-        Assert.Contains("_elsewhereStopOwed = false;", ptt);
+        Assert.Contains("ForgetEdgeTones();", ptt);
         Assert.Contains("Radios.TransmitSliceNotice.KeyedWithoutNotice(_getRigControl());", ptt);
     }
 

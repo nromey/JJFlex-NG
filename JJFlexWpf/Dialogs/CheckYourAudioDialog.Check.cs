@@ -620,6 +620,10 @@ public partial class CheckYourAudioDialog
         _iqCancellation?.Cancel();
         // A count still playing stops where it is (#835); one that has ended is left alone.
         _startCountdown?.Cancel();
+        // And this start's own notice, still queued, is taken back; only one
+        // start is ever pending, so no newer attempt's notice can go with it
+        // (repair round 3, Codex's second re-check F1).
+        TransmitSliceNotice.Retire(_transmitSliceNotice, "the check was stopped before it keyed");
     }
 
     /// <summary>
