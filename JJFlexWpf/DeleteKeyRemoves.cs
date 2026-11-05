@@ -67,7 +67,7 @@ public static class DeleteKeyRemoves
 
     private static void OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
-        if (sender is Selector list) GateFor(list).OtherInput(Environment.TickCount64);
+        if (sender is Selector list) Clicked(GateFor(list), Environment.TickCount64);
     }
 
     /// <summary>
@@ -101,7 +101,14 @@ public static class DeleteKeyRemoves
     internal static bool Decide(Radios.DeleteKeyGate gate, Key key, ModifierKeys mods, bool isRepeat, bool fromTextEntry,
         int selectedIndex, bool buttonPresent, bool buttonEnabled, bool buttonVisible, long nowMs)
     {
-        if (key != Key.Delete || mods != ModifierKeys.None || fromTextEntry)
+        if (key == Key.Delete && (mods != ModifierKeys.None || fromTextEntry))
+        {
+            // Still the Delete key: it continues a hold and never ends one
+            // (repair round 3).
+            gate.DeleteThatDoesNotPress(nowMs);
+            return false;
+        }
+        if (key != Key.Delete)
         {
             // Another key on the list: once Delete has come up, a new intent
             // (repair round 2), so a deliberate press on the next item counts.
@@ -111,6 +118,13 @@ public static class DeleteKeyRemoves
         bool press = gate.Down(isRepeat, nowMs);
         return press && Presses(key, mods, fromTextEntry, selectedIndex, buttonPresent, buttonEnabled, buttonVisible);
     }
+
+    /// <summary>
+    /// A mouse press on the list, decided: a new intent only once Delete has
+    /// really been released (repair round 3, ruled by Noel 2026-11-04; see
+    /// <see cref="Radios.DeleteKeyGate.Pointer"/>).
+    /// </summary>
+    internal static void Clicked(Radios.DeleteKeyGate gate, long nowMs) => gate.Pointer(nowMs);
 
     private static void OnPreviewKeyUp(object sender, KeyEventArgs e)
     {

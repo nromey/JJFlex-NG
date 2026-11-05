@@ -112,6 +112,60 @@ public sealed class DeleteKeyRemovesTests
         Assert.False(D(jaws, Key.Delete, false, 512));  // the same hold
     }
 
+    /// <summary>
+    /// Repair round 3 (ruled by Noel 2026-11-04: a click counts as a new
+    /// intent only once Delete has really been released). Codex's replay
+    /// through the WPF list's own decisions: a press, the first JAWS pair's
+    /// synthetic up, a click on the list while the key is still held, and the
+    /// hold's next pair, which is the same hold. Controls: round two's press
+    /// after an arrow still presses, and a click after a real release does.
+    /// </summary>
+    [Fact]
+    public void A_click_during_a_jaws_hold_does_not_make_its_next_pair_a_press()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        bool D(Radios.DeleteKeyGate g, Key key, long t) =>
+            DeleteKeyRemoves.Decide(g, key, ModifierKeys.None, false, fromTextEntry: false,
+                selectedIndex: 0, buttonPresent: true, buttonEnabled: true, buttonVisible: true, nowMs: t);
+
+        var jaws = new Radios.DeleteKeyGate(750);
+        Assert.True(D(jaws, Key.Delete, 0));
+        jaws.Up(5);
+        DeleteKeyRemoves.Clicked(jaws, 200);
+        Assert.False(D(jaws, Key.Delete, 512));
+        jaws.Up(517);
+        Assert.False(D(jaws, Key.Delete, 762));
+
+        var arrow = new Radios.DeleteKeyGate(750);
+        Assert.True(D(arrow, Key.Delete, 0));
+        arrow.Up(80);
+        Assert.False(D(arrow, Key.Down, 150));
+        Assert.True(D(arrow, Key.Delete, 300));
+
+        var released = new Radios.DeleteKeyGate(750);
+        Assert.True(D(released, Key.Delete, 0));
+        released.Up(80);
+        DeleteKeyRemoves.Clicked(released, 900);
+        Assert.True(D(released, Key.Delete, 950));
+    }
+
+    /// <summary>
+    /// Shift+Delete, or Delete typed into a text box inside the list, is the
+    /// same physical key: it never presses, and it never ends a hold the way
+    /// another key does (Codex's round-two note on the adjacent class).
+    /// </summary>
+    [Fact]
+    public void A_Delete_that_does_not_qualify_is_still_the_Delete_key_and_never_ends_a_hold()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var g = new Radios.DeleteKeyGate(750);
+        Assert.True(DeleteKeyRemoves.Decide(g, Key.Delete, ModifierKeys.None, false, false, 0, true, true, true, 0));
+        g.Up(5);
+        Assert.False(DeleteKeyRemoves.Decide(g, Key.Delete, ModifierKeys.Shift, false, false, 0, true, true, true, 200));
+        g.Up(205);
+        Assert.False(DeleteKeyRemoves.Decide(g, Key.Delete, ModifierKeys.None, false, false, 0, true, true, true, 450));
+    }
+
     [Fact]
     public void A_Delete_that_does_not_qualify_never_presses_however_fresh()
     {

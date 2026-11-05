@@ -200,6 +200,72 @@ namespace Radios.Tests
             Assert.True(WinFormsDeleteKey.Decide(g, bareDelete: true, 1600));     // a new press
         }
 
+        // ── Repair round 3: a click is new intent only once Delete is really up ──
+
+        /// <summary>
+        /// Codex's round-two replay, through the WinForms list's own decisions
+        /// (ruled by Noel 2026-11-04: a click counts as a new intent only once
+        /// Delete has really been released). Delay setting 1 (500 ms), gap
+        /// 750: a press, the first JAWS pair's synthetic up at 5, a click on
+        /// the list at 200 while the key is still physically held, then the
+        /// hold's next pair at 512. A click is not a keystroke, so it cannot
+        /// stop the held key's stream, and that next pair is the same hold.
+        /// </summary>
+        [Fact]
+        public void A_click_during_a_jaws_hold_does_not_make_its_next_pair_a_press_on_a_WinForms_list()
+        {
+            var g = AdapterGate(1, 31);
+            Assert.Equal(750, g.ReleaseGapMs);
+            Assert.True(WinFormsDeleteKey.Decide(g, bareDelete: true, 0));
+            g.Up(5);
+            WinFormsDeleteKey.Clicked(g, 200);
+            Assert.False(WinFormsDeleteKey.Decide(g, bareDelete: true, 512));
+            g.Up(517);
+            Assert.False(WinFormsDeleteKey.Decide(g, bareDelete: true, 762));
+        }
+
+        [Fact]
+        public void A_click_after_Delete_was_really_released_leaves_the_next_press_a_press()
+        {
+            // The control: released (an up, then quiet past the gap), a click on
+            // another item, a press. And round two's keyboard route still ends
+            // a hold at once after an up, because another key stops the held
+            // key's repeats.
+            var g = AdapterGate(1, 31);
+            Assert.True(WinFormsDeleteKey.Decide(g, bareDelete: true, 0));
+            g.Up(80);
+            WinFormsDeleteKey.Clicked(g, 80 + g.ReleaseGapMs + 10);
+            Assert.True(WinFormsDeleteKey.Decide(g, bareDelete: true, 80 + g.ReleaseGapMs + 50));
+
+            var k = AdapterGate(1, 31);
+            Assert.True(WinFormsDeleteKey.Decide(k, bareDelete: true, 0));
+            k.Up(80);
+            Assert.False(WinFormsDeleteKey.Decide(k, bareDelete: false, 150));   // Down arrow
+            Assert.True(WinFormsDeleteKey.Decide(k, bareDelete: true, 300));
+        }
+
+        [Fact]
+        public void A_click_during_a_hold_with_no_up_yet_changes_nothing()
+        {
+            var g = AdapterGate(1, 31);
+            Assert.True(g.Down(false, 0));
+            WinFormsDeleteKey.Clicked(g, 100);
+            Assert.False(g.Down(false, 500));
+        }
+
+        [Fact]
+        public void A_release_then_a_long_idle_then_leaving_and_returning_lets_the_next_press_press()
+        {
+            // Codex's coverage note: the interruption's own expiry, with no
+            // other input to clear a wrongly kept hold.
+            var g = AdapterGate(1, 15);
+            Assert.True(g.Down(false, 0));
+            g.Up(80);
+            g.Interrupted(5000);
+            g.Resumed(9000);
+            Assert.True(g.Down(false, 9100));
+        }
+
         [Fact]
         public void Both_adapters_size_the_gap_from_the_period_and_watch_focus_and_other_input()
         {
@@ -208,7 +274,7 @@ namespace Radios.Tests
             Assert.Contains("SystemInformation.KeyboardSpeed", winforms);
             Assert.Contains("list.LostFocus += (_, _) => gate.Interrupted(", winforms);
             Assert.Contains("list.GotFocus += (_, _) => gate.Resumed(", winforms);
-            Assert.Contains("list.MouseDown += (_, _) => gate.OtherInput(", winforms);
+            Assert.Contains("list.MouseDown += (_, _) => Clicked(gate, ", winforms);
             string wpf = System.IO.File.ReadAllText(System.IO.Path.Combine(root, "JJFlexWpf", "DeleteKeyRemoves.cs"));
             Assert.Contains("SystemParameters.KeyboardSpeed", wpf);
             Assert.Contains("list.IsKeyboardFocusWithinChanged += OnFocusWithinChanged;", wpf);

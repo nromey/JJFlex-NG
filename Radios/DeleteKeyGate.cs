@@ -46,6 +46,15 @@ namespace Radios
     /// (<see cref="Resumed"/>) restarts the silence from the return, so the
     /// key still held when the question closes cannot act again.
     /// </para>
+    /// <para>
+    /// <b>Repair round 3 (Codex's second re-check, ruled by Noel
+    /// 2026-11-04).</b> A CLICK is a new intent only once Delete has really
+    /// been released (<see cref="Pointer"/>): an up inside a JAWS hold is
+    /// synthetic, and a click, unlike another key, does not stop the held
+    /// key's stream, so a click there left the next pair free to remove a
+    /// second item. A Delete with a modifier, or typed into a text box,
+    /// continues a hold and never ends one (<see cref="DeleteThatDoesNotPress"/>).
+    /// </para>
     /// </remarks>
     public sealed class DeleteKeyGate
     {
@@ -159,6 +168,29 @@ namespace Radios
         }
 
         /// <summary>
+        /// A mouse press on the list (repair round 3, ruled by Noel 2026-11-04:
+        /// a click counts as a new intent only once Delete has really been
+        /// released). Unlike another KEY, a click does not stop a held key's
+        /// stream: JAWS goes on synthesising a down/up pair from the held
+        /// Delete, and an up seen in that stream is not a release. So a click
+        /// ends the hold only when the hold has already ended by silence
+        /// (<see cref="StillHeld"/> false); otherwise the next pair is the
+        /// same hold.
+        /// </summary>
+        public void Pointer(long nowMs)
+        {
+            if (_holding && !StillHeld(nowMs)) _holding = false;
+        }
+
+        /// <summary>
+        /// A Delete down that does not qualify to press (a modifier held, or
+        /// typed into a text box in the list). It is still the Delete key, so
+        /// it never ends a hold the way another key does; it continues a live
+        /// hold, or starts one without pressing (repair round 3).
+        /// </summary>
+        public void DeleteThatDoesNotPress(long nowMs) => Down(isRepeat: true, nowMs);
+
+        /// <summary>
         /// The list lost keyboard focus (a question opened, or the operator
         /// moved away). A hold live now stays held, with its up still to come:
         /// the up may go to the question.
@@ -222,7 +254,15 @@ namespace Radios
                 KeyRepeatTiming.RepeatPeriodMsFromSetting(System.Windows.Forms.SystemInformation.KeyboardSpeed)));
             list.KeyDown += (_, e) =>
             {
-                bool bareDelete = e.KeyCode == System.Windows.Forms.Keys.Delete && e.Modifiers == System.Windows.Forms.Keys.None;
+                bool isDelete = e.KeyCode == System.Windows.Forms.Keys.Delete;
+                bool bareDelete = isDelete && e.Modifiers == System.Windows.Forms.Keys.None;
+                if (isDelete && !bareDelete)
+                {
+                    // Shift+Delete and the like: still the Delete key, so it
+                    // continues a hold rather than ending one (repair round 3).
+                    gate.DeleteThatDoesNotPress(Environment.TickCount64);
+                    return;
+                }
                 bool press = Decide(gate, bareDelete, Environment.TickCount64);
                 if (!bareDelete) return;
                 e.Handled = true;
@@ -253,9 +293,10 @@ namespace Radios
             {
                 if (e.KeyCode == System.Windows.Forms.Keys.Delete) gate.Up(Environment.TickCount64);
             };
-            // A click is another input; focus leaving (a question opening) and
-            // coming back is a hold's interruption (repair round 2).
-            list.MouseDown += (_, _) => gate.OtherInput(Environment.TickCount64);
+            // A click is a new intent only once Delete is really up (repair
+            // round 3); focus leaving (a question opening) and coming back is a
+            // hold's interruption (repair round 2).
+            list.MouseDown += (_, _) => Clicked(gate, Environment.TickCount64);
             list.LostFocus += (_, _) => gate.Interrupted(Environment.TickCount64);
             list.GotFocus += (_, _) => gate.Resumed(Environment.TickCount64);
         }
@@ -266,6 +307,12 @@ namespace Radios
         /// intent once Delete has come up). WinForms reports no repeat flag;
         /// the gate tracks a down with no up since the last one instead.
         /// </summary>
+        /// <summary>
+        /// A mouse press on a WinForms list, decided: a new intent only once
+        /// Delete has really been released (<see cref="DeleteKeyGate.Pointer"/>).
+        /// </summary>
+        internal static void Clicked(DeleteKeyGate gate, long nowMs) => gate.Pointer(nowMs);
+
         internal static bool Decide(DeleteKeyGate gate, bool bareDelete, long nowMs)
         {
             if (!bareDelete)
