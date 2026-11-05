@@ -2129,7 +2129,7 @@ namespace Radios.Tests
                 "audio.ptt.transmit_slice_changed",
                 "audio.ptt.transmit_frequency_changed",
                 // Repair round 3 (#863): the selected slice alone changed. Its
-                // own key, same text for now, so Noel's answer is a lexicon edit.
+                // own key; its sentence ruled by Noel 2026-11-04 22:20.
                 "audio.ptt.selected_slice_changed",
                 // Repair round 1 (#863, ruled 2026-11-03): the notice by verbosity and
                 // its three-way setting. DRAFT prose, awaiting Noel.

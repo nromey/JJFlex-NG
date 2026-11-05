@@ -664,7 +664,7 @@
   "audio.ptt.transmit_slice_not_heard": {"text": "The transmit slice could not be announced, so nothing was transmitted.", "delivery": null},
   "audio.ptt.transmit_slice_changed": {"text": "The transmit slice changed, so nothing was transmitted.", "delivery": null},
   "audio.ptt.transmit_frequency_changed": {"text": "The transmit frequency changed, so nothing was transmitted.", "delivery": null},
-  "audio.ptt.selected_slice_changed": {"text": "The transmit slice could not be announced, so nothing was transmitted.", "delivery": null},
+  "audio.ptt.selected_slice_changed": {"text": "The selected slice changed, so nothing was transmitted.", "delivery": null},
   "audio.ptt.transmit_elsewhere_terse": {"text": "{slice} {freq}", "delivery": null},
   "audio.ptt.transmit_elsewhere": {"text": "Transmitting on slice {slice}, {freq}", "delivery": null},
   "audio.ptt.cut_hold_reason_share": { "text": "{percent} percent of your power was coming back on {antenna}", "delivery": null },

@@ -122,8 +122,9 @@ public sealed class TransmitSliceNoticeTests
     /// Ruled by Noel 2026-11-04 06:59: a door that refuses because the place
     /// changed while it waited says what changed. The transmit slice: his
     /// sentence. Only the transmit frequency: the orchestrator's DRAFT
-    /// extension. The control: a notice that could not be announced, and a
-    /// change of the selected slice alone, keep the not-announced sentence.
+    /// extension. The selected slice alone: its own sentence, ruled by Noel
+    /// 2026-11-04 22:20. The control: a notice that could not be announced
+    /// keeps the not-announced sentence.
     /// </summary>
     [Fact]
     public void Each_changed_place_refuses_with_its_own_sentence()
@@ -139,10 +140,10 @@ public sealed class TransmitSliceNoticeTests
             TransmitSliceNotice.RefusalForChangedPlace(Apart, noTransmit));
         Assert.Equal("The transmit frequency changed, so nothing was transmitted.",
             TransmitSliceNotice.RefusalForChangedPlace(Apart, movedFreq));
-        Assert.Equal("The transmit slice could not be announced, so nothing was transmitted.",
+        Assert.Equal("The selected slice changed, so nothing was transmitted.",
             TransmitSliceNotice.RefusalForChangedPlace(Apart, otherSelected));
-        // Repair round 3: the selected slice alone has its OWN key, with the
-        // same text for now, so Noel's answer is a lexicon edit only.
+        // The selected slice alone has its OWN key (repair round 3), with
+        // its own sentence (ruled 2026-11-04 22:20, repair round 4).
         Assert.Equal(Lexicon.Get("audio.ptt.selected_slice_changed"),
             TransmitSliceNotice.RefusalForChangedPlace(Apart, otherSelected));
         string notice = Source("Radios/TransmitSliceNotice.cs");

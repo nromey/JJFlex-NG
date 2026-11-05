@@ -304,8 +304,10 @@ namespace Radios
         /// (his wording). Only its frequency moved: "The transmit frequency
         /// changed, so nothing was transmitted." (DRAFT, the orchestrator's
         /// extension). Any other change (the selected slice moved, so a new
-        /// split nobody was told about): the not-announced sentence, which is
-        /// also what a sentence that could not be said gets. Pure.
+        /// split nobody was told about): "The selected slice changed, so
+        /// nothing was transmitted." (ruled by Noel 2026-11-04 22:20). A
+        /// sentence that could not be said keeps the not-announced sentence.
+        /// Pure.
         /// </summary>
         public static string RefusalForChangedPlace(SliceRoles announced, SliceRoles now)
         {
@@ -314,10 +316,9 @@ namespace Radios
                 return Lexicon.Get("audio.ptt.transmit_slice_changed");
             if (now.TransmitHz != announced.TransmitHz)
                 return Lexicon.Get("audio.ptt.transmit_frequency_changed");
-            // Only the SELECTED slice changed. Its own key (repair round 3), so
-            // Noel's answer to "should this have a sentence of its own?" is a
-            // lexicon edit only. For now its text is the not-announced
-            // sentence's, word for word. DRAFT.
+            // Only the SELECTED slice changed. Its own key (repair round 3) and
+            // its own sentence, ruled by Noel 2026-11-04 22:20: the notice WAS
+            // announced, so "could not be announced" would be untrue.
             return Lexicon.Get("audio.ptt.selected_slice_changed");
         }
 
