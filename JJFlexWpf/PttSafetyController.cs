@@ -1196,11 +1196,12 @@ namespace JJFlexWpf
         internal bool ChirpStopOwed { get { lock (_edgeToneLock) return _edgeStopOwed && _edgeStopFamily == FallingTone.Chirp; } }
 
         /// <summary>
-        /// For tests: every falling tone actually handed to the earcon player,
-        /// by its earcon's name, in order. Recorded at the call itself, so a
-        /// test sees the submission, not only the accounting.
+        /// For tests: when set, every falling tone actually handed to the
+        /// earcon player is added here by its earcon's name, in order, at the
+        /// call itself, so a test sees the submission and not only the
+        /// accounting. Null in production, so nothing grows over a session.
         /// </summary>
-        internal System.Collections.Generic.List<string> FallingTonesSubmitted { get; } = new();
+        internal System.Collections.Generic.List<string>? FallingTonesSubmitted { get; set; }
 
         /// <summary>For tests: how many owed rising tri-tones this controller has played.</summary>
         internal int ElsewhereStartTonesPlayed { get { lock (_edgeToneLock) return _edgeStartTonesPlayed; } }
@@ -1234,7 +1235,14 @@ namespace JJFlexWpf
             FlexBase? rig = null;
             try { rig = _getRigControl(); } catch { }
             if (rig == null) { PayStopTone(gen, sameConnection: false); return; }
-            rig.WhenReallyReceiving(same => PayStopTone(gen, same));
+            // Given up quietly once a newer debt replaces this one, so a carrier
+            // held for a long time does not collect waits behind it.
+            rig.WhenReallyReceiving(same => PayStopTone(gen, same), () => StillOwed(gen));
+        }
+
+        private bool StillOwed(long generation)
+        {
+            lock (_edgeToneLock) return _edgeStopOwed && generation == _edgeToneGeneration;
         }
 
         /// <summary>
@@ -1266,8 +1274,10 @@ namespace JJFlexWpf
                     TraceLevel.Info);
                 return;
             }
-            lock (FallingTonesSubmitted)
-                FallingTonesSubmitted.Add(family == FallingTone.Elsewhere ? nameof(EarconPlayer.TxElsewhereStopTone) : nameof(EarconPlayer.TxStopTone));
+            var submitted = FallingTonesSubmitted;
+            if (submitted != null)
+                lock (submitted)
+                    submitted.Add(family == FallingTone.Elsewhere ? nameof(EarconPlayer.TxElsewhereStopTone) : nameof(EarconPlayer.TxStopTone));
             if (family == FallingTone.Elsewhere) EarconPlayer.TxElsewhereStopTone();
             else EarconPlayer.TxStopTone();
         }

@@ -38,7 +38,10 @@ public sealed class FallingToneRepairFourTests : IDisposable
     public FallingToneRepairFourTests()
     {
         _controller = new PttSafetyController(() => _r.Rig, () => true,
-            new PttConfig { ChirpEnabled = true, SpeechEnabled = false });
+            new PttConfig { ChirpEnabled = true, SpeechEnabled = false })
+        {
+            FallingTonesSubmitted = new(),
+        };
     }
 
     public void Dispose()
@@ -57,7 +60,8 @@ public sealed class FallingToneRepairFourTests : IDisposable
 
     private string[] Submitted()
     {
-        lock (_controller.FallingTonesSubmitted) return _controller.FallingTonesSubmitted.ToArray();
+        var submitted = _controller.FallingTonesSubmitted!;
+        lock (submitted) return submitted.ToArray();
     }
 
     private static bool Within(int ms, Func<bool> condition)

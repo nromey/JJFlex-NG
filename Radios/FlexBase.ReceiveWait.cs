@@ -77,9 +77,17 @@ namespace Radios
         /// slow fallback check catches a connection that ends quietly.
         /// </para>
         /// </remarks>
-        public bool WhenReallyReceiving(Action<bool> then) => WhenRadioReportsReceive(then);
+        public bool WhenReallyReceiving(Action<bool> then) => WhenRadioReportsReceive(then, null);
 
-        private bool WhenRadioReportsReceive(Action<bool> then)
+        /// <summary>
+        /// The same wait, given up quietly once <paramref name="stillWanted"/>
+        /// says no (a newer debt replaced the one it was for): then
+        /// <paramref name="then"/> never runs, and nothing is left waiting
+        /// behind a carrier that may hold for a long time.
+        /// </summary>
+        public bool WhenReallyReceiving(Action<bool> then, Func<bool> stillWanted) => WhenRadioReportsReceive(then, stillWanted);
+
+        private bool WhenRadioReportsReceive(Action<bool> then, Func<bool>? stillWanted)
         {
             Radio? radio = theRadio;
             CommandConnection? connection = radio?.Connected == true ? radio.CurrentCommandConnection : null;
@@ -108,7 +116,10 @@ namespace Radios
                 try
                 {
                     while ((same = SameConnection()) && !ReportsReceive())
+                    {
+                        if (stillWanted != null && !stillWanted()) return;
                         await wake.WaitAsync(ReceiveReportFallbackMs).ConfigureAwait(false);
+                    }
                 }
                 finally
                 {
