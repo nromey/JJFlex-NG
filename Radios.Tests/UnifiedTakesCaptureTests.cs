@@ -75,6 +75,24 @@ public sealed class UnifiedTakesCaptureTests
         return Utc + slot / 100 + (slot % 100) * 96 / 65536.0;
     }
 
+    /// <summary>
+    /// The radio's keys for a stream whose UTC seconds hold the given packet
+    /// counts, in order. Over LAN the radio's seconds hold 99, 100 or 101
+    /// packets (the 2026-11-04 evening bench: 213 of 306 seconds below that
+    /// session's busiest of 101, with nothing lost), so a second's count jitters
+    /// by one while the stream is whole.
+    /// </summary>
+    internal static double[] KeysForSeconds(params int[] perSecond)
+    {
+        var keys = new List<double>();
+        for (int second = 0; second < perSecond.Length; second++)
+            for (int i = 0; i < perSecond[second]; i++) keys.Add(Utc + second + i * 96 / 65536.0);
+        return keys.ToArray();
+    }
+
+    /// <summary>The LAN shape: whole UTC seconds of 99, 100 and 101 packets, between two partial ones.</summary>
+    internal static readonly int[] LanSeconds = { 63, 100, 101, 99, 100, 101, 100, 99, 101, 100, 41 };
+
     /// <summary>The wire's 4-bit counter for packet <paramref name="index"/>.</summary>
     internal static int Sequence(int index) => (index + SlotOffset) & 15;
 
@@ -285,6 +303,29 @@ public sealed class UnifiedTakesCaptureTests
             Assert.Equal("incomplete", take.State);
             Assert.Empty(GapRecords(take));
             Assert.Equal("1", take.Get("unaccounted-short-seconds"));
+        }
+        finally { UnifiedTakeFixtures.Remove(root); }
+    }
+
+    [Fact]
+    public async Task A_whole_stream_whose_seconds_hold_99_100_or_101_packets_closes_clean()
+    {
+        // Both LAN takes on the 2026-11-04 evening bench closed incomplete with
+        // six "unaccounted" seconds while their audio was proven whole.
+        string root = UnifiedTakeFixtures.NewRoot();
+        try
+        {
+            var (capture, directory) = Start(root);
+            capture.Observe(Edge(playing: true));
+            double[] keys = KeysForSeconds(LanSeconds);
+            for (int i = 0; i < keys.Length; i++)
+                capture.Offer(new ReceivedAudioPacket(Packet(i), Sequence(i), keys[i], Arrival(i), false));
+            capture.Observe(Edge(playing: false));
+            Assert.True(await Closed(capture));
+            var take = TakeReader.Inspect(directory);
+            Assert.Equal("clean", take.State);
+            Assert.Null(take.Get("unaccounted-short-seconds"));
+            Assert.Equal((keys.Length * Frames).ToString(), take.Get(AudioTakeFields.SamplesWritten));
         }
         finally { UnifiedTakeFixtures.Remove(root); }
     }

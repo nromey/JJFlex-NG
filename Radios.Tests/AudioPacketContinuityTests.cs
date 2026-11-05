@@ -180,4 +180,54 @@ public sealed class AudioPacketContinuityTests
         Assert.Equal(5, run.TotalMissing);
         Assert.Equal(0, run.Model.Witness().UnaccountedShortSeconds);
     }
+
+    // ── Part 5d: real per-second jitter is not a loss; a hidden 16 still is ──
+
+    private static Run Keys(double[] keys, int dropFrom = -1, int dropCount = 0, bool stallAfterDrop = false)
+    {
+        var run = new Run();
+        int next = dropFrom + dropCount;
+        for (int i = 0; i < keys.Length; i++)
+        {
+            if (i >= dropFrom && i < next) continue;
+            long arrival = stallAfterDrop && i >= next && i < next + 10
+                ? UnifiedTakesCaptureTests.Arrival(next + 9) + (i - next) * 100
+                : UnifiedTakesCaptureTests.Arrival(i);
+            run.Outcomes.Add(run.Model.Offer(i, keys[i], UnifiedTakesCaptureTests.Sequence(i), arrival, run.Placed));
+        }
+        run.Model.Flush(run.Placed);
+        return run;
+    }
+
+    [Fact]
+    public void Seconds_holding_99_100_or_101_packets_of_a_whole_stream_are_not_a_loss()
+    {
+        var run = Keys(UnifiedTakesCaptureTests.KeysForSeconds(UnifiedTakesCaptureTests.LanSeconds));
+        Assert.Equal(0, run.TotalMissing);
+        var witness = run.Model.Witness();
+        Assert.Equal(101, witness.PeakPerSecond);
+        Assert.Equal(9, witness.CompleteSeconds);
+        Assert.Equal(0, witness.UnaccountedShortSeconds);
+    }
+
+    [Fact]
+    public void Seconds_alternating_100_and_101_packets_are_not_a_loss()
+    {
+        var run = Keys(UnifiedTakesCaptureTests.KeysForSeconds(50, 100, 101, 100, 101, 100, 101, 30));
+        Assert.Equal(0, run.Model.Witness().UnaccountedShortSeconds);
+    }
+
+    [Fact]
+    public void A_hidden_loss_of_exactly_sixteen_split_across_a_second_boundary_still_counts_on_jittery_seconds()
+    {
+        // LAN-shaped seconds; 16 packets lost under a stall (so the counter reads
+        // contiguous and nothing is placed), eight each side of the boundary
+        // between the fourth and fifth seconds, each of which jittered up by one.
+        int[] seconds = { 63, 100, 99, 100, 101, 101, 100, 99, 41 };
+        double[] keys = UnifiedTakesCaptureTests.KeysForSeconds(seconds);
+        int boundary = 63 + 100 + 99 + 100 + 101;
+        var run = Keys(keys, dropFrom: boundary - 8, dropCount: 16, stallAfterDrop: true);
+        Assert.Equal(0, run.TotalMissing);
+        Assert.True(run.Model.Witness().UnaccountedShortSeconds > 0, "a hidden loss of 16 went uncounted");
+    }
 }

@@ -72,11 +72,11 @@ public readonly record struct ContinuityWitness(long PeakPerSecond, int Complete
 /// <para>
 /// <b>The witness.</b> A stall can also hide a loss, when FlexLib clears its
 /// receive queue past 30 packets and the counter happens to come out
-/// contiguous. That cannot be placed, but it can be counted afterwards, the
-/// way <see cref="ReceiveContinuityMeter"/> counts: every complete UTC second
-/// should hold as many packets as the busiest one. A complete second that came
-/// up short with no gap placed in or against it is an unaccounted loss, and
-/// the take is not clean.
+/// contiguous. That cannot be placed, but it can be counted afterwards, per
+/// complete UTC second, as <see cref="ReceiveContinuityMeter"/> counts: two
+/// neighbouring seconds, untouched by a placed gap, that together fall short
+/// of the nominal rate by half a counter wrap are an unaccounted loss, and the
+/// take is not clean (see <see cref="Witness"/> for why pairs).
 /// </para>
 /// <para>
 /// <b>Every gap is an estimate, and says what it was based on:</b>
@@ -186,10 +186,41 @@ public sealed class AudioPacketContinuity<T>
     }
 
     /// <summary>
-    /// Count packets per complete UTC second: a short second with no gap placed
-    /// in or against it is a loss nothing could place. Judged only once at
-    /// least two complete seconds exist, since the busiest one is the measure.
+    /// What a pair of neighbouring complete seconds must fall short of the
+    /// nominal packet rate by before it counts as a loss: half the smallest loss
+    /// the counter cannot see, which is 16 packets.
     /// </summary>
+    public const int WitnessShortfall = 8;
+
+    /// <summary>
+    /// Count packets per complete UTC second, and look for a loss nothing could
+    /// place: two neighbouring seconds, neither touched by a placed gap, that
+    /// together hold at least <see cref="WitnessShortfall"/> packets fewer than
+    /// two seconds' worth at the nominal rate. The seconds in such a pair that
+    /// themselves came up short are counted. Judged only once two complete
+    /// seconds exist.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why pairs against the nominal rate, not each second against the
+    /// busiest (part 5d).</b> Over LAN the radio's UTC seconds hold 99, 100 or
+    /// 101 packets of a whole stream: on the 2026-11-04 evening bench the
+    /// receive meter judged 306 seconds, the busiest held 101, and 213 came up
+    /// below it while nothing was lost. Both LAN takes therefore closed
+    /// incomplete on a whole file; SmartLink, whose seconds held 100, did not.
+    /// The witness exists for the losses the counter cannot see, which are
+    /// multiples of 16; a shortfall under 16 is the counter's business. A packet
+    /// that lands in the neighbouring second leaves the pair's total alone, so
+    /// a pair sum jitters by a packet or two while a hidden 16 shows as at
+    /// least 14 wherever it falls, a second boundary included.
+    /// </para>
+    /// <para>
+    /// The nominal rate is the one the rest of this class already assumes (ten
+    /// millisecond packets), so a stream slower than that by more than about
+    /// four packets a second would read as lost. The busiest second is still
+    /// reported, for the diagnostic log.
+    /// </para>
+    /// </remarks>
     public ContinuityWitness Witness()
     {
         long peak = 0;
@@ -203,11 +234,18 @@ public sealed class AudioPacketContinuity<T>
                 complete++;
                 if (!_gapTouched.Contains(s)) peak = Math.Max(peak, count);
             }
-        if (complete < 2 || peak == 0) return new ContinuityWitness(peak, complete, 0);
-        int shortSeconds = 0;
-        foreach (var (second, count) in judged)
-            if (count < peak && !_gapTouched.Contains(second)) shortSeconds++;
-        return new ContinuityWitness(peak, complete, shortSeconds);
+        if (complete < 2) return new ContinuityWitness(peak, complete, 0);
+        var shortSeconds = new HashSet<long>();
+        for (int k = 0; k + 1 < judged.Count; k++)
+        {
+            var (a, ca) = judged[k];
+            var (b, cb) = judged[k + 1];
+            if (_gapTouched.Contains(a) || _gapTouched.Contains(b)) continue;
+            if (2 * _packetsPerSecond - (ca + cb) < WitnessShortfall) continue;
+            if (ca < _packetsPerSecond) shortSeconds.Add(a);
+            if (cb < _packetsPerSecond) shortSeconds.Add(b);
+        }
+        return new ContinuityWitness(peak, complete, shortSeconds.Count);
     }
 
     private PacketOutcome Discontinuity(string reason)
