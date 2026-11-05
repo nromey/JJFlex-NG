@@ -54,6 +54,15 @@ namespace Radios.Listenback
     /// to the header and the trace so the bench measurement can settle it.
     /// </para>
     /// <para>
+    /// <b>Gaps come from the counter, never from the timestamp as a clock.</b>
+    /// The radio's key is whole UTC seconds plus a fractional half that is not a
+    /// fraction of a second; reading it as seconds discarded three packets in
+    /// four on the 2026-11-04 bench. <see cref="AudioPacketContinuity{T}"/> orders
+    /// packets by the key, counts them by the 4-bit counter, bounds the count by
+    /// whole seconds and settles a wrap by arrival, and each gap's reason says
+    /// which it rested on. The header's <c>gap-clock</c> names the model.
+    /// </para>
+    /// <para>
     /// <b>Fail-safes, not durations.</b> No raw start within
     /// <see cref="StartDeadline"/> of arming closes the take as
     /// <c>start-not-observed</c>; no stop within <see cref="SafetyCap"/> of the
@@ -69,7 +78,10 @@ namespace Radios.Listenback
     {
         public static readonly TimeSpan StartDeadline = TimeSpan.FromSeconds(3);
         public static readonly TimeSpan SafetyCap = TimeSpan.FromSeconds(125);
-        /// <summary>A forward jump in radio time longer than this is a discontinuity, not a gap to fill.</summary>
+        /// <summary>
+        /// This many whole UTC seconds missing is a discontinuity, not a gap to
+        /// fill. Whole seconds, because only the timestamp's integer half is time.
+        /// </summary>
         public const double LongestFillSeconds = 5;
 
         private abstract record Item;
@@ -88,8 +100,11 @@ namespace Radios.Listenback
         private int _state = (int)PlaybackCaptureState.Reserved;
         private int _overflowed;
         private long _armedTicks, _startedTicks;
-        private double? _lastTimestamp;
-        private long _lastFrames, _gapSamples, _preStartPackets, _discards;
+        // Where the gaps are: the counter counts, whole UTC seconds bound, arrival
+        // decides a wrap. NEVER the timestamp's fractional half as time (round three).
+        private readonly AudioPacketContinuity<ReceivedAudioPacket> _continuity;
+        private readonly System.Collections.Generic.List<PlacedPacket<ReceivedAudioPacket>> _ready = new();
+        private long _lastFrames, _gapSamples, _preStartPackets, _discards, _unaccountedSeconds;
         private bool _sawStop, _sawLocalMute, _discontinuity;
         private ReceivedAudioPacket _firstPacket, _lastPacket;
         private Task _worker;
@@ -101,6 +116,8 @@ namespace Radios.Listenback
             _clock = clock ?? Stopwatch.GetTimestamp;
             _startDeadline = startDeadline ?? StartDeadline;
             _safetyCap = safetyCap ?? SafetyCap;
+            _continuity = new AudioPacketContinuity<ReceivedAudioPacket>(Stopwatch.Frequency,
+                longestFillSeconds: LongestFillSeconds);
         }
 
         public PlaybackCaptureState State => (PlaybackCaptureState)Volatile.Read(ref _state);
@@ -119,6 +136,8 @@ namespace Radios.Listenback
                 != (int)PlaybackCaptureState.Reserved) return;
             _armedTicks = _clock();
             _writer.Note("armed-ticks", _armedTicks);
+            // What every audio-gap below was measured with, as the IQ take says its own.
+            _writer.Note("gap-clock", AudioPacketContinuity<ReceivedAudioPacket>.GapClock);
             _worker = Task.Run(WorkAsync);
         }
 
@@ -192,7 +211,18 @@ namespace Radios.Listenback
                             break;
                     }
                 }
-                clean = reason == "observed-stop" && !_discontinuity && _gapSamples == 0 && Volatile.Read(ref _overflowed) == 0;
+                // A packet held while its gap was decided is written before the take closes.
+                if (State == PlaybackCaptureState.Capturing) WriteReady(flush: true);
+                var witness = _continuity.Witness();
+                _unaccountedSeconds = witness.UnaccountedShortSeconds;
+                if (_unaccountedSeconds > 0)
+                {
+                    // A loss nothing could place: counted, not positioned, and never clean.
+                    _writer.Note("unaccounted-short-seconds", _unaccountedSeconds);
+                    _writer.Note("continuity-peak-per-second", witness.PeakPerSecond);
+                }
+                clean = reason == "observed-stop" && !_discontinuity && _gapSamples == 0 && _unaccountedSeconds == 0
+                    && Volatile.Read(ref _overflowed) == 0;
             }
             catch (Exception ex)
             {
@@ -207,7 +237,8 @@ namespace Radios.Listenback
                 _writer.NoteEvent("capture-summary", new
                 {
                     EndReason = reason, PreStartPacketsDiscarded = _preStartPackets, StalePacketsDiscarded = _discards,
-                    GapSamples = _gapSamples, LocalMuteObserved = _sawLocalMute, StopObserved = _sawStop,
+                    GapSamples = _gapSamples, StallsSeen = _continuity.StallsSeen, UnaccountedShortSeconds = _unaccountedSeconds,
+                    LocalMuteObserved = _sawLocalMute, StopObserved = _sawStop,
                     FirstPacket = _firstPacket == null ? null : new { _firstPacket.RadioTimestamp, _firstPacket.ArrivalTicks, _firstPacket.Sequence },
                     LastPacket = _lastPacket == null ? null : new { _lastPacket.RadioTimestamp, _lastPacket.ArrivalTicks, _lastPacket.Sequence },
                     DecodedSamples = _writer.SamplesWritten, TickFrequency = Stopwatch.Frequency,
@@ -215,7 +246,7 @@ namespace Radios.Listenback
                 string firstTs = _firstPacket?.RadioTimestamp.ToString("R", CultureInfo.InvariantCulture) ?? "none";
                 string lastTs = _lastPacket?.RadioTimestamp.ToString("R", CultureInfo.InvariantCulture) ?? "none";
                 JJTrace.Tracing.TraceLine(string.Create(CultureInfo.InvariantCulture,
-                    $"PlaybackTakeCapture: closing {System.IO.Path.GetFileName(_writer.DirectoryPath)} reason={reason} firstTs={firstTs} firstArrival={_firstPacket?.ArrivalTicks} lastTs={lastTs} lastArrival={_lastPacket?.ArrivalTicks} decodedSamples={_writer.SamplesWritten} gapSamples={_gapSamples} preStart={_preStartPackets}"),
+                    $"PlaybackTakeCapture: closing {System.IO.Path.GetFileName(_writer.DirectoryPath)} reason={reason} firstTs={firstTs} firstArrival={_firstPacket?.ArrivalTicks} lastTs={lastTs} lastArrival={_lastPacket?.ArrivalTicks} decodedSamples={_writer.SamplesWritten} gapSamples={_gapSamples} preStart={_preStartPackets} late={_discards} stalls={_continuity.StallsSeen} unaccountedSeconds={_unaccountedSeconds}"),
                     TraceLevel.Info);
                 result = _writer.Close(clean, reason ?? "unknown");
             }
@@ -243,6 +274,8 @@ namespace Radios.Listenback
             }
             if (!edge.Playing && state == PlaybackCaptureState.Capturing)
             {
+                // A packet still held for its gap belongs inside the span.
+                WriteReady(flush: true);
                 _sawStop = true;
                 _writer.EndPlayback();
                 return "observed-stop";
@@ -253,21 +286,41 @@ namespace Radios.Listenback
         private string Packet(ReceivedAudioPacket packet)
         {
             if (State != PlaybackCaptureState.Capturing) { _preStartPackets++; return null; }
-            // A packet that arrived after the start edge but carries a radio
-            // time before the previous one is stale or a duplicate.
-            if (_lastTimestamp is { } last)
+            switch (_continuity.Offer(packet, packet.RadioTimestamp, packet.Sequence, packet.ArrivalTicks, _ready))
             {
-                double expected = last + _lastFrames / (double)_writer.Rate;
-                double jump = packet.RadioTimestamp - expected;
-                if (jump < -0.5 / 100) { _discards++; return null; }
-                if (jump > LongestFillSeconds) { _discontinuity = true; return "clock-discontinuity"; }
-                long missing = (long)Math.Round(jump * _writer.Rate);
-                if (missing > _writer.Rate / 200)
+                case PacketOutcome.Late:
+                    // Not newer than a packet already written: a repeat or a late one.
+                    _discards++;
+                    return null;
+                case PacketOutcome.Discontinuity:
+                    WriteReady(flush: true);
+                    _discontinuity = true;
+                    return _continuity.DiscontinuityReason;
+            }
+            WriteReady(flush: false);
+            return null;
+        }
+
+        /// <summary>Write what the continuity model has placed, each behind its gap.</summary>
+        private void WriteReady(bool flush)
+        {
+            if (flush) _continuity.Flush(_ready);
+            foreach (var placed in _ready)
+            {
+                if (placed.MissingBefore > 0)
                 {
-                    _writer.Gap(missing, "radio-timestamp");
+                    long frames = _lastFrames > 0 ? _lastFrames : _writer.Rate / 100;
+                    long missing = placed.MissingBefore * frames;
+                    _writer.Gap(missing, placed.Basis);
                     _gapSamples += missing;
                 }
+                Write(placed.Item);
             }
+            _ready.Clear();
+        }
+
+        private void Write(ReceivedAudioPacket packet)
+        {
             if (packet.LocallyMuted && !_sawLocalMute)
             {
                 // The raw packet still exists at this tap; record it, and say
@@ -281,9 +334,7 @@ namespace Radios.Listenback
             _writer.Write(mono, mono.Length);
             _firstPacket ??= packet;
             _lastPacket = packet;
-            _lastTimestamp = packet.RadioTimestamp;
-            _lastFrames = mono.Length;
-            return null;
+            if (mono.Length > 0) _lastFrames = mono.Length;
         }
     }
 }

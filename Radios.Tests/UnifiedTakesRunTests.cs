@@ -58,7 +58,10 @@ public sealed class UnifiedTakesRunTests : IDisposable
             BitConverter.GetBytes(value).CopyTo(bytes, i * 4);
             BitConverter.GetBytes(value).CopyTo(bytes, i * 4 + 2);
         }
-        return new(bytes, index & 15, 100 + index * 0.01, Stopwatch.GetTimestamp(), false);
+        // Shaped as the radio sends it (round three): whole UTC seconds plus a
+        // fractional half that is not time, the wire counter, ten milliseconds apart.
+        return new(bytes, UnifiedTakesCaptureTests.Sequence(index), UnifiedTakesCaptureTests.RadioKey(index),
+            UnifiedTakesCaptureTests.Arrival(index), false);
     }
 
     internal static SlicePlaybackObservation Edge(int slice, bool playing) =>
