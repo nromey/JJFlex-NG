@@ -110,9 +110,9 @@ public partial class CheckYourAudioDialog
     /// because "release your push to talk" would be false for any other holder.
     /// </summary>
     internal static string ReferenceFinishedSentence(ReferenceEndHolder holder, bool hardwareLine, VerbosityLevel level) =>
-        // DRAFT PROSE (#864, round three) until part 6b puts in Noel's ruled
-        // ladders. The microphone is back for no holder now, so none is told it is.
-        Lexicon.Get("audio.reference.finished");
+        PushToTalkStillHeld(holder, hardwareLine)
+            ? Lexicon.Get("audio.reference.finished_release_ptt", level)
+            : Lexicon.Get("audio.reference.finished", level);
 
     /// <summary>
     /// The lowest verbosity the finished sentence is spoken at. Asking the

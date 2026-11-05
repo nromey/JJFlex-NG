@@ -717,7 +717,24 @@
   "audio.recording.the_saved_microphone": "The saved microphone",
   "audio.reference.armed": { "text": "Reference armed.", "delivery": null },
   "audio.reference.disarmed": "Reference disarmed. Microphone restored.",
-  "audio.reference.finished": {"text": "Reference finished.", "delivery": null},
+  "audio.reference.finished": {
+    "text": {
+      "critical": "Transmitting reference complete.",
+      "terse": "Transmitting reference complete.",
+      "chatty": "Transmitting of the reference recording is complete.",
+      "diagnostic": "Transmitting of the reference recording is complete."
+    },
+    "delivery": null
+  },
+  "audio.reference.finished_release_ptt": {
+    "text": {
+      "critical": "Transmitting reference complete. Release push to talk.",
+      "terse": "Transmitting reference complete. Release push to talk.",
+      "chatty": "Transmitting of the reference recording is complete. Release your push to talk to stop transmitting dead air.",
+      "diagnostic": "Transmitting of the reference recording is complete. Release your push to talk to stop transmitting dead air."
+    },
+    "delivery": null
+  },
   "audio.reference.folder_open_failed": "The recordings folder could not be opened.",
   "audio.reference.load_failed": "That reference could not be loaded. {reason}",
   "audio.reference.not_armed": "Reference not armed. {reason}",
@@ -1207,7 +1224,6 @@
   "audio.takes.add_to_test": {"text": "Add a take to this test", "delivery": null},
   "audio.takes.help.add_to_test": {"text": "Open Check your audio so the next take you save joins this take's test. It never starts a check or keys the radio.", "delivery": null},
   "audio.takes.add_to_test_done": {"text": "The next take you save joins {test}. Press Start when you are ready.", "delivery": null},
-  "audio.check.reference_finished_mic_back": {"text": "Reference finished. Your microphone is back.", "delivery": null},
   "audio.check.reference_already_armed": {"text": "The reference recording is armed in Check your audio, and only one thing can replace your microphone at a time. Turn the reference off first.", "delivery": null},
   "audio.check.send_already_playing": {"text": "A recording is being sent, and only one thing can replace your microphone at a time. Let it finish or stop it first.", "delivery": null},
   "audio.check.reference_end_silence_held": {"text": "The last pass has ended, and the radio has not yet gone back to receive. Arm it again once it has.", "delivery": null},

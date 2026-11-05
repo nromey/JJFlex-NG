@@ -92,9 +92,12 @@ public partial class CheckYourAudioDialog
             + "you key the radio as usual and the recording goes out in place "
             + "of your microphone, through exactly the same processing your "
             + "voice goes through. It starts from the beginning each time you "
-            // DRAFT PROSE (#864, round three): the transmission ends with the
-            // reference (Noel, 2026-11-04); the microphone is not handed back.
-            + "key, and when it finishes, the transmission ends.");
+            // DRAFT PROSE (#864, round four): the transmission ends with the
+            // reference (Noel, 2026-11-04), and silence is sent until the radio
+            // is receiving (2026-11-05); the microphone is not handed back.
+            + "key. When it finishes, the transmission ends, and silence goes "
+            + "out until the radio is receiving, never your microphone. If "
+            + "your own push to talk is still held, you are asked to let go.");
         _sections.Add(CheckContent, _refArmCheck);
 
         _refRecordButton = new Button

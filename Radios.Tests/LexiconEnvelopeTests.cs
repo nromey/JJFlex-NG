@@ -115,7 +115,10 @@ namespace Radios.Tests
             // Chatty and Terse sentences (2026-10-06).
             // Twenty from the Check your audio Track B fix round (#835): the
             // near miss that names two chords, ruled 2026-10-28 21:25.
-            Assert.Equal(20, ladders);
+            // Twenty-two from Unified takes round four: the reference's
+            // finished sentence and its push to talk form, Noel's ruled
+            // chatty and terse pairs (2026-11-05 01:39 to 01:41).
+            Assert.Equal(22, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -2302,11 +2305,14 @@ namespace Radios.Tests
                 // its own for a transmission the app does not hold, and the two
                 // users of the transmit file player refuse each other.
                 "audio.reference.finished",
-                "audio.check.reference_finished_mic_back",
                 "audio.check.reference_already_armed",
                 "audio.check.send_already_playing",
-                // Unified takes, round four (6a): an arm during the silence after
-                // a pass refuses.
+                // Unified takes, round four (part 6): the finished sentence and
+                // its push to talk form are Noel's ruled ladders (2026-11-05),
+                // the "microphone is back" key is gone because nothing hands the
+                // microphone back at a reference's end any more, and an arm
+                // during the silence after a pass refuses.
+                "audio.reference.finished_release_ptt",
                 "audio.check.reference_end_silence_held",
             };
 

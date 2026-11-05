@@ -105,9 +105,14 @@ public sealed class UnifiedTakesReferenceEndTests
     {
         Lexicon.Load(Lexicon.Partitions);
         Assert.DoesNotContain("microphone", Lexicon.Get("audio.reference.finished"), StringComparison.OrdinalIgnoreCase);
+        // Round four (6b): nothing hands the microphone back at a reference's
+        // end, so the key that said it did is gone (a missing key reads as itself).
+        string gone = "audio.check." + "reference_finished_mic_back";
+        Assert.Equal(gone, Lexicon.Get(gone));
+        Assert.DoesNotContain("reference_finished_mic_back", Read("JJFlexWpf", "Dialogs", "CheckYourAudioDialog.ReferenceEnd.cs"));
         string audio = Dialog("CheckYourAudioDialog.ReferenceAudio.cs");
         Assert.DoesNotContain("microphone comes back", audio);
-        Assert.Contains("when it finishes, the transmission ends", audio);
+        Assert.Contains("When it finishes, the transmission ends", audio);
     }
 
     [Fact]

@@ -133,16 +133,28 @@ public sealed class ReferenceEndTests : IDisposable
     }
 
     /// <summary>
-    /// Round four (6a): the microphone is back at a reference's end for no
-    /// holder now, so no holder is told it is. Part 6b puts in the ruled wording.
+    /// Ruled 2026-11-05 01:39 to 01:41. The microphone is never back at a
+    /// reference's end any more, so no holder hears that it is; only a
+    /// hardware line still held is asked to let go.
     /// </summary>
     [Fact]
-    public void The_finished_sentence_never_says_the_microphone_is_back()
+    public void The_finished_sentence_never_says_the_microphone_is_back_and_asks_only_a_held_line_to_let_go()
     {
         AssertTheDeskIsSafe();
         foreach (var holder in new[] { Holder.Check, Holder.App, Holder.Elsewhere, Holder.Nobody })
             foreach (bool hardware in new[] { false, true })
-                Assert.Equal("Reference finished.",
-                    CheckYourAudioDialog.ReferenceFinishedSentence(holder, hardware, VerbosityLevel.Chatty));
+                Assert.DoesNotContain("microphone", CheckYourAudioDialog.ReferenceFinishedSentence(holder, hardware, VerbosityLevel.Chatty),
+                    StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Transmitting of the reference recording is complete.",
+            CheckYourAudioDialog.ReferenceFinishedSentence(Holder.App, false, VerbosityLevel.Chatty));
+        // Another client's transmission, as far as the app can tell: "release your push to talk" would be false.
+        Assert.Equal("Transmitting of the reference recording is complete.",
+            CheckYourAudioDialog.ReferenceFinishedSentence(Holder.Elsewhere, false, VerbosityLevel.Chatty));
+        Assert.Equal("Transmitting of the reference recording is complete. Release your push to talk to stop transmitting dead air.",
+            CheckYourAudioDialog.ReferenceFinishedSentence(Holder.Elsewhere, true, VerbosityLevel.Chatty));
+        // A hand mic pressed under the app's own key is still held after the app lets go of its own.
+        Assert.Contains("Release your push to talk", CheckYourAudioDialog.ReferenceFinishedSentence(Holder.App, true, VerbosityLevel.Chatty));
+        // Nothing transmitting: the last source the radio reported is history.
+        Assert.DoesNotContain("Release", CheckYourAudioDialog.ReferenceFinishedSentence(Holder.Nobody, true, VerbosityLevel.Chatty));
     }
 }

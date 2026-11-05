@@ -225,4 +225,36 @@ public sealed class ReferenceEndSilenceTests : IDisposable
         _waiting!(ReferenceSilenceEnd.Received);
         Assert.Equal(0, watch.Disposed);
     }
+
+    /// <summary>Ruled 01:39 to 01:41: chatty and terse as Noel gave them; critical as terse and diagnostic as chatty, the house convention.</summary>
+    [Fact]
+    public void The_sentence_follows_the_verbosity_tier()
+    {
+        AssertTheDeskIsSafe();
+        string S(bool hardware, VerbosityLevel level) => CheckYourAudioDialog.ReferenceFinishedSentence(Holder.Elsewhere, hardware, level);
+        Assert.Equal("Transmitting of the reference recording is complete.", S(false, VerbosityLevel.Chatty));
+        Assert.Equal("Transmitting reference complete.", S(false, VerbosityLevel.Terse));
+        Assert.Equal("Transmitting reference complete.", S(false, VerbosityLevel.Critical));
+        Assert.Equal("Transmitting of the reference recording is complete.", S(false, VerbosityLevel.Diagnostic));
+        Assert.Equal("Transmitting of the reference recording is complete. Release your push to talk to stop transmitting dead air.",
+            S(true, VerbosityLevel.Chatty));
+        Assert.Equal("Transmitting reference complete. Release push to talk.", S(true, VerbosityLevel.Terse));
+        Assert.Equal("Transmitting reference complete. Release push to talk.", S(true, VerbosityLevel.Critical));
+        Assert.Equal(S(true, VerbosityLevel.Chatty), S(true, VerbosityLevel.Diagnostic));
+
+        // And the pass speaks the operator's tier, not a fixed one.
+        ReferencePassAtItsEnd();
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;
+        Assert.Equal("Transmitting reference complete.", _dialog.FinishReferencePass(_rig, Holder.App, hardwareLine: false));
+        RadioReportsReceive();
+        ReferencePassAtItsEnd();
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+        Assert.Equal("Transmitting of the reference recording is complete. Release your push to talk to stop transmitting dead air.",
+            _dialog.FinishReferencePass(_rig, Holder.Elsewhere, hardwareLine: true));
+
+        // Asking for a key to be let go is said even at critical verbosity; the plain end from terse up, as before.
+        Assert.Equal(VerbosityLevel.Critical, CheckYourAudioDialog.ReferenceFinishedLevel(Holder.Elsewhere, true));
+        Assert.Equal(VerbosityLevel.Terse, CheckYourAudioDialog.ReferenceFinishedLevel(Holder.App, false));
+        Assert.Equal(VerbosityLevel.Terse, CheckYourAudioDialog.ReferenceFinishedLevel(Holder.Nobody, true));
+    }
 }
