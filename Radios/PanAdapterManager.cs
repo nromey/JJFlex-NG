@@ -412,26 +412,16 @@ namespace Radios
         public void gotoFreq(double freq)
         {
             Tracing.TraceLine("gotoFreq:" + freq.ToString() + ' ' + stepSize.ToString(), TraceLevel.Info);
+            // Through the same setters as every other tune (#642, repair round
+            // 4): the slice is the operator's selection (RXVFO), or the slice
+            // at TXVFO, taken at the press, not the radio's active slice, which
+            // lags a selection; the value is published and guarded like any
+            // step; and the queued write checks the slice is still ours.
+            ulong hz = rig.LibFreqtoLong(freq);
             if (rig.ShowingXmitFrequency)
-            {
-                // Capture the TX slice at call time (identity) — resolving the
-                // position inside the queued lambda could land on a different
-                // slice, or crash, after roster churn. (QB Track J)
-                Slice tx = rig.VFOToSlice(rig.TXVFO);
-                if (tx != null)
-                {
-                    rig.q.Enqueue((FlexBase.FunctionDel)(() => { tx.Freq = freq; }), "TXSlice.Freq");
-                }
-            }
+                rig.TXFrequency = hz;
             else
-            {
-                // Bound at the key too (#642, repair round 3): the active
-                // slice when the operator pressed, not whichever is active
-                // when the queue runs.
-                Slice active = theRadio?.ActiveSlice;
-                if (active != null)
-                    rig.q.Enqueue((FlexBase.FunctionDel)(() => { active.Freq = freq; }), "ActiveSlice.Freq");
-            }
+                rig.RXFrequency = hz;
             rig.q.Enqueue((FlexBase.FunctionDel)(() => { rig.Callouts.GotoHome(); }), "goto home");
         }
 

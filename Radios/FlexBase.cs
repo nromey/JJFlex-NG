@@ -5507,7 +5507,11 @@ namespace Radios
                             ulong echoed = LibFreqtoLong(s.Freq);
                             // This slice's own guard, asked ONCE for both
                             // caches (repair round 3): one slice, one answer.
-                            bool accepted = EchoGuardFor(s).Accept(echoed);
+                            // Our own send's notification (FlexLib raises it
+                            // inside the write) is not the radio confirming,
+                            // so it never settles the guard (repair round 4).
+                            bool accepted = LocalTuneWrite(s) ? LocalTuneShows(s, echoed)
+                                                              : EchoGuardFor(s).Accept(echoed);
                             if (accepted && (s.Active || ReferenceEquals(_rxCache?.Slice, s)))
                                 SetRxCache(s, echoed);
                             if (accepted && s.Active)
@@ -9345,7 +9349,9 @@ namespace Radios
             Slice inSlice = VFOToSlice(inv);
             Slice outSlice = VFOToSlice(outv);
             q.Enqueue((FunctionDel)null, "slice copy start");
-            q.Enqueue((FunctionDel)(() => { outSlice.Freq = inSlice.Freq; }));
+            // The tune goes through WriteTuneTo (repair round 4), so a slice
+            // removed before the queue runs gets nothing on its reusable index.
+            q.Enqueue((FunctionDel)(() => WriteTuneTo(outSlice, inSlice.Freq, "CopyVFO")));
             q.Enqueue((FunctionDel)(() => { outSlice.DemodMode = inSlice.DemodMode; }));
             q.Enqueue((FunctionDel)(() => { outSlice.AutoPan = inSlice.AutoPan; }));
             q.Enqueue((FunctionDel)(() => { outSlice.RTTYMark = inSlice.RTTYMark; }));

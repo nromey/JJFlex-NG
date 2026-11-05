@@ -81,6 +81,7 @@ namespace Radios
         private readonly Func<long> _clock;
 
         private bool _armed;
+        private bool _sent;
         private ulong _replaced;
         private ulong _requested;
         private long _armedAt;
@@ -122,9 +123,38 @@ namespace Radios
                 Supersede(replaced);
                 _superseded.Remove(requested);
                 _armed = true;
+                _sent = false;
                 _replaced = replaced;
                 _requested = requested;
                 _armedAt = now;
+            }
+        }
+
+        /// <summary>
+        /// Our own write of <paramref name="value"/> went out (repair round 4):
+        /// FlexLib's setter raised its own notification for it. Not a
+        /// confirmation; it only says the vendor's number is now ours.
+        /// </summary>
+        internal void Sent(ulong value)
+        {
+            lock (_lock)
+            {
+                if (_armed && value == _requested) _sent = true;
+            }
+        }
+
+        /// <summary>
+        /// Our last write went out and the radio confirmed nothing within
+        /// <see cref="GiveUpMs"/> (repair round 4). The vendor's number is then
+        /// the truth: the radio's own last report if one came (a clamp to the
+        /// old value, say, which this guard rejected as stale), otherwise our
+        /// send. A reader should believe it rather than the optimistic cache.
+        /// </summary>
+        internal bool SentAndGivenUp()
+        {
+            lock (_lock)
+            {
+                return _armed && _sent && _clock() - _armedAt >= GiveUpMs;
             }
         }
 

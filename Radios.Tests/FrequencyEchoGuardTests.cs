@@ -147,11 +147,19 @@ namespace Radios.Tests
             // tune setters arm it, and the Freq report and every refresh of a
             // cache from a slice's own number consult it.
             Assert.Equal(2, CountOf(text, "EchoGuardFor(slice).Requested(replaced, value);"));
-            Assert.True(text.Contains("bool accepted = EchoGuardFor(s).Accept(echoed);", StringComparison.Ordinal),
+            // Repair round 4: the radio's Freq report asks it; our own send's
+            // notification (FlexLib raises it inside the write) never settles
+            // it, and a refresh only reads the pending value.
+            Assert.True(text.Contains("bool accepted = LocalTuneWrite(s) ? LocalTuneShows(s, echoed)", StringComparison.Ordinal)
+                        && text.Contains(": EchoGuardFor(s).Accept(echoed);", StringComparison.Ordinal),
                 "the slice's guard is never consulted on a Freq report, so every echo goes straight "
                 + "into the cache and the guard is decoration. See task #266.");
-            Assert.True(text.Contains("if (guard.Accept(reported)) return reported;", StringComparison.Ordinal),
+            Assert.True(text.Contains("return EchoGuardFor(slice).TryPending(out ulong pending) ? pending : reported;", StringComparison.Ordinal),
                 "a cache refreshed from a slice's own number does not ask its guard (repair round 3).");
+            Assert.False(text.Contains("guard.Accept(reported)", StringComparison.Ordinal),
+                "a refresh from the vendor's number settles the guard, but by then that number is our own send (repair round 4).");
+            Assert.True(text.Contains("t_localTuneWrite = slice;", StringComparison.Ordinal),
+                "WriteTuneTo no longer marks its own write, so its notification reads as the radio confirming (repair round 4).");
             Assert.True(CountOf(text, "ObservedOrPending(s, LibFreqtoLong(s.Freq))") >= 3,
                 "the ActiveSlice refresh and both found-slice refreshes ask the guard (repair round 3).");
         }

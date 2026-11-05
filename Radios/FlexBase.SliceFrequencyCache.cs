@@ -45,6 +45,26 @@ namespace Radios
         //   both describe the slice it asks about (ValueOf), so one slice has
         //   one number by construction.
 
+        // Repair round 4 (Codex's third re-check):
+        //
+        // - FlexLib's Freq setter raises the slice's Freq notification itself,
+        //   synchronously, after SENDING and before any reply. The guard took
+        //   that as the radio's confirmation, disarmed as the queue drained,
+        //   and the radio's first delayed report then rewound a fully sent run
+        //   of steps. WriteTuneTo now marks its own write (LocalTuneWrite), the
+        //   handler never settles the guard on it, and a refresh from the
+        //   slice's own number (ObservedOrPending) only reads the pending
+        //   value, never settles: the vendor's number is our own send by then.
+        //   Only a report from the radio confirms.
+        // - A slice's pending value is its value even when neither cache
+        //   describes it any more (ValueOf falls back to the guard's pending
+        //   value before the slice's own number), so returning to a slice with
+        //   a step still on its way does not lose the step.
+        // - The panadapter's goto and a slice copy tune through the same
+        //   setters and the same WriteTuneTo, so they are bound to the
+        //   operator's selection at the press and checked for the slice's
+        //   lifetime at the write.
+
         private static long _cacheSeq;
 
         /// <summary>A frequency and the slice it belongs to. Immutable.</summary>
@@ -96,7 +116,15 @@ namespace Radios
             if (rx != null && rx.Hz != 0UL && ReferenceEquals(rx.Slice, slice)) best = rx;
             if (tx != null && tx.Hz != 0UL && ReferenceEquals(tx.Slice, slice) && (best == null || tx.Seq > best.Seq))
                 best = tx;
-            return best?.Hz ?? LibFreqtoLong(slice.Freq);
+            var guard = EchoGuardFor(slice);
+            // Our last tune went out and nothing confirmed it in the give-up
+            // window (repair round 4): the vendor's number is the truth now,
+            // the radio's own last report or our send, not the cache.
+            if (guard.SentAndGivenUp()) return LibFreqtoLong(slice.Freq);
+            if (best != null) return best.Hz;
+            // Neither cache describes this slice (repair round 4): a step still
+            // on its way is its value, not the vendor's older number.
+            return guard.TryPending(out ulong pending) ? pending : LibFreqtoLong(slice.Freq);
         }
 
         /// <summary>Each slice's own echo guard (#266, made per slice in repair round 3).</summary>
@@ -106,16 +134,40 @@ namespace Radios
             _freqEcho.GetValue(slice, s => new FrequencyEchoGuard("slice " + (s.Letter ?? s.Index.ToString())));
 
         /// <summary>
-        /// What a cache should hold for <paramref name="slice"/> when the slice
-        /// reports <paramref name="reported"/>: the report, unless it is the
-        /// stale echo of a value our own pending tune replaced, in which case
-        /// the pending value.
+        /// What a cache should hold for <paramref name="slice"/> when it is
+        /// refreshed from the slice's own number <paramref name="reported"/>:
+        /// our own tune still on its way while one is pending, otherwise the
+        /// number. A refresh is not a report from the radio (repair round 4):
+        /// once the queue has sent our write, the vendor's number IS our
+        /// write, so a refresh never settles the guard. Only the radio's own
+        /// Freq report does, in the slice handler.
         /// </summary>
         private ulong ObservedOrPending(Slice slice, ulong reported)
         {
+            return EchoGuardFor(slice).TryPending(out ulong pending) ? pending : reported;
+        }
+
+        /// <summary>
+        /// The slice our own queued tune is writing right now, on this thread
+        /// (repair round 4). FlexLib's Freq setter raises the slice's Freq
+        /// notification synchronously inside the write, so a notification for
+        /// this slice on this thread is our send, not the radio's report.
+        /// </summary>
+        [System.ThreadStatic] private static Slice t_localTuneWrite;
+
+        /// <summary>True while our own tune of <paramref name="slice"/> is raising its Freq notification.</summary>
+        private static bool LocalTuneWrite(Slice slice) => slice != null && ReferenceEquals(t_localTuneWrite, slice);
+
+        /// <summary>
+        /// Our own send's Freq notification, judged without settling anything:
+        /// it may be written into the caches only when it is the value now
+        /// pending (the last write of a run) or nothing is pending.
+        /// </summary>
+        private bool LocalTuneShows(Slice slice, ulong echoed)
+        {
             var guard = EchoGuardFor(slice);
-            if (guard.Accept(reported)) return reported;
-            return guard.TryPending(out ulong pending) ? pending : reported;
+            guard.Sent(echoed);
+            return !guard.TryPending(out ulong pending) || pending == echoed;
         }
 
         /// <summary>
@@ -152,7 +204,10 @@ namespace Radios
                     + " was not sent to any slice", System.Diagnostics.TraceLevel.Info);
                 return;
             }
-            slice.Freq = mhz;
+            Slice outer = t_localTuneWrite;
+            t_localTuneWrite = slice;
+            try { slice.Freq = mhz; }
+            finally { t_localTuneWrite = outer; }
         }
 
         /// <summary>The slice at RXVFO, under the roster's lock; null when there is none.</summary>
