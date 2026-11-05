@@ -9,6 +9,48 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-11-04, SECOND SEAL (COVERS 00:30 TO 23:45, MEASURED FROM `c549eb1f`) — THE JUNK BOX THROUGH REPAIR ROUND 4, UNIFIED TAKES ROUND THREE BENCHED, NOEL'S UNDO JOURNAL AND COMMAND LANGUAGE
+
+*Second seal under this date. The first (below) covers the evening before; this one covers the working day after it.*
+
+**Main:** nothing since the first seal but this entry. Branch work: the junk box 20 commits (`1ea05255..b9eb5dc0`, 65 files, +6,776 / −427); unified takes 4 (`de0daa90..c3728e73`, 18 files, +1,349 / −64).
+
+**Junk box batch 2026-11-02 (`junkbox/2026-11-02-batch`), repair round 4 done, not merged.**
+- **The loop ran three more turns today:** round-1 re-checks done at 00:59 (#237, #651/#718 and #496 passed; five FIX FIRST); repair round 2 (to `423537c2`); Codex round-2 re-checks 11:47 to 12:10; repair round 3 (to `4a6f1cee`, five mechanism rules); Codex round-3 re-checks 20:30 to 20:58, all five still FIX FIRST but narrower; repair round 4 (22:29 to 23:29, to `b9eb5dc0`, every blocker confirmed and fixed, plus a self re-check that closed three of its own gaps).
+- **Noel's rulings today:** at 18:44, #642's tuning gaps fixed in the batch, a click is a new Delete intent only after a real release (#774), and VOX box-off sends get tri-tones on the radio's edges (#863). At 22:20 to 22:26: the selected-slice refusal says "The selected slice changed, so nothing was transmitted."; a withheld mic put-back is logged only (#861); and **every falling transmit cue waits for the radio's receive report**, the three-note tone and, at his own extension, the ordinary push-to-talk chirp. Ordinary voice under VOX plays no tones.
+- **The orchestrator re-ran both suites at `b9eb5dc0`:** Radios.Tests 7,205 of 7,205; the windowless filter (CLAUDE.md's 38 classes plus `KeyDropWithConnectionTests`, `NoRadioHomeKeysTests`, `DeleteKeyRemovesTests`, `SendLoadSkipsMeasureTests`, `OperatorChoicesPersistTests`, `NoticeRepairTwoTests`, `NoticeRepairThreeTests`, `FallingToneRepairFourTests`) 664 of 664. Exactly the agent's counts.
+- **Next:** the Codex round-4 re-check, on Noel's word. Reports in `for-claude/2026-11-04-junkbox-repair{2,3,4}-report.md`; Codex's in `for-claude/2026-11-04-codex-reverify{2,3}-junkbox-*.md`.
+
+**Unified takes (#864, `takes/unified`): round three built and benched, not merged.** 5a a new capture continuity model (`Radios/Listenback/AudioPacketContinuity.cs`), 5b the reference's end ends the transmission (ruled 11:36, and at 18:45 also when the key is held through the app), 5c a trace label, 5d a whole LAN take closes clean. The bench: every take whole, the unkey by itself, both LAN takes clean on 5d; SmartLink to re-run on 5d at the merge bench. Three questions wait for Noel (in #864). Its report's finding on main is **#885** (the receive continuity meter reports about 3 s of false loss on every LAN session, at error level).
+
+**Sprint 49 window (#808), private only:** delay at every stage (#873); WDSP 2.11 ruled for NNR's CW models; NNR CW rulings; per-slice audio research (#874). **A receive-only session on a tester's 6300 over SmartLink during the CWT** (about 20:55 to 21:40; Noel tuned, Claude recorded main's build by process loopback; nothing transmitted) made the first off-air CW recordings and found #875 to #883, among them #879 (no working keyer speed control) and #881 (Escape in a layer undoes everything). **#884 is Noel's idea**, which he called "one of my more brilliant ideas": undo for every radio change as a browsable journal, and a command language for JJ Flexible, with scripts, a CLI, the phone controller, natural language and AI with the operator's own key. The journal is its own sprint, designed first; the language follows, after current work. Plan: `agile/logbook-ragchew-rewind.md`.
+
+**Seal checks:**
+- No dependency advisories.
+- Memory drift: 92 paths and 55 symbols are candidates (94 and 55 at the first seal). Today's new entries do not flag.
+- Codex instruction tests 5 of 5; Codex loads `AGENTS.md`; the sandbox is healthy.
+- NVDA logs archived as `2026-11-04-evening-*` (the live log at speech level, 4,594 lines).
+- Backups: memory (10 projects), Claude state (873 MB), AppData (57 files), private docs (after the AAR), dev mirror.
+- MEMORY.md 16.7 KB, still over 12 KB; no banners awaiting archive.
+
+**Junk box intake (3c-ter):** fourteen entries opened since the first seal (#872 to #885), all targeted; the eleven JUNKBOX ones all prioritized. #885 was filed at this seal. That leaves 241 junk box entries, 0 unprioritized, and 480 open.
+
+**Cross-surface:** No Codex commits; two re-check rounds, both logged. Freight Fate 16 unpushed commits and one dirty file, Civ VI two dirty files: Noel's call. No debug build and no nightly promote. `C:\jjtest`, moved aside by the takes bench, is back in place.
+
+**Pushed:** main; `junkbox/2026-11-02-batch`; `takes/unified`, after a tester-name grep of every outgoing message. **Not pushed:** `sprint49/track-f-fix`, `merge-trial` and `followups` (Noel's call, as before).
+
+**Carried over:**
+- **Noel is at the surgery center at 8:30 AM Thursday**; back in the afternoon at the earliest.
+- The junk box: the round-4 re-check, then the harness bench checks, his sheet, the merge (add `FallingToneRepairFourTests` to CLAUDE.md's filter), the keyboard audit (KeyboardReference.md lines 550 and 571) and the changelog; file the "For the register" items from all the reports. For his review: round 4's design for a falling cue whose receive report never comes (silence plus a trace line).
+- Unified takes: the three questions, a SmartLink run on 5d, the merge (add `ReferenceEndTests` to the filter).
+- Sprint 49: Track A on his word; the integration merge.
+- #884's two open rulings: a flat Ctrl+Z (Stop Scan today) and #881's Escape default.
+- The ~22 likely-done junk box entries.
+
+### Rigmeter snapshot — end of 2026-11-04, second seal
+
+Main did not move since `c549eb1f`, so rigmeter's main-only figures are unchanged and no new snapshot was taken. Branch work is given above.
+
 ## END-OF-DAY SEAL — 2026-11-04 (COVERS 2026-11-03 14:00 TO 2026-11-04 00:30) — THE JUNK BOX REPAIRED AND RE-CHECKING, UNIFIED TAKES ROUND TWO PUSHED, SPRINT 49 D, C AND B MERGED INTO INTEGRATION
 
 **Main:** nothing since the last seal but this entry. **Twenty-five commits landed on three branches**, and rigmeter (main only) does not see them: the junk box 6, unified takes 13, Sprint 49 integration 6.
