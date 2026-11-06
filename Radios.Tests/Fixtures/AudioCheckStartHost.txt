@@ -232,6 +232,9 @@ public class Host
         private static string SourceFriendlyName(string s) => s;
         private void HandleUnkey(bool external) { _ptt.EscapeUnlock(); Active=false; _owner.OnSessionEnded(); }
         private void ForceEnd(string s) { HandleUnkey(false); }
+        // Part 7j: StopCheck stops the check's own key first, through
+        // StopOwnKey. The host keeps no identity: its one keying is its own.
+        private bool StopOwnKey() { if (!Active || _phase != Phase.Keyed) return false; HandleUnkey(false); return true; }
         // Unified takes, round two: StartAsync admits a saved playback's take
         // (CheckYourAudioDialog.SaveTakes.cs). Saving is off in every scenario here.
         private TakeStub _take;

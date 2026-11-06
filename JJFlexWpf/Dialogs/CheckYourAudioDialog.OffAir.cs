@@ -78,7 +78,11 @@ public partial class CheckYourAudioDialog
         {
             if (_iqRun != null && _iqRun.Capture.Ended.IsCompleted && !_iqBusy)
             {
-                if (_iqWasOffAir && _session?.Active == true) _session.StopCheck();
+                // The capture's end stops the check's own key and nothing else
+                // (part 7j): StopCheck is a press, and a press may let go of a
+                // key that is not the check's; a capture ending is not a press.
+                // A session past its key finishes on its own watcher.
+                if (_iqWasOffAir && _session?.Active == true) _session.StopOwnKey();
                 else await FinishIqAsync("stream-ended");
             }
         };

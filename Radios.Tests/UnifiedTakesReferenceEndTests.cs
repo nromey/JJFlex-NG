@@ -36,14 +36,6 @@ public sealed class UnifiedTakesReferenceEndTests
         throw new InvalidOperationException("unbalanced: " + signature);
     }
 
-    private static string Case(string body, string label)
-    {
-        int at = body.IndexOf(label, StringComparison.Ordinal);
-        Assert.True(at >= 0, "no case " + label);
-        int end = body.IndexOf("return ", at, StringComparison.Ordinal);
-        return body[at..end];
-    }
-
     /// <summary>
     /// Round four repair (6e-3): every change of radio lets the departing
     /// radio's tone and reference go, a switch straight to another radio as
@@ -91,18 +83,30 @@ public sealed class UnifiedTakesReferenceEndTests
     [Fact]
     public void A_check_the_reference_rode_stops_by_the_same_call_the_Stop_button_makes()
     {
-        string toggle = Body(Dialog("CheckYourAudioDialog.Check.cs"), "public void ToggleAudioCheck()");
+        string checkSource = Dialog("CheckYourAudioDialog.Check.cs");
+        string toggle = Body(checkSource, "public void ToggleAudioCheck()");
         Assert.Contains("_session.StopCheck();", toggle);
+        // Part 7j: the Stop button stops the check's own key through StopOwnKey,
+        // and the reference's end calls that same method, not StopCheck: a
+        // press may let go of a key that is not the check's (the operator's
+        // explicit choice), and nothing automatic may.
+        string stop = Body(checkSource, "public void StopCheck(bool escape = false)");
+        Assert.Contains("if (StopOwnKey() || !_ptt.IsTransmitting) return;", stop);
         string end = Body(Dialog("CheckYourAudioDialog.ReferenceEnd.cs"),
             "internal ReferenceEndHolder EndTransmissionForReference(");
-        string check = Case(end, "case ReferenceEndHolder.Check");
-        Assert.Contains("_session.StopCheck();", check);
+        int checkAt = end.IndexOf("if (planned == ReferenceEndHolder.Check)", StringComparison.Ordinal);
+        Assert.True(checkAt >= 0, "the check's route moved");
+        string check = end[checkAt..end.IndexOf("var now = ReferenceHolderNow(rig);", checkAt, StringComparison.Ordinal)];
+        Assert.Contains("_session.StopOwnKey()", check);
+        Assert.DoesNotContain("StopCheck", check);
         Assert.DoesNotContain("ForceEnd", check);
         Assert.DoesNotContain("EscapeUnlock", check);
-        // Round five repair 2 (7i-1): a check asks the same plan as the app's
-        // key, and the plan is asked in one place, before either branch.
-        Assert.Contains("if (stillTheReferences)", check);
+        // The app's key asks its plan in one place. A check's plan is the
+        // session's own key (part 7j): the tail takes no fresh reading for it.
         Assert.Equal(1, Regex.Matches(end, @"\.StillCurrent\(").Count);
+        string tail = Body(Dialog("CheckYourAudioDialog.ReferenceEnd.cs"),
+            "private async void EndTransmissionAfterReferenceTail(");
+        Assert.Contains("holder == ReferenceEndHolder.App ? ReferenceKeying.Now(", tail);
         // Round five repair 2 (7i-2): the session takes its own key's identity
         // the moment it keys, and its watcher asks that, not "transmitting".
         string start = Body(Dialog("CheckYourAudioDialog.Check.cs"), "public async Task<bool> StartAsync(");
@@ -110,11 +114,19 @@ public sealed class UnifiedTakesReferenceEndTests
         int keyed = start.IndexOf("_phase = Phase.Keyed;", StringComparison.Ordinal);
         int lastAwait = start.LastIndexOf("await ", keyed, StringComparison.Ordinal);
         Assert.True(taken > lastAwait && taken < keyed, "the check's identity is not taken between its last await and Keyed");
-        string tick = Body(Dialog("CheckYourAudioDialog.Check.cs"), "private void TickKeyed(FlexBase rig)");
+        string tick = Body(checkSource, "private void TickKeyed(FlexBase rig)");
         Assert.Contains("if (!OwnKeyHeld)", tick);
-        // Stop unkeys only while keyed; the check's later phases are not the reference's to end.
-        Assert.Contains("internal bool Keyed => Active && _phase == Phase.Keyed;",
-            Dialog("CheckYourAudioDialog.ReferenceEnd.cs"));
+        // Part 7j: one owner for "is the check's key up". Each consumer asks it.
+        Assert.Contains("if (!OwnKeyHeld)", Body(checkSource, "internal bool StopOwnKey()"));
+        Assert.Contains("if (OwnKeyHeld)", Body(checkSource, "public void ForceEnd(string? reason)"));
+        Assert.Contains("!OwnKeyHeld && (!rig.Transmit || _ptt.IsTransmitting)", checkSource);
+        string refEnd = Dialog("CheckYourAudioDialog.ReferenceEnd.cs");
+        Assert.Contains("internal bool OwnKeyUp => Keyed && OwnKeyHeld;", refEnd);
+        string holder = Body(refEnd, "private ReferenceEndHolder ReferenceHolderNow(FlexBase rig)");
+        Assert.Contains("WhoHoldsTheReference(session.OwnKeyUp, appKeyed: false,", holder);
+        // And the off-air capture's end, which is not a press.
+        Assert.Contains("_session.StopOwnKey();", Dialog("CheckYourAudioDialog.OffAir.cs"));
+        Assert.DoesNotContain("_session.StopCheck();", Dialog("CheckYourAudioDialog.OffAir.cs"));
     }
 
     [Fact]
