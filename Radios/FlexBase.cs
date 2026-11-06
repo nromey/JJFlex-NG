@@ -3291,6 +3291,10 @@ namespace Radios
                 // Skip auth if WAN is already connected from discovery phase.
                 // GUIClient lifecycle issues are handled by RetryConnect if Start() fails.
                 apiInit();
+                // This attempt's report, not an earlier pass's: the picker's
+                // own remote pass runs setupRemote on this same instance, and
+                // a report it left must not stand in for this connect (#798).
+                LastConnectFailureReport = null;
                 bool wanAlreadyConnected = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.IsConnected == true;
                 if (wanAlreadyConnected)
                 {
@@ -3298,14 +3302,22 @@ namespace Radios
                 }
                 else
                 {
-                    bool remoteOk = setupRemote(allowInteractiveLogin);
-                    Tracing.TraceLine($"ReconnectRemote: setupRemote returned {remoteOk} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    // #798: decided from the RADIO before anything signs in. A
+                    // held session that already lists it is used as it stands;
+                    // a radio no saved account lists is said at once; the
+                    // radio's own account is signed in as when it is known;
+                    // only otherwise does the saved default sign in.
+                    bool remoteOk = PrepareSmartLinkForSerial(serial, allowInteractiveLogin, sw);
+                    Tracing.TraceLine($"ReconnectRemote: PrepareSmartLinkForSerial returned {remoteOk} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                     if (!remoteOk)
                     {
-                        Tracing.TraceLine($"ReconnectRemote: setupRemote FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                        // setupRemote files its own classified report (auth vs
-                        // server vs cancelled). Only file a generic one if it
-                        // did not — a caller must always find SOMETHING here.
+                        Tracing.TraceLine($"ReconnectRemote: SmartLink preparation FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                        // The preparation, and setupRemote under it, file their
+                        // own classified report (auth vs server vs an empty list
+                        // vs a radio no account lists). Only file a generic one
+                        // if neither did — a caller must always find SOMETHING
+                        // here. Since #798 this means a sign-in that produced no
+                        // token, or a cancelled account choice.
                         if (LastConnectFailureReport == null)
                         {
                             RecordConnectFailure(new ConnectFailureReport

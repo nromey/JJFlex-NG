@@ -2137,6 +2137,13 @@ namespace Radios.Tests
                 "settings.radio.register.confirm_body",
                 "settings.radio.unregister.confirm_body",
                 "settings.radio.way_in.set",
+                // Junk box 2026-11-06 (#798): a SmartLink connect says what
+                // actually happened when the signed-in account's list is empty,
+                // and says at once when no saved account lists the radio.
+                // DRAFT prose, awaiting Noel.
+                "connect.failure.smartlink_lists_no_radios",
+                "connect.failure.smartlink_not_on_any_account",
+                "connect.failure.smartlink_not_on_any_account_but_local",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

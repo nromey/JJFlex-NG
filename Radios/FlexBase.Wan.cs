@@ -1005,19 +1005,38 @@ namespace Radios
         /// an exhausted chain earns the native sign-in form. True preserves
         /// the historical behaviour for every existing caller.
         /// </param>
-        private bool setupRemote(bool allowInteractive = true)
+        /// <param name="radiosAccount">
+        /// The saved account the RADIO is reached through, when the connect
+        /// knows it (#798, from <see cref="PrepareSmartLinkForSerial"/>). Signs
+        /// in as that account without asking the account selector, which has
+        /// no serial and can only answer with the default. Null keeps the
+        /// selector's answer, as for every caller before.
+        /// </param>
+        private bool setupRemote(bool allowInteractive = true, SmartLinkAccount radiosAccount = null)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            Tracing.TraceLine($"setupRemote: BEGIN allowInteractive={allowInteractive}", TraceLevel.Info);
+            Tracing.TraceLine($"setupRemote: BEGIN allowInteractive={allowInteractive} radiosAccount={radiosAccount?.Email ?? "none"}", TraceLevel.Info);
             ConnectionProfiler.Current?.RecordEvent("setup_remote_begin");
             bool rv = false;
             string jwt = null;
+            // Declared up here, not where it is first assigned, because the
+            // done label reads it (#798) and the early exits jump over the
+            // assignment. Null means no list was ever asked for.
+            SmartLinkConnectResult? connectResult = null;
 
             // Check for saved accounts
             var accounts = AccountManager.Accounts;
             Tracing.TraceLine($"setupRemote: {accounts.Count} saved account(s) ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
 
-            if (accounts.Count > 0)
+            if (radiosAccount != null)
+            {
+                // The radio's own account, resolved from the radio (#798).
+                _currentAccount = radiosAccount;
+                Tracing.TraceLine($"setupRemote: signing in as the radio's own account '{_currentAccount.Email}', not the selector's default", TraceLevel.Info);
+                jwt = GetJwtFromSavedAccount(_currentAccount, allowInteractiveLogin: allowInteractive);
+                Tracing.TraceLine($"setupRemote: GetJwtFromSavedAccount returned jwt={(!string.IsNullOrEmpty(jwt) ? "yes" : "null/empty")} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+            }
+            else if (accounts.Count > 0)
             {
                 // Sprint 10: Show account selector via delegate (decoupled from WinForms Form)
                 Tracing.TraceLine($"setupRemote: ShowAccountSelector delegate is {(ShowAccountSelector != null ? "WIRED" : "NULL")}", TraceLevel.Info);
@@ -1062,7 +1081,7 @@ namespace Radios
             // Connect to SmartLink server
             Tracing.TraceLine($"setupRemote: calling ConnectToSmartLink ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             ConnectionProfiler.Current?.RecordEvent("smartlink_connect_begin");
-            SmartLinkConnectResult connectResult = ConnectToSmartLink(jwt);
+            connectResult = ConnectToSmartLink(jwt);
             rv = connectResult == SmartLinkConnectResult.Success;
             ConnectionProfiler.Current?.RecordEvent("smartlink_connect_end", new Dictionary<string, object>
             {
@@ -1195,6 +1214,20 @@ namespace Radios
             }
 
             setupRemoteDone:
+            // #798: the account signed in and its list came back empty. Every
+            // NoRadios branch above jumps here, and none filed a report, so
+            // ReconnectRemote's fallback told the operator sign-in had failed
+            // when it had succeeded. Say what actually happened.
+            if (connectResult == SmartLinkConnectResult.NoRadios)
+            {
+                RecordConnectFailure(new ConnectFailureReport
+                {
+                    Class = ConnectFailureClass.RadioNotFound,
+                    // DRAFT wording (#798), awaiting Noel.
+                    SpokenSummary = Lexicon.Get("connect.failure.smartlink_lists_no_radios",
+                        ("email", _currentAccount?.Email ?? Lexicon.Get("connect.selector.this_account"))),
+                });
+            }
             // #259: the operator expressed remote intent this session, so from
             // here on hold a presence session per saved account — whatever this
             // particular pass's outcome. A failed pass on ONE account is no
@@ -2010,6 +2043,40 @@ namespace Radios
         }
 
         /// <summary>
+        /// True when the session's list for its LIVE connection has already
+        /// arrived and holds no radio — an empty answer, given (#613).
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Arrived, not merely "connected with nothing cached".</b>
+        /// <see cref="OwnRowsMayAnswerTheConnect"/> answers false at zero rows
+        /// before it reads whether the list arrived, so an account whose list
+        /// came back EMPTY was indistinguishable from one whose list had not
+        /// come yet, and the connect waited ten seconds for a second list the
+        /// server does not send per TLS session (measured in Noel's trace of
+        /// 2026-09-23: the wait, then the cycle, then the list 79 ms after the
+        /// fresh registration). A session that connected a moment ago and has
+        /// not been listed yet also holds nothing; that is NOT this, and it
+        /// still waits, because its list is coming.</para>
+        /// <para>One snapshot, so the connected fact, the arrived fact and the
+        /// list describe the same moment, as in
+        /// <see cref="OwnRowsMayAnswerTheConnect"/>. The session is one
+        /// account's, so its list is that account's list.</para>
+        /// </remarks>
+        internal static bool TheLiveListAnsweredEmpty(
+            Radios.SmartLink.IWanSessionOwner session, System.Diagnostics.Stopwatch sw = null)
+        {
+            if (session == null) return false;
+            var snapshot = session.RadioListSnapshot;
+            if (!snapshot.SessionConnected || !snapshot.ArrivedOnTheLiveConnection) return false;
+            if (snapshot.Radios != null && snapshot.Radios.Count > 0) return false;
+            Tracing.TraceLine(
+                $"ConnectToSmartLink: {session.AccountId}'s list for its live connection (session {snapshot.SessionId} connection {snapshot.ConnectionGeneration}) has arrived and is empty — no list wait"
+                + (sw == null ? "" : $" ({sw.ElapsedMilliseconds}ms)"),
+                TraceLevel.Info);
+            return true;
+        }
+
+        /// <summary>
         /// Connects to SmartLink server with the given JWT.
         ///
         /// <para>
@@ -2124,6 +2191,18 @@ namespace Radios
                     Tracing.TraceLine(
                         $"ConnectToSmartLink: session was already live — satisfied immediately from {fromRows.Count} cached WAN radio(s), no list wait ({sw.ElapsedMilliseconds}ms)",
                         TraceLevel.Info);
+                }
+                else if (!haveCachedList && TheLiveListAnsweredEmpty(session, sw))
+                {
+                    // #613: the session's one list for this connection has
+                    // ARRIVED and holds no row for this account, so waiting ten
+                    // seconds for another has no possible outcome. Answer from
+                    // it: an empty list, which the count below turns into
+                    // NoRadios. A push that lands meanwhile is not overwritten.
+                    lock (_wanIntakeLock)
+                    {
+                        if (!wanListReceived) radios = new List<Radio>();
+                    }
                 }
                 else
                 {
@@ -2295,6 +2374,190 @@ namespace Radios
                 Tracing.TraceLine($"AccountThatWillBroker({serial}): {ex.Message}", TraceLevel.Warning);
             }
             return activeAccountEmail ?? "";
+        }
+
+        /// <summary>What a SmartLink connect to one serial should do about signing in.</summary>
+        internal enum SmartLinkSignInPlanKind
+        {
+            /// <summary>Nothing better is known: sign in through the saved default account, as before.</summary>
+            SignInAsUsual,
+
+            /// <summary>A held session already lists the radio on its live connection: use it, sign in to nothing.</summary>
+            UseHeldSession,
+
+            /// <summary>The radio's own account is known and saved, but its session cannot answer now: sign in as THAT account.</summary>
+            SignInAsRadiosAccount,
+
+            /// <summary>Every saved account's list has arrived on its live connection and none lists the radio: say so, sign in to nothing.</summary>
+            NotListedByAnySavedAccount,
+        }
+
+        /// <summary>The plan, and the account it names (empty for the default path).</summary>
+        internal readonly record struct SmartLinkSignInPlan(SmartLinkSignInPlanKind Kind, string Account, string Why)
+        {
+            public override string ToString() => $"{Kind}{(string.IsNullOrEmpty(Account) ? "" : " " + Account)}: {Why}";
+        }
+
+        /// <summary>
+        /// Decide, BEFORE any sign-in, how a SmartLink connect to
+        /// <paramref name="serial"/> reaches it — resolved from the RADIO,
+        /// never gated on the saved default account (#798, under #397's rule).
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Why this exists.</b> The connect used to sign in as the
+        /// saved default whenever no session was ACTIVE, and held presence
+        /// sessions never set the active pointer. So a radio listed live on
+        /// another saved account's held session was dialled by signing in as
+        /// the default first; when the default's list was empty that cost a
+        /// ten-second wait, a session cycle and a false "Could not sign in",
+        /// and the owner-aware routing never ran because it sits after a
+        /// successful sign-in.</para>
+        /// <para><b>The order.</b> (1) A held session whose list arrived on
+        /// its LIVE connection names the serial: use that session. (2) Every
+        /// saved account has a held session whose list arrived on its live
+        /// connection, and none names the serial: that is an answer, so say it
+        /// without signing in. (3) The routing resolver names a saved account:
+        /// sign in as it. (4) Otherwise sign in as before.</para>
+        /// <para><b>"Arrived on the live connection" is the whole condition,
+        /// not "connected with an empty cache".</b> A session that came up a
+        /// moment ago and has not had its list yet also holds nothing, and
+        /// reading that as "not listed" would swap one false sentence for
+        /// another. Any saved account without such a list makes (2) unknown,
+        /// and the plan falls through.</para>
+        /// <para>Pure apart from the snapshots it reads, so it can be pinned
+        /// against real session owners over a mock server.</para>
+        /// </remarks>
+        internal static SmartLinkSignInPlan PlanSmartLinkSignIn(
+            string serial,
+            IReadOnlyCollection<string> savedAccounts,
+            IEnumerable<Radios.SmartLink.IWanSessionOwner> heldSessions,
+            AccountRoute route)
+        {
+            var listed = new List<Radios.SmartLink.IWanSessionOwner>();
+            var answered = new List<string>();
+            foreach (var held in heldSessions ?? Array.Empty<Radios.SmartLink.IWanSessionOwner>())
+            {
+                if (held == null || string.IsNullOrWhiteSpace(held.AccountId)) continue;
+                var snapshot = held.RadioListSnapshot;
+                if (!snapshot.SessionConnected || !snapshot.ArrivedOnTheLiveConnection) continue;
+                answered.Add(held.AccountId);
+                if (snapshot.Radios != null
+                    && snapshot.Radios.Any(r => r != null && string.Equals(r.Serial, serial, StringComparison.OrdinalIgnoreCase)))
+                    listed.Add(held);
+            }
+
+            if (listed.Count > 0)
+            {
+                // A club rig can be on two accounts; the radio's own route wins
+                // the tie, otherwise the first session that lists it.
+                var pick = listed.FirstOrDefault(s => !route.IsEmpty
+                               && string.Equals(s.AccountId, route.Account, StringComparison.OrdinalIgnoreCase))
+                           ?? listed[0];
+                return new SmartLinkSignInPlan(SmartLinkSignInPlanKind.UseHeldSession, pick.AccountId,
+                    "its held session lists the radio on its live connection");
+            }
+
+            var saved = (savedAccounts ?? Array.Empty<string>())
+                .Where(a => !string.IsNullOrWhiteSpace(a)).ToList();
+            if (saved.Count > 0
+                && saved.All(a => answered.Any(x => string.Equals(x, a, StringComparison.OrdinalIgnoreCase))))
+            {
+                return new SmartLinkSignInPlan(SmartLinkSignInPlanKind.NotListedByAnySavedAccount, "",
+                    $"all {saved.Count} saved account(s) have listed on their live connections, and none lists the radio");
+            }
+
+            if (!route.IsEmpty
+                && saved.Any(a => string.Equals(a, route.Account, StringComparison.OrdinalIgnoreCase)))
+            {
+                return new SmartLinkSignInPlan(SmartLinkSignInPlanKind.SignInAsRadiosAccount, route.Account,
+                    $"the radio's own account, by {route.Source}, has no live list that answers");
+            }
+
+            return new SmartLinkSignInPlan(SmartLinkSignInPlanKind.SignInAsUsual, "",
+                route.IsEmpty
+                    ? "no account is known to reach the radio, and not every saved account has answered"
+                    : $"the radio's account {route.Account} is not a saved account");
+        }
+
+        /// <summary>
+        /// The SmartLink half of <see cref="ReconnectRemote"/> when no session
+        /// is active: act on <see cref="PlanSmartLinkSignIn"/>. Returns whether
+        /// a session that can reach the radio is ready; a false return has
+        /// filed its own <see cref="ConnectFailureReport"/> or left one from
+        /// <see cref="setupRemote"/>.
+        /// </summary>
+        /// <param name="savedAccounts">The saved accounts; null reads the
+        /// account manager, as production always does. A test passes its own
+        /// so it never edits the process-wide account store.</param>
+        internal bool PrepareSmartLinkForSerial(string serial, bool allowInteractiveLogin,
+            System.Diagnostics.Stopwatch sw = null, IReadOnlyList<SmartLinkAccount> savedAccounts = null)
+        {
+            string at() => sw == null ? "" : $" ({sw.ElapsedMilliseconds}ms)";
+            var coordinator = Radios.SmartLink.SmartLinkServices.Coordinator;
+            var savedList = savedAccounts ?? AccountManager.Accounts;
+            var saved = savedList.Select(a => a.Email).ToList();
+            var route = RadioAccountRouting.ForSerial(serial);
+            var plan = PlanSmartLinkSignIn(serial, saved, coordinator.AllSessions, route);
+            Tracing.TraceLine($"PrepareSmartLinkForSerial: {serial} route={route} plan={plan}{at()}", TraceLevel.Info);
+
+            switch (plan.Kind)
+            {
+                case SmartLinkSignInPlanKind.UseHeldSession:
+                {
+                    // The session that lists the radio becomes the one this
+                    // connect works through, exactly as a sign-in under that
+                    // account would have made it; nothing signs in.
+                    var held = coordinator.EnsureSessionForAccount(plan.Account);
+                    becomeThePresenceIntake();
+                    int replayed = ReplayHeldListsIntoTheIntake(plan.Account, sessionWasAlreadyConnected: true, sw);
+                    Tracing.TraceLine(
+                        $"PrepareSmartLinkForSerial: using {plan.Account}'s held session {held.SessionId}, no sign-in; replayed {replayed} held list(s){at()}",
+                        TraceLevel.Info);
+                    return true;
+                }
+
+                case SmartLinkSignInPlanKind.NotListedByAnySavedAccount:
+                {
+                    var (lan, _) = RadioAvailability(serial);
+                    string name = RadioNameForSpeech(serial);
+                    RecordConnectFailure(new ConnectFailureReport
+                    {
+                        Class = ConnectFailureClass.RadioNotFound,
+                        SpokenSummary = lan
+                            ? Lexicon.Get("connect.failure.smartlink_not_on_any_account_but_local", ("radioName", name))
+                            : Lexicon.Get("connect.failure.smartlink_not_on_any_account", ("radioName", name)),
+                    });
+                    return false;
+                }
+
+                case SmartLinkSignInPlanKind.SignInAsRadiosAccount:
+                {
+                    var account = savedList.FirstOrDefault(a =>
+                        string.Equals(a.Email, plan.Account, StringComparison.OrdinalIgnoreCase));
+                    return setupRemote(allowInteractiveLogin, account);
+                }
+
+                default:
+                    return setupRemote(allowInteractiveLogin);
+            }
+        }
+
+        /// <summary>
+        /// The operator's name for a radio known only by serial: the chosen
+        /// name, else the radio's own, else the serial.
+        /// </summary>
+        private static string RadioNameForSpeech(string serial)
+        {
+            try
+            {
+                var name = RadioConfig.LoadForRadio(serial).DisplayName;
+                if (!string.IsNullOrWhiteSpace(name)) return name;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"RadioNameForSpeech({serial}): {ex.Message}", TraceLevel.Warning);
+            }
+            return serial;
         }
 
         private bool sendRemoteConnect(Radio r)
