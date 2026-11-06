@@ -128,6 +128,14 @@
     },
     "delivery": null
   },
+  "connect.disconnect.mic_left_on_unconfirmed": {
+    "text": {
+      "critical": "Mic input still set to {input}. The radio did not confirm it stopped transmitting.",
+      "terse": "Mic input still set to {input}. The radio did not confirm it stopped transmitting.",
+      "chatty": "Your microphone input is still set to {input}; the radio did not confirm it had stopped transmitting. If you need to make a mic input change, set a new input once you connect to this radio."
+    },
+    "delivery": null
+  },
   "connect.disconnected_from": "Disconnected from {radioName}",
   "connect.disconnected_plain": "Disconnected from radio",
   "connect.discovery.searching": "Searching for radios.",

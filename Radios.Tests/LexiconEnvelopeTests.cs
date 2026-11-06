@@ -117,7 +117,9 @@ namespace Radios.Tests
             // near miss that names two chords, ruled 2026-10-28 21:25.
             // Twenty-one from the 2026-11-02 junk box rulings round (#861, J3):
             // the mic input left on PC at a disconnect, Noel's Chatty and Terse.
-            Assert.Equal(21, ladders);
+            // Twenty-two from its round two (Codex's R5): the neutral form, when
+            // no carrier was established (DRAFT).
+            Assert.Equal(22, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -2107,6 +2109,7 @@ namespace Radios.Tests
                 // on PC at a disconnect. Noel's own wording (2026-11-06 11:02,
                 // 11:03), DRAFT until he hears it assembled.
                 "connect.disconnect.mic_left_on",
+                "connect.disconnect.mic_left_on_unconfirmed",
                 // The same round (#642, J4): a tune that ended elsewhere says the
                 // bare frequency it ended on, Noel's ruling; DRAFT until heard.
                 "connect.home.frequency_ended_on",

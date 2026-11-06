@@ -213,5 +213,24 @@ namespace Radios.Tests
             Assert.True(start > 0 && next > start);
             return source.Substring(start, next - start);
         }
+    
+
+        [Theory]
+        [InlineData("TX_FAULT")]
+        [InlineData("TIMEOUT")]
+        public void A_withhold_under_a_fault_or_an_unconfirmed_state_does_not_say_while_transmitting(string state)
+        {
+            // Codex's R5: the restore is still refused, but no carrier was
+            // established, so the carrier wording would be false.
+            _f.Vendor.Status($"interlock state={state} source=SW tx_client_handle=0x00000000");
+            Assert.False(_f.Rig.UnkeyBeforePuttingBack("test", TimeSpan.FromMilliseconds(100), 100));
+            PutBackMic();
+            Assert.Empty(MicWrites());                                    // still withheld
+            _f.Rig.SayMicLeftOnPcAfterTeardown("test");
+            Assert.Equal(Lexicon.Get("connect.disconnect.mic_left_on_unconfirmed", ScreenReaderOutput.CurrentVerbosity, ("input", "PC")),
+                _f.Rig.LastMicLeftOnPcReport);
+            Assert.DoesNotContain("while transmitting", _f.Rig.LastMicLeftOnPcReport ?? "");
+        }
+
     }
 }

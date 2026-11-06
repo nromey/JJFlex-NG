@@ -661,13 +661,20 @@ public partial class FlexBase
     /// <summary>What a deliberate disconnect left on the radio's mic input, for <see cref="SayMicLeftOnPcAfterTeardown"/>.</summary>
     private sealed class MicLeftBehind
     {
-        public MicLeftBehind(Radio radio, string saved, string left, string cacheAtWithhold)
+        public MicLeftBehind(Radio radio, string saved, string left, string cacheAtWithhold, bool carrier)
         {
             Radio = radio;
             Saved = saved;
             Left = left;
             CacheAtWithhold = cacheAtWithhold;
+            Carrier = carrier;
         }
+        /// <summary>
+        /// A carrier was established when it was withheld: this computer keying,
+        /// or the radio's interlock reporting PTT requested, transmitting or
+        /// unkey requested. False for a fault or an unconfirmed state (Codex's R5).
+        /// </summary>
+        public bool Carrier { get; }
         public Radio Radio { get; }
         /// <summary>The input that was not put back.</summary>
         public string Saved { get; }
@@ -702,7 +709,17 @@ public partial class FlexBase
         // it; otherwise (a switch-back's raw write the radio has not reported
         // yet) the input that write sent.
         string left = string.Equals(cache, "PC", StringComparison.OrdinalIgnoreCase) ? cache : "PC";
-        System.Threading.Volatile.Write(ref _teardownMicLeftOnPc, new MicLeftBehind(radio, saved ?? "", left, cache));
+        // "While transmitting" only when a carrier is established (rulings round
+        // two, Codex's R5): a fault (TX_FAULT) or a radio that never confirmed
+        // receive still withholds the restore, but gets the neutral sentence.
+        bool carrier;
+        try
+        {
+            carrier = _Transmit || radio.InterlockState is InterlockState.PTTRequested
+                or InterlockState.Transmitting or InterlockState.UnkeyRequested;
+        }
+        catch { carrier = false; }
+        System.Threading.Volatile.Write(ref _teardownMicLeftOnPc, new MicLeftBehind(radio, saved ?? "", left, cache, carrier));
     }
 
     /// <summary>
@@ -756,8 +773,9 @@ public partial class FlexBase
                 return;
             }
             // DRAFT PROSE (J3): Noel's own wording, 2026-11-06 11:02 and 11:03.
-            string text = Lexicon.Get("connect.disconnect.mic_left_on", ScreenReaderOutput.CurrentVerbosity,
-                ("input", left.Left));
+            // DRAFT PROSE (R5): the neutral sentence when no carrier was established.
+            string text = Lexicon.Get(left.Carrier ? "connect.disconnect.mic_left_on" : "connect.disconnect.mic_left_on_unconfirmed",
+                ScreenReaderOutput.CurrentVerbosity, ("input", left.Left));
             LastMicLeftOnPcReport = text;
             MicLeftOnPcReports++;
             Tracing.TraceLine("MicPutBackWithheld at disconnect (" + why + "): radio " + (left.Radio?.Serial ?? "(none)")
