@@ -489,36 +489,6 @@ namespace Radios
         public static string WanAccountForSerial(string serial) => GetWanAccountForSerial(serial);
 
         /// <summary>
-        /// The account whose CURRENT SmartLink list carries this serial: the
-        /// bank's attribution, but only while the list that wrote it is still
-        /// that session's current knowledge, which means its connection is up
-        /// now. "" otherwise.
-        /// </summary>
-        /// <remarks>
-        /// The bank keeps a handle, and the account that delivered it, across
-        /// a drop; that is right for a recovery dial and wrong as a statement
-        /// about now. <see cref="RadioAccountRouting.ForSerial"/> asks this, so
-        /// a session that listed the radio yesterday and has since dropped
-        /// cannot outrank the account the operator has chosen for it (repair
-        /// round 1 of the 2026-11-06 junk box, Codex B1).
-        /// </remarks>
-        public static string CurrentWanAccountForSerial(string serial)
-        {
-            if (string.IsNullOrWhiteSpace(serial)) return "";
-            string account;
-            RigData sighting;
-            lock (_wanRadiosLock)
-            {
-                if (!_wanRadiosBySerial.TryGetValue(serial, out var entry) || entry.Radio == null)
-                    return "";
-                account = entry.AccountId ?? "";
-                sighting = entry.Sighting;
-            }
-            // Asked outside the bank's lock: the question takes the session's.
-            return sighting != null && sighting.FromWanList != null && sighting.StillCurrent() ? account : "";
-        }
-
-        /// <summary>
         /// Who was on a WAN radio as of the last SmartLink list that mentioned
         /// it — the roster row's pre-connect occupancy source when no sighting
         /// event has delivered (#394). False when no list currently carries

@@ -465,11 +465,11 @@ namespace Radios
             // The asked account's session, not whichever one _currentAccount
             // names (#713): the query may be asking under the radio's own
             // account while the connection's account is another.
-            var result = ConnectToSmartLink(jwt, askedAccount);
+            // This call's own capture (#713, repair round 2): another flow on
+            // the rig cannot replace or clear it.
+            var result = ConnectToSmartLink(jwt, askedAccount, out var pushed);
 
             var lists = new List<SmartLinkRegistrationEvidence.AccountList>(HeldAccountLists());
-            SmartLinkRegistrationEvidence.AccountList? pushed;
-            lock (_wanIntakeLock) { pushed = _serverListThisCall; }
             // The capture belongs to the account the connect flow waited on. A
             // picker switch between the push and this read would otherwise
             // answer one account's question with another's list — the #342
@@ -557,28 +557,40 @@ namespace Radios
             return confirmed.Account;
         }
 
+        /// <summary>
+        /// True while <paramref name="radio"/> is still the connected radio:
+        /// the same object the send read at its start, and connected.
+        /// </summary>
+        internal bool StillTheRegistrationTarget(Radio radio)
+            => radio != null && ReferenceEquals(theRadio, radio) && IsConnected;
+
         private bool SendRegistrationCommand(bool register, RegistrationCheck confirmed, Action<string, bool> onStateChange, int attempt = 1)
         {
-            if (theRadio == null || !IsConnected) return false;
+            var r = theRadio;   // ONE read of the radio for the whole send (see below)
+            if (r == null || !IsConnected) return false;
             // Registration binds the radio to an ACCOUNT and persists in the
             // radio. Both directions — register and unregister — change what
             // the radio keeps, so both sit inside the hold (audit 2.9).
             if (GuardRefuses("settings.guard.action.registration")) return false;
+            // The serial the confirmed check is matched against, the radio the
+            // command goes to, and the one asked again after the token are the
+            // same object (#713, repair round 2). Two reads of the connected
+            // radio let one swapped in between be commanded under another
+            // radio's confirmation.
             // The account the operator confirmed, carried by the check itself
             // (#713, repair round 1). Asked again on the retry, so a radio
             // that changed in between is refused rather than registered.
-            var account = AccountConfirmedFor(confirmed, theRadio.Serial);
+            var account = AccountConfirmedFor(confirmed, r.Serial);
             if (account == null)
             {
                 Tracing.TraceLine(
-                    $"SendRegistrationCommand: refused, the confirmed check does not cover this radio (check={(confirmed == null ? "none" : confirmed.RadioSerial + " " + confirmed.AccountEmail)}, connected={theRadio.Serial})",
+                    $"SendRegistrationCommand: refused, the confirmed check does not cover this radio (check={(confirmed == null ? "none" : confirmed.RadioSerial + " " + confirmed.AccountEmail)}, connected={r.Serial})",
                     TraceLevel.Warning);
                 return false;
             }
 
             try
             {
-                var r = theRadio;
 
                 string jwt = GetJwtFromSavedAccount(account);
                 if (string.IsNullOrEmpty(jwt))
@@ -632,6 +644,15 @@ namespace Radios
 
                     if (terminal) r.PropertyChanged -= handler;
                 };
+
+                // The token can take a sign-in; the connection can change in
+                // that time. Asked again here, right before the command: still
+                // the same radio object, still connected.
+                if (!StillTheRegistrationTarget(r))
+                {
+                    Tracing.TraceLine($"SendRegistrationCommand: refused after the token, the radio {r.Serial} is no longer the connected radio", TraceLevel.Warning);
+                    return false;
+                }
 
                 r.PropertyChanged += handler;
 

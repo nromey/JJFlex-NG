@@ -161,6 +161,25 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// Codex's #713 B2: the radio the send checked is the radio it may
+        /// command. After the token, a different radio object in its place, or
+        /// a disconnect, stops the send.
+        /// </summary>
+        [Fact]
+        public void The_send_stops_if_the_radio_it_checked_is_no_longer_the_connected_one()
+        {
+            var first = OnALocalRadio(NewSerial());
+            Assert.True(_rig.StillTheRegistrationTarget(first.Radio));
+
+            var second = OnALocalRadio(NewSerial());
+            Assert.False(_rig.StillTheRegistrationTarget(first.Radio));
+            Assert.True(_rig.StillTheRegistrationTarget(second.Radio));
+
+            IsConnectedField.SetValue(_rig, false);
+            Assert.False(_rig.StillTheRegistrationTarget(second.Radio));
+        }
+
+        /// <summary>
         /// The wiring: both registration doors ask the resolver, neither asks
         /// the saved default directly, and the account the preflight resolved
         /// is the one the confirm step names and the command is sent under.
@@ -182,7 +201,16 @@ namespace Radios.Tests
             Assert.Contains("ResolveRegistrationAccount(serial)", query, StringComparison.Ordinal);
             Assert.DoesNotContain("TryLoadSavedAccount()", query, StringComparison.Ordinal);
 
-            Assert.Contains("AccountConfirmedFor(confirmed, theRadio.Serial)", send, StringComparison.Ordinal);
+            Assert.Contains("AccountConfirmedFor(confirmed, r.Serial)", send, StringComparison.Ordinal);
+            // ONE read of the radio for the whole send, asked again after the
+            // token, right before the command (repair round 2).
+            Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(send, @"\btheRadio\b").Count);
+            Assert.Contains("var r = theRadio;", send, StringComparison.Ordinal);
+            int recheck = send.IndexOf("if (!StillTheRegistrationTarget(r))", StringComparison.Ordinal);
+            int command = send.IndexOf("r.WanRegisterRadio(jwt)", StringComparison.Ordinal);
+            int token = send.IndexOf("GetJwtFromSavedAccount(account)", StringComparison.Ordinal);
+            Assert.True(token > 0 && recheck > token && command > recheck,
+                "The radio must be asked again after the token and before the command.");
             Assert.Contains("GetJwtFromSavedAccount(account)", send, StringComparison.Ordinal);
             Assert.Contains("SendRegistrationCommand(register, confirmed, onStateChange, attempt: 2)", send, StringComparison.Ordinal);
             Assert.DoesNotContain("_currentAccount", send, StringComparison.Ordinal);

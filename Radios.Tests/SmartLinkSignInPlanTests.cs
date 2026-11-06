@@ -33,7 +33,7 @@ namespace Radios.Tests
     /// to SmartLink", and never reach the owner-aware routing at all.</para>
     /// </remarks>
     [Collection(SmartLinkSingletonCollection.Name)]
-    public sealed class SmartLinkSignInPlanTests : IDisposable
+    public sealed partial class SmartLinkSignInPlanTests : IDisposable
     {
         private const string Operator = "operator@example.com";   // the saved default, its radio off
         private const string Owner = "owner@example.com";         // the account the radio is on
@@ -127,6 +127,15 @@ namespace Radios.Tests
             return rig;
         }
 
+        /// <summary>The plan from one picture of the real sessions, with the radio's chosen or last-seen account taken from a route.</summary>
+        private FlexBase.SmartLinkSignInPlan PlanFor(string[] saved, AccountRoute route)
+        {
+            string preferred = route.Source == AccountRouteSource.Preferred ? route.Account : "";
+            string lastSeen = route.Source == AccountRouteSource.LastSeen ? route.Account : "";
+            return FlexBase.PlanSmartLinkSignIn(
+                FlexBase.TakeAccountPicture(Radio6300, _coordinator.AllSessions, preferred, lastSeen, onLan: false), saved);
+        }
+
         private static List<SmartLinkAccount> Saved(params string[] emails) =>
             emails.Select(e => new SmartLinkAccount { Email = e, FriendlyName = e }).ToList();
 
@@ -150,8 +159,7 @@ namespace Radios.Tests
             Listed(Operator);                 // the default, its own radio off
             Listed(Owner, Radio6300);         // the radio, live on the owner's session
 
-            var plan = FlexBase.PlanSmartLinkSignIn(Radio6300, new[] { Operator, Owner },
-                _coordinator.AllSessions, AccountRoute.None);
+            var plan = PlanFor(new[] { Operator, Owner }, AccountRoute.None);
 
             Assert.Equal(Plan.UseHeldSession, plan.Kind);
             Assert.Equal(Owner, plan.Account);
@@ -198,8 +206,7 @@ namespace Radios.Tests
             Listed(Operator);
             Listed(Owner, SomeOtherRadio);
 
-            var plan = FlexBase.PlanSmartLinkSignIn(Radio6300, new[] { Operator, Owner },
-                _coordinator.AllSessions, AccountRoute.None);
+            var plan = PlanFor(new[] { Operator, Owner }, AccountRoute.None);
             Assert.Equal(Plan.NotListedByAnySavedAccount, plan.Kind);
 
             var rig = NewRig();
@@ -236,8 +243,7 @@ namespace Radios.Tests
             Listed(Operator);
             ConnectedNotYetListed(Owner);
 
-            var plan = FlexBase.PlanSmartLinkSignIn(Radio6300, new[] { Operator, Owner },
-                _coordinator.AllSessions, AccountRoute.None);
+            var plan = PlanFor(new[] { Operator, Owner }, AccountRoute.None);
 
             Assert.NotEqual(Plan.NotListedByAnySavedAccount, plan.Kind);
             Assert.Equal(Plan.SignInAsUsual, plan.Kind);
@@ -254,8 +260,7 @@ namespace Radios.Tests
             Listed(Operator);
             ConnectedNotYetListed(Owner);
 
-            var plan = FlexBase.PlanSmartLinkSignIn(Radio6300, new[] { Operator, Owner },
-                _coordinator.AllSessions, new AccountRoute(Owner, AccountRouteSource.Preferred));
+            var plan = PlanFor(new[] { Operator, Owner }, new AccountRoute(Owner, AccountRouteSource.Preferred));
 
             Assert.Equal(Plan.SignInAsRadiosAccount, plan.Kind);
             Assert.Equal(Owner, plan.Account);
@@ -270,8 +275,7 @@ namespace Radios.Tests
         {
             ConnectedNotYetListed(Operator);
 
-            var plan = FlexBase.PlanSmartLinkSignIn(Radio6300, new[] { Operator },
-                _coordinator.AllSessions, new AccountRoute("stranger@example.com", AccountRouteSource.LastSeen));
+            var plan = PlanFor(new[] { Operator }, new AccountRoute("stranger@example.com", AccountRouteSource.LastSeen));
 
             Assert.Equal(Plan.SignInAsUsual, plan.Kind);
         }
@@ -300,8 +304,7 @@ namespace Radios.Tests
                 var route = RadioAccountRouting.ForSerial(Radio6300);
                 Assert.Equal(new AccountRoute(Owner, AccountRouteSource.Preferred), route);
 
-                var plan = FlexBase.PlanSmartLinkSignIn(Radio6300, new[] { Operator, Owner },
-                    _coordinator.AllSessions, route);
+                var plan = PlanFor(new[] { Operator, Owner }, route);
                 Assert.Equal(Plan.SignInAsRadiosAccount, plan.Kind);
                 Assert.Equal(Owner, plan.Account);
             }

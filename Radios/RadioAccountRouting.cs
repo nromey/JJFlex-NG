@@ -86,29 +86,18 @@ namespace Radios
         {
             if (string.IsNullOrWhiteSpace(serial)) return AccountRoute.None;
 
-            string live = "";
-            // Live means a session whose list carrying the serial is current
-            // NOW. The bank's attribution from a dropped session is history,
-            // and must not outrank the radio's chosen account (repair round 1).
-            try { live = FlexBase.CurrentWanAccountForSerial(serial) ?? ""; }
+            // One reading of every held session's list and the radio's own
+            // record (repair round 2). Live means a session whose list that
+            // answers NOW names the serial: neither the WAN bank's attribution,
+            // which can lag a newer list on the same connection, nor a
+            // dropped session's history counts.
+            AccountRoute route;
+            try { route = FlexBase.TakeAccountPictureFor(serial).Route; }
             catch (Exception ex)
             {
-                Tracing.TraceLine($"RadioAccountRouting.ForSerial({serial}): live attribution unreadable: {ex.Message}", TraceLevel.Warning);
+                Tracing.TraceLine($"RadioAccountRouting.ForSerial({serial}): unreadable: {ex.Message}", TraceLevel.Warning);
+                route = AccountRoute.None;
             }
-
-            string preferred = "", lastSeen = "";
-            try
-            {
-                var cfg = RadioConfig.LoadForRadio(serial);
-                preferred = cfg.PreferredAccount ?? "";
-                lastSeen = cfg.LastSeenViaAccount ?? "";
-            }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine($"RadioAccountRouting.ForSerial({serial}): per-radio record unreadable: {ex.Message}", TraceLevel.Warning);
-            }
-
-            var route = Resolve(live, preferred, lastSeen);
             Tracing.TraceLine($"RadioAccountRouting.ForSerial({serial}): {route}", TraceLevel.Info);
             return route;
         }
