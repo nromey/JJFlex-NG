@@ -55,7 +55,11 @@ namespace Radios.Tests
         public void The_report_is_kept_and_home_and_the_menu_follow_it()
         {
             string flexBase = FlexBasePartials.JoinedText();
-            Assert.Contains("RFGainMarkers = p.RFGainMarkers?.ToArray() ?? Array.Empty<int>();", flexBase, StringComparison.Ordinal);
+            // No rig-wide copy of any panadapter's report (removed in the
+            // 2026-11-06 integration pass): the per-panadapter report is the
+            // one vocabulary.
+            Assert.DoesNotContain("RFGainMarkers = p.RFGainMarkers", flexBase, StringComparison.Ordinal);
+            Assert.DoesNotContain("public bool RFGainIsPreampSwitch(", flexBase, StringComparison.Ordinal);
             // The completed report is recorded per panadapter at the vendor's
             // last notification (repair round 2).
             Assert.Contains("RecordRFGainReport(p);", flexBase, StringComparison.Ordinal);

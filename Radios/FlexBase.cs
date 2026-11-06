@@ -1896,9 +1896,6 @@ namespace Radios
             {
                 Tracing.TraceLine($"CycleWanSession ({reason}): {ex.Message}", TraceLevel.Error);
             }
-            radios = null;
-            wanListReceived = false;
-            lock (_wanIntakeLock) { _serverListThisCall = null; }
             // The WAN Radio objects belong to the session being cycled; a fresh
             // list repopulates them. Keeping them would let a path-choice
             // connect dial a handle the server has already forgotten. With no
@@ -5599,15 +5596,12 @@ namespace Radios
                         break;
                     case "RFGainLow":
                         Tracing.TraceLine("RFGainLow:" + p.RFGainLow, TraceLevel.Info);
-                        RFGainMin = p.RFGainLow;
                         break;
                     case "RFGainHigh":
                         Tracing.TraceLine("RFGainHigh:" + p.RFGainHigh, TraceLevel.Info);
-                        RFGainMax = p.RFGainHigh;
                         break;
                     case "RFGainStep":
                         Tracing.TraceLine("RFGainStep:" + p.RFGainStep, TraceLevel.Info);
-                        RFGainIncrement = p.RFGainStep;
                         break;
                     case "RFGainMarkers":
                         {
@@ -5617,11 +5611,10 @@ namespace Radios
                                 str += i.ToString() + ' ';
                             }
                             Tracing.TraceLine("RFGainMarkers:" + str, TraceLevel.Info);
-                            // Kept, not just traced (#889): two markers with 0
-                            // as one of them is the radio offering RF gain as
-                            // a preamp switch, and Home presents it as one.
-                            RFGainMarkers = p.RFGainMarkers?.ToArray() ?? Array.Empty<int>();
-                            // The vendor raises RFGainMarkers LAST, after its
+                            // Two markers with 0 as one of them is the radio
+                            // offering RF gain as a preamp switch, and Home
+                            // presents it as one (#889). The vendor raises
+                            // RFGainMarkers LAST, after its
                             // reply has filled every field, so this is the one
                             // moment the report is complete (#889, repair 2).
                             RecordRFGainReport(p);
@@ -12437,15 +12430,10 @@ namespace Radios
             get { return theRadio?.ActiveSlice?.Panadapter; }
         }
 
-        public int RFGainMin = -10;
-        public int RFGainMax = 30;
-        public int RFGainIncrement = 10;
-
-        /// <summary>
-        /// The RF gain settings the radio marks for the active panadapter, as
-        /// it last reported them. Empty until it has (#889).
-        /// </summary>
-        public int[] RFGainMarkers = Array.Empty<int>();
+        // The rig-wide RF gain fields (RFGainMin, RFGainMax, RFGainIncrement,
+        // RFGainMarkers) and RFGainIsPreampSwitch were removed in the
+        // 2026-11-06 integration pass: after #889 nothing read them. The one
+        // vocabulary is the per-panadapter RFGainReport below.
 
         /// <summary>
         /// One panadapter's RF gain report: its range, its step and its marked
@@ -12492,18 +12480,13 @@ namespace Radios
         }
 
         /// <summary>
-        /// True when the radio offers RF gain as exactly two settings, one of
+        /// True when a report offers RF gain as exactly two settings, one of
         /// them 0, which Home presents as an RF preamp switch rather than a
         /// number field (#889). <paramref name="onDb"/> is the other setting,
         /// read from the radio's own report and never assumed: the 6300
         /// reports 0 and 20, but a model or band that reports another pair
         /// gets its own figure, and anything with a real range keeps the
-        /// number field.
-        /// </summary>
-        public bool RFGainIsPreampSwitch(out int onDb) => IsPreampSwitch(ActiveRFGainReport, out onDb);
-
-        /// <summary>
-        /// The rule behind <see cref="RFGainIsPreampSwitch"/>. The MARKERS
+        /// number field. The MARKERS
         /// say which settings the radio labels; the RANGE says which settings
         /// exist. Both must say "0 and one other" (repair round 1): markers of
         /// 0 and 20 over a range of 0 to 20 in steps of 5 are a five-setting

@@ -21,30 +21,12 @@ namespace Radios
     {
         // WAN routines.
         #region WAN
-        private List<Radio> radios;
-        private bool wanListReceived = false;
-
-        /// <summary>
-        /// The list the SmartLink server pushed for the account this
-        /// instance's connect flow is waiting on, captured at the moment of
-        /// receipt — or null when no server push has landed since the last
-        /// <see cref="ConnectToSmartLink"/> began.
-        /// </summary>
-        /// <remarks>
-        /// <para><b>Why this is not <see cref="wanListReceived"/>.</b> That
-        /// latch answers the connect flow's question, "is there a list to work
-        /// with yet?", and a replay of a held session's cached copy sets it as
-        /// legitimately as a push does. The registration query asks a
-        /// different question — "did the SERVER speak during this call?" — and
-        /// only a push answers it. Track L read the latch for that question,
-        /// and the replay set it (#619).</para>
-        ///
-        /// <para>Written only by <see cref="wanRadioListReceivedHandler"/> for
-        /// a <see cref="WanListArrival.ServerPush"/>, which only the
-        /// coordinator's live event reaches. Guarded by
-        /// <see cref="_wanIntakeLock"/>.</para>
-        /// </remarks>
-        private SmartLinkRegistrationEvidence.AccountList? _serverListThisCall;
+        // The rig-wide connect latch (radios, wanListReceived and
+        // _serverListThisCall, with ConnectListLatched and ConnectListSettled)
+        // was removed in the 2026-11-06 integration pass: after #713's
+        // per-call latches (ConnectLatch) no product code read it. Each call
+        // waits on its own latch, and a registration query reads its own
+        // call's server push.
 
         /// <summary>
         /// How a list reached <see cref="wanRadioListReceivedHandler"/>. Named
@@ -78,7 +60,6 @@ namespace Radios
         /// <c>EnsureSessionForAccount</c>, so the list-received latch is only
         /// satisfied by the account actually being waited on.
         /// </summary>
-        private string CurrentSessionKey => _currentAccount?.Email ?? "default-account";
 
         /// <summary>
         /// One <see cref="ConnectToSmartLink"/> call's own wait: the account it
@@ -93,9 +74,8 @@ namespace Radios
         /// two queries finishing out of order restored each other's key. Each
         /// call now owns one of these, registered for its duration; the intake
         /// writes every open latch whose account matches the list, and each call
-        /// reads only its own. The rig-wide <c>wanListReceived</c> /
-        /// <c>radios</c> pair is kept for the connection's account as before,
-        /// for the readers outside a call.</para>
+        /// reads only its own. There is no rig-wide latch any more (removed in
+        /// the 2026-11-06 integration pass: nothing read it).</para>
         /// <para>Every field is read and written under <c>_wanIntakeLock</c>.</para>
         /// </remarks>
         private sealed class ConnectLatch
@@ -146,11 +126,11 @@ namespace Radios
                 before.Add((open, open.Received, open.Radios, open.ServerPush));
                 open.Received = true;
                 open.Radios = lst.ToList();
-                if (serverPush)
-                    open.ServerPush = new SmartLinkRegistrationEvidence.AccountList(
-                        accountId,
-                        lst.Select(r => r.Serial).Where(x => !string.IsNullOrEmpty(x)).ToList(),
-                        SmartLinkRegistrationEvidence.ListSource.ServerPushThisCall);
+                // ListAnswersTheCall has required a server push.
+                open.ServerPush = new SmartLinkRegistrationEvidence.AccountList(
+                    accountId,
+                    lst.Select(r => r.Serial).Where(x => !string.IsNullOrEmpty(x)).ToList(),
+                    SmartLinkRegistrationEvidence.ListSource.ServerPushThisCall);
             }
             return before;
         }
@@ -202,8 +182,13 @@ namespace Radios
         private readonly List<ConnectLatch> _openLatches = new List<ConnectLatch>();
 
         /// <summary>
-        /// Whether this call's latch is set, read as <see cref="ConnectListLatched"/>
-        /// reads the rig's: never inside an intake, and never blocking.
+        /// Whether this call's latch is set, read the way the connect must
+        /// read it: never inside an intake, and never blocking. The intake
+        /// writes the latch and re-validates it as one critical section, and
+        /// a latch it later takes back must never have been seen; an intake in
+        /// progress reads as "not yet". It never blocks, because the intake can
+        /// be raising events into the picker, which marshals to the UI thread
+        /// and waits for it.
         /// </summary>
         private bool LatchReceived(ConnectLatch latch)
         {
@@ -588,46 +573,6 @@ namespace Radios
         internal Action<WanIntakeStage> WanIntakeStageReached;
 
         /// <summary>
-        /// Whether the connect flow's latch is set, read the way the flow
-        /// must read it: never inside an intake. The intake writes the latch
-        /// and re-validates it as one critical section (see
-        /// <see cref="wanRadioListReceivedHandler"/>), and a latch it later
-        /// takes back must never have been seen; so this asks the intake's
-        /// lock without waiting for it, and an intake in progress reads as
-        /// "not yet". It never blocks, because the intake can be raising
-        /// events into the picker, which marshals to the UI thread and
-        /// waits for it.
-        /// </summary>
-        internal bool ConnectListLatched()
-        {
-            if (!System.Threading.Monitor.TryEnter(_wanIntakeLock)) return false;
-            try { return wanListReceived; }
-            finally { System.Threading.Monitor.Exit(_wanIntakeLock); }
-        }
-
-        /// <summary>
-        /// The list the connect flow reads once its wait is over — the
-        /// <c>radios</c> field, read under the intake's lock so it is the
-        /// list an intake SETTLED, never one an intake has written and is
-        /// about to take back (#619, Sol's review of L7). Blocks for an
-        /// intake in progress, as the read at the deadline already does; the
-        /// flow never runs on the UI thread, so an intake raising into the
-        /// picker cannot be waiting on the flow.
-        /// </summary>
-        /// <remarks>
-        /// Until Track L8 the flow read <c>radios</c> bare, three times —
-        /// a count, a loop and a second count — after a wait that itself
-        /// never looked inside an intake. A push landing in that gap wrote
-        /// <c>radios</c> before its re-validation, so the flow could count
-        /// one list, walk another and judge "no radios" by a third, one of
-        /// them a list the intake then put back. One read, one list.
-        /// </remarks>
-        internal List<Radio> ConnectListSettled()
-        {
-            lock (_wanIntakeLock) return radios;
-        }
-
-        /// <summary>
         /// The one currency question the intake asks of every list, pushed or
         /// replayed: is the list, by its own generation, still the session's
         /// current knowledge right now (#619)?
@@ -675,10 +620,10 @@ namespace Radios
                 // while its list was current: the re-validation came after
                 // the write, so any dial, disconnect or death that follows is
                 // later than the write, and the latch then holds what a list
-                // consumed an instant before that change would hold. The
-                // connect flow reads the latch through ConnectListLatched,
-                // which never looks inside an intake, so a latch taken back
-                // at step 2 is never seen.
+                // consumed an instant before that change would hold. A call
+                // reads its latch through LatchReceived, which never looks
+                // inside an intake, so a latch taken back at step 2 is never
+                // seen.
                 //
                 // Step 1 is subsumed by step 2 for correctness: removing it
                 // turns no test red, measured on Track L7. It stays because it
@@ -740,41 +685,17 @@ namespace Radios
                 }
                 WanIntakeStageReached?.Invoke(WanIntakeStage.CurrencyChecked);
 
-                // The connect flow's one-shot latch belongs to the account it
-                // is waiting on; a push from another held session must not
-                // satisfy it with the wrong account's radios.
-                bool latchIsOurs = string.Equals(accountId, CurrentSessionKey, StringComparison.OrdinalIgnoreCase);
-                var radiosBefore = radios;
-                bool latchBefore = wanListReceived;
-                var serverListBefore = _serverListThisCall;
                 // Each call waiting on THIS account gets the list on its own
                 // latch (#713, repair round 2), put back below with the rest
                 // if the list stops being current while it is taken; and only
                 // if the list answers that call, by the one rule
                 // (ListAnswersTheCall, repair round 4).
                 var latchesBefore = AnswerWaitingCalls(accountId, lst, arrival == WanListArrival.ServerPush, provenance);
-                if (latchIsOurs)
-                {
-                    radios = lst.ToList();
-                    wanListReceived = true;
-
-                    // The server spoke. Captured HERE, where the arrival is
-                    // known, because nothing downstream can tell a replayed
-                    // list from a pushed one — they are the same objects.
-                    if (arrival == WanListArrival.ServerPush)
-                        _serverListThisCall = new SmartLinkRegistrationEvidence.AccountList(
-                            accountId,
-                            lst.Select(r => r.Serial).Where(x => !string.IsNullOrEmpty(x)).ToList(),
-                            SmartLinkRegistrationEvidence.ListSource.ServerPushThisCall);
-                }
                 WanIntakeStageReached?.Invoke(WanIntakeStage.LatchWritten);
 
                 // Step 2: the same question, after the write. See above.
                 if (!ListStillCurrent(provenance))
                 {
-                    radios = radiosBefore;
-                    wanListReceived = latchBefore;
-                    _serverListThisCall = serverListBefore;
                     PutBackWaitingCalls(latchesBefore);
                     Tracing.TraceLine(
                         $"wanRadioListReceivedHandler: {arrival} list of {lst.Count} radio(s) for {accountId} from {provenance} stopped being that session's current knowledge while it was being taken — a dial, a disconnect or the transport's death landed between the check and the latch — so the latch is put back as it was and nothing else is written",
@@ -2069,7 +1990,7 @@ namespace Radios
         /// left the replay reading it, on the reasoning that the replay is
         /// discovery rather than evidence and the next push corrects it; Sol's
         /// review of L3 listed what the replay actually does with a list —
-        /// sets the connect flow's latch, assigns <c>radios</c>, adds to
+        /// sets the connect flow's latch, adds to
         /// <c>myRadioList</c>, rewrites the WAN object bank, runs the
         /// account-wide ghost sweep, writes the account-list display cache,
         /// and can satisfy the connect wait on the spot — and every one of
@@ -2313,8 +2234,8 @@ namespace Radios
         /// each held session hears only its own account's lists (instance
         /// event in the vendored FlexLib, see MIGRATION.md item 13) and the
         /// coordinator re-raises them stamped with the account. Our handler
-        /// populates <c>radios</c> + <c>wanListReceived</c> only for the
-        /// account this flow is waiting on; the owner populates
+        /// answers this call's own latch (a newer push for its account on its
+        /// session; ListAnswersTheCall); the owner populates
         /// <c>session.AvailableRadios</c> for every account.
         /// </para>
         /// </summary>
@@ -2354,10 +2275,10 @@ namespace Radios
                     ? Radios.SmartLink.SmartLinkServices.Coordinator.EnsureSessionForAccount(accountEmail)
                     : Radios.SmartLink.SmartLinkServices.Coordinator.GetOrCreateSession(accountEmail);
 
-                // Take the intake, so `radios` and `wanListReceived` get
-                // populated alongside session.AvailableRadios. The connect flow
-                // WAITS on that latch, so this is not optional bookkeeping —
-                // it is the reason a connect can finish. #386 replaced the
+                // Take the intake, so this rig's rows are kept current with
+                // session.AvailableRadios. A waiting call is answered wherever
+                // the intake is (repair round 5), but the rows a held answer
+                // uses are this rig's, so the intake is still taken. #386 replaced the
                 // per-instance unsubscribe/subscribe pair here: one static
                 // dispatcher, one intake, this one.
                 becomeThePresenceIntake();
@@ -2385,8 +2306,6 @@ namespace Radios
                 // is a cheap no-op because _wan.IsConnected is already true.
                 lock (_wanIntakeLock)
                 {
-                    wanListReceived = false;
-                    _serverListThisCall = null;
                     _openLatches.Add(latch);
                     listAtStart = session.RadioListSnapshot;
                     latch.StartSessionId = listAtStart.SessionId ?? "";
@@ -2493,7 +2412,7 @@ namespace Radios
                 const int listWaitMs = 10000;
 
                 Tracing.TraceLine($"ConnectToSmartLink: registration sent, waiting up to {listWaitMs / 1000}s for radio list (cached={myRadioList.Count}) ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                // The latch is read through ConnectListLatched, which never
+                // The latch is read through LatchReceived, which never
                 // looks inside an intake: the intake writes the latch and
                 // re-validates it as one step, and may take it back (#619).
                 // A list whose intake is still running when the window ends
@@ -2524,9 +2443,9 @@ namespace Radios
                 }
 
                 // One settled read, used for everything below. The intake
-                // writes `radios` before it re-validates and may put it
-                // back; reading the field bare here could count one list and
-                // walk another (#619, Sol's review of L7).
+                // writes the latch before it re-validates and may put it
+                // back; reading it bare here could count one list and walk
+                // another (#619, Sol's review of L7).
                 // This call's own settled list, and the server's push to it.
                 List<Radio> listed;
                 lock (_wanIntakeLock)

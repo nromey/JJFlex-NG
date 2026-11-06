@@ -463,8 +463,8 @@ namespace Radios
         /// this call, a held copy it replayed through the intake, and a list it
         /// rebuilt from <c>myRadioList</c>, which is this client's own
         /// bookkeeping. Only the first is the server speaking. Track L told
-        /// them apart with the <c>wanListReceived</c> latch, and the replay
-        /// sets that latch — so a replayed list read as a live answer and could
+        /// them apart with the rig-wide connect latch (since removed), and the
+        /// replay set that latch — so a replayed list read as a live answer and could
         /// produce the negative verdict from held state, which is exactly what
         /// the design forbids. The push is now captured at the one entry point
         /// that only a server push reaches, and the replay cannot reach it.</para>

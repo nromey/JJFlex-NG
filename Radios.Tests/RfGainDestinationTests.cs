@@ -105,19 +105,16 @@ namespace Radios.Tests
 
         /// <summary>
         /// Before the ACTIVE panadapter has reported its RF gain settings, Home
-        /// shows the plain number field, even if another panadapter, or values
-        /// the rig stored earlier, would say "switch".
+        /// shows the plain number field, even if another panadapter would say
+        /// "switch". (The rig-wide fields this also set were removed in the
+        /// 2026-11-06 integration pass; nothing read them.)
         /// </summary>
         [Fact]
         public void Until_the_active_panadapter_reports_the_number_field_shows()
         {
-            _rig.RFGainMin = 0;
-            _rig.RFGainMax = 20;
-            _rig.RFGainIncrement = 20;
-            _rig.RFGainMarkers = new[] { 0, 20 };   // stored from some panadapter
             Reply(_panB, "0,20,20,0,20");           // another panadapter reported the switch shape
 
-            Assert.False(_rig.RFGainIsPreampSwitch(out _));
+            Assert.False(FlexBase.IsPreampSwitch(_rig.ActiveRFGainReport, out _));
         }
 
         /// <summary>A completed reply for the panadapter, through the vendor's parser and the rig's recording, as production wires it.</summary>
@@ -136,25 +133,25 @@ namespace Radios.Tests
         public void The_active_panadapters_completed_report_decides_the_shape()
         {
             CompletedReply(_panA, "0,20,20,0,20");          // the 6300's answer
-            Assert.True(_rig.RFGainIsPreampSwitch(out int db));
+            Assert.True(FlexBase.IsPreampSwitch(_rig.ActiveRFGainReport, out int db));
             Assert.Equal(20, db);
             Assert.Same(_panA, _rig.ActiveRFGainReport.Pan);
 
             CompletedReply(_panA, "-8,32,8,0,16,32");       // a real range, later
-            Assert.False(_rig.RFGainIsPreampSwitch(out _));
+            Assert.False(FlexBase.IsPreampSwitch(_rig.ActiveRFGainReport, out _));
 
             // Another panadapter's report does not speak for the active one.
             CompletedReply(_panB, "0,20,20,0,20");
-            Assert.False(_rig.RFGainIsPreampSwitch(out _));
+            Assert.False(FlexBase.IsPreampSwitch(_rig.ActiveRFGainReport, out _));
         }
 
         [Fact]
         public void Two_markers_over_a_finer_range_keep_the_number_field()
         {
             CompletedReply(_panA, "0,20,5,0,20");
-            Assert.False(_rig.RFGainIsPreampSwitch(out _));
+            Assert.False(FlexBase.IsPreampSwitch(_rig.ActiveRFGainReport, out _));
             CompletedReply(_panA, "0,20,20,0,20");
-            Assert.True(_rig.RFGainIsPreampSwitch(out _));
+            Assert.True(FlexBase.IsPreampSwitch(_rig.ActiveRFGainReport, out _));
         }
 
         /// <summary>
@@ -188,7 +185,7 @@ namespace Radios.Tests
             typeof(Panadapter).GetField("_rf_gain_step", Private)!.SetValue(_panA, 20);
             typeof(Panadapter).GetField("_rf_gain_markers", Private)!.SetValue(_panA, new[] { 0, 20 });
 
-            Assert.False(_rig.RFGainIsPreampSwitch(out _));
+            Assert.False(FlexBase.IsPreampSwitch(_rig.ActiveRFGainReport, out _));
         }
     }
 }

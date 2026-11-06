@@ -141,35 +141,27 @@ namespace Radios.Tests
             return radio;
         }
 
-        private static readonly FieldInfo LatchField =
-            typeof(FlexBase).GetField("wanListReceived", BindingFlags.NonPublic | BindingFlags.Instance)!;
 
         private static readonly MethodInfo? ForgetWanRadiosForAccount =
             typeof(FlexBase).GetMethod("ForgetWanRadiosForAccount", BindingFlags.NonPublic | BindingFlags.Static);
 
-        private static bool Latched(FlexBase rig)
-        {
-            Assert.True(LatchField != null,
-                "FlexBase.wanListReceived is not where this test reads it, so the assertion that the " +
-                "replay ran would mean nothing.");
-            return (bool)LatchField!.GetValue(rig)!;
-        }
+        /// <summary>The intake consumed a list for the account (see <see cref="IntakeTook"/>; this read the rig-wide connect latch until that was removed).</summary>
+        private static bool Latched(FlexBase rig) => IntakeTook.ListFor(rig, Account);
 
         // The other things the intake writes when it is given a list — each
         // one an effect Sol's review of Track L3 listed the replay as having,
         // read back by reflection because none has a public face.
-        private static readonly FieldInfo? RadiosField =
-            typeof(FlexBase).GetField("radios", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo? MyRadioListField =
             typeof(FlexBase).GetField("myRadioList", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo? WanBankField =
             typeof(FlexBase).GetField("_wanRadiosBySerial", BindingFlags.NonPublic | BindingFlags.Static);
 
-        /// <summary>The list the connect flow reads downstream, or null before any list.</summary>
+        /// <summary>The WAN radios the intake took into this rig's list, or null before any.</summary>
         private static List<Radio>? Radios(FlexBase rig)
         {
-            Assert.True(RadiosField != null, "FlexBase.radios is not where this test reads it.");
-            return (List<Radio>?)RadiosField!.GetValue(rig);
+            Assert.True(MyRadioListField != null, "FlexBase.myRadioList is not where this test reads it.");
+            var wan = ((List<Radio>)MyRadioListField!.GetValue(rig)!).Where(r => r.IsWan).ToList();
+            return wan.Count == 0 ? null : wan;
         }
 
         /// <summary>The serials of the WAN radios in this instance's discovery list.</summary>
