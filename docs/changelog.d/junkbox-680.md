@@ -1,0 +1,1 @@
+- The three choices under Radio, Profiles on This Radio, now read as one choice out of three, with a check mark on the one in effect. Your screen reader used to hear "On" and "Off" after each, as if they were three switches you could turn off.

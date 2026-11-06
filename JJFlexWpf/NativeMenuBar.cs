@@ -2081,14 +2081,17 @@ public class NativeMenuBar : IDisposable
             var profilesSub = AddSubmenu(radio, "Profiles on This Radio");
 
             // The three answers, mutually exclusive. Checkmark only; the row
-            // text is never rewritten with a state suffix.
-            AddChecked(profilesSub, "Use My Transmit Audio Here",
+            // text is never rewritten with a state suffix. AddRadioChecked is
+            // what makes that true (#680): AddChecked appended ": On" and
+            // ": Off", so the reader called these three toggles, and a
+            // toggle that will not toggle off.
+            AddRadioChecked(profilesSub, "Use My Transmit Audio Here",
                 () => SetGuestProfileIntent(Radios.ProfileGuestIntent.UseMyTransmitAudio),
                 () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.UseMyTransmitAudio);
-            AddChecked(profilesSub, "Load All My Profiles Here",
+            AddRadioChecked(profilesSub, "Load All My Profiles Here",
                 () => SetGuestProfileIntent(Radios.ProfileGuestIntent.LoadMineAndPutBack),
                 () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.LoadMineAndPutBack);
-            AddChecked(profilesSub, "Leave This Radio's Profiles Alone",
+            AddRadioChecked(profilesSub, "Leave This Radio's Profiles Alone",
                 () => SetGuestProfileIntent(Radios.ProfileGuestIntent.LeaveAlone),
                 () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.LeaveAlone);
 
