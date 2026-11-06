@@ -3277,44 +3277,42 @@ namespace Radios
                 // own remote pass runs setupRemote on this same instance, and
                 // a report it left must not stand in for this connect (#798).
                 LastConnectFailureReport = null;
-                // The fast path stands only when the active session is live AND
-                // its current list names this radio; any other state is the
-                // #798 plan's to decide (integration pass, finding 6). A live
-                // session on another account used to skip the plan, and the
-                // radio's own account was then waited on for 15 seconds.
-                bool wanAlreadyConnected = !ThePlanDecidesTheConnect(serial);
-                if (wanAlreadyConnected)
+                // The #798 plan decides EVERY SmartLink connect (Codex F2 on the
+                // 2026-11-06 integration pass). The fast path used to skip it
+                // whenever the active session listed the radio, and so skipped
+                // adopting the account and the shared-radio tie-break: with two
+                // accounts listing one radio it could dial a different account
+                // than the plan names. When the active session lists the radio
+                // the plan uses a held session and signs in to nothing, so the
+                // fast path loses no speed; it is one decision, two routes to
+                // it.
+                if (TheActiveSessionListsTheRadio(serial))
+                    Tracing.TraceLine($"ReconnectRemote: the active SmartLink session lists {serial}; the plan picks among the listing accounts, no sign-in ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                // #798: decided from the RADIO before anything signs in. A
+                // held session that already lists it is used as it stands;
+                // a radio no saved account lists is said at once; the
+                // radio's own account is signed in as when it is known;
+                // only otherwise does the saved default sign in.
+                bool remoteOk = PrepareSmartLinkForSerial(serial, allowInteractiveLogin, sw);
+                Tracing.TraceLine($"ReconnectRemote: PrepareSmartLinkForSerial returned {remoteOk} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                if (!remoteOk)
                 {
-                    Tracing.TraceLine($"ReconnectRemote: the active SmartLink session lists {serial}, skipping auth ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                }
-                else
-                {
-                    // #798: decided from the RADIO before anything signs in. A
-                    // held session that already lists it is used as it stands;
-                    // a radio no saved account lists is said at once; the
-                    // radio's own account is signed in as when it is known;
-                    // only otherwise does the saved default sign in.
-                    bool remoteOk = PrepareSmartLinkForSerial(serial, allowInteractiveLogin, sw);
-                    Tracing.TraceLine($"ReconnectRemote: PrepareSmartLinkForSerial returned {remoteOk} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                    if (!remoteOk)
+                    Tracing.TraceLine($"ReconnectRemote: SmartLink preparation FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                    // The preparation, and setupRemote under it, file their
+                    // own classified report (auth vs server vs an empty list
+                    // vs a radio no account lists). Only file a generic one
+                    // if neither did — a caller must always find SOMETHING
+                    // here. Since #798 this means a sign-in that produced no
+                    // token, or a cancelled account choice.
+                    if (LastConnectFailureReport == null)
                     {
-                        Tracing.TraceLine($"ReconnectRemote: SmartLink preparation FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                        // The preparation, and setupRemote under it, file their
-                        // own classified report (auth vs server vs an empty list
-                        // vs a radio no account lists). Only file a generic one
-                        // if neither did — a caller must always find SOMETHING
-                        // here. Since #798 this means a sign-in that produced no
-                        // token, or a cancelled account choice.
-                        if (LastConnectFailureReport == null)
+                        RecordConnectFailure(new ConnectFailureReport
                         {
-                            RecordConnectFailure(new ConnectFailureReport
-                            {
-                                Class = ConnectFailureClass.SessionSetupFailed,
-                                SpokenSummary = "Could not sign in to SmartLink or reach its server, so the radio was never contacted.",
-                            });
-                        }
-                        return false;
+                            Class = ConnectFailureClass.SessionSetupFailed,
+                            SpokenSummary = "Could not sign in to SmartLink or reach its server, so the radio was never contacted.",
+                        });
                     }
+                    return false;
                 }
 
                 // Wait for the radio to appear in myRadioList.

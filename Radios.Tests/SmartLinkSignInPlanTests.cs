@@ -80,7 +80,7 @@ namespace Radios.Tests
             SmartLinkPresenceService.SilentJwtHook = _originalJwtHook;
             try { _coordinator.Dispose(); } catch { }
 
-            foreach (var account in new[] { Operator, Owner, "default-account" })
+            foreach (var account in new[] { Operator, Owner, "club@example.com", "default-account" })
                 ForgetWanRadiosForAccount?.Invoke(null, new object[] { account, "test teardown" });
         }
 

@@ -83,35 +83,25 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// Integration finding 6. ReconnectRemote skipped the #798 plan
-        /// whenever ANY active session was connected, so a radio on another
-        /// saved account waited 15 seconds and heard the old hardcoded
-        /// sentence. The fast path now stands only when the active session's
-        /// current list names the radio; otherwise the plan decides.
+        /// Integration finding 6, as Codex F2 settled it: the old fast path's
+        /// state (the active session is live and lists the radio) is still
+        /// recognised, but only for the trace. The plan decides every connect;
+        /// <see cref="ReconnectRemote_prepares_every_connect_through_the_one_plan"/>
+        /// pins the route.
         /// </summary>
         [Fact]
-        public void The_plan_decides_unless_the_active_session_lists_the_radio()
+        public void The_active_session_listing_the_radio_is_recognised()
         {
-            Assert.True(FlexBase.ThePlanDecidesTheConnect(Radio6300));            // no active session
+            Assert.False(FlexBase.TheActiveSessionListsTheRadio(Radio6300));      // no active session
 
             var active = _coordinator.EnsureSessionForAccount(Operator);
             var (_, wan) = Listed(Operator, SomeOtherRadio);
             Assert.Same(active, _coordinator.ActiveSession);
-            Assert.True(FlexBase.ThePlanDecidesTheConnect(Radio6300));            // live, but not listing it
+            Assert.False(FlexBase.TheActiveSessionListsTheRadio(Radio6300));      // live, but not listing it
 
             wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Radio6300) });
             WaitUntil(() => active.RadioListSnapshot.Radios.Any(r => r.Serial == Radio6300), "the list never landed");
-            Assert.False(FlexBase.ThePlanDecidesTheConnect(Radio6300));           // listed: the fast path stands
-        }
-
-        [Fact]
-        public void ReconnectRemote_asks_the_one_question_before_skipping_the_plan()
-        {
-            string src = FlexBasePartials.JoinedText();
-            string reconnect = Body(src, "public bool ReconnectRemote(");
-            Assert.Contains("ThePlanDecidesTheConnect(serial)", reconnect, StringComparison.Ordinal);
-            Assert.DoesNotContain("bool wanAlreadyConnected = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.IsConnected == true;",
-                reconnect, StringComparison.Ordinal);
+            Assert.True(FlexBase.TheActiveSessionListsTheRadio(Radio6300));       // listed
         }
 
         /// <summary>

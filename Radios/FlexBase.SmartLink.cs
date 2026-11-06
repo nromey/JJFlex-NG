@@ -200,11 +200,15 @@ namespace Radios
         }
 
         /// <summary>
-        /// The saved SmartLink account registration on this radio goes
-        /// through (#713): the radio's own account by
-        /// the first saved account in the connect's own tier order (live,
-        /// chosen, last seen; <see cref="AccountPicture.FirstSaved"/>),
-        /// otherwise the saved default as before.
+        /// The SmartLink account registration on this radio goes through
+        /// (#713): the account the CONNECT's plan uses for this radio
+        /// (<see cref="RadiosOwnAccount"/>: a held session that lists it, or a
+        /// sign-in as its chosen or last-seen saved account), otherwise the
+        /// saved default as before. One resolver for both (ruled by the
+        /// orchestrator on Codex F1, 2026-11-06, under #713's principle that
+        /// registration asks the radio's own account exactly as connect does):
+        /// a live account nobody saved, which the connect uses, is the one
+        /// registration names too.
         /// </summary>
         /// <remarks>
         /// <para><b>Routing, not permission.</b> This answers which account to
@@ -223,17 +227,25 @@ namespace Radios
         internal SmartLinkAccount ResolveRegistrationAccount(string serial, IReadOnlyList<SmartLinkAccount> savedAccounts = null)
         {
             var saved = (savedAccounts ?? AccountManager.Accounts).Where(a => a != null).ToList();
-            // One reading, and the connect's own tier walk over it: the live
-            // account, then the chosen, then the last-seen, the first that is
-            // saved (integration pass, finding 5). Taking only the top tier
-            // and dropping to the default when it was unsaved let one radio
-            // connect as one account and register to another.
+            // One reading, and the connect's own plan over it (integration
+            // pass, finding 5; Codex F1): the account a connect to this radio
+            // would use is the account registration names.
             var picture = TakeAccountPictureFor(serial, saved: saved.Select(a => a.Email));
-            string email = picture.FirstSaved(picture.LiveAccount, picture.Preferred, picture.LastSeen);
-            var own = saved.FirstOrDefault(a => string.Equals(a.Email, email, StringComparison.OrdinalIgnoreCase));
-            if (own != null)
+            string email = RadiosOwnAccount(PlanSmartLinkSignIn(picture));
+            if (email.Length > 0)
             {
-                Tracing.TraceLine($"ResolveRegistrationAccount: {serial} goes through its own account '{own.Email}' (route {picture.Route})", TraceLevel.Info);
+                // A saved account carries its own tokens. A live account
+                // nobody saved is the session's: this rig's own when it is the
+                // one signed in here (a sign-in with Remember unchecked keeps
+                // its tokens there), otherwise named only, so the send asks
+                // that account to sign in rather than using another's token.
+                var own = saved.FirstOrDefault(a => string.Equals(a.Email, email, StringComparison.OrdinalIgnoreCase))
+                    ?? (_currentAccount != null && string.Equals(_currentAccount.Email, email, StringComparison.OrdinalIgnoreCase)
+                        ? _currentAccount
+                        : new SmartLinkAccount { Email = email, FriendlyName = email });
+                Tracing.TraceLine(
+                    $"ResolveRegistrationAccount: {serial} goes through its own account '{own.Email}' (route {picture.Route}, {(picture.IsSaved(email) ? "saved" : "live, session-only")})",
+                    TraceLevel.Info);
                 return own;
             }
             Tracing.TraceLine(

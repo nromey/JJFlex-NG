@@ -2525,10 +2525,27 @@ namespace Radios
         /// <see cref="AccountThatWillBroker"/>, which answers from this same
         /// decision — the words and the wire cannot diverge again.</para>
         /// </summary>
-        private static Radios.SmartLink.IWanSessionOwner ResolveBrokeringSession(string serial, out bool viaOwningAccount)
+        private static Radios.SmartLink.IWanSessionOwner ResolveBrokeringSession(string serial, out bool viaOwningAccount,
+            string plannedAccount = null)
         {
             viaOwningAccount = false;
             var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
+
+            // The account this connect's plan chose and named comes first
+            // (Codex B1 on the 2026-11-06 integration pass). The serial-keyed
+            // bank below is written by whichever held list was replayed LAST,
+            // so on a radio two held accounts list, the plan announced one
+            // account and the wire went through the other.
+            if (!string.IsNullOrEmpty(plannedAccount))
+            {
+                var planned = Radios.SmartLink.SmartLinkServices.Coordinator.GetSessionForAccount(plannedAccount);
+                if (planned != null && planned.IsConnected)
+                {
+                    viaOwningAccount = session == null
+                        || !string.Equals(session.AccountId, plannedAccount, StringComparison.OrdinalIgnoreCase);
+                    return planned;
+                }
+            }
 
             string owningAccount = GetWanAccountForSerial(serial);
             if (!string.IsNullOrEmpty(owningAccount)
@@ -2557,23 +2574,23 @@ namespace Radios
         {
             try
             {
-                // When the #798 plan will decide this connect, the account it
-                // uses is the one to name, from one reading (integration pass,
-                // finding 4; #401's class). With no session up yet, the bank
-                // below has nothing and the default was named while the plan
-                // signed in as the radio's own account.
-                if (ThePlanDecidesTheConnect(serial))
+                // The #798 plan decides every SmartLink connect now, the
+                // fast path included (Codex F2), so the account to name is
+                // the plan's, from one reading (integration pass, finding 4;
+                // #401's class), and the wire uses that same account (Codex
+                // B1).
+                var saved = savedAccounts ?? AccountManager.Accounts.Where(a => a != null).Select(a => a.Email);
+                string planned = RadiosOwnAccount(PlanSmartLinkSignIn(TakeAccountPictureFor(serial, saved: saved)));
+                if (planned.Length > 0) return planned;
+                // Nothing names the radio's account. With a session live the
+                // connect signs in to nothing and the wire resolves as it
+                // always did; name what it will resolve.
+                if (Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.IsConnected == true)
                 {
-                    var saved = savedAccounts ?? AccountManager.Accounts.Where(a => a != null).Select(a => a.Email);
-                    var plan = PlanSmartLinkSignIn(TakeAccountPictureFor(serial, saved: saved));
-                    if (plan.Kind == SmartLinkSignInPlanKind.UseHeldSession
-                        || plan.Kind == SmartLinkSignInPlanKind.SignInAsRadiosAccount)
-                        return plan.Account;
-                    return activeAccountEmail ?? "";
+                    var session = ResolveBrokeringSession(serial, out _);
+                    if (session != null && !string.IsNullOrEmpty(session.AccountId))
+                        return session.AccountId;
                 }
-                var session = ResolveBrokeringSession(serial, out _);
-                if (session != null && !string.IsNullOrEmpty(session.AccountId))
-                    return session.AccountId;
             }
             catch (Exception ex)
             {
@@ -2583,23 +2600,60 @@ namespace Radios
         }
 
         /// <summary>
-        /// Whether the #798 plan decides a SmartLink connect to
-        /// <paramref name="serial"/>: true unless the active session is live
-        /// AND its current list names the radio, which is the one state the
-        /// fast path (no preparation) is right for. Asked by
-        /// <see cref="ReconnectRemote"/> and by <see cref="AccountThatWillBroker"/>,
-        /// so the account named before a connect and the connect itself
-        /// take the same path (integration pass, findings 4 and 6).
+        /// Whether the active SmartLink session is live AND its current list
+        /// names <paramref name="serial"/>: the state the old fast path stood
+        /// on. It no longer decides anything (Codex F2 on the 2026-11-06
+        /// integration pass: the fast path skipped adopting the account and
+        /// the shared-radio tie-break, so it could reach a different account
+        /// than the plan). <see cref="ReconnectRemote"/> asks it only to say
+        /// in the trace which route the plan is taking.
         /// </summary>
-        internal static bool ThePlanDecidesTheConnect(string serial)
+        internal static bool TheActiveSessionListsTheRadio(string serial)
         {
             var active = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
-            if (active == null || !active.IsConnected) return true;
+            if (active == null || !active.IsConnected) return false;
             var s = active.RadioListSnapshot;
-            bool listsIt = s.SessionConnected && s.ArrivedOnTheLiveConnection
+            return s.SessionConnected && s.ArrivedOnTheLiveConnection
                 && s.Radios != null
                 && s.Radios.Any(r => r != null && string.Equals(r.Serial, serial, StringComparison.OrdinalIgnoreCase));
-            return !listsIt;
+        }
+
+        /// <summary>
+        /// THE answer to "which account is this radio's, for this connect":
+        /// the account a plan uses (its held session, or a sign-in as the
+        /// radio's own account), else empty. The connect's preparation acts on
+        /// it, the announcement names it, the wire resolves through it, and
+        /// registration registers to it (Codex B1, F1 and F2 on the
+        /// 2026-11-06 integration pass): one decision, every consumer.
+        /// </summary>
+        internal static string RadiosOwnAccount(SmartLinkSignInPlan plan)
+            => plan.Kind == SmartLinkSignInPlanKind.UseHeldSession
+               || plan.Kind == SmartLinkSignInPlanKind.SignInAsRadiosAccount
+                ? plan.Account ?? ""
+                : "";
+
+        /// <summary>
+        /// The account this rig's plan chose for a connect to a serial, kept
+        /// so the dial goes through the account the plan named (Codex B1).
+        /// Set by <see cref="PrepareSmartLinkForSerial"/>; read by
+        /// <see cref="BrokeringSessionForConnect"/>, and only for the same
+        /// serial, so a later connect to another radio never inherits it.
+        /// </summary>
+        private (string Serial, string Account) _connectPlanAccount;
+
+        /// <summary>
+        /// The session the dial to <paramref name="serial"/> goes through:
+        /// this rig's plan's account when it chose one for this serial, else
+        /// the long-standing resolution (the owning account's live session,
+        /// then the active one).
+        /// </summary>
+        internal Radios.SmartLink.IWanSessionOwner BrokeringSessionForConnect(string serial, out bool viaOwningAccount)
+        {
+            var planned = _connectPlanAccount;
+            string account = planned.Account != null
+                && string.Equals(planned.Serial, serial, StringComparison.OrdinalIgnoreCase)
+                ? planned.Account : null;
+            return ResolveBrokeringSession(serial, out viaOwningAccount, account);
         }
 
         /// <summary>What a SmartLink connect to one serial should do about signing in.</summary>
@@ -2885,6 +2939,12 @@ namespace Radios
             }
             Tracing.TraceLine($"PrepareSmartLinkForSerial: {serial} route={picture.Route} plan={plan} steady={steady}{at()}", TraceLevel.Info);
 
+            // The dial goes through the account this plan names, never
+            // through whichever held list the replay below wrote last (Codex
+            // B1). Empty when the plan names none, and the resolution is then
+            // the long-standing one.
+            _connectPlanAccount = (serial, RadiosOwnAccount(plan));
+
             switch (plan.Kind)
             {
                 case SmartLinkSignInPlanKind.UseHeldSession:
@@ -2980,7 +3040,7 @@ namespace Radios
                 { "serial", r.Serial }
             });
 
-            var session = ResolveBrokeringSession(r.Serial, out bool viaOwningAccount);
+            var session = BrokeringSessionForConnect(r.Serial, out bool viaOwningAccount);
             if (viaOwningAccount)
             {
                 Tracing.TraceLine(
