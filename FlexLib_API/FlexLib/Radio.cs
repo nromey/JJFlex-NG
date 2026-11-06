@@ -1256,7 +1256,7 @@ namespace Flex.Smoothlake.FlexLib
             {
                 // JJFlex patch: the flag changes under the identity gate, so a
                 // list copy's connection check and its writes are one step
-                // against it (MIGRATION.md item 23).
+                // against it (MIGRATION.md item 24).
                 bool changed;
                 lock (_identityGate)
                 {
@@ -4208,7 +4208,7 @@ namespace Flex.Smoothlake.FlexLib
 
                         case "callsign":
                             {
-                                // JJFlex patch: under the identity gate (MIGRATION.md item 23).
+                                // JJFlex patch: under the identity gate (MIGRATION.md item 24).
                                 lock (_identityGate) _callsign = value;
                                 RaisePropertyChanged("Callsign");
                             }
@@ -4363,7 +4363,7 @@ namespace Flex.Smoothlake.FlexLib
 
                         case "nickname":
                             {
-                                // JJFlex patch: under the identity gate (MIGRATION.md item 23).
+                                // JJFlex patch: under the identity gate (MIGRATION.md item 24).
                                 lock (_identityGate) _nickname = value;
                                 RaisePropertyChanged("Nickname");
                             }
@@ -7525,7 +7525,7 @@ namespace Flex.Smoothlake.FlexLib
 
                     case "callsign":
                         {
-                            // JJFlex patch: under the identity gate (MIGRATION.md item 23).
+                            // JJFlex patch: under the identity gate (MIGRATION.md item 24).
                             lock (_identityGate) _callsign = value;
                             RaisePropertyChanged("Callsign");
                         }
@@ -7539,7 +7539,7 @@ namespace Flex.Smoothlake.FlexLib
 
                     case "name":
                         {
-                            // JJFlex patch: under the identity gate (MIGRATION.md item 23).
+                            // JJFlex patch: under the identity gate (MIGRATION.md item 24).
                             lock (_identityGate) _nickname = value;
                             RaisePropertyChanged("Nickname");
                         }
@@ -7686,7 +7686,7 @@ namespace Flex.Smoothlake.FlexLib
             {
                 string new_value = StringHelper.Sanitize(value.ToUpper());
 
-                // JJFlex patch (MIGRATION.md item 23): the check and the cache
+                // JJFlex patch (MIGRATION.md item 24): the check and the cache
                 // write take the identity gate, and the command is built from
                 // new_value, never by reading _callsign again, which a report
                 // on the reader thread can change in between. Nothing is sent
@@ -7724,7 +7724,7 @@ namespace Flex.Smoothlake.FlexLib
             {
                 string new_value = StringHelper.Sanitize(value);
 
-                // JJFlex patch (MIGRATION.md item 23): as Callsign above, the
+                // JJFlex patch (MIGRATION.md item 24): as Callsign above, the
                 // command carries new_value, not a second read of _nickname.
                 bool changed;
                 lock (_identityGate)
@@ -7746,7 +7746,7 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
-        // JJFlex patch: identity from a radio LIST, never a command (MIGRATION.md item 23).
+        // JJFlex patch: identity from a radio LIST, never a command (MIGRATION.md item 24).
         // The Nickname and Callsign setters above send "radio name" and "radio callsign",
         // and the radio keeps both in its firmware. A client merging a radio list (a
         // SmartLink list is a lagging copy of what the radio says about itself) must
@@ -7795,13 +7795,13 @@ namespace Flex.Smoothlake.FlexLib
             if (callsignChanged) RaisePropertyChanged(nameof(Callsign));
         }
 
-        // JJFlex patch: guards the radio's identity fields (MIGRATION.md item 23).
+        // JJFlex patch: guards the radio's identity fields (MIGRATION.md item 24).
         // Taken by every writer: the list copy, the radio's own reports (status and
         // info), the Connected flag, and the two sending setters. Only field reads
         // and writes happen under it; nothing is sent or raised while it is held.
         private readonly object _identityGate = new object();
 
-        // JJFlex patch (MIGRATION.md item 23): a test seam, null in the product.
+        // JJFlex patch (MIGRATION.md item 24): a test seam, null in the product.
         // Invoked by the Callsign and Nickname setters after the gated cache write
         // and before the command is built, which is exactly where a report on the
         // reader thread could land; the tests land one there.

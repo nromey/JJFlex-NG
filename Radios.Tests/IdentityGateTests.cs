@@ -14,7 +14,7 @@ namespace Radios.Tests
 {
     /// <summary>
     /// The radio's identity fields and the gate that guards them (#477,
-    /// MIGRATION.md item 23), repair round 3. Two things are held here:
+    /// MIGRATION.md item 24), repair round 3. Two things are held here:
     /// a callsign or name the operator types is the one put on the wire,
     /// whatever the radio reports meanwhile (Codex B3); and every writer of
     /// those fields waits for the gate, pinned by behaviour and at the source
@@ -220,6 +220,13 @@ namespace Radios.Tests
                 Assert.True(raised < 0 || raised > lockAt + gated.Length,
                     site + " raises a notification before its gated write is complete.");
             }
+
+            // This patch is MIGRATION.md item 24 (the 2026-11-02 batch owns 21
+            // to 23 and pins its 23); every gated site cites that number.
+            string migration = File.ReadAllText(Path.Combine(DiscoveryMergeWritesTests.RepoRoot(), "MIGRATION.md"));
+            Assert.Contains("24. **Identity from a radio list, never a command", migration, StringComparison.Ordinal);
+            Assert.DoesNotContain("23. **Identity from a radio list", migration, StringComparison.Ordinal);
+            Assert.Equal(0, System.Text.RegularExpressions.Regex.Matches(radio, @"identity[^\n]*MIGRATION\.md item 23").Count);
 
             // The setters build their command from the value they were given,
             // never from the field a report can change underneath them.

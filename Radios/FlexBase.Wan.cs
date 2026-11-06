@@ -935,7 +935,7 @@ namespace Radios
             // - Not connected, the list is the only source for the picker's
             //   row, so the copy is applied through UpdateIdentityFromList, a
             //   FlexLib patch that updates the record and sends nothing
-            //   (MIGRATION.md item 23).
+            //   (MIGRATION.md item 24).
             // Not an ownership check: no radio, ours or anyone's, is ever told
             // its name by a list.
             if (!oldRadio.Connected)

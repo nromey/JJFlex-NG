@@ -142,7 +142,7 @@ public class API
             LogDiscovery(
                 $"3 API::Discovery_RadioDiscovered({discoveredRadio}) - newer protocol, updating radio info");
             radio.DiscoveryProtocolVersion = discoveredRadio.DiscoveryProtocolVersion;
-            // JJFlex patch: identity from discovery, never a command (MIGRATION.md item 23).
+            // JJFlex patch: identity from discovery, never a command (MIGRATION.md item 24).
             // The Callsign and Nickname setters send "radio callsign" / "radio name",
             // which the radio keeps in firmware; this radio object may be the live one.
             if (!radio.Connected)
@@ -182,7 +182,7 @@ public class API
         radio.MaxLicensedVersion = discoveredRadio.MaxLicensedVersion;
         radio.FrontPanelMacAddress = discoveredRadio.FrontPanelMacAddress;
         radio.RadioLicenseId = discoveredRadio.RadioLicenseId;
-        // JJFlex patch: identity from discovery, never a command (MIGRATION.md item 23).
+        // JJFlex patch: identity from discovery, never a command (MIGRATION.md item 24).
         // This refresh runs on every discovery packet for a radio already in the
         // list, which is the object a LAN connect adopts, and the setters send
         // "radio callsign" / "radio name" whenever the transport is up: a packet

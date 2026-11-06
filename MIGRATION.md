@@ -188,7 +188,7 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     without enabling telnet tracing. Remove this patch if a later FlexLib release
     exposes the same radio-reported field.
 
-23. **Identity from a radio list, never a command (2026-11-06)**: keep the
+24. **Identity from a radio list, never a command (2026-11-06)**: keep the
     comment-marked JJFlex patch in `FlexLib_API/FlexLib/Radio.cs`, the public
     `UpdateIdentityFromList(nickname, callsign)` beside the `Nickname` setter.
     The stock `Nickname` and `Callsign` setters send `radio name` and
@@ -229,11 +229,12 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     in `UpdateInfo`, the `Connected` setter, and both setters. Pinned by
     `Radios.Tests/DiscoveryMergeWritesTests` and `Radios.Tests/IdentityGateTests`
     (a contention row per site, the wire argument under a landed report, and a
-    source pin that nothing is raised or sent inside the gate). Numbered 23 because items 21 and
-    22 are taken on branches not yet merged (the 2026-11-02 junk box's write-time
-    gate and forced writes, and the r5-tuning branch's own 22); renumber at merge
-    if those land differently. Keep it until a FlexLib release offers a
-    non-sending way to update a radio's identity.
+    source pin that nothing is raised or sent inside the gate). Numbered 24
+    because the 2026-11-02 junk box carries items 21 (the write-time gate), 22
+    (forced writes) and 23 (slice frequency report arrival), and its tests pin
+    its 23 literally; this entry and every comment citing it were renumbered
+    from 23 before the two batches merged. Keep it until a FlexLib release
+    offers a non-sending way to update a radio's identity.
 
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 

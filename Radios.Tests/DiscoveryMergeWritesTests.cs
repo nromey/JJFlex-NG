@@ -328,7 +328,7 @@ namespace Radios.Tests
             Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(dialog, @"_callbacks\.Set(Callsign|Nickname)\b").Count);
         }
 
-        /// <summary>The FlexLib patch that makes the update silent, pinned at its source (MIGRATION.md item 23).</summary>
+        /// <summary>The FlexLib patch that makes the update silent, pinned at its source (MIGRATION.md item 24).</summary>
         [Fact]
         public void The_flexlib_identity_update_is_marked_and_sends_nothing()
         {
