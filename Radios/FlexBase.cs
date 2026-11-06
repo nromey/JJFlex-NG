@@ -5539,6 +5539,9 @@ namespace Radios
                     case "Freq":
                         {
                             Tracing.TraceLine("Freq:slice " + s.Index.ToString() + " " + s.Freq.ToString(), TraceLevel.Verbose);
+                            // A spoken correction about this slice is false once it
+                            // reads another number (round three, Codex's B1).
+                            RetireCorrectionIfNoLongerTrue(s, null);
                             ulong echoed = LibFreqtoLong(s.Freq);
                             // This slice's own guard, asked ONCE for both
                             // caches (repair round 3): one slice, one answer.
@@ -6539,6 +6542,8 @@ namespace Radios
         /// </remarks>
         private void dropTransmitWithConnection(Action<string, TraceLevel> trace)
         {
+            // A tuning correction is about this connection (round three, Codex's B1).
+            RetireTuneCorrection("the connection fell");
             bool wasKeyed = _Transmit;
             bool deliberate = Disconnecting || Volatile.Read(ref _selfDisconnects) > 0;
             // The fall's own line, so bound to the fall's session like the rest.
@@ -6840,6 +6845,7 @@ namespace Radios
         {
             if (myClient(slc.ClientHandle))
             {
+                RetireCorrectionIfNoLongerTrue(slc, "the slice was removed");
                 int ct;
                 if (mySlices != null)
                 {

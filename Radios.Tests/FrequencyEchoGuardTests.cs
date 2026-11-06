@@ -365,8 +365,10 @@ namespace Radios.Tests
             Assert.True(text.Contains("reply => TuneReplied(slice, id, hz, reply)", StringComparison.Ordinal),
                 "the tune's reply no longer carries its request (repair round 5).");
             Assert.True(text.Contains("guard.Acknowledged(id);", StringComparison.Ordinal)
-                        && text.Contains("if (guard.NewestReply(id)) slice.AcceptTuneReply(LongFreqToLibFreq(requestedHz));", StringComparison.Ordinal)
-                        && text.Contains("if (guard.Refused(id, \"the radio answered \" + reply))", StringComparison.Ordinal),
+                        && text.Contains("if (guard.NewestReply(id)) PublishReply(slice, LongFreqToLibFreq(requestedHz));", StringComparison.Ordinal)
+                        && text.Contains("bool closed = guard.Refused(id, \"the radio answered \" + reply);", StringComparison.Ordinal)
+                        && text.Contains("if (TryKeptFrequency(reply.Text, out double keptMhz) && guard.NewestReply(id))", StringComparison.Ordinal)
+                        && text.Contains("try { slice.AcceptTuneReply(mhz); }", StringComparison.Ordinal),
                 "the tune's reply is no longer its receipt (round two of the rulings round, the 8600 bench).");
             Assert.True(text.Contains("== FrequencyEchoGuard.Reading.Pending\r\n                ? pending : LibFreqtoLong(slice.Freq);", StringComparison.Ordinal)
                         || text.Contains("== FrequencyEchoGuard.Reading.Pending\n                ? pending : LibFreqtoLong(slice.Freq);", StringComparison.Ordinal),

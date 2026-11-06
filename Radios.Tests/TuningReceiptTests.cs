@@ -2102,5 +2102,105 @@ namespace Radios.Tests
             b.Rig.RXVFO = 1;                                 // the selection moves
             Assert.Equal(2, (int)retired.GetValue(b.Rig)!);
         }
+    
+
+        // ── Round three (Codex's re-check of 236bb7f0) ──
+
+        private static int Retired(Bench b) =>
+            (int)typeof(FlexBase).GetField("TuneCorrectionsRetired", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)!.GetValue(b.Rig)!;
+
+        [Fact]
+        public void A_correction_not_yet_heard_is_retired_when_another_client_moves_the_slice()
+        {
+            // Codex's B1, tuning-outside-queue: refused, the correction queued,
+            // then another client's 14.200 arrives; the old 14.100.000 was
+            // salvaged after the slice had moved.
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            RejectTune(b, 0, "");
+            Assert.Equal(Bare(14_100_000), Said(b));
+            Reports(a, 14.100000);                           // the same number again: still true, kept
+            Assert.Equal(0, Retired(b));
+            Reports(a, 14.200000);                           // another client moves it
+            Assert.Equal(1, Retired(b));
+        }
+
+        [Fact]
+        public void A_correction_not_yet_heard_is_retired_when_the_connection_falls_or_the_slice_goes()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            RejectTune(b, 0, "");
+            typeof(FlexBase).GetMethod("dropTransmitWithConnection", Private)!
+                .Invoke(b.Rig, new object[] { (Action<string, System.Diagnostics.TraceLevel>)((_, _) => { }) });
+            Assert.Equal(1, Retired(b));
+
+            b.Rig.RXFrequency = 14_100_200;
+            Drain(b.Rig);
+            RejectTune(b, 1, "");
+            Assert.Equal(2, Corrections(b));
+            typeof(FlexBase).GetMethod("sliceRemoved", Private)!
+                .Invoke(b.Rig, new object[] { a, new ObservationBinding(new object(), new ConnectionAttempt("test-serial")) });
+            Assert.Equal(2, Retired(b));
+        }
+
+        [Fact]
+        public void A_refused_tune_whose_reply_names_the_frequency_kept_reads_and_says_that_frequency()
+        {
+            // Codex's B2, clamped-refusal: a non-zero reply whose body is the
+            // frequency the radio kept, as the vendor's own SetFreqReply reads it.
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            RejectTune(b, 0, "14.100050");
+            EveryReaderSays(b.Rig, 14_100_050);
+            Assert.Equal(14.100050, a.Freq, 6);
+            Assert.Equal(Bare(14_100_050), Said(b));
+        }
+
+        [Fact]
+        public void A_refusal_with_a_body_that_is_not_a_number_reads_where_the_radio_last_was()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            RejectTune(b, 0, "Invalid frequency");
+            EveryReaderSays(b.Rig, 14_100_000);
+            Assert.Equal(Bare(14_100_000), Said(b));
+        }
+
+        [Fact]
+        public void A_late_refusal_after_a_give_up_names_the_frequency_kept()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            long now = 0;
+            Clock(b.Rig, a, () => now);
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            now = FrequencyEchoGuard.GiveUpMs;
+            Drain(b.Rig);
+            RejectTune(b, 0, "14.100050");
+            EveryReaderSays(b.Rig, 14_100_050);
+            Assert.Equal(Bare(14_100_050), Said(b));
+        }
+
+        [Fact]
+        public void An_older_refusals_kept_frequency_does_not_set_back_a_newer_answer()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.RXFrequency = 14_100_100; Drain(b.Rig);
+            b.Rig.RXFrequency = 14_100_200; Drain(b.Rig);
+            RadioAnswersOnly(b, 1);
+            RejectTune(b, 0, "14.100000");                   // out of order: older than the settled one
+            EveryReaderSays(b.Rig, 14_100_200);
+        }
     }
 }

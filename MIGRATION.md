@@ -368,9 +368,17 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     just above `_freq`.
     - **What it is.** It puts the value a tune asked for into FlexLib's slice
       frequency cache and raises the `Freq` notification when the value changes.
-      The app calls it from the success reply of its own `slice tune` command
-      (`FlexBase.TuneReplied`), which runs on the reader in order with the radio's
-      statuses, so a status the radio sends after the reply still overwrites it.
+      The app calls it from BOTH replies to its own `slice tune` command
+      (`FlexBase.TuneReplied`, through `PublishReply`), which run on the reader in
+      order with the radio's statuses, so a status the radio sends after the reply
+      still overwrites it:
+      - a success reply: the value the command asked for;
+      - a refusal (non-zero) whose body is a number: that number, the frequency
+        the radio KEPT, read as the vendor's own `Slice.SetFreqReply` reads it
+        (added 2026-11-06, Codex's B2). A non-numeric body leaves the cache as the
+        radio last answered or reported.
+      Either is published only when its reply is newer than every reply already
+      published for that slice (`FrequencyEchoGuard.NewestReply`).
     - **Why.** Measured on a FLEX-8600 on 2026-11-06 (bench report
       `2026-11-06-junkbox-1102-bench-report.md`, Fail 1): the radio sends a slice's
       new `rf_frequency` to every OTHER client and none to the client that tuned

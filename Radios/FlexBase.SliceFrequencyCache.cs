@@ -461,11 +461,50 @@ namespace Radios
                 // reader, in order with the radio's statuses, so one sent after
                 // this reply still wins.
                 guard.Acknowledged(id);
-                if (guard.NewestReply(id)) slice.AcceptTuneReply(LongFreqToLibFreq(requestedHz));
+                if (guard.NewestReply(id)) PublishReply(slice, LongFreqToLibFreq(requestedHz));
                 return;
             }
             Tracing.TraceLine("tune reply: slice " + slice.Letter + " " + reply, System.Diagnostics.TraceLevel.Info);
-            if (guard.Refused(id, "the radio answered " + reply)) Reconcile(slice, requestedHz, "refused: " + reply);
+            bool closed = guard.Refused(id, "the radio answered " + reply);
+            // A refusal's numeric body is the frequency the radio KEPT (round
+            // three, Codex's B2; the vendor's own SetFreqReply reads it the same
+            // way, and CommandReply.Text says so). Published with the same order
+            // discipline as a success: only a reply newer than every one already
+            // put into FlexLib's cache. A non-numeric body leaves the cache as the
+            // radio last answered or reported.
+            if (TryKeptFrequency(reply.Text, out double keptMhz) && guard.NewestReply(id))
+                PublishReply(slice, keptMhz);
+            if (closed) Reconcile(slice, requestedHz, "refused: " + reply);
+        }
+
+        /// <summary>
+        /// A reply's frequency into FlexLib's cache (MIGRATION.md item 26). Its
+        /// Freq notification runs our handlers; one that throws must not stop the
+        /// refusal's reconcile and its correction behind it.
+        /// </summary>
+        private void PublishReply(Slice slice, double mhz)
+        {
+            try { slice.AcceptTuneReply(mhz); }
+            catch (System.Exception ex)
+            {
+                Tracing.TraceLine("tune reply: slice " + slice.Letter + ": publishing " + mhz + " threw: " + ex.Message,
+                    System.Diagnostics.TraceLevel.Warning);
+            }
+        }
+
+        /// <summary>
+        /// The frequency a refused tune's reply says the radio kept, in MHz, when
+        /// its body is a number (round three, Codex's B2). False for an empty or
+        /// non-numeric body, or one that is not a plausible frequency.
+        /// </summary>
+        internal static bool TryKeptFrequency(string text, out double mhz)
+        {
+            mhz = 0;
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            if (!Flex.Util.StringHelper.TryParseDouble(text.Trim(), out double v)) return false;
+            if (double.IsNaN(v) || v <= 0 || v > 100_000) return false;
+            mhz = v;
+            return true;
         }
 
         /// <summary>
@@ -536,11 +575,35 @@ namespace Radios
         /// <summary>How many corrections have been handed to speech. For tests.</summary>
         internal int TuneCorrections;
 
-        /// <summary>A correction was handed to speech and has not been retired since.</summary>
-        private int _tuneCorrectionLive;
+        /// <summary>What a live correction said, and about which slice (round three, Codex's B1).</summary>
+        private sealed class SpokenCorrection
+        {
+            public SpokenCorrection(Slice slice, ulong hz) { Slice = slice; Hz = hz; }
+            public Slice Slice { get; }
+            public ulong Hz { get; }
+        }
+
+        /// <summary>The correction handed to speech and not retired since; null when none.</summary>
+        private SpokenCorrection _liveCorrection;
 
         /// <summary>How many times a spoken correction has been retired. For tests.</summary>
         internal int TuneCorrectionsRetired;
+
+        /// <summary>
+        /// The fact a live correction states has changed (round three, Codex's
+        /// B1): its slice now reads another number (another client, the knob, a
+        /// later answer), or the slice is gone. An unheard copy is then false,
+        /// and is retired so no interrupt salvages it. Cheap when none is live.
+        /// </summary>
+        private void RetireCorrectionIfNoLongerTrue(Slice slice, string why)
+        {
+            var live = System.Threading.Volatile.Read(ref _liveCorrection);
+            if (live == null || !ReferenceEquals(live.Slice, slice)) return;
+            bool stillTrue;
+            try { stillTrue = why == null && LibFreqtoLong(slice.Freq) == live.Hz; }
+            catch { stillTrue = false; }
+            if (!stillTrue) RetireTuneCorrection(why ?? "the slice's frequency moved");
+        }
 
         /// <summary>
         /// A spoken correction is about one slice, one request and one
@@ -553,7 +616,7 @@ namespace Radios
         /// </summary>
         internal void RetireTuneCorrection(string by)
         {
-            if (System.Threading.Interlocked.Exchange(ref _tuneCorrectionLive, 0) == 0) return;
+            if (System.Threading.Interlocked.Exchange(ref _liveCorrection, null) == null) return;
             System.Threading.Interlocked.Increment(ref TuneCorrectionsRetired);
             try { ScreenReaderOutput.Supersede(Speech.SpeechSubject.TuneEndedElsewhere, by); }
             catch (System.Exception ex)
@@ -601,7 +664,7 @@ namespace Radios
                 string text = Lexicon.Get("connect.home.frequency_ended_on", ("freqText", number));
                 LastTuneCorrection = text;
                 System.Threading.Interlocked.Increment(ref TuneCorrections);
-                System.Threading.Interlocked.Exchange(ref _tuneCorrectionLive, 1);
+                System.Threading.Interlocked.Exchange(ref _liveCorrection, new SpokenCorrection(slice, endedHz));
                 Tracing.TraceLine(head + "spoken: " + text, System.Diagnostics.TraceLevel.Info);
                 if (!SuppressSpeech)
                     ScreenReaderOutput.Speak(text, Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
