@@ -99,6 +99,10 @@ public sealed class UnifiedTakesReferenceEndTests
         Assert.Contains("_session.StopCheck();", check);
         Assert.DoesNotContain("ForceEnd", check);
         Assert.DoesNotContain("EscapeUnlock", check);
+        // Round five repair 2 (7i-1): a check asks the same plan as the app's
+        // key, and the plan is asked in one place, before either branch.
+        Assert.Contains("if (stillTheReferences)", check);
+        Assert.Equal(1, Regex.Matches(end, @"\.StillCurrent\(").Count);
         // Stop unkeys only while keyed; the check's later phases are not the reference's to end.
         Assert.Contains("internal bool Keyed => Active && _phase == Phase.Keyed;",
             Dialog("CheckYourAudioDialog.ReferenceEnd.cs"));

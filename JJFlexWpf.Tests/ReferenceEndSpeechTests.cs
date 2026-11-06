@@ -237,14 +237,14 @@ public sealed class ReferenceEndSpeechTests : IDisposable
     }
 
     /// <summary>The production tail, <c>EndTransmissionAfterReferenceTail</c>, started as the poll starts it, its continuation held.</summary>
-    private HeldContinuations StartTheRealTail()
+    private HeldContinuations StartTheRealTail(Holder holder = Holder.App)
     {
         var tail = typeof(CheckYourAudioDialog).GetMethod("EndTransmissionAfterReferenceTail", Any);
         Assert.True(tail != null, "production entry CheckYourAudioDialog.EndTransmissionAfterReferenceTail is missing");
         var held = new HeldContinuations();
         var prior = SynchronizationContext.Current;
         SynchronizationContext.SetSynchronizationContext(held);
-        try { tail!.Invoke(_dialog, new object[] { _rig, Holder.App }); }
+        try { tail!.Invoke(_dialog, new object[] { _rig, holder }); }
         finally { SynchronizationContext.SetSynchronizationContext(prior); }
         return held;
     }
@@ -349,6 +349,122 @@ public sealed class ReferenceEndSpeechTests : IDisposable
             Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);   // the mutation: drop the connection from the plan
         }
         finally { binding.SetValue(_rig, before); }
+    }
+
+    // ── a check-owned tail, bound to its transmission (round five repair 2, 7i-1) ──
+    //
+    // The session cannot be started here: StartAsync counts down, arms a
+    // recorder and writes power, all against a connected radio. So it is the
+    // production object, uninitialized, given the fields its keyed state has
+    // after StartAsync (Codex's created state), and keyed through the
+    // controller's own KeyForCheck, as StartAsync keys it.
+
+    private static readonly Type SessionType =
+        typeof(CheckYourAudioDialog).GetNestedType("AudioCheckSession", BindingFlags.NonPublic)
+        ?? throw new InvalidOperationException("production type CheckYourAudioDialog.AudioCheckSession is missing");
+
+    private static FieldInfo SessionField(string name)
+    {
+        var f = SessionType.GetField(name, Any);
+        Assert.True(f != null, "production field AudioCheckSession." + name + " is missing");
+        return f!;
+    }
+
+    private static bool SessionKeyed(object session) =>
+        (bool)SessionType.GetProperty("Keyed", Any)!.GetValue(session)!;
+
+    /// <summary>A Monitor check, keyed as StartAsync keys it, as this window's session.</summary>
+    private object TheCheckKeys()
+    {
+        var session = RuntimeHelpers.GetUninitializedObject(SessionType);
+        SessionField("_owner").SetValue(session, _dialog);
+        SessionField("_ptt").SetValue(session, _controller);
+        SessionField("_changedRig").SetValue(session, _rig);
+        SessionField("_method").SetValue(session, AudioCheckListenMethods.Monitor);
+        SessionField("_restores").SetValue(session, Activator.CreateInstance(SessionField("_restores").FieldType));
+        SessionField("_keyedAt").SetValue(session, DateTime.UtcNow);
+        Field("_checkStarts").SetValue(_dialog, new AudioCheckStartGate());
+        _controller.AudioCheckNarration = true;
+        _controller.KeyForCheck();
+        Assert.True(_controller.IsTransmitting, "positive control: the check keyed");
+        SessionField("_phase").SetValue(session, Enum.Parse(SessionField("_phase").FieldType, "Keyed"));
+        SessionType.GetProperty("Active", Any)!.SetValue(session, true);
+        Field("_session").SetValue(_dialog, session);
+        Assert.True(SessionKeyed(session), "positive control: the session reads keyed");
+        return session;
+    }
+
+    /// <summary>The real system-wide lock key, as MainWindow handles it, on this controller.</summary>
+    private void TheLockKeyIsPressed()
+    {
+        var main = (MainWindow)RuntimeHelpers.GetUninitializedObject(typeof(MainWindow));
+        var ptt = typeof(MainWindow).GetField("_pttController", Any);
+        var powered = typeof(MainWindow).GetField("_radioPowerOn", Any);
+        var toggle = typeof(MainWindow).GetMethod("HandleSystemWideLockToggle", Any);
+        Assert.True(ptt != null && powered != null && toggle != null, "production MainWindow lock door is missing");
+        ptt!.SetValue(main, _controller);
+        powered!.SetValue(main, true);
+        toggle!.Invoke(main, null);
+    }
+
+    /// <summary>
+    /// Codex's round five repair B2, as a created state through the real
+    /// delayed continuation and the real system-wide lock door: a check-owned
+    /// reference ends, and inside the 300 ms tail the operator unlocks the
+    /// check's key and locks again. The session still reads Keyed, because
+    /// its watcher samples once a second. When the old tail comes due, the
+    /// new key must stay up, and the session must stop believing it is keyed.
+    /// </summary>
+    [Fact]
+    public void A_check_tail_leaves_a_key_the_operator_locked_inside_it_alone()
+    {
+        AssertTheDeskIsSafe();
+        try
+        {
+            var session = TheCheckKeys();
+            ReferencePassAtItsEnd();
+            _dialog.FinishReferencePass(_rig, Holder.Check, hardwareLine: false);
+            var held = StartTheRealTail(Holder.Check);
+
+            TheLockKeyIsPressed();                   // the operator unlocks the check's key...
+            TheLockKeyIsPressed();                   // ...and locks again: their own transmission
+            Assert.Equal(2, _controller.Keyings);
+            Assert.True(SessionKeyed(session), "positive control: the session has not seen the release");
+
+            TheTailComesDue(held);
+            Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);   // red at dc355793: the old tail's StopCheck ended it
+            Assert.False(SessionKeyed(session), "the session goes on believing the operator's key is its own");
+        }
+        finally
+        {
+            _controller.AudioCheckNarration = false;
+            Field("_session").SetValue(_dialog, null);
+        }
+    }
+
+    /// <summary>The control: the same check, nothing pressed inside the tail. The tail ends the check as Stop does.</summary>
+    [Fact]
+    public void A_check_tail_with_nothing_pressed_inside_it_still_stops_the_check()
+    {
+        AssertTheDeskIsSafe();
+        try
+        {
+            var session = TheCheckKeys();
+            ReferencePassAtItsEnd();
+            _dialog.FinishReferencePass(_rig, Holder.Check, hardwareLine: false);
+            var held = StartTheRealTail(Holder.Check);
+            Assert.True(_controller.IsTransmitting, "nothing ends before the tail comes due");
+
+            TheTailComesDue(held);
+            Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
+            Assert.Equal(1, _controller.Keyings);
+            Assert.False(SessionKeyed(session), "the check did not stop");
+        }
+        finally
+        {
+            _controller.AudioCheckNarration = false;
+            Field("_session").SetValue(_dialog, null);
+        }
     }
 
     // ── a window switching straight to another radio (round five repair, 7h-2) ──

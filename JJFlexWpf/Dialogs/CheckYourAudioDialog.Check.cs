@@ -1654,6 +1654,19 @@ public partial class CheckYourAudioDialog
         }
 
         /// <summary>
+        /// The check's own key has ended without the check ending it, and what
+        /// is on the air now, if anything, is not the check's: the watcher's
+        /// external unkey, and a reference's tail that found its plan stale
+        /// (round five repair 2, 7i-1). Restores come back at receive, and a
+        /// recording check stops its recorder and plays back, exactly as after
+        /// a timeout; nothing is unkeyed. Only while keyed; safe to call twice.
+        /// </summary>
+        internal void KeyEndedElsewhere()
+        {
+            if (Active && _phase == Phase.Keyed) HandleUnkey(external: true);
+        }
+
+        /// <summary>
         /// The unkey path every stop flows through: restores power and
         /// monitor, and hands recording checks to the auto-play flow. The
         /// verdict is the reading box's, which every method fills (13:50);
@@ -1731,7 +1744,7 @@ public partial class CheckYourAudioDialog
             // restore state and finish the flow.
             if (!_ptt.IsTransmitting)
             {
-                HandleUnkey(external: true);
+                KeyEndedElsewhere();
                 return;
             }
 

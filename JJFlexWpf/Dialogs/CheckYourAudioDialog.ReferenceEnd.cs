@@ -409,8 +409,9 @@ public partial class CheckYourAudioDialog
         // Which keying the reference rode (round five, 7c; repair 7h-1): an
         // operator who lets go and keys again inside the tail has started a
         // transmission of their own, and so has a controller built since; it
-        // is not the reference's to end, or to end quietly.
-        var keying = ReferenceKeying.Now(rig, PttControllerSource?.Invoke());
+        // is not the reference's to end, or to end quietly. Planned on the
+        // controller the holder's own route ends it through (repair 2, 7i-1).
+        var keying = ReferenceKeying.Now(rig, RouteController(holder));
         try { await Task.Delay(ReferenceEndTail); }
         catch (Exception) { return; }
         EndTransmissionForReference(rig, holder, session, keying);
@@ -420,7 +421,25 @@ public partial class CheckYourAudioDialog
     {
         /// <summary>True while the check is keyed: the one phase in which Stop unkeys it.</summary>
         internal bool Keyed => Active && _phase == Phase.Keyed;
+
+        /// <summary>The controller this check keyed through, and the one its stop unkeys.</summary>
+        internal PttSafetyController Controller => _ptt;
     }
+
+    /// <summary>
+    /// The controller <paramref name="holder"/>'s own route ends the
+    /// transmission through: a check's stop unkeys the session's controller,
+    /// the app's unkey MainWindow's (the same field <c>PttControllerSource</c>
+    /// returns). Asked when the tail is planned and again when it acts, so the
+    /// plan is compared against the controller that would actually let go
+    /// (round five repair 2, 7i-1).
+    /// </summary>
+    private PttSafetyController? RouteController(ReferenceEndHolder holder) => holder switch
+    {
+        ReferenceEndHolder.Check => _session?.Controller,
+        ReferenceEndHolder.App => PttControllerSource?.Invoke(),
+        _ => null,
+    };
 
     /// <summary>
     /// End the transmission a finished reference rode, by its holder's own
@@ -440,6 +459,16 @@ public partial class CheckYourAudioDialog
     /// same connection. A check still asks for this window's radio and
     /// session; a switch has ended that session already.
     /// </para>
+    /// <para>
+    /// <b>A check asks the same plan</b> (round five repair 2, 7i-1). Until
+    /// then only the app's key did: a check's tail asked whether the session
+    /// still read Keyed, and that is bookkeeping its one-second watcher
+    /// samples. So an operator who let go of the check's lock and locked again
+    /// inside the 300 ms tail had the new transmission ended by the old tail's
+    /// stop (Codex, round five repair B2). Now a stale plan stops nothing: the
+    /// session is told its key ended elsewhere, exactly as its watcher would
+    /// have found, and the operator's new key stays up.
+    /// </para>
     /// <para>With no plan given (a test), the plan is made now.</para>
     /// </remarks>
     internal ReferenceEndHolder EndTransmissionForReference(FlexBase rig, ReferenceEndHolder planned, object? plannedSession,
@@ -447,18 +476,29 @@ public partial class CheckYourAudioDialog
     {
         var now = ReferenceHolderNow(rig);
         if (now != planned) return ReferenceEndHolder.Nobody;
+        // The one question, for either holder: is the transmission on the air
+        // still the one the reference rode? A transmission begun since the end
+        // is the operator's own (7c), and so is one on a controller or a
+        // connection built since (7h-1); for a check as for the app's key
+        // (repair 2, 7i-1). Asked of the controller the holder's route would
+        // unkey.
+        var route = RouteController(now);
+        bool stillTheReferences = (plannedKeying ?? ReferenceKeying.Now(rig, route)).StillCurrent(rig, route);
         switch (now)
         {
             case ReferenceEndHolder.Check when ReferenceEquals(rig, _rig) && ReferenceEquals(_session, plannedSession) && _session != null:
-                // Exactly what the Stop button does while keyed (ToggleAudioCheck).
-                _session.StopCheck();
-                return ReferenceEndHolder.Check;
+                if (stillTheReferences)
+                    // Exactly what the Stop button does while keyed (ToggleAudioCheck).
+                    _session.StopCheck();
+                else
+                    // The check's own key has ended already, and what is on the
+                    // air now is not the check's to end (repair 2, 7i-1). The
+                    // session is told, so it stops believing it is keyed; nothing
+                    // is unkeyed.
+                    _session.KeyEndedElsewhere();
+                return stillTheReferences ? ReferenceEndHolder.Check : ReferenceEndHolder.Nobody;
             case ReferenceEndHolder.App:
-                var ptt = PttControllerSource?.Invoke();
-                // A transmission begun since the end is the operator's own (7c),
-                // and so is one on a controller or a connection built since (7h-1).
-                if (!(plannedKeying ?? ReferenceKeying.Now(rig, ptt)).StillCurrent(rig, ptt))
-                    return ReferenceEndHolder.Nobody;
+                if (!stillTheReferences) return ReferenceEndHolder.Nobody;
                 // MainWindow's unkey acts on its own controller, which is the one
                 // just checked: both are the same field (_pttController).
                 // Through the controller, never the radio's transmit flag: that
@@ -467,7 +507,7 @@ public partial class CheckYourAudioDialog
                 // may still be pressing (round five, 7a). With no "Receiving":
                 // the finished sentence is the only thing said (7c).
                 if (EndAppKeyForReference is { } unkey) unkey();
-                else ptt?.EndAfterReference();
+                else route?.EndAfterReference();
                 return ReferenceEndHolder.App;
             default:
                 return ReferenceEndHolder.Nobody;
