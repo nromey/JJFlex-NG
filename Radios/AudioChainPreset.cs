@@ -303,8 +303,9 @@ public class AudioChainPreset
     /// </summary>
     public string FormatForSpeech()
     {
-        int width = TxFilterHigh - TxFilterLow;
-        string widthStr = width >= 1000 ? $"{width / 1000.0:0.#}k" : $"{width} hertz";
+        // The shared width formatter (#747): "2.75 k" at Terse, "2750 hertz"
+        // at Chatty, never rounded.
+        string widthStr = HertzSpeech.Width(TxFilterHigh - TxFilterLow, HertzUnitStyle.KiloLetter);
         string forInput = string.IsNullOrEmpty(RadioMicInput) ? "" : $", tuned for {RadioMicInput}";
         return $"{Name}, mic gain {MicGain}, filter {widthStr}{forInput}";
     }

@@ -618,8 +618,6 @@ audio.filter.presets.validation_caption	48d35b11c0f1a729
 audio.filter.presets.width_hz	c0e1060263e3b4cb
 audio.filter.presets.width_khz	f25d33a87e228744
 audio.filter.range	842e2d082d353387
-audio.filter.rx_report	b20919a1a89c1686
-audio.filter.tx_report	350de2b221f69748
 audio.filter_layer.at_limit	862718b4fe7cc744
 audio.filter_layer.closed	3236846d4e0394b6
 audio.filter_layer.entered	23afad1f3e644524

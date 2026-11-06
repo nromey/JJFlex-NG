@@ -521,7 +521,8 @@ public partial class AudioWorkshopDialog
         int low = _txFilterLowControl.Value;
         int high = _txFilterHighControl.Value;
         int width = high - low;
-        string widthStr = width >= 1000 ? $"{width / 1000.0:0.#} kHz" : $"{width} Hz";
+        // A label, so the displayed form: never rounded (#747).
+        string widthStr = Radios.HertzSpeech.DisplayedWidth(width, Radios.HertzUnitStyle.Symbols);
         _filterWidthLabel.Text = $"Width: {low} to {high} Hz ({widthStr})";
     }
 

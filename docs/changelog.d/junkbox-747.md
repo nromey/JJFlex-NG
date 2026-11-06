@@ -1,0 +1,1 @@
+- Filter widths above 1 kilohertz now say exactly what they are, so stepping a filter 50 hertz at a time never repeats a width or reads one 50 hertz off. At Terse verbosity you hear the short form, like "2.75 k"; at Chatty you hear the whole number, like "2750". The width readouts in the filter preset list and the Audio Workshop show the exact value too.

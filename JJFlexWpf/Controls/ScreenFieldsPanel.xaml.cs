@@ -1694,7 +1694,7 @@ public partial class ScreenFieldsPanel : UserControl
         int filterWidth = filterHigh - filterLow;
         string widthText = filterWidth >= 1000
             ? Lexicon.Get("audio.fields.rx_filter_width_khz", ("filterLow", filterLow),
-                ("filterHigh", filterHigh), ("filterWidth", $"{filterWidth / 1000.0:F1}"))
+                ("filterHigh", filterHigh), ("filterWidth", Radios.HertzSpeech.KiloDigits(filterWidth)))
             : Lexicon.Get("audio.fields.rx_filter_width_hz", ("filterLow", filterLow),
                 ("filterHigh", filterHigh), ("filterWidth", filterWidth));
         _rxFilterWidthDisplay.Text = widthText;

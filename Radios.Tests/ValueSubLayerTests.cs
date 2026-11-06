@@ -1984,8 +1984,12 @@ namespace Radios.Tests
 
         private static int ClampSafe(int v, int min, int max) => max < min ? min : Math.Clamp(v, min, max);
 
-        private static string Report(string key, int low, int high)
-            => Lexicon.Get(key, ("low", low), ("high", high), ("widthKHz", ((high - low) / 1000.0).ToString("F1")));
+        // Mirrors KeyCommands.FilterReport: the width comes from the shared
+        // formatter with its unit attached, at the verbosity in force (#747).
+        // The shipped host reads ScreenReaderOutput.CurrentVerbosity, which
+        // is what the harness's Verbosity stands for.
+        private static string Report(string key, int low, int high, VerbosityLevel level)
+            => Lexicon.Get(key, ("low", low), ("high", high), ("width", HertzSpeech.Width(high - low, HertzUnitStyle.Words, level)));
 
         private static string AtLimit(string what) => Lexicon.Get("audio.filter_layer.at_limit", ("what", what));
 
@@ -2072,7 +2076,7 @@ namespace Radios.Tests
             rx.HighEdge = v => Lexicon.Get("audio.filter.high_edge", ("high", v));
             rx.Range = () => Lexicon.Get("audio.filter.range", ("low", rx.Bank.Low), ("high", rx.Bank.High));
             rx.Width = () => Lexicon.Get("audio.filter_layer.width", ("width", rx.Bank.Width), ("low", rx.Bank.Low), ("high", rx.Bank.High));
-            rx.Rep = () => Report("audio.filter.rx_report", rx.Bank.Low, rx.Bank.High);
+            rx.Rep = () => Report("audio.filter.rx_report", rx.Bank.Low, rx.Bank.High, h.Verbosity);
 
             var tx = new Side
             {
@@ -2094,7 +2098,7 @@ namespace Radios.Tests
             tx.HighEdge = v => Lexicon.Get("audio.tx.filter_high", ("value", v));
             tx.Range = () => Lexicon.Get("audio.tx_filter.range", ("low", tx.Bank.Low), ("high", tx.Bank.High));
             tx.Width = () => Lexicon.Get("audio.filter_layer.tx_width", ("width", tx.Bank.Width), ("low", tx.Bank.Low), ("high", tx.Bank.High));
-            tx.Rep = () => Report("audio.filter.tx_report", tx.Bank.Low, tx.Bank.High);
+            tx.Rep = () => Report("audio.filter.tx_report", tx.Bank.Low, tx.Bank.High, h.Verbosity);
 
             var def = new ValueSubLayerDefinition
             {
@@ -2155,9 +2159,12 @@ namespace Radios.Tests
             // entry used to carry 260 characters of grammar lesson on every
             // press, which is the recitation #524 was raised about wearing a
             // different hat.
+            // And at Chatty the width is whole hertz (#747, ruled 2026-11-05:
+            // "k on terse and 00 on chatty"); this pinned "2.7 kilohertz" here
+            // until then.
             var (h, _) = OpenFilter(VerbosityLevel.Chatty);
             Assert.Equal(
-                "Filter layer. RX filter 100 to 2800, 2.7 kilohertz. Press H for a list of keys, Escape to revert changes, Enter to accept.",
+                "Filter layer. RX filter 100 to 2800, 2700 hertz. Press H for a list of keys, Escape to revert changes, Enter to accept.",
                 Assert.Single(h.Said));
             Assert.Equal("receive", h.Layer.CurrentGroup);
             Assert.Null(h.Layer.CurrentTarget);

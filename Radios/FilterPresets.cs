@@ -31,15 +31,18 @@ public class FilterPreset
     }
 
     /// <summary>
-    /// Format preset for speech: e.g. "2.4k SSB" or "250 CW".
+    /// Format preset for speech: "2.4 k SSB" at Terse, "2400 hertz SSB" at
+    /// Chatty, "250 hertz CW" at either — the shared width formatter (#747).
     /// </summary>
     public string FormatForSpeech()
-    {
-        int w = Width;
-        if (w >= 1000)
-            return $"{w / 1000.0:0.#}k {Name}".Trim();
-        return $"{w} hertz {Name}".Trim();
-    }
+        => $"{HertzSpeech.Width(Width, HertzUnitStyle.KiloLetter)} {Name}".Trim();
+
+    /// <summary>
+    /// The same words for text on a menu or a list, which is not on the
+    /// verbosity dial: the never-rounding kilo form at and above 1 kHz.
+    /// </summary>
+    public string FormatForDisplay()
+        => $"{HertzSpeech.DisplayedWidth(Width, HertzUnitStyle.KiloLetter)} {Name}".Trim();
 }
 
 /// <summary>

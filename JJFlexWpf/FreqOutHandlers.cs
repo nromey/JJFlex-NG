@@ -3332,10 +3332,10 @@ public class FreqOutHandlers
         }
         else
         {
-            int width = high - low;
-            string widthStr = width >= 1000
-                ? Lexicon.Get("settings.filter.width_kilo", ("width", (width / 1000.0).ToString("F1")))
-                : width.ToString();
+            // One formatter for every filter width (#747): the kilo form at
+            // Terse, whole hertz at Chatty, never rounded. The edges stay
+            // exact integers, as they always were.
+            string widthStr = Radios.HertzSpeech.Width(high - low, Radios.HertzUnitStyle.Bare);
             bool lowClamped = low != requestedLow;
             bool highClamped = high != requestedHigh;
             string atLimit = "";

@@ -1089,7 +1089,7 @@ public class NativeMenuBar : IDisposable
             for (int i = 0; i < presets.Count; i++)
             {
                 var preset = presets[i];
-                string label = $"{preset.Name} ({preset.FormatForSpeech()})";
+                string label = $"{preset.Name} ({preset.FormatForDisplay()})";
                 if (i == activeIdx)
                     label = $"\u2713 {label}"; // Unicode checkmark prefix
                 AddWired(parent, label, () =>

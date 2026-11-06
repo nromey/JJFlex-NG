@@ -5420,13 +5420,14 @@ public class KeyCommands
     }
 
     /// <summary>
-    /// The filter report — low, high, width in kilohertz — in the one
-    /// wording both the layer and the Ctrl+J readouts use, so two doors
-    /// into the same fact say the same sentence.
+    /// The filter report — low, high and width — in the one wording both
+    /// the layer and the Ctrl+J readouts use, so two doors into the same
+    /// fact say the same sentence. The width carries its own unit from the
+    /// shared formatter (#747): kilohertz at Terse, hertz at Chatty.
     /// </summary>
     private static string FilterReport(string key, int low, int high)
         => Radios.Lexicon.Get(key, ("low", low), ("high", high),
-            ("widthKHz", ((high - low) / 1000.0).ToString("F1")));
+            ("width", Radios.HertzSpeech.Width(high - low, Radios.HertzUnitStyle.Words)));
 
     /// <summary>
     /// Enter the filter layer on the active slice's receive filter. See the

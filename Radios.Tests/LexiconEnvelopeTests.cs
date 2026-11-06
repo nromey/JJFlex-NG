@@ -2144,12 +2144,22 @@ namespace Radios.Tests
                 "connect.failure.smartlink_lists_no_radios",
                 "connect.failure.smartlink_not_on_any_account",
                 "connect.failure.smartlink_not_on_any_account_but_local",
+                // Junk box 2026-11-06 (#747): one width formatter; the unit
+                // travels with the width, so the two filter reports were
+                // reworded and classified, and two unit wordings were added.
+                // DRAFT prose, awaiting Noel.
+                "audio.filter.rx_report",
+                "audio.filter.tx_report",
+                "settings.filter.width_hertz_words",
+                "settings.filter.width_kilohertz_words",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
             // 3,133: main's junk box classified two (3,140 to 3,138) and Check
             // your audio five (3,140 to 3,135); the two sets are disjoint.
-            Assert.Equal(3095, unclassified);
+            // 3093 since the 2026-11-06 junk box classified the two reworded
+            // filter reports (#747).
+            Assert.Equal(3093, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

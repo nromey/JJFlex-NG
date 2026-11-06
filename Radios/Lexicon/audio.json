@@ -368,8 +368,8 @@
   "audio.filter.presets.width_hz": "{width} Hz",
   "audio.filter.presets.width_khz": "{width} kHz",
   "audio.filter.range": "Filter {low} to {high}",
-  "audio.filter.rx_report": "RX filter {low} to {high}, {widthKHz} kilohertz",
-  "audio.filter.tx_report": "TX filter {low} to {high}, {widthKHz} kilohertz",
+  "audio.filter.rx_report": {"text": "RX filter {low} to {high}, {width}", "delivery": null},
+  "audio.filter.tx_report": {"text": "TX filter {low} to {high}, {width}", "delivery": null},
   "audio.filter_layer.at_limit": "{what}, at the limit",
   "audio.filter_layer.closed": "Filter layer closed",
   "audio.filter_layer.entered": {
