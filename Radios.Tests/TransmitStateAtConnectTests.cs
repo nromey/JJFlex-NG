@@ -46,6 +46,11 @@ namespace Radios.Tests
             Set(slice, "_active", active);
             Set(slice, "_demodMode", mode);
             Set(slice, "_freq", mhz);
+            // A slice from a status is unlocked. FlexLib's own default is
+            // locked, and a tune on a locked slice is refused at the press
+            // since repair round 5 (#642), so these tests of what a tune
+            // leaves behind start from an unlocked slice, as a radio's do.
+            Set(slice, "_lock", false);
             return slice;
         }
 
@@ -334,7 +339,8 @@ namespace Radios.Tests
             string connect = File.ReadAllText(Path.Combine(Repo(), "Radios", "FlexBase.cs"));
             int fresh = connect.IndexOf("_radioReportedAutosave = false;", StringComparison.Ordinal);
             Assert.True(fresh > 0);
-            Assert.Contains("ForgetTransmitCaches(null);", connect.Substring(fresh, 300), StringComparison.Ordinal);
+            // Through the one commit since repair round 11 (CommitSliceFacts).
+            Assert.Contains("ForgetTransmitCaches(null)", connect.Substring(fresh, 400), StringComparison.Ordinal);
         }
 
         private static string Repo()

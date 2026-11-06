@@ -64,6 +64,17 @@ internal sealed class LoopbackSliceResources
         Slice != null && slices.Contains(Slice) && pans.Contains(Pan) && ReferenceEquals(Slice.Panadapter, Pan);
 
     internal bool Configure(IEnumerable<Slice> slices, IEnumerable<Panadapter> pans, Slice transmit, string antenna)
+        => Configure(slices, pans, transmit, antenna, transmit?.Freq ?? 0.0);
+
+    /// <summary>
+    /// As above, with the frequency the ears go to given by the caller: the
+    /// transmit slice's ONE value, a tune still on its way included (#642,
+    /// repair round 6). FlexLib's own number for the transmit slice is only
+    /// what the radio last reported, so after a band change is sent it still
+    /// names the old band.
+    /// </summary>
+    internal bool Configure(IEnumerable<Slice> slices, IEnumerable<Panadapter> pans, Slice transmit, string antenna,
+        double transmitMhz)
     {
         if (!IsPresent(slices, pans) || transmit == null || ReferenceEquals(Slice, transmit)) return false;
         SavedRxAnt = Slice.RXAnt;
@@ -72,7 +83,7 @@ internal sealed class LoopbackSliceResources
         SavedFrequency = Slice.Freq;
         SavedMode = Slice.DemodMode;
         SavedPanCenter = Pan.CenterFreq;
-        Slice.Freq = transmit.Freq;
+        Slice.Freq = transmitMhz;
         Slice.DemodMode = transmit.DemodMode;
         Slice.RXAnt = antenna;
         return true;

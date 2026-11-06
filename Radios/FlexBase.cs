@@ -2662,7 +2662,7 @@ namespace Radios
             // Fresh connection: what the old one said about its transmit slice
             // describes a connection that has gone (#858), and so does what it
             // said about being allowed to transmit (#447).
-            ForgetTransmitCaches(null);
+            CommitSliceFacts(null, () => ForgetTransmitCaches(null));
             NoteTuneRequest(false);
             ForgetTuneWrites();
             ForgetPowerReports();
@@ -4977,9 +4977,14 @@ namespace Radios
                             // predecessor of a tune still on its way (repair
                             // round 3): a step taken while this selection
                             // settled must not be rewound by the refresh.
-                            SetRxCache(s, ObservedOrPending(s, LibFreqtoLong(s.Freq)));
-                            _RXMode = s.DemodMode;
-                            _RXVFO = SliceToVFO(s);
+                            // One commit, for a slice still ours (repair round 11).
+                            if (!CommitSliceFacts(s, () =>
+                                {
+                                    SetRxCache(s, ObservedOrPending(s, LibFreqtoLong(s.Freq)));
+                                    _RXMode = s.DemodMode;
+                                    _RXVFO = SliceToVFO(s);
+                                }))
+                                break;
                             s.Panadapter.GetRFGainInfo();
                             FilterObj.RXFreqChange(s);
                             EscStateChanged?.Invoke();
@@ -5425,13 +5430,17 @@ namespace Radios
                     case "DemodMode":
                         {
                             Tracing.TraceLine("DemodMode:slice " + s.Index.ToString() + " " + s.DemodMode.ToString(), TraceLevel.Info);
-                            if (s.Active) _RXMode = s.DemodMode;
-                            if (s.IsTransmitSlice)
+                            // One commit, for a slice still ours (repair round 11).
+                            bool modeOurs = CommitSliceFacts(s, () =>
                             {
-                                FollowTransmitSlice(s);
-                                _TXMode = s.DemodMode;
-                            }
-                            if (s.Active)
+                                if (s.Active) _RXMode = s.DemodMode;
+                                if (s.IsTransmitSlice)
+                                {
+                                    FollowTransmitSlice(s);
+                                    _TXMode = s.DemodMode;
+                                }
+                            });
+                            if (modeOurs && s.Active)
                             {
                                 FilterObj.RXFreqChange(s);
                                 ModeChanged?.Invoke(s.DemodMode);
@@ -5515,14 +5524,37 @@ namespace Radios
                             ulong echoed = LibFreqtoLong(s.Freq);
                             // This slice's own guard, asked ONCE for both
                             // caches (repair round 3): one slice, one answer.
-                            // Our own send's notification (FlexLib raises it
-                            // inside the write) is not the radio confirming,
-                            // so it never settles the guard (repair round 4).
-                            bool accepted = LocalTuneWrite(s) ? LocalTuneShows(s, echoed)
-                                                              : EchoGuardFor(s).Accept(echoed);
-                            if (accepted && (s.Active || ReferenceEquals(_rxCache?.Slice, s)))
-                                SetRxCache(s, echoed);
-                            if (accepted && s.Active)
+                            // Our tunes no longer go through FlexLib's setter
+                            // (repair round 5), so this notification is the
+                            // radio's own report, which FlexLib raises for any
+                            // changed value.
+                            bool accepted = EchoGuardFor(s).Accept(echoed);
+                            // The caches are written only for a slice still in
+                            // the roster, through CommitSliceFacts (#642, repair
+                            // rounds 10 and 11): a removed transmitter's
+                            // frequency, mode and XIT cannot come back. The
+                            // filter and the where-you-are record, which may do
+                            // more, run after the commit, and only for a slice
+                            // that was still ours.
+                            bool ours = CommitSliceFacts(s, () =>
+                            {
+                                if (accepted && (s.Active || ReferenceEquals(_rxCache?.Slice, s)))
+                                    SetRxCache(s, echoed);
+                                if (s.IsTransmitSlice)
+                                {
+                                    if (!ReferenceEquals(s, _txCacheSlice))
+                                    {
+                                        // The caches move over whole, holding a
+                                        // tune still on its way rather than its
+                                        // stale predecessor.
+                                        ulong held = accepted ? echoed
+                                            : EchoGuardFor(s).TryPending(out ulong pending) ? pending : echoed;
+                                        NoteTransmitSliceAsFound(s, held);
+                                    }
+                                    else if (accepted) SetTxCache(s, echoed);
+                                }
+                            });
+                            if (ours && accepted && s.Active)
                             {
                                 // The filter edges and the where-you-are memory
                                 // are both derived from this number, so a
@@ -5535,19 +5567,6 @@ namespace Radios
                                 // click.
                                 NoteOperatorPlace(s);
                             }
-                            if (s.IsTransmitSlice)
-                            {
-                                if (!ReferenceEquals(s, _txCacheSlice))
-                                {
-                                    // The caches move over whole, holding a
-                                    // tune still on its way rather than its
-                                    // stale predecessor.
-                                    ulong held = accepted ? echoed
-                                        : EchoGuardFor(s).TryPending(out ulong pending) ? pending : echoed;
-                                    NoteTransmitSliceAsFound(s, held);
-                                }
-                                else if (accepted) SetTxCache(s, echoed);
-                            }
                         }
                         break;
                     case "IsTransmitSlice":
@@ -5558,13 +5577,18 @@ namespace Radios
                             {
                                 if (CanTransmit)
                                 {
-                                    _TXVFO = vfo;
-                                    NoteTransmitSliceAsFound(s);
+                                    // One commit, for a slice still ours (repair round 11).
+                                    CommitSliceFacts(s, () =>
+                                    {
+                                        _TXVFO = vfo;
+                                        NoteTransmitSliceAsFound(s);
+                                    });
                                 }
                             }
                             else
                             {
-                                ForgetTransmitCaches(s);
+                                // A forgetting is never a revival: no membership needed.
+                                CommitSliceFacts(null, () => ForgetTransmitCaches(s));
                             }
                         }
                         break;
@@ -5588,37 +5612,25 @@ namespace Radios
                     case "RITOn":
                         {
                             Tracing.TraceLine("RITOn:" + s.RITOn.ToString(), TraceLevel.Info);
-                            lock (_RIT)
-                            {
-                                _RIT.Active = s.RITOn;
-                            }
+                            CommitSliceFacts(s, () => { lock (_RIT) _RIT.Active = s.RITOn; });
                         }
                         break;
                     case "RITFreq":
                         {
                             Tracing.TraceLine("RITFreq:" + s.RITFreq.ToString(), TraceLevel.Info);
-                            lock (_RIT)
-                            {
-                                _RIT.Value = s.RITFreq;
-                            }
+                            CommitSliceFacts(s, () => { lock (_RIT) _RIT.Value = s.RITFreq; });
                         }
                         break;
                     case "XITOn":
                         {
                             Tracing.TraceLine("XITOn:" + s.XITOn.ToString(), TraceLevel.Info);
-                            lock (_XIT)
-                            {
-                                _XIT.Active = s.XITOn;
-                            }
+                            CommitSliceFacts(s, () => { lock (_XIT) _XIT.Active = s.XITOn; });
                         }
                         break;
                     case "XITFreq":
                         {
                             Tracing.TraceLine("XITFreq:" + s.XITFreq.ToString(), TraceLevel.Info);
-                            lock (_XIT)
-                            {
-                                _XIT.Value = s.XITFreq;
-                            }
+                            CommitSliceFacts(s, () => { lock (_XIT) _XIT.Value = s.XITFreq; });
                         }
                         break;
                     // #188 — the antenna report-back, RX and TX kept separate.
@@ -6552,6 +6564,8 @@ namespace Radios
             {
                 mySliceAdded = true;
                 slc.PropertyChanged += new PropertyChangedEventHandler(slicePropertyChangedHandler);
+                // Every frequency report's ARRIVAL, equal ones included (#642, repair round 9).
+                slc.FrequencyReported += SliceFrequencyReported;
                 slc.PropertyChanged += new PropertyChangedEventHandler((s2, e2) =>
                 {
                     // One field per notification: a mode report never blesses
@@ -6599,17 +6613,25 @@ namespace Radios
                 // a connect that delivers four slices produces ONE census
                 // instead of four per-slice announcements.
                 NoteSliceSetChanged(slc, added: true);
+                // Each a commit for a slice still ours (repair round 11): one
+                // removed while it was arriving gets nothing written.
                 if (slc.IsTransmitSlice)
                 {
                     Tracing.TraceLine("sliceAdded:IsTransmitSlice", TraceLevel.Info);
-                    _TXVFO = SliceToVFO(slc);
-                    NoteTransmitSliceAsFound(slc);
+                    CommitSliceFacts(slc, () =>
+                    {
+                        _TXVFO = SliceToVFO(slc);
+                        NoteTransmitSliceAsFound(slc);
+                    });
                 }
                 if (slc.Active)
                 {
                     Tracing.TraceLine("sliceAdded:activeSlice", TraceLevel.Info);
-                    _RXVFO = SliceToVFO(slc);
-                    NoteActiveSliceAsFound(slc);
+                    CommitSliceFacts(slc, () =>
+                    {
+                        _RXVFO = SliceToVFO(slc);
+                        NoteActiveSliceAsFound(slc);
+                    });
                 }
             }
             else Tracing.TraceLine("sliceAdded:not mine " + slc.ToString(), TraceLevel.Info);
@@ -6755,19 +6777,15 @@ namespace Radios
                 Slice selected = (rx >= 0 && rx < mySlices.Count) ? mySlices[rx] : null;
                 Slice transmit = DesignatedTransmitSliceLocked();
 
-                // Each cache is read ONCE, number and slice together, and its
-                // number believed only for the slice it was written for (repair
-                // round 2: Active is raised before the cache follows a new
-                // selection, so Active proved nothing about whose number it was).
-                SliceHz rxCache = _rxCache, txCache = _txCache;
                 // One slice, one number (repair round 3): each role's slice
-                // reads the newer of the caches that belong to it, so a slice
-                // both selected and transmitting has one frequency.
+                // reads its ONE value (repair round 8: our request on its way,
+                // else the radio's last report), so a slice both selected and
+                // transmitting has one frequency.
                 string selectedLetter = selected?.Letter ?? "";
-                ulong selectedHz = selected != null ? ValueOf(selected, rxCache, txCache) : 0UL;
+                ulong selectedHz = selected != null ? ValueOf(selected) : 0UL;
 
                 string transmitLetter = transmit?.Letter ?? "";
-                ulong transmitHz = transmit != null ? ValueOf(transmit, rxCache, txCache) : 0UL;
+                ulong transmitHz = transmit != null ? ValueOf(transmit) : 0UL;
 
                 bool hasTransmit = transmit != null && transmitLetter.Length > 0;
                 roles = new SliceRoles(
@@ -6826,7 +6844,7 @@ namespace Radios
 
                         if (removed)
                         {
-                            ForgetTransmitCaches(slc);
+                            CommitSliceFacts(null, () => ForgetTransmitCaches(slc));
                             int oldRX = _RXVFO;
                             int oldTX = _TXVFO;
 
@@ -8820,7 +8838,10 @@ namespace Radios
             lock (mySlices)
             {
                 var slice = ValidVFO(vfo) ? mySlices[vfo] : null;
-                return slice?.Freq ?? 0.0;
+                // The slice's one value (repair round 5): FlexLib's own number
+                // is now only what the radio reported, so a tune on its way is
+                // read from the guard and the caches, as F and the title are.
+                return slice == null ? 0.0 : LongFreqToLibFreq(ValueOf(slice));
             }
         }
 
@@ -9290,7 +9311,7 @@ namespace Radios
             if (s != null)
                 q.Enqueue((FunctionDel)(() => { s.IsTransmitSlice = false; }), "ClearTransmitSlice");
             _TXVFO = noVFO;
-            ForgetTransmitCaches(null);
+            CommitSliceFacts(null, () => ForgetTransmitCaches(null));
             Tracing.TraceLine($"ClearTransmitSlice: was vfo={vfo}", TraceLevel.Info);
         }
 
@@ -9441,9 +9462,13 @@ namespace Radios
             Slice inSlice = VFOToSlice(inv);
             Slice outSlice = VFOToSlice(outv);
             q.Enqueue((FunctionDel)null, "slice copy start");
-            // The tune goes through WriteTuneTo (repair round 4), so a slice
-            // removed before the queue runs gets nothing on its reusable index.
-            q.Enqueue((FunctionDel)(() => WriteTuneTo(outSlice, inSlice.Freq, "CopyVFO")));
+            // The tune is a whole tune request (repair round 5): the source's
+            // one value at the press, published to the target and guarded like
+            // any step, so a step just taken on the target cannot refuse the
+            // copy's report, and the next step starts from the copy. Its send
+            // goes through WriteTuneTo (repair round 4), so a slice removed
+            // before the queue runs gets nothing on its reusable index.
+            RequestTune(outSlice, ValueOf(inSlice), selectedTune: false, "CopyVFO");
             q.Enqueue((FunctionDel)(() => { outSlice.DemodMode = inSlice.DemodMode; }));
             q.Enqueue((FunctionDel)(() => { outSlice.AutoPan = inSlice.AutoPan; }));
             q.Enqueue((FunctionDel)(() => { outSlice.RTTYMark = inSlice.RTTYMark; }));
@@ -9508,7 +9533,7 @@ namespace Radios
                 SliceHz cache = _rxCache;
                 Slice selected = SelectedSliceNow();
                 if (selected == null) return cache?.Hz ?? 0UL;
-                return ValueOf(selected, cache, _txCache);
+                return ValueOf(selected);
             }
             set
             {
@@ -9518,25 +9543,20 @@ namespace Radios
                 Slice slice = ValidVFO(RXVFO) ? VFOToSlice(RXVFO) : null;
                 if (slice == null)
                 {
-                    SetRxCache(null, value);
+                    CommitSliceFacts(null, () => SetRxCache(null, value));
                     Tracing.TraceLine(ValidVFO(RXVFO) ? "RXFrequency: RX slice missing" : "RXFrequency: no valid RX slice",
                         TraceLevel.Warning);
                     return;
                 }
-                // What this write replaces is THIS slice's own value, not the
-                // raw cache, which during a selection can still hold the old
-                // slice's number (repair round 3).
-                ulong replaced = ValueOf(slice, _rxCache, _txCache);
-                // The optimistic value is held WITH the slice it is written
-                // to, in every cache that describes that slice.
-                PublishTuning(slice, value, selectedTune: true);
-                double freq = LongFreqToLibFreq(value);
-                // Arm HERE, not at the top of the setter: the early return
-                // above leaves without writing anything to the radio, and a
-                // guard armed for a write that never went out would reject the
-                // radio's perfectly truthful report of where it still is.
-                EchoGuardFor(slice).Requested(replaced, value);
-                q.Enqueue((FunctionDel)(() => WriteTuneTo(slice, freq, "RXFreq")), "RXFreq");
+                // The whole request, armed HERE rather than at the top of the
+                // setter: the early return above leaves without writing
+                // anything to the radio, and a guard armed for a write that
+                // never went out would reject the radio's perfectly truthful
+                // report of where it still is. What it replaces is THIS
+                // slice's own value, not the raw cache (repair round 3), and
+                // the one helper owns admission, publication and the guard
+                // (repair round 5).
+                RequestTune(slice, value, selectedTune: true, "RXFreq");
             }
         }
 
@@ -9594,11 +9614,10 @@ namespace Radios
                 // transmit slice designated some other way. The cache is read
                 // once, number and slice together, and believed only for the
                 // designated slice it was written for (repair round 2).
-                SliceHz rx = _rxCache, cache = _txCache;
+                SliceHz cache = _txCache;
                 Slice s = DesignatedTransmitSlice();
-                // The designated slice's ONE value (repair round 3): the newer
-                // of the caches that describe it, or the slice's own.
-                if (s != null) return ValueOf(s, rx, cache);
+                // The designated slice's ONE value (repair rounds 3 and 8).
+                if (s != null) return ValueOf(s);
                 if (cache != null && cache.Hz != 0UL && cache.Slice?.IsTransmitSlice == true)
                     return cache.Hz;
                 return 0UL;
@@ -9631,9 +9650,6 @@ namespace Radios
                                       TraceLevel.Warning);
                     return;
                 }
-                // What this write replaces is this slice's own value (repair
-                // round 3), read before the optimistic value is published.
-                ulong replaced = ValueOf(slice, _rxCache, _txCache);
                 // The optimistic value belongs to this slice, so it goes when
                 // this slice does. Only a slice the radio has designated may
                 // stand in the transmit caches: TXVFO can be a position left
@@ -9648,13 +9664,12 @@ namespace Radios
                                       + "so the requested " + value + " is not held as a transmit fact",
                                       TraceLevel.Warning);
                 }
-                // The slice's one value, in every cache that describes it
-                // (PublishTuning holds it as a transmit fact only when the
-                // slice is designated).
-                PublishTuning(slice, value, selectedTune: false);
-                double freq = LongFreqToLibFreq(value);
-                EchoGuardFor(slice).Requested(replaced, value);
-                q.Enqueue((FunctionDel)(() => WriteTuneTo(slice, freq, "TXFreq")), "TXFreq");
+                // The whole request (repair round 5): what it replaces is this
+                // slice's own value (repair round 3), and the slice's one
+                // value goes in every cache that describes it (PublishTuning
+                // holds it as a transmit fact only when the slice is
+                // designated).
+                RequestTune(slice, value, selectedTune: false, "TXFreq");
             }
         }
 
@@ -12092,9 +12107,14 @@ namespace Radios
                     catch (NullReferenceException) { earsInputs = null; }
                     if (!(earsInputs?.Contains(earsAntenna) ?? false))
                         throw new InvalidOperationException("loopback-ears-port-unavailable");
+                    // The ears go to the transmit slice's ONE value (#642,
+                    // repair round 6), a tune still on its way included.
+                    Slice earsTransmit = SliceForTransmitSetting();
+                    double earsMhz = earsTransmit == null ? 0.0
+                        : LongFreqToLibFreq(ValueOf(earsTransmit));
                     if (
                         !resources.Configure(mySlices, arrangementRadio.PanadapterList,
-                            SliceForTransmitSetting(), earsAntenna))
+                            earsTransmit, earsAntenna, earsMhz))
                         throw new InvalidOperationException("loopback-ears-missing");
                     ears = resources.Slice;
                 }

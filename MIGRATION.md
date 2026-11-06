@@ -285,6 +285,23 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     - **When it could be removed.** If FlexLib's setters stop skipping equal values
       for commands, or offer an always-send variant.
 
+23. **Slice frequency report arrival (2026-11-06)**: keep the comment-marked
+    JJFlex patch in `FlexLib_API/FlexLib/Slice.cs`: the public event
+    `FrequencyReported(Slice, double, bool changed)` (declared beside `_freq`),
+    its raiser `OnFrequencyReported`, which calls each subscriber in its own
+    try/catch so a throwing subscriber cannot stop the others or the Freq
+    notification (added 2026-11-06, repair round 10), and its two raises in
+    `StatusUpdate`'s `rf_frequency` case, one before the equal-value `continue`
+    and one just before the changed value's `RaisePropertyChanged("Freq")`
+    (after `_freq` holds it, so a throwing Freq subscriber cannot hide it). Stock
+    FlexLib raises nothing for a frequency status equal to its cached value, so
+    the app could not tell that the radio had reported at all; the tuning guard
+    needs every report's ARRIVAL to know the radio has answered a tune (#642).
+    The Freq notification is unchanged. Pinned by
+    `TuningReceiptTests.The_FlexLib_frequency_report_patch_is_marked_and_in_place`
+    and the behaviour test beside it. (Numbered 23 at the merge of 2026-11-06: items 21 and 22 were
+    added on the batch branch the same week.)
+
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 
 FlexLib is not the only vendor code in this repo, and a patch in one of the

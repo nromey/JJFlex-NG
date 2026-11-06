@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Reflection;
 using Flex.Smoothlake.FlexLib;
 using Radios.StationConnect;
+using Radios.Tests.StationConnect;
 using Xunit;
 
 namespace Radios.Tests
@@ -43,17 +44,23 @@ namespace Radios.Tests
             return rig;
         }
 
+        /// <summary>Each slice's own vendored radio, whose transport records what we told it.</summary>
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Slice, VendorRadioFixture> RadioOf = new();
+
+        /// <summary>
+        /// A slice on a real vendored Radio with a fake command transport
+        /// (repair round 5: tunes go out through the reply-bearing command
+        /// path, not FlexLib's setter, so a radio that cannot send refuses
+        /// them; this one can, and records each).
+        /// </summary>
         private static Slice ReadySlice(int index, bool tx, bool active, double mhz)
         {
-            var radio = (Radio)Activator.CreateInstance(typeof(Radio), Private, null, new object[] { false }, null)!;
-            var slice = (Slice)Activator.CreateInstance(typeof(Slice), Private, null, new object[] { radio }, null)!;
-            Set(slice, "_index", index);
+            var radio = new VendorRadioFixture("binding-" + Guid.NewGuid().ToString("N"));
+            var slice = radio.NewSlice(index, 0, mhz, "USB");   // unlocked: a locked slice refuses every tune
             Set(slice, "_letter", ((char)('A' + index)).ToString());
             Set(slice, "_isTransmitSlice", tx);
             Set(slice, "_active", active);
-            Set(slice, "_demodMode", "USB");
-            Set(slice, "_freq", mhz);
-            Set(slice, "_lock", false);   // a locked slice refuses every tune
+            RadioOf.Add(slice, radio);
             return slice;
         }
 
@@ -71,19 +78,41 @@ namespace Radios.Tests
         private static void SliceGoes(FlexBase rig, Slice slice)
             => typeof(FlexBase).GetMethod("sliceRemoved", Private)!.Invoke(rig, new object[] { slice, Binding() });
 
-        /// <summary>The radio's own report of a slice's frequency, as the Freq notification delivers it.</summary>
+        /// <summary>
+        /// The radio's own report of a slice's frequency, through FlexLib's
+        /// own status parser (repair round 5). It used to write FlexLib's
+        /// cache and call our handler directly, which raised a notification
+        /// even for a value FlexLib would skip as unchanged, and so hid
+        /// Codex's fourth-round finding 1. <paramref name="rig"/> is kept so
+        /// every call site still names the rig the slice belongs to.
+        /// </summary>
         private static void SliceReportsFreq(FlexBase rig, Slice slice, double mhz)
         {
-            Set(slice, "_freq", mhz);
-            try
-            {
-                typeof(FlexBase).GetMethod("slicePropertyChangedHandler", Private)!
-                    .Invoke(rig, new object[] { slice, new PropertyChangedEventArgs("Freq") });
-            }
-            catch (TargetInvocationException) { /* the fixture has no filter adapter; the cache is written first */ }
+            _ = rig;
+            try { slice.StatusUpdate("rf_frequency=" + mhz.ToString("F6", CultureInfo.InvariantCulture)); }
+            catch (Exception) { /* the fixture has no filter adapter; the cache is written first */ }
         }
 
-        private static ulong Hz(Slice s) => (ulong)Math.Round(s.Freq * 1_000_000d);
+        /// <summary>
+        /// Where our writes have put <paramref name="s"/>: the last frequency we
+        /// told its radio to tune it to, else its own number. This read
+        /// FlexLib's cache until repair round 5, when our tunes stopped going
+        /// through the setter that wrote it; the command is the same fact.
+        /// </summary>
+        private static ulong Hz(Slice s)
+        {
+            if (RadioOf.TryGetValue(s, out var radio))
+            {
+                var cmds = radio.Transport.Commands;
+                for (int i = cmds.Count - 1; i >= 0; i--)
+                {
+                    string[] w = cmds[i].Split(' ');
+                    if (w.Length >= 4 && w[0] == "slice" && w[1] == "tune" && w[2] == s.Index.ToString(CultureInfo.InvariantCulture))
+                        return (ulong)Math.Round(double.Parse(w[3], CultureInfo.InvariantCulture) * 1_000_000d);
+                }
+            }
+            return (ulong)Math.Round(s.Freq * 1_000_000d);
+        }
 
         /// <summary>Run every queued command, as the main loop does, item by item.</summary>
         private static void Drain(FlexBase rig) { while (rig.q.Count > 0) RunOne(rig); }
@@ -190,7 +219,11 @@ namespace Radios.Tests
             rig.RXFrequency = rig.RXFrequency + 100;         // a step on A, from A's own 14.100
             Assert.Equal(14_100_100UL, rig.RXFrequency);
 
-            SliceReportsFreq(rig, a, 14.100);                // A's in-flight report from before the step
+            // A's in-flight report from before the step. Since repair round 5
+            // FlexLib holds only what the radio reported (14.100 here), so it
+            // skips this report as unchanged and raises nothing: the stale echo
+            // of a value FlexLib still holds can no longer reach us at all.
+            SliceReportsFreq(rig, a, 14.100);
             Assert.Equal(14_100_100UL, rig.RXFrequency);
 
             // The ActiveSlice refresh reads A's own (still old) frequency too.
@@ -204,18 +237,29 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void A_report_nobody_asked_for_is_still_believed_while_a_step_is_pending()
+        public void A_report_nobody_asked_for_is_believed_once_the_step_is_answered()
         {
             // Control: another client, the knob or a band-edge clamp moves A to
             // a number neither the step nor its predecessor was. The radio is
-            // the authority.
+            // the authority: since repair round 8 it is believed once our step
+            // is answered (until then, at once), and never lost.
             FlexBase rig = Rig();
             Slice a = ReadySlice(0, tx: true, active: true, mhz: 14.100);
             SliceArrives(rig, a);
 
             rig.RXFrequency = 14_100_100;
+            Drain(rig);
             SliceReportsFreq(rig, a, 14.250);
+            Assert.Equal(14_100_100UL, rig.RXFrequency);
+            AnswerLastTune(a);
             Assert.Equal(14_250_000UL, rig.RXFrequency);
+        }
+
+        /// <summary>The radio answers the last command written to <paramref name="s"/>'s radio with success.</summary>
+        private static void AnswerLastTune(Slice s)
+        {
+            Assert.True(RadioOf.TryGetValue(s, out var radio));
+            radio.ReplyOk(radio.LastSequence);
         }
 
         // ── A fast run of steps ──
@@ -350,8 +394,9 @@ namespace Radios.Tests
             SliceReportsFreq(rig, a, 14.1002);
             SliceReportsFreq(rig, a, 14.1003);
             Assert.Equal(14_100_400UL, rig.RXFrequency);
-            SliceReportsFreq(rig, a, 14.1004);               // the radio confirms the last
+            SliceReportsFreq(rig, a, 14.1004);               // the radio reports the last
             Assert.Equal(14_100_400UL, rig.RXFrequency);
+            AnswerLastTune(a);                               // and answers it (repair round 8)
 
             // Control: the RADIO's report settled the guard, so a later report
             // of an old value is believed again (another client, the knob).
@@ -365,7 +410,9 @@ namespace Radios.Tests
         /// say) is not re-sent by FlexLib, which raises nothing for a value it
         /// already holds. So once our last write has gone out and nothing
         /// confirmed it within the give-up window, readers believe the vendor's
-        /// number. The control: with no report at all, that number is our send.
+        /// number, which is the radio's last report (repair round 5). The
+        /// controls: with no report at all that is still the old number, and a
+        /// tune the radio confirmed reads our value after the window too.
         /// </summary>
         [Fact]
         public void A_sent_tune_nothing_confirmed_reads_the_radios_truth_after_the_give_up_window()
@@ -384,11 +431,27 @@ namespace Radios.Tests
             quiet.RXFrequency = 14_100_100;
             Drain(quiet);
 
+            // Control (repair round 5): the radio confirms its tune, so after
+            // the window it still reads our value.
+            FlexBase confirmed = Rig();
+            Slice c = ReadySlice(0, tx: true, active: true, mhz: 14.100);
+            SliceArrives(confirmed, c);
+            confirmed.RXFrequency = 14_100_100;
+            Drain(confirmed);
+            SliceReportsFreq(confirmed, c, 14.1001);
+
             System.Threading.Thread.Sleep(FrequencyEchoGuard.GiveUpMs + 150);
             Assert.Equal(14_100_000UL, rig.RXFrequency);
             Assert.Equal(14_100_000UL, rig.TXFrequency);
             Assert.Equal(14_100_000UL, SliceRoles.Of(rig).SelectedHz);
-            Assert.Equal(14_100_100UL, quiet.RXFrequency);
+            // With no report at all, the radio's last report is still the old
+            // number. Until repair round 5 this read our own send back
+            // (14.1001), because FlexLib's setter had written it into the
+            // number every reader concedes to: a request, not a report
+            // (#164). Now the setter is not used, and a send the radio never
+            // confirmed reads where the radio last said it was.
+            Assert.Equal(14_100_000UL, quiet.RXFrequency);
+            Assert.Equal(14_100_100UL, confirmed.RXFrequency);
         }
 
         /// <summary>
