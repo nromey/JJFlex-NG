@@ -1977,6 +1977,59 @@ namespace Radios.Tests
             Assert.Contains(Lexicon.Get("audio.mic.switch_back_refused"), speech.Spoken);
         }
 
+        // ── Repair round 13 (Codex's #861 N1): every PC this lane writes is
+        //    under its record's authority AT the transport's write ──
+
+        [Fact]
+        public void A_switch_backs_PC_whose_connection_is_replaced_at_the_vendors_pre_send_point_is_not_written()
+        {
+            using var rig = GuestRadioMovedToMic();
+            using var held = new HeldQueue(rig.Rig);
+            int pcBefore = rig.MicWrites.Count(c => c == "mic input PC");
+            PressOnly(rig);
+            BeforeTheSendOf(rig, "mic input PC", () =>
+            {
+                rig.Rig.ResetPcMicSession("reconnect (test)");
+                rig.Vendor.Transport.Reconnect();
+                rig.Vendor.Status("interlock state=READY");
+                rig.RadioReports("BAL");
+            });
+            held.Drain();
+            Assert.Equal(pcBefore, rig.MicWrites.Count(c => c == "mic input PC"));   // round 12 wrote PC on the new connection
+            Assert.Equal("BAL", rig.MicInput);
+            Assert.Null(SwapField.GetValue(rig.Rig));                                // nothing written, nothing owed
+        }
+
+        [Fact]
+        public void A_starts_PC_whose_run_ends_at_the_vendors_pre_send_point_is_not_written()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            BeforeTheSendOf(rig, "mic input PC", () =>
+            {
+                var next = new System.Threading.Thread(() => rig.NextRunBegins()) { IsBackground = true };
+                next.Start();
+                Assert.True(next.Join(5000), "the next run never began");
+                rig.RadioReports("BAL");
+            });
+            rig.StartPcAudio();
+            Assert.Empty(rig.MicWrites);                                             // round 12 wrote PC in the newer run
+            Assert.Null(SwapField.GetValue(rig.Rig));
+            rig.StopPcAudio();
+            Assert.Empty(rig.MicWrites);
+        }
+
+        [Fact]
+        public void A_heals_PC_whose_run_ends_at_the_vendors_pre_send_point_is_not_written()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start);
+            rig.RadioReports("MIC");
+            BeforeTheSendOf(rig, "mic input PC", () => rig.NextRunWithoutClearing());
+            rig.Check();
+            Assert.Empty(rig.MicWrites);
+        }
+
         /// <summary>Start PC audio on another thread while this one holds the mic lock; once it waits, run <paramref name="during"/>, then let it finish.</summary>
         private static void StartBlockedOnTheMicLockDuring(PcAudioRig rig, bool deviceStarts, Action during)
         {

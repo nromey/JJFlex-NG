@@ -2120,7 +2120,12 @@ namespace Radios
             return new MicCapture { Radio = radio, Recorded = false };
         }
 
-        /// <summary>Why <paramref name="capture"/> no longer describes this radio, connection and run, or null. Call under <see cref="_micSwitchLock"/>.</summary>
+        /// <summary>
+        /// Why <paramref name="capture"/> no longer describes this radio,
+        /// connection and run, or null. Reads only, takes no lock: asked under
+        /// <see cref="_micSwitchLock"/> at installation, and under the reader's
+        /// dispatch gate at the transport's write (round 13).
+        /// </summary>
         private string CaptureNoLongerCurrent(MicCapture capture)
         {
             if (!capture.Recorded) return "the mic input could not be recorded";
@@ -2130,6 +2135,29 @@ namespace Radios
                 return "the radio's command connection changed while it was being recorded";
             if (Interlocked.Read(ref _remoteAudioRun) != capture.Run) return "a newer remote-audio run began while it was being recorded";
             return null;
+        }
+
+        /// <summary>
+        /// THE way this lane writes PC to the radio's mic input (repair round
+        /// 13, Codex's #861 N1): the start's switch, the switch-back's switch
+        /// and the healer's re-assert all go through here. One pinned step on
+        /// the record's radio and command connection; the record's question,
+        /// that its radio, connection and run are all still current (plus the
+        /// caller's own, <paramref name="alsoAsk"/>), is asked before the write
+        /// and again AT the transport's write, under the reader's dispatch
+        /// gate. Refused, nothing was written, so nothing is owed. Returns the
+        /// refusal, or null when <paramref name="write"/> ran unrefused.
+        /// </summary>
+        private string PcUnderRecord(MicCapture record, Func<string> alsoAsk, Action write)
+        {
+            string StillOurs() => CaptureNoLongerCurrent(record) ?? alsoAsk?.Invoke();
+            return StepOnPinnedTarget(record.Radio, record.Connection, () =>
+            {
+                string now = StillOurs();
+                if (now != null) return now;
+                write();
+                return null;
+            }, StillOurs);
         }
 
         /// <summary>How long <see cref="CaptureMic"/> waits for the report gate.</summary>
@@ -2697,11 +2725,9 @@ namespace Radios
                         // PC goes out (round 10, N1). The PC goes to the captured
                         // radio and connection only (round 12, B1).
                         bool written = false;
-                        string refused = StepOnPinnedTarget(capture.Radio, capture.Connection, () =>
-                        {
-                            written = capture.Radio.SendMicInput("PC");
-                            return null;
-                        });
+                        // Under the record's authority AT the write (round 13, N1): a
+                        // run begun or a connection replaced since refuses it.
+                        string refused = PcUnderRecord(capture, null, () => written = capture.Radio.SendMicInput("PC"));
                         if (refused == null && written)
                         {
                             // Remember that WE asked for PC, so the loop can tell a
@@ -3018,14 +3044,29 @@ namespace Radios
             // The same text FlexLib's MicInput setter sends, through the
             // reply-bearing path, so the radio's answer comes back and the
             // cache is left for the radio's own status to change.
-            string notSent = SendRadioCommandWithReply(radio, MicInputPcCommand,
-                reply => OnMicSwitchBackReply(attempt, reply));
+            // Under the record's authority AT the write (round 13, Codex's N1):
+            // the switch-back's PC goes only to the recorded radio and
+            // connection, in the recorded run, while the session it was pressed
+            // in is still open. Refused at the write, it was not sent.
+            string notSent = null;
+            string refusedAtWrite = PcUnderRecord(capture,
+                () => !_micSessionOpen || _micSessionId != pressedInSession ? "the PC-audio session it was pressed in has ended" : null,
+                () => notSent = SendRadioCommandWithReply(radio, MicInputPcCommand, reply => OnMicSwitchBackReply(attempt, reply)));
+            notSent ??= refusedAtWrite;
             Tracing.TraceLine("SwitchMicInputBackToPc: mic input '" + before + "', "
                 + (notSent == null ? "'" + MicInputPcCommand + "' sent at the operator's request; the radio's answer will"
                     + " follow, and the stop will put '" + before + "' back"
                     : "'" + MicInputPcCommand + "' NOT sent: " + notSent),
                 notSent == null ? TraceLevel.Info : TraceLevel.Warning);
-            if (notSent != null) OnMicSwitchBackReply(attempt, null, notSent);
+            if (notSent != null)
+            {
+                OnMicSwitchBackReply(attempt, null, notSent);
+                // Nothing was written, so nothing is owed (round 13): a swap the
+                // undo above left in place (its session or radio had changed)
+                // is removed too.
+                lock (_micSwitchLock)
+                    if (ReferenceEquals(_micInputSwap, attempt.Swap)) _micInputSwap = null;
+            }
             // No rebase after the send (round 10, Codex's N1): the baseline is the
             // swap's, taken before this PC went out.
         }
@@ -3314,7 +3355,21 @@ namespace Radios
                 // was a newer choice, and it has settled the saved original. The
                 // stop then puts nothing back, and the mic input stays as the
                 // radio reports it.
-                theRadio.MicInput = "PC";
+                // Through the lane's one PC writer (round 13): this radio, its
+                // connection and this run, still current at the transport's
+                // write, and PC still expected.
+                var radio = theRadio;
+                var heal = new MicCapture
+                {
+                    Radio = radio,
+                    Connection = radio?.CurrentCommandConnection as CommandConnection,
+                    Run = Interlocked.Read(ref _remoteAudioRun),
+                    Recorded = radio?.CurrentCommandConnection != null,
+                };
+                string refused = PcUnderRecord(heal, () => _pcMicExpected ? null : "PC is no longer expected",
+                    () => heal.Radio.SendMicInput("PC"));
+                if (refused != null)
+                    Tracing.TraceLine("checkPcMicSelection: the re-assert of PC was NOT written - " + refused, TraceLevel.Warning);
             }
             catch (Exception ex)
             {
