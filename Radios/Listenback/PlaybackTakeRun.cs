@@ -100,7 +100,9 @@ public sealed class PlaybackTakeRun
     /// The power the check commanded, just before it keys (round five, 7f):
     /// written in place of the admission's <c>rf-power</c> and
     /// <c>dummy-load</c>, which were read before the check set its power, with
-    /// the check's choice beside them. A take with no note keeps the admission's.
+    /// the check's choice beside them. Commanded, not acknowledged by the
+    /// radio (round five repair, 7h-4; <see cref="CheckTakePower"/>). A take
+    /// with no note keeps the admission's.
     /// </summary>
     public void NoteCheckPower(AudioCheckPowerModes mode, AudioCheckPowerStep step, int currentPower, bool dummyLoadActive) =>
         _power ??= CheckTakePower.From(mode, step, currentPower, dummyLoadActive);

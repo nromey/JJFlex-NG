@@ -1486,7 +1486,8 @@ public partial class CheckYourAudioDialog
                         using (rig.AppInitiatedSettingChanges()) rig.XmitPower = saved;
                     }, CheckPutBack.Power(saved, checkPower));
                 }
-                // The take's header says the power it went out at, not the
+                // The take's header says the power the check commanded (not a
+                // power the radio acknowledged; round five repair, 7h-4), not the
                 // power before this block (Unified takes, round five, 7f).
                 _take?.NoteCheckPower(_powerMode, power, currentPower, theirDummyLoad);
 

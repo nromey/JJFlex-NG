@@ -4,8 +4,9 @@ using System.Globalization;
 namespace Radios.Listenback;
 
 /// <summary>
-/// The power a check's take went out at, as the check commanded it just before
-/// keying (Unified takes, round five, 7f).
+/// The power a check COMMANDED for its take, just before keying (Unified takes,
+/// round five, 7f). Not a power the radio acknowledged (round five repair,
+/// 7h-4): see the last paragraph of the remarks.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -26,22 +27,28 @@ namespace Radios.Listenback;
 /// and <c>rf-power</c> is the power the check commanded.
 /// </para>
 /// <para>
-/// From the plan, not read back: the dummy load's and the power's writes are
+/// <b>Commanded, not acknowledged (Codex, round five F4).</b> This is the
+/// check's plan, not a read-back: the dummy load's and the power's writes are
 /// queued to the radio, and FlexLib's cache can still hold the old value at
-/// the moment the check keys.
+/// the moment the check keys. Reading that cache later would not help either:
+/// FlexLib's power setter writes the cache itself and sends the command
+/// without asking for a reply, so the cache reads back what was asked for. If
+/// the radio refused the write, or another client changed the power before
+/// the key, <c>rf-power</c> and <c>dummy-load</c> still say what was commanded.
+/// The header keys keep their names and values; this says what they mean.
 /// </para>
 /// </remarks>
 /// <param name="Choice">The check's power choice, as a schema token: <see cref="DummyLoadChoice"/> or <see cref="LowPowerChoice"/>.</param>
-/// <param name="RfPowerWatts">The transmit power the take went out at.</param>
-/// <param name="DummyLoad">Whether the app's dummy load mode was on as it went out.</param>
-public sealed record CheckTakePower(string Choice, int RfPowerWatts, bool DummyLoad)
+/// <param name="CommandedRfPowerWatts">The transmit power the check commanded for the take.</param>
+/// <param name="CommandedDummyLoad">Whether the check left the app's dummy load mode on, by its plan, as it keyed.</param>
+public sealed record CheckTakePower(string Choice, int CommandedRfPowerWatts, bool CommandedDummyLoad)
 {
     /// <summary>The header key for the check's power choice.</summary>
     public const string Key = "check-power";
     public const string DummyLoadChoice = "dummy-load";
     public const string LowPowerChoice = "low-power";
 
-    /// <summary>What the check's power rule did, as the take's header says it.</summary>
+    /// <summary>What the check's power rule commanded, as the take's header says it.</summary>
     /// <param name="mode">The power choice the rule was given.</param>
     /// <param name="step">What the rule decided (<see cref="AudioCheckPowerRule.Plan"/>).</param>
     /// <param name="currentPower">Transmit power before the rule acted.</param>
@@ -59,12 +66,13 @@ public sealed record CheckTakePower(string Choice, int RfPowerWatts, bool DummyL
 
     /// <summary>
     /// Put these facts into a header: <c>rf-power</c> and <c>dummy-load</c>
-    /// replaced where the admission wrote them, and <c>check-power</c> added.
+    /// replaced where the admission wrote them, with the commanded values, and
+    /// <c>check-power</c> added.
     /// </summary>
     public void WriteInto(List<KeyValuePair<string, string>> facts)
     {
-        Replace(facts, "rf-power", RfPowerWatts.ToString(CultureInfo.InvariantCulture));
-        Replace(facts, "dummy-load", DummyLoad.ToString());
+        Replace(facts, "rf-power", CommandedRfPowerWatts.ToString(CultureInfo.InvariantCulture));
+        Replace(facts, "dummy-load", CommandedDummyLoad.ToString());
         facts.Add(new(Key, Choice));
     }
 

@@ -332,7 +332,7 @@ public sealed class UnifiedTakesRunTests : IDisposable
         Assert.False(c.HeldMute[2]);
     }
 
-    // ── Round five (7f): the header's power facts are the power the take went out at ──
+    // ── Round five (7f): the header's power facts are the power the check commanded (7h-4: not acknowledged) ──
 
     /// <summary>
     /// The bench of 2026-11-04 read <c>dummy-load=False</c> on a take made under
