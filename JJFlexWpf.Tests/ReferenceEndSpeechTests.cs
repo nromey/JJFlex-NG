@@ -150,7 +150,7 @@ public sealed class ReferenceEndSpeechTests : IDisposable
         if (lockKey) _controller.ToggleLock(); else _controller.PttDown();
         Assert.True(_controller.IsTransmitting);
         ReferencePassAtItsEnd();
-        int keying = _controller.Keyings;
+        var keying = CheckYourAudioDialog.ReferenceKeying.Now(_rig, _controller);
         Listen();
 
         _dialog.FinishReferencePass(_rig, Holder.App, hardwareLine: false);
@@ -174,7 +174,7 @@ public sealed class ReferenceEndSpeechTests : IDisposable
         _controller.ToggleLock();
         ReferencePassAtItsEnd();
         _dialog.FinishReferencePass(_rig, Holder.App, hardwareLine: false);
-        _dialog.EndTransmissionForReference(_rig, Holder.App, null, _controller.Keyings);
+        _dialog.EndTransmissionForReference(_rig, Holder.App, null, CheckYourAudioDialog.ReferenceKeying.Now(_rig, _controller));
         Assert.False(_controller.AudioCheckNarration, "the quiet unkey left the controller quiet");
 
         _controller.ToggleLock();
@@ -206,11 +206,11 @@ public sealed class ReferenceEndSpeechTests : IDisposable
         _controller.ToggleLock();
         ReferencePassAtItsEnd();
         _dialog.FinishReferencePass(_rig, Holder.App, hardwareLine: false);
-        int keying = _controller.Keyings;            // what the tail captured at the end
+        var keying = CheckYourAudioDialog.ReferenceKeying.Now(_rig, _controller);   // what the tail captured at the end
 
         _controller.ToggleLock();                    // the operator unlocks inside the tail...
         _controller.ToggleLock();                    // ...and locks again: a new transmission
-        Assert.NotEqual(keying, _controller.Keyings);
+        Assert.NotEqual(keying.Keyings, _controller.Keyings);
 
         Assert.Equal(Holder.Nobody, _dialog.EndTransmissionForReference(_rig, Holder.App, null, keying));
         Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);   // the mutation: drop the keying check and the tail ends it, quietly
@@ -218,6 +218,137 @@ public sealed class ReferenceEndSpeechTests : IDisposable
         Listen();
         _controller.ToggleLock();
         AssertReceivingOnce(Said());
+    }
+
+    // ── the real delayed tail (round five repair, 7h-1) ──
+
+    /// <summary>
+    /// Holds the tail's continuation instead of running it, so a test can put
+    /// something between the reference's end and the moment the tail acts,
+    /// then run that continuation exactly as the dispatcher would have.
+    /// </summary>
+    private sealed class HeldContinuations : SynchronizationContext
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<(SendOrPostCallback Callback, object? State)> _work = new();
+        public override void Post(SendOrPostCallback d, object? state) => _work.Enqueue((d, state));
+        public override void Send(SendOrPostCallback d, object? state) => d(state);
+        public int Count => _work.Count;
+        public void RunAll() { while (_work.TryDequeue(out var w)) w.Callback(w.State); }
+    }
+
+    /// <summary>The production tail, <c>EndTransmissionAfterReferenceTail</c>, started as the poll starts it, its continuation held.</summary>
+    private HeldContinuations StartTheRealTail()
+    {
+        var tail = typeof(CheckYourAudioDialog).GetMethod("EndTransmissionAfterReferenceTail", Any);
+        Assert.True(tail != null, "production entry CheckYourAudioDialog.EndTransmissionAfterReferenceTail is missing");
+        var held = new HeldContinuations();
+        var prior = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(held);
+        try { tail!.Invoke(_dialog, new object[] { _rig, Holder.App }); }
+        finally { SynchronizationContext.SetSynchronizationContext(prior); }
+        return held;
+    }
+
+    /// <summary>Wait out the real 300 ms tail, then run its continuation as the dispatcher would.</summary>
+    private static void TheTailComesDue(HeldContinuations held)
+    {
+        var until = DateTime.UtcNow.AddSeconds(5);
+        while (held.Count == 0 && DateTime.UtcNow < until) Thread.Sleep(10);
+        Assert.True(held.Count > 0, "positive control: the tail's delayed continuation was posted");
+        held.RunAll();
+    }
+
+    /// <summary>
+    /// Codex's round five B1, as a created state through the real delayed
+    /// continuation: a reference ends under controller A's first key, A's key
+    /// ends, the controller is replaced on the SAME radio (power-on builds a new
+    /// one, an operator change too), and B's first key is up when A's tail comes
+    /// due. Both counts are 1. The tail must leave B keyed, and B's own release
+    /// must still say "Receiving".
+    /// </summary>
+    [Fact]
+    public void A_tail_planned_on_a_replaced_controller_leaves_the_new_controllers_key_alone()
+    {
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+        _controller.ToggleLock();
+        ReferencePassAtItsEnd();
+        _dialog.FinishReferencePass(_rig, Holder.App, hardwareLine: false);
+        var held = StartTheRealTail();
+
+        _controller.ToggleLock();                    // A's key ends inside the tail
+        var replacement = new PttSafetyController(() => _rig, () => true,
+            new PttConfig { ChirpEnabled = false, SpeechEnabled = true });
+        try
+        {
+            AudioWorkshopDialog.PttControllerSource = () => replacement;
+            replacement.ToggleLock();                // B's first real transmission
+            Assert.Equal(_controller.Keyings, replacement.Keyings);   // positive control: the collision itself, 1 against 1
+
+            TheTailComesDue(held);
+            Assert.Equal(PttSafetyController.PttState.Locked, replacement.State);   // red before 7h-1: the tail ended it, quietly
+
+            Listen();
+            replacement.ToggleLock();
+            AssertReceivingOnce(Said());
+        }
+        finally
+        {
+            AudioWorkshopDialog.PttControllerSource = () => _controller;
+            if (replacement.IsTransmitting) replacement.EscapeUnlock();
+            replacement.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// The control for the one above: the same controller, no re-key, the same
+    /// real delayed continuation. The tail still ends the key, quietly.
+    /// </summary>
+    [Fact]
+    public void The_real_delayed_tail_still_ends_the_same_controllers_key_quietly()
+    {
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+        _controller.ToggleLock();
+        ReferencePassAtItsEnd();
+        Listen();
+        _dialog.FinishReferencePass(_rig, Holder.App, hardwareLine: false);
+        var held = StartTheRealTail();
+        Assert.True(_controller.IsTransmitting, "nothing ends before the tail comes due");
+
+        TheTailComesDue(held);
+        Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
+        var said = Said();
+        Assert.Equal(1, said.Count(x => x == "Transmitting of the reference recording is complete."));
+        Assert.Equal(0, said.Count(x => x == Receiving));
+    }
+
+    /// <summary>
+    /// The connection half of the plan: the same controller, no keying since,
+    /// but the radio's connection replaced inside the tail (a reconnect on the
+    /// same radio wrapper that kept its controller). The tail ends nothing.
+    /// The binding is set as the transport's Connecting report sets it, a new
+    /// object; no socket is opened.
+    /// </summary>
+    [Fact]
+    public void A_tail_planned_on_an_earlier_connection_ends_nothing()
+    {
+        AssertTheDeskIsSafe();
+        var binding = typeof(FlexBase).GetProperty(nameof(FlexBase.CurrentConnectionBinding));
+        Assert.True(binding?.SetMethod != null, "production property FlexBase.CurrentConnectionBinding has no setter");
+        var before = binding!.GetValue(_rig);
+        try
+        {
+            _controller.ToggleLock();
+            ReferencePassAtItsEnd();
+            _dialog.FinishReferencePass(_rig, Holder.App, hardwareLine: false);
+            var held = StartTheRealTail();
+
+            binding.SetValue(_rig, RuntimeHelpers.GetUninitializedObject(typeof(RadioConnectionBinding)));
+            TheTailComesDue(held);
+            Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);   // the mutation: drop the connection from the plan
+        }
+        finally { binding.SetValue(_rig, before); }
     }
 
     /// <summary>A hardware line held through the end: no unkey, so the release sentence alone, once.</summary>

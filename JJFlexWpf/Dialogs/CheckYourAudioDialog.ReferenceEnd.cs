@@ -318,14 +318,58 @@ public partial class CheckYourAudioDialog
         return WhoHoldsTheReference(_session?.Keyed == true, ptt?.IsTransmitting == true, rig.Transmit);
     }
 
+    /// <summary>
+    /// Which of the app's transmissions a reference rode, as its tail planned
+    /// it (round five, 7c; round five repair, 7h-1): the controller, the
+    /// count of keyings on that controller, and the radio's connection.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The count alone is not an identity.</b> <see cref="PttSafetyController.Keyings"/>
+    /// starts at zero on every controller, and the main window builds a new
+    /// controller at every power-on (a reconnect, a re-raised power event, an
+    /// operator change) on the same radio. So a tail pending across a
+    /// replacement saw 1 against 1 and quietly ended the NEW controller's
+    /// first transmission, its "Receiving" with it (Codex, round five B1).
+    /// </para>
+    /// <para>
+    /// <b>The controller is compared by instance, and the connection by its
+    /// binding</b> (<see cref="FlexBase.CurrentConnectionBinding"/>, a new
+    /// object for every transport attempt), so a reconnect on the same radio
+    /// that somehow kept its controller ends the plan too. A tail whose plan
+    /// is no longer current does nothing: it ends nobody's key.
+    /// </para>
+    /// <para>
+    /// <b>A close does not end the plan</b> (round five, 7b): the controller,
+    /// its count and the connection all survive a window closing, so the tail
+    /// still lets go of the app's own key after a close.
+    /// </para>
+    /// </remarks>
+    internal sealed record ReferenceKeying(PttSafetyController? Controller, int Keyings, RadioConnectionBinding? Connection)
+    {
+        /// <summary>The transmission on <paramref name="rig"/> as it stands now.</summary>
+        internal static ReferenceKeying Now(FlexBase rig, PttSafetyController? ptt) =>
+            new(ptt, ptt?.Keyings ?? 0, rig.CurrentConnectionBinding);
+
+        /// <summary>
+        /// True when <paramref name="ptt"/> is still the transmission this plan
+        /// was made for: the same controller, keying the same radio, with no
+        /// keying since, on the same connection.
+        /// </summary>
+        internal bool StillCurrent(FlexBase rig, PttSafetyController? ptt) =>
+            ptt != null && ReferenceEquals(ptt, Controller) && ptt.KeysRadio(rig)
+            && ptt.Keyings == Keyings && ReferenceEquals(rig.CurrentConnectionBinding, Connection);
+    }
+
     /// <summary>After the tail, end the transmission the reference rode, if it is still held the same way.</summary>
     private async void EndTransmissionAfterReferenceTail(FlexBase rig, ReferenceEndHolder holder)
     {
         object? session = _session;
-        // Which keying the reference rode (round five, 7c): an operator who
-        // lets go and keys again inside the tail has started a transmission of
-        // their own, and it is not the reference's to end, or to end quietly.
-        int? keying = PttControllerSource?.Invoke()?.Keyings;
+        // Which keying the reference rode (round five, 7c; repair 7h-1): an
+        // operator who lets go and keys again inside the tail has started a
+        // transmission of their own, and so has a controller built since; it
+        // is not the reference's to end, or to end quietly.
+        var keying = ReferenceKeying.Now(rig, PttControllerSource?.Invoke());
         try { await Task.Delay(ReferenceEndTail); }
         catch (Exception) { return; }
         EndTransmissionForReference(rig, holder, session, keying);
@@ -339,11 +383,15 @@ public partial class CheckYourAudioDialog
 
     /// <summary>
     /// End the transmission a finished reference rode, by its holder's own
-    /// route, rechecked now: the same radio, the same session, held the same
-    /// way. Returns what it did.
+    /// route, rechecked now: held the same way, and for a check the same
+    /// window, radio and session; for the app's key the same transmission
+    /// (<see cref="ReferenceKeying"/>). Returns what it did.
     /// </summary>
+    /// <remarks>
+    /// With no plan given (a test), the plan is made now.
+    /// </remarks>
     internal ReferenceEndHolder EndTransmissionForReference(FlexBase rig, ReferenceEndHolder planned, object? plannedSession,
-        int? plannedKeying = null)
+        ReferenceKeying? plannedKeying = null)
     {
         if (!ReferenceEquals(rig, _rig)) return ReferenceEndHolder.Nobody;
         var now = ReferenceHolderNow(rig);
@@ -356,9 +404,12 @@ public partial class CheckYourAudioDialog
                 return ReferenceEndHolder.Check;
             case ReferenceEndHolder.App:
                 var ptt = PttControllerSource?.Invoke();
-                // A transmission begun since the end is the operator's own (7c).
-                if (plannedKeying is int keying && ptt != null && ptt.Keyings != keying)
+                // A transmission begun since the end is the operator's own (7c),
+                // and so is one on a controller or a connection built since (7h-1).
+                if (!(plannedKeying ?? ReferenceKeying.Now(rig, ptt)).StillCurrent(rig, ptt))
                     return ReferenceEndHolder.Nobody;
+                // MainWindow's unkey acts on its own controller, which is the one
+                // just checked: both are the same field (_pttController).
                 // Through the controller, never the radio's transmit flag: that
                 // would leave the controller believing it still holds the key.
                 // And through the key edges, which latch a hold the operator

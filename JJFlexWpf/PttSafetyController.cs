@@ -1065,6 +1065,20 @@ namespace JJFlexWpf
         public int Keyings { get; private set; }
 
         /// <summary>
+        /// True when this controller's key keys <paramref name="rig"/>: the radio
+        /// it was built to key is that radio now. A caller that planned an unkey
+        /// for one radio asks this before acting (round five repair, 7h-1), so
+        /// it cannot end a transmission on a different one.
+        /// </summary>
+        public bool KeysRadio(FlexBase? rig)
+        {
+            if (rig == null) return false;
+            FlexBase? mine = null;
+            try { mine = _getRigControl(); } catch { }
+            return ReferenceEquals(mine, rig);
+        }
+
+        /// <summary>
         /// A recording's send began going out on the operator's transmission
         /// (#835; Noel, 2026-10-30 00:00: <i>"we have a ten minute for longer
         /// recordings, I'm thinking amateur radio news line or another
