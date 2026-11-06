@@ -2157,14 +2157,25 @@ namespace Radios.Tests
                 "audio.fields.rf_preamp",
                 "audio.fields.rf_preamp_on",
                 "audio.fields.rf_preamp_off",
+                // Junk box 2026-11-06 integration (#747): the unit travels
+                // with the width from the shared formatter, so Home's receive
+                // filter field is one string (it was a Hz and a kHz pair) and
+                // the filter calculator's two width strings lost their fixed
+                // " Hz". Home's text reads as before; the calculator now
+                // shows "2.75 kHz" where it showed "2750 Hz".
+                "audio.fields.rx_filter_width",
+                "audio.filter.calculator.all_three",
+                "audio.filter.calculator.computed_width",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
             // 3,133: main's junk box classified two (3,140 to 3,138) and Check
             // your audio five (3,140 to 3,135); the two sets are disjoint.
             // 3093 since the 2026-11-06 junk box classified the two reworded
-            // filter reports (#747).
-            Assert.Equal(3093, unclassified);
+            // filter reports (#747). 3089 since its integration pass removed
+            // Home's Hz/kHz width pair and classified the calculator's two
+            // width strings (#747).
+            Assert.Equal(3089, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

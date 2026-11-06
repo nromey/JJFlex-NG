@@ -1794,11 +1794,11 @@ public partial class ScreenFieldsPanel : UserControl
         int filterLow = _rig.FilterLow;
         int filterHigh = _rig.FilterHigh;
         int filterWidth = filterHigh - filterLow;
-        string widthText = filterWidth >= 1000
-            ? Lexicon.Get("audio.fields.rx_filter_width_khz", ("filterLow", filterLow),
-                ("filterHigh", filterHigh), ("filterWidth", Radios.HertzSpeech.KiloDigits(filterWidth)))
-            : Lexicon.Get("audio.fields.rx_filter_width_hz", ("filterLow", filterLow),
-                ("filterHigh", filterHigh), ("filterWidth", filterWidth));
+        // The shared displayed form, "2.75 kHz" or "500 Hz" (#747,
+        // integration pass finding 10): one string, the unit from the
+        // formatter, never a second 1000 Hz rule here.
+        string widthText = Lexicon.Get("audio.fields.rx_filter_width", ("filterLow", filterLow),
+            ("filterHigh", filterHigh), ("filterWidth", Radios.HertzSpeech.DisplayedWidth(filterWidth)));
         _rxFilterWidthDisplay.Text = widthText;
         System.Windows.Automation.AutomationProperties.SetName(_rxFilterWidthDisplay, widthText);
     }

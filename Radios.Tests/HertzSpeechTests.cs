@@ -142,7 +142,7 @@ namespace Radios.Tests
         /// this shape; the scan refuses an eighth.
         /// </summary>
         private static readonly Regex HandRolledKiloWidth = new Regex(
-            @"/\s*1000(\.0)?[dDmM]?\s*\)?\s*(\.ToString\(\s*""[FfNn0#][^""]*""|:\s*(0\.#|[FfNn]\d))",
+            @"/\s*1000(\.0)?[dDmMRr]?\s*\)?\s*(\.ToString\(\s*""[FfNn0#][^""]*""|:\s*(0\.#|[FfNn]\d)|,\s*""[FfNn0#][^""]*"")",
             RegexOptions.Compiled);
 
         internal static bool IsHandRolledKiloWidth(string line)
@@ -158,6 +158,8 @@ namespace Radios.Tests
             Assert.True(IsHandRolledKiloWidth("(\"widthKHz\", ((high - low) / 1000.0).ToString(\"F1\")));"));
             Assert.True(IsHandRolledKiloWidth("(\"filterWidth\", $\"{filterWidth / 1000.0:F1}\"))"));
             Assert.True(IsHandRolledKiloWidth("? Words(\"width_khz\", (\"width\", $\"{p.Width / 1000.0:0.#}\"))"));
+            // VB's Format(..., "0.0"), the other source language in the tree.
+            Assert.True(IsHandRolledKiloWidth("Dim w As String = Format(width / 1000, \"0.0\")"));
             // And what it must leave alone: a sample rate, a duration.
             Assert.False(IsHandRolledKiloWidth("return $\"{quality} — {rate / 1000.0:0.#} kHz\""));
             Assert.False(IsHandRolledKiloWidth("string seconds = (durationMs / 1000.0).ToString(\"F1\");"));
@@ -166,23 +168,24 @@ namespace Radios.Tests
         [Fact]
         public void No_filter_width_is_formatted_in_kilohertz_outside_the_shared_formatter()
         {
-            string root = RepoRoot();
+            // The TRACKED tree (git ls-files, plus untracked source not yet
+            // ignored), in every source language: C# and VB. It read whatever
+            // was on the disk under two folders, C# only, until the
+            // integration pass (finding 10), the shape DelegateSurfaceTests
+            // was rebuilt to escape.
             var offenders = new List<string>();
             int scanned = 0;
-            foreach (string dir in new[] { "Radios", "JJFlexWpf" })
+            foreach (string file in IntegrationPassTree.AuthoredSource.Concat(IntegrationPassTree.UntrackedSource()))
             {
-                foreach (string file in Directory.EnumerateFiles(Path.Combine(root, dir), "*.cs", SearchOption.AllDirectories))
+                if (IntegrationPassTree.IsTest(file)) continue;
+                string rel = IntegrationPassTree.Relative(file).Replace('\\', '/');
+                if (rel == "Radios/HertzSpeech.cs") continue;
+                scanned++;
+                var lines = File.ReadAllLines(file);
+                for (int i = 0; i < lines.Length; i++)
                 {
-                    string rel = Path.GetRelativePath(root, file).Replace('\\', '/');
-                    if (rel.Contains("/obj/") || rel.Contains("/bin/")) continue;
-                    if (rel == "Radios/HertzSpeech.cs") continue;
-                    scanned++;
-                    var lines = File.ReadAllLines(file);
-                    for (int i = 0; i < lines.Length; i++)
-                    {
-                        if (IsHandRolledKiloWidth(lines[i]))
-                            offenders.Add($"{rel}:{i + 1}: {lines[i].Trim()}");
-                    }
+                    if (IsHandRolledKiloWidth(lines[i]))
+                        offenders.Add($"{rel}:{i + 1}: {lines[i].Trim()}");
                 }
             }
             Assert.True(scanned > 300, "The scan saw only " + scanned + " files, so it was not looking at the source tree.");

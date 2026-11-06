@@ -302,10 +302,20 @@ public class AudioChainPreset
     /// Format for speech output.
     /// </summary>
     public string FormatForSpeech()
-    {
         // The shared width formatter (#747): "2.75 k" at Terse, "2750 hertz"
         // at Chatty, never rounded.
-        string widthStr = HertzSpeech.Width(TxFilterHigh - TxFilterLow, HertzUnitStyle.KiloLetter);
+        => Describe(HertzSpeech.Width(TxFilterHigh - TxFilterLow, HertzUnitStyle.KiloLetter));
+
+    /// <summary>
+    /// Format for text on a window (a dialog body, a label): the displayed
+    /// width, "2.75 kHz", whatever the verbosity, which is a speech setting
+    /// (#747, integration pass finding 10).
+    /// </summary>
+    public string FormatForDisplay()
+        => Describe(HertzSpeech.DisplayedWidth(TxFilterHigh - TxFilterLow));
+
+    private string Describe(string widthStr)
+    {
         string forInput = string.IsNullOrEmpty(RadioMicInput) ? "" : $", tuned for {RadioMicInput}";
         return $"{Name}, mic gain {MicGain}, filter {widthStr}{forInput}";
     }

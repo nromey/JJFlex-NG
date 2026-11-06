@@ -5460,8 +5460,10 @@ public class KeyCommands
         rx.LowEdge = v => Radios.Lexicon.Get("audio.filter.low_edge", ("low", v));
         rx.HighEdge = v => Radios.Lexicon.Get("audio.filter.high_edge", ("high", v));
         rx.Range = () => Radios.Lexicon.Get("audio.filter.range", ("low", rx.Bank.Low), ("high", rx.Bank.High));
+        // The width through the shared formatter, as the layer's own report
+        // says it (#747, integration pass finding 10).
         rx.Width = () => Radios.Lexicon.Get("audio.filter_layer.width",
-            ("width", rx.Bank.Width), ("low", rx.Bank.Low), ("high", rx.Bank.High));
+            ("width", Radios.HertzSpeech.Width(rx.Bank.Width, Radios.HertzUnitStyle.Words)), ("low", rx.Bank.Low), ("high", rx.Bank.High));
         rx.Report = () => FilterReport("audio.filter.rx_report", rx.Bank.Low, rx.Bank.High);
 
         var tx = new FilterSide
@@ -5484,7 +5486,7 @@ public class KeyCommands
         tx.HighEdge = v => Radios.Lexicon.Get("audio.tx.filter_high", ("value", v));
         tx.Range = () => Radios.Lexicon.Get("audio.tx_filter.range", ("low", tx.Bank.Low), ("high", tx.Bank.High));
         tx.Width = () => Radios.Lexicon.Get("audio.filter_layer.tx_width",
-            ("width", tx.Bank.Width), ("low", tx.Bank.Low), ("high", tx.Bank.High));
+            ("width", Radios.HertzSpeech.Width(tx.Bank.Width, Radios.HertzUnitStyle.Words)), ("low", tx.Bank.Low), ("high", tx.Bank.High));
         tx.Report = () => FilterReport("audio.filter.tx_report", tx.Bank.Low, tx.Bank.High);
 
         _filterRx = rx;

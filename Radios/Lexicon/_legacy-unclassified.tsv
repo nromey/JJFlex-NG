@@ -553,8 +553,6 @@ audio.fields.released_extra_many	35d060ef9a2fef5c
 audio.fields.released_extra_one	d6d6cfb73d65ec03
 audio.fields.rf_gain	07b07b96d880354c
 audio.fields.rx_antenna	77cd67ddb7c171d1
-audio.fields.rx_filter_width_hz	eda12829b33fd65a
-audio.fields.rx_filter_width_khz	60d7730888d8f8ef
 audio.fields.rx_filter_width_name	21f94a0320b0c116
 audio.fields.slice_created_many	57afa3da8ea82d5b
 audio.fields.slice_created_one	65fed56c5fbecf17
@@ -589,11 +587,9 @@ audio.filter.at_beginning	2a8a360ce5c606ff
 audio.filter.at_end	80cfdb09a78f4be7
 audio.filter.at_maximum	67c7b9ecd88471de
 audio.filter.at_minimum	1443787ccacaf3d6
-audio.filter.calculator.all_three	7e1307d631e1d4ae
 audio.filter.calculator.applied	8c5b7f4f9beff4e3
 audio.filter.calculator.computed_high	5faa21b7abf87bc8
 audio.filter.calculator.computed_low	a3066278a1801b5f
-audio.filter.calculator.computed_width	17f098dbcb286f1c
 audio.filter.calculator.need_one_more	f7b063e7c2cceb7f
 audio.filter.high_edge	56f2c0a052bddee1
 audio.filter.low_edge	1a0d7900d2e8c56d

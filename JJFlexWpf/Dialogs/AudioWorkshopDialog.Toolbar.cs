@@ -57,7 +57,9 @@ public partial class AudioWorkshopDialog
 
             var confirm = new ConfirmActionDialog(
                 Lexicon.Get("audio.preset.delete_title"),
-                Lexicon.Get("audio.preset.delete_body", ("preset", preset.FormatForSpeech())),
+                // A dialog body is text on a window, not speech: the displayed
+                // form, whatever the verbosity (#747, integration finding 10).
+                Lexicon.Get("audio.preset.delete_body", ("preset", preset.FormatForDisplay())),
                 question: Lexicon.Get("audio.preset.delete_question"),
                 yesLabel: Lexicon.Get("audio.preset.delete_yes_label"));
             if (confirm.ShowDialog() != true)
