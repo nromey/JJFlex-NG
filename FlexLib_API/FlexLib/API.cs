@@ -142,8 +142,11 @@ public class API
             LogDiscovery(
                 $"3 API::Discovery_RadioDiscovered({discoveredRadio}) - newer protocol, updating radio info");
             radio.DiscoveryProtocolVersion = discoveredRadio.DiscoveryProtocolVersion;
-            radio.Callsign = discoveredRadio.Callsign;
-            radio.Nickname = discoveredRadio.Nickname;
+            // JJFlex patch: identity from discovery, never a command (MIGRATION.md item 23).
+            // The Callsign and Nickname setters send "radio callsign" / "radio name",
+            // which the radio keeps in firmware; this radio object may be the live one.
+            if (!radio.Connected)
+                radio.UpdateIdentityFromList(discoveredRadio.Nickname, discoveredRadio.Callsign);
             radio.Serial = discoveredRadio.Serial;
         }
 
@@ -179,8 +182,15 @@ public class API
         radio.MaxLicensedVersion = discoveredRadio.MaxLicensedVersion;
         radio.FrontPanelMacAddress = discoveredRadio.FrontPanelMacAddress;
         radio.RadioLicenseId = discoveredRadio.RadioLicenseId;
-        radio.Callsign = discoveredRadio.Callsign;
-        radio.Nickname = discoveredRadio.Nickname;
+        // JJFlex patch: identity from discovery, never a command (MIGRATION.md item 23).
+        // This refresh runs on every discovery packet for a radio already in the
+        // list, which is the object a LAN connect adopts, and the setters send
+        // "radio callsign" / "radio name" whenever the transport is up: a packet
+        // that lagged a rename wrote the old name back into the radio. Connected,
+        // the radio's own status is the authority; otherwise update the record
+        // and send nothing.
+        if (!radio.Connected)
+            radio.UpdateIdentityFromList(discoveredRadio.Nickname, discoveredRadio.Callsign);
         radio.LicensedClients = discoveredRadio.LicensedClients;
         radio.AvailableClients = discoveredRadio.AvailableClients;
         radio.MaxPanadapters = discoveredRadio.MaxPanadapters;

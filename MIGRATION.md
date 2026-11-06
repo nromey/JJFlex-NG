@@ -198,7 +198,15 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     lagged a rename could write the old name back into somebody's radio. The
     merge now leaves a connected radio's identity to the radio's own status and
     updates any other copy through this method, which sets the fields, raises
-    `PropertyChanged`, and sends nothing. Pinned by
+    `PropertyChanged`, and sends nothing. **The vendor's own LAN discovery
+    refresh had the same defect and is patched the same way** (repair round 1,
+    2026-11-06): `FlexLib_API/FlexLib/API.cs` `RefreshRadio`, which runs on every
+    discovery packet for a radio already in the list, used the sending setters
+    in both of its branches; both now leave a connected radio's identity to its
+    status and otherwise call `UpdateIdentityFromList`, comment-marked
+    `JJFlex patch`. `Discovery.cs` and `WanServer.cs` still use the setters, but
+    only on a `Radio` they have just constructed, whose transport does not
+    exist, so nothing can be sent there; re-check that when merging a new drop. Pinned by
     `Radios.Tests/DiscoveryMergeWritesTests`. Numbered 23 because items 21 and
     22 are taken on branches not yet merged (the 2026-11-02 junk box's write-time
     gate and forced writes, and the r5-tuning branch's own 22); renumber at merge

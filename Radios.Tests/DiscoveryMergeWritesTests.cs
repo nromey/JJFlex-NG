@@ -122,6 +122,70 @@ namespace Radios.Tests
             Assert.True(CommandsIdentity(vendor));
         }
 
+        private static readonly MethodInfo? RefreshRadio =
+            typeof(Flex.Smoothlake.FlexLib.API).GetMethod("RefreshRadio", BindingFlags.NonPublic | BindingFlags.Static);
+
+        /// <summary>
+        /// FlexLib's own LAN discovery refresh (repair round 1, Codex B1).
+        /// Every discovery packet for a radio already in the list is merged
+        /// into the EXISTING object, the one a LAN connect adopts, through
+        /// API.RefreshRadio, and that used the sending setters too: a packet
+        /// that lagged a rename sent "radio name" with the old name. Driven
+        /// here through the vendor's own method, with the transport up, the
+        /// radio both flagged connected and not.
+        /// </summary>
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void A_lan_discovery_refresh_sends_no_name_or_callsign(bool connected)
+        {
+            Assert.True(RefreshRadio != null, "API.RefreshRadio is not where this test reaches it, so it would prove nothing.");
+            var vendor = RadioThatSays("NewShack", "K0NEW", connected);
+            Assert.True(vendor.Transport.IsConnected);
+            // The fixture builds a bare radio; the vendor's discovery log line
+            // formats its address and model, so give it the ones a discovered
+            // radio has.
+            typeof(Radio).GetField("_ip", BindingFlags.NonPublic | BindingFlags.Instance)!
+                .SetValue(vendor.Radio, System.Net.IPAddress.Loopback);
+            typeof(Radio).GetField("_model", BindingFlags.NonPublic | BindingFlags.Instance)!
+                .SetValue(vendor.Radio, "FLEX-6400");
+
+            RefreshRadio!.Invoke(null, new object[] { vendor.Radio, StaleListCopy() });
+
+            Assert.False(CommandsIdentity(vendor),
+                "FlexLib's LAN discovery refresh commanded a radio's name or callsign: "
+                + string.Join(" | ", vendor.Transport.Commands));
+            if (connected)
+            {
+                // The radio's own status is the authority while connected.
+                Assert.Equal("NewShack", vendor.Radio.Nickname);
+                Assert.Equal("K0NEW", vendor.Radio.Callsign);
+            }
+            else
+            {
+                Assert.Equal("OldShack", vendor.Radio.Nickname);
+                Assert.Equal("W0OLD", vendor.Radio.Callsign);
+            }
+        }
+
+        /// <summary>
+        /// The class, pinned at the source: no discovery or list merge onto an
+        /// existing radio object uses the sending setters. API.cs is the
+        /// vendor's merge; FlexBase's is ours. (Discovery.cs and WanServer.cs
+        /// set identity only on a Radio they have just constructed, whose
+        /// transport does not exist yet, so nothing can be sent there.)
+        /// </summary>
+        [Fact]
+        public void No_list_or_discovery_merge_uses_the_sending_identity_setters()
+        {
+            string api = File.ReadAllText(Path.Combine(RepoRoot(), "FlexLib_API", "FlexLib", "API.cs"));
+            string refresh = Body(api, "private static void RefreshRadio(");
+            Assert.DoesNotContain(".Nickname = ", refresh, StringComparison.Ordinal);
+            Assert.DoesNotContain(".Callsign = ", refresh, StringComparison.Ordinal);
+            Assert.Contains("UpdateIdentityFromList(", refresh, StringComparison.Ordinal);
+            Assert.Contains("JJFlex patch", refresh, StringComparison.Ordinal);
+        }
+
         /// <summary>The FlexLib patch that makes the update silent, pinned at its source (MIGRATION.md item 23).</summary>
         [Fact]
         public void The_flexlib_identity_update_is_marked_and_sends_nothing()
