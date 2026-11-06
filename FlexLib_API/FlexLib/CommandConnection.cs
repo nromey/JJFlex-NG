@@ -70,11 +70,12 @@ public sealed class CommandWritePin : IDisposable
     /// <summary>How long a predicate waits for the dispatch gate before the write fails closed.</summary>
     public static TimeSpan SerializeBound { get; set; } = TimeSpan.FromMilliseconds(100);
 
-    private CommandWritePin(CommandConnection connection, Func<string?>? predicate, Action<string>? onRefused)
+    private CommandWritePin(CommandConnection connection, Func<string?>? predicate, Action<string>? onRefused, bool sendWhenUnconfirmed)
     {
         Connection = connection;
         Predicate = predicate;
         OnRefused = onRefused;
+        SendWhenUnconfirmed = sendWhenUnconfirmed;
         _outer = _current;
         _current = this;
     }
@@ -82,13 +83,21 @@ public sealed class CommandWritePin : IDisposable
     /// <summary>Pin this thread's command writes, until Dispose, to <paramref name="connection"/>.</summary>
     /// <param name="predicate">Asked at each write, under the transport's dispatch gate: null to write, else why not. It must only read state: no I/O, no locks.</param>
     /// <param name="onRefused">Told why, on the writing thread, when a write is refused.</param>
-    public static CommandWritePin Pin(CommandConnection connection, Func<string?>? predicate = null, Action<string>? onRefused = null) =>
-        new CommandWritePin(connection ?? throw new ArgumentNullException(nameof(connection)), predicate, onRefused);
+    /// <param name="sendWhenUnconfirmed">For an UNKEY of the caller's own carrier: when the
+    /// dispatch gate cannot be had in time, or the predicate throws, the write still goes,
+    /// after the predicate is asked without the gate. Only the predicate's positive answer,
+    /// or a connection that is not the pinned one, refuses it. Never refused by contention.</param>
+    public static CommandWritePin Pin(CommandConnection connection, Func<string?>? predicate = null, Action<string>? onRefused = null,
+        bool sendWhenUnconfirmed = false) =>
+        new CommandWritePin(connection ?? throw new ArgumentNullException(nameof(connection)), predicate, onRefused, sendWhenUnconfirmed);
 
     internal static CommandWritePin? Current => _current;
     public CommandConnection Connection { get; }
     public Func<string?>? Predicate { get; }
     private Action<string>? OnRefused { get; }
+
+    /// <summary>An unkey: contention or an unanswerable predicate never refuses it.</summary>
+    public bool SendWhenUnconfirmed { get; }
 
     /// <summary>The first refusal of a write under this pin, or null.</summary>
     public string? Refusal { get; private set; }
@@ -151,7 +160,16 @@ public abstract class CommandCommunicationBase : ICommandCommunication
         {
             string? why;
             if (!System.Threading.Monitor.TryEnter(ConnectionSync, CommandWritePin.SerializeBound))
-                why = "the radio's reports could not be read in time to confirm the write";
+            {
+                // An unkey of our own carrier is never refused by contention: it asks
+                // its question without the gate, and only a positive answer refuses.
+                if (pin.SendWhenUnconfirmed)
+                {
+                    try { why = predicate(); }
+                    catch { why = null; }
+                }
+                else why = "the radio's reports could not be read in time to confirm the write";
+            }
             else
             {
                 try
@@ -162,7 +180,7 @@ public abstract class CommandCommunicationBase : ICommandCommunication
                         ? "the command connection it was pinned to has changed or ended"
                         : predicate();
                 }
-                catch (Exception ex) { why = "the write's own check failed (" + ex.Message + ")"; }
+                catch (Exception ex) { why = pin.SendWhenUnconfirmed ? null : "the write's own check failed (" + ex.Message + ")"; }
                 finally { System.Threading.Monitor.Exit(ConnectionSync); }
             }
             if (why != null)

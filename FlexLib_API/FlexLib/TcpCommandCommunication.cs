@@ -149,6 +149,8 @@ public class TcpCommandCommunication : CommandCommunicationBase
     public async Task WriteAsync(string msg)
     {
         var attempt = Volatile.Read(ref _attempt);
+        // JJFlex patch: write-time gate (MIGRATION.md item 21), decided before the first await.
+        if (!AdmitWrite(attempt?.Connection)) return;
         var writer = attempt?.Writer;
         if (attempt?.Connection.State != CommandConnectionState.Connected || writer == null) return;
         try { await writer.WriteAsync(msg).ConfigureAwait(false); }

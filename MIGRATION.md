@@ -191,8 +191,8 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
 21. **Command write-time gate (2026-11-05, ruled by Noel 23:49)**: keep the
     comment-marked JJFlex patches ("write-time gate (MIGRATION.md item 21)") in
     `FlexLib_API/FlexLib/CommandConnection.cs` (the `CommandWritePin` class, and
-    `CommandCommunicationBase.AdmitWrite`), in `TcpCommandCommunication.Write`
-    and `TlsCommandCommunication.Write` (each calls `AdmitWrite` with the
+    `CommandCommunicationBase.AdmitWrite`), in `TcpCommandCommunication.Write`,
+    `TcpCommandCommunication.WriteAsync` and `TlsCommandCommunication.Write` (each calls `AdmitWrite` with the
     connection of the attempt or session it is about to write through), and in
     `Radio.SendCommand` (its not-connected early return tells a pinned caller).
     - **What it is.** A caller pins its command writes, on its own thread, to the
@@ -202,8 +202,13 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
       transport's `ConnectionSync`, the gate the reader dispatches every report
       under, so a report already dispatched is seen; the bytes go out after the
       gate is released (no lock is held across I/O). A predicate that cannot get
-      the gate within `CommandWritePin.SerializeBound` (100 ms) fails closed. A
-      refused write is not written, and the pin records and reports why.
+      the gate within `CommandWritePin.SerializeBound` (100 ms) fails closed,
+      EXCEPT an unkey of the caller's own carrier (`sendWhenUnconfirmed`, added
+      2026-11-06 after Codex's #596 B11): it then asks its predicate without the
+      gate and is refused only by a positive answer or a connection that is not the
+      pinned one, never by contention. A refused write is not written, and the pin
+      records and reports why. `TcpCommandCommunication.WriteAsync` is covered too
+      (decided before its first await).
       Unpinned writes (the emergency kill, every ordinary command) are untouched.
     - **Why.** The check-to-write interval: the app checked its radio, connection,
       ownership, receive and mic selection, then FlexLib's setter wrote through
@@ -220,7 +225,7 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
       must call `AdmitWrite` with the connection of the exact attempt or session
       it then writes through, before it writes. `RepairFiveTransmitTests.
       The_write_time_gate_is_still_patched_into_the_vendor_transport` pins all
-      five sites and this entry; the boundary schedules in that class are its
+      six sites and this entry; the boundary schedules in that class are its
       behavioural tests.
     - **When it could be removed.** If FlexLib ever offers a connection-bound,
       conditional command write (write this on that connection only if a

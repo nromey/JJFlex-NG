@@ -574,12 +574,86 @@ namespace Radios.Tests
             string radio = System.IO.File.ReadAllText(Repo("FlexLib_API/FlexLib/Radio.cs"));
             Assert.Contains("public sealed class CommandWritePin : IDisposable", connection);
             Assert.Contains("protected bool AdmitWrite(CommandConnection? target)", connection);
-            Assert.Contains("if (!AdmitWrite(attempt?.Connection)) return;", tcp);
+            Assert.Equal(2, Count(tcp, "if (!AdmitWrite(attempt?.Connection)) return;"));   // Write and WriteAsync
+            Assert.Contains("bool sendWhenUnconfirmed = false", connection);
             Assert.Contains("if (!AdmitWrite(session?.Connection)) return;", tls);
             Assert.Contains("CommandWritePin.Current?.Refuse(\"the command connection is not connected\");", radio);
-            Assert.Equal(5, Count(connection + tcp + tls + radio, "JJFlex patch: write-time gate (MIGRATION.md item 21)"));
+            Assert.Equal(6, Count(connection + tcp + tls + radio, "JJFlex patch: write-time gate (MIGRATION.md item 21)"));
             string migration = System.IO.File.ReadAllText(Repo("MIGRATION.md"));
             Assert.Contains("21. **Command write-time gate", migration);
+        }
+
+        /// <summary>The real TCP adapter with one attempt published Connected and a memory stream for its writer: no socket.</summary>
+        private static (TcpCommandCommunication Tcp, CommandConnection Connection, System.IO.MemoryStream Bytes) TcpOnMemory()
+        {
+            var tcp = new TcpCommandCommunication();
+            var begin = typeof(TcpCommandCommunication).GetMethod("BeginAttempt", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            object attempt;
+            lock (tcp.ConnectionSync)
+                attempt = begin.Invoke(tcp, new object[] { System.Net.IPAddress.Loopback, 4992, 0 })!;
+            var bytes = new System.IO.MemoryStream();
+            attempt.GetType().GetField("Writer")!.SetValue(attempt, new System.IO.StreamWriter(bytes) { AutoFlush = true });
+            var connection = (CommandConnection)attempt.GetType().GetProperty("Connection")!.GetValue(attempt)!;
+            typeof(CommandCommunicationBase).GetMethod("PublishConnected", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(tcp, new object[] { connection });
+            Assert.True(tcp.IsConnected);
+            return (tcp, connection, bytes);
+        }
+
+        [Fact]
+        public void The_real_TCP_adapters_write_and_write_async_both_ask_the_pin()
+        {
+            // Codex's F3: WriteAsync was outside the gate. A refusing predicate
+            // writes nothing on either path; an allowing one writes on both.
+            var (tcp, connection, bytes) = TcpOnMemory();
+            using (CommandWritePin.Pin(connection, () => "refused (test)"))
+            {
+                tcp.Write("C1|xmit 0;");
+                tcp.WriteAsync("C2|xmit 0;").GetAwaiter().GetResult();
+            }
+            Assert.Equal(0, bytes.Length);
+            using (CommandWritePin.Pin(connection, () => null))
+            {
+                tcp.Write("C3|xmit 0;");
+                tcp.WriteAsync("C4|xmit 0;").GetAwaiter().GetResult();
+            }
+            string written = System.Text.Encoding.UTF8.GetString(bytes.ToArray());
+            Assert.Contains("C3|xmit 0", written);
+            Assert.Contains("C4|xmit 0", written);
+        }
+
+        [Fact]
+        public void A_pinned_unkey_is_written_when_the_dispatch_gate_cannot_be_had_and_a_restore_is_not()
+        {
+            // Codex's #596 B11 at the transport: the reader holds its dispatch
+            // gate past the bound. An own-carrier unkey still goes; a restore
+            // fails closed; an unkey whose answer is "not ours" is refused.
+            var (tcp, connection, bytes) = TcpOnMemory();
+            using var held = new ManualResetEventSlim();
+            using var release = new ManualResetEventSlim();
+            var reader = new Thread(() => { lock (tcp.ConnectionSync) { held.Set(); release.Wait(5000); } }) { IsBackground = true };
+            reader.Start();
+            Assert.True(held.Wait(2000));
+            try
+            {
+                using (var unkey = CommandWritePin.Pin(connection, () => null, sendWhenUnconfirmed: true))
+                    tcp.Write("C1|xmit 0;");
+                using (var restore = CommandWritePin.Pin(connection, () => null))
+                {
+                    tcp.Write("C2|mic input MIC;");
+                    Assert.NotNull(restore.Refusal);
+                }
+                using (var foreign = CommandWritePin.Pin(connection, () => "another client's carrier", sendWhenUnconfirmed: true))
+                {
+                    tcp.Write("C3|xmit 0;");
+                    Assert.NotNull(foreign.Refusal);
+                }
+            }
+            finally { release.Set(); }
+            string written = System.Text.Encoding.UTF8.GetString(bytes.ToArray());
+            Assert.Contains("C1|xmit 0", written);
+            Assert.DoesNotContain("C2|", written);
+            Assert.DoesNotContain("C3|", written);
         }
 
         private static int Count(string text, string what)
