@@ -2731,10 +2731,10 @@ namespace Radios
             /// The first of <paramref name="tiers"/>, in order, that is a saved
             /// account; empty when none is. THE tier walk for "which saved
             /// account is this radio's": the connect's plan walks the chosen
-            /// then the last-seen account through it, and registration walks
-            /// the live account, then those two, through the same one
-            /// (integration pass, finding 5), so one radio can never resolve
-            /// to two accounts.
+            /// then the last-seen account through it. Registration no longer
+            /// walks it separately: it takes the plan's own answer
+            /// (<see cref="RadiosOwnAccount"/>, Codex F1), so one radio
+            /// resolves to one account.
             /// </summary>
             public string FirstSaved(params string[] tiers)
                 => tiers.FirstOrDefault(IsSaved) ?? "";
