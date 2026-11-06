@@ -285,16 +285,34 @@ internal static class Program
         Native.CloseHandle(job);
         bool closed = Native.CloseDesktop(desktop);
 
-        IntPtr reopen = Native.OpenDesktop(name, 0, false, Native.DESKTOP_READOBJECTS);
-        bool desktopGone = reopen == IntPtr.Zero;
-        if (!desktopGone) Native.CloseDesktop(reopen);
+        // Windows releases a desktop shortly AFTER the last process on it is
+        // signalled as exited, not at the same instant: measured 2026-11-06, a
+        // run killed on timeout saw the desktop still present at the first look
+        // and gone a moment later. So look until it is gone, for a while.
+        bool desktopGone = false;
+        var waitGone = Stopwatch.StartNew();
+        int looks = 0;
+        while (true)
+        {
+            looks++;
+            IntPtr reopen = Native.OpenDesktop(name, 0, false, Native.DESKTOP_READOBJECTS);
+            if (reopen == IntPtr.Zero)
+            {
+                desktopGone = true;
+                break;
+            }
+            Native.CloseDesktop(reopen);
+            if (waitGone.Elapsed > TimeSpan.FromSeconds(15)) break;
+            Thread.Sleep(200);
+        }
 
         Say("process tree: " + seen.Count + " process(es) ran in the job ("
             + Names(seen.Keys, seen) + "); active after the run: " + active
             + "; still running by id and start time: "
             + (survivors.Count == 0 ? "none" : string.Join(", ", survivors)) + ".");
         Say("desktop " + qualified + ": handle closed " + (closed ? "yes" : "NO")
-            + ", " + (desktopGone ? "no longer exists" : "STILL EXISTS") + ".");
+            + ", " + (desktopGone ? "no longer exists" : "STILL EXISTS")
+            + " (" + looks + " look(s) over " + waitGone.ElapsedMilliseconds + " ms).");
 
         if (active != 0 || survivors.Count != 0 || !desktopGone)
         {
