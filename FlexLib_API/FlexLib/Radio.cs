@@ -9674,6 +9674,46 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
+        // JJFlex patch: forced writes (MIGRATION.md item 22). The Mox, TXTune and
+        // MicInput setters skip a value equal to their cache, and cache it BEFORE they
+        // send. A receive or tune-off report that lands before our ON is written leaves
+        // the cache reading OFF, so an OFF through the setter sends nothing. These always
+        // issue their command, and change the cache only once the transport has really
+        // admitted the write (a CommandWritePin can refuse it). True when it went out.
+        private bool SendCommandForced(string command, Action applyCache)
+        {
+            var pin = CommandWritePin.Current;
+            int before = pin?.Written ?? 0;
+            int seq = SendCommand(command);
+            bool sent = seq != 0 && (pin == null || pin.Written > before);
+            if (sent) applyCache();
+            return sent;
+        }
+
+        /// <summary>JJFlex patch (MIGRATION.md item 22): xmit 0, whatever the cache reads. True when it was written.</summary>
+        public bool SendMoxOff() => SendCommandForced("xmit 0", () =>
+        {
+            if (!_mox) return;
+            _mox = false;
+            RaisePropertyChanged("Mox");
+        });
+
+        /// <summary>JJFlex patch (MIGRATION.md item 22): transmit tune 0, whatever the cache reads. True when it was written.</summary>
+        public bool SendTuneOff() => SendCommandForced("transmit tune 0", () =>
+        {
+            if (!_txTune) return;
+            _txTune = false;
+            RaisePropertyChanged(nameof(TXTune));
+        });
+
+        /// <summary>JJFlex patch (MIGRATION.md item 22): mic input, whatever the cache reads. True when it was written.</summary>
+        public bool SendMicInput(string input) => SendCommandForced("mic input " + (input ?? "").ToUpper(), () =>
+        {
+            if (string.Equals(_micInput, input, StringComparison.Ordinal)) return;
+            _micInput = input;
+            RaisePropertyChanged("MicInput");
+        });
+
         private bool _txMonAvailable;
         /// <summary>
         /// True when MOX is avaialble to be used

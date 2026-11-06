@@ -232,6 +232,34 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
       condition holds when it is written), or if every app write moves to its
       own per-connection writer.
 
+22. **Forced writes for our unkeys and restores (2026-11-06, Noel 23:54: "fixing
+    flexlib fixes the app")**: keep the comment-marked JJFlex patch in
+    `FlexLib_API/FlexLib/Radio.cs` beside the `Mox` property:
+    `SendCommandForced`, `SendMoxOff`, `SendTuneOff` and `SendMicInput`.
+    - **What it is.** Each always issues its command (`xmit 0`, `transmit tune 0`,
+      `mic input X`), whatever FlexLib's cache reads, and changes the cache (and
+      raises its property) only once the transport has really admitted the write:
+      a `CommandWritePin` (item 21) can refuse it, and then the cache is left as the
+      radio last reported it. Each returns whether the command went out.
+    - **Why.** The vendor setters skip a value equal to their cache, and cache it
+      BEFORE they send. Codex's seventh re-checks of the 2026-11-02 junk box batch
+      (#596 B13 and B14, #861 B1) delivered a real RECEIVE or `tune=0` report
+      while our ON was being written: the cache read OFF, so the send's release, the
+      teardown's own unkey, the tune OFF and the emergency tune drop sent nothing,
+      and the app believed its OFF had gone. A refused setter also left an unsent
+      value in the cache (round 7's F4/T2), which the app had to guess its way back
+      from.
+    - **The app's callers:** every own-carrier unkey, tune OFF and the emergency
+      kill (`FlexBase.TransmitAdmitted`, `UnkeyOwnCarrier`, `EnqueueTuneWrite`, the
+      `Transmit` setter's OFF), and the direct mic put-back (`PutBackNow`).
+      `RepairFiveTransmitTests.The_forced_writes_are_still_patched_into_the_vendor_radio`
+      pins the four members and this entry.
+    - **Re-apply after an upgrade.** Merge, never blind-copy, `Radio.cs`. The
+      members are additions; they use the private `_mox`, `_txTune`, `_micInput`
+      and `SendCommand` and must be updated if those are renamed.
+    - **When it could be removed.** If FlexLib's setters stop skipping equal values
+      for commands, or offer an always-send variant.
+
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 
 FlexLib is not the only vendor code in this repo, and a patch in one of the

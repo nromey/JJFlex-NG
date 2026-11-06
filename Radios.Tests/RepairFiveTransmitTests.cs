@@ -798,6 +798,47 @@ namespace Radios.Tests
             Assert.Single(Commands("transmit tune 0"));
         }
 
+        // ── Round 8: forced writes in the vendor radio (MIGRATION.md item 22) ──
+
+        [Fact]
+        public void The_forced_writes_are_still_patched_into_the_vendor_radio()
+        {
+            string radio = System.IO.File.ReadAllText(Repo("FlexLib_API/FlexLib/Radio.cs"));
+            Assert.Contains("// JJFlex patch: forced writes (MIGRATION.md item 22).", radio);
+            Assert.Contains("private bool SendCommandForced(string command, Action applyCache)", radio);
+            Assert.Contains("public bool SendMoxOff() => SendCommandForced(\"xmit 0\"", radio);
+            Assert.Contains("public bool SendTuneOff() => SendCommandForced(\"transmit tune 0\"", radio);
+            Assert.Contains("public bool SendMicInput(string input) => SendCommandForced(\"mic input \"", radio);
+            Assert.Contains("22. **Forced writes for our unkeys and restores", System.IO.File.ReadAllText(Repo("MIGRATION.md")));
+        }
+
+        [Fact]
+        public void A_forced_unkey_goes_out_with_the_cache_already_off_and_a_refused_one_leaves_the_cache_alone()
+        {
+            var radio = _f.Vendor.Radio;
+            Set(radio, "_mox", false);                              // a stale receive report already cleared it
+            Assert.True(radio.SendMoxOff());
+            Assert.Single(Commands("xmit 0"));                       // the setter would have sent nothing
+
+            Set(radio, "_mox", true);
+            Set(radio, "_txTune", true);
+            using (CommandWritePin.Pin(radio.CurrentCommandConnection!, () => "refused (test)"))
+            {
+                Assert.False(radio.SendMoxOff());
+                Assert.False(radio.SendTuneOff());
+                Assert.False(radio.SendMicInput("MIC"));
+            }
+            Assert.Single(Commands("xmit 0"));
+            Assert.Empty(Commands("transmit tune"));
+            Assert.True(radio.Mox, "a refused OFF changed the cache although nothing was sent");
+            Assert.True(radio.TXTune);
+            Assert.NotEqual("MIC", radio.MicInput);
+
+            Assert.True(radio.SendTuneOff());
+            Assert.False(radio.TXTune);
+            Assert.Single(Commands("transmit tune 0"));
+        }
+
         private static int Count(string text, string what)
         {
             int n = 0, at = 0;
