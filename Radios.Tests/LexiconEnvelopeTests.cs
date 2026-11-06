@@ -2115,6 +2115,8 @@ namespace Radios.Tests
                 "connect.home.frequency_ended_on",
                 // Round four (#642, J24): the slice named when it is not yours. DRAFT.
                 "connect.home.frequency_ended_on_slice",
+                // Round four (#861, J20): Noel's own wording, 2026-11-06 16:34.
+                "audio.mic.still_switching_to_pc",
                 // Round two (#496, the bench's Fail 3): Settings with no radio
                 // says the PTT changes were not saved. DRAFT prose.
                 "settings.commit.ptt_not_saved",

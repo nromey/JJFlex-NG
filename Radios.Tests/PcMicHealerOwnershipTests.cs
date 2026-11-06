@@ -1976,8 +1976,11 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void A_switch_back_whose_mic_input_cannot_be_recorded_does_not_switch_and_says_so()
+        public void A_switch_back_whose_mic_input_cannot_be_recorded_keeps_trying_and_switches_once_it_can()
         {
+            // Round 12 refused and said "The radio did not switch the mic input
+            // to PC." J21, ruled by Noel 2026-11-06 16:35: it retries the way PC
+            // audio's start does (J10), with the same bounds and checks.
             using var rig = GuestRadioMovedToMic();
             using var held = new HeldQueue(rig.Rig);
             var speech = new SpeechLog(rig.Rig);
@@ -1986,9 +1989,20 @@ namespace Radios.Tests
             var holder = HoldDispatchFor(rig, 1400);
             held.Drain();                                    // the queued half cannot record the input
             Assert.True(holder.Join(3000));
-            Assert.Equal(pcBefore, rig.MicWrites.Count(c => c == "mic input PC"));
-            Assert.Equal(FlexBase.MicSwitchBackOutcome.NotRecorded, rig.Rig.LastQueuedMicSwitchBack);
-            Assert.Contains(Lexicon.Get("audio.mic.switch_back_refused"), speech.Spoken);
+            Assert.Equal(pcBefore, rig.MicWrites.Count(c => c == "mic input PC"));   // nothing unrecorded is changed
+            Assert.DoesNotContain(Lexicon.Get("audio.mic.switch_back_refused"), speech.Spoken);
+            object retry = ArmedRetry(rig);
+            rig.Clock += 5000;                               // J20 applies to it too
+            holder = HoldDispatchFor(rig, 1400);
+            Assert.Equal("TryAgain", Attempt(rig, retry));
+            Assert.True(holder.Join(3000));
+            Assert.Equal(new[] { Lexicon.Get("audio.mic.still_switching_to_pc") }, speech.Spoken);
+            Assert.False(speech.AnySpokenUnderLock);
+            Assert.Equal("OnPc", Attempt(rig, retry));       // the gate is free now
+            Assert.Equal(pcBefore + 1, rig.MicWrites.Count(c => c == "mic input PC"));
+            rig.StopPcAudio();
+            held.Drain();                                    // the switch back's put-back is queued, as its own is
+            Assert.Equal("mic input MIC", rig.MicWrites.Last());   // the input it recorded is put back
         }
 
         // ── Repair round 13 (Codex's #861 N1): every PC this lane writes is
@@ -2596,6 +2610,34 @@ namespace Radios.Tests
             rig.StopPcAudio();
             Assert.DoesNotContain("mic input BAL", rig.MicWrites);
             Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+        }
+    
+
+        // ── Round four: J20, ruled by Noel 2026-11-06 16:34 ──
+
+        [Fact]
+        public void A_retry_still_going_after_five_seconds_says_so_once()
+        {
+            // Silent for the first 5 seconds, then once: "Still switching mic to PC".
+            var report = typeof(FlexBase).GetProperty("LastPcSwitchStillReport", Private);
+            Assert.True(report != null, "nothing says a retry is still switching");
+            using var rig = StartedWithoutARecord();
+            object retry = ArmedRetry(rig);
+            var holder = HoldDispatchFor(rig, 1400);
+            Assert.Equal("TryAgain", Attempt(rig, retry));
+            Assert.True(holder.Join(3000));
+            Assert.Null(report!.GetValue(rig.Rig));          // under 5 s: silent
+            rig.Clock += 5000;
+            holder = HoldDispatchFor(rig, 1400);
+            Assert.Equal("TryAgain", Attempt(rig, retry));
+            Assert.True(holder.Join(3000));
+            Assert.Equal("Still switching mic to PC", report.GetValue(rig.Rig));
+            Assert.Equal(Lexicon.Get("audio.mic.still_switching_to_pc"), report.GetValue(rig.Rig));
+            rig.Clock += 5000;
+            holder = HoldDispatchFor(rig, 1400);
+            Assert.Equal("TryAgain", Attempt(rig, retry));
+            Assert.True(holder.Join(3000));
+            Assert.Equal(1, (int)typeof(FlexBase).GetProperty("PcSwitchStillReports", Private)!.GetValue(rig.Rig)!);   // once
         }
     }
 }

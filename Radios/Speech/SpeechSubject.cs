@@ -711,6 +711,13 @@ namespace Radios.Speech
         public const string ReturnStatus = "return-status";
 
         /// <summary>
+        /// A retried switch to PC (PC audio's start, or the Radio menu's switch
+        /// back) is still not done after five seconds (#861, J20, ruled by Noel
+        /// 2026-11-06 16:34): "Still switching mic to PC", said once per retry.
+        /// </summary>
+        public const string PcMicStillSwitching = "pc-mic-still-switching";
+
+        /// <summary>
         /// Subjects that are stale status: what a sentence that must be heard next
         /// (the transmit notice) may retire from our own backlog (rulings round
         /// three, Codex's F1). Required notices and refusals are never in it.

@@ -2946,6 +2946,7 @@ namespace Radios
                             if (retry != null)
                             {
                                 retry.Session = _micSessionId;
+                                retry.StartedAt = _pcMicCheckClock();
                                 _pcSwitchRetry = retry;
                             }
                         }
@@ -3013,6 +3014,46 @@ namespace Radios
             public object Channel { get; }
             /// <summary>Attempts made so far, the start's own not counted.</summary>
             public int Attempts;
+            /// <summary>When it was armed, on the healer's clock (J20's five seconds count from here).</summary>
+            public long StartedAt { get; set; }
+            /// <summary>J20's sentence has been said for this retry.</summary>
+            public bool SaidStillSwitching;
+            /// <summary>
+            /// Armed by the Radio menu's Switch Mic Input Back to PC (J21), not a
+            /// start: PC may already be expected, and its record replaces the one
+            /// in force, as the switch back's own does.
+            /// </summary>
+            public bool FromSwitchBack { get; set; }
+        }
+
+        // ── J20, ruled by Noel 2026-11-06 16:34: "Still switching mic to PC" ──
+        //
+        // Silent for the first five seconds of a retry (J10's or J21's), then
+        // said once, in his wording, so a stuck switch is not silent forever.
+
+        /// <summary>How long a retry stays silent before J20's sentence.</summary>
+        internal const long PcSwitchStillMs = 5000;
+
+        /// <summary>The last J20 sentence handed to speech, or null. Set before the speech gate. For tests.</summary>
+        internal string LastPcSwitchStillReport { get; private set; }
+
+        /// <summary>How many J20 sentences have been handed to speech. For tests.</summary>
+        internal int PcSwitchStillReports { get; private set; }
+
+        /// <summary>A retry's attempt will try again: after five seconds, say so once. Never under a lock.</summary>
+        private void NoteStillSwitching(PcSwitchRetry retry)
+        {
+            if (retry.SaidStillSwitching) return;
+            if (_pcMicCheckClock() - retry.StartedAt < PcSwitchStillMs) return;
+            retry.SaidStillSwitching = true;
+            string text = Lexicon.Get("audio.mic.still_switching_to_pc");
+            LastPcSwitchStillReport = text;
+            PcSwitchStillReports++;
+            MicSwitchSpeechProbe?.Invoke(text);
+            Tracing.TraceLine("PcSwitchRetry: still not on PC after " + PcSwitchStillMs + " ms; said \"" + text + "\"", TraceLevel.Info);
+            if (!SuppressSpeech)
+                ScreenReaderOutput.Speak(text, Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
+                    subject: Speech.SpeechSubject.PcMicStillSwitching);
         }
 
         /// <summary>The retry in force, or null. Written under <see cref="_micSwitchLock"/>.</summary>
@@ -3037,6 +3078,30 @@ namespace Radios
 
         /// <summary>What one attempt did.</summary>
         internal enum PcSwitchAttempt { TryAgain, OnPc, Stopped }
+
+        /// <summary>
+        /// J21: arm the J10 retry for a switch back that could not record the
+        /// input in time, bound to the session it was pressed in, this radio,
+        /// its connection and the run. False when that session is no longer open.
+        /// </summary>
+        private bool ArmSwitchBackRetry(Radio radio, long pressedInSession)
+        {
+            PcSwitchRetry retry;
+            lock (_micSwitchLock)
+            {
+                if (!_micSessionOpen || _micSessionId != pressedInSession || !ReferenceEquals(theRadio, radio)) return false;
+                retry = new PcSwitchRetry(radio, radio.CurrentCommandConnection, Interlocked.Read(ref _remoteAudioRun),
+                    (object)opusOutputChannel ?? new object())
+                {
+                    Session = pressedInSession,
+                    FromSwitchBack = true,
+                    StartedAt = _pcMicCheckClock(),
+                };
+                _pcSwitchRetry = retry;
+            }
+            StartPcSwitchRetry(retry);
+            return true;
+        }
 
         private void StartPcSwitchRetry(PcSwitchRetry retry)
         {
@@ -3081,6 +3146,13 @@ namespace Radios
         /// </summary>
         internal PcSwitchAttempt TryPcSwitchOnce(PcSwitchRetry retry)
         {
+            var result = TryPcSwitchOnceCore(retry);
+            if (result == PcSwitchAttempt.TryAgain) NoteStillSwitching(retry);   // J20, outside every lock
+            return result;
+        }
+
+        private PcSwitchAttempt TryPcSwitchOnceCore(PcSwitchRetry retry)
+        {
             int attempt = Interlocked.Increment(ref retry.Attempts);
             string head = "PcSwitchRetry: attempt " + attempt + ": ";
             try
@@ -3096,7 +3168,7 @@ namespace Radios
                 // a second for the report gate.
                 lock (retry.Channel)
                 {
-                    MicInputSwap swap = null;
+                    MicInputSwap swap = null, replacedBySwitchBack = null;
                     string notRecorded = null;
                     lock (_micSwitchLock)
                     {
@@ -3108,9 +3180,18 @@ namespace Radios
                                 over = "the record was taken on another command connection";
                             else if (notRecorded == null)
                             {
+                                if (retry.FromSwitchBack)
+                                {
+                                    // J21: the switch back's own retry records as the
+                                    // switch back does: its record replaces the one in
+                                    // force, which comes back if PC is not written.
+                                    replacedBySwitchBack = _micInputSwap;
+                                    swap = new MicInputSwap(capture, madeBySwitchBack: true);
+                                    _micInputSwap = swap;
+                                }
                                 // Another route recorded and switched it (the switch back):
                                 // its record stands, and this retry is done.
-                                if (_micInputSwap != null || _pcMicExpected)
+                                else if (_micInputSwap != null || _pcMicExpected)
                                     over = "the mic input has been recorded and switched by another route";
                                 else
                                 {
@@ -3144,11 +3225,17 @@ namespace Radios
                     if (refused == null && written)
                     {
                         _pcMicExpected = true;
+                        if (retry.FromSwitchBack)
+                        {
+                            // A new episode, and the short quiet, as the switch back starts them.
+                            _pcMicDiverged = false;
+                            Volatile.Write(ref _pcMicSwitchQuietUntil, _pcMicCheckClock() + PcMicSwitchQuietMs);
+                        }
                         return EndPcSwitchRetry(retry, head + "mic input '" + capture.Input + "' recorded and PC written; the stop puts '"
                             + capture.Input + "' back");
                     }
                     lock (_micSwitchLock)
-                        if (ReferenceEquals(_micInputSwap, swap)) _micInputSwap = null;
+                        if (ReferenceEquals(_micInputSwap, swap)) _micInputSwap = replacedBySwitchBack;
                     if (PcSwitchRetryOver(retry) is string gone)
                         return StopPcSwitchRetry(retry, head + "PC NOT written - " + (refused ?? "the transport did not take it")
                             + "; stopped - " + gone);
@@ -3421,7 +3508,17 @@ namespace Radios
                     return;
                 case MicSwitchBackOutcome.NotRecorded:
                     // Round 12 (Codex's B2): what could not be recorded is never
-                    // changed. The press said "switching", so the outcome is said.
+                    // changed. J21 (ruled by Noel 2026-11-06 16:35): when it could not
+                    // be recorded IN TIME, the switch back keeps trying as PC audio's
+                    // start does (J10), with the same bounds and at-the-bytes checks,
+                    // instead of refusing. A radio, connection or run that changed
+                    // under it is still refused, as before.
+                    if (!capture.Recorded && ArmSwitchBackRetry(radio, pressedInSession))
+                    {
+                        Tracing.TraceLine("SwitchMicInputBackToPc: " + notRecorded + "; nothing written yet, and it is tried"
+                            + " again once a second until the radio is on PC (J21)", TraceLevel.Warning);
+                        return;
+                    }
                     Tracing.TraceLine("SwitchMicInputBackToPc: NOT switching - " + notRecorded + "; nothing written",
                         TraceLevel.Warning);
                     SpeakMicSwitchBack(Lexicon.Get("audio.mic.switch_back_refused"));

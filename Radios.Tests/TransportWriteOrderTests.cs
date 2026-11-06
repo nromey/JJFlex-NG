@@ -403,6 +403,54 @@ namespace Radios.Tests
 
     
 
+        // ── Round four, J21: the switch back's retry, refused at the bytes ──
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void A_switch_back_retry_refused_at_the_bytes_leaves_the_earlier_record_in_force(bool holdArmed)
+        {
+            // J21's retry records as the switch back does: its record replaces
+            // the one in force. If PC is then refused at the bytes (here the
+            // change-nothing hold, armed while it waits at the write gate), the
+            // earlier record comes back, exactly as the switch back's refusal
+            // restores its prior one. Control: no hold, PC goes out under it.
+            var retry = (FlexBase.PcSwitchRetry)ArmedRetryOnTheRealAdapter();
+            retry.FromSwitchBack = true;
+            var swapType = typeof(FlexBase).GetNestedType("MicInputSwap", Any)!;
+            object earlier = Activator.CreateInstance(swapType, Any, null,
+                new object[] { "MIC", _f.Vendor.Radio, 0L, false }, null)!;
+            var swapField = typeof(FlexBase).GetField("_micInputSwap", Any)!;
+            swapField.SetValue(_f.Rig, earlier);
+            var gate = WriteGate();
+            Assert.True(gate.Wait(0), "the write gate was not free");
+            Thread attempt;
+            FlexBase.PcSwitchAttempt result = default;
+            try
+            {
+                attempt = new Thread(() => result = _f.Rig.TryPcSwitchOnce(retry)) { IsBackground = true };
+                attempt.Start();
+                WaitFor(() => !ReferenceEquals(swapField.GetValue(_f.Rig), earlier)
+                    && (attempt.ThreadState & ThreadState.WaitSleepJoin) != 0, "the retry recorded and waiting at the gate");
+                if (holdArmed)
+                    typeof(FlexBase).GetProperty("ChangeNothingActive")!.SetValue(_f.Rig, true);
+            }
+            finally { gate.Release(); }
+            Assert.True(attempt.Join(3000));
+            if (holdArmed)
+            {
+                Assert.Equal("", MicLines());
+                Assert.Same(earlier, swapField.GetValue(_f.Rig));
+                Assert.Equal(FlexBase.PcSwitchAttempt.Stopped, result);
+            }
+            else
+            {
+                Assert.Equal("mic input PC", MicLines());
+                Assert.NotSame(earlier, swapField.GetValue(_f.Rig));
+                Assert.Equal(FlexBase.PcSwitchAttempt.OnPc, result);
+            }
+        }
+
         // ── Rulings round two, Codex's R2: an OFF waits for at most the line in progress ──
 
         [Theory]
