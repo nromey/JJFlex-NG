@@ -376,11 +376,11 @@ namespace Radios.Tests
                 Set(rig, "theRadio", vendor.Radio);
                 Assert.Equal(InterlockState.Ready, vendor.Radio.InterlockState);
                 Assert.False(rig.RadioInterlockConfirmsReceive);
-                Assert.NotNull(rig.RestoreRefusedAtWrite());
+                Assert.NotNull(rig.RestoreRefusedAtWrite(vendor.Radio, vendor.Radio.CurrentCommandConnection!));
 
                 vendor.Status("interlock state=READY");   // the radio says so: confirmed
                 Assert.True(rig.RadioInterlockConfirmsReceive);
-                Assert.Null(rig.RestoreRefusedAtWrite());
+                Assert.Null(rig.RestoreRefusedAtWrite(vendor.Radio, vendor.Radio.CurrentCommandConnection!));
 
                 vendor.Status("interlock state=SOMETHING_NEW");   // FlexLib keeps Ready; we do not
                 Assert.Equal(InterlockState.Ready, vendor.Radio.InterlockState);

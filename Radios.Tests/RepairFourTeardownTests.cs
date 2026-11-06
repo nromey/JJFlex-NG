@@ -225,23 +225,59 @@ namespace Radios.Tests
             _f.Vendor.Transport.Fall();
 
             Assert.False(_f.Rig.RadioInterlockConfirmsReceive);
-            Assert.Equal("the radio's command connection has ended", _f.Rig.RestoreRefusedAtWrite());
+            var radio = _f.Vendor.Radio;
+            Assert.Equal("the radio's command connection has ended", _f.Rig.RestoreRefusedAtWrite(radio, radio.CurrentCommandConnection!));
             Assert.False(Restore());
             Assert.NotNull(Get(_f.Rig, "_liveTxSnapshot"));
         }
+
+        /// <summary>
+        /// A snapshot that owes NO equaliser (repair round 5, Codex's T1): with
+        /// one owed and none on the radio, the missing equaliser alone kept the
+        /// debt, so this test passed without the connection check it is about.
+        /// </summary>
+        private static AudioChainPreset SnapshotWithoutEq() => new AudioChainPreset
+        {
+            SchemaVersion = 2,
+            MicGain = 77,
+            MicBoost = true,
+            TxFilterLow = 150,
+            TxFilterHigh = 2850,
+            TxEqCaptured = false,
+        };
 
         [Fact]
         public void A_connection_ending_part_way_through_a_restore_leaves_the_rest_unwritten_and_the_debt_kept()
         {
             Interlock("READY");
-            Set(_f.Rig, "_liveTxSnapshot", SnapshotWithEq());
+            Set(_f.Rig, "_liveTxSnapshot", SnapshotWithoutEq());
+            int fellAfter = -1;
             _f.Vendor.Transport.CommandWritten = c =>
             {
-                if (c.StartsWith("transmit set miclevel", StringComparison.Ordinal)) _f.Vendor.Transport.Fall();
+                if (c.StartsWith("transmit set miclevel", StringComparison.Ordinal))
+                {
+                    fellAfter = _f.Vendor.Transport.Commands.Count;
+                    _f.Vendor.Transport.Fall();
+                }
             };
 
             Assert.False(Restore());
             Assert.NotNull(Get(_f.Rig, "_liveTxSnapshot"));
+            Assert.True(fellAfter > 0, "the restore never reached the mic level write, so the fall was never staged");
+            Assert.Equal(fellAfter, _f.Vendor.Transport.Commands.Count);   // nothing of the restore after the fall
+        }
+
+        [Fact]
+        public void The_same_restore_with_the_connection_up_throughout_runs_and_discharges()
+        {
+            // The control the test above needs: the same snapshot, owing no
+            // equaliser, with nothing falling, completes. So the debt kept
+            // above is kept by the fall, and nothing else.
+            Interlock("READY");
+            Set(_f.Rig, "_liveTxSnapshot", SnapshotWithoutEq());
+            Assert.True(Restore());
+            Assert.Null(Get(_f.Rig, "_liveTxSnapshot"));
+            Assert.NotEmpty(Commands("transmit set miclevel"));
         }
 
         // ── B6: VOX debt belongs to its connection ──

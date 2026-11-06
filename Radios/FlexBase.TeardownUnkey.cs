@@ -178,18 +178,17 @@ public partial class FlexBase
     /// starts its cache at Ready, so a radio that has reported nothing reads
     /// as receive. With no radio, false.
     /// </summary>
-    internal bool RadioInterlockConfirmsReceive
+    internal bool RadioInterlockConfirmsReceive => InterlockConfirmsReceiveOn(theRadio);
+
+    /// <summary><see cref="RadioInterlockConfirmsReceive"/>, of a named radio (repair round 5: the write's own target).</summary>
+    private static bool InterlockConfirmsReceiveOn(Radio radio)
     {
-        get
-        {
-            var radio = theRadio;
-            if (radio == null) return false;
-            // Repair round 3 (#861 R3): FlexLib's cache AND the radio's own last
-            // report on this connection. The cache alone reads Ready before any
-            // report, and keeps Ready through a state it does not recognise.
-            return radio.InterlockState is InterlockState.Receive or InterlockState.Ready or InterlockState.NotReady
-                && InterlockReports.ConfirmsReceive(radio);
-        }
+        if (radio == null) return false;
+        // Repair round 3 (#861 R3): FlexLib's cache AND the radio's own last
+        // report on this connection. The cache alone reads Ready before any
+        // report, and keeps Ready through a state it does not recognise.
+        return radio.InterlockState is InterlockState.Receive or InterlockState.Ready or InterlockState.NotReady
+            && InterlockReports.ConfirmsReceive(radio);
     }
 
     /// <summary>
@@ -208,21 +207,24 @@ public partial class FlexBase
     /// </summary>
     internal static readonly object NoConnection = new object();
 
-    internal string RestoreRefusedAtWrite(Radio expectedRadio = null, object expectedConnection = null)
+    /// <remarks>
+    /// <b>Always asked of a target</b> (repair round 5, Codex's #861 B1): the
+    /// radio and command connection the write will use. A guard asked with no
+    /// target checked whichever radio the rig held at that moment, which need
+    /// not be the one written, so a missing target now refuses, and the
+    /// receive question is put to the target radio itself.
+    /// </remarks>
+    internal string RestoreRefusedAtWrite(Radio expectedRadio, object expectedConnection)
     {
-        var radio = theRadio;
-        if (radio == null) return "there is no radio";
-        if (expectedRadio != null && !ReferenceEquals(radio, expectedRadio))
-            return "the radio it was for is no longer this one";
-        if (expectedConnection != null && !ReferenceEquals(radio.CurrentCommandConnection, expectedConnection))
-            return "the radio's command connection has changed since";
-        // The connection itself must still be up (repair round 4, Codex's
-        // F4): FlexLib keeps an ended connection as the current one, and a
-        // write sent into it goes nowhere while its item counts as run.
-        if (radio.CurrentCommandConnection?.State != CommandConnectionState.Connected)
-            return "the radio's command connection has ended";
+        if (theRadio == null) return "there is no radio";
+        // The target, its connection, and that the connection is still up:
+        // FlexLib keeps an ended connection as the current one, and a write
+        // sent into it goes nowhere while its item counts as run (repair
+        // round 4, Codex's F4). One wording with the pinned writes.
+        string notTarget = PinnedTargetRefused(expectedRadio, expectedConnection);
+        if (notTarget != null) return notTarget;
         if (_Transmit) return "this computer is keying the radio";
-        return WhyNotReceiving();
+        return WhyNotReceiving(expectedRadio);
     }
 
     /// <summary>
@@ -355,11 +357,10 @@ public partial class FlexBase
                 TraceLevel.Info);
             return false;
         }
-        uint txClient = radio.TXClientHandle;
-        if (txClient != 0 && txClient != clientHandle)
+        string foreign = ForeignCarrier(radio);
+        if (foreign != null)
         {
-            Tracing.TraceLine("Teardown unkey (" + what + "): not sent; another client (0x" + txClient.ToString("X8")
-                + ") is the one transmitting now, and its carrier is not ours to unkey", TraceLevel.Warning);
+            Tracing.TraceLine("Teardown unkey (" + what + "): not sent; " + foreign, TraceLevel.Warning);
             return false;
         }
         return true;
@@ -509,20 +510,23 @@ public partial class FlexBase
     internal bool TeardownRefusesRestore(string what)
     {
         if (!_teardownRestoring) return false;
-        string onAir = WhyNotReceiving();
+        string onAir = WhyNotReceiving(theRadio);
         if (onAir == null) return false;
         Tracing.TraceLine("Teardown: NOT putting back " + what + " - " + onAir
             + ". It is kept for the next connect rather than written under a carrier.", TraceLevel.Warning);
         return true;
     }
 
-    /// <summary>Why the transmit chain may not be written now, or null when the radio reports receive.</summary>
-    private string WhyNotReceiving()
+    /// <summary>Why the transmit chain of <paramref name="target"/> may not be written now, or null when it reports receive.</summary>
+    private string WhyNotReceiving(Radio target)
     {
         string onAir = _teardownStillOnAir;
         if (onAir != null) return onAir;
-        if (RadioInterlockConfirmsReceive) return null;
-        return "the radio's interlock reports " + InterlockNow() + " at the moment of the write";
+        if (InterlockConfirmsReceiveOn(target)) return null;
+        string state;
+        try { state = target?.InterlockState.ToString() ?? "no radio"; }
+        catch { state = "unreadable"; }
+        return "the radio's interlock reports " + state + " at the moment of the write";
     }
 
     /// <summary>
@@ -533,16 +537,19 @@ public partial class FlexBase
     /// value is not written and is not reported as put back; the caller keeps
     /// it (<see cref="KeepMicPutBackOwed"/>).
     /// </summary>
-    private bool MicPutBackWithheld(string when, string saved)
+    private bool MicPutBackWithheld(string when, string saved, Radio radio, object connection)
     {
-        // The family's one question (repair round 3, rule 1).
-        string onAir = RestoreRefusedAtWrite();
+        // The family's one question (repair round 3, rule 1), asked of the
+        // radio and connection the write will use (repair round 5, Codex's B1).
+        string onAir = RestoreRefusedAtWrite(radio, connection);
         if (onAir == null) return false;
-        // Logged only, never spoken (ruled by Noel 2026-11-04 22:22): the next
-        // connection to this radio completes it. The line names the place.
-        Tracing.TraceLine("MicPutBackWithheld: radio " + (theRadio?.Serial ?? "(none)") + ", PutBackSavedMicInput ("
+        // Logged only, never spoken (ruled by Noel 2026-11-04 22:22). The line
+        // names the place. The value is kept for a later stop on this SAME
+        // connection; nothing replays it on another one (that is #590), so
+        // after a disconnect it is not put back by anything.
+        Tracing.TraceLine("MicPutBackWithheld: radio " + (radio?.Serial ?? "(none)") + ", PutBackSavedMicInput ("
             + when + "): NOT writing '" + saved + "' - " + onAir
-            + ". The mic input is not written, and the value is kept as still owed.", TraceLevel.Warning);
+            + ". The mic input is not written, and the value is kept as still owed on this connection.", TraceLevel.Warning);
         return true;
     }
 

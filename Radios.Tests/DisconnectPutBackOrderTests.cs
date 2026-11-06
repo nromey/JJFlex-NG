@@ -70,13 +70,15 @@ public sealed class DisconnectPutBackOrderTests
         string text = FlexBasePartials.JoinedText();
 
         // The mic input: only while the radio still reports the PC we chose.
-        int putBack = text.IndexOf("private void PutBackNow(Radio radio, MicInputSwap swap, string when)", StringComparison.Ordinal);
+        int putBack = text.IndexOf("private void PutBackNow(Radio radio, MicInputSwap swap, string when, long run)", StringComparison.Ordinal);
         Assert.True(putBack > 0, "PutBackNow moved");
-        string mic = text.Substring(putBack, 1200);   // widened: the teardown withhold sits ahead of it
+        string mic = text.Substring(putBack, 2600);   // widened again: repair round 5 made it one pinned step
         // Repair round 4 (Codex's F3): the PC check comes first, so a newer
-        // choice leaves no debt, and the write is gated on it.
-        Assert.Contains("bool stillOurPc = string.Equals(nowInput, \"PC\", StringComparison.OrdinalIgnoreCase);", mic, StringComparison.Ordinal);
-        Assert.Contains("if (stillOurPc)", mic, StringComparison.Ordinal);
+        // choice leaves no debt, and the write is gated on it. Repair round 5:
+        // both inside the pinned step, before the write.
+        int pc = mic.IndexOf("if (!string.Equals(nowInput, \"PC\", StringComparison.OrdinalIgnoreCase)) { leftAlone = nowInput; return null; }", StringComparison.Ordinal);
+        int micWrite = mic.IndexOf("radio.MicInput = swap.Saved;", StringComparison.Ordinal);
+        Assert.True(pc > 0 && micWrite > pc, "the mic put-back writes without first finding the PC this app set");
 
         // The shack speaker: only while the radio still mutes it.
         int write = text.IndexOf("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop", StringComparison.Ordinal);
@@ -148,12 +150,18 @@ public sealed class DisconnectPutBackOrderTests
     public void Both_mic_put_backs_ask_the_interlock_at_their_write()
     {
         string text = FlexBasePartials.JoinedText();
-        int now = text.IndexOf("private void PutBackNow(Radio radio, MicInputSwap swap, string when)", StringComparison.Ordinal);
+        int now = text.IndexOf("private void PutBackNow(Radio radio, MicInputSwap swap, string when, long run)", StringComparison.Ordinal);
         int queued = text.IndexOf("private void WriteSwitchBackPutBack(Radio radio, MicInputSwap swap, PutBackPin pin, string when)", StringComparison.Ordinal);
         Assert.True(now > 0 && queued > 0, "a put-back moved");
-        Assert.Contains("if (stillOurPc && MicPutBackWithheld(when, swap.Saved)) { KeepMicPutBackOwed(swap); return; }", text.Substring(now, 1200), StringComparison.Ordinal);
-        string queuedBody = text.Substring(queued, 4500);   // repair round 4 added the newer-choice check ahead
-        int withhold = queuedBody.IndexOf("if (MicPutBackWithheld(when, swap.Saved)) { KeepMicPutBackOwed(swap); return; }", StringComparison.Ordinal);
+        // Repair round 5 (Codex's B1): asked of the write's own radio and
+        // connection, inside the pinned step, before the write.
+        string nowBody = text.Substring(now, 2600);
+        int nowAsk = nowBody.IndexOf("if (MicPutBackWithheld(when, swap.Saved, radio, swap.Connection)) { withheld = true; return null; }", StringComparison.Ordinal);
+        int nowWrite = nowBody.IndexOf("radio.MicInput = swap.Saved;", StringComparison.Ordinal);
+        Assert.True(nowAsk > 0 && nowWrite > nowAsk, "the direct mic put-back writes without asking the interlock of its own target");
+        Assert.Contains("if (withheld) { KeepMicPutBackOwed(swap); return; }", nowBody, StringComparison.Ordinal);
+        string queuedBody = text.Substring(queued, 6000);   // repair round 4 added the newer-choice check ahead
+        int withhold = queuedBody.IndexOf("if (MicPutBackWithheld(when, swap.Saved, radio, pin.Connection)) { withheld = true; return null; }", StringComparison.Ordinal);
         int raw = queuedBody.IndexOf("SendRadioCommandWithReply(radio, command", StringComparison.Ordinal);
         Assert.True(withhold > 0 && raw > withhold, "the raw switch-back write can go out without asking the teardown");
     }

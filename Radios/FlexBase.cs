@@ -3422,6 +3422,10 @@ namespace Radios
                 // late callback from the failed one cannot complete a wait on
                 // this one even though the serial is identical.
                 BeginStationAttempt(theRadio, "RetryConnect");
+                // The same Radio, a new connection: a mic input owed on the old
+                // one is not this one's to pay (repair round 5, Codex's #861
+                // B1), as at Connect.
+                ResetPcMicSession("RetryConnect to " + theRadio.Serial);
 
                 bool rv = true;
 

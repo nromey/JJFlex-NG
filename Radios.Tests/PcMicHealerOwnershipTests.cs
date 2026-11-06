@@ -725,6 +725,106 @@ namespace Radios.Tests
             Assert.Equal("BAL", rig.MicInput);
         }
 
+        // ── Repair round 5 (Codex's fourth re-check of #861, B1): the direct
+        //    put-back checks its saved radio, connection and run WITH the
+        //    write, and asks receive of that target ──
+
+        private static readonly MethodInfo DecideMethod = typeof(FlexBase).GetMethod("PutBackSavedMicInputLocked", Private)!;
+
+        /// <summary>The stop's decision, taken as production takes it (under the mic lock), and returned unrun.</summary>
+        private static Action DecideUnderTheLock(PcAudioRig rig, string when)
+        {
+            Assert.True(DecideMethod != null, "PutBackSavedMicInputLocked is not where this test reaches it");
+            lock (SwitchLockField.GetValue(rig.Rig)!)
+                return (Action)DecideMethod.Invoke(rig.Rig, new object[] { when, true })!;
+        }
+
+        [Fact]
+        public void A_mic_input_saved_on_one_connection_is_not_put_back_on_the_next_one_of_the_same_radio()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            rig.Vendor.Transport.Reconnect();          // the same Radio, a new command connection
+            rig.Vendor.Status("interlock state=READY");
+
+            rig.StopPcAudio();
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+        }
+
+        [Fact]
+        public void A_next_runs_cleanup_does_not_pay_an_old_connections_mic_input_on_the_new_one()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            rig.Vendor.Transport.Reconnect();
+            rig.Vendor.Status("interlock state=READY");
+
+            rig.NextRunBegins();                       // an earlier run's stop never ran
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+        }
+
+        [Fact]
+        public void A_reset_made_before_the_next_transport_exists_does_not_keep_an_ended_connections_debt()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            rig.Vendor.Status("interlock state=TRANSMITTING source=RCA tx_client_handle=0x0BADF00D");
+            rig.StopPcAudio();                         // withheld under the carrier, kept owed
+            Assert.NotNull(SwapField.GetValue(rig.Rig));
+
+            rig.Vendor.Transport.Fall();               // the link ends; FlexLib keeps it as the current one
+            rig.Rig.ResetPcMicSession("connect (test)");   // Connect's reset, before the next transport
+            Assert.Null(SwapField.GetValue(rig.Rig));
+
+            rig.Vendor.Transport.Reconnect();
+            rig.Vendor.Status("interlock state=READY");
+            rig.RadioReports("PC");
+            rig.NextRunBegins();
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+        }
+
+        [Fact]
+        public void A_put_back_decided_before_a_radio_switch_does_not_write_the_old_radio_while_it_transmits()
+        {
+            Declare(RadioOwnership.Mine);
+            Declare(RadioOwnership.Mine, SecondSerial);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            var old = rig.Vendor;
+            var write = DecideUnderTheLock(rig, "PC audio stopped (test)");
+            Assert.NotNull(write);
+
+            // Between the decision and the write: the old radio keys, and the
+            // rig is now talking to another radio, which reports receive.
+            old.Status("interlock state=TRANSMITTING source=RCA tx_client_handle=0x0BADF00D");
+            rig.ReconnectTo(SecondSerial, "PC");
+            write();
+
+            Assert.Equal(new[] { "mic input PC" }, PcAudioRig.MicWritesOn(old));
+            Assert.Empty(rig.MicWrites);
+        }
+
+        [Fact]
+        public void A_put_back_decided_and_then_run_with_nothing_changed_writes_its_radio()
+        {
+            // The control for the two above: the same returned write, run
+            // after the lock with nothing changed, puts the saved input back.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            var write = DecideUnderTheLock(rig, "PC audio stopped (test)");
+            write();
+            Assert.Equal(new[] { "mic input PC", "mic input MIC" }, rig.MicWrites);
+        }
+
         [Fact]
         public void ARunStartOnADifferentRadioDiscardsTheValueUnwritten()
         {
