@@ -85,7 +85,12 @@ public sealed class DisconnectPutBackOrderTests
         int write = text.IndexOf("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop", StringComparison.Ordinal);
         Assert.True(write > 0);
         string speaker = text.Substring(Math.Max(0, write - 300), 300);
-        Assert.Contains("speakerRadio.IsMuteLocalAudioWhenRemoteOn);", speaker, StringComparison.Ordinal);
+        // Round four (S1): the decision is ShackSpeakerKeepFor's, which asks
+        // the radio's own reading after asking whether another station chose since.
+        Assert.Contains("ShackSpeakerKeepFor(run, speakerRadio)", speaker, StringComparison.Ordinal);
+        int keepFor = text.IndexOf("internal string ShackSpeakerKeepFor(", StringComparison.Ordinal);
+        Assert.True(keepFor > 0, "the stop's speaker decision moved");
+        Assert.Contains("speakerRadio.IsMuteLocalAudioWhenRemoteOn);", text.Substring(keepFor, 700), StringComparison.Ordinal);
     }
 
     [Fact]
