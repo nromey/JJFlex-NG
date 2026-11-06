@@ -801,6 +801,19 @@ public sealed class ReferenceEndSilenceTests : IDisposable
     /// holds it up, exactly where a stall would. Until this repair it read the
     /// newer pass's silence as its own and stopped it, the radio transmitting.
     /// </summary>
+    /// <remarks>
+    /// <b>No sleep stands in for "the older wait has reached the gate" (round
+    /// five, 7g; Codex's re-check, F1).</b> Until then a 200 ms sleep did, and a
+    /// thread pool that had not run the wait by then let the test key the newer
+    /// pass first: the wait saw transmit again, kept waiting, and the test timed
+    /// out. Now what the older wait decided on (receive, or a replaced
+    /// connection) stays true until it has ended, because the newer pass is not
+    /// keyed on the radio until afterwards; and the gate, held across the disarm,
+    /// the fresh arm and the newer pass's end, makes its check land after all of
+    /// them whenever the pool runs it. So it reaches the race every time, with no
+    /// hook in production code. The re-key comes after, for the assertions that
+    /// the newer pass is on the air.
+    /// </remarks>
     [Theory]
     [InlineData(false)]   // the older wait saw receive
     [InlineData(true)]    // the older wait saw its connection replaced: a reconnect
@@ -819,32 +832,34 @@ public sealed class ReferenceEndSilenceTests : IDisposable
             NoteRadioMox(f.Rig, false);
             if (reconnect)
             {
-                PlantNewConnection(f);
-                System.Threading.Thread.Sleep(200);           // the older wait sees its connection gone, and waits at the gate
+                PlantNewConnection(f);                         // the older wait will see its connection gone, and wait at the gate
                 typeof(FlexBase).GetMethod("DisconnectVoxPauses", BindingFlags.Instance | BindingFlags.NonPublic)!
                     .Invoke(f.Rig, null);                      // what the disconnect does before the reconnect
             }
             else
             {
-                f.Vendor.Status("interlock state=READY");
-                System.Threading.Thread.Sleep(200);           // the older wait sees receive, and waits at the gate
+                f.Vendor.Status("interlock state=READY");      // the older wait will see receive, and wait at the gate
                 f.Rig.TxFileStop();                            // the window's DisarmReference
             }
             Assert.True(older == null, "positive control: the older wait is held up at the gate");
 
-            // The fresh arm, the key, and the newer pass played to its end.
+            // The fresh arm, and the newer pass played to its end. Not keyed on
+            // the radio yet: what the older wait saw must stay true until it ends.
             f.Vendor.Status("transmit vox_enable=0");
             var arm = f.Rig.TxReferenceStartAsync();
             Assert.True(arm.IsCompleted && arm.Result, "positive control: the fresh arm went through");
-            NoteRadioMox(f.Rig, true);
-            f.Vendor.Status("interlock state=TRANSMITTING source=SW");
             RunToTheEnd(player);
             Assert.True(f.Rig.TxReferenceEndSilenceHeld, "positive control: the newer pass holds its end");
         }
         finally { System.Threading.Monitor.Exit(gate); }
 
-        Assert.True(await Within(() => older != null, 2_000), "the older wait never ended");
+        Assert.True(await Within(() => older != null, 10_000), "the older wait never ended");
         Assert.Equal(ReferenceSilenceEnd.AlreadyReleased, older);
+        Assert.True(f.Rig.TxReferenceEndSilenceHeld, "an older wait ended the newer pass's silence");
+
+        // The newer pass on the air.
+        NoteRadioMox(f.Rig, true);
+        f.Vendor.Status("interlock state=TRANSMITTING source=SW");
         Assert.True(f.Rig.RadioInterlockReportsTransmit, "positive control: the radio is transmitting the newer pass");
         Assert.True(f.Rig.TxReferenceEndSilenceHeld, "an older wait ended the newer pass's silence while the radio transmits");
         Assert.True(OnlySilence(player, 30), "the microphone reached the encoder");
