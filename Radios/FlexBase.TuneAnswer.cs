@@ -76,7 +76,7 @@ namespace Radios
             }
             NoteTuneRequest(value);
             // A tune carrier is a transmission too (#863 S1, repair round 6).
-            if (value) FallingCueGate.NewTransmissionAsked();
+            if (value) NoteTransmissionAsked(carrier: false);
             q.Enqueue((FunctionDel)(() =>
             {
                 lock (_tuneWriteGate)

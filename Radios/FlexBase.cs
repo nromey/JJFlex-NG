@@ -8057,6 +8057,10 @@ namespace Radios
             // A carrier rising that we did not ask for through EnqueueKeyOn
             // (VOX, a hand mic, another client) begins an episode too (#863 N1).
             if (mox && !oldTransmit) NoteTransmitEpisodeBegins();
+            // And the origin of whatever falling tone this carrier will owe
+            // (repair round 7, #863 S2): recorded here, where the radio reports
+            // the rise, not when a deferred notification of it is handled.
+            if (mox && !oldTransmit) NoteCarrierRose();
             if (mox && !oldTransmit && !_tuneCycleActive) beginTxLineWindow();
             if (mox && !oldTransmit) restartAudioSampleOnRadioKeyDown();
             if (mox && !oldTransmit && TxReferenceArmed)
@@ -8570,7 +8574,7 @@ namespace Radios
             // A new transmission, counted under the falling cue's gate before
             // it is queued (repair round 6, #863 S1): a falling cue being
             // handed over finishes first, and an older one still owed is void.
-            FallingCueGate.NewTransmissionAsked();
+            NoteTransmissionAsked(carrier: true);
             // The radio's interlock reports so far: a receive report must belong
             // to this transmission to confirm its end (repair round 5, #863 N1).
             NoteTransmitEpisodeBegins();

@@ -275,7 +275,10 @@ public sealed class FallingToneRepairFiveTests : IDisposable
             change();
         }
         finally { Monitor.Exit(dispatch); }
-        Thread.Sleep(300);
+        // Completion acknowledged (repair round 7, Codex's F1): the payment has
+        // run its final check and settled the debt, paid or not, before any
+        // assertion reads what it submitted.
+        Assert.True(Within(3000, () => !OwedUnlocked()), "the payment never completed after the change");
     }
 
     [Fact]
@@ -349,8 +352,15 @@ public sealed class FallingToneRepairFiveTests : IDisposable
         {
             _r.Interlock(InterlockState.Ready);
             Assert.True(Within(2000, () => !OwedUnlocked()), "the payment never began");
-            worker = new Thread(() => { producer(); submittedWhenItFinished = list.Count; }) { IsBackground = true };
+            using var entered = new ManualResetEventSlim();
+            worker = new Thread(() => { entered.Set(); producer(); submittedWhenItFinished = list.Count; }) { IsBackground = true };
             worker.Start();
+            // Producer entry and its blocked state acknowledged (repair round 7,
+            // Codex's F1): the producer really ran during the pause, and is
+            // either waiting at the boundary or has finished, never unscheduled.
+            Assert.True(entered.Wait(2000), "the producer never started");
+            Assert.True(Within(2000, () => !worker.IsAlive || (worker.ThreadState & System.Threading.ThreadState.WaitSleepJoin) != 0),
+                "the producer neither blocked nor finished");
             finishedWhilePaused = worker.Join(300);
         }
         finally { Monitor.Exit(list); }
@@ -404,6 +414,46 @@ public sealed class FallingToneRepairFiveTests : IDisposable
         Thread.Sleep(400);
         Assert.Empty(Submitted());
         Assert.True(Within(2000, () => !_controller.ChirpStopOwed), "the voided debt was left waiting instead of given up");
+    }
+
+    // ── S2 (Codex's sixth re-check): a debt carries its transmission's origin ──
+
+    /// <summary>A box-off VOX send's carrier, reported by the radio: its rise (with our Mox bridge), then its transmit report, then receive.</summary>
+    private void VoxCarrierCameAndWent()
+    {
+        _r.Rig.TxTune = true;                               // an earlier transmission asked on this rig, so
+        _r.Rig.TxTune = false;                              // the count is not zero when the carrier rises
+        _r.Interlock(InterlockState.Ready);
+        _controller.TonesOnVoxEdges();                      // the send's tones are armed for the radio's edges
+        _r.VendorMox(true);                                 // the radio reports the rise, on its reader
+        _r.Interlock(InterlockState.Transmitting);
+        _r.VendorMox(false);
+        _r.Interlock(InterlockState.Ready);                 // and its receive, before the UI hears of any of it
+    }
+
+    [Fact]
+    public void A_deferred_VOX_notification_handled_after_a_tune_request_owes_no_falling_tone()
+    {
+        AssertTheDeskIsSafe();
+        VoxCarrierCameAndWent();
+        _r.Rig.TxTune = true;                               // the UI is busy asking for tune meanwhile
+        _controller.NoteRadioTransmit(true);                // only now does the deferred "keyed" arrive
+        Assert.Equal(1, _controller.ElsewhereStartTonesPlayed);
+        Assert.True(Within(2000, () => !_controller.ElsewhereStopOwed), "the old debt was left waiting");
+        Thread.Sleep(200);
+        Assert.Empty(Submitted());                          // the old carrier's READY does not pay it
+    }
+
+    [Fact]
+    public void The_same_deferred_VOX_notification_with_nothing_asked_since_pays_on_its_carriers_receive()
+    {
+        // The control: the debt is the old carrier's own, and its receive
+        // report came after its transmit report, so it pays at once.
+        AssertTheDeskIsSafe();
+        VoxCarrierCameAndWent();
+        _controller.NoteRadioTransmit(true);
+        Assert.True(Within(2000, () => Submitted().Length == 1));
+        Assert.Equal(new[] { nameof(EarconPlayer.TxElsewhereStopTone) }, Submitted());
     }
 
     // ── Follow-up: a superseded wait gives itself up (Codex's standing control) ──

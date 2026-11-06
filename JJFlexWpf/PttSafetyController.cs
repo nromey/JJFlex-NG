@@ -969,6 +969,7 @@ namespace JJFlexWpf
                 // way finishes first, and none starts after.
                 ForgetEdgeTones();
                 SetTx(true);   // RF off to on: a new transmission, and every sentence about the last one's end is now history
+                NoteKeyOrigin();
                 StartFreshAudioSample();
                 KeyDownTone();
                 _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_transmitting"));
@@ -1124,8 +1125,11 @@ namespace JJFlexWpf
         {
             bool elsewhere = _keyedElsewhere;
             _keyedElsewhere = false;
-            if (elsewhere) OweStopToneAtRealReceive(FallingTone.Elsewhere);
-            else if (_config.ChirpEnabled) OweStopToneAtRealReceive(FallingTone.Chirp);
+            // Owed for THIS key's transmission, by the count taken at its key
+            // (repair round 7, Codex's #863 S2): a tune or a send asked for
+            // since makes it void, however late the debt is made.
+            if (elsewhere) OweStopToneAtRealReceive(FallingTone.Elsewhere, origin: _keyOrigin);
+            else if (_config.ChirpEnabled) OweStopToneAtRealReceive(FallingTone.Chirp, origin: _keyOrigin);
         }
 
         /// <summary>Which falling cue a debt plays: the three notes or the ordinary two.</summary>
@@ -1237,7 +1241,21 @@ namespace JJFlexWpf
         /// already really receives, it plays now, so a hand-off after the
         /// carrier fell waits for no further notification.
         /// </summary>
-        private void OweStopToneAtRealReceive(FallingTone family, long? generation = null)
+        /// <summary>The transmissions asked for, counted when this controller's own key was asked (repair round 7).</summary>
+        private long _keyOrigin;
+
+        private void NoteKeyOrigin()
+        {
+            try { _keyOrigin = _getRigControl()?.TransmissionsAsked ?? 0; } catch { }
+        }
+
+        /// <param name="origin">The count of transmissions asked for at the
+        /// ORIGIN of the transmission this debt is about (repair round 7,
+        /// Codex's #863 S2): this controller's own key, or, when null, the
+        /// rig's latest reported carrier rise. Never the count when the debt
+        /// happens to be made: a deferred notification can arrive after a
+        /// newer tune or send was asked for, and must not adopt it.</param>
+        private void OweStopToneAtRealReceive(FallingTone family, long? generation = null, long? origin = null)
         {
             long gen;
             lock (_edgeToneLock)
@@ -1252,7 +1270,8 @@ namespace JJFlexWpf
             if (rig == null) { PayStopTone(gen, sameConnection: false, submitIfStillReceiving: null); return; }
             // Given up quietly once a newer debt replaces this one, so a carrier
             // held for a long time does not collect waits behind it.
-            rig.WhenReallyReceiving((same, submitIfStillReceiving) => PayStopTone(gen, same, submitIfStillReceiving), () => StillOwed(gen));
+            long from = origin ?? rig.LastCarrierOrigin;
+            rig.WhenReallyReceiving((same, submitIfStillReceiving) => PayStopTone(gen, same, submitIfStillReceiving), () => StillOwed(gen), from);
         }
 
         private bool StillOwed(long generation)
@@ -1550,6 +1569,7 @@ namespace JJFlexWpf
             // tells the episode what it commanded and the episode decides
             // which of the two this was (Astra's Track IJK2 review, blocker 1).
             SetTx(true);
+            if (fromIdle) NoteKeyOrigin();
             if (fromIdle) KeyDownTone();
             else if (_keyedElsewhere) EarconPlayer.TxElsewhereStartTone();
             else if (_config.ChirpEnabled) EarconPlayer.TxStartTone();

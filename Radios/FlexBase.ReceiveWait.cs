@@ -101,6 +101,41 @@ namespace Radios
         public bool WhenReallyReceiving(Action<bool, Func<Action, bool>> then, Func<bool> stillWanted) =>
             WhenRadioReportsReceive(then, stillWanted);
 
+        /// <summary>
+        /// The same wait, for a debt that belongs to a transmission begun when
+        /// <see cref="TransmissionsAsked"/> stood at <paramref name="origin"/>
+        /// (repair round 7, Codex's #863 S2): any transmission asked for since
+        /// voids it at once, however late the debt is made.
+        /// </summary>
+        public bool WhenReallyReceiving(Action<bool, Func<Action, bool>> then, Func<bool> stillWanted, long origin) =>
+            WhenRadioReportsReceive(then, stillWanted, origin);
+
+        /// <summary>Transmissions this rig has asked for: every key, send, check and tune (repair rounds 6 and 7).</summary>
+        private long _transmissionsAsked;
+
+        /// <summary>How many transmissions this rig has asked for so far. A falling-tone debt carries it from its origin.</summary>
+        public long TransmissionsAsked => Interlocked.Read(ref _transmissionsAsked);
+
+        /// <summary>
+        /// <see cref="TransmissionsAsked"/> as it stood at the latest carrier
+        /// rise this rig saw (our own key asked, or a Mox the radio reported):
+        /// the origin of a debt owed to a carrier the radio keyed (repair round
+        /// 7, Codex's #863 S2). Recorded where the rise happens, on the reader,
+        /// so a deferred notification of it carries the right origin.
+        /// </summary>
+        public long LastCarrierOrigin => Interlocked.Read(ref _lastCarrierOrigin);
+        private long _lastCarrierOrigin;
+
+        /// <summary>A new transmission is asked for, counted under the falling cue's gate.</summary>
+        private void NoteTransmissionAsked(bool carrier)
+        {
+            FallingCueGate.NewTransmissionAsked(ref _transmissionsAsked);
+            if (carrier) Interlocked.Exchange(ref _lastCarrierOrigin, TransmissionsAsked);
+        }
+
+        /// <summary>A carrier rose (a Mox the radio reported, or our own echo): its origin is the count now.</summary>
+        private void NoteCarrierRose() => Interlocked.Exchange(ref _lastCarrierOrigin, TransmissionsAsked);
+
         /// <summary>For tests: runs on the payment's thread just before its final check takes the transport's dispatch gate.</summary>
         internal Action? BeforeFallingCueFinalCheckForTests;
 
@@ -117,7 +152,7 @@ namespace Radios
         /// <summary>For tests: the fallback interval, in place of <see cref="ReceiveReportFallbackMs"/>; zero uses it.</summary>
         internal int ReceiveReportFallbackMsOverride;
 
-        private bool WhenRadioReportsReceive(Action<bool, Func<Action, bool>> then, Func<bool>? stillWanted)
+        private bool WhenRadioReportsReceive(Action<bool, Func<Action, bool>> then, Func<bool>? stillWanted, long? origin = null)
         {
             Radio? radio = theRadio;
             CommandConnection? connection = radio?.Connected == true ? radio.CurrentCommandConnection : null;
@@ -137,8 +172,9 @@ namespace Radios
             // process asked for since the debt was made (another send, a check,
             // a tune) voids it. Its own end owes its own cue; the first
             // carrier's receive report says nothing about the newer one.
-            long transmissions = FallingCueGate.Transmissions;
-            bool Superseded() => FallingCueGate.Transmissions != transmissions;
+            // The debt's own origin when it carries one (round 7, S2); otherwise now.
+            long transmissions = origin ?? TransmissionsAsked;
+            bool Superseded() => TransmissionsAsked != transmissions;
             bool StillReceiving() => SameConnection() && !Superseded() && ReportsReceive();
             // The final check and the caller's action as ONE step (repair round
             // 6, S1): under the transport's dispatch gate, which the vendor's

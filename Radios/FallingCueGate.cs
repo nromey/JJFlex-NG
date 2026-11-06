@@ -50,15 +50,15 @@ namespace Radios
     internal static class FallingCueGate
     {
         private static readonly object Gate = new object();
-        private static long _transmissions;
 
-        /// <summary>How many transmissions this process has asked for; a wait compares it with the count when its debt was made.</summary>
-        internal static long Transmissions => Interlocked.Read(ref _transmissions);
-
-        /// <summary>A key is about to be asked for: count it, after any payment already handing its tone over.</summary>
-        internal static void NewTransmissionAsked()
+        /// <summary>
+        /// A key is about to be asked for: count it in its rig's own counter
+        /// (repair round 7: per rig, so one radio's keys never void another's
+        /// tones), after any payment already handing its tone over.
+        /// </summary>
+        internal static void NewTransmissionAsked(ref long counter)
         {
-            lock (Gate) Interlocked.Increment(ref _transmissions);
+            lock (Gate) Interlocked.Increment(ref counter);
         }
 
         /// <summary>
