@@ -1992,7 +1992,8 @@ namespace Radios
         /// <param name="sw">The connect flow's stopwatch, for the trace
         /// timings; null outside the flow.</param>
         internal int ReplayHeldListsIntoTheIntake(
-            string accountEmail, bool sessionWasAlreadyConnected, System.Diagnostics.Stopwatch sw = null)
+            string accountEmail, bool sessionWasAlreadyConnected, System.Diagnostics.Stopwatch sw = null,
+            Radios.SmartLink.SessionRadioListSnapshot? ownListAtStart = null)
         {
             int replayed = 0;
             string at() => sw == null ? "" : $" ({sw.ElapsedMilliseconds}ms)";
@@ -2003,8 +2004,22 @@ namespace Radios
                     if (held == null) continue;
                     var snapshot = held.RadioListSnapshot;
                     if (!snapshot.SessionConnected) continue;
-                    if (string.Equals(held.AccountId, accountEmail, StringComparison.OrdinalIgnoreCase)
-                        && !sessionWasAlreadyConnected) continue;
+                    bool own = string.Equals(held.AccountId, accountEmail, StringComparison.OrdinalIgnoreCase);
+                    if (own && !sessionWasAlreadyConnected) continue;
+                    // A connect call replays its OWN account's list only if it
+                    // is the list the call found (#613, repair round 3, Codex
+                    // B3-R2a). A list accepted during the call is that call's
+                    // answer from the server; replaying it as a held copy
+                    // satisfied the call before the push reached its latch, and
+                    // the answer was lost. The push brings it instead.
+                    if (own && ownListAtStart.HasValue && !TheListWasFoundAtStart(ownListAtStart.Value, snapshot))
+                    {
+                        if (snapshot.Radios != null && snapshot.Radios.Count > 0)
+                            Tracing.TraceLine(
+                                $"ConnectToSmartLink: not replaying {held.AccountId}'s list (session {snapshot.SessionId} connection {snapshot.ConnectionGeneration}) — it arrived during this call, so its push is this call's answer{at()}",
+                                TraceLevel.Info);
+                        continue;
+                    }
                     var cached = snapshot.Radios;
                     if (cached == null || cached.Count == 0) continue;
                     if (!snapshot.ArrivedOnTheLiveConnection)
@@ -2081,6 +2096,15 @@ namespace Radios
         /// </remarks>
         internal bool OwnRowsMayAnswerTheConnect(
             Radios.SmartLink.IWanSessionOwner session, string accountEmail, System.Diagnostics.Stopwatch sw = null)
+            => session != null && OwnRowsMayAnswerTheConnect(session.RadioListSnapshot, accountEmail, sw);
+
+        /// <summary>
+        /// <see cref="OwnRowsMayAnswerTheConnect(Radios.SmartLink.IWanSessionOwner, string, System.Diagnostics.Stopwatch)"/>
+        /// on a reading the caller already took, so its other decisions rest
+        /// on the same one (#613, repair round 3).
+        /// </summary>
+        internal bool OwnRowsMayAnswerTheConnect(
+            Radios.SmartLink.SessionRadioListSnapshot snapshot, string accountEmail, System.Diagnostics.Stopwatch sw = null)
         {
             // WAN entries only: myRadioList also accumulates LAN radios, and a
             // LAN-only cache says nothing about this SmartLink session. Scoped
@@ -2090,9 +2114,8 @@ namespace Radios
             int rows = myRadioList.Count(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail));
             if (rows == 0) return false;
 
-            // One read, so the connected fact and the arrived-on-the-live-
+            // One reading, so the connected fact and the arrived-on-the-live-
             // connection fact describe the same moment.
-            var snapshot = session.RadioListSnapshot;
             if (!snapshot.SessionConnected) return false;
             if (!snapshot.ArrivedOnTheLiveConnection)
             {
@@ -2139,36 +2162,32 @@ namespace Radios
         /// account's, so its list is that account's list.</para>
         /// </remarks>
         /// <summary>
-        /// True when the session's list was already an arrived, empty answer
-        /// when the call began, AND is still that very list now: same session,
-        /// same connection, same arrival. Only then is nothing coming that the
-        /// call should wait for (#613, repair round 2: a start-of-call
-        /// "connected" flag did not say which list the call would skip).
+        /// True when <paramref name="now"/> is the very list the call found
+        /// at its start, and that list was an answer then: connected and
+        /// arrived on that connection, and still the same session,
+        /// connection and arrival now (#613, repair rounds 2 and 3). Two
+        /// readings compared as values; nothing is read here.
         /// </summary>
-        internal static bool TheListAnsweredEmptyBeforeTheCall(
-            Radios.SmartLink.SessionRadioListSnapshot atStart,
-            Radios.SmartLink.IWanSessionOwner session, System.Diagnostics.Stopwatch sw = null)
-        {
-            if (session == null) return false;
-            if (!atStart.SessionConnected || !atStart.ArrivedOnTheLiveConnection) return false;
-            if (atStart.Radios != null && atStart.Radios.Count > 0) return false;
-            var now = session.RadioListSnapshot;
-            bool same = string.Equals(now.SessionId, atStart.SessionId, StringComparison.Ordinal)
-                && now.ConnectionGeneration == atStart.ConnectionGeneration
-                && now.ReceivedUtc == atStart.ReceivedUtc;
-            if (!same) return false;
-            return TheLiveListAnsweredEmpty(session, sw);
-        }
+        internal static bool TheListWasFoundAtStart(
+            Radios.SmartLink.SessionRadioListSnapshot atStart, Radios.SmartLink.SessionRadioListSnapshot now)
+            => atStart.SessionConnected && atStart.ArrivedOnTheLiveConnection
+               && now.SessionConnected && now.ArrivedOnTheLiveConnection
+               && string.Equals(now.SessionId, atStart.SessionId, StringComparison.Ordinal)
+               && now.ConnectionGeneration == atStart.ConnectionGeneration
+               && now.ReceivedUtc == atStart.ReceivedUtc;
 
+        /// <summary>
+        /// True when this one reading is a list that arrived on its live
+        /// connection and holds no radio: an empty answer, given (#613).
+        /// The caller passes the reading it decides everything else from.
+        /// </summary>
         internal static bool TheLiveListAnsweredEmpty(
-            Radios.SmartLink.IWanSessionOwner session, System.Diagnostics.Stopwatch sw = null)
+            Radios.SmartLink.SessionRadioListSnapshot snapshot, string account, System.Diagnostics.Stopwatch sw = null)
         {
-            if (session == null) return false;
-            var snapshot = session.RadioListSnapshot;
             if (!snapshot.SessionConnected || !snapshot.ArrivedOnTheLiveConnection) return false;
             if (snapshot.Radios != null && snapshot.Radios.Count > 0) return false;
             Tracing.TraceLine(
-                $"ConnectToSmartLink: {session.AccountId}'s list for its live connection (session {snapshot.SessionId} connection {snapshot.ConnectionGeneration}) has arrived and is empty — no list wait"
+                $"ConnectToSmartLink: {account}'s list for its live connection (session {snapshot.SessionId} connection {snapshot.ConnectionGeneration}) has arrived and is empty — no list wait"
                 + (sw == null ? "" : $" ({sw.ElapsedMilliseconds}ms)"),
                 TraceLevel.Info);
             return true;
@@ -2242,12 +2261,16 @@ namespace Radios
                 // trace 20260805-163019: re-clicking Remote sat through the
                 // full wait for an event the server never re-sends).
                 bool sessionWasAlreadyConnected = session.IsConnected;
-                // The session's list as this call FOUND it (#613, repair round
-                // 2). Only an answer that was already there, and is still the
-                // very same list, may stand in for the wait below; a list that
-                // arrives during the call is this call's answer and comes
-                // through the intake to this call's latch.
-                var listAtStart = session.RadioListSnapshot;
+                // The session's list as this call FOUND it (#613, repair rounds
+                // 2 and 3). Only an answer that was already there, and is
+                // still the very same list, may stand in for the wait below or
+                // be replayed to this call; a list that arrives during the call
+                // is this call's answer and comes through the intake to this
+                // call's latch. Read under the lock that opens the latch: the
+                // session records a list before it forwards it, and the intake
+                // writes latches under this lock, so a list is either in this
+                // reading (held) or reaches the latch (pushed), never neither.
+                Radios.SmartLink.SessionRadioListSnapshot listAtStart;
 
                 // Kick the monitor thread. If the session is already connected (e.g. we're
                 // re-entering ConnectToSmartLink after a successful previous call), Connect
@@ -2257,6 +2280,7 @@ namespace Radios
                     wanListReceived = false;
                     _serverListThisCall = null;
                     _openLatches.Add(latch);
+                    listAtStart = session.RadioListSnapshot;
                 }
                 session.Connect();
 
@@ -2288,7 +2312,16 @@ namespace Radios
                     Tracing.TraceLine($"ConnectToSmartLink: session already registered this connection — skipping duplicate registration ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 }
 
-                ReplayHeldListsIntoTheIntake(accountEmail, sessionWasAlreadyConnected, sw);
+                ReplayHeldListsIntoTheIntake(accountEmail, sessionWasAlreadyConnected, sw, listAtStart);
+
+                // ONE reading of this account's list decides both shortcuts
+                // below (#613, repair round 3, Codex B3-R2b): whether it is the
+                // list the call found, whether this rig's rows came from it,
+                // and whether it is empty. A helper that checked the list's
+                // identity on one reading and its emptiness on another could
+                // pair the start list's identity with a reconnect's answer.
+                var listNow = session.RadioListSnapshot;
+                bool foundAtStart = TheListWasFoundAtStart(listAtStart, listNow);
 
                 // When we already hold a radio list from this session, don't make
                 // the user sit through the full 10s window on the off chance the
@@ -2297,7 +2330,7 @@ namespace Radios
                 // now: rows taken on the connection before a reconnect are
                 // not this session's list, and the live connection's push is
                 // still coming (#619) — see OwnRowsMayAnswerTheConnect.
-                bool haveCachedList = OwnRowsMayAnswerTheConnect(session, accountEmail, sw);
+                bool haveCachedList = OwnRowsMayAnswerTheConnect(listNow, accountEmail, sw);
 
                 // Re-entry over a session that was ALREADY live when this call
                 // began and has been listed on its live connection: the one
@@ -2309,13 +2342,19 @@ namespace Radios
                 // exactly as the 2026-08-06 refresh/morph flow expects.
                 if (sessionWasAlreadyConnected && haveCachedList)
                 {
+                    // Rows from a list that arrived during the call can only
+                    // have come through the intake as a push, which has
+                    // already written this call's latch and its server answer
+                    // (the replay no longer copies such a list, and the start
+                    // reading is taken where the latch opens), so answering
+                    // from the rows here loses nothing (#613, repair round 3).
                     var fromRows = myRadioList.Where(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)).ToList();
                     lock (_wanIntakeLock) latch.Radios = fromRows;
                     Tracing.TraceLine(
                         $"ConnectToSmartLink: session was already live — satisfied immediately from {fromRows.Count} cached WAN radio(s), no list wait ({sw.ElapsedMilliseconds}ms)",
                         TraceLevel.Info);
                 }
-                else if (!haveCachedList && TheListAnsweredEmptyBeforeTheCall(listAtStart, session, sw))
+                else if (!haveCachedList && foundAtStart && TheLiveListAnsweredEmpty(listNow, accountEmail, sw))
                 {
                     // #613: the session's one list for this connection has
                     // ARRIVED and holds no row for this account, so waiting ten
@@ -2571,7 +2610,8 @@ namespace Radios
         /// a second look at live state (#798, repair round 2).
         /// </summary>
         internal sealed record AccountPicture(
-            string Serial, IReadOnlyList<AccountListView> Lists, string Preferred, string LastSeen, bool OnLan)
+            string Serial, IReadOnlyList<AccountListView> Lists, string Preferred, string LastSeen, bool OnLan,
+            IReadOnlyList<string> Saved)
         {
             /// <summary>
             /// The account whose list answers now and names the radio: live
@@ -2598,11 +2638,23 @@ namespace Radios
             public AccountRoute Route => RadioAccountRouting.Resolve(LiveAccount, Preferred, LastSeen);
 
             /// <summary>
+            /// Whether an account is one of this picture's saved accounts.
+            /// </summary>
+            public bool IsSaved(string account)
+                => !string.IsNullOrWhiteSpace(account)
+                   && (Saved ?? Array.Empty<string>()).Any(s => string.Equals(s, account, StringComparison.OrdinalIgnoreCase));
+
+            /// <summary>
             /// True when <paramref name="other"/> describes the same moment:
             /// the same lists (account, session, connection, connected,
-            /// arrived, arrival time, membership) and the same chosen and
-            /// last-seen accounts. Arrival times and connections only move
-            /// forward, so two equal readings mean nothing changed in between.
+            /// arrived, arrival time, membership), the same chosen and
+            /// last-seen accounts, and the same saved accounts (repair round
+            /// 3, Codex B2-R2: an account saved between the readings has not
+            /// answered, and the plan must see it). Two readings that differ
+            /// mean something was received in between. Two equal readings
+            /// rest on the arrival time standing in for a revision of the
+            /// list; that stamp is the wall clock, not a counter (Codex F4,
+            /// for the register).
             /// </summary>
             public bool SameAs(AccountPicture other)
                 => other != null
@@ -2610,7 +2662,8 @@ namespace Radios
                    && string.Equals(Preferred ?? "", other.Preferred ?? "", StringComparison.OrdinalIgnoreCase)
                    && string.Equals(LastSeen ?? "", other.LastSeen ?? "", StringComparison.OrdinalIgnoreCase)
                    && OnLan == other.OnLan
-                   && Lists.SequenceEqual(other.Lists);
+                   && Lists.SequenceEqual(other.Lists)
+                   && (Saved ?? Array.Empty<string>()).SequenceEqual(other.Saved ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -2618,7 +2671,8 @@ namespace Radios
         /// and last-seen accounts. Each session's list is one snapshot.
         /// </summary>
         internal static AccountPicture TakeAccountPicture(string serial,
-            IEnumerable<Radios.SmartLink.IWanSessionOwner> sessions, string preferred, string lastSeen, bool onLan)
+            IEnumerable<Radios.SmartLink.IWanSessionOwner> sessions, string preferred, string lastSeen, bool onLan,
+            IEnumerable<string> saved = null)
         {
             var lists = new List<AccountListView>();
             foreach (var held in sessions ?? Array.Empty<Radios.SmartLink.IWanSessionOwner>())
@@ -2631,15 +2685,24 @@ namespace Radios
                     s.SessionConnected, s.ArrivedOnTheLiveConnection, s.ReceivedUtc, lists_));
             }
             lists.Sort((a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Account, b.Account));
-            return new AccountPicture(serial ?? "", lists, preferred ?? "", lastSeen ?? "", onLan);
+            var savedNames = (saved ?? Array.Empty<string>())
+                .Where(a => !string.IsNullOrWhiteSpace(a))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(a => a, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            return new AccountPicture(serial ?? "", lists, preferred ?? "", lastSeen ?? "", onLan, savedNames);
         }
 
-        /// <summary>The picture for a serial now, from the coordinator's sessions and the radio's own record.</summary>
-        internal AccountPicture TakeAccountPicture(string serial)
-            => TakeAccountPictureFor(serial, RadioAvailability(serial).lan);
+        /// <summary>The picture for a serial now, from the coordinator's sessions, the radio's own record and these saved accounts.</summary>
+        internal AccountPicture TakeAccountPicture(string serial, IEnumerable<string> saved)
+            => TakeAccountPictureFor(serial, RadioAvailability(serial).lan, saved);
 
-        /// <summary>The picture without a rig: no LAN reading (false).</summary>
-        internal static AccountPicture TakeAccountPictureFor(string serial, bool onLan = false)
+        /// <summary>
+        /// The picture without a rig: no LAN reading (false). Without
+        /// <paramref name="saved"/> the picture carries no saved accounts,
+        /// which its <see cref="AccountPicture.Route"/> does not use.
+        /// </summary>
+        internal static AccountPicture TakeAccountPictureFor(string serial, bool onLan = false, IEnumerable<string> saved = null)
         {
             string preferred = "", lastSeen = "";
             try
@@ -2653,12 +2716,13 @@ namespace Radios
                 Tracing.TraceLine($"TakeAccountPicture({serial}): per-radio record unreadable: {ex.Message}", TraceLevel.Warning);
             }
             return TakeAccountPicture(serial, Radios.SmartLink.SmartLinkServices.Coordinator.AllSessions,
-                preferred, lastSeen, onLan);
+                preferred, lastSeen, onLan, saved);
         }
 
         /// <summary>
-        /// The plan, a pure function of one picture and the saved accounts
-        /// (#798; the table is in the 2026-11-06 repair-2 report):
+        /// The plan, a pure function of one picture, its saved accounts
+        /// included (#798; the rules are in the 2026-11-06 repair-2 and
+        /// repair-3 reports):
         /// <list type="number">
         /// <item>An account's list answers now and names the radio: use that
         /// held session (<see cref="AccountPicture.LiveAccount"/>).</item>
@@ -2670,16 +2734,15 @@ namespace Radios
         /// <item>Otherwise sign in as before, through the saved default.</item>
         /// </list>
         /// </summary>
-        internal static SmartLinkSignInPlan PlanSmartLinkSignIn(AccountPicture picture, IReadOnlyCollection<string> savedAccounts)
+        internal static SmartLinkSignInPlan PlanSmartLinkSignIn(AccountPicture picture)
         {
             string live = picture.LiveAccount;
             if (live.Length > 0)
                 return new SmartLinkSignInPlan(SmartLinkSignInPlanKind.UseHeldSession, live,
                     "its held session lists the radio on its live connection");
 
-            var saved = (savedAccounts ?? Array.Empty<string>()).Where(a => !string.IsNullOrWhiteSpace(a)).ToList();
-            bool IsSaved(string a) => !string.IsNullOrWhiteSpace(a)
-                && saved.Any(s => string.Equals(s, a, StringComparison.OrdinalIgnoreCase));
+            var saved = picture.Saved ?? Array.Empty<string>();
+            bool IsSaved(string a) => picture.IsSaved(a);
 
             if (saved.Count > 0 && saved.All(a => picture.Lists.Any(l => l.Answers
                     && string.Equals(l.Account, a, StringComparison.OrdinalIgnoreCase))))
@@ -2711,15 +2774,15 @@ namespace Radios
         /// is active: decide from ONE picture and act on THAT picture.
         /// </summary>
         /// <remarks>
-        /// <para><b>Read twice, act only on a steady reading (repair round
-        /// 2).</b> The picture is read, then read again; the plan is made and
+        /// <para><b>Read twice, act only on a steady reading (repair rounds
+        /// 2 and 3).</b> The picture is read, then read again; the plan is made and
         /// acted on only when the two are the same, which means nothing was
         /// received in between, so every list in it held at one moment. A
-        /// list that arrived while the lists were being read, a reconnect, or
-        /// a change of the radio's chosen account makes the readings differ,
-        /// and the picture is taken again. If it never steadies, the
-        /// preparation never says "not on any of your accounts"; it falls back
-        /// to the usual sign-in, which only costs time. A change not yet
+        /// list that arrived while the lists were being read, a reconnect, a
+        /// change of the radio's chosen account, or an account saved meanwhile
+        /// makes the readings differ, and the picture is taken again. If it
+        /// never steadies, no plan is made from it at all: the preparation
+        /// falls back to the usual sign-in, which only costs time. A change not yet
         /// received when the reading is made cannot be known, and is not
         /// guarded against.</para>
         /// </remarks>
@@ -2731,27 +2794,45 @@ namespace Radios
         {
             string at() => sw == null ? "" : $" ({sw.ElapsedMilliseconds}ms)";
             var coordinator = Radios.SmartLink.SmartLinkServices.Coordinator;
-            var savedList = savedAccounts ?? AccountManager.Accounts;
-            var saved = savedList.Select(a => a.Email).ToList();
+            var savedSource = savedAccounts ?? AccountManager.Accounts;
+
+            // The saved accounts are read WITH each picture, and the account
+            // objects kept from the reading the plan is made from (repair
+            // round 3, Codex B2-R2): an account saved between two readings
+            // makes them differ, and a steady picture's saved set is the one
+            // the action signs in from.
+            List<SmartLinkAccount> savedNow = null;
+            AccountPicture Read()
+            {
+                savedNow = savedSource.Where(a => a != null).ToList();
+                return TakeAccountPicture(serial, savedNow.Select(a => a.Email));
+            }
 
             AccountPicture picture = null;
             SmartLinkSignInPlan plan = default;
             bool steady = false;
             for (int attempt = 0; attempt < PictureReadAttempts && !steady; attempt++)
             {
-                picture = TakeAccountPicture(serial);
+                picture = Read();
+                var savedAtPicture = savedNow;
                 AfterAccountPictureTaken?.Invoke();
-                steady = TakeAccountPicture(serial).SameAs(picture);
+                steady = Read().SameAs(picture);
+                savedNow = savedAtPicture;
                 if (!steady)
                     Tracing.TraceLine($"PrepareSmartLinkForSerial: {serial} the accounts changed while being read; reading again{at()}", TraceLevel.Info);
             }
-            plan = PlanSmartLinkSignIn(picture, saved);
-            if (!steady && plan.Kind == SmartLinkSignInPlanKind.NotListedByAnySavedAccount)
+            if (steady)
             {
-                // A verdict of absence needs a steady picture; without one,
-                // sign in as usual rather than risk a false sentence.
+                plan = PlanSmartLinkSignIn(picture);
+            }
+            else
+            {
+                // No steady picture: no plan is made from one (repair round 3,
+                // Codex F3). Every plan, not only the verdict of absence,
+                // would act on a reading already known to be out of date; the
+                // usual sign-in is the path that decides nothing from it.
                 plan = new SmartLinkSignInPlan(SmartLinkSignInPlanKind.SignInAsUsual, "",
-                    "the accounts kept changing while being read; no verdict of absence from an unsteady picture");
+                    "the accounts kept changing while being read; nothing is decided from an unsteady picture");
             }
             Tracing.TraceLine($"PrepareSmartLinkForSerial: {serial} route={picture.Route} plan={plan} steady={steady}{at()}", TraceLevel.Info);
 
@@ -2787,7 +2868,8 @@ namespace Radios
 
                 case SmartLinkSignInPlanKind.SignInAsRadiosAccount:
                 {
-                    var account = savedList.FirstOrDefault(a =>
+                    // From the same reading the plan was made from.
+                    var account = savedNow.FirstOrDefault(a =>
                         string.Equals(a.Email, plan.Account, StringComparison.OrdinalIgnoreCase));
                     return setupRemote(allowInteractiveLogin, account);
                 }

@@ -120,6 +120,7 @@ namespace Radios.Tests
             Listed(Third, SomeOtherRadio);              // a held account whose list the call replays
             var owner = (WanSessionOwner)session;
             var release = new ManualResetEventSlim();
+            var accepted = new ManualResetEventSlim();
             var rig = NewRig();
 
             bool parked = false;
@@ -127,7 +128,6 @@ namespace Radios.Tests
             {
                 if (stage != FlexBase.WanIntakeStage.ReplaySnapshotTaken || parked) return;
                 parked = true;
-                var accepted = new ManualResetEventSlim();
                 owner.BeforeListForwarded = () =>
                 {
                     owner.BeforeListForwarded = null;
@@ -139,8 +139,10 @@ namespace Radios.Tests
             };
 
             var query = Task.Run(() => rig.AskSmartLinkAboutSerial(Radio6300, "default-account", "test-jwt"));
-            Thread.Sleep(600);
-            bool finishedWhileParked = query.IsCompleted;
+            // Wait on the barrier, not a timer: the answer has been accepted
+            // and is parked; only then ask whether the call finished without it.
+            Assert.True(accepted.Wait(8000), "the schedule never reached its barrier");
+            bool finishedWhileParked = query.Wait(600);
             release.Set();
             Assert.True(query.Wait(8000));
 
@@ -165,6 +167,7 @@ namespace Radios.Tests
             Listed(Third, SomeOtherRadio);
             var owner = (WanSessionOwner)session;
             var release = new ManualResetEventSlim();
+            var accepted = new ManualResetEventSlim();
             var rig = NewRig();
 
             bool cycled = false;
@@ -176,7 +179,6 @@ namespace Radios.Tests
                 int dials = wan.ConnectCallCount;
                 wan.ForceIsConnected(false);
                 WaitUntil(() => wan.ConnectCallCount > dials && session.IsConnected, "the session never reconnected");
-                var accepted = new ManualResetEventSlim();
                 owner.BeforeListForwarded = () =>
                 {
                     owner.BeforeListForwarded = null;
@@ -189,8 +191,10 @@ namespace Radios.Tests
             };
 
             var query = Task.Run(() => rig.AskSmartLinkAboutSerial(Radio6300, "default-account", "test-jwt"));
-            Thread.Sleep(600);
-            bool finishedWhileParked = query.IsCompleted;
+            // Wait on the barrier, not a timer: the answer has been accepted
+            // and is parked; only then ask whether the call finished without it.
+            Assert.True(accepted.Wait(8000), "the schedule never reached its barrier");
+            bool finishedWhileParked = query.Wait(600);
             release.Set();
             Assert.True(query.Wait(8000));
 

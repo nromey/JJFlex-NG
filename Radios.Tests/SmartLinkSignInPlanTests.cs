@@ -133,7 +133,7 @@ namespace Radios.Tests
             string preferred = route.Source == AccountRouteSource.Preferred ? route.Account : "";
             string lastSeen = route.Source == AccountRouteSource.LastSeen ? route.Account : "";
             return FlexBase.PlanSmartLinkSignIn(
-                FlexBase.TakeAccountPicture(Radio6300, _coordinator.AllSessions, preferred, lastSeen, onLan: false), saved);
+                FlexBase.TakeAccountPicture(Radio6300, _coordinator.AllSessions, preferred, lastSeen, onLan: false, saved));
         }
 
         private static List<SmartLinkAccount> Saved(params string[] emails) =>
@@ -428,7 +428,7 @@ namespace Radios.Tests
         public void A_live_list_that_arrived_empty_is_answered_without_the_ten_second_wait()
         {
             var (session, _) = Listed("default-account");
-            Assert.True(FlexBase.TheLiveListAnsweredEmpty(session));
+            Assert.True(FlexBase.TheLiveListAnsweredEmpty(session.RadioListSnapshot, "default-account"));
 
             var rig = NewRig();
             var sw = Stopwatch.StartNew();
@@ -448,7 +448,7 @@ namespace Radios.Tests
         public async Task A_live_session_whose_list_has_not_arrived_still_waits_for_it()
         {
             var (session, wan) = ConnectedNotYetListed("default-account");
-            Assert.False(FlexBase.TheLiveListAnsweredEmpty(session));
+            Assert.False(FlexBase.TheLiveListAnsweredEmpty(session.RadioListSnapshot, "default-account"));
 
             var rig = NewRig();
             var server = Task.Run(() =>
@@ -531,9 +531,8 @@ namespace Radios.Tests
         {
             var (empty, _) = Listed(Operator);
             var (full, _) = Listed(Owner, Radio6300);
-            Assert.True(FlexBase.TheLiveListAnsweredEmpty(empty));
-            Assert.False(FlexBase.TheLiveListAnsweredEmpty(full));
-            Assert.False(FlexBase.TheLiveListAnsweredEmpty(null!));
+            Assert.True(FlexBase.TheLiveListAnsweredEmpty(empty.RadioListSnapshot, Operator));
+            Assert.False(FlexBase.TheLiveListAnsweredEmpty(full.RadioListSnapshot, Owner));
         }
     }
 }

@@ -38,11 +38,14 @@ namespace Radios.Tests
             _ => throw new ArgumentException(code.ToString()),
         };
 
-        private static FlexBase.AccountPicture Picture(char a, char b, string preferred, string lastSeen)
+        private static FlexBase.AccountPicture Picture(char a, char b, string preferred, string lastSeen, string saved = "AB")
         {
             var lists = new List<FlexBase.AccountListView>();
             foreach (var v in new[] { View(A, a), View(B, b) }) if (v != null) lists.Add(v.Value);
-            return new FlexBase.AccountPicture(Serial, lists, preferred, lastSeen, OnLan: false);
+            var savedAccounts = new List<string>();
+            if (saved.Contains('A')) savedAccounts.Add(A);
+            if (saved.Contains('B')) savedAccounts.Add(B);
+            return new FlexBase.AccountPicture(Serial, lists, preferred, lastSeen, OnLan: false, savedAccounts);
         }
 
         private static string Acct(string code) => code switch { "A" => A, "B" => B, "X" => "x@example.com", _ => "" };
@@ -80,15 +83,21 @@ namespace Radios.Tests
         [InlineData('R', '-', "", "", "", nameof(Plan.UseHeldSession), "A", "A", AccountRouteSource.LiveAttribution)]
         // Only A saved, A answers empty, B (unsaved) unknown: the verdict covers saved accounts.
         [InlineData('E', 'C', "", "", "A", nameof(Plan.NotListedByAnySavedAccount), "", "", AccountRouteSource.None)]
+        // Repair round 3 (Codex B2-R2): the saved set is part of the picture. B saved and not
+        // answering (no session, connected with no list yet, or stale) is unknown, and an
+        // unknown blocks the verdict.
+        [InlineData('E', 'C', "", "", "AB", nameof(Plan.SignInAsUsual), "", "", AccountRouteSource.None)]
+        [InlineData('E', 'S', "", "", "AB", nameof(Plan.SignInAsUsual), "", "", AccountRouteSource.None)]
+        // Codex's coverage notes: a live list on an account nobody saved is still used, and
+        // a stale list beside a pending one never makes a verdict.
+        [InlineData('R', 'C', "", "", "B", nameof(Plan.UseHeldSession), "A", "A", AccountRouteSource.LiveAttribution)]
+        [InlineData('S', 'C', "B", "", "AB", nameof(Plan.SignInAsRadiosAccount), "B", "B", AccountRouteSource.Preferred)]
         public void Every_row_of_the_routing_table(char a, char b, string preferred, string lastSeen, string saved,
             string expected, string planAccount, string routeAccount, AccountRouteSource routeSource)
         {
-            var savedAccounts = new List<string>();
-            if (saved.Contains('A')) savedAccounts.Add(A);
-            if (saved.Contains('B')) savedAccounts.Add(B);
-            var picture = Picture(a, b, Acct(preferred), Acct(lastSeen));
+            var picture = Picture(a, b, Acct(preferred), Acct(lastSeen), saved);
 
-            var plan = FlexBase.PlanSmartLinkSignIn(picture, savedAccounts);
+            var plan = FlexBase.PlanSmartLinkSignIn(picture);
 
             Assert.Equal(expected, plan.Kind.ToString());
             Assert.Equal(Acct(planAccount), plan.Account);
@@ -108,11 +117,13 @@ namespace Radios.Tests
             Assert.False(first.SameAs(Picture('R', 'E', "", "")));     // a new list naming the radio
             Assert.False(first.SameAs(Picture('C', 'E', "", "")));     // a reconnect, no list yet
             Assert.False(first.SameAs(Picture('E', 'E', "B", "")));    // the chosen account changed
+            Assert.False(Picture('E', '-', "", "", "A").SameAs(Picture('E', '-', "", "", "AB")));   // an account saved meanwhile (round 3)
+            Assert.True(Picture('E', '-', "", "", "AB").SameAs(Picture('E', '-', "", "", "AB")));
             var later = new FlexBase.AccountPicture(Serial, new[]
             {
                 new FlexBase.AccountListView(A, "s-" + A, 2, true, true, new DateTime(2026, 11, 6), false),
                 View(B, 'E')!.Value,
-            }, "", "", false);
+            }, "", "", false, new[] { A, B });
             Assert.False(first.SameAs(later));                         // same answer, newer connection
         }
     }
