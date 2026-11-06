@@ -8571,7 +8571,7 @@ namespace Radios
             // A new transmission, counted under the falling cue's gate before
             // it is queued (repair round 6, #863 S1): a falling cue being
             // handed over finishes first, and an older one still owed is void.
-            NoteTransmissionAsked(carrier: true);
+            long origin = NoteTransmissionAsked(carrier: true);
             // The radio's interlock reports so far: a receive report must belong
             // to this transmission to confirm its end (repair round 5, #863 N1).
             NoteTransmitEpisodeBegins();
@@ -8587,7 +8587,10 @@ namespace Radios
                 if (TeardownHeldSilently("transmit")) return;
                 SendIfStillAdmitted(work, keyedOn, keyedConnection, what, () =>
                 {
-                    keyedOn.Mox = true;
+                    // The echo of this key carries this request's origin (round 8, S3).
+                    t_ownKeyOrigin = origin;
+                    try { keyedOn.Mox = true; }
+                    finally { t_ownKeyOrigin = null; }
                     _ownKeyRequested = true;
                 });
             }), "Mox");

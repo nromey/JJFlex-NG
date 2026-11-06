@@ -56,9 +56,10 @@ namespace Radios
         /// (repair round 7: per rig, so one radio's keys never void another's
         /// tones), after any payment already handing its tone over.
         /// </summary>
-        internal static void NewTransmissionAsked(ref long counter)
+        /// <returns>The new count: the transmission's own identity, born with its request (repair round 8).</returns>
+        internal static long NewTransmissionAsked(ref long counter)
         {
-            lock (Gate) Interlocked.Increment(ref counter);
+            lock (Gate) return Interlocked.Increment(ref counter);
         }
 
         /// <summary>

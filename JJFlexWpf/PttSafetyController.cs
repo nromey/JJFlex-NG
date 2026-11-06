@@ -1290,7 +1290,16 @@ namespace JJFlexWpf
         /// receiving for this transmission, as one step against every new key
         /// this process asks for and every report the transport publishes.
         /// Null when there is no rig.</param>
+        /// <summary>For tests: called when a payment has finished, paid or not, after its submission (repair round 8, Codex's T3).</summary>
+        internal Action? AfterFallingTonePaymentForTests { get; set; }
+
         private void PayStopTone(long generation, bool sameConnection, Func<Action, bool>? submitIfStillReceiving)
+        {
+            try { PayStopToneCore(generation, sameConnection, submitIfStillReceiving); }
+            finally { AfterFallingTonePaymentForTests?.Invoke(); }
+        }
+
+        private void PayStopToneCore(long generation, bool sameConnection, Func<Action, bool>? submitIfStillReceiving)
         {
             if (!sameConnection || submitIfStillReceiving == null)
             {

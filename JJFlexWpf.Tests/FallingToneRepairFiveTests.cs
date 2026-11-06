@@ -263,6 +263,8 @@ public sealed class FallingToneRepairFiveTests : IDisposable
     private void BetweenTheObservationAndTheFinalCheck(Action change)
     {
         using var entered = new ManualResetEventSlim();
+        using var paid = new ManualResetEventSlim();
+        _controller.AfterFallingTonePaymentForTests = () => paid.Set();
         var hook = typeof(FlexBase).GetField("BeforeFallingCueFinalCheckForTests", Any);
         Assert.True(hook != null, "the payment's entry barrier is not where this test reaches it; the schedule below would be vacuous");
         hook!.SetValue(_r.Rig, (Action)(() => entered.Set()));
@@ -275,10 +277,10 @@ public sealed class FallingToneRepairFiveTests : IDisposable
             change();
         }
         finally { Monitor.Exit(dispatch); }
-        // Completion acknowledged (repair round 7, Codex's F1): the payment has
-        // run its final check and settled the debt, paid or not, before any
-        // assertion reads what it submitted.
-        Assert.True(Within(3000, () => !OwedUnlocked()), "the payment never completed after the change");
+        // Completion acknowledged (repair rounds 7 and 8, Codex's F1 and T3):
+        // the payment has RETURNED, after its submission or its refusal, before
+        // any assertion reads what it submitted.
+        Assert.True(paid.Wait(3000), "the payment never returned after the change");
     }
 
     [Fact]
@@ -454,6 +456,78 @@ public sealed class FallingToneRepairFiveTests : IDisposable
         _controller.NoteRadioTransmit(true);
         Assert.True(Within(2000, () => Submitted().Length == 1));
         Assert.Equal(new[] { nameof(EarconPlayer.TxElsewhereStopTone) }, Submitted());
+    }
+
+    // ── S3 (Codex's seventh re-check): our own key's origin travels with its queue item ──
+
+    /// <summary>The rig's command queue, run by hand: MainLoop on so items are kept, each run as the main loop runs it.</summary>
+    private void QueueRunsByHand()
+    {
+        object q = typeof(FlexBase).GetField("q", Any)!.GetValue(_r.Rig)!;
+        q.GetType().GetProperty("MainLoop")!.SetValue(q, true);
+        // FlexLib's Mox notification reaches the app's bridge, as the station wiring does.
+        _r.Radio.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == "Mox")
+                typeof(FlexBase).GetMethod("noteRadioMox", Any)!.Invoke(_r.Rig, new object[] { _r.Radio.Mox });
+        };
+    }
+
+    private void RunNextQueued()
+    {
+        object q = typeof(FlexBase).GetField("q", Any)!.GetValue(_r.Rig)!;
+        object item = q.GetType().GetMethod("Dequeue")!.Invoke(q, null)!;
+        typeof(FlexBase).GetMethod("RunQueuedItem", Any)!.Invoke(_r.Rig, new[] { item });
+    }
+
+    private void StopQueue()
+    {
+        object q = typeof(FlexBase).GetField("q", Any)!.GetValue(_r.Rig)!;
+        q.GetType().GetProperty("MainLoop")!.SetValue(q, false);
+    }
+
+    [Fact]
+    public void A_sends_key_run_after_a_tune_was_asked_keeps_its_own_origin_and_its_tone_is_void()
+    {
+        AssertTheDeskIsSafe();
+        QueueRunsByHand();
+        try
+        {
+            _r.Interlock(InterlockState.Ready);
+            var send = new FlexBaseVoiceMessageRig(_r.Rig);
+            send.Transmit = true;                            // count 1, queued
+            _r.Rig.TxTune = true;                            // count 2, queued behind it
+            RunNextQueued();                                 // the OLDER key runs now; its echo must keep count 1
+            _r.Interlock(InterlockState.Transmitting);
+            _r.VendorMox(false);
+            _r.Interlock(InterlockState.Ready);              // the old carrier's own reports
+            RunNextQueued();                                 // the tune ON
+            _controller.OweElsewhereStopTone();              // what the send's end hands over
+            Assert.True(Within(2000, () => !_controller.ElsewhereStopOwed), "the old debt was left waiting");
+            Thread.Sleep(200);
+            Assert.Empty(Submitted());
+        }
+        finally { StopQueue(); }
+    }
+
+    [Fact]
+    public void The_same_send_with_nothing_asked_since_pays_on_its_carriers_receive()
+    {
+        AssertTheDeskIsSafe();
+        QueueRunsByHand();
+        try
+        {
+            _r.Interlock(InterlockState.Ready);
+            var send = new FlexBaseVoiceMessageRig(_r.Rig);
+            send.Transmit = true;
+            RunNextQueued();
+            _r.Interlock(InterlockState.Transmitting);
+            _r.VendorMox(false);
+            _r.Interlock(InterlockState.Ready);
+            _controller.OweElsewhereStopTone();
+            Assert.True(Within(2000, () => Submitted().Length == 1));
+        }
+        finally { StopQueue(); }
     }
 
     // ── Follow-up: a superseded wait gives itself up (Codex's standing control) ──

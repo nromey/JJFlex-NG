@@ -126,15 +126,32 @@ namespace Radios
         public long LastCarrierOrigin => Interlocked.Read(ref _lastCarrierOrigin);
         private long _lastCarrierOrigin;
 
-        /// <summary>A new transmission is asked for, counted under the falling cue's gate.</summary>
-        private void NoteTransmissionAsked(bool carrier)
+        /// <summary>
+        /// A new transmission is asked for, counted under the falling cue's gate.
+        /// Returns its count, which travels with the request (repair round 8).
+        /// </summary>
+        private long NoteTransmissionAsked(bool carrier)
         {
-            FallingCueGate.NewTransmissionAsked(ref _transmissionsAsked);
-            if (carrier) Interlocked.Exchange(ref _lastCarrierOrigin, TransmissionsAsked);
+            long origin = FallingCueGate.NewTransmissionAsked(ref _transmissionsAsked);
+            if (carrier) Interlocked.Exchange(ref _lastCarrierOrigin, origin);
+            return origin;
         }
 
-        /// <summary>A carrier rose (a Mox the radio reported, or our own echo): its origin is the count now.</summary>
-        private void NoteCarrierRose() => Interlocked.Exchange(ref _lastCarrierOrigin, TransmissionsAsked);
+        /// <summary>
+        /// Set, on the command thread, while one of OUR queued keys writes its
+        /// Mox: the count its request was born with (repair round 8, Codex's
+        /// #863 S3). FlexLib raises Mox from inside that setter, so the rise it
+        /// reports is our own key's echo, and takes our key's origin, never the
+        /// count of a newer tune or send asked while the key waited.
+        /// </summary>
+        [ThreadStatic] private static long? t_ownKeyOrigin;
+
+        /// <summary>
+        /// A carrier rose. Our own key's echo keeps the origin its request was
+        /// born with; a carrier we did not ask for (a hand mic, a foot switch,
+        /// VOX, another client) takes the count when the radio reports it.
+        /// </summary>
+        private void NoteCarrierRose() => Interlocked.Exchange(ref _lastCarrierOrigin, t_ownKeyOrigin ?? TransmissionsAsked);
 
         /// <summary>For tests: runs on the payment's thread just before its final check takes the transport's dispatch gate.</summary>
         internal Action? BeforeFallingCueFinalCheckForTests;
