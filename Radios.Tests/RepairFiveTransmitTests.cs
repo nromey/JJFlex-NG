@@ -372,6 +372,64 @@ namespace Radios.Tests
                 "the emergency kill no longer drops the carrier unconditionally");
         }
 
+        // ── #861 B1 at the vendor's pre-write boundary: the mic put-back ──
+
+        [Fact]
+        public void A_mic_put_back_past_its_check_does_not_reach_the_replacement_connection()
+        {
+            Interlock("READY", 0);
+            _f.Vendor.Status("transmit mic_selection=PC");
+            var swapType = typeof(FlexBase).GetNestedType("MicInputSwap", BindingFlags.NonPublic)!;
+            var putBackNow = typeof(FlexBase).GetMethod("PutBackNow", Private)!;
+            object swap = Activator.CreateInstance(swapType, BindingFlags.Public | BindingFlags.Instance, null,
+                new object?[] { "MIC", _f.Vendor.Radio, 0L, false }, null)!;    // saved on this connection
+            var original = _f.Vendor.Radio.CurrentCommandConnection!;
+            var reconnectedFirst = ReconnectAtTheWriteOf("mic input MIC", () => Interlock("READY", 0));
+
+            putBackNow.Invoke(_f.Rig, new object[] { _f.Vendor.Radio, swap, "repair five test", 0L });
+            WaitFor(() => !ReferenceEquals(_f.Vendor.Radio.CurrentCommandConnection, original)
+                && _f.Vendor.Radio.CurrentCommandConnection!.State == CommandConnectionState.Connected, "the reconnect");
+            Assert.False(reconnectedFirst(), "the replacement connection was completed while the mic put-back checked on the old one was still on its way");
+            Assert.Empty(OnAnotherLiveConnection(original, "mic input"));
+        }
+
+        [Fact]
+        public void A_pinned_write_stuck_after_its_check_delays_a_new_connection_by_the_bound_and_no_more()
+        {
+            // The interval the bound exists for: a write still counted (its
+            // own handlers can be slow, past the vendor write) must not hold a
+            // reconnect for ever, nor let it go at once.
+            var radio = _f.Vendor.Radio;
+            var connection = radio.CurrentCommandConnection!;
+            using var inside = new ManualResetEventSlim();
+            var writer = new Thread(() => _f.Rig.WriteOnPinnedTarget(radio, connection, null, () =>
+            {
+                inside.Set();
+                Thread.Sleep(2500);
+            })) { IsBackground = true };
+            writer.Start();
+            Assert.True(inside.Wait(2000));
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            _f.Vendor.Transport.Reconnect();
+            long waited = clock.ElapsedMilliseconds;
+            Assert.InRange(waited, (long)FlexBase.PinnedWriteDrainBound.TotalMilliseconds - 50, 2400);
+            Assert.True(writer.Join(5000));
+        }
+
+        [Fact]
+        public void A_retry_resets_the_mic_session_before_it_connects_again()
+        {
+            // Codex's #861 B1: RetryConnect reused the Radio without the reset
+            // Connect makes. Pinned at the source; the lifetime check behind it
+            // is exercised in PcMicHealerOwnershipTests.
+            string text = System.IO.File.ReadAllText(Repo("Radios/FlexBase.cs"));
+            int retry = text.IndexOf("public bool RetryConnect()", StringComparison.Ordinal);
+            Assert.True(retry > 0, "RetryConnect moved");
+            int reset = text.IndexOf("ResetPcMicSession(\"RetryConnect to \"", retry, StringComparison.Ordinal);
+            int connect = text.IndexOf("rv = theRadio.Connect(prepareClientIdentityForConnect(\"RetryConnect\"));", retry, StringComparison.Ordinal);
+            Assert.True(reset > retry && connect > reset, "a retry can connect again with the old connection's mic debt still held");
+        }
+
         private static string Repo(string relative)
         {
             var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
