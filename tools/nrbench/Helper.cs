@@ -84,13 +84,15 @@ partial class BenchApp
     static Stage Nnr(string model) => new() { Settings = new() { EngineId = "nnr", Direction = DenoiseDirection.Receive, Strength = 1,
         // nnr-same-model: the bench's own wiring broken, every model built as standard while the
         // self-check still asks for four; the distinct-models control must go red.
-        Values = new() { new() { Name = "model", Choice = Mutation == "nnr-same-model" ? "standard" : model } } } };
+        Values = new() { new() { Name = "model", Choice = Mutation is "nnr-same-model" or "nnr-gain-only" ? "standard" : model } } } };
 
-    /// <summary>NR2 at WDSP's receive defaults, as the helper offers them.</summary>
-    static Stage Nr2() => new() { Settings = new() { EngineId = "nr2", Direction = DenoiseDirection.Receive, Strength = 1 } };
+    /// <summary>NR2 at WDSP's receive defaults, as the helper offers them; or with another noise estimator (the helper's "osms", "mmse" or "nstat").</summary>
+    static Stage Nr2(string? estimator = null) => new() { Settings = new() { EngineId = "nr2", Direction = DenoiseDirection.Receive, Strength = 1,
+        Values = estimator == null ? new() : new() { new() { Name = "noise_estimator", Choice = estimator } } } };
 
-    /// <summary>NR4 (libspecbleach) at the app's defaults: 20 dB reduction, low-latency mode.</summary>
-    static Stage Nr4() => new() { Settings = new() { EngineId = "nr4", Direction = DenoiseDirection.Receive, Strength = 1 } };
+    /// <summary>NR4 (libspecbleach) at the app's defaults: 20 dB reduction, low-latency mode; or with another smoothing (0 to 1).</summary>
+    static Stage Nr4(double? smoothing = null) => new() { Settings = new() { EngineId = "nr4", Direction = DenoiseDirection.Receive, Strength = 1,
+        Values = smoothing == null ? new() : new() { new() { Name = "smoothing", Number = smoothing.Value } } } };
 
     static string? ChoiceOf(Stage stage, string name) => stage.Settings.Values.FirstOrDefault(v => v.Name == name)?.Choice;
 

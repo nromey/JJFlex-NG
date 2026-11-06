@@ -12,6 +12,7 @@ partial class BenchApp
             if(args[0]=="cpu")return Cpu(args[1..]);
             if(args[0]=="cw")return Cw(args[1..]);
             if(args[0]=="cwmeasure")return CwMeasureCommand(args[1..]);
+            if(args[0]=="cwscan")return CwScanCommand(args[1..]);
             if(args[0]=="selftest")
             {
                 string? recording=null,mutation=null;

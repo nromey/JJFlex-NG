@@ -24,13 +24,18 @@
 // The selftest checks every NNR model, NR2 and NR4; CwChecks.cs lists their
 // mutations.
 // nrbench cw <capture.wav> <outDir> [--name <take>] [--start s] [--seconds s]
-//     [--width Hz] [--helper <helper.exe>] [--deepfilter <nativeDir>]
-// CW mode renders one CW capture through every engine, wide and then through a
-// narrow filter at the station's pitch, level-matched on the station, with the
-// CW measure's figures in <take>-measures.txt. CwCommands.cs has the details.
+//     [--width Hz] [--pitch Hz] [--station Hz[@from-to]]... [--engines id,...]
+//     [--target-db dBFS] [--segments] [--helper <helper.exe>] [--deepfilter <nativeDir>]
+// CW mode renders one CW capture through every engine (or the named ones), wide
+// and then through a narrow filter at the station's pitch, level-matched on the
+// station, with the CW measure's figures in <take>-measures.txt. Without --pitch
+// it refuses a found pitch that is not clearly ahead. CwCommands.cs has the details.
 // nrbench cwmeasure <reference.wav> <file.wav>... [--start s] [--seconds s]
-//     [--pitch Hz] [--width Hz] [--narrow]
+//     [--pitch Hz] [--station Hz[@from-to]]... [--width Hz] [--narrow] [--aligned]
+//     [--segments]
 // Measures existing files against an unprocessed reference (CwMeasure.cs).
+// nrbench cwscan <capture.wav> [--start s] [--seconds s] [--window s] [--step s]
+// Lists the keyed pitches in each stretch of a capture: how to find a station.
 // nrbench cpu [input.wav] [--out <report.txt>] [--deepfilter <nativeDir>]
 // CPU mode defaults to generated noise and cpu-report.txt; it opens no device.
 // nrbench synth <speech.wav> <outDir> [--start s] [--seconds s] [--snr dB]

@@ -24,8 +24,8 @@ partial class BenchApp
             "rnnoise" => $"{(Variant == "Historical" ? "rnnoise-before-sprint49 (old input level, aligned blend)" : "rnnoise (corrected input level, aligned blend)")} {Settings.Strength * 100:0} percent",
             "spectral_capture" => $"capture subtract {Value("subtraction_amount"):0.##} floor {Value("spectral_floor"):0.###}, {ProfileSource}",
             "nnr" => $"NNR {Settings.Values.FirstOrDefault(v => v.Name == "model")?.Choice ?? "standard"} (WDSP helper)",
-            "nr2" => "NR2 at WDSP's receive defaults (WDSP helper)",
-            "nr4" => "NR4 (libspecbleach) at the app's defaults",
+            "nr2" => $"NR2, {Settings.Values.FirstOrDefault(v => v.Name == "noise_estimator")?.Choice ?? "osms"} noise estimator, otherwise WDSP's receive defaults (WDSP helper)",
+            "nr4" => $"NR4 (libspecbleach), smoothing {Settings.Values.FirstOrDefault(v => v.Name == "smoothing")?.Number ?? .5:0.##}, otherwise the app's defaults",
             _ => Settings.EngineId
         };
         public double Value(string name) => Settings.Values.Single(x => x.Name == name).Number;
@@ -165,6 +165,8 @@ partial class BenchApp
         {
             // The control for the new engines' self-checks: a broken engine that passes audio through unchanged.
             if(Mutation=="engine-bypass"){Array.Clear(output);for(int i=0;i<input.Length && i+channels*latency<output.Length;i++)output[i+channels*latency]=input[i];}
+            // And the broken engine that is only a volume control: the delayed input at half gain.
+            if(Mutation=="engine-attenuate"){Array.Clear(output);for(int i=0;i<input.Length && i+channels*latency<output.Length;i++)output[i+channels*latency]=.5f*input[i];}
         }
         return output;
     }

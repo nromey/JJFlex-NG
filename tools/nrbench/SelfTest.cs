@@ -113,6 +113,7 @@ partial class BenchApp
             MustRefuse(()=>ProcessChain(noise,1,new(){CaptureStage(null,"missing profile",0)},library,out _),"Profile-less ripple engine was accepted");
         }));
         AddCwChecks(tests,library);
+        AddCwFadeChecks(tests);
         foreach(var test in tests)
         {
             try{test.Test();Console.WriteLine("PASS "+test.Name);}

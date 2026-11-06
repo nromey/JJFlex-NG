@@ -6,12 +6,15 @@ namespace NrBench;
 // mutation (selftest --mutation <name>) that breaks exactly that and must turn it red:
 //   helper-missing   the helper is not where the bench looks: every helper check fails, never skips
 //   engine-bypass    the engine passes audio through unchanged: "processes" and "quieter gaps" fail
+//   engine-attenuate the engine is a volume control (the delayed input at half gain): the same two fail
+//   nnr-gain-only    every NNR model built as standard, then only turned up or down: "nnr-models-distinct" fails
 //   engine-latency   the output arrives a frame later than the engine says: "aligned" fails
 //   nnr-same-model   the bench builds every NNR model as standard: "nnr-models-distinct" fails
 //   cw-pitch         the pitch finder takes the loudest bin: a steady carrier wins, "cw-pitch" fails
 //   cw-separation    the measure ignores key-down against gap: "cw-separation" fails
 //   cw-align         the measure does not look for a file's delay: "cw-align" fails
 //   narrow-filter    the narrow filter's delay is not removed: "narrow-filter" fails
+// CwFadeChecks.cs lists the fade, weak-station, fast-keying and pitch-step controls and theirs.
 partial class BenchApp
 {
     static void AddCwChecks(List<(string Name, Action Test)> tests, string library)
@@ -34,18 +37,23 @@ partial class BenchApp
                 var wet = output.AsSpan(latency, n).ToArray();
                 // engine-latency: the output a frame later than the engine says.
                 if (Mutation == "engine-latency") wet = output.AsSpan(latency - Frame, n).ToArray();
+                // nnr-gain-only: every model built as standard and then only turned up or down, so
+                // the models differ in gain alone; the distinct-models control must go red.
+                if (Mutation == "nnr-gain-only" && model != null) { float g = (float)Math.Pow(.5, Array.IndexOf(NnrModels, model)); wet = wet.Select(v => v * g).ToArray(); }
                 outputs[name] = wet;
                 int lag = EnvelopeLagMs(input, wet, 700);
                 Assert(Math.Abs(lag) <= 3, $"{name}'s output is {lag} ms from where its reported delay puts it");
-                double residual = 0, energy = 0;
-                for (int i = Rate; i < n - Rate / 2; i++) { double d = wet[i] - input[i]; residual += d * d; energy += (double)input[i] * input[i]; }
-                double residualDb = 10 * Math.Log10(residual / energy + 1e-30);
-                Assert(residualDb > -20, $"{name} changed the audio by only {residualDb:0.0} dB: it is passing audio through");
+                // Gain-independent: what is left of the output once the best single gain on the input
+                // is taken out. A volume control (any gain, including unity) leaves nothing.
+                var (gain, residualDb) = GainFit(input, wet, Rate, n - Rate / 2);
+                Assert(residualDb > -20, $"{name}'s output is the input at {20 * Math.Log10(Math.Abs(gain) + 1e-30):0.0} dB plus only {residualDb:0.0} dB of anything else: it is a volume control, not noise reduction");
+                // The gaps must be quieter. Absolute, on purpose: the gain fit above is what rules out a
+                // volume control, and an engine that is poor on CW (a voice model) still lowers noise.
                 double gapIn = GapPower(input, synth.Keyed), gapOut = GapPower(wet, synth.Keyed);
                 double fell = 10 * Math.Log10(gapIn / Math.Max(1e-30, gapOut));
                 Assert(fell >= 3, $"{name} lowered the noise between elements by only {fell:0.0} dB");
                 double keyIn = KeyPower(NarrowBand(input, 700, 250), synth.Keyed), keyOut = KeyPower(NarrowBand(wet, 700, 250), synth.Keyed);
-                Console.WriteLine($"INFO {name}: delay {latency} samples, aligned within {Math.Abs(lag)} ms, gaps {fell:0.0} dB quieter, " +
+                Console.WriteLine($"INFO {name}: delay {latency} samples, aligned within {Math.Abs(lag)} ms, best-fit gain {20 * Math.Log10(Math.Abs(gain) + 1e-30):+0.0;-0.0;0.0} dB with {residualDb:0.0} dB left over, gaps {fell:0.0} dB quieter, " +
                                   $"the tone near its pitch {10 * Math.Log10(keyOut / Math.Max(1e-30, keyIn)):+0.0;-0.0;0.0} dB.");
             }));
         }
@@ -60,10 +68,9 @@ partial class BenchApp
                 {
                     if (!outputs.ContainsKey("nnr-" + NnrModels[i]) || !outputs.ContainsKey("nnr-" + NnrModels[j])) continue;
                     var x = outputs["nnr-" + NnrModels[i]]; var y = outputs["nnr-" + NnrModels[j]];
-                    double d = 0, e = 0;
-                    for (int k = Rate; k < n - Rate / 2; k++) { d += (x[k] - y[k]) * (double)(x[k] - y[k]); e += (double)x[k] * x[k]; }
-                    double db = 10 * Math.Log10(d / Math.Max(1e-30, e) + 1e-30);
-                    Assert(db > -40, $"NNR {NnrModels[i]} and {NnrModels[j]} differ by only {db:0.0} dB: the model choice is not reaching the helper");
+                    // Gain-independent: two models that differ only in level are the same model.
+                    double db = GainFit(x, y, Rate, n - Rate / 2).ResidualDb;
+                    Assert(db > -40, $"NNR {NnrModels[i]} and {NnrModels[j]} differ by only {db:0.0} dB once level is taken out: the model choice is not reaching the helper");
                 }
         }));
 
@@ -93,7 +100,7 @@ partial class BenchApp
             cleaned.CopyTo(late, 3000);
             var r = Measure(reference, mask, 700, 200, 3000);
             var c = Measure(late, mask, 700, 200, 3000);
-            Assert(Math.Abs(c.Lag - 6) <= 1, $"A file 62.5 ms late was aligned {c.Lag * 10} ms late");
+            Assert(Math.Abs(LagMs(c.Lag) - 62.5) <= 5, $"A file 62.5 ms late was aligned {LagMs(c.Lag)} ms late");
             Assert(Math.Abs(c.Separation - r.Separation - 10) <= 1.5, $"The late file's 10 dB measured {c.Separation - r.Separation:0.0} dB");
         }));
         tests.Add(("narrow-filter", () =>
@@ -115,6 +122,16 @@ partial class BenchApp
             Assert(edge <= -3 && edge >= -9, $"Gain at the 125 Hz edge {edge:0.0} dB");
             Assert(outside <= -60, $"Gain 250 Hz from the centre {outside:0.0} dB");
         }));
+    }
+
+    /// <summary>The best single gain from x to y over [from, to), and what is left of y after it, in dB against y.</summary>
+    static (double Gain, double ResidualDb) GainFit(float[] x, float[] y, int from, int to)
+    {
+        double xx = 0, xy = 0, yy = 0;
+        for (int i = from; i < to; i++) { xx += (double)x[i] * x[i]; xy += (double)x[i] * y[i]; yy += (double)y[i] * y[i]; }
+        double g = xy / Math.Max(1e-30, xx), r = 0;
+        for (int i = from; i < to; i++) { double d = y[i] - g * x[i]; r += d * d; }
+        return (g, 10 * Math.Log10(r / Math.Max(1e-30, yy) + 1e-30));
     }
 
     static double GapPower(float[] x, bool[] keyed)
