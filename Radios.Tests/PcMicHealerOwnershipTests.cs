@@ -1756,6 +1756,123 @@ namespace Radios.Tests
             Assert.DoesNotContain("mic input MIC", rig.MicWrites);
         }
 
+        // ── Repair round 10 (Codex's #861 N1): a choice reported WHILE our PC
+        //    write is going out is a newer choice. The baseline is taken
+        //    before the write, never rebased after it. ──
+
+        /// <summary>Deliver <paramref name="reports"/> once, after the transport captured "mic input PC" and before its writer's caller returns.</summary>
+        private static void DuringOurPcWrite(PcAudioRig rig, params string[] reports)
+        {
+            bool once = true;
+            rig.Vendor.Transport.CommandWritten = command =>
+            {
+                if (!once || command != "mic input PC") return;
+                once = false;
+                foreach (var input in reports) rig.RadioReports(input);
+            };
+        }
+
+        [Fact]
+        public void Cell_saved_with_a_choice_then_PC_reported_during_the_starts_own_PC_write_is_void_at_the_stop()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            DuringOurPcWrite(rig, "BAL", "PC");
+            rig.StartPcAudio();
+            rig.StopPcAudio();
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);   // round 9 wrote MIC here
+            Assert.Equal("PC", rig.MicInput);
+        }
+
+        [Fact]
+        public void Cell_saved_with_only_our_PC_echoed_during_the_starts_write_is_paid_at_the_stop()
+        {
+            // The control: the radio echoes only our PC during the write.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            DuringOurPcWrite(rig, "PC");
+            rig.StartPcAudio();
+            rig.StopPcAudio();
+            Assert.Equal(new[] { "mic input PC", "mic input MIC" }, rig.MicWrites);
+        }
+
+        [Fact]
+        public void Cell_saved_with_a_choice_then_PC_during_the_PC_write_of_a_failed_start_is_void_at_its_cleanup()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            DuringOurPcWrite(rig, "BAL", "PC");
+            rig.StartPcAudio(deviceStarts: false);    // the failed start's own cleanup decides
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+        }
+
+        [Fact]
+        public void Cell_switched_back_with_a_choice_then_PC_during_the_switchs_raw_write_is_void_at_the_stop()
+        {
+            using var rig = GuestRadioMovedToMic();
+            using var held = new HeldQueue(rig.Rig);
+            int micBefore = rig.MicWrites.Count(c => c == "mic input MIC");
+            DuringOurPcWrite(rig, "BAL", "PC");
+            PressOnly(rig);
+            held.Drain();                                    // the switch's raw PC, with BAL then PC during it
+            rig.Vendor.ReplyOk(SwitchSequence(rig));
+            rig.StopPcAudio();
+            held.Drain();
+            Assert.Equal(micBefore, rig.MicWrites.Count(c => c == "mic input MIC"));
+            Assert.Equal("PC", rig.MicInput);
+        }
+
+        [Fact]
+        public void Cell_switched_back_with_only_our_PC_reported_is_paid_at_the_stop()
+        {
+            // The control for the switch-back route.
+            using var rig = GuestRadioMovedToMic();
+            using var held = new HeldQueue(rig.Rig);
+            int micBefore = rig.MicWrites.Count(c => c == "mic input MIC");
+            DuringOurPcWrite(rig, "PC");
+            PressOnly(rig);
+            held.Drain();
+            rig.Vendor.ReplyOk(SwitchSequence(rig));
+            rig.StopPcAudio();
+            held.Drain();
+            Assert.Equal(micBefore + 1, rig.MicWrites.Count(c => c == "mic input MIC"));
+        }
+
+        [Fact]
+        public void Cell_saved_and_healed_after_a_newer_choice_is_void_at_the_stop()
+        {
+            // The healer re-asserts PC on the operator's own radio after another
+            // input was reported. That report was a newer choice: it settled the
+            // saved original, and round 10 no longer rebases after the heal, so
+            // the stop writes nothing back.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            rig.RadioReports("BAL");
+            rig.Clock += 1_000;
+            rig.Check();                                     // the heal writes PC
+            Assert.Equal(new[] { "mic input PC", "mic input PC" }, rig.MicWrites);
+            rig.RadioReports("PC");
+            rig.StopPcAudio();
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+        }
+
+        [Fact]
+        public void The_abandoned_line_says_only_what_is_known()
+        {
+            // Codex's T1 (round 10): it no longer claims the input stays on PC.
+            string text = FlexBasePartials.JoinedText();
+            int at = text.IndexOf("private static void MicDebtAbandoned(MicInputSwap swap, string when, string why)", StringComparison.Ordinal);
+            Assert.True(at > 0, "MicDebtAbandoned moved");
+            string body = text.Substring(at, 1800);
+            Assert.Contains("no write was made", body, StringComparison.Ordinal);
+            Assert.Contains("The last mic input known for that radio is '", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("stays on PC", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("RebaseChoices", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("RebaseMicDebt", text, StringComparison.Ordinal);
+        }
+
         [Fact]
         public void Cell_in_flight_whose_radio_already_reports_the_saved_input_is_void()
         {

@@ -1901,21 +1901,19 @@ namespace Radios
                 Run = run;
                 MadeBySwitchBack = madeBySwitchBack;
                 Connection = radio?.CurrentCommandConnection;
-                RebaseChoices();
+                ChoicesAtPc = InterlockReports.MicChoicesReported(Connection as CommandConnection);
             }
 
             /// <summary>
             /// The mic choices the radio had reported on <see cref="Connection"/>
-            /// when this app last set PC (repair round 9, Codex's #861 B2): any
-            /// choice reported since, even one followed by PC again, settles the
-            /// debt, wherever it is held or being written.
+            /// when this value was saved, BEFORE this app wrote its PC (repair
+            /// round 10, Codex's #861 N1). Any report after that point that is not
+            /// PC is a newer choice and settles the debt, even one followed by PC
+            /// again (round 9, B2), and even one that arrived while our own PC
+            /// write was still going out. Never rebased: round 9 moved it to the
+            /// moment our write returned, which swallowed exactly those choices.
             /// </summary>
-            public long ChoicesAtPc => Interlocked.Read(ref _choicesAtPc);
-            private long _choicesAtPc;
-
-            /// <summary>This app has just written PC: reports from before are not a newer choice.</summary>
-            public void RebaseChoices() =>
-                Interlocked.Exchange(ref _choicesAtPc, InterlockReports.MicChoicesReported(Connection as CommandConnection));
+            public long ChoicesAtPc { get; }
 
             /// <summary>A mic choice has been reported on its connection since this app set PC.</summary>
             public bool ChoiceReportedSince =>
@@ -2206,9 +2204,16 @@ namespace Radios
                 Tracing.TraceLine("PutBackSavedMicInput (" + when + "): nothing owed (the saved input was PC) - " + why, TraceLevel.Info);
                 return;
             }
+            // What is known, and only that (round 10, Codex's T1): no write was
+            // made, and FlexLib's last value for that radio, which is the radio's
+            // own last report or our own last write. The current input is not
+            // read from the radio here.
+            string last;
+            try { last = swap.Radio?.MicInput ?? "(none)"; }
+            catch { last = "(unreadable)"; }
             Tracing.TraceLine("MicPutBackWithheld: radio " + swap.Serial + ", PutBackSavedMicInput (" + when
-                + "): NOT writing '" + swap.Saved + "' - " + why + ". ABANDONED: nothing will put it back, and the"
-                + " mic input stays on PC", TraceLevel.Warning);
+                + "): NOT writing '" + swap.Saved + "' - " + why + ". ABANDONED: no write was made, and nothing will"
+                + " put it back. The last mic input known for that radio is '" + last + "'", TraceLevel.Warning);
         }
 
         /// <summary>The watch on the radio's reports for an owed put-back; null when none is owed.</summary>
@@ -2263,14 +2268,6 @@ namespace Radios
                 write = PutBackSavedMicInputLocked("the radio reported receive after a withheld put-back", sameRunOnly: true);
             }
             write?.Invoke();
-        }
-
-        /// <summary>This app has just written PC on <paramref name="radio"/>: the saved debt's choice baseline starts here.</summary>
-        private void RebaseMicDebt(MicInputSwap swap)
-        {
-            if (swap == null) return;
-            lock (_micSwitchLock)
-                if (ReferenceEquals(_micInputSwap, swap)) swap.RebaseChoices();
         }
 
         /// <summary>
@@ -2584,9 +2581,10 @@ namespace Radios
                     }
                     if (leftover != null)
                         MicDebtAbandoned(leftover, "a new PC-audio start", "a new start in the same run saves its own original");
+                    // The choice baseline was taken when the swap was saved, before
+                    // this PC goes out (round 10, Codex's N1): a choice reported
+                    // while it is being written still settles the debt.
                     theRadio.MicInput = "PC";
-                    // The choice baseline starts after our PC (round 9, B2).
-                    RebaseMicDebt(swap);
                     // Remember that WE asked for PC, so the loop can tell a silent
                     // revert from a deliberate operator choice. See
                     // checkPcMicSelection.
@@ -2878,7 +2876,8 @@ namespace Radios
                     : "'" + MicInputPcCommand + "' NOT sent: " + notSent),
                 notSent == null ? TraceLevel.Info : TraceLevel.Warning);
             if (notSent != null) OnMicSwitchBackReply(attempt, null, notSent);
-            else RebaseMicDebt(attempt.Swap);   // the choice baseline starts after our PC (round 9)
+            // No rebase after the send (round 10, Codex's N1): the baseline is the
+            // swap's, taken before this PC went out.
         }
 
         /// <summary>
@@ -3161,12 +3160,11 @@ namespace Radios
                 VerbosityLevel.Critical, true);
             try
             {
+                // Not rebased (round 10, Codex's N1): the choice this heal answers
+                // was a newer choice, and it has settled the saved original. The
+                // stop then puts nothing back, and the mic input stays as the
+                // radio reports it.
                 theRadio.MicInput = "PC";
-                // The heal is this app's own PC: a debt's choice baseline starts
-                // after it (round 9), so the stop still restores the original.
-                MicInputSwap healed;
-                lock (_micSwitchLock) healed = _micInputSwap;
-                RebaseMicDebt(healed);
             }
             catch (Exception ex)
             {
