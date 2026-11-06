@@ -165,13 +165,12 @@ namespace Radios.Tests
         /// At the vendor's pre-write boundary for <paramref name="command"/>:
         /// on ANOTHER thread, the link falls and the same Radio reconnects, then
         /// the replacement reports <paramref name="afterReconnect"/>. The
-        /// writing thread waits up to <paramref name="holdMs"/> for that thread
-        /// before it goes on to its transport write, so a replacement that is
-        /// not serialised with the write completes first, exactly as a
-        /// preempted writer would see it. Returns whether the reconnect had
-        /// finished before the write went on.
+        /// writing thread waits up to <paramref name="holdMs"/> (past round
+        /// 5's one-second bound, by default) for that thread before it goes on
+        /// to its transport write, exactly as a preempted writer would see it.
+        /// Returns whether the reconnect had finished before the write went on.
         /// </summary>
-        private Func<bool> ReconnectAtTheWriteOf(string command, Action afterReconnect, int holdMs = 400)
+        private Func<bool> ReconnectAtTheWriteOf(string command, Action afterReconnect, int holdMs = 1700)
         {
             bool armed = true;
             bool finishedFirst = false;
@@ -300,7 +299,9 @@ namespace Radios.Tests
             Drained();
             WaitFor(() => !ReferenceEquals(_f.Vendor.Radio.CurrentCommandConnection, original)
                 && _f.Vendor.Radio.CurrentCommandConnection!.State == CommandConnectionState.Connected, "the reconnect");
-            Assert.False(reconnectedFirst(), "the replacement connection was completed while a write checked on the old one was still on its way");
+            // Round 6 (Codex's B9/N1): the writer is held PAST the old one-second
+            // bound, and the replacement completes first. The transport gate refuses.
+            Assert.True(reconnectedFirst(), "the replacement never completed while the old write waited; the schedule would prove nothing");
             Assert.Empty(OnAnotherLiveConnection(original, "xmit"));
         }
 
@@ -389,31 +390,10 @@ namespace Radios.Tests
             putBackNow.Invoke(_f.Rig, new object[] { _f.Vendor.Radio, swap, "repair five test", 0L });
             WaitFor(() => !ReferenceEquals(_f.Vendor.Radio.CurrentCommandConnection, original)
                 && _f.Vendor.Radio.CurrentCommandConnection!.State == CommandConnectionState.Connected, "the reconnect");
-            Assert.False(reconnectedFirst(), "the replacement connection was completed while the mic put-back checked on the old one was still on its way");
+            // Round 6 (Codex's B9/N1): the writer is held PAST the old one-second
+            // bound, and the replacement completes first. The transport gate refuses.
+            Assert.True(reconnectedFirst(), "the replacement never completed while the old write waited; the schedule would prove nothing");
             Assert.Empty(OnAnotherLiveConnection(original, "mic input"));
-        }
-
-        [Fact]
-        public void A_pinned_write_stuck_after_its_check_delays_a_new_connection_by_the_bound_and_no_more()
-        {
-            // The interval the bound exists for: a write still counted (its
-            // own handlers can be slow, past the vendor write) must not hold a
-            // reconnect for ever, nor let it go at once.
-            var radio = _f.Vendor.Radio;
-            var connection = radio.CurrentCommandConnection!;
-            using var inside = new ManualResetEventSlim();
-            var writer = new Thread(() => _f.Rig.WriteOnPinnedTarget(radio, connection, null, () =>
-            {
-                inside.Set();
-                Thread.Sleep(2500);
-            })) { IsBackground = true };
-            writer.Start();
-            Assert.True(inside.Wait(2000));
-            var clock = System.Diagnostics.Stopwatch.StartNew();
-            _f.Vendor.Transport.Reconnect();
-            long waited = clock.ElapsedMilliseconds;
-            Assert.InRange(waited, (long)FlexBase.PinnedWriteDrainBound.TotalMilliseconds - 50, 2400);
-            Assert.True(writer.Join(5000));
         }
 
         [Fact]
@@ -428,6 +408,185 @@ namespace Radios.Tests
             int reset = text.IndexOf("ResetPcMicSession(\"RetryConnect to \"", retry, StringComparison.Ordinal);
             int connect = text.IndexOf("rv = theRadio.Connect(prepareClientIdentityForConnect(\"RetryConnect\"));", retry, StringComparison.Ordinal);
             Assert.True(reset > retry && connect > reset, "a retry can connect again with the old connection's mic debt still held");
+        }
+
+        // ── Round 6: the write-time gate in the transport (MIGRATION.md item 21) ──
+
+        /// <summary>
+        /// At the vendor's pre-write boundary for <paramref name="command"/>, on
+        /// the writing thread: the radio reports <paramref name="report"/>
+        /// through the vendor's parser and the transport, AFTER every check of
+        /// ours has passed and BEFORE the transport write (Codex's B10 and N3).
+        /// </summary>
+        private void ReportAtTheWriteOf(string command, Action report)
+        {
+            bool armed = true;
+            _f.Vendor.Radio.AddTelnetTraceTopic(command.Split(' ')[0]);
+            ((System.ComponentModel.INotifyPropertyChanged)_f.Vendor.Radio).PropertyChanged += (_, e) =>
+            {
+                if (!armed || e.PropertyName != nameof(Radio.TelnetTraceOutput)) return;
+                string? last;
+                var output = _f.Vendor.Radio.TelnetTraceOutput;
+                lock (output) last = output.LastOrDefault();
+                if (last != command) return;
+                armed = false;
+                report();
+            };
+        }
+
+        [Fact]
+        public void A_sends_release_whose_carrier_passes_to_another_client_after_its_check_is_not_written()
+        {
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            OurCarrierUp();
+            ReportAtTheWriteOf("xmit 0", () => Interlock("TRANSMITTING", Foreign));
+            send.Transmit = false;
+            Drained();
+            Assert.Empty(Commands("xmit"));
+        }
+
+        [Fact]
+        public void The_same_release_with_its_own_carrier_reported_at_the_write_is_written()
+        {
+            // The control: the same boundary, a report that leaves the carrier ours.
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            OurCarrierUp();
+            ReportAtTheWriteOf("xmit 0", () => Interlock("TRANSMITTING"));
+            send.Transmit = false;
+            Drained();
+            Assert.Single(Commands("xmit 0"));
+        }
+
+        [Fact]
+        public void The_emergency_kill_unkeys_whoever_holds_the_carrier()
+        {
+            // The kill passes no predicate that could refuse it: with another
+            // client's carrier reported, DropCarrier still sends its xmit 0.
+            ForeignCarrierUp();
+            TransmitKillSwitch.DropCarrier(_f.Rig, TransmitKillSwitch.Carrier.Mox);
+            Drained();
+            Assert.Single(Commands("xmit 0"));
+        }
+
+        private void PutBackMicWith(Action atTheWrite)
+        {
+            Interlock("READY", 0);
+            _f.Vendor.Status("transmit mic_selection=PC");
+            var swapType = typeof(FlexBase).GetNestedType("MicInputSwap", BindingFlags.NonPublic)!;
+            object swap = Activator.CreateInstance(swapType, BindingFlags.Public | BindingFlags.Instance, null,
+                new object?[] { "MIC", _f.Vendor.Radio, 0L, false }, null)!;
+            ReportAtTheWriteOf("mic input MIC", atTheWrite);
+            typeof(FlexBase).GetMethod("PutBackNow", Private)!.Invoke(_f.Rig, new object[] { _f.Vendor.Radio, swap, "repair six test", 0L });
+        }
+
+        private object? SavedMic() => typeof(FlexBase).GetField("_micInputSwap", Private)!.GetValue(_f.Rig);
+
+        [Fact]
+        public void A_mic_put_back_meeting_a_reported_carrier_at_its_write_is_not_written_and_stays_owed()
+        {
+            PutBackMicWith(() => Interlock("TRANSMITTING", Foreign));
+            Assert.Empty(Commands("mic input"));
+            Assert.NotNull(SavedMic());                            // still owed on this connection
+            Assert.Equal("PC", _f.Vendor.Radio.MicInput);          // the unsent value is not left in the cache
+        }
+
+        [Fact]
+        public void A_mic_put_back_meeting_a_newer_choice_at_its_write_is_not_written_and_the_choice_stands()
+        {
+            PutBackMicWith(() => _f.Vendor.Status("transmit mic_selection=BAL"));
+            Assert.Empty(Commands("mic input"));
+            Assert.Null(SavedMic());
+            Assert.Equal("BAL", _f.Vendor.Radio.MicInput);
+        }
+
+        [Fact]
+        public void The_same_mic_put_back_with_nothing_reported_at_its_write_is_written()
+        {
+            PutBackMicWith(() => { });
+            Assert.Equal(new[] { "mic input MIC" }, Commands("mic input"));
+            Assert.Null(SavedMic());
+        }
+
+        private static AudioChainPreset SnapshotWithoutEq() => new AudioChainPreset
+        {
+            SchemaVersion = 2,
+            MicGain = 77,
+            MicBoost = true,
+            TxFilterLow = 150,
+            TxFilterHigh = 2850,
+            TxEqCaptured = false,
+        };
+
+        private bool RestoreLiveChain()
+        {
+            bool result = false;
+            var t = new Thread(() => result = (bool)typeof(FlexBase).GetMethod("RestoreLiveTransmitAudioNow", Private)!.Invoke(_f.Rig, null)!)
+            { IsBackground = true };
+            t.Start();
+            Assert.True(t.Join(10000), "the restore never returned");
+            return result;
+        }
+
+        [Fact]
+        public void A_live_chain_restore_write_past_its_check_does_not_reach_the_replacement_connection()
+        {
+            // Codex's #861 N2: the restore family never entered the pinned step.
+            Interlock("READY", 0);
+            Set(_f.Rig, "_liveTxSnapshot", SnapshotWithoutEq());
+            var original = _f.Vendor.Radio.CurrentCommandConnection!;
+            var reconnectedFirst = ReconnectAtTheWriteOf("transmit set miclevel=77", () => Interlock("READY", 0));
+            Assert.False(RestoreLiveChain());
+            Assert.True(reconnectedFirst(), "the replacement never completed while the old write waited");
+            Assert.Empty(OnAnotherLiveConnection(original, "transmit set"));
+            Assert.NotNull(Get(_f.Rig, "_liveTxSnapshot"));
+        }
+
+        [Fact]
+        public void A_live_chain_restore_write_meeting_a_reported_carrier_at_its_write_is_not_written_and_the_debt_kept()
+        {
+            Interlock("READY", 0);
+            Set(_f.Rig, "_liveTxSnapshot", SnapshotWithoutEq());
+            ReportAtTheWriteOf("transmit set miclevel=77", () => Interlock("TRANSMITTING", Foreign));
+            Assert.False(RestoreLiveChain());
+            Assert.Empty(Commands("transmit set miclevel"));
+            Assert.NotNull(Get(_f.Rig, "_liveTxSnapshot"));
+        }
+
+        [Fact]
+        public void The_same_live_chain_restore_with_nothing_changed_runs_and_discharges()
+        {
+            Interlock("READY", 0);
+            Set(_f.Rig, "_liveTxSnapshot", SnapshotWithoutEq());
+            Assert.True(RestoreLiveChain());
+            Assert.NotEmpty(Commands("transmit set miclevel"));
+            Assert.Null(Get(_f.Rig, "_liveTxSnapshot"));
+        }
+
+        [Fact]
+        public void The_write_time_gate_is_still_patched_into_the_vendor_transport()
+        {
+            // MIGRATION.md item 21. A FlexLib upgrade that drops any of these
+            // sites turns this red rather than reopening every check-to-write
+            // interval above in silence.
+            string connection = System.IO.File.ReadAllText(Repo("FlexLib_API/FlexLib/CommandConnection.cs"));
+            string tcp = System.IO.File.ReadAllText(Repo("FlexLib_API/FlexLib/TcpCommandCommunication.cs"));
+            string tls = System.IO.File.ReadAllText(Repo("FlexLib_API/FlexLib/TlsCommandCommunication.cs"));
+            string radio = System.IO.File.ReadAllText(Repo("FlexLib_API/FlexLib/Radio.cs"));
+            Assert.Contains("public sealed class CommandWritePin : IDisposable", connection);
+            Assert.Contains("protected bool AdmitWrite(CommandConnection? target)", connection);
+            Assert.Contains("if (!AdmitWrite(attempt?.Connection)) return;", tcp);
+            Assert.Contains("if (!AdmitWrite(session?.Connection)) return;", tls);
+            Assert.Contains("CommandWritePin.Current?.Refuse(\"the command connection is not connected\");", radio);
+            Assert.Equal(5, Count(connection + tcp + tls + radio, "JJFlex patch: write-time gate (MIGRATION.md item 21)"));
+            string migration = System.IO.File.ReadAllText(Repo("MIGRATION.md"));
+            Assert.Contains("21. **Command write-time gate", migration);
+        }
+
+        private static int Count(string text, string what)
+        {
+            int n = 0, at = 0;
+            while ((at = text.IndexOf(what, at, StringComparison.Ordinal)) >= 0) { n++; at += what.Length; }
+            return n;
         }
 
         private static string Repo(string relative)
@@ -471,7 +630,9 @@ namespace Radios.Tests
             lease.Release(immediate: true);
             WaitFor(() => !ReferenceEquals(_f.Vendor.Radio.CurrentCommandConnection, original)
                 && _f.Vendor.Radio.CurrentCommandConnection!.State == CommandConnectionState.Connected, "the reconnect");
-            Assert.False(reconnectedFirst(), "the replacement connection was completed while the VOX write checked on the old one was still on its way");
+            // Round 6 (Codex's B9/N1): the writer is held PAST the old one-second
+            // bound, and the replacement completes first. The transport gate refuses.
+            Assert.True(reconnectedFirst(), "the replacement never completed while the old write waited; the schedule would prove nothing");
             Assert.Empty(OnAnotherLiveConnection(original, "transmit set vox_enable=1"));
         }
 

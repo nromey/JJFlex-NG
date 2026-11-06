@@ -155,7 +155,7 @@ public sealed class DisconnectPutBackOrderTests
         Assert.True(now > 0 && queued > 0, "a put-back moved");
         // Repair round 5 (Codex's B1): asked of the write's own radio and
         // connection, inside the pinned step, before the write.
-        string nowBody = text.Substring(now, 2600);
+        string nowBody = text.Substring(now, 6500);   // round 6 added the at-the-write predicate and the debt hand-over
         int nowAsk = nowBody.IndexOf("if (MicPutBackWithheld(when, swap.Saved, radio, swap.Connection)) { withheld = true; return null; }", StringComparison.Ordinal);
         int nowWrite = nowBody.IndexOf("radio.MicInput = swap.Saved;", StringComparison.Ordinal);
         Assert.True(nowAsk > 0 && nowWrite > nowAsk, "the direct mic put-back writes without asking the interlock of its own target");

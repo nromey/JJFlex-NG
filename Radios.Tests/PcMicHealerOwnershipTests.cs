@@ -812,6 +812,29 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void A_put_back_refused_because_a_newer_run_began_hands_its_debt_to_that_run()
+        {
+            // Codex's #861 N4 (repair round 6): the locked decision took the only
+            // copy of the owner's MIC into the returned Action; a newer run began
+            // and saved the PC we left; the old Action, refused for its run,
+            // dropped the debt, and the owner's radio stayed on PC.
+            Declare(RadioOwnership.SomeoneElses);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            var old = DecideUnderTheLock(rig, "PC audio stopped (test)");
+
+            rig.NextRunBegins();                       // the old stop is suspended; a new run starts
+            rig.PlantChannel(started: false);          // remoteAudioProc's fresh channel
+            rig.StartPcAudio();                        // saves the PC this app left as its original
+            old();                                     // refused for its run: the debt passes on
+            rig.StopPcAudio();
+
+            Assert.Equal("mic input MIC", rig.MicWrites.Last());
+            Assert.Equal("MIC", rig.MicInput);
+        }
+
+        [Fact]
         public void A_put_back_decided_and_then_run_with_nothing_changed_writes_its_radio()
         {
             // The control for the two above: the same returned write, run

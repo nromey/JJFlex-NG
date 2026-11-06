@@ -40,7 +40,7 @@ namespace Radios
         /// did not run), or what the step returned. Null for an owner built
         /// without it.
         /// </summary>
-        private readonly Func<Func<string?>, string?>? _atTheWrite;
+        private readonly Func<bool, Func<string?>, string?>? _atTheWrite;
 
         /// <summary>
         /// A restore that was owed and withheld at its write: VOX stays off for
@@ -68,7 +68,7 @@ namespace Radios
 
         internal VoxPauseOwner(Func<FlexBase.VoxSetting, bool> isOn,
             Func<FlexBase.VoxSetting, bool, bool, bool> write, Func<Action, bool>? enqueue,
-            Func<string?>? restoreRefusal, Func<Func<string?>, string?>? atTheWrite)
+            Func<string?>? restoreRefusal, Func<bool, Func<string?>, string?>? atTheWrite)
         {
             _isOn = isOn ?? throw new ArgumentNullException(nameof(isOn));
             _write = write ?? throw new ArgumentNullException(nameof(write));
@@ -234,7 +234,7 @@ namespace Radios
                 return null;
             }
             string? pinned;
-            try { pinned = _atTheWrite != null ? _atTheWrite(Step) : Step(); }
+            try { pinned = _atTheWrite != null ? _atTheWrite(on, Step) : Step(); }
             catch (Exception ex) { pinned = "the write could not be made (" + ex.Message + ")"; }
             refused ??= pinned;
             if (refused != null)

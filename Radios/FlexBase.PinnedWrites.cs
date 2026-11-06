@@ -1,7 +1,6 @@
 #nullable enable
 using System;
 using System.Diagnostics;
-using System.Threading;
 using Flex.Smoothlake.FlexLib;
 using JJTrace;
 
@@ -41,22 +40,36 @@ public partial class FlexBase
     //   changed and refuses. Rule 4: the guard is reached by the event it
     //   relies on, every time, by the vendor's own construction.
     //
-    // Why a count and not a lock. A pinned write runs a vendor setter, and the
-    // setter raises PropertyChanged synchronously, so our own handlers run
-    // inside it (noteRadioMox, the transmit-change subscribers, and from
-    // there TxFileStop, which can release a VOX lease and take the VOX owner's
-    // gate). A VOX restore takes that gate BEFORE its write. A lock shared by
-    // the two would let a send's release and a VOX restore deadlock each
-    // other. A count excludes only the replacement, never another write, so
-    // the writes cannot wait on each other at all. The replacement's wait is
-    // bounded; a write still counted after the bound is past its vendor write
-    // (only its handlers can be that slow), so going on is safe, and traced.
-
-    /// <summary>Pinned writes between their identity check and the end of their vendor write.</summary>
-    private int _pinnedWritesInFlight;
-
-    /// <summary>How long a new command connection waits for pinned writes already past their check.</summary>
-    internal static readonly TimeSpan PinnedWriteDrainBound = TimeSpan.FromMilliseconds(1000);
+    // ── Repair round 6: the gate is at the transport's own write ──────
+    //
+    // Codex's fifth re-check found the round-5 count could not hold: the
+    // Connecting barrier's wait was bounded, so a writer paused past it at
+    // Radio.SendCommand's pre-write point wrote onto the replacement (#596 B9,
+    // #861 N1); and a report arriving between our last check and the vendor's
+    // transport write (another client taking the carrier, a reported
+    // transmit, a newer mic choice) was never seen (#596 B10, #861 N3). Ruled
+    // by Noel 2026-11-05 23:49: the gate goes into FlexLib's command transport,
+    // as a carried patch (MIGRATION.md item 21, CommandWritePin).
+    //
+    // - A pinned step pins this thread's command writes to the CommandConnection
+    //   it checked. The transport admits each write only to the attempt of that
+    //   connection, still Connected: a write cannot be retargeted, however long
+    //   the writer was paused, because the adapter writes through the attempt
+    //   it compared. No count, no wait, no timeout.
+    // - The write's own predicate (whose carrier it is, receive reported, the
+    //   mic input still what we expect) is asked AT that write, under the
+    //   transport's ConnectionSync, the gate the reader dispatches every report
+    //   under. A report already dispatched is seen; none is dispatched while it
+    //   decides. The bytes go out after the gate is released, so no lock is held
+    //   across I/O, and the reader waits at most for the predicate's reads.
+    // - The predicate waits for that gate only briefly (CommandWritePin's
+    //   SerializeBound); a write that cannot be confirmed is NOT written and the
+    //   caller is told (fails closed). A writer that holds a lock the reader's
+    //   handlers take (the VOX owner's) therefore cannot deadlock it.
+    // - What no client-side gate reaches: a change at the radio not yet
+    //   reported to this process when the decision is made.
+    // - Unpinned writes are untouched: the emergency kill, and every ordinary
+    //   command, pass no predicate that could refuse them.
 
     /// <summary>
     /// Why a write pinned to <paramref name="radio"/> and
@@ -79,70 +92,57 @@ public partial class FlexBase
 
     /// <summary>
     /// The identity check, the caller's own question and the vendor write as
-    /// one step against a connection replacement (repair round 5, rule 1).
-    /// Null when <paramref name="write"/> ran; otherwise why it did not, and
-    /// nothing was written. Exceptions from <paramref name="write"/> propagate.
+    /// one step (repair rounds 5 and 6). Null when <paramref name="write"/> ran
+    /// and the transport refused none of its writes; otherwise why not.
+    /// Exceptions from <paramref name="write"/> propagate.
     /// </summary>
-    /// <param name="refused">Asked after the identity check, inside the same
-    /// step: the write's own reason not to go (a carrier that is not ours, no
-    /// receive report). Null means none.</param>
-    internal string? WriteOnPinnedTarget(Radio? radio, object? connection, Func<string?>? refused, Action write) =>
+    /// <param name="refused">Asked before the write, after the identity check:
+    /// the write's own reason not to go. Null means none.</param>
+    /// <param name="atTheWrite">Asked again AT each transport write, under the
+    /// transport's dispatch gate. It must only read state: no tracing, no I/O,
+    /// no locks. Null means identity only.</param>
+    internal string? WriteOnPinnedTarget(Radio? radio, object? connection, Func<string?>? refused, Action write,
+        Func<string?>? atTheWrite = null) =>
         StepOnPinnedTarget(radio, connection, () =>
         {
             string? why = refused?.Invoke();
             if (why != null) return why;
             write();
             return null;
-        });
+        }, atTheWrite);
 
     /// <summary>
     /// <see cref="WriteOnPinnedTarget"/> for a caller whose own question and
-    /// write are one function (the VOX owner's restore): the identity check,
-    /// then <paramref name="step"/>, as one step against a connection
-    /// replacement. Returns the identity refusal, or what the step returned.
+    /// write are one function: the identity check, then
+    /// <paramref name="step"/> with every command it writes pinned at the
+    /// transport to <paramref name="connection"/> and asked
+    /// <paramref name="atTheWrite"/> there (CommandWritePin). Returns the
+    /// identity refusal, what the step returned, or the transport's refusal.
     /// </summary>
-    internal string? StepOnPinnedTarget(Radio? radio, object? connection, Func<string?> step)
+    /// <param name="onRefused">Told, on the writing thread, the moment the
+    /// transport refuses a write (a queued item marks itself withheld).</param>
+    internal string? StepOnPinnedTarget(Radio? radio, object? connection, Func<string?> step,
+        Func<string?>? atTheWrite = null, Action<string>? onRefused = null)
     {
-        Interlocked.Increment(ref _pinnedWritesInFlight);
-        try
-        {
-            return PinnedTargetRefused(radio, connection) ?? step();
-        }
-        finally { Interlocked.Decrement(ref _pinnedWritesInFlight); }
+        string? notTarget = PinnedTargetRefused(radio, connection);
+        if (notTarget != null) return notTarget;
+        using var pin = CommandWritePin.Pin((CommandConnection)connection!, atTheWrite, onRefused);
+        string? stepWhy = step();
+        return stepWhy ?? pin.Refusal;
     }
 
     /// <summary>
     /// A new command connection is beginning on this rig's radio (the vendor's
     /// Connecting report, raised inside the transport's BeginConnection,
     /// before the new attempt can carry a write). Work admitted on the old
-    /// connection is revoked, and every pinned write already past its check
-    /// finishes first. Bounded; traced when the bound is reached.
+    /// connection is revoked. Pinned writes need no wait here: the transport
+    /// writes each one only to the connection it was pinned to (round 6).
     /// </summary>
     private void AwaitPinnedWritesBeforeNewConnection()
     {
         // A key-on, a tune-on or CW queued for the old connection keys nothing
         // on this one (the tune-on had no identity of its own).
         RevokeAdmittedTransmitWork("a new command connection began on this radio");
-        // Dekker's order: the vendor has already made the new connection the
-        // current one; a full fence, then the count. A write counted before
-        // this is waited for; one counted after it sees the new connection.
-        Interlocked.MemoryBarrier();
-        if (Volatile.Read(ref _pinnedWritesInFlight) == 0) return;
-        var clock = Stopwatch.StartNew();
-        var spin = new SpinWait();
-        while (Volatile.Read(ref _pinnedWritesInFlight) != 0)
-        {
-            if (clock.Elapsed > PinnedWriteDrainBound)
-            {
-                Tracing.TraceLine("PinnedWrites: a write checked on the old command connection was still running "
-                    + (int)PinnedWriteDrainBound.TotalMilliseconds + " ms into the new one; it is past its vendor write by now, so the connection goes on",
-                    TraceLevel.Warning);
-                return;
-            }
-            spin.SpinOnce();
-        }
-        Tracing.TraceLine("PinnedWrites: the new command connection waited " + clock.ElapsedMilliseconds
-            + " ms for a write checked on the old one to finish there", TraceLevel.Info);
     }
 
     /// <summary>
@@ -190,11 +190,13 @@ public partial class FlexBase
         object? connection = a.Connection;
         q.Enqueue((FunctionDel)(() =>
         {
+            // Whose carrier it is, asked before AND at the transport write,
+            // under the reader's dispatch gate (repair round 6, Codex's B10).
             string? why = WriteOnPinnedTarget(owner, connection, () => ForeignCarrier(owner!), () =>
             {
                 owner!.Mox = false;
                 _ownKeyRequested = false;
-            });
+            }, () => ForeignCarrier(owner!));
             if (why != null)
                 Tracing.TraceLine("TransmitAdmission: " + what + " NOT sent at its write - " + why, TraceLevel.Warning);
         }), "Mox (a send's own release)");

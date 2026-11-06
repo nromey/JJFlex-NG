@@ -31,6 +31,7 @@ namespace Radios.StationConnect
         [ThreadStatic] private static bool _runningWithheld;
 
         private readonly Func<string> _refusal;
+        private readonly Func<Func<string>, string> _around;
         private readonly QueuedWriteGate _previous;
         private int _ran;
         private int _refused;
@@ -38,16 +39,29 @@ namespace Radios.StationConnect
         private string _firstRefusal;
         private string _firstThrow;
 
-        private QueuedWriteGate(Func<string> refusal)
+        private QueuedWriteGate(Func<string> refusal, Func<Func<string>, string> around)
         {
             _refusal = refusal ?? throw new ArgumentNullException(nameof(refusal));
+            _around = around;
             _previous = _ambient;
             _ambient = this;
         }
 
         /// <summary>Open a gate for the calling thread; everything queued
         /// until Dispose carries it.</summary>
-        public static QueuedWriteGate Open(Func<string> refusal) => new QueuedWriteGate(refusal);
+        public static QueuedWriteGate Open(Func<string> refusal) => new QueuedWriteGate(refusal, null);
+
+        /// <summary>
+        /// <see cref="Open(Func{string})"/>, with each item's question AND its
+        /// work run inside <paramref name="around"/> as one step (repair round
+        /// 6, Codex's #861 N2): the restore family's writes then join the
+        /// pinned-write coordination their radio and connection need. The
+        /// function runs the step and returns its result, or returns why the
+        /// step could not run at all (a target that is no longer the one it
+        /// was pinned to), and then the item counts as refused.
+        /// </summary>
+        public static QueuedWriteGate Open(Func<string> refusal, Func<Func<string>, string> around) =>
+            new QueuedWriteGate(refusal, around);
 
         /// <summary>The gate ambient on this thread, or null.</summary>
         public static QueuedWriteGate Ambient => _ambient;
@@ -137,6 +151,21 @@ namespace Radios.StationConnect
         /// so the loop's own handler still sees it.
         /// </summary>
         public Action Wrap(Action work, string name, Action<string, string> onRefused)
+        {
+            Action run = RunChecked(work, name, onRefused);
+            if (_around == null) return run;
+            return () =>
+            {
+                bool entered = false;
+                string pinned = _around(() => { entered = true; run(); return null; });
+                if (entered || pinned == null) return;
+                Interlocked.Increment(ref _refused);
+                Interlocked.CompareExchange(ref _firstRefusal, pinned, null);
+                onRefused?.Invoke(name, pinned);
+            };
+        }
+
+        private Action RunChecked(Action work, string name, Action<string, string> onRefused)
         {
             return () =>
             {

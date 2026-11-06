@@ -134,7 +134,11 @@ namespace Radios
                             // command connection waits for (repair round 5,
                             // Codex's B8): a release whose last check passed
                             // cannot then go out on a replacement connection.
-                            step => StepOnPinnedTarget(radio, connection, step));
+                            // Round 6: pinned at the transport's own write, and a
+                            // restore ON asked receive there again, under the
+                            // reader's dispatch gate (Codex's B9/B10 family).
+                            (on, step) => StepOnPinnedTarget(radio, connection, step,
+                                on && radio != null ? () => RestoreRefusedAtWrite(radio, (object?)connection ?? NoConnection) : null));
                         OperatorChangedRadioSetting -= NoteVoxPauseOperatorChange;
                         OperatorChangedRadioSetting += NoteVoxPauseOperatorChange;
                     }

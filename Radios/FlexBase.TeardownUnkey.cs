@@ -244,7 +244,18 @@ public partial class FlexBase
         // is refused too, so a carrier that rises and falls inside a step
         // cannot leave it applied out of order.
         string refused = null;
-        var gate = StationConnect.QueuedWriteGate.Open(() => refused ??= RestoreRefusedAtWrite(radio, connection));
+        // Each write's question and its vendor write are one pinned step
+        // (repair round 6, Codex's #861 N2): the profile loads, the live
+        // transmit-audio setters and the equaliser's per-band sends all run
+        // inside StepOnPinnedTarget, which a new command connection waits for,
+        // as the direct mic and VOX writes do.
+        // Receive is asked again AT each transport write, under the reader's
+        // dispatch gate (round 6, Codex's #861 N3); a write refused there marks
+        // its item withheld, so the step's debt is kept.
+        var gate = StationConnect.QueuedWriteGate.Open(() => refused ??= RestoreRefusedAtWrite(radio, connection),
+            step => StepOnPinnedTarget(radio, connection, step,
+                () => RestoreRefusedAtWrite(radio, connection),
+                why => StationConnect.QueuedWriteGate.WithholdRunning(why)));
         bool queued;
         try { queued = queueIt(); }
         catch (Exception ex)
@@ -392,7 +403,7 @@ public partial class FlexBase
                 {
                     owner.Mox = false;
                     _ownKeyRequested = false;
-                });
+                }, () => ForeignCarrier(owner));
             if (refused != null && refused != NotOurs)
                 Tracing.TraceLine("Teardown unkey (" + why + "): not sent; " + refused, TraceLevel.Info);
         }), "Mox (own carrier only)");
@@ -495,7 +506,8 @@ public partial class FlexBase
         q.Enqueue((FunctionDel)(() =>
         {
             string refused = WriteOnPinnedTarget(owner, connection,
-                () => OurCarrierToUnkey(owner, connection, "the CW queue") ? null : NotOurs, () => cwx?.ClearBuffer());
+                () => OurCarrierToUnkey(owner, connection, "the CW queue") ? null : NotOurs, () => cwx?.ClearBuffer(),
+                () => ForeignCarrier(owner));
             if (refused != null && refused != NotOurs)
                 Tracing.TraceLine("Teardown unkey (the CW queue): not sent; " + refused, TraceLevel.Info);
         }), "CWX clear (own carrier only)");
