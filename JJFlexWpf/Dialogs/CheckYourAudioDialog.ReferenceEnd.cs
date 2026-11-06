@@ -261,6 +261,38 @@ public partial class CheckYourAudioDialog
     }
 
     /// <summary>
+    /// The window is switching straight from <paramref name="oldRig"/> to
+    /// another radio (<c>SetRig</c>, after <c>_rig</c> has moved): let the
+    /// departing radio's reference go (round five repair, 7h-2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>First, an end the poll has not seen yet is finished</b>, for the
+    /// departing radio, exactly as the poll would: the finished sentence, and
+    /// the app's own key let go after the tail. Without that, a switch inside a
+    /// pass's last half second left the departing radio keyed over silence, the
+    /// lock's timeout the only thing to end it. A tail planned before the switch
+    /// ends that key too, because the app's key no longer asks whether the
+    /// window still has the radio (<see cref="EndTransmissionForReference"/>).
+    /// </para>
+    /// <para>
+    /// <b>It cannot end the arriving radio's key.</b> The app holds a radio's
+    /// reference only while the controller keys THAT radio, and the tail's plan
+    /// is bound to the controller, the radio's connection and its keying count.
+    /// </para>
+    /// <para>
+    /// Then the silence, if held, goes to the departing radio's own receive
+    /// wait, as at a close; anything else disarms. The close does not come
+    /// here: its poll-like look is <see cref="ReleaseReferenceAtClose"/>'s.
+    /// </para>
+    /// </remarks>
+    private void ReleaseReferenceAtSwitch(FlexBase oldRig)
+    {
+        FinishPassIfItEnded(oldRig);
+        ReleaseReferenceLeavingWindow(oldRig);
+    }
+
+    /// <summary>
     /// Everything a disarm does except ending the silence, which goes to the
     /// radio's own wait instead.
     /// </summary>
@@ -312,10 +344,17 @@ public partial class CheckYourAudioDialog
         watch?.Dispose();
     }
 
+    /// <summary>
+    /// Who holds the transmission on <paramref name="rig"/>. The app holds it
+    /// only when the controller is transmitting AND keys this radio (round five
+    /// repair, 7h-2): the controller keys whichever radio the main window has,
+    /// so after a window switches between radios, a transmission on the other
+    /// one is not this radio's reference's to end.
+    /// </summary>
     private ReferenceEndHolder ReferenceHolderNow(FlexBase rig)
     {
         var ptt = PttControllerSource?.Invoke();
-        return WhoHoldsTheReference(_session?.Keyed == true, ptt?.IsTransmitting == true, rig.Transmit);
+        return WhoHoldsTheReference(_session?.Keyed == true, ptt?.IsTransmitting == true && ptt.KeysRadio(rig), rig.Transmit);
     }
 
     /// <summary>
@@ -353,11 +392,13 @@ public partial class CheckYourAudioDialog
 
         /// <summary>
         /// True when <paramref name="ptt"/> is still the transmission this plan
-        /// was made for: the same controller, keying the same radio, with no
-        /// keying since, on the same connection.
+        /// was made for: the same controller, with no keying since, on the same
+        /// connection. Whether that controller keys this radio at all is the
+        /// holder's question, asked again just before this one
+        /// (<see cref="ReferenceHolderNow"/>), and asked only there.
         /// </summary>
         internal bool StillCurrent(FlexBase rig, PttSafetyController? ptt) =>
-            ptt != null && ReferenceEquals(ptt, Controller) && ptt.KeysRadio(rig)
+            ptt != null && ReferenceEquals(ptt, Controller)
             && ptt.Keyings == Keyings && ReferenceEquals(rig.CurrentConnectionBinding, Connection);
     }
 
@@ -388,17 +429,27 @@ public partial class CheckYourAudioDialog
     /// (<see cref="ReferenceKeying"/>). Returns what it did.
     /// </summary>
     /// <remarks>
-    /// With no plan given (a test), the plan is made now.
+    /// <para>
+    /// <b>The app's key does not ask whether this window still has the
+    /// radio</b> (round five repair, 7h-2). A window that switches straight to
+    /// another radio leaves the departing radio's key with the main window's
+    /// controller. Until 7h-2 an already planned tail returned here, so
+    /// nothing but the lock's timeout ended a transmission carrying silence.
+    /// The plan asks the stronger question instead (<see cref="ReferenceKeying"/>):
+    /// the same controller, keying this radio, with no keying since, on the
+    /// same connection. A check still asks for this window's radio and
+    /// session; a switch has ended that session already.
+    /// </para>
+    /// <para>With no plan given (a test), the plan is made now.</para>
     /// </remarks>
     internal ReferenceEndHolder EndTransmissionForReference(FlexBase rig, ReferenceEndHolder planned, object? plannedSession,
         ReferenceKeying? plannedKeying = null)
     {
-        if (!ReferenceEquals(rig, _rig)) return ReferenceEndHolder.Nobody;
         var now = ReferenceHolderNow(rig);
         if (now != planned) return ReferenceEndHolder.Nobody;
         switch (now)
         {
-            case ReferenceEndHolder.Check when ReferenceEquals(_session, plannedSession) && _session != null:
+            case ReferenceEndHolder.Check when ReferenceEquals(rig, _rig) && ReferenceEquals(_session, plannedSession) && _session != null:
                 // Exactly what the Stop button does while keyed (ToggleAudioCheck).
                 _session.StopCheck();
                 return ReferenceEndHolder.Check;

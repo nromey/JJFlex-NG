@@ -659,9 +659,11 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             if (oldRig != null && !ReferenceEquals(oldRig, rig))
             {
                 DisarmTone(speak: false, rig: oldRig);
-                // Its held end silence, if any, goes to that radio's own
+                // An end its poll had not seen yet is finished for that radio,
+                // the app's key let go after the tail (round five repair,
+                // 7h-2); its held end silence, if any, goes to that radio's own
                 // receive wait, as at a close (round five, 7b).
-                ReleaseReferenceLeavingWindow(oldRig);
+                ReleaseReferenceAtSwitch(oldRig);
             }
             LoadPerRadioPrefs();
             LoadToneSettings();

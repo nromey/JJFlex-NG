@@ -351,6 +351,128 @@ public sealed class ReferenceEndSpeechTests : IDisposable
         finally { binding.SetValue(_rig, before); }
     }
 
+    // ── a window switching straight to another radio (round five repair, 7h-2) ──
+    //
+    // SetRig itself cannot run here: it builds and starts the poll timer and
+    // rebuilds the window's sections, which needs the built window. So the
+    // helper it calls is driven in the order SetRig calls it, _rig already
+    // moved to the arriving radio, and that order is pinned in source by
+    // Radios.Tests.UnifiedTakesReferenceEndTests.
+
+    private void TheWindowSwitchesTo(FlexBase arriving) => Field("_rig").SetValue(_dialog, arriving);
+
+    /// <summary>SetRig's release of the departing radio, <c>ReleaseReferenceAtSwitch</c>, any tail it starts held.</summary>
+    private HeldContinuations ReleaseAtSwitch(FlexBase departing)
+    {
+        var release = typeof(CheckYourAudioDialog).GetMethod("ReleaseReferenceAtSwitch", Any);
+        Assert.True(release != null, "production entry CheckYourAudioDialog.ReleaseReferenceAtSwitch is missing");
+        var held = new HeldContinuations();
+        var prior = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(held);
+        try { release!.Invoke(_dialog, new object[] { departing }); }
+        finally { SynchronizationContext.SetSynchronizationContext(prior); }
+        return held;
+    }
+
+    /// <summary>
+    /// A tail already planned when the window switches: until 7h-2 it returned
+    /// because the window no longer had the radio, and the departing radio's
+    /// lock went on keying it over silence. Now it lets go, quietly.
+    /// </summary>
+    [Fact]
+    public void A_tail_planned_before_a_switch_still_lets_go_of_the_departing_radios_key()
+    {
+        AssertTheDeskIsSafe();
+        using var arriving = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+        _controller.ToggleLock();
+        ReferencePassAtItsEnd();
+        _dialog.FinishReferencePass(_rig, Holder.App, hardwareLine: false);
+        var held = StartTheRealTail();
+
+        TheWindowSwitchesTo(arriving);
+        ReleaseAtSwitch(_rig);                       // the pass is already finished: nothing new is said or planned
+        TheTailComesDue(held);
+        Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);   // red before 7h-2: Locked, over silence
+    }
+
+    /// <summary>
+    /// A switch inside the pass's last half second, before the poll saw its
+    /// end: the switch finishes it for the departing radio, the finished
+    /// sentence once, and the app's key let go after the tail, with no
+    /// "Receiving". The silence goes to that radio's own wait.
+    /// </summary>
+    [Fact]
+    public void A_switch_before_the_poll_saw_the_end_finishes_the_pass_and_lets_go_after_the_tail()
+    {
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+        int waits = 0;
+        CheckYourAudioDialog.ReferenceSilenceWaitForTests = (rig, then) => { if (ReferenceEquals(rig, _rig)) waits++; };
+        using var arriving = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+        _controller.ToggleLock();
+        ReferencePassAtItsEnd();                     // at its end, the window not told
+        Listen();
+
+        TheWindowSwitchesTo(arriving);
+        var held = ReleaseAtSwitch(_rig);
+        Assert.True(_rig.TxReferenceEndSilenceHeld, "the switch ended the silence with the radio still keyed");
+        Assert.True(waits >= 1, "the departing radio was left no wait to end its silence");
+        Assert.True(_controller.IsTransmitting, "nothing ends before the tail comes due");
+
+        TheTailComesDue(held);                       // red before 7h-2: no tail was ever planned
+        Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
+        var said = Said();
+        Assert.Equal(1, said.Count(x => x == "Transmitting of the reference recording is complete."));
+        Assert.Equal(0, said.Count(x => x == Receiving));
+    }
+
+    /// <summary>
+    /// The guard, both ways round: the controller keys whichever radio the main
+    /// window has. When that is the ARRIVING radio, neither a tail planned on
+    /// the departing one nor the switch's own finishing may end its key.
+    /// </summary>
+    [Fact]
+    public void A_departing_radios_reference_never_ends_the_arriving_radios_key()
+    {
+        AssertTheDeskIsSafe();
+        using var arriving = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+        FlexBase keyed = _rig;
+        var main = new PttSafetyController(() => keyed, () => true,
+            new PttConfig { ChirpEnabled = false, SpeechEnabled = false });
+        try
+        {
+            AudioWorkshopDialog.PttControllerSource = () => main;
+
+            // A tail planned while the controller keyed the departing radio,
+            // which then keys the arriving one by the time it comes due.
+            main.ToggleLock();
+            ReferencePassAtItsEnd();
+            _dialog.FinishReferencePass(_rig, Holder.App, hardwareLine: false);
+            var held = StartTheRealTail();
+            TheWindowSwitchesTo(arriving);
+            keyed = arriving;
+            TheTailComesDue(held);
+            Assert.Equal(PttSafetyController.PttState.Locked, main.State);   // the mutation: drop KeysRadio from the holder, and the tail ends it
+
+            // An end the switch finishes, the controller keying the arriving
+            // radio throughout: not the app's, so no tail at all.
+            _rig.TxFileStop();
+            TheWindowSwitchesTo(_rig);
+            ReferencePassAtItsEnd();
+            TheWindowSwitchesTo(arriving);
+            var none = ReleaseAtSwitch(_rig);
+            Thread.Sleep((int)CheckYourAudioDialog.ReferenceEndTail.TotalMilliseconds + 200);
+            Assert.Equal(0, none.Count);             // the mutation: drop KeysRadio from the holder
+            Assert.Equal(PttSafetyController.PttState.Locked, main.State);
+        }
+        finally
+        {
+            AudioWorkshopDialog.PttControllerSource = () => _controller;
+            if (main.IsTransmitting) main.EscapeUnlock();
+            main.Dispose();
+        }
+    }
+
     /// <summary>A hardware line held through the end: no unkey, so the release sentence alone, once.</summary>
     [Fact]
     public void Under_a_hardware_line_the_release_sentence_is_said_once_and_nothing_else()

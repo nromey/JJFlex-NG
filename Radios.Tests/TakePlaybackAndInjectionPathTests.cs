@@ -253,8 +253,11 @@ namespace Radios.Tests
         [Fact]
         public void APlayedOutReferenceRestoresTheTransmitInputOnceTheRadioReceives()
         {
-            Assert.Contains("FinishReferencePass(rig, holder",
+            // Round five repair (7h-2): the poll's end is a helper a radio switch shares.
+            Assert.Contains("FinishPassIfItEnded(rig)",
                 MethodBody(ReadWorkshop("ReferenceAudio"), "private void SyncReferenceUi()"), StringComparison.Ordinal);
+            Assert.Contains("FinishReferencePass(rig, holder",
+                MethodBody(ReadWorkshop("ReferenceAudio"), "private bool FinishPassIfItEnded(FlexBase rig)"), StringComparison.Ordinal);
             string end = ReadWorkshop("ReferenceEnd");
             Assert.Contains("BeginReferenceEndSilence(rig);",
                 MethodBody(end, "internal string FinishReferencePass("), StringComparison.Ordinal);

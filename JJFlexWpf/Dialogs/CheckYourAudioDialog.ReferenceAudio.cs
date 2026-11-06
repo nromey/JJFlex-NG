@@ -534,6 +534,31 @@ public partial class CheckYourAudioDialog
     }
 
     /// <summary>
+    /// If the pass on <paramref name="rig"/> has played to its end and the
+    /// window has not said so yet: say so, stand down, and end the transmission
+    /// it rode. True when it did. The poll's end, and since round five repair
+    /// (7h-2) a radio switch's too, so a switch inside a pass's last half
+    /// second still lets go of the departing radio's key.
+    /// </summary>
+    private bool FinishPassIfItEnded(FlexBase rig)
+    {
+        if (!_refPassRunning || rig.TxFilePlaying || !rig.TxFilePlayer.ReachedEnd) return false;
+        // Played to the end. Say so and stand down — leaving the box armed
+        // after the recording has run out would promise a second pass that
+        // would happen, silently, at the next key-down. The player is
+        // already sending silence, and the microphone and the transmit
+        // input (#458) come back only once the radio receives (round four,
+        // ReferenceEnd.cs). The transmission it rode ends (Noel,
+        // 2026-11-04): a check stops as Stop stops it, a key the app holds
+        // is let go; a hardware line is asked to let go.
+        var holder = ReferenceHolderNow(rig);
+        FinishReferencePass(rig, holder, hardwareLine: rig.PttSourceIsHardware);
+        if (holder is ReferenceEndHolder.Check or ReferenceEndHolder.App)
+            EndTransmissionAfterReferenceTail(rig, holder);
+        return true;
+    }
+
+    /// <summary>
     /// Reference housekeeping, run from the meter tick on every tab: notice
     /// when a pass has played out so the operator hears that it finished
     /// rather than wondering, and keep the arm box honest against the engine.
@@ -550,22 +575,7 @@ public partial class CheckYourAudioDialog
         bool engaged = rig.TxFilePlaying;
         bool armed = _refArmCheck.IsChecked == true;
 
-        if (_refPassRunning && !engaged && rig.TxFilePlayer.ReachedEnd)
-        {
-            // Played to the end. Say so and stand down — leaving the box armed
-            // after the recording has run out would promise a second pass that
-            // would happen, silently, at the next key-down. The player is
-            // already sending silence, and the microphone and the transmit
-            // input (#458) come back only once the radio receives (round four,
-            // ReferenceEnd.cs). The transmission it rode ends (Noel,
-            // 2026-11-04): a check stops as Stop stops it, a key the app holds
-            // is let go; a hardware line is asked to let go.
-            var holder = ReferenceHolderNow(rig);
-            FinishReferencePass(rig, holder, hardwareLine: rig.PttSourceIsHardware);
-            if (holder is ReferenceEndHolder.Check or ReferenceEndHolder.App)
-                EndTransmissionAfterReferenceTail(rig, holder);
-            return;
-        }
+        if (FinishPassIfItEnded(rig)) return;
 
         if (_refPassRunning && !engaged)
         {

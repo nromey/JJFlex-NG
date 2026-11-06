@@ -69,9 +69,19 @@ public sealed class UnifiedTakesReferenceEndTests
         int load = arrivingBranch.IndexOf("LoadPerRadioPrefs();", StringComparison.Ordinal);
         string released = arrivingBranch[guard..load];
         // Round five (7b): a held end silence goes to that radio's own wait;
-        // anything else is disarmed (ReleaseReferenceLeavingWindow).
-        Assert.Contains("ReleaseReferenceLeavingWindow(oldRig);", released);
+        // anything else is disarmed (ReleaseReferenceLeavingWindow). Round five
+        // repair (7h-2): first an end the poll had not seen is finished for the
+        // departing radio, so its app key is let go after the tail.
+        Assert.Contains("ReleaseReferenceAtSwitch(oldRig);", released);
         Assert.Contains("DisarmTone(speak: false, rig: oldRig);", released);
+        string atSwitch = Body(Dialog("CheckYourAudioDialog.ReferenceEnd.cs"), "private void ReleaseReferenceAtSwitch(FlexBase oldRig)");
+        int finish = atSwitch.IndexOf("FinishPassIfItEnded(oldRig);", StringComparison.Ordinal);
+        int leave = atSwitch.IndexOf("ReleaseReferenceLeavingWindow(oldRig);", StringComparison.Ordinal);
+        Assert.True(finish > 0 && leave > finish, "the switch finishes an unseen end before it lets the reference go");
+        // The order the helper is driven in (JJFlexWpf.Tests.ReferenceEndSpeechTests):
+        // _rig has already moved to the arriving radio when it runs.
+        Assert.True(setRig.IndexOf("_rig = rig;", StringComparison.Ordinal) < setRig.IndexOf("ReleaseReferenceAtSwitch(oldRig);", StringComparison.Ordinal),
+            "SetRig now releases the departing reference before _rig moves; the switch tests drive the other order");
 
         // A radio leaving with none arriving, unchanged.
         Assert.Contains("DisarmReference(speak: false, rig: oldRig);", leavingBranch);
@@ -112,12 +122,16 @@ public sealed class UnifiedTakesReferenceEndTests
     public void The_finished_reference_ends_the_transmission_only_for_a_check_or_the_apps_key_after_the_tail()
     {
         string sync = Body(Dialog("CheckYourAudioDialog.ReferenceAudio.cs"), "private void SyncReferenceUi()");
+        // Round five repair (7h-2): the end is the helper's, shared with a radio switch.
+        Assert.Contains("if (FinishPassIfItEnded(rig)) return;", sync);
+        string poll = sync;
+        sync = Body(Dialog("CheckYourAudioDialog.ReferenceAudio.cs"), "private bool FinishPassIfItEnded(FlexBase rig)");
         int holder = sync.IndexOf("var holder = ReferenceHolderNow(rig);", StringComparison.Ordinal);
         // Round four: the sentence and the silence are FinishReferencePass's.
         int speak = sync.IndexOf("FinishReferencePass(rig, holder, hardwareLine: rig.PttSourceIsHardware);", StringComparison.Ordinal);
-        int end = sync.IndexOf("if (holder is ReferenceEndHolder.Check or ReferenceEndHolder.App)\n                EndTransmissionAfterReferenceTail(rig, holder);",
+        int end = sync.IndexOf("if (holder is ReferenceEndHolder.Check or ReferenceEndHolder.App)\n            EndTransmissionAfterReferenceTail(rig, holder);",
             StringComparison.Ordinal);
-        if (end < 0) end = sync.IndexOf("if (holder is ReferenceEndHolder.Check or ReferenceEndHolder.App)\r\n                EndTransmissionAfterReferenceTail(rig, holder);",
+        if (end < 0) end = sync.IndexOf("if (holder is ReferenceEndHolder.Check or ReferenceEndHolder.App)\r\n            EndTransmissionAfterReferenceTail(rig, holder);",
             StringComparison.Ordinal);
         Assert.True(holder > 0 && speak > holder && end > speak,
             "the holder is read, the sentence chosen from it, and only a check or the app's key ended");
@@ -128,6 +142,8 @@ public sealed class UnifiedTakesReferenceEndTests
         // moves the transmit input; both wait for the radio to receive.
         Assert.DoesNotContain("TxFileStop", sync);
         Assert.DoesNotContain("RestoreInjectionPath", sync);
+        Assert.DoesNotContain("TxFileStop", poll);
+        Assert.DoesNotContain("RestoreInjectionPath", poll);
         string finish = Body(Dialog("CheckYourAudioDialog.ReferenceEnd.cs"), "internal string FinishReferencePass(");
         Assert.DoesNotContain("TxFileStop", finish);
         Assert.DoesNotContain("RestoreInjectionPath", finish);
