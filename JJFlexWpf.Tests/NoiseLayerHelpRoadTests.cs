@@ -58,7 +58,7 @@ public sealed class NoiseLayerHelpRoadTests : IDisposable
         Assert.True(TestSettingsRoot.Isolated, "Refusing: " + TestSettingsRoot.Failure);
     }
 
-    private KeyLayerHelp.HelpPresentation PressHInTheNoiseLayer()
+    private KeyCommands EnterTheNoiseLayer()
     {
         AssertTheDeskIsSafe();
         var context = new KeyCommandContext
@@ -69,11 +69,46 @@ public sealed class NoiseLayerHelpRoadTests : IDisposable
         var commands = new KeyCommands(context, setDefault: true);
         commands.EnterNoiseLayer();
         Assert.NotNull(commands.LiveValueLayer);
+        return commands;
+    }
 
+    private KeyLayerHelp.HelpPresentation PressH(KeyCommands commands)
+    {
+        int before = _presentations;
         Assert.True(commands.DoCommand(Keys.H));
-        Assert.Equal(1, _presentations);
+        Assert.Equal(before + 1, _presentations);
         Assert.NotNull(_presented);
         return _presented!;
+    }
+
+    private KeyLayerHelp.HelpPresentation PressHInTheNoiseLayer() => PressH(EnterTheNoiseLayer());
+
+    private static CapabilityBlock ShutTheThree(RadioCapability capability) =>
+        capability == RadioCapability.NoiseReductionNeural
+        || capability == RadioCapability.NoiseReductionSpectral
+        || capability == RadioCapability.NoiseReductionFilter
+            ? CapabilityBlock.Hardware
+            : CapabilityBlock.None;
+
+    /// <summary>
+    /// Repair round 1 (Codex follow-up): the gating is read at the PRESS,
+    /// not cached when the layer opened. The layer opens on a radio where
+    /// nothing is shut; the radio's answer changes while it is open; H then
+    /// lists what is true now.
+    /// </summary>
+    [Fact]
+    public void H_reads_the_gating_at_the_press_not_when_the_layer_opened()
+    {
+        KeyCommands.NoiseLayerGateOverride = _ => CapabilityBlock.None;
+        var commands = EnterTheNoiseLayer();
+        int all = KeyLayerHelp.Rows(KeyInventory.NoiseLayerContext).Count;
+        Assert.Equal(all, PressH(commands).Rows.Count);
+
+        KeyCommands.NoiseLayerGateOverride = ShutTheThree;
+        var model = PressH(commands);
+
+        Assert.Equal(all - 3, model.Rows.Count);
+        Assert.NotNull(model.ClosingLine);
     }
 
     private static readonly string[] GatedKeys = { "R", "S", "Ctrl+N" };
@@ -81,12 +116,7 @@ public sealed class NoiseLayerHelpRoadTests : IDisposable
     [Fact]
     public void H_on_a_radio_where_the_three_are_shut_lists_only_what_it_can_use_and_names_the_rest()
     {
-        KeyCommands.NoiseLayerGateOverride = capability =>
-            capability == RadioCapability.NoiseReductionNeural
-            || capability == RadioCapability.NoiseReductionSpectral
-            || capability == RadioCapability.NoiseReductionFilter
-                ? CapabilityBlock.Hardware
-                : CapabilityBlock.None;
+        KeyCommands.NoiseLayerGateOverride = ShutTheThree;
 
         var model = PressHInTheNoiseLayer();
 
@@ -131,6 +161,7 @@ public sealed class NoiseLayerHelpRoadTests : IDisposable
     [Fact]
     public void The_window_and_the_spoken_form_name_the_same_shut_keys()
     {
+        AssertTheDeskIsSafe();
         var gating = new KeyLayerHelp.LayerGating(
             new[] { "R", "S" }.ToHashSet(StringComparer.OrdinalIgnoreCase),
             "R and S are not available on this radio.");
@@ -141,5 +172,44 @@ public sealed class NoiseLayerHelpRoadTests : IDisposable
         Assert.Equal(gating.ClosingSentence, model.ClosingLine);
         Assert.EndsWith(gating.ClosingSentence, spoken);
         Assert.StartsWith(model.Rows.Count.ToString(), spoken);
+
+        // Membership, not just the count (repair round 1): every row the
+        // window keeps is recited, and every lifted row is recited nowhere
+        // before the closing sentence.
+        string recitation = spoken.Substring(0, spoken.Length - gating.ClosingSentence.Length);
+        foreach (var (key, description) in model.Rows)
+            Assert.Contains(Lexicon.Get("leader.help.row", ("key", key), ("description", description)), recitation);
+        foreach (var (key, description) in KeyLayerHelp.Rows(KeyInventory.NoiseLayerContext))
+        {
+            if (!gating.UnavailableKeys.Contains(key)) continue;
+            Assert.DoesNotContain(model.Rows, r => r.key == key);
+            Assert.DoesNotContain(Lexicon.Get("leader.help.row", ("key", key), ("description", description)), recitation);
+        }
+    }
+
+    /// <summary>
+    /// Prepare's edges (repair round 1): a key that is not in the layer lifts
+    /// nothing and adds no sentence; a long layer lifted to the spoken limit
+    /// or below is spoken, with the filtered count.
+    /// </summary>
+    [Fact]
+    public void Prepare_lifts_only_real_keys_and_decides_the_surface_on_the_count_left()
+    {
+        AssertTheDeskIsSafe();
+        int all = KeyLayerHelp.Rows(KeyInventory.NoiseLayerContext).Count;
+
+        var unmatched = KeyLayerHelp.Prepare(KeyInventory.NoiseLayerContext,
+            new KeyLayerHelp.LayerGating(new[] { "Not a key" }, "Nothing is shut."));
+        Assert.Equal(all, unmatched.Rows.Count);
+        Assert.Null(unmatched.ClosingLine);
+
+        var keep = KeyLayerHelp.Rows(KeyInventory.NoiseLayerContext).Take(KeyLayerHelp.SpokenLimit).Select(r => r.key).ToList();
+        var liftTheRest = KeyLayerHelp.Rows(KeyInventory.NoiseLayerContext)
+            .Select(r => r.key).Where(k => !keep.Contains(k)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var shortened = KeyLayerHelp.Prepare(KeyInventory.NoiseLayerContext,
+            new KeyLayerHelp.LayerGating(liftTheRest, "The rest are not available."));
+        Assert.Equal(KeyLayerHelp.HelpSurface.Spoken, shortened.Surface);
+        Assert.StartsWith(KeyLayerHelp.SpokenLimit.ToString(), shortened.Spoken);
+        Assert.EndsWith("The rest are not available.", shortened.Spoken);
     }
 }
