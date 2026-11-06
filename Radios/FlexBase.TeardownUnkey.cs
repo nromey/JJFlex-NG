@@ -103,6 +103,13 @@ public partial class FlexBase
     /// </summary>
     private volatile bool _ownKeyRequested;
 
+    /// <summary>
+    /// This client's own tune ON has gone out and no tune OFF after it (repair
+    /// round 8, Codex's #596 B14): the tune equivalent of
+    /// <see cref="_ownKeyRequested"/>, retired only when an OFF really went.
+    /// </summary>
+    private volatile bool _ownTuneRequested;
+
     /// <summary>This connection has handed CW to the radio's CWX queue.</summary>
     private volatile bool _cwSentThisConnection;
 
@@ -398,17 +405,13 @@ public partial class FlexBase
         q.Enqueue((FunctionDel)(() =>
         {
             // Ownership checked with the write (repair round 5, rule 1).
-            bool foreignAtWrite = false;
+            // Forced, and retired only when it really went (round 8, #596 B13).
+            bool off = false;
             string refused = WriteOnPinnedTarget(owner, connection,
-                () => OurCarrierToUnkey(owner, connection, why) ? null : NotOurs, () => owner.Mox = false,
-                () =>
-                {
-                    string foreign = ForeignCarrier(owner);
-                    if (foreign != null) foreignAtWrite = true;
-                    return foreign;
-                }, unkeyOfOurs: true);
-            if (refused == null) { _ownKeyRequested = false; return; }
-            if (foreignAtWrite) PutBackUnsentFlag(owner, "_mox", "Mox");
+                () => OurCarrierToUnkey(owner, connection, why) ? null : NotOurs, () => off = owner.SendMoxOff(),
+                () => ForeignCarrier(owner), unkeyOfOurs: true);
+            if (refused == null && off) { _ownKeyRequested = false; return; }
+            refused ??= "the transport did not take it";
             if (refused != NotOurs)
                 Tracing.TraceLine("Teardown unkey (" + why + "): not sent; " + refused, TraceLevel.Info);
         }), "Mox (own carrier only)");
@@ -457,7 +460,7 @@ public partial class FlexBase
             // connection sent CW, keyed or not, through the same owned route.
             bool cwOwed = _cwSentThisConnection;
             if (cwOwed) EnqueueOwnCwClear(radio, why);
-            bool mayBeKeyed = _Transmit || radio.Mox || radio.TXTune || _ownKeyRequested
+            bool mayBeKeyed = _Transmit || radio.Mox || radio.TXTune || _ownKeyRequested || _ownTuneRequested
                               || !RadioInterlockConfirmsReceive;
             if (!mayBeKeyed)
             {
@@ -621,6 +624,7 @@ public partial class FlexBase
         _teardownStillOnAir = null;
         _teardownRestoring = false;
         _ownKeyRequested = false;
+        _ownTuneRequested = false;
         _cwSentThisConnection = false;
     }
 }

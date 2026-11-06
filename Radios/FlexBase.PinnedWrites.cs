@@ -149,34 +149,6 @@ public partial class FlexBase
     }
 
     /// <summary>
-    /// A vendor flag setter (Mox, TXTune) caches its new value BEFORE it sends.
-    /// When the transport refused that send, nothing reached the radio, so the
-    /// cache is put back to <c>true</c>: the setter only ever caches OFF here,
-    /// and the refusal was positive evidence the radio still transmits. Under
-    /// the transport's dispatch gate, so it does not race a report.
-    /// </summary>
-    private void PutBackUnsentFlag(Radio radio, string field, string what)
-    {
-        try
-        {
-            var flag = typeof(Radio).GetField(field, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            if (flag == null) return;
-            object? dispatch = InterlockReports.ConnectionSyncOf(radio);
-            if (dispatch == null) return;
-            // Bounded: a caller may hold a lock the reader's handlers take
-            // (the tune gate). Without the gate it is a best-effort put-back.
-            bool held = System.Threading.Monitor.TryEnter(dispatch, CommandWritePin.SerializeBound);
-            try { if (flag.GetValue(radio) is false) flag.SetValue(radio, true); }
-            finally { if (held) System.Threading.Monitor.Exit(dispatch); }
-            Tracing.TraceLine("PinnedWrites: " + what + " OFF was not sent; FlexLib's cache is put back to on", TraceLevel.Info);
-        }
-        catch (Exception ex)
-        {
-            Tracing.TraceLine("PinnedWrites: could not put back FlexLib's " + what + " cache: " + ex.Message, TraceLevel.Warning);
-        }
-    }
-
-    /// <summary>
     /// Why a release should leave the carrier alone at its write, or null: the
     /// radio reports another client transmitting (#686). Zero, or our own
     /// handle, means the carrier is ours or nobody's.
@@ -224,21 +196,16 @@ public partial class FlexBase
             // Whose carrier it is, asked before AND at the transport write,
             // under the reader's dispatch gate (repair round 6, Codex's B10).
             // An unkey of ours: contention never refuses it (round 7, B11).
-            bool foreignAtWrite = false;
-            string? why = WriteOnPinnedTarget(owner, connection, () => ForeignCarrier(owner!), () => owner!.Mox = false,
-                () =>
-                {
-                    string? foreign = ForeignCarrier(owner!);
-                    if (foreign != null) foreignAtWrite = true;
-                    return foreign;
-                }, unkeyOfOurs: true);
-            if (why == null) { _ownKeyRequested = false; return; }
-            // Nothing went out. FlexLib's setter had already cached OFF; when
-            // the carrier is another client's, the radio still transmits, so
-            // the cache is put back and a later OFF (ours, or the emergency
-            // kill's) is not swallowed as an equal value (round 7, B11).
-            if (foreignAtWrite) PutBackUnsentFlag(owner!, "_mox", "Mox");
-            Tracing.TraceLine("TransmitAdmission: " + what + " NOT sent at its write - " + why, TraceLevel.Warning);
+            // The OFF is forced (repair round 8, MIGRATION.md item 22): it goes
+            // out whatever FlexLib's cache reads, so a receive report that landed
+            // while our ON was written cannot turn it into a no-op (Codex's #596
+            // B13). Our key counts as released only when the OFF really went.
+            bool off = false;
+            string? why = WriteOnPinnedTarget(owner, connection, () => ForeignCarrier(owner!), () => off = owner!.SendMoxOff(),
+                () => ForeignCarrier(owner!), unkeyOfOurs: true);
+            if (why == null && off) { _ownKeyRequested = false; return; }
+            Tracing.TraceLine("TransmitAdmission: " + what + " NOT sent at its write - " + (why ?? "the transport did not take it"),
+                TraceLevel.Warning);
         }), "Mox (a send's own release)");
     }
 }

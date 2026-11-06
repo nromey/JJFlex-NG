@@ -8542,21 +8542,18 @@ namespace Radios
                 {
                     var radio = theRadio;
                     if (radio == null) return;
-                    // FlexLib's setter skips a value equal to its cache, and the
-                    // cache is optimistic (repair round 7, Codex's #596 B11): a
-                    // skipped or refused OFF could leave it reading OFF while the
-                    // radio still transmits. So when the cache already reads OFF
-                    // but this computer's key is outstanding or the radio reports
-                    // transmit, the OFF goes out raw. The emergency kill comes
-                    // here (TransmitKillSwitch.DropCarrier) and is never swallowed.
-                    if (!radio.Mox && (_ownKeyRequested || RadioInterlockReportsTransmit))
+                    // The OFF is forced whenever a carrier may be up, whatever
+                    // FlexLib's cache reads (repair round 8, MIGRATION.md item 22;
+                    // Codex's #596 B13). The emergency kill comes here
+                    // (TransmitKillSwitch.DropCarrier) and is never swallowed.
+                    if (radio.Mox || _ownKeyRequested || RadioInterlockReportsTransmit)
                     {
-                        string notSent = SendRadioCommandWithReply(radio, "xmit 0", null);
-                        Tracing.TraceLine("Transmit: FlexLib's cache already read OFF, so xmit 0 went out raw"
-                            + (notSent == null ? "" : " - NOT sent: " + notSent), TraceLevel.Warning);
+                        if (radio.SendMoxOff()) _ownKeyRequested = false;
+                        // A link that is down takes nothing: the setter then lets
+                        // the cache fall as it always did, so our side's transmit
+                        // state ends with the connection.
+                        else radio.Mox = false;
                     }
-                    else radio.Mox = false;
-                    _ownKeyRequested = false;
                 }), "Mox");
             }
         }

@@ -839,6 +839,102 @@ namespace Radios.Tests
             Assert.Single(Commands("transmit tune 0"));
         }
 
+        /// <summary>
+        /// Codex's #596 B13 / #861 B1 schedule: our key is asked; at its xmit 1's
+        /// pre-write point the radio's READY lands and the parser clears
+        /// FlexLib's Mox cache; the xmit 1 still goes out. No transmit report has
+        /// come when the release is asked.
+        /// </summary>
+        private void OurKeyWentOutUnderAStaleReceiveReport(Action key)
+        {
+            Interlock("READY", 0);
+            ReportAtTheWriteOf("xmit 1", () =>
+            {
+                _f.Vendor.Status("interlock state=READY source= tx_client_handle=0x00000000");
+                Set(_f.Vendor.Radio, "_mox", false);               // the parser's word: not transmitting
+            });
+            key();
+            Drained();
+            Assert.Single(Commands("xmit 1"));
+            Assert.False(_f.Vendor.Radio.Mox);
+            Assert.True((bool)Get(_f.Rig, "_ownKeyRequested")!);
+        }
+
+        [Fact]
+        public void A_sends_release_after_a_stale_receive_report_still_unkeys()
+        {
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            OurKeyWentOutUnderAStaleReceiveReport(() => send.Transmit = true);
+            send.Transmit = false;
+            Drained();
+            Assert.Single(Commands("xmit 0"));
+            Assert.False((bool)Get(_f.Rig, "_ownKeyRequested")!);   // retired by an OFF that really went
+        }
+
+        [Fact]
+        public void The_teardowns_own_unkey_after_a_stale_receive_report_still_unkeys()
+        {
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            OurKeyWentOutUnderAStaleReceiveReport(() => send.Transmit = true);
+            _f.Rig.UnkeyOwnCarrier("test teardown");
+            Drained();
+            Assert.Single(Commands("xmit 0"));
+        }
+
+        [Fact]
+        public void The_kill_after_a_stale_receive_report_still_unkeys()
+        {
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            OurKeyWentOutUnderAStaleReceiveReport(() => send.Transmit = true);
+            TransmitKillSwitch.DropCarrier(_f.Rig, TransmitKillSwitch.Carrier.Mox);
+            Drained();
+            Assert.Single(Commands("xmit 0"));
+        }
+
+        /// <summary>Codex's #596 B14: our tune ON goes out while a tune=0 report clears FlexLib's cache.</summary>
+        private void OurTuneWentOutUnderAStaleTuneOffReport()
+        {
+            Interlock("READY", 0);
+            ReportAtTheWriteOf("transmit tune 1", () => Set(_f.Vendor.Radio, "_txTune", false));
+            _f.Rig.TxTune = true;
+            Drained();
+            Assert.Single(Commands("transmit tune 1"));
+            Assert.False(_f.Vendor.Radio.TXTune);
+        }
+
+        [Fact]
+        public void The_teardown_tune_off_after_a_stale_tune_off_report_still_goes_out()
+        {
+            OurTuneWentOutUnderAStaleTuneOffReport();
+            TeardownTuneOff();
+            Drained();
+            Assert.Single(Commands("transmit tune 0"));
+        }
+
+        [Fact]
+        public void The_emergency_tune_drop_after_a_stale_tune_off_report_still_goes_out()
+        {
+            OurTuneWentOutUnderAStaleTuneOffReport();
+            TransmitKillSwitch.DropCarrier(_f.Rig, TransmitKillSwitch.Carrier.Tune);
+            Drained();
+            Assert.Single(Commands("transmit tune 0"));
+        }
+
+        [Fact]
+        public void A_release_refused_at_its_write_leaves_FlexLibs_cache_on_the_radios_word()
+        {
+            // Codex's F4/T2: the round-7 put-back could overwrite a newer READY.
+            // A refused forced OFF never changes the cache, so nothing is put back.
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            OurCarrierUp();
+            ReportAtTheWriteOf("xmit 0", () => Interlock("TRANSMITTING", Foreign));
+            send.Transmit = false;
+            Drained();
+            Assert.Empty(Commands("xmit"));
+            Assert.True(_f.Vendor.Radio.Mox);                       // as the radio last said: a carrier is up
+            Assert.DoesNotContain("PutBackUnsentFlag", System.IO.File.ReadAllText(Repo("Radios/FlexBase.PinnedWrites.cs")));
+        }
+
         private static int Count(string text, string what)
         {
             int n = 0, at = 0;

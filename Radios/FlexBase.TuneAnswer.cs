@@ -100,24 +100,36 @@ namespace Radios
                         // write with its ownership asked there too (repair round 7,
                         // Codex's #596 B12). An unkey of ours: contention never
                         // refuses it, only a positive "not ours".
-                        bool foreignAtWrite = false;
-                        string refusedAtWrite = WriteOnPinnedTarget(owner, connection, null, () => owner.TXTune = false,
-                            () =>
-                            {
-                                string foreign = ForeignCarrier(owner);
-                                if (foreign != null) foreignAtWrite = true;
-                                return foreign;
-                            }, unkeyOfOurs: true);
-                        if (refusedAtWrite != null)
-                        {
-                            if (foreignAtWrite) PutBackUnsentFlag(owner, "_txTune", "TXTune");
-                            JJTrace.Tracing.TraceLine("TuneWrite: the " + what + " off NOT sent at its write - " + refusedAtWrite,
-                                System.Diagnostics.TraceLevel.Info);
-                        }
+                        // Forced (round 8, MIGRATION.md item 22, Codex's #596 B14): a
+                        // tune=0 report that landed while our tune ON was written
+                        // cannot turn this OFF into a no-op.
+                        bool off = false;
+                        string refusedAtWrite = WriteOnPinnedTarget(owner, connection, null, () => off = owner.SendTuneOff(),
+                            () => ForeignCarrier(owner), unkeyOfOurs: true);
+                        if (refusedAtWrite == null && off) _ownTuneRequested = false;
+                        else
+                            JJTrace.Tracing.TraceLine("TuneWrite: the " + what + " off NOT sent at its write - "
+                                + (refusedAtWrite ?? "the transport did not take it"), System.Diagnostics.TraceLevel.Info);
                         if (latest) _tuneOnQueued = false;
                         return;
                     }
-                    theRadio.TXTune = value;
+                    var radio = theRadio;
+                    if (value)
+                    {
+                        // Our tune ON goes out when the cache read off; a report may
+                        // clear the cache again at once, so the request is what counts.
+                        bool wasOn = radio.TXTune;
+                        radio.TXTune = true;
+                        if (!wasOn) _ownTuneRequested = true;
+                    }
+                    // An ordinary OFF, the emergency kill's included
+                    // (TransmitKillSwitch.DropCarrier), is forced whenever a tune
+                    // may be up, whatever FlexLib's cache reads (round 8, B14).
+                    else if (radio.TXTune || _ownTuneRequested)
+                    {
+                        if (radio.SendTuneOff()) _ownTuneRequested = false;
+                        else radio.TXTune = false;
+                    }
                     if (latest) _tuneOnQueued = false;
                 }
             }), "TXTune");
