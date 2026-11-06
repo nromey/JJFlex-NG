@@ -12,6 +12,7 @@ namespace Radios.Tests;
 /// radio's configuration, so with no radio they have no home: the commit must
 /// say so plainly rather than claim a save.
 /// </summary>
+[Collection(RadioConfigStaticsCollection.Name)]
 public sealed class PttSettingsWithoutRadioTests
 {
     public PttSettingsWithoutRadioTests() => Lexicon.Load(Lexicon.Partitions);
