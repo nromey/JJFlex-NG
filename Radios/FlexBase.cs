@@ -6554,7 +6554,9 @@ namespace Radios
         /// </remarks>
         private void dropTransmitWithConnection(Action<string, TraceLevel> trace)
         {
-            // A tuning correction is about this connection (round three, Codex's B1).
+            // A tuning correction is about this connection (round three, Codex's B1),
+            // and so is Home's return status (round four, B3): its binding reads this.
+            System.Threading.Interlocked.Increment(ref _connectionFalls);
             RetireTuneCorrection("the connection fell");
             bool wasKeyed = _Transmit;
             bool deliberate = Disconnecting || Volatile.Read(ref _selfDisconnects) > 0;

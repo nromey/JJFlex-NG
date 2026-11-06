@@ -1402,5 +1402,34 @@ namespace Radios.Tests
             Assert.Equal(15000, SpeechArbiter.SalvageCeilingMs);
             Assert.Equal(SpeechArbiter.SalvageCapMs, SpeechArbiter.SalvageCeilingMs);
         }
+    
+
+        // ── Round four, Codex's re-check B3: an ordinary sentence's own condition ──
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void An_ordinary_sentence_whose_producer_says_it_is_no_longer_true_is_not_replayed(bool stillTrue)
+        {
+            var a = NewArbiter();
+            a.Emit("Listening on 14.100 megahertz", false, null, VerbosityLevel.Chatty, "home",
+                SpeechSubject.ReturnStatus, additive: false, stillValid: () => stillTrue);
+            _clock.Advance(50);
+            a.Emit("Something new", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "probe");
+            _clock.Advance(Settle);
+            Assert.Equal(stillTrue, _calls.Any(x => x.Salvaged && x.Message == "Listening on 14.100 megahertz"));
+        }
+
+        [Fact]
+        public void An_ordinary_sentences_condition_that_throws_is_cannot_say_and_it_is_not_replayed()
+        {
+            var a = NewArbiter();
+            a.Emit("Listening on 14.100 megahertz", false, null, VerbosityLevel.Chatty, "home",
+                SpeechSubject.ReturnStatus, additive: false, stillValid: () => throw new InvalidOperationException("probe"));
+            _clock.Advance(50);
+            a.Emit("Something new", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "probe");
+            _clock.Advance(Settle);
+            Assert.DoesNotContain(_calls, x => x.Salvaged && x.Message == "Listening on 14.100 megahertz");
+        }
     }
 }

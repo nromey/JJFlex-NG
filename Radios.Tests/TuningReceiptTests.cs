@@ -2254,5 +2254,132 @@ namespace Radios.Tests
             RejectTune(b, 0, "");
             Assert.Equal("14.100.000", Said(b));
         }
+    
+
+        // ── Round four, Codex's re-check B3: Home's return status carries its own truth ──
+        //
+        // "Listening on 14.100 megahertz, USB, 20 meter band, slice A" was
+        // replayed by the real arbiter after slice A was removed, after the
+        // connection fell, and after a direct ActiveSlice change; only a
+        // frequency report or the RXVFO setter retired it. The sentence now
+        // carries the condition that makes it true, asked before every replay.
+
+        /// <summary>A bench whose radio reports its slices as FlexLib's ActiveSlice reads them, so Home's own sentence assembles.</summary>
+        private (Bench b, Slice a, Slice second) HomeOnSliceA()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            Slice second = Add(b, 1, tx: false, active: false, mhz: 7.100);
+            Set(b.Rig, "theRadio", b.V.Radio);
+            var list = (System.Collections.IList)typeof(Radio).GetField("_slices", Private)!.GetValue(b.V.Radio)!;
+            list.Add(a);
+            list.Add(second);
+            Set(b.Rig, "_RXVFO", 0);
+            return (b, a, second);
+        }
+
+        private static Func<bool> Bound(Bench b)
+        {
+            var bind = typeof(FlexBase).GetMethod("BindReturnStatus", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            Assert.True(bind != null, "Home's return status carries no condition of its own");
+            return (Func<bool>)bind!.Invoke(b.Rig, null)!;
+        }
+
+        /// <summary>
+        /// The real arbiter, with its own clock: Home's assembled sentence is
+        /// queued with its condition, the change is made, an interrupt follows,
+        /// and the settle window passes. True when the old sentence came back.
+        /// </summary>
+        private static bool ReplayedAfter(Bench b, Action change, out string sentence)
+        {
+            var clock = new FakeSpeechClock();
+            var calls = new List<(string Message, bool Salvaged)>();
+            var arbiter = new Radios.Speech.SpeechArbiter(clock, () => VerbosityLevel.Chatty,
+                (message, interrupt, intent, level, origin, salvaged) => { calls.Add((message, salvaged)); return true; },
+                () => { }, (message, level, intent, origin) => { });
+            Func<bool> stillTrue = Bound(b);
+            sentence = RadioStatusBuilder.BuildSpokenStatus(b.Rig);
+            arbiter.Emit(sentence, false, null, VerbosityLevel.Chatty, "home", Radios.Speech.SpeechSubject.ReturnStatus,
+                additive: false, stillValid: stillTrue);
+            clock.Advance(50);
+            change();
+            arbiter.Emit("A new state supersedes the old one", true, Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Terse, "probe");
+            clock.Advance(Radios.Speech.SpeechArbiter.SalvageSettleMs + 50);
+            string said = sentence;
+            return calls.Any(x => x.Salvaged && x.Message == said);
+        }
+
+        [Fact]
+        public void Homes_return_status_is_not_replayed_after_its_slice_is_removed()
+        {
+            // Codex's final-tuning-status-removed probe.
+            var (b, a, second) = HomeOnSliceA();
+            bool replayed = ReplayedAfter(b, () =>
+            {
+                var list = (System.Collections.IList)typeof(Radio).GetField("_slices", Private)!.GetValue(b.V.Radio)!;
+                list.Remove(a);
+                Set(second, "_active", true);
+                typeof(FlexBase).GetMethod("sliceRemoved", Private)!
+                    .Invoke(b.Rig, new object[] { a, new ObservationBinding(new object(), new ConnectionAttempt("test-serial")) });
+            }, out string sentence);
+            Assert.Equal("Listening on 14.100 megahertz, USB, 20 meter band, slice A", sentence);
+            Assert.False(replayed);
+        }
+
+        [Fact]
+        public void Homes_return_status_is_not_replayed_after_the_connection_falls()
+        {
+            var (b, _, _) = HomeOnSliceA();
+            Assert.False(ReplayedAfter(b, () =>
+                typeof(FlexBase).GetMethod("dropTransmitWithConnection", Private)!
+                    .Invoke(b.Rig, new object[] { (Action<string, System.Diagnostics.TraceLevel>)((_, _) => { }) }), out _));
+        }
+
+        [Fact]
+        public void Homes_return_status_is_not_replayed_after_a_direct_selection_change()
+        {
+            // The ActiveSlice handler and the roster's re-derivations write the
+            // selection without the RXVFO setter.
+            var (b, _, _) = HomeOnSliceA();
+            Assert.False(ReplayedAfter(b, () => Set(b.Rig, "_RXVFO", 1), out _));
+        }
+
+        [Fact]
+        public void Homes_return_status_is_not_replayed_after_its_mode_changes()
+        {
+            var (b, a, _) = HomeOnSliceA();
+            Assert.False(ReplayedAfter(b, () => Set(a, "_demodMode", "CW"), out _));
+        }
+
+        [Fact]
+        public void Homes_return_status_is_not_replayed_after_its_frequency_changes()
+        {
+            var (b, a, _) = HomeOnSliceA();
+            Assert.False(ReplayedAfter(b, () => Reports(a, 14.200000), out _));
+        }
+
+        [Fact]
+        public void Homes_return_status_is_replayed_when_nothing_it_states_has_changed()
+        {
+            // The control: an unrelated report, and the rescue still happens.
+            var (b, _, second) = HomeOnSliceA();
+            Assert.True(ReplayedAfter(b, () => Reports(second, 7.150000), out _));
+        }
+    
+
+        [Fact]
+        public void Home_binds_its_return_status_before_building_it_and_hands_the_condition_to_speech()
+        {
+            var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+            Assert.NotNull(dir);
+            string text = System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, "JJFlexWpf", "MainWindow.xaml.cs"));
+            int bind = text.IndexOf("Func<bool> stillTrue = rig.BindReturnStatus();", StringComparison.Ordinal);
+            int build = text.IndexOf("string status = Radios.RadioStatusBuilder.BuildSpokenStatus(rig);", StringComparison.Ordinal);
+            Assert.True(bind > 0 && build > bind, "Home's return status is not bound before it is built");
+            int speak = text.IndexOf("subject: Radios.Speech.SpeechSubject.ReturnStatus", build, StringComparison.Ordinal);
+            Assert.True(speak > 0, "Home's return status is no longer spoken under its subject");
+            Assert.Contains("stillValid: stillTrue", text.Substring(speak, 120), StringComparison.Ordinal);
+        }
     }
 }

@@ -1036,11 +1036,11 @@ namespace Radios.Speech
         /// </param>
         public void Emit(string message, bool interrupt,
             SpeechIntent? intent, VerbosityLevel? level, string? origin,
-            string? subject = null, bool additive = false)
+            string? subject = null, bool additive = false, Func<bool>? stillValid = null)
         {
             lock (_lock)
             {
-                EmitLocked(message, interrupt, intent, level, origin, subject, additive);
+                EmitLocked(message, interrupt, intent, level, origin, subject, additive, stillValid);
             }
         }
 
@@ -2370,16 +2370,24 @@ namespace Radios.Speech
 
         // ── Internals ──
 
+        /// <param name="stillValid">
+        /// The producer's answer to "is what this sentence states still so",
+        /// asked before any replay of an unheard copy (round four, Codex's
+        /// re-check B3: Home's return status was replayed after its slice had
+        /// gone). Only a QUEUED sentence is ledgered and so can be replayed; an
+        /// interrupting one never is, and has nothing for this to guard.
+        /// </param>
         private void EmitLocked(string message, bool interrupt,
             SpeechIntent? intent, VerbosityLevel? level, string? origin, string? subject,
-            bool additive = false)
+            bool additive = false, Func<bool>? stillValid = null)
         {
             var now = _clock.UtcNow;
             PruneLedgerLocked(now);
 
             if (!interrupt)
             {
-                EmitQueuedLocked(message, intent, level, origin, subject, additive, now);
+                var made = EmitQueuedLocked(message, intent, level, origin, subject, additive, now);
+                if (made != null && stillValid != null) made.StillValid = stillValid;
                 return;
             }
 
@@ -2669,7 +2677,7 @@ namespace Radios.Speech
             catch (Exception ex)
             {
                 Tracing.TraceLine(
-                    $"SpeechArbiter: a SAFETY obligation's producer could not say whether it is still true ({ex.Message}); "
+                    $"SpeechArbiter: {(e.Protected ? "a SAFETY obligation's" : "a sentence's")} producer could not say whether it is still true ({ex.Message}); "
                     + $"it is not replayed: '{Clip(e.Message)}'", TraceLevel.Error);
                 return false;
             }
@@ -3262,8 +3270,11 @@ namespace Radios.Speech
             // producer whether that state still holds before every replay
             // (blocker 6). "You are no longer on the air" after the operator
             // has keyed again is false, and a false safety sentence is worse
-            // than silence (#617).
-            if (entry.Protected && entry.StillValid != null && !StillTrue(entry))
+            // than silence (#617). An ordinary sentence that declared one is
+            // asked too (round four, Codex's re-check B3): Home's return status
+            // states a slice, its frequency, mode and band, and a replay after
+            // any of them changed tells the operator something false.
+            if (entry.StillValid != null && !StillTrue(entry))
                 return "no longer true: its producer says the state it claimed has changed since, and a replay would "
                     + "tell the operator something false";
 

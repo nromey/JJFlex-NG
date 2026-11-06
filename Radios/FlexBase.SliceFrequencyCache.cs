@@ -595,6 +595,62 @@ namespace Radios
         /// <summary>Home's return status was just spoken; it describes the selection as it is now.</summary>
         public void NoteReturnStatusSpoken() => System.Threading.Interlocked.Exchange(ref _returnStatusLive, 1);
 
+        /// <summary>How many times a connection has fallen, ours or not (round four, B3): a sentence about one connection is not true on the next.</summary>
+        private long _connectionFalls;
+
+        /// <summary>
+        /// Home's return status, bound to everything it states (round four,
+        /// Codex's re-check B3). "Listening on 14.100 megahertz, USB, 20 meter
+        /// band, slice A" is true only while: this radio, on this live command
+        /// connection, with no fall since; the selected slice is still that slice
+        /// object (a removal, the ActiveSlice handler, the roster's
+        /// re-derivations and the RXVFO setter all change that); it reports the
+        /// frequency and mode the sentence says, under the same letter; and the
+        /// radio is listening, not transmitting. Call it BEFORE building the
+        /// sentence, so a change in between reads as no longer true.
+        /// <para>
+        /// The answer is asked inside the speech arbiter's lock, before any
+        /// replay. So it reads plain fields only, and the roster's lock is TRIED,
+        /// never waited for: code that holds the roster can speak, and waiting
+        /// here could deadlock. A busy roster is "cannot say", and the copy is not
+        /// replayed, which is the safe way round. A status said while
+        /// transmitting states a power reading true only at its moment, and is
+        /// never replayed.
+        /// </para>
+        /// </summary>
+        public System.Func<bool> BindReturnStatus()
+        {
+            var radio = theRadio;
+            var connection = radio?.CurrentCommandConnection;
+            long falls = System.Threading.Interlocked.Read(ref _connectionFalls);
+            Slice slice = SelectedSliceNow();
+            if (radio == null || slice == null || _Transmit) return () => false;
+            ulong hz = RXFrequency;
+            string mode = RXMode;
+            string letter = slice.Letter;
+            return () => ReturnStatusStillTrue(radio, connection, falls, slice, hz, mode, letter);
+        }
+
+        private bool ReturnStatusStillTrue(Radio radio, CommandConnection connection, long falls, Slice slice,
+            ulong hz, string mode, string letter)
+        {
+            if (!ReferenceEquals(theRadio, radio) || !_IsConnected || _Transmit) return false;
+            if (System.Threading.Interlocked.Read(ref _connectionFalls) != falls) return false;
+            var now = radio.CurrentCommandConnection;
+            if (!ReferenceEquals(now, connection) || now == null || now.State != CommandConnectionState.Connected) return false;
+            var slices = mySlices;
+            if (slices == null || !System.Threading.Monitor.TryEnter(slices)) return false;
+            try
+            {
+                int rx = _RXVFO;
+                if (rx < 0 || rx >= slices.Count || !ReferenceEquals(slices[rx], slice)) return false;
+            }
+            finally { System.Threading.Monitor.Exit(slices); }
+            return LibFreqtoLong(slice.Freq) == hz
+                && string.Equals(slice.DemodMode, mode, System.StringComparison.Ordinal)
+                && string.Equals(slice.Letter, letter, System.StringComparison.Ordinal);
+        }
+
         /// <summary>How many times an unheard return status has been retired. For tests.</summary>
         internal int ReturnStatusesRetired;
 

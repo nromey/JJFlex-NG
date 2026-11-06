@@ -2278,11 +2278,15 @@ public partial class MainWindow : UserControl
                 JJTrace.Tracing.TraceLine("Return status held; a send's transmit notice is due", System.Diagnostics.TraceLevel.Info);
                 return;
             }
+            // Bound BEFORE it is built (round four, Codex's re-check B3): the
+            // sentence carries the condition that makes it true, its slice, that
+            // slice's frequency, mode and letter, the connection and listening,
+            // and the arbiter asks it before any replay. Its own subject still
+            // lets the rig retire it outright (rulings round three).
+            Func<bool> stillTrue = rig.BindReturnStatus();
             string status = Radios.RadioStatusBuilder.BuildSpokenStatus(rig);
-            // Its own subject (rulings round three): the rig retires an unheard
-            // copy when the selected slice or its frequency changes, so it is not
-            // salvaged later describing a slice the operator has moved off.
-            Radios.ScreenReaderOutput.Speak(status, Radios.VerbosityLevel.Chatty, subject: Radios.Speech.SpeechSubject.ReturnStatus);
+            Radios.ScreenReaderOutput.Speak(status, Radios.VerbosityLevel.Chatty, subject: Radios.Speech.SpeechSubject.ReturnStatus,
+                stillValid: stillTrue);
             rig.NoteReturnStatusSpoken();
         }
         else if (rig == null)
