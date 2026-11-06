@@ -456,10 +456,11 @@ namespace Radios.Tests
         {
             string text = FlexBasePartials.JoinedText();
             Assert.Equal(1, CountOf(text, "long id = EchoGuardFor(slice).Requested(value);"));
-            Assert.Equal(1, CountOf(text, "RequestTune(slice, value, selectedTune: true, \"RXFreq\");"));
+            Assert.Equal(1, CountOf(text, "t_tuneAdmitted = RequestTune(slice, value, selectedTune: true, \"RXFreq\");"));   // integration fix: the answer is kept
             Assert.Equal(1, CountOf(text, "RequestTune(slice, value, selectedTune: false, \"TXFreq\");"));
             Assert.Equal(1, CountOf(text, "RequestTune(outSlice, ValueOf(inSlice), selectedTune: false, \"CopyVFO\");"));
-            Assert.Equal(1, CountOf(text, "q.Enqueue((FunctionDel)(() => WriteTuneTo(slice, id, mhz, what)), what);"));
+            // Integration fix: the queue's own answer is used, never MainLoop read apart.
+            Assert.Equal(1, CountOf(text, "if (q == null || !q.Enqueue((FunctionDel)(() => WriteTuneTo(slice, id, mhz, what)), what))"));
             Assert.True(text.Contains("bool accepted = EchoGuardFor(s).Accept(echoed);", StringComparison.Ordinal),
                 "the slice's guard is never consulted on a Freq report (#266).");
             Assert.False(text.Contains("slice.Freq = mhz", StringComparison.Ordinal),

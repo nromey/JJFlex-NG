@@ -119,12 +119,8 @@ namespace Radios
                             // To THIS owner's radio, never whatever is current at
                             // the write (repair round 5).
                             (which, on, immediate) => Ours() && WriteVoxSettingTo(radio!, which, on, immediate),
-                            action =>
-                            {
-                                if (!q.MainLoop) return false;
-                                q.Enqueue((FunctionDel)(() => action()), "VoxPause");
-                                return true;
-                            },
+                            // The queue's own answer (integration fix).
+                            action => q.Enqueue((FunctionDel)(() => action()), "VoxPause"),
                             // The family's one question, at every restore write
                             // (repair round 3), pinned to this owner's radio AND
                             // command connection (repair round 4).
@@ -141,10 +137,42 @@ namespace Radios
                                 on && radio != null ? () => RestoreRefusedAtWrite(radio, (object?)connection ?? NoConnection) : null));
                         OperatorChangedRadioSetting -= NoteVoxPauseOperatorChange;
                         OperatorChangedRadioSetting += NoteVoxPauseOperatorChange;
+                        WatchVoxRetry(_voxPauses, connection as CommandConnection);
                     }
                     return _voxPauses;
                 }
             }
+        }
+
+        /// <summary>The watch that retries a withheld VOX restore; null when none.</summary>
+        private Action<CommandConnection>? _voxRetryWatch;
+
+        /// <summary>
+        /// A VOX restore withheld at its write (a carrier, or the report gate not
+        /// had within its bound) is retried when the radio next reports receive
+        /// on that owner's connection (integration fix, 2026-11-06), as the mic
+        /// debt is. Off the reader. Replaced with the owner; ended at disconnect.
+        /// The two debt machines are kept apart this round (register).
+        /// </summary>
+        private void WatchVoxRetry(VoxPauseOwner owner, CommandConnection? connection)
+        {
+            StopVoxRetryWatch();
+            if (connection == null) return;
+            Action<CommandConnection> watch = c =>
+            {
+                if (!ReferenceEquals(c, connection) || !owner.HasWithheld) return;
+                if (InterlockReports.LastOn(c)?.IsReceive != true) return;
+                _ = System.Threading.Tasks.Task.Run(owner.RetryWithheld);
+            };
+            _voxRetryWatch = watch;
+            InterlockReports.Reported += watch;
+        }
+
+        private void StopVoxRetryWatch()
+        {
+            var watch = _voxRetryWatch;
+            _voxRetryWatch = null;
+            if (watch != null) InterlockReports.Reported -= watch;
         }
 
         private void NoteVoxPauseOperatorChange(string what)
@@ -190,6 +218,7 @@ namespace Radios
                 _toneVoxLease?.Dispose();
                 _toneVoxLease = null;
                 _voxPauses = null;
+                StopVoxRetryWatch();
                 _voxPauseRadio = null;
                 _voxPauseConnection = null;
             }
@@ -291,12 +320,11 @@ namespace Radios
                     Tracing.TraceLine("WriteVoxSetting: " + which + "=" + on + " issued immediately (app-initiated)", TraceLevel.Info);
                     return true;
                 }
-                if (!q.MainLoop)
+                if (!q.Enqueue(write, which == VoxSetting.CwBreakIn ? "BreakIn" : "SimpleVOXEnable"))
                 {
                     Tracing.TraceLine("WriteVoxSetting: command loop not running, so " + which + "=" + on + " was NOT issued", TraceLevel.Warning);
                     return false;
                 }
-                q.Enqueue(write, which == VoxSetting.CwBreakIn ? "BreakIn" : "SimpleVOXEnable");
             }
             Tracing.TraceLine("WriteVoxSetting: " + which + "=" + on + " queued (app-initiated)", TraceLevel.Info);
             return true;

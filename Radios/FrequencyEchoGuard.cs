@@ -63,7 +63,7 @@ namespace Radios
     /// "Has the radio reported since our write?" must count every frequency
     /// report, including one equal to FlexLib's cached number, which FlexLib's
     /// Freq notification skips. So arrivals come from FlexLib's
-    /// <c>Slice.FrequencyReported</c> (a JJFlex patch, MIGRATION.md item 22)
+    /// <c>Slice.FrequencyReported</c> (a JJFlex patch, MIGRATION.md item 23)
     /// into <see cref="Reported"/>, and <see cref="Accept"/> only decides
     /// whether a CHANGED value may enter the caches.
     /// </para>

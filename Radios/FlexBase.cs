@@ -991,7 +991,13 @@ namespace Radios
                 // Before the new attempt can carry a write: nothing admitted or
                 // checked on the old connection reaches this one (repair round
                 // 5, #596 B7/B8, #861 B1). See FlexBase.PinnedWrites.cs.
-                AwaitPinnedWritesBeforeNewConnection();
+                RevokeWorkBeforeNewConnection();
+                // Nothing has been said on this connection yet (integration fix):
+                // a reconnect of the same radio keeps this rig, so the memory of
+                // the last split announced is reset here, not by a new rig.
+                TransmitSliceNotice.ForgetFor(this);
+                // An import that never finished belongs to the old connection.
+                System.Threading.Volatile.Write(ref _profileImportInProgress, false);
                 _connectionToken = ConnectionLifetime.Bind(report.Connection,
                     radio.Serial + " " + (radio.Nickname ?? ""), out var outcome);
                 var route = _commandRoute;
@@ -9541,6 +9547,7 @@ namespace Radios
                 // queued write goes to this slice whatever is selected by the
                 // time it runs.
                 Slice slice = ValidVFO(RXVFO) ? VFOToSlice(RXVFO) : null;
+                t_tuneAdmitted = false;
                 if (slice == null)
                 {
                     CommitSliceFacts(null, () => SetRxCache(null, value));
@@ -9556,7 +9563,7 @@ namespace Radios
                 // slice's own value, not the raw cache (repair round 3), and
                 // the one helper owns admission, publication and the guard
                 // (repair round 5).
-                RequestTune(slice, value, selectedTune: true, "RXFreq");
+                t_tuneAdmitted = RequestTune(slice, value, selectedTune: true, "RXFreq");
             }
         }
 
@@ -9785,13 +9792,12 @@ namespace Radios
                 Tracing.TraceLine("RequestMode: no slice of ours to write, so \"" + value + "\" was NOT requested", TraceLevel.Warning);
                 return ModeRequestOutcome.RefusedNoSlice;
             }
-            if (q == null || !q.MainLoop)
+            // The queue's own answer (integration fix): never MainLoop read apart.
+            if (q == null || !q.Enqueue((FunctionDel)(() => { s.DemodMode = value; }), "RXDemodMode"))
             {
-                // q.Enqueue would only trace "outside main loop" and drop it.
                 Tracing.TraceLine("RequestMode: the radio's command loop is not running, so \"" + value + "\" was NOT requested", TraceLevel.Warning);
                 return ModeRequestOutcome.RefusedNotRunning;
             }
-            q.Enqueue((FunctionDel)(() => { s.DemodMode = value; }), "RXDemodMode");
             return ModeRequestOutcome.Sent;
         }
 
@@ -13722,7 +13728,35 @@ namespace Radios
                 q = new BlockingCollection<object>();
             }
 
-            public bool MainLoop { get; set; }
+            /// <summary>
+            /// Admission and closing share one lock (integration fix, Codex's
+            /// integration finding 5): an item is either added while the loop
+            /// will still run it, or refused.
+            /// </summary>
+            private readonly object _admit = new object();
+            private bool _mainLoop;
+
+            public bool MainLoop
+            {
+                get { lock (_admit) return _mainLoop; }
+                set { lock (_admit) _mainLoop = value; }
+            }
+
+            /// <summary>
+            /// The main loop is ending: refuse every later item, and hand back
+            /// those still queued, which the loop's owner runs (integration fix).
+            /// An item <see cref="Enqueue"/> accepted therefore always runs.
+            /// </summary>
+            public List<QItem_t> CloseAndTakeRest()
+            {
+                var rest = new List<QItem_t>();
+                lock (_admit)
+                {
+                    _mainLoop = false;
+                    while (q.TryTake(out object o)) rest.Add((QItem_t)o);
+                }
+                return rest;
+            }
 
             public int Count { get { return q.Count; } }
 
@@ -13738,10 +13772,12 @@ namespace Radios
             }
 
             /// <returns>
-            /// True when the item was queued, or run at once before the main
-            /// loop; false when it was dropped because the loop is not running
-            /// (repair round 12, Codex's #596 B18). This is the ONE answer to
-            /// "will it run": a caller that must know never reads MainLoop itself.
+            /// True when the item will run: queued while the loop accepts work
+            /// (the loop runs every accepted item, those left at its end
+            /// included, <see cref="CloseAndTakeRest"/>), or run at once before
+            /// the main loop. False when it was dropped (repair round 12, Codex's
+            /// #596 B18; integration fix). This is the ONE answer to "will it
+            /// run": a caller that must know never reads MainLoop itself.
             /// </returns>
             public bool Enqueue(object o, string name = null, bool beforeMainLoop = false)
             {
@@ -13764,7 +13800,14 @@ namespace Radios
                 }
                 QItem_t item = new QItem_t(name, o);
 
-                if (!MainLoop)
+                lock (_admit)
+                {
+                    if (_mainLoop)
+                    {
+                        q.Add(item);
+                        return true;
+                    }
+                }
                 {
                     // If can execute before the main loop, do it.
                     if (beforeMainLoop & (o is FunctionDel))
@@ -13778,8 +13821,6 @@ namespace Radios
                     Tracing.TraceLine("q:outside main loop", TraceLevel.Error);
                     return false;
                 }
-                q.Add(item);
-                return true;
             }
 
             public QItem_t Dequeue()

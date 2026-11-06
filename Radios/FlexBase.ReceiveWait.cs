@@ -14,48 +14,6 @@ namespace Radios
     public partial class FlexBase
     {
         /// <summary>
-        /// Run <paramref name="then"/> once the radio is really receiving, or
-        /// once the connection this call began on is gone.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// <b>"Receive" is the radio's word, not only our cache.</b> Our cached
-        /// <see cref="Transmit"/> falls the moment we drop our own key, which a
-        /// hardware takeover does while the hand mic still keys the radio, and
-        /// FlexLib's Mox cache flips the moment we ask for an unkey. So both
-        /// must say receive: cached Transmit false AND the radio's interlock
-        /// out of transmit (<see cref="RadioInterlockReportsTransmit"/>), the
-        /// same pair the check's restores wait for.
-        /// </para>
-        /// <para>
-        /// <b>Pinned to the radio and command connection it began on</b>
-        /// (<c>feedback_deferred_state_carries_its_session</c>). Another radio,
-        /// a new connection or a lost one ends the wait the way a disconnect
-        /// always has: <paramref name="then"/> runs with
-        /// <c>connectionHeld</c> false, and the caller's own lost-connection
-        /// rules apply.
-        /// </para>
-        /// <para>
-        /// <b>No time limit,</b> deliberately: the ruling is "only when the radio
-        /// is really receiving". An interlock that never reports READY on a
-        /// live connection keeps the wait going; whether that wants a limit is
-        /// Noel's question, not this method's.
-        /// </para>
-        /// </remarks>
-        /// <param name="then">
-        /// Runs exactly once. Its argument is true when the radio reported
-        /// receive on the same connection, false when the connection went.
-        /// </param>
-        /// <param name="beforeWaiting">
-        /// Runs before the wait starts, only if there is one to wait for, so a
-        /// trace line saying "waiting" always comes before the one saying it
-        /// ended.
-        /// </param>
-        /// <returns>
-        /// False when nothing had to be waited for: <paramref name="then"/> has
-        /// already run, on this thread. True when it runs later, on the pool.
-        /// </returns>
-        /// <summary>
         /// <see cref="WhenRadioReallyReceives"/> for the push-to-talk controller:
         /// the falling tri-tone of a carrier this computer did not key for
         /// itself plays on the radio's real receive, not on our cache's
@@ -477,7 +435,19 @@ namespace Radios
                 BeforeFallingCueFinalCheckForTests?.Invoke();
                 object? dispatch = InterlockReports.ConnectionSyncOf(radio);
                 if (dispatch == null) return false;
-                lock (dispatch) return FallingCueGate.RunIf(StillReceiving, act);
+                // Bounded, as every other app-side take of this gate is
+                // (integration fix): this can run on the UI thread. Not had in
+                // time, the cue is not played, silence plus a trace, the ruled
+                // no-report behaviour.
+                if (!System.Threading.Monitor.TryEnter(dispatch, CommandWritePin.SerializeBound))
+                {
+                    JJTrace.Tracing.TraceLine("Falling cue: the radio's report gate was not had in "
+                        + (int)CommandWritePin.SerializeBound.TotalMilliseconds + " ms, so the cue is not played",
+                        System.Diagnostics.TraceLevel.Info);
+                    return false;
+                }
+                try { return FallingCueGate.RunIf(StillReceiving, act); }
+                finally { System.Threading.Monitor.Exit(dispatch); }
             }
             int fallback = ReceiveReportFallbackMsOverride > 0 ? ReceiveReportFallbackMsOverride : ReceiveReportFallbackMs;
 
@@ -527,6 +497,48 @@ namespace Radios
         /// </summary>
         internal const int ReceiveReportFallbackMs = 250;
 
+        /// <summary>
+        /// Run <paramref name="then"/> once the radio is really receiving, or
+        /// once the connection this call began on is gone.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>"Receive" is the radio's word, not only our cache.</b> Our cached
+        /// <see cref="Transmit"/> falls the moment we drop our own key, which a
+        /// hardware takeover does while the hand mic still keys the radio, and
+        /// FlexLib's Mox cache flips the moment we ask for an unkey. So both
+        /// must say receive: cached Transmit false AND the radio's interlock
+        /// out of transmit (<see cref="RadioInterlockReportsTransmit"/>), the
+        /// same pair the check's restores wait for.
+        /// </para>
+        /// <para>
+        /// <b>Pinned to the radio and command connection it began on</b>
+        /// (<c>feedback_deferred_state_carries_its_session</c>). Another radio,
+        /// a new connection or a lost one ends the wait the way a disconnect
+        /// always has: <paramref name="then"/> runs with
+        /// <c>connectionHeld</c> false, and the caller's own lost-connection
+        /// rules apply.
+        /// </para>
+        /// <para>
+        /// <b>No time limit,</b> deliberately: the ruling is "only when the radio
+        /// is really receiving". An interlock that never reports READY on a
+        /// live connection keeps the wait going; whether that wants a limit is
+        /// Noel's question, not this method's.
+        /// </para>
+        /// </remarks>
+        /// <param name="then">
+        /// Runs exactly once. Its argument is true when the radio reported
+        /// receive on the same connection, false when the connection went.
+        /// </param>
+        /// <param name="beforeWaiting">
+        /// Runs before the wait starts, only if there is one to wait for, so a
+        /// trace line saying "waiting" always comes before the one saying it
+        /// ended.
+        /// </param>
+        /// <returns>
+        /// False when nothing had to be waited for: <paramref name="then"/> has
+        /// already run, on this thread. True when it runs later, on the pool.
+        /// </returns>
         private bool WhenRadioReallyReceives(Action<bool> then, Action? beforeWaiting = null)
         {
             Radio? radio = theRadio;

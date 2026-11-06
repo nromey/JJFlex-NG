@@ -16,14 +16,6 @@ namespace Radios.Tests
         private const int Gap = 750;   // a 500 ms repeat delay, sized as the push-to-talk filter sizes it
 
         [Fact]
-        public void The_gap_is_sized_from_the_repeat_delay_as_the_push_to_talk_filter_sizes_it()
-        {
-            Assert.Equal(750, DeleteKeyGate.GapForRepeatDelay(500));
-            Assert.Equal(PttHoldFilter.DefaultDeferMs, DeleteKeyGate.GapForRepeatDelay(100));
-            Assert.Equal(1500, DeleteKeyGate.GapForRepeatDelay(1000));
-        }
-
-        [Fact]
         public void A_tap_presses_once_and_a_later_tap_presses_again()
         {
             // Positive control: the gate lets real presses through.

@@ -150,10 +150,12 @@ public partial class FlexBase
     /// A new command connection is beginning on this rig's radio (the vendor's
     /// Connecting report, raised inside the transport's BeginConnection,
     /// before the new attempt can carry a write). Work admitted on the old
-    /// connection is revoked. Pinned writes need no wait here: the transport
-    /// writes each one only to the connection it was pinned to (round 6).
+    /// connection is revoked. Nothing is waited for: the transport writes each
+    /// pinned write only to the connection it was pinned to (round 6). Named
+    /// AwaitPinnedWritesBeforeNewConnection until 2026-11-06, from round 5's
+    /// wait, which round 6 removed.
     /// </summary>
-    private void AwaitPinnedWritesBeforeNewConnection()
+    private void RevokeWorkBeforeNewConnection()
     {
         // A key-on, a tune-on or CW queued for the old connection keys nothing
         // on this one (the tune-on had no identity of its own).

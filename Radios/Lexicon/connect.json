@@ -126,7 +126,6 @@
   "connect.discovery.still_searching": "Still searching.",
   "connect.disconnecting_from": "Disconnecting from {radioName}",
   "connect.disconnecting_plain": "Disconnecting",
-  "connect.drop.transmit_ended": {"text": "The radio connection dropped while you were transmitting. You are no longer on the air.", "delivery": null},
   "connect.drop.transmit_released": {"text": "The radio connection dropped while you were transmitting. JJ Flexible has released its own transmit key, but cannot tell whether the radio has stopped.", "delivery": null},
   "connect.failure.auth_summary": "SmartLink did not accept the saved sign-in for {email}. Connect from the radio list to sign in again.",
   "connect.failure.radio_not_found_lan": "{radioName} was not found on the local network. It may be powered off or on a different network.",

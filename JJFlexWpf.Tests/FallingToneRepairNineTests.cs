@@ -384,6 +384,46 @@ public sealed class FallingToneRepairNineTests : IDisposable
         Assert.Single(Submitted());
     }
 
+    // ── Integration fix 2026-11-06 (4): the final check's gate is bounded ──
+
+    [Fact]
+    public void A_falling_cue_whose_final_check_cannot_have_the_report_gate_is_not_played()
+    {
+        // The cue's final check took the transport's dispatch gate with an
+        // unbounded lock, possibly on the UI thread. Now it waits only as long
+        // as every other app-side take does, and on a timeout plays nothing.
+        AssertTheDeskIsSafe();
+        _r.Interlock(InterlockState.Ready);
+        PressWrittenWithItsTransmitReport();
+        using var held = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var paid = new ManualResetEventSlim();
+        Thread? holder = null;
+        _controller.AfterFallingTonePaymentForTests = () => paid.Set();
+        typeof(FlexBase).GetField("BeforeFallingCueFinalCheckForTests", Any)!.SetValue(_r.Rig, (Action)(() =>
+        {
+            holder = new Thread(() =>
+            {
+                lock (_r.Transport.ConnectionSync) { held.Set(); release.Wait(3000); }
+            }) { IsBackground = true };
+            holder.Start();
+            Assert.True(held.Wait(2000));
+        }));
+        try
+        {
+            _r.Interlock(InterlockState.Ready);              // the radio's word after our OFF
+            Assert.True(paid.Wait(3000), "the payment never finished");
+            Assert.Empty(Submitted());                       // not played: the gate was not had in time
+            Assert.False(_controller.ChirpStopOwed);
+        }
+        finally
+        {
+            release.Set();
+            holder?.Join(3000);
+            typeof(FlexBase).GetField("BeforeFallingCueFinalCheckForTests", Any)!.SetValue(_r.Rig, null);
+        }
+    }
+
     [Fact]
     public void A_carrier_we_did_not_key_still_takes_its_origin_from_the_report()
     {

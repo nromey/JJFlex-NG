@@ -83,7 +83,7 @@ namespace Radios.Tests
             // The fields, not the properties: the properties ask the slice when
             // the field is empty, so reading them cannot show the fill.
             Assert.Equal("USB", Field(rig, "_TXMode"));
-            Assert.Equal(21_195_000UL, Field(rig, "_TXFrequency"));
+            Assert.Equal(21_195_000UL, rig.TxCacheHz);
         }
 
         [Fact]
@@ -124,7 +124,7 @@ namespace Radios.Tests
             rig._TXVFO = 0;
 
             Assert.Equal("", Field(rig, "_TXMode"));   // positive control
-            Assert.Equal(0UL, Field(rig, "_TXFrequency"));
+            Assert.Equal(0UL, rig.TxCacheHz);
 
             Assert.Equal("LSB", rig.TXMode);
             Assert.Equal(7_200_000UL, rig.TXFrequency);
@@ -302,7 +302,7 @@ namespace Radios.Tests
 
             AssertNoTransmitFacts(rig);
             Assert.Equal("", Field(rig, "_TXMode"));
-            Assert.Equal(0UL, Field(rig, "_TXFrequency"));
+            Assert.Equal(0UL, rig.TxCacheHz);
             Assert.Equal(1, rig.q.Count); // the write itself still goes, as it always did
         }
 
@@ -359,7 +359,7 @@ namespace Radios.Tests
 
             Assert.Equal("", Field(rig, "_TXMode"));
             Assert.Equal("", Field(rig, "_RXMode"));
-            Assert.Equal(0UL, Field(rig, "_TXFrequency"));
+            Assert.Equal(0UL, rig.TxCacheHz);
         }
 
         [Fact]
@@ -373,7 +373,7 @@ namespace Radios.Tests
             SliceArrives(rig, slice);
 
             Assert.Equal("LSB", rig.RXMode);
-            Assert.Equal(7_200_000UL, Field(rig, "_RXFrequency"));
+            Assert.Equal(7_200_000UL, rig.RxCacheHz);
             Assert.True(rig.RIT.Active);
             Assert.Equal(120, rig.RIT.Value);
             Assert.False(rig.XIT.Active); // the transmit half stays out of it

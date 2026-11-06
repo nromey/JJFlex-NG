@@ -83,15 +83,6 @@ namespace Radios
         public bool Busy { get; set; }
 
         /// <summary>
-        /// The gap for this machine: one and a half times its own repeat delay,
-        /// within <see cref="PttHoldFilter"/>'s bounds, exactly as that filter
-        /// sizes its first gap, so the longest pause a synthesising reader
-        /// leaves inside a hold is covered.
-        /// </summary>
-        public static int GapForRepeatDelay(int repeatDelayMs) =>
-            Math.Min(Math.Max(repeatDelayMs * 3 / 2, PttHoldFilter.DefaultDeferMs), PttHoldFilter.MaxFirstGapDeferMs);
-
-        /// <summary>
         /// About 250 ms between JAWS's synthesised pairs of a held key
         /// (measured 242-272 ms, 2026-08-24).
         /// </summary>

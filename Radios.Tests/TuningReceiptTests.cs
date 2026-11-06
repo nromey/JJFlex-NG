@@ -344,6 +344,47 @@ namespace Radios.Tests
             EveryReaderSays(b.Rig, 14_100_200);
         }
 
+        // ── Integration fixes 2026-11-06: a tune says whether it was admitted,
+        //    and uses the queue's own answer ──
+
+        [Fact]
+        public void A_tune_on_a_locked_slice_is_reported_as_not_admitted_so_its_number_is_not_spoken()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            Set(a, "_lock", true);
+            b.Rig.RXFrequency = 14_100_100;
+            Assert.Equal(false, b.Rig.TuneAdmittedHere);
+            Set(a, "_lock", false);
+            b.Rig.RXFrequency = 14_100_200;                 // the control
+            Assert.Equal(true, b.Rig.TuneAdmittedHere);
+        }
+
+        [Fact]
+        public void A_tune_the_command_loop_will_not_run_is_not_admitted_and_reads_where_the_slice_is()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.q.MainLoop = false;                       // the loop is not running
+            b.Rig.RXFrequency = 14_100_100;
+            Assert.Equal(false, b.Rig.TuneAdmittedHere);
+            Assert.Equal(0, b.Rig.q.Count);
+            EveryReaderSays(b.Rig, 14_100_000);             // nothing published for a send that will not happen
+        }
+
+        [Fact]
+        public void An_item_the_queue_accepted_runs_even_when_the_loop_ends_before_draining_it()
+        {
+            // The queue's answer is true only for an item that will run: the
+            // loop's end runs what it had already accepted, and refuses later ones.
+            Bench b = NewBench();
+            bool ran = false;
+            Assert.True(b.Rig.q.Enqueue((FlexBase.FunctionDel)(() => ran = true), "test"));
+            b.Rig.CloseCommandQueue();
+            Assert.True(ran);
+            Assert.False(b.Rig.q.Enqueue((FlexBase.FunctionDel)(() => { }), "after the end"));
+        }
+
         [Fact]
         public void A_slice_locked_between_the_press_and_the_send_reads_where_it_is()
         {
@@ -1072,7 +1113,7 @@ namespace Radios.Tests
         {
             Bench b = NewBench();
             Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
-            var rxHz = typeof(FlexBase).GetProperty("_RXFrequency", Private)!;
+            var rxHz = typeof(FlexBase).GetProperty("RxCacheHz", Private)!;
 
             b.Rig.RXFrequency = 14_100_100;
             Drain(b.Rig);
@@ -1209,7 +1250,7 @@ namespace Radios.Tests
             Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
             long now = 0;
             Clock(b.Rig, a, () => now);
-            var rxHz = typeof(FlexBase).GetProperty("_RXFrequency", Private)!;
+            var rxHz = typeof(FlexBase).GetProperty("RxCacheHz", Private)!;
 
             b.Rig.RXFrequency = 14_100_100;
             Drain(b.Rig);
@@ -1606,7 +1647,7 @@ namespace Radios.Tests
             Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
             typeof(FlexBase).GetMethod("sliceRemoved", Private)!
                 .Invoke(b.Rig, new object[] { a, new ObservationBinding(new object(), new ConnectionAttempt("test-serial")) });
-            var rxHz = typeof(FlexBase).GetProperty("_RXFrequency", Private)!;
+            var rxHz = typeof(FlexBase).GetProperty("RxCacheHz", Private)!;
             ulong rxBefore = (ulong)rxHz.GetValue(b.Rig)!;
             string rxModeBefore = (string)typeof(FlexBase).GetField("_RXMode", Private)!.GetValue(b.Rig)!;
             bool ritBefore = b.Rig.RIT.Active; int ritValueBefore = b.Rig.RIT.Value;

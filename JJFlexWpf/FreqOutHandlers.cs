@@ -678,7 +678,9 @@ public class FreqOutHandlers
         ulong newFreq = current + delta;
         if (newFreq > 0 && newFreq < 100_000_000_000UL) // sanity limit
         {
-            SetRXFrequency(newFreq);
+            // Spoken only when the rig admitted the tune (integration fix): a
+            // locked or gone slice did not move, so its number is not said.
+            if (!TuneTo(newFreq)) return;
             if (_freqReadout)
             {
                 SpeakTuningDebounced(FormatFreqForSpeech(newFreq));
@@ -821,7 +823,7 @@ public class FreqOutHandlers
                 ulong newFreq = FreqInt64(newText);
                 if (newFreq > 0)
                 {
-                    SetRXFrequency(newFreq);
+                    if (!TuneTo(newFreq)) return;
                     if (FormatFreq != null)
                         Radios.ScreenReaderOutput.Speak(FormatFreq(newFreq.ToString()), VerbosityLevel.Terse);
                 }
@@ -831,6 +833,17 @@ public class FreqOutHandlers
         // Advance cursor
         if (posInField < fieldLen - 1)
             _window.FreqOut.SelectionStart++;
+    }
+
+    /// <summary>
+    /// Ask the rig for <paramref name="hz"/> and say whether it was admitted
+    /// (integration fix). A rig that reports nothing about it (no answer on
+    /// this thread) counts as admitted, as before.
+    /// </summary>
+    private bool TuneTo(ulong hz)
+    {
+        SetRXFrequency!(hz);
+        return Rig?.TuneAdmittedHere != false;
     }
 
     private void RoundToKHz()

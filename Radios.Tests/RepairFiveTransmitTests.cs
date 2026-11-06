@@ -1483,6 +1483,124 @@ namespace Radios.Tests
             Assert.Null(_f.Rig.RestoreRefusedAtWrite(_f.Vendor.Radio, _f.Vendor.Radio.CurrentCommandConnection!));
         }
 
+        // ── Integration fixes 2026-11-06 ──
+
+        [Fact]
+        public void The_where_it_transmits_memory_is_reset_by_a_new_connection_on_the_same_rig()
+        {
+            // Fix 1: ForgetFor had no production caller, so a reconnect of the
+            // same radio kept the last split as already said.
+            var roles = SliceRoles.Of(_f.Rig);
+            var r = new TransmitSliceNoticeTests.Reader();
+            ICountdownWords words = r.Speech.SayWhole("Transmitting on slice A", Speech.SpeechSubject.TransmitSliceNotice);
+            r.Arbiter.OnOutcome(r.LastTicket, r.LastText, Speech.SpeechOutcome.Completed(4, 4, 900));
+            TransmitSliceNotice.Keyed(new TransmitSliceNotice.Notice(_f.Rig, "test", roles, false, true, words));
+            WaitFor(() => TransmitSliceNotice.LastSpoken(_f.Rig).HasValue, "the split to be remembered");
+            _f.Vendor.Transport.Reconnect();               // the same Radio and rig, a new command connection
+            Assert.Null(TransmitSliceNotice.LastSpoken(_f.Rig));
+        }
+
+        [Fact]
+        public void A_withheld_VOX_restore_is_written_on_its_connections_next_receive()
+        {
+            // Fix 5: withheld at its write, VOX stayed off until the next pause,
+            // an operator change or the disconnect.
+            _f.AddOwnSlice(0, 14.25, "USB");
+            Set(_f.Rig, "_TXVFO", 0);
+            Set(_f.Rig, "_IsConnected", true);
+            _f.Vendor.Status("transmit vox_enable=1");
+            Interlock("READY");
+            var lease = _f.Rig.VoxPauses.Acquire(FlexBase.VoxSetting.SimpleVox)!;
+            WaitFor(() => Commands("transmit set vox_enable=0").Length == 1, "VOX off");
+            Interlock("TRANSMITTING", Foreign);
+            Assert.False(lease.Release(immediate: true));
+            Assert.True(_f.Rig.VoxPauses.RestoreOwed(FlexBase.VoxSetting.SimpleVox));
+            Interlock("READY");                            // the carrier ends
+            WaitFor(() => Commands("transmit set vox_enable=1").Length == 1, "the withheld restore on the receive report");
+            Assert.False(_f.Rig.VoxPauses.RestoreOwed(FlexBase.VoxSetting.SimpleVox));
+        }
+
+        [Fact]
+        public void A_withheld_VOX_restore_is_not_retried_by_a_report_that_is_not_receive()
+        {
+            _f.AddOwnSlice(0, 14.25, "USB");
+            Set(_f.Rig, "_TXVFO", 0);
+            Set(_f.Rig, "_IsConnected", true);
+            _f.Vendor.Status("transmit vox_enable=1");
+            Interlock("READY");
+            var lease = _f.Rig.VoxPauses.Acquire(FlexBase.VoxSetting.SimpleVox)!;
+            WaitFor(() => Commands("transmit set vox_enable=0").Length == 1, "VOX off");
+            Interlock("TRANSMITTING", Foreign);
+            lease.Release(immediate: true);
+            Interlock("TX_FAULT", Foreign);
+            Thread.Sleep(150);
+            Drained();
+            Assert.Empty(Commands("transmit set vox_enable=1"));
+            Assert.True(_f.Rig.VoxPauses.RestoreOwed(FlexBase.VoxSetting.SimpleVox));
+        }
+
+        [Fact]
+        public void A_disconnect_does_not_wait_for_a_carrier_the_radios_own_push_to_talk_holds()
+        {
+            // Fix 7: with a foot switch holding the carrier, the teardown waited
+            // its whole receive wait on the UI thread, then put nothing back.
+            Interlock("READY", 0);
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            send.Transmit = true;
+            Drained();                                       // our ON
+            _f.Vendor.Status($"interlock state=TRANSMITTING source=RCA tx_client_handle=0x{RigOnVendorRadio.OurHandle:X8}");
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            Assert.False(_f.Rig.UnkeyBeforePuttingBack("test teardown", TimeSpan.FromSeconds(2), 3000));
+            watch.Stop();
+            Assert.Single(Commands("xmit 0"));               // our own off still went out
+            Assert.True(watch.ElapsedMilliseconds < 1500, "the teardown waited " + watch.ElapsedMilliseconds + " ms on a carrier it cannot end");
+            Assert.NotNull(_f.Rig.RestoreRefusedAtWrite(_f.Vendor.Radio, _f.Vendor.Radio.CurrentCommandConnection!));
+        }
+
+        [Fact]
+        public void A_disconnect_still_waits_for_receive_after_our_own_software_carrier()
+        {
+            // The control: our own (SW) carrier, no receive yet, waits its bound.
+            Interlock("READY", 0);
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            send.Transmit = true;
+            Drained();
+            Interlock("TRANSMITTING");
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            Assert.False(_f.Rig.UnkeyBeforePuttingBack("test teardown", TimeSpan.FromSeconds(2), 600));
+            Assert.True(watch.ElapsedMilliseconds >= 500);
+        }
+
+        [Fact]
+        public void A_profile_import_left_unfinished_is_forgotten_at_the_next_connection()
+        {
+            // Fix 3: the flag that tells the UI an import's power-off is not a teardown.
+            typeof(FlexBase).GetField("_profileImportInProgress", Private)!.SetValue(_f.Rig, true);
+            Assert.True(_f.Rig.ProfileImportInProgress);
+            _f.Vendor.Transport.Reconnect();
+            Assert.False(_f.Rig.ProfileImportInProgress);
+        }
+
+        [Fact]
+        public void A_profile_imports_power_off_does_not_run_the_teardown_release_or_unwire_the_drop_handler()
+        {
+            string main = System.IO.File.ReadAllText(Repo("JJFlexWpf/MainWindow.xaml.cs"));
+            int body = main.IndexOf("private void PowerNowOffInternal()", StringComparison.Ordinal);
+            Assert.True(body > 0, "PowerNowOffInternal moved");
+            string text = main.Substring(body, 2500);
+            int importing = text.IndexOf("bool importing = RigControl?.ProfileImportInProgress == true;", StringComparison.Ordinal);
+            int release = text.IndexOf("ReleaseKeyForTeardown(\"the radio powered off\");", StringComparison.Ordinal);
+            int unwire = text.IndexOf("UnwireDropHandler();", StringComparison.Ordinal);
+            int elseAt = text.IndexOf("else", importing, StringComparison.Ordinal);
+            Assert.True(importing > 0 && elseAt > importing && release > elseAt && unwire > elseAt,
+                "an import's power-off runs the teardown release or unwires the drop handler");
+            string flex = System.IO.File.ReadAllText(Repo("Radios/FlexBase.MainThread.cs"));
+            int import = flex.IndexOf("internal void ImportProfile(string name)", StringComparison.Ordinal);
+            string importBody = flex.Substring(import, 600);
+            Assert.True(importBody.IndexOf("Volatile.Write(ref _profileImportInProgress, true);", StringComparison.Ordinal)
+                < importBody.IndexOf("raisePowerEvent(false);", StringComparison.Ordinal));
+        }
+
         private static int Count(string text, string what)
         {
             int n = 0, at = 0;

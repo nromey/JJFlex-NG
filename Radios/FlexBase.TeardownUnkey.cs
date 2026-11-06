@@ -199,6 +199,13 @@ public partial class FlexBase
     }
 
     /// <summary>
+    /// Stands for "there was no command connection" when a write is pinned
+    /// to one (repair round 4): never the current connection, so a write
+    /// admitted with none is refused once one exists.
+    /// </summary>
+    internal static readonly object NoConnection = new object();
+
+    /// <summary>
     /// THE question every restoration of the transmit chain asks at its write
     /// (repair round 3, rule 1): the profile loads and the live transmit-audio
     /// setters through the restore gate, the microphone put-back, and VOX's
@@ -207,13 +214,6 @@ public partial class FlexBase
     /// for, when this computer is keying the radio, or when the radio does not
     /// positively report receive (a report received, rule 3).
     /// </summary>
-    /// <summary>
-    /// Stands for "there was no command connection" when a write is pinned
-    /// to one (repair round 4): never the current connection, so a write
-    /// admitted with none is refused once one exists.
-    /// </summary>
-    internal static readonly object NoConnection = new object();
-
     /// <remarks>
     /// <b>Always asked of a target</b> (repair round 5, Codex's #861 B1): the
     /// radio and command connection the write will use. A guard asked with no
@@ -495,6 +495,19 @@ public partial class FlexBase
                     Tracing.TraceLine("Teardown (" + why + "): the second unkey had not left the command queue after "
                         + (int)drainBound.TotalMilliseconds + " ms", TraceLevel.Warning);
             }
+            // A carrier the radio's own push to talk holds (a foot switch, a hand
+            // mic: source MIC, ACC or RCA) with our own off already written is
+            // one this computer cannot end, so the receive wait is not made
+            // (integration fix, 2026-11-06): it blocked the UI thread for its
+            // whole length and could only end refused. Nothing is put back.
+            string hardware = HardwarePttHolds(radio);
+            if (hardware != null && !OwnOffUnwritten(connection))
+            {
+                _teardownStillOnAir = hardware;
+                Tracing.TraceLine("Teardown (" + why + "): " + hardware + "; not waiting for receive, and nothing in the"
+                    + " transmit chain will be put back", TraceLevel.Warning);
+                return false;
+            }
             // Receive, and our own carrier ended by the question its falling cue
             // asks: a receive reported after our own off really went out.
             bool receive = await(() => RadioInterlockConfirmsReceive && OwnCarrierNotEnded(connection) == null, receiveWaitMs);
@@ -520,6 +533,22 @@ public partial class FlexBase
             _teardownStillOnAir = "the unkey before the put-back could not be confirmed (" + ex.Message + ")";
             return false;
         }
+    }
+
+    /// <summary>
+    /// Why the carrier is held by the radio's own push to talk, or null: its
+    /// interlock reports transmit and the source is a hardware input (MIC, ACC
+    /// or RCA), on a report this connection received. Reads only.
+    /// </summary>
+    private static string HardwarePttHolds(Radio radio)
+    {
+        if (radio == null) return null;
+        var last = InterlockReports.LastOn(radio.CurrentCommandConnection as CommandConnection);
+        if (last == null || last.IsReceive) return null;
+        if (radio.InterlockState is not (InterlockState.Transmitting or InterlockState.PTTRequested)) return null;
+        var source = radio.PTTSource;
+        if (source is not (PTTSource.Mic or PTTSource.ACC or PTTSource.RCA)) return null;
+        return "the radio's own push to talk (" + source + ") is holding the carrier, which this computer cannot end";
     }
 
     /// <summary>

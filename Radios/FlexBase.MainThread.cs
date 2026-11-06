@@ -203,7 +203,7 @@ namespace Radios
                     keepAlive = null;
                 }
 #endif
-                q.MainLoop = false;
+                CloseCommandQueue();
 
                 raisePowerEvent(false);
             }
@@ -222,6 +222,23 @@ namespace Radios
         /// checked against its generation, radio and connection with its send
         /// as one step (<see cref="SendIfStillAdmitted"/>).
         /// </summary>
+        /// <summary>
+        /// The main loop's end (integration fix): the queue stops accepting
+        /// work and the items it had already accepted run now, in order,
+        /// rather than being lost while their callers were told they would run.
+        /// </summary>
+        internal void CloseCommandQueue()
+        {
+            foreach (var el in q.CloseAndTakeRest())
+            {
+                try { RunQueuedItem(el); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("mainLoop (closing) exception:" + ex.Message, TraceLevel.Error);
+                }
+            }
+        }
+
         internal void RunQueuedItem(q_t.QItem_t el)
         {
             if (el.Item is FunctionDel)
@@ -247,10 +264,8 @@ namespace Radios
                     else sendCWString(cwt.Text);
                 });
             }
-            else if (el.Item is char)
-            {
-                sendCWChar(((char)el.Item));
-            }
+            // A raw char item (sent without an admission check) is no longer
+            // accepted: characters are admitted cwText items (integration fix).
         }
 
         public class cfg7620
@@ -863,10 +878,22 @@ namespace Radios
 
         private string importDir;
         private bool wasPCAudio;
+
+        /// <summary>
+        /// A profile import is under way (integration fix, 2026-11-06): its
+        /// power-off notice is not a teardown, so the UI keeps the connection's
+        /// drop handling wired and does not run the teardown's key release.
+        /// Set before the import's power-off notice; cleared before its
+        /// power-on notice, and at every new command connection.
+        /// </summary>
+        public bool ProfileImportInProgress => System.Threading.Volatile.Read(ref _profileImportInProgress);
+        private bool _profileImportInProgress;
+
         internal void ImportProfile(string name)
         {
             // Save the import temp directory.
             importDir = name.Substring(0, name.LastIndexOf('\\'));
+            System.Threading.Volatile.Write(ref _profileImportInProgress, true);
             raisePowerEvent(false);
 
             // If remote audio was on, turn it off.

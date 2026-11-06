@@ -1244,11 +1244,6 @@ namespace JJFlexWpf
                     + " a drop or a teardown", TraceLevel.Info);
         }
 
-        /// <summary>
-        /// Owe a falling tone to the radio's real receive. When the radio
-        /// already really receives, it plays now, so a hand-off after the
-        /// carrier fell waits for no further notification.
-        /// </summary>
         /// <summary>This controller's own key, read back from the rig right after it was asked (repair round 9); null when the ask was refused.</summary>
         private Radios.FlexBase.OwnKey? _key;
 
@@ -1268,6 +1263,11 @@ namespace JJFlexWpf
             catch { }
         }
 
+        /// <summary>
+        /// Owe a falling tone to the radio's real receive. When the radio
+        /// already really receives, it plays now, so a hand-off after the
+        /// carrier fell waits for no further notification.
+        /// </summary>
         /// <param name="origin">The count of transmissions asked for at the
         /// ORIGIN of the transmission this debt is about (repair round 7,
         /// Codex's #863 S2): this controller's own key, or, when null, the
@@ -1307,6 +1307,9 @@ namespace JJFlexWpf
             lock (_edgeToneLock) return _edgeStopOwed && generation == _edgeToneGeneration;
         }
 
+        /// <summary>For tests: called when a payment has finished, paid or not, after its submission (repair round 8, Codex's T3).</summary>
+        internal Action? AfterFallingTonePaymentForTests { get; set; }
+
         /// <summary>
         /// The radio reported receive on the connection the tone was owed on
         /// (or that connection went): the owed falling tone plays once, in its
@@ -1318,9 +1321,6 @@ namespace JJFlexWpf
         /// receiving for this transmission, as one step against every new key
         /// this process asks for and every report the transport publishes.
         /// Null when there is no rig.</param>
-        /// <summary>For tests: called when a payment has finished, paid or not, after its submission (repair round 8, Codex's T3).</summary>
-        internal Action? AfterFallingTonePaymentForTests { get; set; }
-
         private void PayStopTone(long generation, bool sameConnection, Func<Action, bool>? submitIfStillReceiving,
             Radios.FlexBase.OwnKey? ownKey = null)
         {

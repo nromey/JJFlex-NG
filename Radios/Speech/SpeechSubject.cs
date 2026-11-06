@@ -679,8 +679,9 @@ namespace Radios.Speech
 
         /// <summary>
         /// The radio's connection fell while it was transmitting, and our side
-        /// of the transmission fell with it (#596): the operator is no longer
-        /// on the air. True until they key again; nothing else covers it.
+        /// of the transmission was released with it (#596). It says only what
+        /// is known: a lost connection cannot show that RF stopped. True until
+        /// the operator keys again; nothing else covers it.
         /// </summary>
         public const string TransmitDroppedWithConnection = "transmit-dropped-with-connection";
 

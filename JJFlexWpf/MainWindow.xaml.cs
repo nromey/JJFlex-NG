@@ -6129,11 +6129,23 @@ public partial class MainWindow : UserControl
     private void PowerNowOffInternal()
     {
         Tracing.TraceLine("MainWindow PowerNowOff", TraceLevel.Info);
-        // Every teardown unkeys first (#596): before the handlers that would
-        // have released it are gone.
-        ReleaseKeyForTeardown("the radio powered off");
-        Radios.ConnectBriefing.Current.RadioGone();
-        UnwireDropHandler();
+        // A profile import raises this on a live connection (integration fix,
+        // 2026-11-06): it is not a teardown, so the connection's drop handling
+        // stays wired and the teardown's key release does not run for it.
+        bool importing = RigControl?.ProfileImportInProgress == true;
+        if (importing)
+        {
+            Tracing.TraceLine("MainWindow PowerNowOff: a profile import, not a teardown; the drop handler stays wired",
+                TraceLevel.Info);
+        }
+        else
+        {
+            // Every teardown unkeys first (#596): before the handlers that would
+            // have released it are gone.
+            ReleaseKeyForTeardown("the radio powered off");
+            Radios.ConnectBriefing.Current.RadioGone();
+            UnwireDropHandler();
+        }
 
         if (RigControl != null)
         {

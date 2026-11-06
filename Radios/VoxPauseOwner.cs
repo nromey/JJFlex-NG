@@ -77,6 +77,34 @@ namespace Radios
             _atTheWrite = atTheWrite;
         }
 
+        /// <summary>A restore was withheld at its write and is still owed, with no pause holding it.</summary>
+        internal bool HasWithheld
+        {
+            get { lock (_gate) return _withheld.Count > 0; }
+        }
+
+        /// <summary>
+        /// Try every withheld restore again (integration fix, 2026-11-06): called
+        /// when the radio reports receive on this owner's connection, as the mic
+        /// debt is retried. Each goes through the ordinary write, so the restore
+        /// question is asked again at its own write; refused again, it is kept
+        /// owed again. A setting a pause now holds is that pause's to restore.
+        /// </summary>
+        internal void RetryWithheld()
+        {
+            lock (_gate)
+            {
+                if (_disconnected) return;
+                foreach (var which in new List<FlexBase.VoxSetting>(_withheld))
+                {
+                    if (_pauses.ContainsKey(which)) continue;
+                    _withheld.Remove(which);
+                    if (!Write(which, true, false) && !_withheld.Contains(which))
+                        _withheld.Add(which);   // not even queued: still owed
+                }
+            }
+        }
+
         /// <summary>For tests: a restore of <paramref name="which"/> was withheld and is still owed.</summary>
         internal bool RestoreOwed(FlexBase.VoxSetting which)
         {

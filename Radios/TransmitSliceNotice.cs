@@ -152,7 +152,7 @@ namespace Radios
             public long Generation;
         }
 
-        /// <summary>One per rig, which is one per connection: a new connection starts with nothing said.</summary>
+        /// <summary>One per rig, reset at every new command connection (<see cref="ForgetFor"/>): a new connection starts with nothing said.</summary>
         private static readonly ConditionalWeakTable<FlexBase, Memory> Memories = new();
         private static readonly object MemoryLock = new();
 
@@ -486,7 +486,12 @@ namespace Radios
             Keyed(notice);
         }
 
-        /// <summary>Forget what a rig has been told: for tests, and nothing else.</summary>
+        /// <summary>
+        /// Forget what a rig has been told: a new command connection starts
+        /// with nothing said (integration fix, 2026-11-06). Called by the rig at
+        /// every connection change, including a reconnect of the same radio,
+        /// which keeps the same rig.
+        /// </summary>
         internal static void ForgetFor(FlexBase rig)
         {
             if (rig == null) return;

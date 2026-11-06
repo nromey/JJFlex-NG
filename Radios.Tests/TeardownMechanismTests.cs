@@ -218,9 +218,10 @@ namespace Radios.Tests
             Assert.Empty(Commands("transmit set vox_enable=1"));
             Assert.True(_f.Rig.VoxPauses.RestoreOwed(FlexBase.VoxSetting.SimpleVox));
 
-            Interlock("READY");                      // the carrier ends; the disconnect's flush writes it
+            Interlock("READY");                      // the carrier ends: the receive retries it (integration fix)
+            WaitFor(() => Commands("transmit set vox_enable=1").Length == 1, "the restore on the receive report");
             typeof(FlexBase).GetMethod("DisconnectVoxPauses", Private)!.Invoke(_f.Rig, new object[] { true });
-            Assert.Single(Commands("transmit set vox_enable=1"));
+            Assert.Single(Commands("transmit set vox_enable=1"));   // and the disconnect does not write it twice
         }
 
         [Fact]
@@ -253,9 +254,11 @@ namespace Radios.Tests
             WaitFor(() => Commands("transmit set vox_enable=0").Length == 1, "VOX off");
             Interlock("TRANSMITTING", Foreign);
             first.Release(immediate: true);          // withheld: VOX stays off, owed
-            Interlock("READY");
+            // The second pause takes the debt while the carrier is still up
+            // (integration fix: a READY before it would now retry the restore).
             var second = _f.Rig.VoxPauses.Acquire(FlexBase.VoxSetting.SimpleVox)!;
             Assert.False(_f.Rig.VoxPauses.RestoreOwed(FlexBase.VoxSetting.SimpleVox));   // the pause has it now
+            Interlock("READY");
             Assert.True(second.Release(immediate: true));
             Assert.Single(Commands("transmit set vox_enable=1"));
         }

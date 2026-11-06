@@ -2098,9 +2098,6 @@ namespace Radios.Tests
                 "audio.tune.refused_rx_only",
                 "audio.tune.refused_no_tx_slice",
                 "audio.tune.refused_amplifier",
-                // Junk box 2026-11-02 (#596): the key drops with the radio's
-                // connection and says why. DRAFT prose, awaiting Noel.
-                "connect.drop.transmit_ended",
                 // Repair round 1 (#596, Codex B4): says only what is known; a lost
                 // connection cannot show that RF stopped. DRAFT prose, awaiting Noel.
                 "connect.drop.transmit_released",

@@ -105,11 +105,14 @@ namespace Radios
         /// <summary>The transmit caches' frequency and the designated slice it was read from.</summary>
         private volatile SliceHz _txCache;
 
-        /// <summary>The receive cache's number, whichever slice it belongs to. For the echo guard's "what it was".</summary>
-        private ulong _RXFrequency => _rxCache?.Hz ?? 0UL;
-
-        /// <summary>The transmit cache's number, whichever slice it belongs to.</summary>
-        private ulong _TXFrequency => _txCache?.Hz ?? 0UL;
+        /// <summary>
+        /// The receive and transmit caches' numbers, whichever slice they
+        /// belong to (for tests). Named apart from AllRadios' _RXFrequency and
+        /// _TXFrequency, which the private shims of these names used to hide
+        /// (integration fix, 2026-11-06).
+        /// </summary>
+        internal ulong RxCacheHz => _rxCache?.Hz ?? 0UL;
+        internal ulong TxCacheHz => _txCache?.Hz ?? 0UL;
 
         /// <summary>The slice the transmit caches describe.</summary>
         private Slice _txCacheSlice => _txCache?.Slice;
@@ -191,7 +194,7 @@ namespace Radios
 
         /// <summary>
         /// FlexLib's report that this slice's frequency ARRIVED, changed or not
-        /// (repair round 9; a JJFlex patch, MIGRATION.md item 22). The guard
+        /// (repair round 9; a JJFlex patch, MIGRATION.md item 23). The guard
         /// counts it as the radio's answer to a write; when it was the report
         /// an answer was waiting for, what is derived follows the radio.
         /// </summary>
@@ -246,13 +249,17 @@ namespace Radios
         /// request as pending before any cache moves; then the value is
         /// published; then the send is queued carrying this request's id.
         /// </summary>
-        private void RequestTune(Slice slice, ulong value, bool selectedTune, string what)
+        /// <returns>True when the tune was admitted and its write will run; false
+        /// when it was refused here (a locked slice, one gone, or a command loop
+        /// that will not run it), and then nothing was published (integration
+        /// fix: a caller must not speak a frequency it did not tune to).</returns>
+        private bool RequestTune(Slice slice, ulong value, bool selectedTune, string what)
         {
             if (slice.Lock)
             {
                 Tracing.TraceLine(what + ": slice " + slice.Letter + " is locked, so its tune to " + value
                     + " was not sent", System.Diagnostics.TraceLevel.Info);
-                return;
+                return false;
             }
             long id = EchoGuardFor(slice).Requested(value);
             // The optimistic value is held WITH the slice it is written to, in
@@ -262,11 +269,29 @@ namespace Radios
             if (!CommitSliceFacts(slice, () => PublishTuning(slice, value, selectedTune)))
             {
                 EchoGuardFor(slice).Refused(id, "the slice is gone");
-                return;
+                return false;
             }
             double mhz = LongFreqToLibFreq(value);
-            q.Enqueue((FunctionDel)(() => WriteTuneTo(slice, id, mhz, what)), what);
+            // The queue's own answer (integration fix): a write it will not run
+            // ends the request at once, and the caches follow the radio again.
+            if (q == null || !q.Enqueue((FunctionDel)(() => WriteTuneTo(slice, id, mhz, what)), what))
+            {
+                Tracing.TraceLine(what + ": the command loop will not run the tune of slice " + slice.Letter
+                    + " to " + value + ", so it was not sent", System.Diagnostics.TraceLevel.Info);
+                if (EchoGuardFor(slice).Refused(id, "the command loop is not running")) Reconcile(slice, value);
+                return false;
+            }
+            return true;
         }
+
+        /// <summary>
+        /// Whether the calling thread's last <see cref="RXFrequency"/> set was
+        /// admitted as a tune (integration fix): true, false when it was refused
+        /// (a locked or gone slice, no slice, a loop that will not run it), null
+        /// before any. A tuning key speaks the new frequency only when true.
+        /// </summary>
+        public bool? TuneAdmittedHere => t_tuneAdmitted;
+        [System.ThreadStatic] private static bool? t_tuneAdmitted;
 
         /// <summary>
         /// The queued half of a tune, bound to the slice it was pressed on and
