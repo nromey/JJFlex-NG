@@ -2798,7 +2798,9 @@ namespace Radios.Tests
             // H and Shift+slash go to Track K's surfaces — the list and the
             // explorer — and the fallback sentence is K's too. The
             // duplicate builder Track I wrote is gone (#524).
-            Assert.Contains("KeyLayerHelp.Present(context)", source);
+            // Present takes the layer's gating since #741, so the list window
+            // lifts the keys this radio cannot use as the spoken form does.
+            Assert.Contains("KeyLayerHelp.Present(context, lifted)", source);
             Assert.Contains("Dialogs.KeyExplorerDialog.Open(context)", source);
             Assert.Contains("KeyLayerHelp.SpokenList(KeyInventory.AudioLayerContext)", source);
             Assert.Contains("KeyLayerHelp.SpokenList(KeyInventory.FilterLayerContext)", source);
