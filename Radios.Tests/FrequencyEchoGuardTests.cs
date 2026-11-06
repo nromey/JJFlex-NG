@@ -45,7 +45,9 @@ namespace Radios.Tests
 
         private readonly System.Collections.Generic.List<ulong> _gaveUp = new();
 
-        private G Guard() => new G("test", () => _now, hz => _gaveUp.Add(hz));
+        private readonly System.Collections.Generic.List<string> _gaveUpLines = new();
+
+        private G Guard() => new G("test", () => _now, (hz, line) => { _gaveUp.Add(hz); _gaveUpLines.Add(line); });
 
         private const ulong Was = 14_200_000;
         private const ulong Asked = 14_200_100;
@@ -420,6 +422,18 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void A_give_up_hands_its_trace_line_to_the_owner()
+        {
+            // Repair round 11: the owner writes the give-up's trace, off any
+            // lock the reader that noticed it may hold.
+            var (g, _) = InSent();
+            _now += G.GiveUpMs;
+            Assert.Equal(G.State.Idle, g.Now);
+            Assert.Single(_gaveUpLines);
+            Assert.Contains("gave up on " + Asked, _gaveUpLines[0]);
+        }
+
+        [Fact]
         public void Only_running_out_of_time_calls_the_owner_back()
         {
             var (g, id) = InSent();
@@ -461,7 +475,9 @@ namespace Radios.Tests
             Assert.True(text.Contains("slc.FrequencyReported += SliceFrequencyReported;", StringComparison.Ordinal)
                         && text.Contains("if (EchoGuardFor(slice).Reported(LibFreqtoLong(mhz), out ulong requested) && !changed)", StringComparison.Ordinal),
                 "every report's arrival no longer reaches the guard (repair round 9).");
-            Assert.True(text.Contains("gaveUp: requested => q.Enqueue((FunctionDel)(() => Reconcile(s, requested)), \"TuneReconcile\")", StringComparison.Ordinal),
+            Assert.True(text.Contains("gaveUp: (requested, line) => q.Enqueue((FunctionDel)(() =>", StringComparison.Ordinal)
+                        && text.Contains("Reconcile(s, requested);\r\n                }), \"TuneReconcile\")", StringComparison.Ordinal)
+                           | text.Contains("Reconcile(s, requested);\n                }), \"TuneReconcile\")", StringComparison.Ordinal),
                 "running out of time no longer brings what is derived with it (repair round 9).");
             Assert.True(CountOf(text, "ObservedOrPending(s, LibFreqtoLong(s.Freq))") >= 3,
                 "the ActiveSlice refresh and both found-slice refreshes ask the guard (repair round 3).");

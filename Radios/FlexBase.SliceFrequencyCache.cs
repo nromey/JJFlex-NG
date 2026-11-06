@@ -114,6 +114,45 @@ namespace Radios
         /// <summary>The slice the transmit caches describe.</summary>
         private Slice _txCacheSlice => _txCache?.Slice;
 
+        /// <summary>
+        /// THE commit boundary for every fact cached about a slice (repair
+        /// round 11): the receive and transmit frequency caches, the receive
+        /// and transmit modes, RIT and XIT, and the role positions written
+        /// with them. Takes the roster's lock, which <c>sliceRemoved</c> also
+        /// takes, and runs <paramref name="commit"/> only while
+        /// <paramref name="slice"/> is in the roster (or when it is null: a
+        /// forgetting, or a number that names no slice, revives nothing).
+        /// Returns whether it ran. A removal therefore either clears what this
+        /// wrote, or this sees the slice gone and writes nothing.
+        /// </summary>
+        /// <remarks>
+        /// <b>Everything the commit does must stay in memory.</b> It runs under
+        /// the lock the UI's 100 ms frequency poll takes: no trace, no I/O, no
+        /// event that does either, and no lock that is ever held while taking
+        /// the roster's. The guard reads made inside it (<c>TryPending</c>,
+        /// <c>ObservedOrPending</c>) may notice a give-up; the guard then hands
+        /// its trace and the follow-up to the command queue instead of writing
+        /// it there and then (repair round 11). Every write to these fields
+        /// outside this helper is refused by
+        /// <c>TuningReceiptTests.Every_slice_fact_is_written_through_the_one_commit</c>.
+        /// </remarks>
+        private bool CommitSliceFacts(Slice slice, System.Action commit)
+        {
+            var roster = mySlices;
+            if (roster == null)
+            {
+                if (slice != null) return false;
+                commit();
+                return true;
+            }
+            lock (roster)
+            {
+                if (slice != null && !roster.Contains(slice)) return false;
+                commit();
+                return true;
+            }
+        }
+
         /// <summary>Publish the receive cache for <paramref name="slice"/>, number and identity together.</summary>
         private void SetRxCache(Slice slice, ulong hz) => _rxCache = new SliceHz(slice, hz);
 
@@ -141,7 +180,14 @@ namespace Radios
 
         private FrequencyEchoGuard EchoGuardFor(Slice slice) =>
             _freqEcho.GetValue(slice, s => new FrequencyEchoGuard("slice " + (s.Letter ?? s.Index.ToString()),
-                gaveUp: requested => q.Enqueue((FunctionDel)(() => Reconcile(s, requested)), "TuneReconcile")));
+                gaveUp: (requested, line) => q.Enqueue((FunctionDel)(() =>
+                {
+                    // The give-up's trace is written here, on the command
+                    // queue, never where it was noticed: that can be under the
+                    // roster's lock (repair round 11).
+                    Tracing.TraceLine(line, System.Diagnostics.TraceLevel.Warning);
+                    Reconcile(s, requested);
+                }), "TuneReconcile")));
 
         /// <summary>
         /// FlexLib's report that this slice's frequency ARRIVED, changed or not
@@ -210,8 +256,14 @@ namespace Radios
             }
             long id = EchoGuardFor(slice).Requested(value);
             // The optimistic value is held WITH the slice it is written to, in
-            // every cache that describes that slice.
-            PublishTuning(slice, value, selectedTune);
+            // every cache that describes that slice, through the one commit
+            // (repair round 11): a slice removed since the press gets nothing
+            // published, and its request is refused rather than queued.
+            if (!CommitSliceFacts(slice, () => PublishTuning(slice, value, selectedTune)))
+            {
+                EchoGuardFor(slice).Refused(id, "the slice is gone");
+                return;
+            }
             double mhz = LongFreqToLibFreq(value);
             q.Enqueue((FunctionDel)(() => WriteTuneTo(slice, id, mhz, what)), what);
         }

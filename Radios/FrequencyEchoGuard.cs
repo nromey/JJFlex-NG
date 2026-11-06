@@ -124,7 +124,7 @@ namespace Radios
         private readonly object _lock = new object();
         private readonly string _name;
         private readonly Func<long> _clock;
-        private readonly Action<ulong> _gaveUp;
+        private readonly Action<ulong, string> _gaveUp;
 
         private State _state = State.Idle;
         private long _id;
@@ -139,11 +139,16 @@ namespace Radios
         /// be tested without waiting for it.
         /// </param>
         /// <param name="gaveUp">
-        /// Called (outside the lock) with the request's value when the window
-        /// ends by running out of time (repair round 9), so what is derived
-        /// from the frequency can follow the radio as it does after an answer.
+        /// Called (outside the guard's lock) with the request's value and the
+        /// give-up's trace line when the window ends by running out of time
+        /// (repair round 9), so what is derived from the frequency can follow
+        /// the radio as it does after an answer. When it is given, the guard
+        /// does NOT write that trace itself: the give-up may be noticed by a
+        /// reader holding the roster's lock, and the owner writes the line
+        /// later, off that lock (repair round 11). Without an owner the guard
+        /// traces it at once.
         /// </param>
-        internal FrequencyEchoGuard(string name, Func<long> clock = null, Action<ulong> gaveUp = null)
+        internal FrequencyEchoGuard(string name, Func<long> clock = null, Action<ulong, string> gaveUp = null)
         {
             _name = name;
             _clock = clock ?? (() => Environment.TickCount64);
@@ -372,13 +377,16 @@ namespace Radios
             return line;
         }
 
-        /// <summary>Trace a give-up and tell the owner, both outside the lock.</summary>
+        /// <summary>
+        /// A give-up: handed to the owner, with its trace line, outside the
+        /// guard's lock. The owner writes the line (repair round 11); with no
+        /// owner, the guard writes it.
+        /// </summary>
         private void Note(string line, ulong gaveUpOn)
         {
             if (line == null) return;
-            Tracing.TraceLine(line, TraceLevel.Warning);
-            try { _gaveUp?.Invoke(gaveUpOn); }
-            catch (Exception ex) { Tracing.TraceLine("FrequencyEcho:" + _name + " give-up handler: " + ex.Message, TraceLevel.Warning); }
+            if (_gaveUp == null) { Tracing.TraceLine(line, TraceLevel.Warning); return; }
+            _gaveUp(gaveUpOn, line);
         }
     }
 }

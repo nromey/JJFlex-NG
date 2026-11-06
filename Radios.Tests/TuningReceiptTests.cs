@@ -1431,5 +1431,330 @@ namespace Radios.Tests
             Assert.Equal(0UL, b.Rig.TXFrequency);
             Assert.Equal("", (string)typeof(FlexBase).GetField("_TXMode", Private)!.GetValue(b.Rig)!);
         }
+        // ── Repair round 11: every slice fact through one commit ──
+
+        private static readonly string[] SliceFactWrites =
+        {
+            "SetRxCache(", "SetTxCache(", "_rxCache = ", "_txCache = ", "_TXMode = ", "_RXMode = ",
+            "_XIT.Active = ", "_XIT.Value = ", "_RIT.Active = ", "_RIT.Value = ",
+            "NoteTransmitSliceAsFound(", "NoteActiveSliceAsFound(", "ForgetTransmitCaches(",
+            "FollowTransmitSlice(", "PublishTuning(",
+        };
+
+        private static readonly string[] SliceFactWriters =
+        {
+            "SetRxCache", "SetTxCache", "NoteTransmitSliceAsFound", "NoteActiveSliceAsFound",
+            "ForgetTransmitCaches", "FollowTransmitSlice", "PublishTuning",
+        };
+
+        /// <summary>
+        /// Every place in <paramref name="text"/> that writes a slice fact
+        /// outside the one commit: not inside a <c>CommitSliceFacts(...)</c>
+        /// call, not inside the body of one of the low-level writers (which are
+        /// themselves only called inside a commit), and not a field
+        /// declaration. Full-line comments are ignored.
+        /// </summary>
+        private static List<string> SliceFactWritesOutsideTheCommit(string text)
+        {
+            text = text.Replace("\r\n", "\n");
+            // Blank full-line comments (keeps offsets).
+            var lines = text.Split('\n');
+            for (int i = 0; i < lines.Length; i++)
+                if (lines[i].TrimStart().StartsWith("//", StringComparison.Ordinal)) lines[i] = new string(' ', lines[i].Length);
+            text = string.Join("\n", lines);
+
+            var allowed = new List<(int from, int to)>();
+            int at = 0;
+            while ((at = text.IndexOf("CommitSliceFacts(", at, StringComparison.Ordinal)) >= 0)
+            {
+                int open = at + "CommitSliceFacts".Length, depth = 0, k = open;
+                for (; k < text.Length; k++)
+                {
+                    if (text[k] == '(') depth++;
+                    else if (text[k] == ')' && --depth == 0) break;
+                }
+                allowed.Add((open, k));
+                at = k;
+            }
+            foreach (string w in SliceFactWriters)
+            {
+                at = 0;
+                string decl = "private void " + w + "(";
+                while ((at = text.IndexOf(decl, at, StringComparison.Ordinal)) >= 0)
+                {
+                    int close = text.IndexOf(')', at);
+                    int arrow = text.IndexOf("=>", close, StringComparison.Ordinal);
+                    int brace = text.IndexOf('{', close);
+                    int end;
+                    if (arrow >= 0 && (brace < 0 || arrow < brace)) end = text.IndexOf(';', arrow);
+                    else
+                    {
+                        int depth = 0; end = brace;
+                        for (; end < text.Length; end++)
+                        {
+                            if (text[end] == '{') depth++;
+                            else if (text[end] == '}' && --depth == 0) break;
+                        }
+                    }
+                    allowed.Add((at, end));
+                    at = end;
+                }
+            }
+            var outside = new List<string>();
+            foreach (string token in SliceFactWrites)
+            {
+                at = 0;
+                while ((at = text.IndexOf(token, at, StringComparison.Ordinal)) >= 0)
+                {
+                    int lineStart = text.LastIndexOf('\n', Math.Max(0, at - 1)) + 1;
+                    string line = text.Substring(lineStart, (text.IndexOf('\n', at) < 0 ? text.Length : text.IndexOf('\n', at)) - lineStart).Trim();
+                    bool declaration = line.StartsWith("private string _", StringComparison.Ordinal)
+                                       || line.StartsWith("private RITData _", StringComparison.Ordinal);
+                    bool inside = allowed.Any(r => at > r.from && at < r.to);
+                    if (!inside && !declaration) outside.Add(line);
+                    at += token.Length;
+                }
+            }
+            return outside;
+        }
+
+        /// <summary>
+        /// The class, closed by construction (repair round 11): every write to
+        /// a cached slice fact in every FlexBase file goes through
+        /// <c>CommitSliceFacts</c>. A new writer added outside it fails here.
+        /// The scanner's own positive controls: it finds the commits it should
+        /// (more than a dozen), and it flags a write planted outside one.
+        /// </summary>
+        [Fact]
+        public void Every_slice_fact_is_written_through_the_one_commit()
+        {
+            string all = FlexBasePartials.JoinedText();
+            Assert.True(all.Split("CommitSliceFacts(").Length - 1 >= 14, "the scan found too few commits to trust");
+            Assert.Empty(SliceFactWritesOutsideTheCommit(all));
+
+            string planted = "void X() {\n    CommitSliceFacts(s, () => SetTxCache(s, 1));\n    _TXMode = \"USB\";\n}\n";
+            Assert.Equal(new[] { "_TXMode = \"USB\";" }, SliceFactWritesOutsideTheCommit(planted));
+        }
+
+        /// <summary>
+        /// Codex's tenth re-check, its exact schedule, through both frequency
+        /// setters: the setter has bound the slice and armed the guard (its
+        /// clock read), and the slice is removed on ANOTHER thread before the
+        /// value is published. Nothing about the removed transmitter may be
+        /// published, and nothing is sent. Control: publication before removal
+        /// leaves nothing either, because the removal clears it.
+        /// </summary>
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(true, false)]
+        [InlineData(false, true)]
+        [InlineData(true, true)]
+        public void A_slice_removed_while_a_tune_is_being_published_gets_nothing_published(bool transmitSetter, bool removeFirst)
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            Set(a, "_active", false);
+            Set(a, "_xitOn", true);
+            Set(a, "_xitFreq", 120);
+            var remove = typeof(FlexBase).GetMethod("sliceRemoved", Private)!;
+            var binding = new ObservationBinding(new object(), new ConnectionAttempt("test-serial"));
+            int armed = removeFirst ? 1 : 0, fired = 0;
+            Task? removal = null;
+            Clock(b.Rig, a, () =>
+            {
+                if (Volatile.Read(ref armed) == 1
+                    && new System.Diagnostics.StackTrace().ToString().Contains("Requested")
+                    && Interlocked.Exchange(ref fired, 1) == 0)
+                {
+                    removal = Task.Run(() => remove.Invoke(b.Rig, new object[] { a, binding }));
+                    removal.Wait(1000);
+                }
+                return 0;
+            });
+
+            if (transmitSetter) b.Rig.TXFrequency = 14_100_100; else b.Rig.RXFrequency = 14_100_100;
+            if (!removeFirst) remove.Invoke(b.Rig, new object[] { a, binding });
+            else { Assert.Equal(1, Volatile.Read(ref fired)); Assert.True(removal!.Wait(5000)); }
+            Drain(b.Rig);
+            Assert.Empty(Tunes(b));
+            Assert.Equal(0UL, b.Rig.TXFrequency);
+            Assert.Equal("", (string)typeof(FlexBase).GetField("_TXMode", Private)!.GetValue(b.Rig)!);
+            Assert.False(b.Rig.XIT.Active);
+            Assert.False(SliceRoles.Of(b.Rig).HasTransmit);
+            b.Rig.ShowingXmitFrequency = true;
+            Assert.Equal(0UL, b.Rig.VirtualRXFrequency);
+        }
+
+        /// <summary>
+        /// Every slice-notification writer, one each: a report arriving for a
+        /// slice already removed writes none of the slice facts it carries.
+        /// The removal cleared the transmit facts; the receive facts it does
+        /// not clear are checked unchanged.
+        /// </summary>
+        [Theory]
+        [InlineData("Freq")]
+        [InlineData("DemodMode")]
+        [InlineData("IsTransmitSlice")]
+        [InlineData("RITOn")]
+        [InlineData("RITFreq")]
+        [InlineData("XITOn")]
+        [InlineData("XITFreq")]
+        [InlineData("ActiveSlice")]
+        public void A_late_report_for_a_removed_slice_writes_nothing(string property)
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            typeof(FlexBase).GetMethod("sliceRemoved", Private)!
+                .Invoke(b.Rig, new object[] { a, new ObservationBinding(new object(), new ConnectionAttempt("test-serial")) });
+            var rxHz = typeof(FlexBase).GetProperty("_RXFrequency", Private)!;
+            ulong rxBefore = (ulong)rxHz.GetValue(b.Rig)!;
+            string rxModeBefore = (string)typeof(FlexBase).GetField("_RXMode", Private)!.GetValue(b.Rig)!;
+            bool ritBefore = b.Rig.RIT.Active; int ritValueBefore = b.Rig.RIT.Value;
+
+            Set(a, "_freq", 14.300);
+            Set(a, "_demodMode", "CW");
+            Set(a, "_ritOn", !ritBefore); Set(a, "_ritFreq", 333);
+            Set(a, "_xitOn", true); Set(a, "_xitFreq", 444);
+            // So the IsTransmitSlice writer is reached at all.
+            typeof(FlexBase).GetProperty("CanTransmit")!.GetSetMethod(true)!.Invoke(b.Rig, new object[] { true });
+            try
+            {
+                if (property == "ActiveSlice")
+                {
+                    typeof(Radio).GetField("_clientHandle", Private)!.SetValue(b.V.Radio, Handle);
+                    b.V.Radio.SliceList.Add(a);
+                    typeof(FlexBase).GetMethod("radioPropertyChangedHandler", Private)!.Invoke(b.Rig, new object[]
+                        { b.V.Radio, new System.ComponentModel.PropertyChangedEventArgs("ActiveSlice"),
+                          new ObservationBinding(new object(), new ConnectionAttempt("test-serial")) });
+                }
+                else
+                    typeof(FlexBase).GetMethod("slicePropertyChangedHandler", Private)!
+                        .Invoke(b.Rig, new object[] { a, new System.ComponentModel.PropertyChangedEventArgs(property) });
+            }
+            catch (TargetInvocationException) { /* the fixture's missing filter adapter, after the commit point */ }
+
+            Assert.Equal(0UL, b.Rig.TXFrequency);
+            Assert.Equal("", (string)typeof(FlexBase).GetField("_TXMode", Private)!.GetValue(b.Rig)!);
+            Assert.False(b.Rig.XIT.Active);
+            Assert.Equal(0, b.Rig.XIT.Value);
+            Assert.Equal(rxBefore, (ulong)rxHz.GetValue(b.Rig)!);
+            Assert.Equal(rxModeBefore, (string)typeof(FlexBase).GetField("_RXMode", Private)!.GetValue(b.Rig)!);
+            Assert.Equal(ritBefore, b.Rig.RIT.Active);
+            Assert.Equal(ritValueBefore, b.Rig.RIT.Value);
+        }
+
+        /// <summary>
+        /// The arrival writer: a slice removed (on another thread) while it is
+        /// still arriving, after it joined the roster and before its facts are
+        /// noted, gets none noted. Control: arriving undisturbed, it is noted.
+        /// </summary>
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void A_slice_removed_while_arriving_gets_no_facts_noted(bool removed)
+        {
+            Bench b = NewBench();
+            Slice a = b.V.NewSlice(0, Handle, 14.100, "USB");
+            Set(a, "_letter", "A");
+            Set(a, "_isTransmitSlice", true);
+            Set(a, "_active", true);
+            var remove = typeof(FlexBase).GetMethod("sliceRemoved", Private)!;
+            var binding = new ObservationBinding(new object(), new ConnectionAttempt("test-serial"));
+            int once = 0;
+            if (removed)
+                b.Rig.SliceCountChanged += () =>
+                {
+                    if (Interlocked.Exchange(ref once, 1) != 0) return;
+                    var t = Task.Run(() => remove.Invoke(b.Rig, new object[] { a, binding }));
+                    Assert.True(t.Wait(2000));
+                };
+            try
+            {
+                typeof(FlexBase).GetMethod("sliceAdded", Private)!.Invoke(b.Rig, new object[] { a, binding });
+            }
+            catch (TargetInvocationException) { }
+            Assert.Equal(removed ? 0UL : 14_100_000UL, b.Rig.TXFrequency);
+            Assert.Equal(removed ? "" : "USB", (string)typeof(FlexBase).GetField("_TXMode", Private)!.GetValue(b.Rig)!);
+        }
+
+        /// <summary>
+        /// The writers that forget or that name no slice still run with no
+        /// slice in the roster: forgetting revives nothing. A transmit slice
+        /// losing its designation forgets the transmit facts, and a receive
+        /// tune with no slice selected still records the number it was asked.
+        /// </summary>
+        [Fact]
+        public void Forgetting_and_slice_less_writes_need_no_membership()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            Assert.Equal(14_100_000UL, b.Rig.TXFrequency);
+            Set(a, "_isTransmitSlice", false);
+            typeof(FlexBase).GetMethod("slicePropertyChangedHandler", Private)!
+                .Invoke(b.Rig, new object[] { a, new System.ComponentModel.PropertyChangedEventArgs("IsTransmitSlice") });
+            Assert.Equal("", (string)typeof(FlexBase).GetField("_TXMode", Private)!.GetValue(b.Rig)!);
+
+            Bench c = NewBench();
+            typeof(FlexBase).GetField("_RXVFO", Private)!.SetValue(c.Rig, -1);
+            c.Rig.RXFrequency = 7_100_000;
+            Assert.Equal(7_100_000UL, c.Rig.RXFrequency);
+        }
+
+        private sealed class GaveUpListener : System.Diagnostics.TraceListener
+        {
+            public readonly List<(string line, bool rosterHeld)> Seen = new();
+            public object? Roster;
+            public override void Write(string? message) => WriteLine(message);
+            public override void WriteLine(string? message)
+            {
+                if (message == null) return;
+                if (message.Contains("gave up on") || message.Contains("round11-probe"))
+                    lock (Seen) Seen.Add((message, Roster != null && System.Threading.Monitor.IsEntered(Roster)));
+            }
+        }
+
+        /// <summary>
+        /// Codex's tenth re-check, the follow-up: a give-up noticed inside the
+        /// locked commit (the handler asks the guard for the pending value at
+        /// exactly the deadline) must not write its trace there. The trace is
+        /// written later, from the command queue, with the roster lock free.
+        /// The positive control proves the listener sees trace lines at all.
+        /// </summary>
+        [Fact]
+        public void A_give_up_noticed_inside_the_commit_traces_later_off_the_lock()
+        {
+            var listener = new GaveUpListener();
+            System.Diagnostics.Trace.Listeners.Add(listener);
+            bool wasOn = JJTrace.Tracing.On;
+            var savedSwitch = JJTrace.Tracing.TheSwitch;
+            JJTrace.Tracing.TheSwitch = new System.Diagnostics.TraceSwitch("round11", "round11") { Level = System.Diagnostics.TraceLevel.Verbose };
+            JJTrace.Tracing.On = true;
+            try
+            {
+                Bench b = NewBench();
+                Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+                Set(a, "_active", false);
+                listener.Roster = typeof(FlexBase).GetField("mySlices", Private)!.GetValue(b.Rig);
+                JJTrace.Tracing.TraceLine("round11-probe", System.Diagnostics.TraceLevel.Warning);
+                Assert.Contains(listener.Seen, x => x.line.Contains("round11-probe"));   // positive control
+
+                long now = 0;
+                Clock(b.Rig, a, () => new System.Diagnostics.StackTrace().ToString().Contains("TryPending") ? now + 1 : now);
+                b.Rig.RXFrequency = 14_100_100;
+                Drain(b.Rig);                                // sent at 0
+                now = FrequencyEchoGuard.GiveUpMs - 1;
+                typeof(FlexBase).GetMethod("ForgetTransmitCaches", Private)!.Invoke(b.Rig, new object[] { a });
+                Reports(a, 14.250000);                       // Accept at 1199; inside the commit TryPending at 1200: give-up
+                Assert.DoesNotContain(listener.Seen, x => x.line.Contains("gave up on"));
+                Drain(b.Rig);                                // the queued follow-up writes it
+                Assert.Contains(listener.Seen, x => x.line.Contains("gave up on") && !x.rosterHeld);
+            }
+            finally
+            {
+                System.Diagnostics.Trace.Listeners.Remove(listener);
+                JJTrace.Tracing.On = wasOn;
+                JJTrace.Tracing.TheSwitch = savedSwitch;
+            }
+        }
     }
 }
