@@ -208,6 +208,102 @@ public partial class CheckYourAudioDialog
         UpdateReferenceStatus();
     }
 
+    /// <summary>
+    /// The window is closing: let the reference go. Called from the
+    /// <c>Closed</c> handler in place of <see cref="DisarmReference"/>.
+    /// </summary>
+    /// <remarks>
+    /// The window first looks once more for an end its poll has not seen yet,
+    /// exactly as its poll would (<see cref="SyncReferenceUi"/>): the finished
+    /// sentence, and the app's own key let go after the tail. Without that a
+    /// close inside the last half second of a pass would leave the lock keyed
+    /// over silence with nothing on screen to say so.
+    /// </remarks>
+    private void ReleaseReferenceAtClose()
+    {
+        var rig = _rig;
+        if (rig != null && _refPassRunning) SyncReferenceUi();
+        ReleaseReferenceLeavingWindow(rig);
+    }
+
+    /// <summary>
+    /// The window is closing, or is switching away from <paramref name="rig"/>
+    /// to another radio: let the reference go (round five, 7b).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Ruled by Noel 2026-11-06 03:12 (C3):</b> <i>"if you ever did, silence
+    /// is fine."</i> Until round five a close called <c>TxFileStop</c>, so with a
+    /// hand mic still keying the radio the desk microphone went on the air (the
+    /// transmit input is still this computer's). Now a reference past its end
+    /// keeps its silence and is handed to the radio's own receive wait, which
+    /// is pinned to the connection and ends it at receive, at a lost or
+    /// replaced connection, or when a new pass starts.
+    /// </para>
+    /// <para>
+    /// <b>Only the held end silence survives.</b> A reference still playing, an
+    /// armed reference that has not started, and a silence already let go all
+    /// disarm exactly as before. The held silence survives whoever holds the
+    /// key, not only under a hand mic: round four's rule is silence until the
+    /// radio receives, whoever holds the key, and the rule that the silence must
+    /// not outlive the window, which a close used to obey, was overruled.
+    /// </para>
+    /// <para>
+    /// A radio teardown (<c>EndCheckBeforeTeardown</c>) and a radio leaving with
+    /// none arriving still disarm at once: the connection itself is ending, and
+    /// the disconnect's VOX release would end the silence a moment later anyway.
+    /// </para>
+    /// </remarks>
+    private void ReleaseReferenceLeavingWindow(FlexBase? rig)
+    {
+        if (rig != null && rig.TxReferenceEndSilenceHeld) HandReferenceEndSilenceToRadio(rig);
+        else DisarmReference(speak: false, rig: rig);
+    }
+
+    /// <summary>
+    /// Everything a disarm does except ending the silence, which goes to the
+    /// radio's own wait instead.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The window's own wait, if it asked for one, is made inert</b> (the
+    /// token moves), and a fresh radio-side wait is asked for: the window may
+    /// be closing before its poll ever saw the end, and then nothing else would
+    /// end the silence. A newer wait makes any older one stand aside (the
+    /// generation), so asking twice is harmless.
+    /// </para>
+    /// <para>
+    /// <b>The transmit input</b> goes back through the radio's restore owner,
+    /// which writes only while the radio reports receive
+    /// (<c>RestoreTransmitInputAfterInjection</c>), so it cannot put the hand
+    /// mic on the air either.
+    /// </para>
+    /// <para>
+    /// <b>The PTT source watch ends at the close, not at receive.</b> Its one
+    /// reader on this path is this window's finished sentence, which has been
+    /// said by now or never will be; the radio's wait asks our key and the
+    /// radio's interlock, never the source. And the watch keeps a FlexLib trace
+    /// topic selected, which costs every space-less command a vendor exception
+    /// path, so it is held no longer than it is read.
+    /// </para>
+    /// </remarks>
+    private void HandReferenceEndSilenceToRadio(FlexBase rig)
+    {
+        _refPassRunning = false;
+        _refSilenceToken++;
+        ReleaseReferencePttWatch();
+        SetReferenceArmSilently(false);
+        RestoreInjectionPath(rig, out _);
+        JJTrace.Tracing.TraceLine("Reference end: the window let go with the silence still held; the radio's own"
+            + " receive wait ends it", System.Diagnostics.TraceLevel.Info);
+        void Ended(ReferenceSilenceEnd how) =>
+            JJTrace.Tracing.TraceLine("Reference end: the silence a closed or departed window handed over ended (" + how + ")",
+                System.Diagnostics.TraceLevel.Info);
+        if (ReferenceSilenceWaitForTests is { } wait) wait(rig, Ended);
+        else rig.TxReferenceEndSilenceUntilReceive(Ended);
+        UpdateReferenceStatus();
+    }
+
     /// <summary>Let the PTT source watch go, if this window holds one. Safe to call twice.</summary>
     private void ReleaseReferencePttWatch()
     {

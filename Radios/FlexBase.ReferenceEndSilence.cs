@@ -53,8 +53,11 @@ namespace Radios
     /// <b>It cannot outlive the connection.</b> The wait is pinned to the radio
     /// and command connection it began on, and ends when either goes. Every
     /// other way out reaches <see cref="TxFileStop"/> directly: the window's
-    /// disarm and close, the radio's teardown, a disconnect's VOX release and
-    /// the hard kill. Then the wait, when it ends, finds nothing held and does
+    /// disarm, the radio's teardown, a disconnect's VOX release and the hard
+    /// kill. A window that closes, or switches to another radio, with the
+    /// silence still held does NOT stop it (round five, 7b; Noel 2026-11-06
+    /// 03:12, "silence is fine"): it asks for a wait of its own here and lets
+    /// that wait end it. Then the wait, when it ends, finds nothing held and does
     /// nothing. A generation number keeps an old wait from ending a newer
     /// pass's silence.
     /// </para>

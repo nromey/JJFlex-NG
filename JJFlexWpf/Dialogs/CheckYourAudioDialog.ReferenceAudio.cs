@@ -452,8 +452,11 @@ public partial class CheckYourAudioDialog
 
     /// <summary>
     /// Release the reference and restore the microphone. Runs on operator
-    /// unarm, on the recording finishing, on dialog close, and on radio
-    /// teardown (pass the departing rig for that case, where _rig is null).
+    /// unarm, on a pass stopped before its end, and on radio teardown (pass
+    /// the departing rig for that case, where _rig is null). A closing window
+    /// and a switch to another radio come here too, unless the reference is
+    /// past its end and holding silence: that goes to the radio's own receive
+    /// wait instead (round five, 7b, <see cref="ReleaseReferenceLeavingWindow"/>).
     /// </summary>
     private void DisarmReference(bool speak, FlexBase? rig = null)
     {

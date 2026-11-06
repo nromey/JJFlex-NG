@@ -164,7 +164,11 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             // source that outlived it would replace the microphone at the
             // next key-down with nothing on screen saying so.
             DisarmTone(speak: false);
-            DisarmReference(speak: false);
+            // A reference's held end silence is handed to the radio's own
+            // receive wait rather than ended here (round five, 7b; Noel
+            // 2026-11-06 03:12): under a held hand mic, ending it would put
+            // the desk microphone on the air. Anything else disarms as before.
+            ReleaseReferenceAtClose();
             DetachReferenceAudio();
             // Local take playback: the player is static and would otherwise keep
             // sounding, and keep calling back into a button that is gone.
@@ -655,7 +659,9 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             if (oldRig != null && !ReferenceEquals(oldRig, rig))
             {
                 DisarmTone(speak: false, rig: oldRig);
-                DisarmReference(speak: false, rig: oldRig);
+                // Its held end silence, if any, goes to that radio's own
+                // receive wait, as at a close (round five, 7b).
+                ReleaseReferenceLeavingWindow(oldRig);
             }
             LoadPerRadioPrefs();
             LoadToneSettings();

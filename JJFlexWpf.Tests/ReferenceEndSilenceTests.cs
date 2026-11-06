@@ -170,21 +170,25 @@ public sealed class ReferenceEndSilenceTests : IDisposable
     }
 
     /// <summary>
-    /// <c>DisarmReference</c>, on a named radio, as the window's close, the
-    /// radio's teardown and every change of radio call it: it ends the silence
-    /// at once, lets the watch go, and a later end of the radio's wait does
-    /// nothing. Called directly: <c>Closed</c> and <c>SetRig</c> need the built
-    /// window. Renamed in round four repair (6e-3); it was named for the close
-    /// and the switch, which it does not drive.
+    /// <c>DisarmReference</c>, on a named radio, as the radio's teardown and a
+    /// radio leaving with none arriving call it: it ends the silence at once,
+    /// lets the watch go, and a later end of the radio's wait does nothing.
+    /// Called directly: <c>SetRig</c> and <c>EndCheckBeforeTeardown</c> need
+    /// the built window.
     /// </summary>
     /// <remarks>
-    /// <b>The microphone coming back here is TODAY'S close behaviour, not a
-    /// safety guarantee.</b> With a hardware push to talk still held, a close
-    /// gives the microphone back while the radio transmits (Codex's round four
-    /// check, B2). That waits on Noel's ruling and is deliberately unchanged.
+    /// <b>Changed in round five (7b).</b> Until then a closing window and a
+    /// switch to another radio came here too, and this test's remark said it
+    /// pinned that close behaviour rather than a safety guarantee: under a held
+    /// hand mic the close gave the desk microphone back while the radio
+    /// transmitted (Codex's round four check, B2). Noel ruled 2026-11-06 03:12
+    /// that the silence may outlive the window, so those two now hand the
+    /// silence to the radio's own wait instead
+    /// (<see cref="Closing_the_window_with_the_end_silence_held_keeps_it_until_the_radio_receives"/>).
+    /// What is left here is the teardown, where the connection itself is ending.
     /// </remarks>
     [Fact]
-    public void DisarmReference_ends_the_silence_at_once_and_a_later_wait_does_nothing()
+    public void A_teardowns_DisarmReference_ends_the_silence_at_once_and_a_later_wait_does_nothing()
     {
         AssertTheDeskIsSafe();
         ReferencePassAtItsEnd();
@@ -282,5 +286,101 @@ public sealed class ReferenceEndSilenceTests : IDisposable
         Assert.Equal(VerbosityLevel.Critical, CheckYourAudioDialog.ReferenceFinishedLevel(Holder.Elsewhere, true));
         Assert.Equal(VerbosityLevel.Terse, CheckYourAudioDialog.ReferenceFinishedLevel(Holder.App, false));
         Assert.Equal(VerbosityLevel.Terse, CheckYourAudioDialog.ReferenceFinishedLevel(Holder.Nobody, true));
+    }
+
+    // ── Round five (7b): the window closing, or switching away, under held silence ──
+
+    private void CloseTheWindowsReference() =>
+        typeof(CheckYourAudioDialog).GetMethod("ReleaseReferenceAtClose", Any)!.Invoke(_dialog, null);
+
+    /// <summary>
+    /// Ruled by Noel 2026-11-06 03:12 (C3): closing the window while a hand mic
+    /// still keys the radio after a reference's end leaves the silence on, and
+    /// the radio's own receive wait ends it at release. Driven through
+    /// <c>ReleaseReferenceAtClose</c>, the call the <c>Closed</c> handler makes
+    /// (that the handler makes it is pinned in source by
+    /// <c>Radios.Tests.CheckYourAudioWiringTests</c>); the handler itself is a
+    /// lambda in the window's constructor and cannot run without the built
+    /// window. Also for the app's key, whose tail may still be running.
+    /// </summary>
+    [Theory]
+    [InlineData("Elsewhere", true)]    // a hand mic: the ruled case
+    [InlineData("App", false)]         // the app's key, inside its 300 ms tail
+    public void Closing_the_window_with_the_end_silence_held_keeps_it_until_the_radio_receives(string holderName, bool hardware)
+    {
+        AssertTheDeskIsSafe();
+        ReferencePassAtItsEnd();
+        var watch = new Watch();
+        Field("_refPttWatch").SetValue(_dialog, watch);
+        _dialog.FinishReferencePass(_rig, Enum.Parse<Holder>(holderName), hardware);
+        var windowsWait = _waiting!;
+        Field("_injectionSavedMicSource").SetValue(_dialog, "MIC");
+
+        CloseTheWindowsReference();
+
+        Assert.True(_rig.TxReferenceEndSilenceHeld, "the close ended the silence with the radio still transmitting");
+        Assert.True(MicNeverReaches(100), "the desk microphone reached the encoder after the close");
+        Assert.Equal(2, _waitsAsked);                       // handed to the radio's own wait
+        Assert.Equal(1, watch.Disposed);                    // the watch ends at the close
+        Assert.Equal("", (string)Field("_injectionSavedMicSource").GetValue(_dialog)!);   // the input goes to the restore owner, which writes at receive
+
+        // The window's own wait ending now does nothing in the closed window.
+        windowsWait(ReferenceSilenceEnd.AlreadyReleased);
+        Assert.True(_rig.TxReferenceEndSilenceHeld);
+
+        // The hand mic is let go: the radio receives, and only then is the microphone back.
+        RadioReportsReceive();
+        Assert.True(MicIsBack(), "the radio received and the microphone is back");
+    }
+
+    /// <summary>A close inside the last moments of a pass, before the window's poll ever saw its end, still leaves the radio a wait to end it: nothing is stranded.</summary>
+    [Fact]
+    public void A_close_before_the_window_saw_the_end_still_hands_the_silence_to_the_radio()
+    {
+        AssertTheDeskIsSafe();
+        ReferencePassAtItsEnd();
+        Assert.Equal(0, _waitsAsked);
+        CloseTheWindowsReference();
+        Assert.Equal(1, _waitsAsked);
+        Assert.True(_rig.TxReferenceEndSilenceHeld);
+        Assert.True(MicNeverReaches(50));
+        RadioReportsReceive();
+        Assert.True(MicIsBack());
+    }
+
+    /// <summary>The control: a reference still playing when the window closes is disarmed at once, exactly as before.</summary>
+    [Fact]
+    public void Closing_the_window_with_the_reference_still_playing_disarms_it_as_before()
+    {
+        AssertTheDeskIsSafe();
+        var player = _rig.TxFilePlayer;
+        var content = new float[Rate];
+        Array.Fill(content, 0.4f);
+        player.Load(content, Rate, "reference");
+        player.StartHoldingSilenceAtEnd();
+        for (int i = 0; i < 10; i++) player.Process(MicBuffer(), Floats, Rate);
+        Assert.True(player.Engaged, "positive control: the reference is still playing");
+        Field("_refPassRunning").SetValue(_dialog, true);
+
+        CloseTheWindowsReference();
+
+        Assert.Equal(0, _waitsAsked);
+        Assert.False(player.Engaged);
+        Assert.False(_rig.TxReferenceEndSilenceHeld);
+        Assert.True(MicIsBack(), "a reference still playing is disarmed at the close, as before");
+    }
+
+    /// <summary>A close, and then the disconnect: the disconnect's VOX release ends the silence the window handed over.</summary>
+    [Fact]
+    public void A_close_then_a_disconnect_ends_the_silence()
+    {
+        AssertTheDeskIsSafe();
+        ReferencePassAtItsEnd();
+        _dialog.FinishReferencePass(_rig, Holder.Elsewhere, hardwareLine: true);
+        CloseTheWindowsReference();
+        Assert.True(_rig.TxReferenceEndSilenceHeld);
+        typeof(FlexBase).GetMethod("DisconnectVoxPauses", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(_rig, null);
+        Assert.False(_rig.TxReferenceEndSilenceHeld);
+        Assert.True(MicIsBack());
     }
 }

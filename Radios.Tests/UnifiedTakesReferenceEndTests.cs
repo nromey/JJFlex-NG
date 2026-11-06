@@ -68,7 +68,9 @@ public sealed class UnifiedTakesReferenceEndTests
         Assert.True(guard > 0, "a switch to another radio no longer releases the departing one");
         int load = arrivingBranch.IndexOf("LoadPerRadioPrefs();", StringComparison.Ordinal);
         string released = arrivingBranch[guard..load];
-        Assert.Contains("DisarmReference(speak: false, rig: oldRig);", released);
+        // Round five (7b): a held end silence goes to that radio's own wait;
+        // anything else is disarmed (ReleaseReferenceLeavingWindow).
+        Assert.Contains("ReleaseReferenceLeavingWindow(oldRig);", released);
         Assert.Contains("DisarmTone(speak: false, rig: oldRig);", released);
 
         // A radio leaving with none arriving, unchanged.

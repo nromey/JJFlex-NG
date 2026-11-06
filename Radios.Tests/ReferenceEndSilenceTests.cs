@@ -540,18 +540,21 @@ public sealed class ReferenceEndSilenceTests : IDisposable
     }
 
     /// <summary>
-    /// A disarm, a closing window, a departing radio and the hard kill all call
-    /// <c>TxFileStop</c>: the silence ends there and then, and the wait, when it
-    /// ends, finds nothing to do.
+    /// <c>TxFileStop</c> ends the silence there and then, and the wait, when it
+    /// ends, finds nothing to do. A teardown's disarm, a radio leaving with
+    /// none arriving and the hard kill all reach it.
     /// </summary>
     /// <remarks>
-    /// The microphone back while the radio still transmits is today's disarm
-    /// and close behaviour. Under a hardware push to talk still held it waits
-    /// on Noel's ruling (Codex's round four check, B2), so this pins what is,
-    /// not what is safe.
+    /// <b>Changed in round five (7b).</b> Until then a closing window and a
+    /// switch to another radio reached this too, and the remark here said it
+    /// pinned that behaviour rather than a safe one: under a held hand mic the
+    /// close put the desk microphone back on the air (Codex's round four check,
+    /// B2). Noel ruled 2026-11-06 03:12 that the silence may outlive the window,
+    /// so those two now hand the silence to a wait of their own and leave it
+    /// held (<see cref="A_wait_handed_over_by_a_closing_window_still_ends_on_every_way_out"/>).
     /// </remarks>
     [Fact]
-    public async Task A_disarm_ends_the_silence_at_once_and_the_wait_then_does_nothing()
+    public async Task TxFileStop_ends_the_silence_at_once_and_the_wait_then_does_nothing()
     {
         using var f = await ReferenceRunToItsEnd("ref-silence-disarm");
         ReferenceSilenceEnd? how = null;
@@ -862,5 +865,83 @@ public sealed class ReferenceEndSilenceTests : IDisposable
         var deadline = DateTime.UtcNow.AddSeconds(3);
         while (!arm.IsCompleted && DateTime.UtcNow < deadline) { Drain(f.Rig); await Task.Delay(1); }
         return arm.IsCompleted && await arm;
+    }
+
+    // ── Round five (7b): the silence a closing window hands over ──
+
+    /// <summary>
+    /// What a closing window (or a switch to another radio) does with a held
+    /// silence since round five: it does NOT stop the player; it asks for a
+    /// wait of its own (<c>HandReferenceEndSilenceToRadio</c>), the window's
+    /// earlier wait standing aside, and leaves the radio to end it. Every way
+    /// out still ends it, on the vendor radio fixture: receive, a hand mic let
+    /// go, a replaced connection (a reconnect), the disconnect's VOX release,
+    /// and a new start, which moves the generation.
+    /// </summary>
+    [Theory]
+    [InlineData("receive")]
+    [InlineData("hand-mic-released")]
+    [InlineData("reconnect")]
+    [InlineData("disconnect")]
+    [InlineData("fresh-arm")]
+    public async Task A_wait_handed_over_by_a_closing_window_still_ends_on_every_way_out(string wayOut)
+    {
+        using var f = await ReferenceRunToItsEnd("ref-silence-handover-" + wayOut);
+        ReferenceSilenceEnd? windows = null, handedOver = null;
+        f.Rig.TxReferenceEndSilenceUntilReceive(h => windows = h);      // the window's own, from its poll
+        if (wayOut == "hand-mic-released")
+        {
+            Set(f.Rig, "_Transmit", false);
+            f.Vendor.Status("interlock state=TRANSMITTING source=MIC");
+        }
+        f.Rig.TxReferenceEndSilenceUntilReceive(h => handedOver = h);   // the close's hand-over
+        Assert.True(f.Rig.TxReferenceEndSilenceHeld, "the hand-over ended the silence by itself");
+        Assert.False(await Within(() => handedOver != null, 200));
+        Assert.True(MicNeverReaches(f.Rig.TxFilePlayer, 50), "the microphone reached the encoder after the close");
+
+        switch (wayOut)
+        {
+            case "receive":
+            case "hand-mic-released":
+                NoteRadioMox(f.Rig, false);
+                f.Vendor.Status("interlock state=READY");
+                Assert.True(await Within(() => handedOver != null, 2_000));
+                Assert.Equal(ReferenceSilenceEnd.Received, handedOver);
+                Assert.True(MicIsBack(f.Rig.TxFilePlayer));
+                break;
+            case "reconnect":
+                PlantNewConnection(f);
+                Assert.True(await Within(() => handedOver != null, 2_000));
+                Assert.Equal(ReferenceSilenceEnd.ConnectionGone, handedOver);
+                Assert.False(f.Rig.TxReferenceEndSilenceHeld);
+                break;
+            case "disconnect":
+                typeof(FlexBase).GetMethod("DisconnectVoxPauses", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(f.Rig, null);
+                Assert.False(f.Rig.TxReferenceEndSilenceHeld);
+                Assert.True(MicIsBack(f.Rig.TxFilePlayer));
+                break;
+            case "fresh-arm":
+                // A new start through FlexBase moves the generation (round four
+                // repair, 6e-3): the start replaces the silence, and the
+                // hand-over, when the radio receives, finds it is not its pass
+                // and leaves the new one alone.
+                f.Rig.TxFileStart();
+                Assert.True(f.Rig.TxFilePlayer.Engaged, "positive control: the new pass started");
+                NoteRadioMox(f.Rig, false);
+                f.Vendor.Status("interlock state=READY");
+                Assert.True(await Within(() => handedOver != null, 2_000));
+                Assert.Equal(ReferenceSilenceEnd.AlreadyReleased, handedOver);
+                Assert.True(f.Rig.TxFilePlayer.Engaged, "the old hand-over stopped the new pass");
+                break;
+        }
+        // The window's own wait stood aside for the hand-over: whenever it
+        // ends, it finds the silence not its own. (A disconnect's VOX release
+        // leaves the fixture's connection up and transmitting, so it waits on.)
+        if (wayOut != "disconnect")
+        {
+            Assert.True(await Within(() => windows != null, 2_000), "the window's own wait never ended");
+            Assert.Equal(ReferenceSilenceEnd.AlreadyReleased, windows);
+        }
     }
 }
