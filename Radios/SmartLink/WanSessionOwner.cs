@@ -54,6 +54,9 @@ namespace Radios.SmartLink
         private IReadOnlyList<Radio> _availableRadios = Array.Empty<Radio>();
         private DateTime? _lastRadioListUtc;
 
+        /// <summary>Lists accepted so far; the revision of the latest. Guarded by <c>_stateGate</c>.</summary>
+        private long _listRevision;
+
         // Which connection the list above arrived on, and which connection is
         // live (#619). The list is kept across a drop on purpose — the
         // post-drop diagnostic probe reads it, and the connect flow replays it
@@ -301,7 +304,8 @@ namespace Radios.SmartLink
                             && _lastRadioListUtc != null
                             && RefusalFor(_radioListConnectionGeneration) == null,
                         _radioListConnectionGeneration,
-                        SessionId);
+                        SessionId)
+                    { ListRevision = _listRevision };
                 }
             }
         }
@@ -946,6 +950,7 @@ namespace Radios.SmartLink
             // coordinator and the connect flow never see it and it cannot be
             // captured as a push. Traced outside the lock: tracing is I/O.
             string? refused;
+            long revision = 0;
             lock (_stateGate)
             {
                 // One predicate for accepting, for the snapshot's liveness
@@ -963,6 +968,9 @@ namespace Radios.SmartLink
                     _availableRadios = e.Radios;
                     _lastRadioListUtc = DateTime.UtcNow;
                     _radioListConnectionGeneration = e.ConnectionGeneration;
+                    // Every accepted list gets the next revision, under the
+                    // same lock that publishes it (#613, repair round 4).
+                    revision = ++_listRevision;
                     // A list newer than any connection recorded as live can
                     // only be from a connection the server dialed without
                     // announcing; unreachable through the adapter, which
@@ -1007,7 +1015,8 @@ namespace Radios.SmartLink
             // the list carries its generation, and the consumer asks
             // ListIsCurrent with it at the moment it consumes (#619, Sol's
             // review of L5).
-            RadioListReceived?.Invoke(this, e);
+            RadioListReceived?.Invoke(this,
+                new WanRadioListReceivedEventArgs(e.Radios, e.ConnectionGeneration) { ListRevision = revision });
         }
 
         private void OnWanRadioConnectReady(object? sender, WanRadioConnectReadyEventArgs e)

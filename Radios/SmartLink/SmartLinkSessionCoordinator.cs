@@ -187,7 +187,8 @@ namespace Radios.SmartLink
             // consumer asks the session, with this generation, at the moment
             // it consumes (#619).
             SessionRadioListReceived?.Invoke(this,
-                new SessionRadioListEventArgs(owner.AccountId, owner.SessionId, e.Radios, e.ConnectionGeneration, owner));
+                new SessionRadioListEventArgs(owner.AccountId, owner.SessionId, e.Radios, e.ConnectionGeneration, owner)
+                { ListRevision = e.ListRevision });
         }
 
         private void OnSessionListCurrencyMayHaveChanged(object? sender, EventArgs e)
@@ -341,6 +342,9 @@ namespace Radios.SmartLink
         /// only; D4 still forbids capturing it into a field.
         /// </summary>
         public IWanSessionOwner Session { get; }
+
+        /// <summary>The owner's revision for this list (<see cref="SessionRadioListSnapshot.ListRevision"/>).</summary>
+        public long ListRevision { get; init; }
 
         public SessionRadioListEventArgs(
             string accountId,

@@ -166,7 +166,10 @@ namespace Radios.Tests
 
         private static SessionRadioListSnapshot Snap(long generation, DateTime? received, params string[] serials) =>
             new SessionRadioListSnapshot(serials.Select(WanRadio).ToList(), received,
-                SessionConnected: true, ArrivedOnTheLiveConnection: received.HasValue, generation, "s-1");
+                SessionConnected: true, ArrivedOnTheLiveConnection: received.HasValue, generation, "s-1")
+            // The list's revision: one per accepted list (round 4). Here each
+            // distinct arrival is a distinct list.
+            { ListRevision = received.HasValue ? generation * 100 + received.Value.Second : 0 };
 
         /// <summary>
         /// The empty-list decision is two readings compared as values: the

@@ -102,10 +102,30 @@ namespace Radios
         {
             public ConnectLatch(string account) { Account = account; }
             public readonly string Account;
+            /// <summary>The call's session and its list revision when the call began; set where the latch opens.</summary>
+            public string StartSessionId = "";
+            public long StartRevision;
             public bool Received;
             public List<Radio> Radios;
             public SmartLinkRegistrationEvidence.AccountList? ServerPush;
         }
+
+        /// <summary>
+        /// THE rule for what completes a waiting call (#613, #713 and #798,
+        /// repair round 4): a list the SERVER pushed, for the call's account
+        /// (checked by the caller), on the call's own session, NEWER than the
+        /// list that session held when the call began. A replay of a held copy
+        /// never completes a waiting call, whoever replays it: it is not the
+        /// server speaking during the call, and taking it lost the answer the
+        /// server had already sent (Codex #713 B3, #613 B3-R3b). An older or
+        /// equal revision is a list the call already had at its start, which
+        /// it answers from itself (<see cref="TheListWasFoundAtStart"/>).
+        /// </summary>
+        internal static bool ListAnswersTheCall(bool serverPush,
+            string startSessionId, long startRevision, string listSessionId, long listRevision)
+            => serverPush
+               && string.Equals(startSessionId ?? "", listSessionId ?? "", StringComparison.Ordinal)
+               && listRevision > startRevision;
 
         /// <summary>The calls waiting now. Guarded by <c>_wanIntakeLock</c>.</summary>
         private readonly List<ConnectLatch> _openLatches = new List<ConnectLatch>();
@@ -132,7 +152,7 @@ namespace Radios
         private void sessionRadioListReceivedHandler(object sender, Radios.SmartLink.SessionRadioListEventArgs e)
         {
             wanRadioListReceivedHandler(e.AccountId ?? "", e.Radios, WanListArrival.ServerPush,
-                new WanListProvenance(e.Session, e.SessionId, e.ConnectionGeneration));
+                new WanListProvenance(e.Session, e.SessionId, e.ConnectionGeneration, e.ListRevision));
         }
 
         /// <summary>
@@ -160,13 +180,20 @@ namespace Radios
         /// at its own decision. Internal rather than private only so the
         /// public sighting can hold it.</para>
         internal readonly record struct WanListProvenance(
-            Radios.SmartLink.IWanSessionOwner Session, string SessionId, long ConnectionGeneration)
+            Radios.SmartLink.IWanSessionOwner Session, string SessionId, long ConnectionGeneration, long ListRevision = 0)
         {
+            /// <summary>
+            /// This is the very list <paramref name="snapshot"/> describes:
+            /// same session, same connection, same list revision. The
+            /// connection alone is not enough, because one connection can
+            /// carry more than one list (#613, repair round 4, Codex B3-R3a).
+            /// </summary>
             public bool Matches(Radios.SmartLink.SessionRadioListSnapshot snapshot) =>
                 string.Equals(SessionId, snapshot.SessionId, StringComparison.Ordinal)
-                && ConnectionGeneration == snapshot.ConnectionGeneration;
+                && ConnectionGeneration == snapshot.ConnectionGeneration
+                && ListRevision == snapshot.ListRevision;
 
-            public override string ToString() => $"session {SessionId} connection {ConnectionGeneration}";
+            public override string ToString() => $"session {SessionId} connection {ConnectionGeneration} list {ListRevision}";
         }
 
         /// <summary>
@@ -332,7 +359,7 @@ namespace Radios
                     // that is no longer the session's current knowledge when
                     // it reaches this line would overwrite the entries a
                     // current list wrote with older ones.
-                    var provenance = new WanListProvenance(e.Session, e.SessionId, e.ConnectionGeneration);
+                    var provenance = new WanListProvenance(e.Session, e.SessionId, e.ConnectionGeneration, e.ListRevision);
                     if (!ListStillCurrent(provenance))
                     {
                         Tracing.TraceLine(
@@ -633,13 +660,17 @@ namespace Radios
                 var radiosBefore = radios;
                 bool latchBefore = wanListReceived;
                 var serverListBefore = _serverListThisCall;
-                // Every call waiting on THIS account gets the list on its own
+                // Each call waiting on THIS account gets the list on its own
                 // latch (#713, repair round 2), put back below with the rest
-                // if the list stops being current while it is taken.
+                // if the list stops being current while it is taken; and only
+                // if the list answers that call, by the one rule
+                // (ListAnswersTheCall, repair round 4).
                 var latchesBefore = new List<(ConnectLatch latch, bool received, List<Radio> radios, SmartLinkRegistrationEvidence.AccountList? push)>();
                 foreach (var open in _openLatches)
                 {
                     if (!string.Equals(open.Account, accountId, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!ListAnswersTheCall(arrival == WanListArrival.ServerPush,
+                            open.StartSessionId, open.StartRevision, provenance.SessionId, provenance.ListRevision)) continue;
                     latchesBefore.Add((open, open.Received, open.Radios, open.ServerPush));
                     open.Received = true;
                     open.Radios = lst.ToList();
@@ -2052,7 +2083,7 @@ namespace Radios
                     // a list it actually took is counted.
                     WanIntakeStageReached?.Invoke(WanIntakeStage.ReplaySnapshotTaken);
                     if (wanRadioListReceivedHandler(held.AccountId, cached, WanListArrival.ReplayOfHeldCopy,
-                            new WanListProvenance(held, snapshot.SessionId, snapshot.ConnectionGeneration)))
+                            new WanListProvenance(held, snapshot.SessionId, snapshot.ConnectionGeneration, snapshot.ListRevision)))
                         replayed++;
                 }
                 catch (Exception replayEx)
@@ -2165,7 +2196,8 @@ namespace Radios
         /// True when <paramref name="now"/> is the very list the call found
         /// at its start, and that list was an answer then: connected and
         /// arrived on that connection, and still the same session,
-        /// connection and arrival now (#613, repair rounds 2 and 3). Two
+        /// connection and list revision now (#613, repair rounds 2 to 4; the
+        /// revision replaced the wall-clock arrival time in round 4). Two
         /// readings compared as values; nothing is read here.
         /// </summary>
         internal static bool TheListWasFoundAtStart(
@@ -2174,7 +2206,7 @@ namespace Radios
                && now.SessionConnected && now.ArrivedOnTheLiveConnection
                && string.Equals(now.SessionId, atStart.SessionId, StringComparison.Ordinal)
                && now.ConnectionGeneration == atStart.ConnectionGeneration
-               && now.ReceivedUtc == atStart.ReceivedUtc;
+               && now.ListRevision == atStart.ListRevision;
 
         /// <summary>
         /// True when this one reading is a list that arrived on its live
@@ -2281,6 +2313,8 @@ namespace Radios
                     _serverListThisCall = null;
                     _openLatches.Add(latch);
                     listAtStart = session.RadioListSnapshot;
+                    latch.StartSessionId = listAtStart.SessionId ?? "";
+                    latch.StartRevision = listAtStart.ListRevision;
                 }
                 session.Connect();
 
@@ -2340,14 +2374,13 @@ namespace Radios
                 // SessionRadioListReceived subscription stays active, so pushes
                 // keep landing as refreshes through wanRadioListReceivedHandler
                 // exactly as the 2026-08-06 refresh/morph flow expects.
-                if (sessionWasAlreadyConnected && haveCachedList)
+                if (haveCachedList && foundAtStart)
                 {
-                    // Rows from a list that arrived during the call can only
-                    // have come through the intake as a push, which has
-                    // already written this call's latch and its server answer
-                    // (the replay no longer copies such a list, and the start
-                    // reading is taken where the latch opens), so answering
-                    // from the rows here loses nothing (#613, repair round 3).
+                    // Held rows answer only for the list the call FOUND
+                    // (#613, repair round 4, Codex B3-R3b). A list that
+                    // arrived during the call is answered by its push, by the
+                    // one rule; rows taken from it, by this call's replay or
+                    // another call's, must not answer in its place.
                     var fromRows = myRadioList.Where(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)).ToList();
                     lock (_wanIntakeLock) latch.Radios = fromRows;
                     Tracing.TraceLine(
@@ -2371,7 +2404,7 @@ namespace Radios
                     // repair round 1: SmartLinkRegistrationReplayTests'
                     // fresh-push test failed one run in three). Round 2 made
                     // it exact: the empty list must be the one the call FOUND,
-                    // unchanged (same session, connection and arrival), so a
+                    // unchanged (same session, connection and list revision), so a
                     // first list or a reconnect's list arriving during the
                     // call is waited for, not answered from the snapshot.
                     lock (_wanIntakeLock)
@@ -2381,7 +2414,7 @@ namespace Radios
                 }
                 else
                 {
-                int listWaitMs = haveCachedList ? 2000 : 10000;
+                const int listWaitMs = 10000;
 
                 Tracing.TraceLine($"ConnectToSmartLink: registration sent, waiting up to {listWaitMs / 1000}s for radio list (cached={myRadioList.Count}) ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 // The latch is read through ConnectListLatched, which never
@@ -2396,42 +2429,15 @@ namespace Radios
                 }
                 if (!listArrived)
                 {
-                    // The server sends the radio list once per TLS session. On a
-                    // re-entry into ConnectToSmartLink over a session that is
-                    // ALREADY connected, that list has long since arrived, so
-                    // waiting for a fresh one waits forever — 10s per attempt,
-                    // and setupRemote's retry doubles it. Noel hit ~80s of
-                    // apparent hanging on 2026-08-05 (trace 20260805-171637)
-                    // doing nothing more exotic than pressing Remote twice.
-                    // Accept the list we already have rather than declaring
-                    // failure on a healthy session.
-                    if (haveCachedList)
-                    {
-                        // The cache check above reads myRadioList, but everything
-                        // downstream reads `radios`, which only a fresh
-                        // WanRadioRadioListRecieved event assigns. On a NEW
-                        // FlexBase over the still-live app-global session —
-                        // selector closed and reopened, which remote-first
-                        // startup now does on every open — `radios` is null
-                        // here: NRE, mapped to ConnectFailed, answered with a
-                        // pointless interactive re-login on a healthy session
-                        // (Noel, 2026-08-06, trace 203418). Rebuild it from the
-                        // cache being accepted — scoped to this account, so
-                        // another account's presence radios cannot stand in
-                        // for a list this account never gave us. RadioFound for
-                        // these entries already fired via radioAddedHandler at
-                        // apiInit, so no re-announce is needed here.
-                        var fromRows = myRadioList.Where(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)).ToList();
-                        lock (_wanIntakeLock) latch.Radios = fromRows;
-                        Tracing.TraceLine(
-                            $"ConnectToSmartLink: no new radio list, session live with {fromRows.Count} cached WAN radio(s) — using those ({sw.ElapsedMilliseconds}ms)",
-                            TraceLevel.Info);
-                    }
-                    else
-                    {
-                        Tracing.TraceLine($"ConnectToSmartLink: TIMED OUT waiting for radio list after {listWaitMs / 1000}s ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                        return SmartLinkConnectResult.ConnectFailed;
-                    }
+                    // Only the server's answer completes a waiting call; rows
+                    // this rig holds are not one (repair round 4). The case
+                    // this branch once covered with rows, a re-entry over a
+                    // session whose one list arrived long ago (Noel, ~80 s of
+                    // apparent hanging on 2026-08-05, trace 20260805-171637),
+                    // is the held list the call FOUND at its start, answered
+                    // above without waiting.
+                    Tracing.TraceLine($"ConnectToSmartLink: TIMED OUT waiting for radio list after {listWaitMs / 1000}s ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                    return SmartLinkConnectResult.ConnectFailed;
                 }
                 } // end fresh-session wait path
 
@@ -2596,7 +2602,7 @@ namespace Radios
         /// </summary>
         internal readonly record struct AccountListView(
             string Account, string SessionId, long Generation, bool Connected, bool Arrived,
-            DateTime? ReceivedUtc, bool ListsSerial)
+            long Revision, bool ListsSerial)
         {
             /// <summary>This account's list answers now: connected, and arrived on that connection.</summary>
             public bool Answers => Connected && Arrived;
@@ -2651,10 +2657,11 @@ namespace Radios
             /// last-seen accounts, and the same saved accounts (repair round
             /// 3, Codex B2-R2: an account saved between the readings has not
             /// answered, and the plan must see it). Two readings that differ
-            /// mean something was received in between. Two equal readings
-            /// rest on the arrival time standing in for a revision of the
-            /// list; that stamp is the wall clock, not a counter (Codex F4,
-            /// for the register).
+            /// mean something was received in between, and two equal
+            /// readings mean nothing was: each list carries its session's
+            /// list revision, which every accepted list advances (repair
+            /// round 4, settling Codex F4; the wall-clock arrival time is no
+            /// longer compared).
             /// </summary>
             public bool SameAs(AccountPicture other)
                 => other != null
@@ -2682,7 +2689,7 @@ namespace Radios
                 bool lists_ = s.Radios != null
                     && s.Radios.Any(r => r != null && string.Equals(r.Serial, serial, StringComparison.OrdinalIgnoreCase));
                 lists.Add(new AccountListView(held.AccountId, s.SessionId ?? "", s.ConnectionGeneration,
-                    s.SessionConnected, s.ArrivedOnTheLiveConnection, s.ReceivedUtc, lists_));
+                    s.SessionConnected, s.ArrivedOnTheLiveConnection, s.ListRevision, lists_));
             }
             lists.Sort((a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Account, b.Account));
             var savedNames = (saved ?? Array.Empty<string>())

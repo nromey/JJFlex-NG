@@ -564,6 +564,13 @@ namespace Radios
         internal bool StillTheRegistrationTarget(Radio radio)
             => radio != null && ReferenceEquals(theRadio, radio) && IsConnected;
 
+        /// <summary>
+        /// For a windowless test: the registration token, in place of a
+        /// saved account's. Null in the product. A test that sets it runs the
+        /// send against a fake command transport that forwards nothing.
+        /// </summary>
+        internal Func<SmartLinkAccount, string> RegistrationTokenForTest;
+
         private bool SendRegistrationCommand(bool register, RegistrationCheck confirmed, Action<string, bool> onStateChange, int attempt = 1)
         {
             var r = theRadio;   // ONE read of the radio for the whole send (see below)
@@ -592,19 +599,29 @@ namespace Radios
             try
             {
 
-                string jwt = GetJwtFromSavedAccount(account);
+                string jwt = RegistrationTokenForTest != null
+                    ? RegistrationTokenForTest(account)
+                    : GetJwtFromSavedAccount(account);
                 if (string.IsNullOrEmpty(jwt))
                 {
                     Tracing.TraceLine("SendRegistrationCommand: no JWT available", TraceLevel.Error);
                     return false;
                 }
 
+                // Progress is delivered in the order the radio reports it, and
+                // never while the hold's lock is held: Radio Setup's callback
+                // dispatches to the window synchronously, and the window is
+                // where the hold is armed (#713, repair round 4). States raised
+                // during the write (the vendor raises its waiting state inside
+                // the command call) are queued and delivered after it.
+                var order = new object();
+                var pending = new Queue<Radio.WanRadioRegistrationState>();
+                bool deferring = true;
+                bool finished = false;   // a terminal state (or the retry) ends this send's reports
                 System.ComponentModel.PropertyChangedEventHandler handler = null;
-                handler = (s, e) =>
+                void Deliver(Radio.WanRadioRegistrationState state)
                 {
-                    if (e.PropertyName != "WanOwnerHandshakeStatus") return;
-
-                    var state = r.WanOwnerHandshakeStatus;
+                    if (finished) return;
                     bool terminal =
                         state == Radio.WanRadioRegistrationState.RegisterSuccess
                         || state == Radio.WanRadioRegistrationState.UnregisterSuccess
@@ -626,6 +643,7 @@ namespace Radios
                         || state == Radio.WanRadioRegistrationState.FailedServerConfirmation;
                     if (terminal && serverSideFailure && attempt == 1)
                     {
+                        finished = true;
                         r.PropertyChanged -= handler;
                         Tracing.TraceLine($"SendRegistrationCommand: server-side failure ({state}), retrying once", TraceLevel.Warning);
                         onStateChange?.Invoke("The SmartLink server refused the first attempt. Trying again.", false);
@@ -642,22 +660,59 @@ namespace Radios
 
                     onStateChange?.Invoke(RegistrationStateText, terminal);
 
-                    if (terminal) r.PropertyChanged -= handler;
+                    if (terminal)
+                    {
+                        finished = true;
+                        r.PropertyChanged -= handler;
+                    }
+                }
+                handler = (s, e) =>
+                {
+                    if (e.PropertyName != "WanOwnerHandshakeStatus") return;
+                    var state = r.WanOwnerHandshakeStatus;
+                    lock (order)
+                    {
+                        if (deferring) { pending.Enqueue(state); return; }
+                        Deliver(state);
+                    }
                 };
 
-                // The token can take a sign-in; the connection can change in
-                // that time. Asked again here, right before the command: still
-                // the same radio object, still connected.
-                if (!StillTheRegistrationTarget(r))
+                // The token can take a sign-in; the connection, and the
+                // change-nothing hold, can change in that time. Both are asked
+                // again here, at the last moment, as ONE step with the command
+                // (#713, repair rounds 2 and 4): still the same radio object,
+                // still connected, and the hold not armed. The hold's lock is
+                // held across the check and the command's enqueue, so a hold
+                // armed from Settings either lands first and refuses the write,
+                // or waits until the command is already written.
+                bool stillTheTarget = true;
+                bool written = WriteUnlessHeld(() =>
                 {
-                    Tracing.TraceLine($"SendRegistrationCommand: refused after the token, the radio {r.Serial} is no longer the connected radio", TraceLevel.Warning);
+                    if (!StillTheRegistrationTarget(r)) { stillTheTarget = false; return false; }
+                    r.PropertyChanged += handler;
+                    if (register) r.WanRegisterRadio(jwt);
+                    else r.WanUnregisterRadio(jwt);
+                    return true;
+                });
+                if (!written)
+                {
+                    if (!stillTheTarget)
+                    {
+                        Tracing.TraceLine($"SendRegistrationCommand: refused after the token, the radio {r.Serial} is no longer the connected radio", TraceLevel.Warning);
+                    }
+                    else
+                    {
+                        Tracing.TraceLine("SendRegistrationCommand: refused after the token, the change-nothing hold was armed meanwhile", TraceLevel.Warning);
+                        SayTheHoldRefused("settings.guard.action.registration");
+                    }
                     return false;
                 }
 
-                r.PropertyChanged += handler;
-
-                if (register) r.WanRegisterRadio(jwt);
-                else r.WanUnregisterRadio(jwt);
+                lock (order)
+                {
+                    deferring = false;
+                    while (pending.Count > 0) Deliver(pending.Dequeue());
+                }
 
                 Tracing.TraceLine($"SendRegistrationCommand: sent {(register ? "register" : "unregister")} for account {account.Email}", TraceLevel.Info);
                 return true;

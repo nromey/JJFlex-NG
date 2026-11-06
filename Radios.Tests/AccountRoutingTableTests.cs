@@ -31,10 +31,10 @@ namespace Radios.Tests
         private static FlexBase.AccountListView? View(string account, char code) => code switch
         {
             '-' => null,
-            'C' => new FlexBase.AccountListView(account, "s-" + account, 1, Connected: true, Arrived: false, null, ListsSerial: false),
-            'E' => new FlexBase.AccountListView(account, "s-" + account, 1, Connected: true, Arrived: true, new DateTime(2026, 11, 6), ListsSerial: false),
-            'R' => new FlexBase.AccountListView(account, "s-" + account, 1, Connected: true, Arrived: true, new DateTime(2026, 11, 6), ListsSerial: true),
-            'S' => new FlexBase.AccountListView(account, "s-" + account, 1, Connected: false, Arrived: false, new DateTime(2026, 11, 5), ListsSerial: true),
+            'C' => new FlexBase.AccountListView(account, "s-" + account, 1, Connected: true, Arrived: false, Revision: 0, ListsSerial: false),
+            'E' => new FlexBase.AccountListView(account, "s-" + account, 1, Connected: true, Arrived: true, Revision: 1, ListsSerial: false),
+            'R' => new FlexBase.AccountListView(account, "s-" + account, 1, Connected: true, Arrived: true, Revision: 1, ListsSerial: true),
+            'S' => new FlexBase.AccountListView(account, "s-" + account, 1, Connected: false, Arrived: false, Revision: 1, ListsSerial: true),
             _ => throw new ArgumentException(code.ToString()),
         };
 
@@ -121,10 +121,71 @@ namespace Radios.Tests
             Assert.True(Picture('E', '-', "", "", "AB").SameAs(Picture('E', '-', "", "", "AB")));
             var later = new FlexBase.AccountPicture(Serial, new[]
             {
-                new FlexBase.AccountListView(A, "s-" + A, 2, true, true, new DateTime(2026, 11, 6), false),
+                new FlexBase.AccountListView(A, "s-" + A, 2, true, true, 2, false),
                 View(B, 'E')!.Value,
             }, "", "", false, new[] { A, B });
             Assert.False(first.SameAs(later));                         // same answer, newer connection
+            var newerList = new FlexBase.AccountPicture(Serial, new[]
+            {
+                new FlexBase.AccountListView(A, "s-" + A, 1, true, true, 2, false),
+                View(B, 'E')!.Value,
+            }, "", "", false, new[] { A, B });
+            Assert.False(first.SameAs(newerList));                     // same answer, same connection, a newer list (round 4)
+        }
+
+        // ------------------------------------------------------------------
+        // Repair round 4: what completes a call, every row
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The one rule for a waiting call (#613, #713, #798): only a list the
+        /// server PUSHED, on the call's own session, with a revision NEWER
+        /// than the one the session held when the call began. Columns: pushed
+        /// (or a replay of a held copy), the list's session, the list's
+        /// revision against the start's (older, equal, newer), and whether it
+        /// completes the call. The call's start: session s-1, revision 5.
+        /// </summary>
+        [Theory]
+        [InlineData(true, "s-1", 6, true)]     // the server's newer list: the answer
+        [InlineData(true, "s-1", 9, true)]     // several lists later: still newer
+        [InlineData(true, "s-1", 5, false)]    // the list the call already had: answered from itself, not a push
+        [InlineData(true, "s-1", 4, false)]    // an older list arriving late: never the answer
+        [InlineData(false, "s-1", 6, false)]   // a replay of a newer list: never the answer (#713 B3, B3-R3b)
+        [InlineData(false, "s-1", 5, false)]   // a replay of the list held at the start
+        [InlineData(true, "s-2", 6, false)]    // another session's list (a rebuilt session): not this call's
+        [InlineData(false, "s-2", 6, false)]
+        public void Every_row_of_the_call_completion_table(bool pushed, string listSession, long listRevision, bool completes)
+        {
+            Assert.Equal(completes, FlexBase.ListAnswersTheCall(pushed, "s-1", 5, listSession, listRevision));
+        }
+
+        private static Radios.SmartLink.SessionRadioListSnapshot Held(string session, long generation, long revision,
+            bool connected = true, bool arrived = true) =>
+            new Radios.SmartLink.SessionRadioListSnapshot(Array.Empty<Flex.Smoothlake.FlexLib.Radio>(), null,
+                connected, arrived, generation, session) { ListRevision = revision };
+
+        /// <summary>
+        /// The held side of the same rule: a call answers from the list it
+        /// FOUND only if that list was an answer at the start and is still the
+        /// very same list, by revision, when it decides. Columns: the reading
+        /// at the decision (session, connection, revision, connected,
+        /// arrived), and whether it is the list found at the start (session
+        /// s-1, connection 1, revision 5, connected and arrived).
+        /// </summary>
+        [Theory]
+        [InlineData("s-1", 1, 5, true, true, true)]     // unchanged: the held answer
+        [InlineData("s-1", 1, 6, true, true, false)]    // a newer list on the same connection (B3-R3a)
+        [InlineData("s-1", 2, 6, true, true, false)]    // a reconnect's list
+        [InlineData("s-1", 2, 5, true, false, false)]   // reconnected, nothing yet
+        [InlineData("s-1", 1, 5, false, false, false)]  // the session dropped
+        [InlineData("s-2", 1, 5, true, true, false)]    // a rebuilt session
+        public void Every_row_of_the_held_answer_table(string session, long generation, long revision,
+            bool connected, bool arrived, bool foundAtStart)
+        {
+            var start = Held("s-1", 1, 5);
+            Assert.Equal(foundAtStart, FlexBase.TheListWasFoundAtStart(start, Held(session, generation, revision, connected, arrived)));
+            // No list at the start: nothing is ever found at the start.
+            Assert.False(FlexBase.TheListWasFoundAtStart(Held("s-1", 1, 0, arrived: false), Held(session, generation, revision, connected, arrived)));
         }
     }
 }

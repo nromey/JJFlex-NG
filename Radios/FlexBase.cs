@@ -1951,8 +1951,14 @@ namespace Radios
         /// </summary>
         public void SetChangeNothingActive(bool active)
         {
-            if (ChangeNothingActive == active) return;
-            ChangeNothingActive = active;
+            // Under the hold's own lock, which a write that must not happen
+            // under the hold takes around its last check and its command
+            // (#713, repair round 4): once this returns, no such write starts.
+            lock (_changeNothingGate)
+            {
+                if (ChangeNothingActive == active) return;
+                ChangeNothingActive = active;
+            }
             Tracing.TraceLine(
                 "ChangeNothing: " + (active
                     ? "armed — JJ Flexible Radio Access will not change anything this radio keeps"
@@ -1971,6 +1977,35 @@ namespace Radios
         private bool GuardRefuses(string actionKey)
         {
             if (!ChangeNothingActive) return false;
+            SayTheHoldRefused(actionKey);
+            return true;
+        }
+
+        /// <summary>
+        /// Serializes the hold with the writes it forbids at their last
+        /// moment (#713, repair round 4, Codex B4). Held only for a field
+        /// read and the command's enqueue, never across speech or a wait.
+        /// </summary>
+        private readonly object _changeNothingGate = new object();
+
+        /// <summary>
+        /// Run <paramref name="write"/> only if the hold is not armed, as one
+        /// step against <see cref="SetChangeNothingActive"/>: the hold cannot
+        /// be armed between the check and the write. False when the hold
+        /// refused it; the caller speaks, outside the lock.
+        /// </summary>
+        private bool WriteUnlessHeld(Func<bool> write)
+        {
+            lock (_changeNothingGate)
+            {
+                if (ChangeNothingActive) return false;
+                return write();
+            }
+        }
+
+        /// <summary>The refusal, traced and spoken, naming the action.</summary>
+        private void SayTheHoldRefused(string actionKey)
+        {
             Tracing.TraceLine("ChangeNothing: refused " + actionKey, TraceLevel.Warning);
             if (!SuppressSpeech)
             {
@@ -1979,7 +2014,6 @@ namespace Radios
                         ("action", Lexicon.Get(actionKey))),
                     VerbosityLevel.Critical, true);
             }
-            return true;
         }
 
         /// <summary>
