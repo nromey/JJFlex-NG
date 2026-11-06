@@ -38,6 +38,11 @@ namespace JJFlexWpf
         // 13 | PROC_THREAD_ATTRIBUTE_INPUT (0x00020000). WinBase.h, SDK
         // 10.0.26100.0; Windows 10 and later.
         internal const int PROC_THREAD_ATTRIBUTE_JOB_LIST = 0x0002000D;
+        // ProcThreadAttributeValue(ProcThreadAttributeHandleList = 2, FALSE, TRUE, FALSE):
+        // 2 | PROC_THREAD_ATTRIBUTE_INPUT. WinBase.h, SDK 10.0.26100.0; Vista and later.
+        internal const int PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x00020002;
+        private const int STARTF_USESTDHANDLES = 0x00000100;
+        private const uint HANDLE_FLAG_INHERIT = 0x00000001;
 
         /// <summary>The job's limit flags, both of them required: see <see cref="CreateKillOnCloseJob"/>.</summary>
         internal const uint JobLimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION;
@@ -182,6 +187,9 @@ namespace JJFlexWpf
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool CloseHandle(IntPtr handle);
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
+
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         private static extern SafePipeHandle CreateNamedPipeW(string lpName, uint dwOpenMode, uint dwPipeMode,
             uint nMaxInstances, uint nOutBufferSize, uint nInBufferSize, uint nDefaultTimeOut, ref SECURITY_ATTRIBUTES sa);
@@ -259,28 +267,41 @@ namespace JJFlexWpf
         /// afterwards. The membership is also checked before the child is resumed,
         /// and a child not in the job is terminated before it ever runs: running a
         /// helper we cannot guarantee to kill is worse than not running it.</para>
-        /// <para>No handle is inherited (<c>bInheritHandles</c> false; the job
-        /// handle is not inheritable either); the pipe name travels on the command
-        /// line.</para>
+        /// <para><b>One handle at most is inherited, and only when asked for:</b>
+        /// the write end of a pipe for the helper's standard error, which JJ
+        /// Flexible records in its trace (ruled 2026-11-06, S13). It is named in a
+        /// <c>PROC_THREAD_ATTRIBUTE_HANDLE_LIST</c>, so it is the only handle the
+        /// helper receives, whatever else in this process is inheritable; it is
+        /// marked inheritable only around the <c>CreateProcess</c> call. Standard
+        /// input and output stay null. Without it, nothing is inherited
+        /// (<c>bInheritHandles</c> false). The job handle is never inheritable,
+        /// and the pipe name travels on the command line.</para>
         /// </remarks>
         /// <param name="afterCreate">
         /// Tests only, and null in production: called with the child's pid the
         /// moment <c>CreateProcess</c> returns, before anything else, so a test
         /// can kill the calling process at exactly that point.
         /// </param>
-        internal static Started StartInJob(string path, string commandLine, Action<int>? afterCreate = null)
+        /// <param name="standardError">
+        /// The write end of a pipe to become the helper's standard error, or null
+        /// for none. The caller closes its own copy once this returns, so the
+        /// pipe ends when the helper does.
+        /// </param>
+        internal static Started StartInJob(string path, string commandLine, Action<int>? afterCreate = null,
+            SafeHandle? standardError = null)
         {
             var job = CreateKillOnCloseJob();
-            IntPtr attributes = IntPtr.Zero, jobList = IntPtr.Zero;
-            bool attributesReady = false, jobAddRef = false;
+            IntPtr attributes = IntPtr.Zero, jobList = IntPtr.Zero, handleList = IntPtr.Zero;
+            bool attributesReady = false, jobAddRef = false, errAddRef = false, errInheritable = false;
+            int attributeCount = standardError != null ? 2 : 1;
             PROCESS_INFORMATION pi;
             try
             {
                 IntPtr size = IntPtr.Zero;
-                InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref size); // asks for the size; fails by design
+                InitializeProcThreadAttributeList(IntPtr.Zero, attributeCount, 0, ref size); // asks for the size; fails by design
                 if (size == IntPtr.Zero) throw new StartFailure("InitializeProcThreadAttributeList", Marshal.GetLastWin32Error());
                 attributes = Marshal.AllocHGlobal(size);
-                if (!InitializeProcThreadAttributeList(attributes, 1, 0, ref size))
+                if (!InitializeProcThreadAttributeList(attributes, attributeCount, 0, ref size))
                     throw new StartFailure("InitializeProcThreadAttributeList", Marshal.GetLastWin32Error());
                 attributesReady = true;
                 job.DangerousAddRef(ref jobAddRef);
@@ -293,8 +314,24 @@ namespace JJFlexWpf
                     StartupInfo = new STARTUPINFOW { cb = Marshal.SizeOf<STARTUPINFOEXW>(), dwFlags = STARTF_USESHOWWINDOW, wShowWindow = SW_HIDE },
                     lpAttributeList = attributes,
                 };
+                IntPtr err = IntPtr.Zero;
+                if (standardError != null)
+                {
+                    standardError.DangerousAddRef(ref errAddRef);
+                    err = standardError.DangerousGetHandle();
+                    handleList = Marshal.AllocHGlobal(IntPtr.Size);
+                    Marshal.WriteIntPtr(handleList, err);
+                    if (!UpdateProcThreadAttribute(attributes, 0, (IntPtr)PROC_THREAD_ATTRIBUTE_HANDLE_LIST, handleList, (IntPtr)IntPtr.Size, IntPtr.Zero, IntPtr.Zero))
+                        throw new StartFailure("UpdateProcThreadAttribute (handle list)", Marshal.GetLastWin32Error());
+                    si.StartupInfo.dwFlags |= STARTF_USESTDHANDLES;
+                    si.StartupInfo.hStdError = err;
+                    // A handle in the list must be inheritable; it is only for this call.
+                    if (!SetHandleInformation(err, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT))
+                        throw new StartFailure("SetHandleInformation (standard error)", Marshal.GetLastWin32Error());
+                    errInheritable = true;
+                }
                 var line = new StringBuilder(commandLine);
-                if (!CreateProcessW(path, line, IntPtr.Zero, IntPtr.Zero, false, StartFlags | EXTENDED_STARTUPINFO_PRESENT,
+                if (!CreateProcessW(path, line, IntPtr.Zero, IntPtr.Zero, standardError != null, StartFlags | EXTENDED_STARTUPINFO_PRESENT,
                         IntPtr.Zero, null, ref si, out pi))
                     throw new StartFailure("CreateProcess (in its job)", Marshal.GetLastWin32Error());
             }
@@ -305,9 +342,12 @@ namespace JJFlexWpf
             }
             finally
             {
+                if (errInheritable) SetHandleInformation(standardError!.DangerousGetHandle(), HANDLE_FLAG_INHERIT, 0);
+                if (errAddRef) standardError!.DangerousRelease();
                 if (attributesReady) DeleteProcThreadAttributeList(attributes);
                 if (attributes != IntPtr.Zero) Marshal.FreeHGlobal(attributes);
                 if (jobList != IntPtr.Zero) Marshal.FreeHGlobal(jobList);
+                if (handleList != IntPtr.Zero) Marshal.FreeHGlobal(handleList);
                 if (jobAddRef) job.DangerousRelease();
             }
             var process = new SafeProcessHandle(pi.hProcess, ownsHandle: true);

@@ -942,10 +942,19 @@ namespace JJFlexWpf
                 RaiseAll(raise);
                 return;
             }
-            try { started = WdspNative.StartInJob(path, commandLine); }
+            // The helper's standard error, recorded in the trace and never spoken
+            // (ruled 2026-11-06, S13). Safe since Track A's third repair round: a
+            // parent that stops reading it holds up only the helper's logger, never
+            // its audio and never its exit. If the pipe cannot be made, the helper
+            // still starts, with nowhere to write, as before.
+            AnonymousPipeServerStream? stderr = null;
+            try { stderr = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.None); }
+            catch (Exception ex) { Trace.WriteLine("WdspHost: the helper's standard error cannot be recorded this start: " + ex.Message); }
+            try { started = WdspNative.StartInJob(path, commandLine, standardError: stderr?.ClientSafePipeHandle); }
             catch (WdspNative.StartFailure f)
             {
                 pipe.Dispose();
+                stderr?.Dispose();
                 var condition = f.NotThere ? WdspCondition.FileMissing : f.Blocked ? WdspCondition.StartBlocked : WdspCondition.StartFailed;
                 lock (Gate) FailLocked(null, condition, (f.Blocked ? "Windows or antivirus software blocked the helper: " : "") + f.Message, raise);
                 RaiseAll(raise);
@@ -954,9 +963,18 @@ namespace JJFlexWpf
             catch (Exception ex)
             {
                 pipe.Dispose();
+                stderr?.Dispose();
                 lock (Gate) FailLocked(null, WdspCondition.StartFailed, ex.Message, raise);
                 RaiseAll(raise);
                 return;
+            }
+            if (stderr != null)
+            {
+                // Only the helper holds the write end now, so the pipe ends when it does.
+                stderr.DisposeLocalCopyOfClientHandle();
+                Interlocked.Increment(ref StderrReadersRunning);
+                int pid = started.ProcessId;
+                new Thread(() => StderrLoop(stderr, pid)) { IsBackground = true, Name = "WDSP helper stderr" }.Start();
             }
             var c = new WdspConnection(number, pipeName, commandLine, pipe, started);
             bool keep;
@@ -973,6 +991,46 @@ namespace JJFlexWpf
             if (!keep) { Teardown(c, kill: true); return; }
             new Thread(() => ReaderLoop(c)) { IsBackground = true, Name = "WDSP helper reader" }.Start();
             _controlWake.Set();
+        }
+
+        /// <summary>The most lines of one helper's standard error that are traced; the rest are counted.</summary>
+        internal const int MaxStderrLinesTraced = 500;
+        /// <summary>Standard-error readers still running: each ends when its helper's pipe ends.</summary>
+        internal int StderrReadersRunning;
+        /// <summary>Lines of helper standard error traced, over the host's life.</summary>
+        internal long StderrLinesTraced;
+
+        /// <summary>
+        /// One helper's standard error, line by line, into the trace and nowhere
+        /// else. Ends when the helper and every copy of the pipe's write end are
+        /// gone. Bounded: a helper that writes without end costs a count, not the trace.
+        /// </summary>
+        private void StderrLoop(AnonymousPipeServerStream err, int pid)
+        {
+            int traced = 0, beyond = 0;
+            try
+            {
+                using var reader = new StreamReader(err, new System.Text.UTF8Encoding(false), detectEncodingFromByteOrderMarks: false, bufferSize: 1024);
+                string? line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    if (line.Length == 0) continue;
+                    if (traced >= MaxStderrLinesTraced) { beyond++; continue; }
+                    traced++;
+                    Interlocked.Increment(ref StderrLinesTraced);
+                    Trace.WriteLine($"WdspHost: helper pid {pid} standard error: {line}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"WdspHost: reading helper pid {pid}'s standard error: {ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                if (beyond > 0) Trace.WriteLine($"WdspHost: helper pid {pid} wrote {beyond} more lines of standard error, not traced");
+                err.Dispose();
+                Interlocked.Decrement(ref StderrReadersRunning);
+            }
         }
 
         private void RaiseAll(List<WdspHelperStateChangedEventArgs> raise)

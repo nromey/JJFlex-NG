@@ -34,6 +34,9 @@
 //                            handshake order: a protocol error JJ Flexible finds)
 //   --garbled-hello          answer Hello with a HelloAck whose payload is one byte long
 //                            (a HelloAck that cannot be read)
+//   --stderr <text>          write that line to standard error at once (nothing, if the
+//                            host did not connect it)
+//   --stderr-lines <n>       write n numbered lines to standard error at once
 //   --fatal-after <n>        after n frames, send Error 257 naming a limit, close, exit 6
 //                            (the helper's answer to a client that overflows a bound)
 //   --fail-build <n>:<ms>    hold the n-th OpenChannel ms, then answer ChannelBuildFailed;
@@ -149,6 +152,13 @@ internal static class Program
                     case "--exit-early": Environment.Exit(int.Parse(Next(), CultureInfo.InvariantCulture)); break;
                     case "--error-first": _errorFirst = true; break;
                     case "--heartbeat-first": _heartbeatFirst = true; break;
+                    case "--stderr": Console.Error.WriteLine(Next()); break;
+                    case "--stderr-lines":
+                    {
+                        int lines = int.Parse(Next(), CultureInfo.InvariantCulture);
+                        for (int k = 1; k <= lines; k++) Console.Error.WriteLine("stub line " + k.ToString(CultureInfo.InvariantCulture));
+                        break;
+                    }
                     case "--garbled-hello": _garbledHello = true; break;
                     case "--fatal-after": _fatalAfter = int.Parse(Next(), CultureInfo.InvariantCulture); break;
                     case "--fail-build": (_failBuild, _failBuildMs) = Pair(); break;
