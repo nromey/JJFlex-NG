@@ -1257,6 +1257,17 @@ namespace JJFlexWpf
             try { _key = _getRigControl()?.KeyAskedOnThisThread; } catch { _key = null; }
         }
 
+        /// <summary>A further ask on a transmission already ours: it carries the release's cue, when the rig took it.</summary>
+        private void NoteContinuedKey()
+        {
+            try
+            {
+                var asked = _getRigControl()?.KeyAskedOnThisThread;
+                if (asked != null) _key = asked;
+            }
+            catch { }
+        }
+
         /// <param name="origin">The count of transmissions asked for at the
         /// ORIGIN of the transmission this debt is about (repair round 7,
         /// Codex's #863 S2): this controller's own key, or, when null, the
@@ -1611,7 +1622,12 @@ namespace JJFlexWpf
             // tells the episode what it commanded and the episode decides
             // which of the two this was (Astra's Track IJK2 review, blocker 1).
             SetTx(true);
+            // From Idle, this is a new key. From a held press it is the same
+            // transmission (round 10, Codex's #863 S6 sibling): the new ask
+            // continues the held key's carrier, so the release owes its falling
+            // cue to the new ask, which a later count would otherwise supersede.
             if (fromIdle) NoteKeyOrigin();
+            else NoteContinuedKey();
             if (fromIdle) KeyDownTone();
             else if (_keyedElsewhere) EarconPlayer.TxElsewhereStartTone();
             else if (_config.ChirpEnabled) EarconPlayer.TxStartTone();

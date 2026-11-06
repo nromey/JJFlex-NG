@@ -281,6 +281,109 @@ public sealed class FallingToneRepairNineTests : IDisposable
         Assert.Equal(new[] { nameof(EarconPlayer.TxElsewhereStopTone) }, Submitted());
     }
 
+    // ── Round 10, S6: a takeover continues the carrier our earlier key put up ──
+
+    [Fact]
+    public void A_push_to_talk_takeover_of_a_sends_carrier_keeps_the_transferred_falling_tone()
+    {
+        // Codex's S6: the controller's own ask wrote no ON (FlexLib's cache
+        // already read on), was classed as never gone out, and dropped the
+        // three notes the send handed over.
+        AssertTheDeskIsSafe();
+        _r.Interlock(InterlockState.Ready);
+        var send = new FlexBaseVoiceMessageRig(_r.Rig);
+        send.Transmit = true;
+        RunNextQueued();                                     // the send's ON, written
+        _r.Interlock(InterlockState.Transmitting);
+        _controller.PttDown();                               // the takeover asks again
+        _controller.TakeOverElsewhereStopTone();             // what the send's Settle hands over
+        RunNextQueued();                                     // the redundant ON writes nothing
+        Assert.False(Key.NeverWent);                         // it continues the send's carrier
+        _controller.PttUp();
+        RunNextQueued();                                     // our OFF, written
+        _r.Interlock(InterlockState.Ready);
+        Assert.True(Within(2000, () => Submitted().Length == 1), "the transferred falling tone was lost");
+        Assert.Equal(new[] { nameof(EarconPlayer.TxElsewhereStopTone) }, Submitted());
+    }
+
+    [Fact]
+    public void A_takeover_released_before_its_redundant_ON_runs_still_pays_once()
+    {
+        AssertTheDeskIsSafe();
+        _r.Interlock(InterlockState.Ready);
+        var send = new FlexBaseVoiceMessageRig(_r.Rig);
+        send.Transmit = true;
+        RunNextQueued();
+        _r.Interlock(InterlockState.Transmitting);
+        _controller.PttDown();
+        _controller.TakeOverElsewhereStopTone();
+        _controller.PttUp();                                 // released before either item runs
+        RunNextQueued();
+        RunNextQueued();
+        _r.Interlock(InterlockState.Ready);
+        Assert.True(Within(2000, () => Submitted().Length == 1));
+    }
+
+    [Fact]
+    public void A_held_press_turned_into_the_lock_keeps_its_falling_chirp()
+    {
+        // The pre-existing sibling: the lock's own ask continued the held key's
+        // carrier, but superseded its count and left it unmarked.
+        AssertTheDeskIsSafe();
+        _r.Interlock(InterlockState.Ready);
+        _controller.PttDown();
+        RunNextQueued();                                     // ON written
+        _r.Interlock(InterlockState.Transmitting);
+        _controller.ToggleLock();                            // held becomes locked
+        RunNextQueued();                                     // the redundant ON
+        Assert.False(Key.NeverWent);
+        _controller.ToggleLock();                            // unlock
+        RunNextQueued();                                     // OFF written
+        _r.Interlock(InterlockState.Ready);
+        Assert.True(Within(2000, () => Submitted().Length == 1), "the lock's release lost its chirp");
+        Assert.Equal(new[] { nameof(EarconPlayer.TxStopTone) }, Submitted());
+    }
+
+    [Fact]
+    public void A_redundant_ask_with_no_ON_of_ours_outstanding_still_never_went_out()
+    {
+        // The rule's other half: the cache read on for a carrier we did not key
+        // (a hand mic), and no key of ours was outstanding, so ours never went out.
+        AssertTheDeskIsSafe();
+        _r.Interlock(InterlockState.Ready);
+        PressWrittenWithItsTransmitReport();
+        _r.Interlock(InterlockState.Ready);                  // our first key is over
+        Assert.True(Within(2000, () => Submitted().Length == 1));
+        _r.Interlock(InterlockState.Transmitting);           // a hand mic
+        _controller.PttDown();
+        RunNextQueued();
+        Assert.True(Key.NeverWent);
+    }
+
+    // ── Round 10, F2: a receive parsed between our OFF's write and its bookkeeping ──
+
+    [Fact]
+    public void A_receive_parsed_between_our_written_OFF_and_its_bookkeeping_pays_the_cue()
+    {
+        AssertTheDeskIsSafe();
+        _r.Interlock(InterlockState.Ready);
+        _controller.PttDown();
+        RunNextQueued();
+        _r.Interlock(InterlockState.Transmitting);
+        _controller.PttUp();
+        bool once = true;
+        _r.Transport.AfterWrite = command =>
+        {
+            if (!once || !command.Contains("|xmit 0")) return;
+            once = false;
+            _r.Interlock(InterlockState.Ready);              // the radio's prompt answer
+        };
+        RunNextQueued();                                     // OFF written; READY parsed before it returns
+        Assert.True(Within(2000, () => Submitted().Length == 1), "the radio's first answer after our off was dated before it");
+        Thread.Sleep(100);
+        Assert.Single(Submitted());
+    }
+
     [Fact]
     public void A_carrier_we_did_not_key_still_takes_its_origin_from_the_report()
     {

@@ -214,9 +214,11 @@ public partial class FlexBase
             // while our ON was written cannot turn it into a no-op (Codex's #596
             // B13). Our key counts as released only when the OFF really went.
             bool off = false;
-            string? why = WriteOnPinnedTarget(owner, connection, () => ForeignCarrier(owner!), () => off = owner!.SendMoxOff(),
+            long offMark = 0;
+            string? why = WriteOnPinnedTarget(owner, connection, () => ForeignCarrier(owner!),
+                () => off = WriteOwnOff(owner!, r => r.SendMoxOff(), out offMark),
                 () => ForeignCarrier(owner!), unkeyOfOurs: true);
-            if (why == null && off) { _ownKeyRequested = false; NoteOwnOffWritten(); return; }
+            if (why == null && off) { _ownKeyRequested = false; NoteOwnOffWritten(offMark); return; }
             Tracing.TraceLine("TransmitAdmission: " + what + " NOT sent at its write - " + (why ?? "the transport did not take it"),
                 TraceLevel.Warning);
         }), "Mox (a send's own release)");

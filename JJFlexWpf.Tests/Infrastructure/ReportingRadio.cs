@@ -143,8 +143,17 @@ internal sealed class ReportingRadio : IDisposable
         public override void Write(string msg)
         {
             var pin = CurrentPin;
-            if (AdmitWrite(CurrentConnection)) ReportWrite(pin, true);
+            if (!AdmitWrite(CurrentConnection)) return;
+            ReportWrite(pin, true);
+            AfterWrite?.Invoke(msg ?? "");
         }
+
+        /// <summary>
+        /// Called with each written command after its writer succeeded and
+        /// before the caller resumes (repair round 10): where a radio's prompt
+        /// answer can be parsed before the app's own bookkeeping.
+        /// </summary>
+        public Action<string>? AfterWrite;
 
         public void Deliver(string line)
         {

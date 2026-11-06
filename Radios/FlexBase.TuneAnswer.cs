@@ -104,9 +104,11 @@ namespace Radios
                         // tune=0 report that landed while our tune ON was written
                         // cannot turn this OFF into a no-op.
                         bool off = false;
-                        string refusedAtWrite = WriteOnPinnedTarget(owner, connection, null, () => off = owner.SendTuneOff(),
+                        long offMark = 0;
+                        string refusedAtWrite = WriteOnPinnedTarget(owner, connection, null,
+                            () => off = WriteOwnOff(owner, r => r.SendTuneOff(), out offMark),
                             () => ForeignCarrier(owner), unkeyOfOurs: true);
-                        if (refusedAtWrite == null && off) { _ownTuneRequested = false; NoteOwnTuneOffWritten(); }
+                        if (refusedAtWrite == null && off) { _ownTuneRequested = false; NoteOwnTuneOffWritten(offMark); }
                         else
                             JJTrace.Tracing.TraceLine("TuneWrite: the " + what + " off NOT sent at its write - "
                                 + (refusedAtWrite ?? "the transport did not take it"), System.Diagnostics.TraceLevel.Info);
@@ -141,7 +143,7 @@ namespace Radios
                     // may be up, whatever FlexLib's cache reads (round 8, B14).
                     else if (radio.TXTune || _ownTuneRequested)
                     {
-                        if (radio.SendTuneOff()) { _ownTuneRequested = false; NoteOwnTuneOffWritten(); }
+                        if (WriteOwnOff(radio, r => r.SendTuneOff(), out long offMark)) { _ownTuneRequested = false; NoteOwnTuneOffWritten(offMark); }
                         else radio.TXTune = false;
                     }
                     if (latest) _tuneOnQueued = false;

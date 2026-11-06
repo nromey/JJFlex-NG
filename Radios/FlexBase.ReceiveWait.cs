@@ -138,7 +138,19 @@ namespace Radios
             private long _offMark;
             private CommandConnection? _connection;
 
-            internal OwnKey(long origin) { Origin = origin; }
+            internal OwnKey(long origin, OwnKey? previous = null) { Origin = origin; _previous = previous; }
+            private OwnKey? _previous;
+
+            /// <summary>
+            /// The latest key of ours when this one was asked (repair round 10,
+            /// Codex's #863 S6): if this key's own ON writes nothing while that
+            /// one's ON is still outstanding on the same connection, this key
+            /// CONTINUES that carrier (a push-to-talk takeover of a send, held
+            /// push to talk becoming the lock) rather than never going out.
+            /// </summary>
+            /// <remarks>Let go once this key's own ON is settled, so the keys of a
+            /// session never form an ever-growing chain.</remarks>
+            internal OwnKey? Previous => Volatile.Read(ref _previous);
 
             /// <summary>The count of transmissions asked when this key was asked.</summary>
             public long Origin { get; }
@@ -154,10 +166,17 @@ namespace Radios
             internal bool NoteOnWritten(CommandConnection? connection)
             {
                 Volatile.Write(ref _connection, connection);
-                return Interlocked.CompareExchange(ref _state, OnWritten, Asked) == Asked;
+                bool moved = Interlocked.CompareExchange(ref _state, OnWritten, Asked) == Asked;
+                Volatile.Write(ref _previous, null);
+                return moved;
             }
 
-            internal bool NoteNeverWent() => Interlocked.CompareExchange(ref _state, NeverWentState, Asked) == Asked;
+            internal bool NoteNeverWent()
+            {
+                bool moved = Interlocked.CompareExchange(ref _state, NeverWentState, Asked) == Asked;
+                Volatile.Write(ref _previous, null);
+                return moved;
+            }
 
             /// <summary>Our OFF was written, the reports standing at <paramref name="mark"/>: only from ON WRITTEN.</summary>
             internal bool NoteOffWritten(long mark)
@@ -193,7 +212,10 @@ namespace Radios
             internal string? WhyNotEndedOn(CommandConnection? target)
             {
                 int state = State;
-                if (state is Asked or NeverWentState) return null;
+                // Still queued: an earlier key of ours may still hold the carrier it
+                // would continue (round 10, S6), and that one answers for now.
+                if (state == Asked) return Previous?.WhyNotEndedOn(target);
+                if (state == NeverWentState) return null;
                 if (target == null || !ReferenceEquals(Connection, target)) return null;
                 if (state == OnWritten) return "our own " + What + " went out and its off has not been written";
                 return ReceiveReportedAfterOff() ? null
@@ -206,7 +228,8 @@ namespace Radios
 
             /// <summary>Its xmit 1 (or tune ON) went out and no off has been written.</summary>
             internal bool OffUnwrittenOn(CommandConnection? target) =>
-                State == OnWritten && target != null && ReferenceEquals(Connection, target);
+                State == OnWritten ? target != null && ReferenceEquals(Connection, target)
+                : State == Asked && Previous?.OffUnwrittenOn(target) == true;
 
             /// <summary>"key" or "tune", for the trace.</summary>
             internal string What { get; init; } = "key";
@@ -236,11 +259,54 @@ namespace Radios
             try { OwnKeyChanged?.Invoke(); } catch { }
         }
 
-        /// <summary>Our xmit 0 was really written: the latest own key, if its ON went out, is now off.</summary>
-        private void NoteOwnOffWritten()
+        /// <summary>
+        /// Our xmit 0 was really written, the reports standing at
+        /// <paramref name="mark"/> when its writer succeeded: the latest own key,
+        /// if its ON went out (or it continues one that did), is now off.
+        /// </summary>
+        private void NoteOwnOffWritten(long mark)
         {
             var key = LatestOwnKey;
-            if (key != null && key.NoteOffWritten(InterlockReports.Sequence)) RaiseOwnKeyChanged();
+            if (key != null && key.NoteOffWritten(mark)) RaiseOwnKeyChanged();
+        }
+
+        /// <summary>
+        /// One of our own forced offs (xmit 0 or transmit tune 0), dated at the
+        /// moment its writer succeeded (repair round 10, Codex's #863 F2): the
+        /// interlock report sequence then, read through the write pin's
+        /// OnWritten (MIGRATION.md item 22). A report the radio makes after the
+        /// bytes left is numbered after the mark, however long the caller takes
+        /// to resume. Inside a pinned step its pin is used; otherwise a pin of
+        /// its own on the radio's current connection, as SendCommandForced
+        /// would make. True when the off was written.
+        /// </summary>
+        private static bool WriteOwnOff(Radio radio, Func<Radio, bool> send, out long mark)
+        {
+            var outer = t_stepPin;
+            CommandWritePin? own = null;
+            if (outer == null && radio.CurrentCommandConnection is CommandConnection current)
+                own = CommandWritePin.Pin(current);
+            var pin = outer ?? own;
+            long at = 0;
+            bool seen = false;
+            var before = pin?.OnWritten;
+            if (pin != null)
+                pin.OnWritten = () =>
+                {
+                    if (!seen) { at = InterlockReports.Sequence; seen = true; }
+                    before?.Invoke();
+                };
+            try
+            {
+                bool written = send(radio);
+                mark = seen ? at : InterlockReports.Sequence;
+                return written;
+            }
+            finally
+            {
+                if (pin != null) pin.OnWritten = before;
+                own?.Dispose();
+            }
         }
 
         /// <summary>
@@ -250,8 +316,8 @@ namespace Radios
         /// </summary>
         private OwnKey? _latestOwnTune;
 
-        /// <summary>Our transmit tune 0 was really written.</summary>
-        private void NoteOwnTuneOffWritten() => Volatile.Read(ref _latestOwnTune)?.NoteOffWritten(InterlockReports.Sequence);
+        /// <summary>Our transmit tune 0 was really written, dated at its writer's success (round 10, F2).</summary>
+        private void NoteOwnTuneOffWritten(long mark) => Volatile.Read(ref _latestOwnTune)?.NoteOffWritten(mark);
 
         /// <summary>
         /// Why a carrier of OUR OWN keeps the transmit chain from being restored

@@ -8549,7 +8549,7 @@ namespace Radios
                     // (TransmitKillSwitch.DropCarrier) and is never swallowed.
                     if (radio.Mox || _ownKeyRequested || RadioInterlockReportsTransmit)
                     {
-                        if (radio.SendMoxOff()) { _ownKeyRequested = false; NoteOwnOffWritten(); }
+                        if (WriteOwnOff(radio, r => r.SendMoxOff(), out long offMark)) { _ownKeyRequested = false; NoteOwnOffWritten(offMark); }
                         // A link that is down takes nothing: the setter then lets
                         // the cache fall as it always did, so our side's transmit
                         // state ends with the connection.
@@ -8576,7 +8576,7 @@ namespace Radios
             long origin = NoteTransmissionAsked(carrier: true);
             // And our own key, whose written ON and OFF anchor its falling cue
             // (repair round 9). The asking thread can read it back.
-            var key = new OwnKey(origin);
+            var key = new OwnKey(origin, LatestOwnKey);
             Volatile.Write(ref _latestOwnKey, key);
             t_keyAskedHere = key;
             // The radio's interlock reports so far: a receive report must belong
@@ -8607,9 +8607,18 @@ namespace Radios
                 }
                 finally
                 {
-                    if (on ? key.NoteOnWritten(keyedConnection as CommandConnection) : key.NoteNeverWent())
+                    // No ON of its own, but an ON of ours is still outstanding on
+                    // that connection (round 10, Codex's #863 S6): this key
+                    // continues that carrier, so its end is this key's end. Only
+                    // with no ON of ours outstanding did nothing go out.
+                    var keyedOnConnection = keyedConnection as CommandConnection;
+                    bool continues = !on && key.Previous?.OffUnwrittenOn(keyedOnConnection) == true;
+                    if (on || continues ? key.NoteOnWritten(keyedOnConnection) : key.NoteNeverWent())
                         RaiseOwnKeyChanged();
-                    if (!on)
+                    if (continues)
+                        Tracing.TraceLine("TransmitWork: " + what + " wrote no ON of its own; it continues the carrier"
+                            + " our earlier key put on the air, and that carrier's end is now this key's", TraceLevel.Info);
+                    else if (!on)
                         Tracing.TraceLine("TransmitWork: " + what + " - our key never went out, so nothing was transmitted"
                             + " and no falling cue is owed for it", TraceLevel.Info);
                 }

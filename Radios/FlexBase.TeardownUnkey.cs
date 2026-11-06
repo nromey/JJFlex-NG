@@ -407,10 +407,12 @@ public partial class FlexBase
             // Ownership checked with the write (repair round 5, rule 1).
             // Forced, and retired only when it really went (round 8, #596 B13).
             bool off = false;
+            long offMark = 0;
             string refused = WriteOnPinnedTarget(owner, connection,
-                () => OurCarrierToUnkey(owner, connection, why) ? null : NotOurs, () => off = owner.SendMoxOff(),
+                () => OurCarrierToUnkey(owner, connection, why) ? null : NotOurs,
+                () => off = WriteOwnOff(owner, r => r.SendMoxOff(), out offMark),
                 () => ForeignCarrier(owner), unkeyOfOurs: true);
-            if (refused == null && off) { _ownKeyRequested = false; NoteOwnOffWritten(); return; }
+            if (refused == null && off) { _ownKeyRequested = false; NoteOwnOffWritten(offMark); return; }
             refused ??= "the transport did not take it";
             if (refused != NotOurs)
                 Tracing.TraceLine("Teardown unkey (" + why + "): not sent; " + refused, TraceLevel.Info);
