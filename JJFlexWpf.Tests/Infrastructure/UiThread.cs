@@ -50,6 +50,18 @@ public static class UiThread
     internal static DeskGuard.Verdict Guard { get; private set; }
         = DeskGuard.Verdict.RefusedIsolationFailed;
 
+    /// <summary>
+    /// The guard's verdict in one line, naming the ROUTE that isolated the run
+    /// and the desktop it is on (task #906): "moved the thread" and "started on
+    /// a hidden desktop" must be told apart by whoever reads the log.
+    /// </summary>
+    public static string VerdictLine
+        => "DeskGuard verdict: " + Guard + " (" + DeskGuard.Describe(Guard) + "), desktop isolation: "
+           + Isolation + ", " + PrivateDesktop.DescribeRoute(Isolation, PrivateDesktop.LastReading,
+                                                             PrivateDesktop.LastJudgement,
+                                                             PrivateDesktop.IsolatedDesktopName,
+                                                             PrivateDesktop.LastError);
+
     public static Dispatcher Dispatcher
     {
         get
@@ -125,7 +137,8 @@ public static class UiThread
             // away.
             if (_dispatcher == null)
                 throw new DeskNotFreeException(
-                    DeskGuard.Explain(Guard, PrivateDesktop.LastError));
+                    DeskGuard.Explain(Guard, PrivateDesktop.LastError)
+                    + Environment.NewLine + Environment.NewLine + VerdictLine);
 
             _thread = thread;
         }
@@ -184,7 +197,12 @@ public static class UiThread
                                                TestSettingsRoot.Isolated);
                 if (!DeskGuard.IsAllowed(verdict))
                     throw new DeskNotFreeException(
-                        DeskGuard.Explain(verdict, PrivateDesktop.LastError));
+                        DeskGuard.Explain(verdict, PrivateDesktop.LastError)
+                        + Environment.NewLine + Environment.NewLine
+                        + PrivateDesktop.DescribeRoute(isolation, PrivateDesktop.LastReading,
+                                                       PrivateDesktop.LastJudgement,
+                                                       PrivateDesktop.IsolatedDesktopName,
+                                                       PrivateDesktop.LastError));
 
                 result = body();
             }

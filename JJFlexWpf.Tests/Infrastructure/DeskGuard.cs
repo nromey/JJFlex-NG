@@ -136,12 +136,24 @@ internal static class DeskGuard
 
         if (!isolationRequested) return Verdict.RefusedIsolationDisabled;
 
-        if (isolation != DesktopIsolation.Isolated) return Verdict.RefusedIsolationFailed;
+        if (!IsIsolated(isolation)) return Verdict.RefusedIsolationFailed;
 
         if (!audioSuppressed) return Verdict.RefusedAudioNotSuppressed;
 
         return Verdict.AllowedIsolated;
     }
+
+    /// <summary>
+    /// The two routes that count as isolated: the thread was moved onto a
+    /// private desktop, or the whole process started on one (task #906). The
+    /// second is the same fact reached a different way, so it is treated
+    /// exactly like the first and loosens nothing else: settings are still
+    /// checked first and unwaivable, and sound is still required after it.
+    /// Every other value refuses, including any value added later.
+    /// </summary>
+    public static bool IsIsolated(DesktopIsolation isolation)
+        => isolation == DesktopIsolation.Isolated
+           || isolation == DesktopIsolation.StartedOnPrivateDesktop;
 
     /// <summary>True when a human has declared the desk free for this run.</summary>
     public static bool DeskDeclaredFree
@@ -158,6 +170,12 @@ internal static class DeskGuard
             + "desktop that nobody can see. Creating that desktop FAILED (Windows "
             + "error " + lastWin32Error + "), and rather than put the windows on "
             + "your actual screen, the run stopped.\r\n\r\n"
+            + "Under a plain dotnet test this is expected: the test thread already owns a "
+            + "window before any test code runs, so it cannot change desktops. To run these "
+            + "tests unseen, build the project and start them through tools/deskrun, which "
+            + "starts the whole test process on a hidden desktop:\r\n"
+            + "  deskrun JJFlexWpf.Tests/JJFlexWpf.Tests.csproj -c Debug -p:Platform=x64 "
+            + "--filter \"FullyQualifiedName~SomeTests\"\r\n\r\n"
             + "If the screen is yours to use — you have stepped away, or you do not "
             + "mind windows appearing — set " + DeskFreeVariable + "=1 for this run "
             + "and they will proceed.",

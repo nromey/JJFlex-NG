@@ -144,6 +144,92 @@ public sealed class DeskGuardDecisionTests
         Assert.False(DeskGuard.IsAllowed(verdict));
     }
 
+    // ── Task #906: a process that STARTED on a hidden desktop ──────────────
+    //
+    // The launcher (tools/deskrun) starts the whole test process on a desktop
+    // nobody can see, and the guard reports that as StartedOnPrivateDesktop.
+    // It must be treated EXACTLY like Isolated: allowed only with sound
+    // suppressed, and never past the settings refusal, which comes first and
+    // which nothing waives. The rows above are unchanged; these sit beside them.
+
+    [Fact]
+    public void StartedOnAHiddenDesktopAndSilentIsAllowedAsIsolated()
+    {
+        Assert.Equal(
+            DeskGuard.Verdict.AllowedIsolated,
+            DeskGuard.Decide(isolationRequested: true,
+                             isolation: DesktopIsolation.StartedOnPrivateDesktop,
+                             deskDeclaredFree: false,
+                             audioSuppressed: true,
+                             settingsIsolated: true));
+    }
+
+    [Fact]
+    public void StartedOnAHiddenDesktopButAudibleIsRefused()
+    {
+        // The launcher hides the windows. It does nothing about sound, so a run
+        // through it is still refused unless QuietRun read back silence.
+        Assert.Equal(
+            DeskGuard.Verdict.RefusedAudioNotSuppressed,
+            DeskGuard.Decide(isolationRequested: true,
+                             isolation: DesktopIsolation.StartedOnPrivateDesktop,
+                             deskDeclaredFree: false,
+                             audioSuppressed: false,
+                             settingsIsolated: true));
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    public void StartedOnAHiddenDesktopNeverGetsPastTheSettingsRefusal(bool deskFree, bool silent)
+    {
+        Assert.Equal(
+            DeskGuard.Verdict.RefusedSettingsNotIsolated,
+            DeskGuard.Decide(isolationRequested: true,
+                             isolation: DesktopIsolation.StartedOnPrivateDesktop,
+                             deskDeclaredFree: deskFree,
+                             audioSuppressed: silent,
+                             settingsIsolated: false));
+    }
+
+    [Fact]
+    public void StartedOnAHiddenDesktopDoesNotOverrideIsolationSwitchedOff()
+    {
+        // JJFLEX_TIER1_PRIVATE_DESKTOP=0 still means what it said. The guard
+        // never even reads the starting desktop on that path, but the decision
+        // must not depend on that.
+        Assert.Equal(
+            DeskGuard.Verdict.RefusedIsolationDisabled,
+            DeskGuard.Decide(isolationRequested: false,
+                             isolation: DesktopIsolation.StartedOnPrivateDesktop,
+                             deskDeclaredFree: false,
+                             audioSuppressed: true,
+                             settingsIsolated: true));
+    }
+
+    [Fact]
+    public void EveryIsolationValueOtherThanTheTwoIsolatedRoutesRefuses()
+    {
+        // Including any value somebody adds later: the guard is fail-closed by
+        // enumeration, not by remembering to extend a list.
+        foreach (DesktopIsolation isolation in Enum.GetValues(typeof(DesktopIsolation)))
+        {
+            var verdict = DeskGuard.Decide(isolationRequested: true,
+                                           isolation: isolation,
+                                           deskDeclaredFree: false,
+                                           audioSuppressed: true,
+                                           settingsIsolated: true);
+
+            bool isolatedRoute = isolation is DesktopIsolation.Isolated
+                                 or DesktopIsolation.StartedOnPrivateDesktop;
+            Assert.Equal(isolatedRoute ? DeskGuard.Verdict.AllowedIsolated
+                                       : DeskGuard.Verdict.RefusedIsolationFailed,
+                         verdict);
+        }
+    }
+
     [Fact]
     public void ThisRunIsNotPointedAtTheOperatorsSettings()
     {
