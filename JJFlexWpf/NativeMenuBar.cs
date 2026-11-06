@@ -542,6 +542,19 @@ public class NativeMenuBar : IDisposable
     /// unit rides the speech ("PC volume 12 dB") so the operator always hears
     /// which scale a value is on — plain numbers stay plain.
     /// </summary>
+    /// <summary>
+    /// Step the AGC field from the menu: the off gain while AGC is off, the
+    /// threshold otherwise, decided at click time and spoken with the label
+    /// that names it (#888).
+    /// </summary>
+    private void AdjustAgcField(int step)
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        bool offLevel = FlexBase.AgcFieldIsOffLevel(Rig.AGCSpeed);
+        AdjustValue(FlexBase.AgcFieldLabel(offLevel), () => Rig.AgcFieldValue(offLevel), v => Rig.SetAgcFieldValue(offLevel, v),
+            step, FlexBase.AGCThresholdMin, FlexBase.AGCThresholdMax);
+    }
+
     private void AdjustValue(string label, Func<int> getter, Action<int> setter,
         int step, int min, int max, string unit = "")
     {
@@ -1856,12 +1869,10 @@ public class NativeMenuBar : IDisposable
             SpeakAfterMenuClose(Radios.Lexicon.Get("audio.agc.mode", ("newMode", newMode)));
         });
 
-        AddWired(parent, "AGC Threshold Up", () =>
-            AdjustValue("AGC Threshold", () => Rig.AGCThreshold, v => Rig.AGCThreshold = v,
-                FlexBase.AGCThresholdIncrement, FlexBase.AGCThresholdMin, FlexBase.AGCThresholdMax));
-        AddWired(parent, "AGC Threshold Down", () =>
-            AdjustValue("AGC Threshold", () => Rig.AGCThreshold, v => Rig.AGCThreshold = v,
-                -FlexBase.AGCThresholdIncrement, FlexBase.AGCThresholdMin, FlexBase.AGCThresholdMax));
+        // #888: these step the one AGC field, so with AGC off they move the
+        // off gain and say so; otherwise the threshold, as always.
+        AddWired(parent, "AGC Threshold Up", () => AdjustAgcField(FlexBase.AGCThresholdIncrement));
+        AddWired(parent, "AGC Threshold Down", () => AdjustAgcField(-FlexBase.AGCThresholdIncrement));
 
         AddSep(parent);
 

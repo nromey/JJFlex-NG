@@ -10623,6 +10623,51 @@ namespace Radios
         }
 
         /// <summary>
+        /// The fixed receive gain the radio applies while AGC is OFF (FlexLib
+        /// <c>Slice.AGCOffLevel</c>, <c>agc_off_level</c>, 0 to 100, the same
+        /// range and step as the threshold). Nothing could reach it until
+        /// #888: every gain control wrote the threshold, which the radio does
+        /// not use with AGC off, so turning AGC off left the receiver silent
+        /// with no way to bring it up.
+        /// </summary>
+        public int AGCOffLevel
+        {
+            get { return theRadio?.ActiveSlice?.AGCOffLevel ?? 0; }
+            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("AGCOffLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.AGCOffLevel = value; })); } }
+        }
+
+        /// <summary>
+        /// ONE AGC field, its meaning following the AGC mode (Noel's ruling,
+        /// 2026-11-06, night question J1: "Agree with one field because in
+        /// essence, they do similar things, we'll just need to label it to be
+        /// what it is"). True when the field is the off gain: AGC is off. Any
+        /// other mode, and no slice (<see cref="AGCMode.None"/>), is the
+        /// threshold, as it always was.
+        /// </summary>
+        public static bool AgcFieldIsOffLevel(AGCMode mode) => mode == AGCMode.Off;
+
+        /// <summary>The AGC field's value: the off gain when <paramref name="offLevel"/>, else the threshold.</summary>
+        public int AgcFieldValue(bool offLevel) => offLevel ? AGCOffLevel : AGCThreshold;
+
+        /// <summary>
+        /// Write the AGC field. <paramref name="offLevel"/> is what the field
+        /// SHOWED when the operator moved it, not a fresh read of the mode, so
+        /// a value is always written to the setting its label named.
+        /// </summary>
+        public void SetAgcFieldValue(bool offLevel, int value)
+        {
+            if (offLevel) AGCOffLevel = value;
+            else AGCThreshold = value;
+        }
+
+        /// <summary>The AGC field's label, naming what it currently is. "AGC Off Gain" is DRAFT wording.</summary>
+        public static string AgcFieldLabel(bool offLevel)
+        {
+            if (offLevel) return Lexicon.Get("audio.fields.agc_off_gain");
+            return Lexicon.Get("audio.fields.agc_threshold");
+        }
+
+        /// <summary>
         /// data type for RIT/XIT.
         /// </summary>
         public class RITData

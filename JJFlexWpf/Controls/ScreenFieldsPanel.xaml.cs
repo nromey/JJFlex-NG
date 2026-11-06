@@ -113,6 +113,10 @@ public partial class ScreenFieldsPanel : UserControl
 
     private CycleFieldControl _agcModeControl = null!;
     private ValueFieldControl _agcThresholdControl = null!;
+    // #888: the AGC field is the threshold while AGC is on and the off gain
+    // while it is off (one field, Noel's ruling of 2026-11-06). What the
+    // field is NOW, so a write goes to the setting its label names.
+    private bool _agcFieldIsOffLevel;
     private CheckBox _squelchCheck = null!;
     private ValueFieldControl _squelchLevelControl = null!;
     private ValueFieldControl _rfGainControl = null!;
@@ -964,7 +968,9 @@ public partial class ScreenFieldsPanel : UserControl
         // !_polling matches the sibling handlers: a poll refresh rewriting the
         // control's value must not echo back to the rig — since #225 that echo
         // would also be misread as an operator settings change.
-        _agcThresholdControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.AGCThreshold = v; };
+        // #888: written to what the field currently is, the off gain with
+        // AGC off and the threshold otherwise.
+        _agcThresholdControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.SetAgcFieldValue(_agcFieldIsOffLevel, v); };
         ReceiverContent.Children.Add(_agcThresholdControl);
 
         _squelchCheck = MakeToggle(Lexicon.Get("audio.fields.squelch"));
@@ -1778,7 +1784,15 @@ public partial class ScreenFieldsPanel : UserControl
         };
         _agcModeControl.SelectedIndex = agcIndex;
 
-        _agcThresholdControl.Value = _rig.AGCThreshold;
+        // #888: one field whose meaning follows the mode the radio reports.
+        // The value first, then the label, so a rename carries the new value.
+        bool agcOffLevel = FlexBase.AgcFieldIsOffLevel(agcMode);
+        _agcThresholdControl.Value = _rig.AgcFieldValue(agcOffLevel);
+        if (agcOffLevel != _agcFieldIsOffLevel)
+        {
+            _agcFieldIsOffLevel = agcOffLevel;
+            _agcThresholdControl.Label = FlexBase.AgcFieldLabel(agcOffLevel);
+        }
 
         bool squelchOn = _rig.Squelch == FlexBase.OffOnValues.on;
         _squelchCheck.IsChecked = squelchOn;

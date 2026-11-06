@@ -2186,6 +2186,9 @@ namespace Radios.Tests
                 "settings.filter.edge_refused_low_squeeze",
                 "settings.filter.edge_step_high",
                 "settings.filter.edge_step_low",
+                // Junk box 2026-11-06 rulings round (#888): the one AGC field
+                // is labelled for what it is while AGC is off. DRAFT prose.
+                "audio.fields.agc_off_gain",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

@@ -208,6 +208,7 @@
   "audio.fields.agc_medium": "Medium",
   "audio.fields.agc_mode": "AGC Mode",
   "audio.fields.agc_off": "Off",
+  "audio.fields.agc_off_gain": {"text": "AGC Off Gain", "delivery": null},
   "audio.fields.agc_slow": "Slow",
   "audio.fields.agc_threshold": "AGC Threshold",
   "audio.fields.all_collapsed": "All panels collapsed, home",
