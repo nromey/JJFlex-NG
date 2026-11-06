@@ -82,6 +82,18 @@ namespace Radios
 
         private static readonly ConditionalWeakTable<CommandConnection, Record> Reports = new();
 
+        /// <summary>How many <c>mic_selection</c> reports the radio has sent on each connection (repair round 7).</summary>
+        private static readonly ConditionalWeakTable<CommandConnection, StrongBox<long>> MicSelectionCounts = new();
+
+        /// <summary>
+        /// How many times the radio has reported its mic input (<c>mic_selection=</c>)
+        /// on <paramref name="connection"/> (repair round 7, Codex's #861 B3/T1):
+        /// a count that moved across a write says FlexLib's cache now holds the
+        /// radio's word, not our own optimistic value. Zero for none.
+        /// </summary>
+        internal static long MicSelectionReports(CommandConnection? connection) =>
+            connection != null && MicSelectionCounts.TryGetValue(connection, out var box) ? Interlocked.Read(ref box.Value) : 0;
+
         /// <summary>The sequence of the last report read, on any connection; zero before the first.</summary>
         private static long _sequence;
 
@@ -186,6 +198,15 @@ namespace Radios
                 if (text == null || text.Length < 2 || text[0] != 'S') return;
                 int bar = text.IndexOf('|');
                 if (bar < 0 || bar + 11 > text.Length) return;
+                // The radio's own mic input reports, counted per connection
+                // (repair round 7): a transmit status carrying mic_selection=.
+                if (string.CompareOrdinal(text, bar + 1, "transmit ", 0, 9) == 0
+                    && text.IndexOf("mic_selection=", bar, StringComparison.Ordinal) >= 0)
+                {
+                    var box = MicSelectionCounts.GetValue(data!.Connection, _ => new StrongBox<long>());
+                    Interlocked.Increment(ref box.Value);
+                    return;
+                }
                 if (string.CompareOrdinal(text, bar + 1, "interlock ", 0, 10) != 0) return;
                 string? state = StateIn(text, bar + 11);
                 if (state == null) return;   // a configuration line: says nothing about the state

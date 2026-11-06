@@ -1313,6 +1313,64 @@ namespace Radios.Tests
             Assert.Equal("mic input MIC", rig.MicWrites.Last());
         }
 
+        /// <summary>Hold the radio transport's dispatch gate on another thread for <paramref name="ms"/>.</summary>
+        private static System.Threading.Thread HoldDispatchFor(PcAudioRig rig, int ms)
+        {
+            using var held = new System.Threading.ManualResetEventSlim();
+            var holder = new System.Threading.Thread(() =>
+            {
+                lock (rig.Vendor.Transport.ConnectionSync) { held.Set(); System.Threading.Thread.Sleep(ms); }
+            }) { IsBackground = true };
+            holder.Start();
+            Assert.True(held.Wait(2000), "the dispatch gate was never held");
+            return holder;
+        }
+
+        [Fact]
+        public void A_switch_back_restore_refused_for_want_of_the_report_gate_keeps_its_debt_and_the_next_run_pays_it()
+        {
+            // Codex's #861 B4 (repair round 7): the raw put-back after a
+            // switch-back, refused because the reader held its gate past the
+            // bound, cleared its only debt. A restore fails closed; it is kept.
+            using var rig = GuestRadioMovedToMic();
+            using var held = new HeldQueue(rig.Rig);
+            PressOnly(rig);
+            held.Drain();                                    // the switch's PC, raw; the radio says nothing yet
+            rig.StopPcAudio();                               // queues the put-back behind it
+            var holder = HoldDispatchFor(rig, 350);
+            held.Drain();                                    // refused at its write: the gate was not had in time
+            Assert.True(holder.Join(2000));
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+            Assert.NotNull(SwapField.GetValue(rig.Rig));     // kept
+
+            rig.NextRunBegins();                             // the next run's cleanup pays it
+            held.Drain();
+            Assert.Equal("mic input MIC", rig.MicWrites.Last());
+        }
+
+        [Fact]
+        public void An_old_put_back_resumed_after_a_newer_choice_was_already_restored_owes_nothing()
+        {
+            // Codex's #861 B5 (repair round 7): the handover kept an old MIC in
+            // an empty slot although a newer BAL had been chosen and put back,
+            // and a later run then wrote the stale MIC.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            var old = DecideUnderTheLock(rig, "PC audio stopped (test)");
+            rig.RadioReports("BAL");                         // a newer choice
+            rig.NextRunBegins();
+            rig.PlantChannel(started: false);
+            rig.StartPcAudio();                              // saves BAL, sets PC
+            rig.StopPcAudio();                               // puts BAL back: that run is done
+            old();                                           // refused for its run; must not revive MIC
+            Assert.Null(SwapField.GetValue(rig.Rig));
+            rig.RadioReports("PC");
+            rig.NextRunBegins();
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+        }
+
         [Fact]
         public void APutBackOwedToOneRadioIsNeverTakenOverOnAnother()
         {

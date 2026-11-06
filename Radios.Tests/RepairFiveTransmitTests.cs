@@ -507,6 +507,43 @@ namespace Radios.Tests
             Assert.Null(SavedMic());
         }
 
+        [Fact]
+        public void A_mic_put_back_meeting_a_repeated_PC_report_at_its_write_is_still_written()
+        {
+            // Codex's #861 B3 (repair round 7): a PC report is the radio still
+            // holding the PC this app left, not a newer choice.
+            PutBackMicWith(() => _f.Vendor.Status("transmit mic_selection=PC"));
+            Assert.Equal(new[] { "mic input MIC" }, Commands("mic input"));
+            Assert.Null(SavedMic());
+        }
+
+        [Fact]
+        public void A_mic_put_back_whose_radio_reported_the_saved_input_before_a_carrier_leaves_the_cache_on_the_radios_word()
+        {
+            // Codex's T1: the radio really reported MIC, then a carrier refused
+            // the write. The cache is the radio's word, MIC, and nothing is owed.
+            PutBackMicWith(() =>
+            {
+                _f.Vendor.Status("transmit mic_selection=MIC");
+                Interlock("TRANSMITTING", Foreign);
+            });
+            Assert.Empty(Commands("mic input"));
+            Assert.Equal("MIC", _f.Vendor.Radio.MicInput);
+            Assert.Null(SavedMic());
+        }
+
+        [Fact]
+        public void A_mic_put_back_under_a_busy_report_reader_is_not_written_and_stays_owed()
+        {
+            // A restore fails closed when its answer cannot be had in time, and
+            // keeps its debt; the cache goes back to the PC the radio holds.
+            Thread? holder = null;
+            PutBackMicWith(() => holder = HoldDispatchFor(350));
+            Assert.True(holder!.Join(2000));
+            Assert.Empty(Commands("mic input"));
+            Assert.NotNull(SavedMic());
+        }
+
         private static AudioChainPreset SnapshotWithoutEq() => new AudioChainPreset
         {
             SchemaVersion = 2,

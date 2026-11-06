@@ -2038,14 +2038,24 @@ namespace Radios
         /// sends). Put the cache back to the PC the radio still holds, but only
         /// while it still reads our value: a report since is the radio's word.
         /// </summary>
-        private static void ForgetOptimisticMicInput(Radio radio, string unsent)
+        private static void ForgetOptimisticMicInput(Radio radio, string unsent, CommandConnection connection, long reportsBefore)
         {
             try
             {
                 var field = typeof(Radio).GetField("_micInput", BindingFlags.Instance | BindingFlags.NonPublic);
                 if (field == null) return;
-                if (string.Equals(field.GetValue(radio) as string ?? "", unsent ?? "", StringComparison.OrdinalIgnoreCase))
-                    field.SetValue(radio, "PC");
+                // Under the reader's dispatch gate (round 7, Codex's T1), bounded,
+                // and only while no mic report has arrived: then the cache is
+                // still our unsent echo, never the radio's own word.
+                object dispatch = InterlockReports.ConnectionSyncOf(radio);
+                if (dispatch == null || !System.Threading.Monitor.TryEnter(dispatch, CommandWritePin.SerializeBound)) return;
+                try
+                {
+                    if (InterlockReports.MicSelectionReports(connection) == reportsBefore
+                        && string.Equals(field.GetValue(radio) as string ?? "", unsent ?? "", StringComparison.OrdinalIgnoreCase))
+                        field.SetValue(radio, "PC");
+                }
+                finally { System.Threading.Monitor.Exit(dispatch); }
             }
             catch (Exception ex)
             {
@@ -2069,8 +2079,16 @@ namespace Radios
                 var current = _micInputSwap;
                 if (current == null)
                 {
-                    _micInputSwap = swap;
-                    outcome = "kept as still owed, for this connection's next stop";
+                    // Only while the radio still holds the PC this app left (round
+                    // 7, Codex's B5): an empty slot can also mean a newer choice
+                    // was made and already put back, and then the old debt is void.
+                    string now = swap.Radio?.MicInput ?? "";
+                    if (string.Equals(now, "PC", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _micInputSwap = swap;
+                        outcome = "kept as still owed, for this connection's next stop";
+                    }
+                    else outcome = "dropped: the radio now reports '" + now + "', not the PC this app left";
                 }
                 else if (ReferenceEquals(current.Radio, swap.Radio) && ReferenceEquals(current.Connection, swap.Connection)
                     && string.Equals(current.Saved ?? "", "PC", StringComparison.OrdinalIgnoreCase))
@@ -2096,8 +2114,12 @@ namespace Radios
         {
             try
             {
-                bool withheld = false, sent = false, onAirAtWrite = false, newerAtWrite = false;
+                bool withheld = false, sent = false, newerAtWrite = false;
                 string leftAlone = null;
+                // The radio's own mic reports so far on this connection: a count
+                // that moves across the write says FlexLib's cache is then the
+                // radio's word, not our unsent value (round 7, Codex's T1).
+                long micReportsBefore = InterlockReports.MicSelectionReports(swap.Connection as CommandConnection);
                 // ONE pinned step (repair round 5, Codex's #861 B1): the radio,
                 // the command connection it was saved on (still up), the run,
                 // and receive asked of THAT radio and connection, checked with
@@ -2127,29 +2149,40 @@ namespace Radios
                 // choice), and receive is asked again. Reads only.
                 () =>
                 {
-                    if (!string.Equals(radio.MicInput ?? "", swap.Saved ?? "", StringComparison.OrdinalIgnoreCase))
+                    // A newer choice is a value that is neither the PC we left
+                    // nor the one we are writing (round 7, Codex's B3: a repeated
+                    // PC report is the radio still holding OUR PC, not a choice).
+                    if (NewerMicChoice(radio.MicInput, swap))
                     {
                         newerAtWrite = true;
                         return "the radio has reported another mic input since the check";
                     }
-                    string onAir = RestoreRefusedAtWrite(radio, swap.Connection);
-                    if (onAir != null) onAirAtWrite = true;
-                    return onAir;
+                    return RestoreRefusedAtWrite(radio, swap.Connection);
                 });
                 if (refused != null && sent)
                 {
-                    // Refused AT the transport write: nothing went out. FlexLib's
-                    // setter had already cached our value, so it is put back to
-                    // the PC the radio still holds, unless the radio reported a
-                    // newer choice, which stands and voids the debt (F3).
+                    // Refused AT the transport write: nothing went out.
                     if (newerAtWrite)
                     {
                         Tracing.TraceLine("PutBackSavedMicInput (" + when + "): NOT writing '" + swap.Saved
                             + "' - " + refused + "; the newer choice is left there", TraceLevel.Info);
                         return;
                     }
-                    ForgetOptimisticMicInput(radio, swap.Saved);
-                    if (onAirAtWrite)
+                    // FlexLib's setter cached our value before it sent; unless the
+                    // radio has reported its input since, that cache is our unsent
+                    // echo and goes back to the PC the radio holds (round 7, T1).
+                    bool reported = InterlockReports.MicSelectionReports(swap.Connection as CommandConnection) != micReportsBefore;
+                    if (!reported) ForgetOptimisticMicInput(radio, swap.Saved, swap.Connection as CommandConnection, micReportsBefore);
+                    else if (string.Equals(radio.MicInput ?? "", swap.Saved ?? "", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Tracing.TraceLine("PutBackSavedMicInput (" + when + "): NOT writing '" + swap.Saved
+                            + "' - " + refused + "; the radio itself now reports '" + swap.Saved + "', so nothing is owed", TraceLevel.Info);
+                        return;
+                    }
+                    // Any other refusal on this radio's own live connection, a
+                    // carrier or the gate not had in time alike, keeps the debt:
+                    // a restore fails closed, it is never lost (round 7, B4's class).
+                    if (ReferenceEquals(theRadio, radio) && OnItsOwnLiveConnection(radio, swap))
                     {
                         Tracing.TraceLine("MicPutBackWithheld: radio " + swap.Serial + ", PutBackSavedMicInput (" + when
                             + "): NOT writing '" + swap.Saved + "' - " + refused + " at the write. The value is kept as still owed on this connection.",
@@ -2322,7 +2355,7 @@ namespace Radios
                     string command = "mic input " + (swap.Saved ?? "").ToUpperInvariant();
                     string notSent = null;
                     bool withheld = false;
-                    bool rawOnAir = false;
+                    bool rawNewer = false, rawSent = false;
                     string refused = StepOnPinnedTarget(radio, pin.Connection, () =>
                     {
                         if (Interlocked.Read(ref _remoteAudioRun) != pin.Run)
@@ -2331,6 +2364,7 @@ namespace Radios
                         notSent = SendRadioCommandWithReply(radio, command, reply =>
                             Tracing.TraceLine("PutBackSavedMicInput (" + when + "): " + reply,
                                 reply.Acknowledged ? TraceLevel.Info : TraceLevel.Warning));
+                        rawSent = true;
                         return null;
                     },
                     // At the transport write (round 6, N3): the raw send leaves
@@ -2338,13 +2372,22 @@ namespace Radios
                     // word; a newer report there, or no receive, refuses.
                     () =>
                     {
-                        if (!string.Equals(radio.MicInput ?? "", swap.Saved ?? "", StringComparison.OrdinalIgnoreCase))
+                        // Neither the PC the switch set nor the saved value: a
+                        // newer choice (round 7, Codex's B3, here too).
+                        if (NewerMicChoice(radio.MicInput, swap))
+                        {
+                            rawNewer = true;
                             return "the radio has reported another mic input since the check";
-                        string onAir = RestoreRefusedAtWrite(radio, pin.Connection);
-                        if (onAir != null) rawOnAir = true;
-                        return onAir;
+                        }
+                        return RestoreRefusedAtWrite(radio, pin.Connection);
                     });
-                    if (refused != null && rawOnAir) withheld = true;
+                    // Refused on this radio's own live connection for anything but
+                    // a newer choice (a carrier, or the gate not had in time):
+                    // the debt is kept (round 7, Codex's #861 B4).
+                    if (refused != null && rawSent && !rawNewer && ReferenceEquals(theRadio, radio)
+                        && ReferenceEquals(radio.CurrentCommandConnection, pin.Connection)
+                        && pin.Connection.State == CommandConnectionState.Connected)
+                        withheld = true;
                     if (withheld) { KeepMicPutBackOwed(swap); return; }
                     if (refused != null)
                     {
