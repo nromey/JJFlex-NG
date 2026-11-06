@@ -175,6 +175,17 @@ internal static class DialogTransmitKeys
     /// <summary>Whether the controller is in a push-to-talk hold right now, read BEFORE a release runs.</summary>
     internal static Func<bool>? HoldInFlight { get; set; }
 
+    /// <summary>
+    /// True while a hold the app ended (a reference's end, round five 7a) still
+    /// waits for the operator's real release: the controller is idle, but the
+    /// door's window is still the one that release, or its loss, must reach
+    /// (round five repair, 7h-3).
+    /// </summary>
+    internal static Func<bool>? AppEndedHoldPending { get; set; }
+
+    /// <summary>A hold in flight, or one the app ended that still waits for its release.</summary>
+    private static bool InputPending => HoldInFlight?.Invoke() == true || AppEndedHoldPending?.Invoke() == true;
+
     /// <summary>Escape while transmitting: unkey through the controller, as Home's step 3 does. True when it unkeyed.</summary>
     internal static Func<bool>? EscapeUnkey { get; set; }
 
@@ -326,7 +337,9 @@ internal static class DialogTransmitKeys
         SpaceKeyTimingTrace.Note(down: false, chord, isRepeat, SpaceKeyTimingTrace.DialogDoor);
         bool wasHold = HoldInFlight?.Invoke() == true;
         PttEdge?.Invoke(false);
-        if (HoldInFlight?.Invoke() != true) EndHold();
+        // Round five repair (7h-3): a release the app-ended latch is still
+        // judging keeps the window, so its loss can still clear it.
+        if (!InputPending) EndHold();
         return wasHold;
     }
 
@@ -336,13 +349,17 @@ internal static class DialogTransmitKeys
     /// not a key-up, so it does not go through the deferring edge; it unkeys
     /// at once. Idempotent; nothing to do when no hold is tracked here.
     /// Whether the hold in flight is really this door's is MainWindow's
-    /// question, answered inside <see cref="ReleaseNow"/>.
+    /// question, answered inside <see cref="ReleaseNow"/>. A hold the app has
+    /// already ended, whose latch still waits for a release, goes the same way
+    /// (round five repair, 7h-3): the release can no longer come through here.
     /// </summary>
     internal static void HoldWindowLost(string why)
     {
         if (_holdWindow == null) return;
         EndHold();
-        if (HoldInFlight?.Invoke() != true) return;
+        // Round five repair (7h-3): a hold the app ended is idle at the
+        // controller, but its latch is still input this window owned.
+        if (!InputPending) return;
         Tracing.TraceLine("PTT: the dialog that keyed push to talk " + why
             + " before the key came up; releasing now, ahead of any deferred release", TraceLevel.Warning);
         if (ReleaseNow != null) ReleaseNow();

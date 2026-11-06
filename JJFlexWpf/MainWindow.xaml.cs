@@ -324,20 +324,7 @@ public partial class MainWindow : UserControl
         // decides, these callers gate on a powered radio, and the edges are
         // shared. Wired outside the try because it needs no hook and must
         // not fall with one.
-        DialogTransmitKeys.PttEdge = HandleDialogPttEdge;
-        DialogTransmitKeys.HoldInFlight =
-            () => _pttController != null && _pttController.State == PttSafetyController.PttState.PttHold;
-        DialogTransmitKeys.EscapeUnkey = HandleDialogEscapeUnkey;
-        DialogTransmitKeys.ReleaseNow = HandleDialogHoldLost;
-        DialogTransmitKeys.SessionOwnsTransmitter = () => Dialogs.AudioWorkshopDialog.AnAudioCheckIsActive;
-        // #835, fix round 2: only Check your audio handles the check's own
-        // Escape; anywhere else, Escape while it transmits stops it.
-        DialogTransmitKeys.WindowHandlesCheckEscape = w => w is Dialogs.CheckYourAudioDialog;
-        DialogTransmitKeys.CheckEscapeElsewhere = Dialogs.CheckYourAudioDialog.StopTransmittingCheckFromElsewhere;
-        // Unified takes, round five (7a): a reference recording's end lets go
-        // of the app's key through the edges, which latch a hold the operator
-        // may still be pressing instead of forgetting it.
-        Dialogs.CheckYourAudioDialog.EndAppKeyForReference = HandleReferenceEndUnkey;
+        WireDialogTransmitKeys();
         StartTuneReminder();
         try
         {
@@ -943,6 +930,13 @@ public partial class MainWindow : UserControl
     /// </para>
     /// </remarks>
     private bool _pttHoldEndedByApp;
+
+    /// <summary>
+    /// The door whose hold <see cref="_pttHoldEndedByApp"/> latched (round five
+    /// repair, 7h-3), so a dialog's window loss clears only its own door's
+    /// latch. Read with the latch, never alone.
+    /// </summary>
+    private PttDoor _pttLatchDoor;
 
     /// <summary>
     /// Current PTT configuration. Set during radio connect, used by Settings dialog.
@@ -3046,6 +3040,7 @@ public partial class MainWindow : UserControl
     private void LatchAppEndedHold(string why)
     {
         _pttHoldEndedByApp = true;
+        _pttLatchDoor = _pttHoldDoor;
         _pttHoldDoor = PttDoor.None;
         Tracing.TraceLine("PTT: the app ended a held push to talk (" + why + "); until the key is"
             + " really let go, a down the hold filter reads as the hold continuing keys nothing", TraceLevel.Info);
@@ -3056,6 +3051,7 @@ public partial class MainWindow : UserControl
     {
         if (!_pttHoldEndedByApp) return;
         _pttHoldEndedByApp = false;
+        _pttLatchDoor = PttDoor.None;
         Tracing.TraceLine("PTT: the hold the app ended is over (" + why + ")", TraceLevel.Info);
     }
 
@@ -3100,6 +3096,7 @@ public partial class MainWindow : UserControl
         // A hold the app ended goes with the rest (round five, 7a): it can
         // never outlive Escape, a teardown or the radio closing.
         _pttHoldEndedByApp = false;
+        _pttLatchDoor = PttDoor.None;
     }
 
     /// <summary>
@@ -3237,6 +3234,33 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
+    /// The dialog door's wiring into the edges (#778c), and the reference's
+    /// end into the same edges (Unified takes, round five, 7a). One method so
+    /// the windowless tests wire exactly what the constructor wires (round five
+    /// repair, 7h-3), rather than a copy that can drift from it.
+    /// </summary>
+    internal void WireDialogTransmitKeys()
+    {
+        DialogTransmitKeys.PttEdge = HandleDialogPttEdge;
+        DialogTransmitKeys.HoldInFlight =
+            () => _pttController != null && _pttController.State == PttSafetyController.PttState.PttHold;
+        // Round five repair (7h-3): a hold the app ended is still input the
+        // door must see through to a real release, or to its window going.
+        DialogTransmitKeys.AppEndedHoldPending = () => _pttHoldEndedByApp;
+        DialogTransmitKeys.EscapeUnkey = HandleDialogEscapeUnkey;
+        DialogTransmitKeys.ReleaseNow = HandleDialogHoldLost;
+        DialogTransmitKeys.SessionOwnsTransmitter = () => Dialogs.AudioWorkshopDialog.AnAudioCheckIsActive;
+        // #835, fix round 2: only Check your audio handles the check's own
+        // Escape; anywhere else, Escape while it transmits stops it.
+        DialogTransmitKeys.WindowHandlesCheckEscape = w => w is Dialogs.CheckYourAudioDialog;
+        DialogTransmitKeys.CheckEscapeElsewhere = Dialogs.CheckYourAudioDialog.StopTransmittingCheckFromElsewhere;
+        // Unified takes, round five (7a): a reference recording's end lets go
+        // of the app's key through the edges, which latch a hold the operator
+        // may still be pressing instead of forgetting it.
+        Dialogs.CheckYourAudioDialog.EndAppKeyForReference = HandleReferenceEndUnkey;
+    }
+
+    /// <summary>
     /// The dialog that keyed a hold lost focus or closed (#778c repair round
     /// one, F2). Window loss is not a key-up: the operator cannot release a
     /// key into a window that is gone, and a screen reader's synthetic pair
@@ -3244,7 +3268,10 @@ public partial class MainWindow : UserControl
     /// only when the hold in flight is the dialog door's (round two, Codex
     /// F2): a hold Home or the system-wide chord keyed after the dialog's
     /// ended is not the dialog's to release, however late its window event
-    /// arrives. Then drops the edges' input state and unkeys at once.
+    /// arrives. Then drops the edges' input state and unkeys at once. A hold
+    /// the app already ended under the dialog's key (round five, 7a) is
+    /// latched rather than held; its window going clears that latch the same
+    /// way (round five repair, 7h-3).
     /// </summary>
     internal void HandleDialogHoldLost()
     {
@@ -3254,6 +3281,17 @@ public partial class MainWindow : UserControl
         {
             Tracing.TraceLine("PTT: a dialog's window-loss release was declined; the hold in flight was keyed by "
                 + _pttHoldDoor + ", not the dialog (#778c F2)", TraceLevel.Info);
+            return;
+        }
+        // Round five repair (7h-3): after the app ended a hold the dialog
+        // keyed (a reference's end), the controller is idle but the latch
+        // waits for a real release that can no longer come through this
+        // window. It goes with the window, as ResetPttInput takes it, and only
+        // when it is this door's.
+        if (!holding && _pttHoldEndedByApp && _pttLatchDoor != PttDoor.Dialog)
+        {
+            Tracing.TraceLine("PTT: a dialog's window loss left the app-ended hold alone; it was keyed by "
+                + _pttLatchDoor + ", not the dialog (7h-3)", TraceLevel.Info);
             return;
         }
         ResetPttInput();

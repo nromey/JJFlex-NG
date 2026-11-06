@@ -86,7 +86,8 @@ public sealed class ReferenceEndHeldKeyTests : IDisposable
     public void Dispose()
     {
         DialogTransmitKeys.HoldWindowLost("test teardown");
-        foreach (var name in new[] { "PttEdge", "HoldInFlight", "EscapeUnkey", "ReleaseNow", "SessionOwnsTransmitter" })
+        foreach (var name in new[] { "PttEdge", "HoldInFlight", "AppEndedHoldPending", "EscapeUnkey", "ReleaseNow",
+                                     "SessionOwnsTransmitter", "WindowHandlesCheckEscape", "CheckEscapeElsewhere" })
             typeof(DialogTransmitKeys).GetProperty(name, BindingFlags.Static | BindingFlags.NonPublic)?.SetValue(null, null);
         ((System.Windows.Threading.DispatcherTimer?)typeof(MainWindow).GetField("_pttDeferTimer", Any)?.GetValue(_main))?.Stop();
         AudioWorkshopDialog.PttControllerSource = _sourceBefore;
@@ -338,26 +339,116 @@ public sealed class ReferenceEndHeldKeyTests : IDisposable
 
     // ── the dialog door, for the NVDA case ──
 
+    /// <summary>
+    /// The dialog door, wired by MainWindow's own <c>WireDialogTransmitKeys</c>,
+    /// the method its constructor calls (round five repair, 7h-3), so these
+    /// tests run the production delegates rather than a copy of them.
+    /// </summary>
     private void WireDialogDoor()
     {
-        Door("PttEdge", (Action<bool>)(down => Call("HandleDialogPttEdge", down)));
-        Door("HoldInFlight", (Func<bool>)(() => _controller.State == PttSafetyController.PttState.PttHold));
-        Door("EscapeUnkey", (Func<bool>)(() => (bool)Call("HandleDialogEscapeUnkey")!));
-        Door("ReleaseNow", (Action)(() => Call("HandleDialogHoldLost")));
-        Door("SessionOwnsTransmitter", (Func<bool>)(() => false));
+        Call("WireDialogTransmitKeys");
+        // The reference's end is wired there too; as the constructor wires it.
+        Assert.NotNull(CheckYourAudioDialog.EndAppKeyForReference);
+        Assert.NotNull(typeof(DialogTransmitKeys).GetProperty("AppEndedHoldPending", BindingFlags.Static | BindingFlags.NonPublic)?.GetValue(null));
     }
 
-    private static void Door(string property, Delegate value)
-    {
-        var p = typeof(DialogTransmitKeys).GetProperty(property, BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.True(p != null, "production entry DialogTransmitKeys." + property + " is missing");
-        p!.SetValue(null, value);
-    }
-
+    /// <summary>A dialog window whose focus loss and close the test raises, as WPF's would.</summary>
     private sealed class FakeWindow : DialogTransmitKeys.IHoldWindow
     {
-        public event EventHandler? Deactivated { add { } remove { } }
-        public event EventHandler? Closed { add { } remove { } }
+        public event EventHandler? Deactivated;
+        public event EventHandler? Closed;
         public bool HandlesAudioCheckEscape => false;
+        public void LoseFocus() => Deactivated?.Invoke(this, EventArgs.Empty);
+        public void Close() => Closed?.Invoke(this, EventArgs.Empty);
+    }
+
+    // ── round five repair, 7h-3 (Codex F3): the window going after the app ended its hold ──
+
+    private static readonly Keys CtrlSpace = Keys.Space | Keys.Control;
+
+    /// <summary>A held Ctrl+Space as JAWS delivers it, pressed in a dialog: the door's own key-down and key-up.</summary>
+    private void JawsHoldKeyedInTheDialog(FakeWindow w)
+    {
+        Assert.True(DialogTransmitKeys.KeyDown(w, CtrlSpace, false, false));
+        Assert.Equal(Hold, _controller.State);
+        DialogTransmitKeys.KeyUp(CtrlSpace);           // implausibly fast: a synthetic up
+        Assert.True(_filter.SynthesisDetected, "positive control: the filter saw the synthetic signature");
+        Assert.True(DialogTransmitKeys.KeyDown(w, CtrlSpace, false, false));   // the re-down claims it
+        Assert.Equal(Hold, _controller.State);
+        Assert.Same(w, DialogTransmitKeys.HoldWindow);
+    }
+
+    /// <summary>
+    /// Codex's F3. A dialog's JAWS hold reaches the reference's end and is
+    /// latched; the next synthetic up is deferred, the latch still judging it.
+    /// Until 7h-3 that up dropped the dialog's window (the controller was no
+    /// longer holding), and a window loss with the controller idle returned
+    /// before anything cleared the latch. Driven through the door's own window
+    /// events. Then the latch is clear, and a new press keys.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]    // the dialog closes
+    [InlineData(false)]   // the dialog loses focus to another window
+    public void A_dialog_going_after_the_app_ended_its_hold_takes_the_latch_with_it(bool closes)
+    {
+        AssertTheDeskIsSafe();
+        WireDialogDoor();
+        var w = new FakeWindow();
+        JawsHoldKeyedInTheDialog(w);
+        TheReferenceEndsAndTheAppLetsGo();
+        Assert.True(Latched);
+
+        DialogTransmitKeys.KeyUp(CtrlSpace);           // the reader's next up: deferred, the latch judging it
+        Assert.True(_filter.ReleasePending, "positive control: a release is pending under the latch");
+        Assert.Same(w, DialogTransmitKeys.HoldWindow);   // the mutation: the up drops the window while the latch waits
+
+        if (closes) w.Close(); else w.LoseFocus();
+        Assert.False(Latched, "the dialog went and the latch it left stayed");   // the mutation: window loss asks only whether the controller holds
+        Assert.False(_filter.ReleasePending);
+        Assert.Null(DialogTransmitKeys.HoldWindow);
+        Assert.Equal(Idle, _controller.State);
+
+        Edge(true);                                    // a new press, anywhere: it keys
+        Assert.Equal(Hold, _controller.State);
+    }
+
+    /// <summary>
+    /// The window goes straight after the end, before any up: the latch goes
+    /// with it all the same.
+    /// </summary>
+    [Fact]
+    public void A_dialog_closing_right_at_the_end_takes_the_latch_with_it()
+    {
+        AssertTheDeskIsSafe();
+        WireDialogDoor();
+        var w = new FakeWindow();
+        JawsHoldKeyedInTheDialog(w);
+        TheReferenceEndsAndTheAppLetsGo();
+        Assert.True(Latched);
+        w.Close();
+        Assert.False(Latched);
+        Assert.True(DialogTransmitKeys.KeyDown(new FakeWindow(), CtrlSpace, false, false));
+        Assert.Equal(Hold, _controller.State);
+    }
+
+    /// <summary>
+    /// The control for the door check: a latch another door's hold left is not
+    /// the dialog's to clear, however late its window event arrives. Here the
+    /// hold was keyed by the system-wide chord and the dialog's press was the
+    /// redundant second down; the end latches the system-wide hold.
+    /// </summary>
+    [Fact]
+    public void A_latch_another_doors_hold_left_is_not_cleared_by_a_dialogs_window_loss()
+    {
+        AssertTheDeskIsSafe();
+        WireDialogDoor();
+        Edge(true);                                    // keyed by the system-wide door
+        Assert.Equal(Hold, _controller.State);
+        var w = new FakeWindow();
+        Assert.True(DialogTransmitKeys.KeyDown(w, CtrlSpace, false, false));   // a redundant down: the dialog tracks it, keys nothing
+        TheReferenceEndsAndTheAppLetsGo();
+        Assert.True(Latched);
+        w.Close();
+        Assert.True(Latched, "a dialog's window loss cleared another door's latch");   // the mutation: drop the door check
     }
 }
