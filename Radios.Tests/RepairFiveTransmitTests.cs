@@ -805,7 +805,8 @@ namespace Radios.Tests
         {
             string radio = System.IO.File.ReadAllText(Repo("FlexLib_API/FlexLib/Radio.cs"));
             Assert.Contains("// JJFlex patch: forced writes (MIGRATION.md item 22).", radio);
-            Assert.Contains("private bool SendCommandForced(string command, Func<long> reports, Func<bool> applyCache, string property)", radio);
+            Assert.Contains("private bool SendCommandForced(string command, Func<long> reports, Func<bool> applyCache, string property,", radio);
+            Assert.Equal(2, Count(radio, "urgent: true);"));   // item 25: the two forced OFFs go first at the write gate
             Assert.Contains("public bool SendMoxOff() => SendCommandForced(\"xmit 0\"", radio);
             Assert.Contains("public bool SendTuneOff() => SendCommandForced(\"transmit tune 0\"", radio);
             Assert.Contains("public bool SendMicInput(string input) => SendCommandForced(\"mic input \"", radio);

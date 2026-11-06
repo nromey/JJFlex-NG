@@ -194,8 +194,17 @@ namespace Radios.Tests
         }
 
         /// <summary>The transport's write gate (MIGRATION.md item 25), by reflection.</summary>
-        private SemaphoreSlim WriteGate() =>
-            (SemaphoreSlim)typeof(CommandCommunicationBase).GetField("_writeGate", Any)!.GetValue(_tcp)!;
+        private Gate WriteGate() =>
+            new Gate((CommandWriteGate)typeof(CommandCommunicationBase).GetField("_writeGate", Any)!.GetValue(_tcp)!);
+
+        /// <summary>The write gate held by a test as an earlier line would hold it.</summary>
+        private sealed class Gate
+        {
+            private readonly CommandWriteGate _g;
+            public Gate(CommandWriteGate g) => _g = g;
+            public bool Wait(int _) => _g.TryEnter();
+            public void Release() => _g.Exit();
+        }
 
         [Theory]
         [InlineData(false)]
@@ -297,7 +306,8 @@ namespace Radios.Tests
             string connection = File.ReadAllText(Repo("FlexLib_API/FlexLib/CommandConnection.cs"));
             string tcp = File.ReadAllText(Repo("FlexLib_API/FlexLib/TcpCommandCommunication.cs"));
             string tls = File.ReadAllText(Repo("FlexLib_API/FlexLib/TlsCommandCommunication.cs"));
-            Assert.Contains("private readonly System.Threading.SemaphoreSlim _writeGate", connection);
+            Assert.Contains("private readonly CommandWriteGate _writeGate = new CommandWriteGate();", connection);
+            Assert.Contains("public static IDisposable UrgentWrites()", connection);
             Assert.Contains("protected static bool AdmitAtTheBytes(CommandWritePin? pin, out string? why)", connection);
             Assert.Contains("Func<string?>? atTheBytes = null", connection);
             Assert.Equal(2, Count(tcp, "if (!AdmitAtTheBytes(pin, out refused))"));    // Write and WriteAsync
@@ -388,6 +398,43 @@ namespace Radios.Tests
                 Assert.NotNull(swap);
                 Assert.Equal(FlexBase.PcSwitchAttempt.OnPc, result);
             }
+        }
+
+    
+
+        // ── Rulings round two, Codex's R2: an OFF waits for at most the line in progress ──
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void A_forced_off_waits_for_the_line_in_progress_and_no_ordinary_waiter(bool tune)
+        {
+            // Codex's three-thread schedule on the real TCP adapter: one ordinary
+            // line parked inside the writer; an ordinary mic write waiting at the
+            // gate; then a forced OFF. Released, the OFF must be next.
+            OnTheRealTcpAdapter(cw: false, pauseTheRestore: false);
+            var writer = new PausingWriter("first line");
+            var attempt = typeof(TcpCommandCommunication).GetField("_attempt", Any)!.GetValue(_tcp)!;
+            attempt.GetType().GetField("Writer")!.SetValue(attempt, writer);
+            _writer = writer;
+            var radio = _f.Vendor.Radio;
+            string off = tune ? "transmit tune 0" : "xmit 0";
+
+            var first = new Thread(() => _tcp.Write("C1|first line")) { IsBackground = true };
+            first.Start();
+            Assert.True(writer.Entered.Wait(3000), "the first line never reached the writer");
+            var ordinary = new Thread(() => radio.SendMicInput("BAL")) { IsBackground = true };
+            ordinary.Start();
+            WaitFor(() => (ordinary.ThreadState & ThreadState.WaitSleepJoin) != 0, "the ordinary write waiting at the gate");
+            Thread.Sleep(50);
+            var unkey = new Thread(() => { if (tune) radio.SendTuneOff(); else radio.SendMoxOff(); }) { IsBackground = true };
+            unkey.Start();
+            WaitFor(() => (unkey.ThreadState & ThreadState.WaitSleepJoin) != 0, "the OFF waiting at the gate");
+            Thread.Sleep(50);
+            writer.Resume.Set();
+            Assert.True(first.Join(3000) && ordinary.Join(3000) && unkey.Join(3000));
+            var wire = writer.Commands.Where(x => !x.StartsWith("S", StringComparison.Ordinal)).ToArray();
+            Assert.Equal(new[] { "first line", off, "mic input BAL" }, wire);
         }
 
     }

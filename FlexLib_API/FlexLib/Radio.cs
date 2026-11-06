@@ -9689,7 +9689,8 @@ namespace Flex.Smoothlake.FlexLib
         // the cache reading OFF, so an OFF through the setter sends nothing. These always
         // issue their command, and change the cache only once the transport has really
         // admitted the write (a CommandWritePin can refuse it). True when it went out.
-        private bool SendCommandForced(string command, Func<long> reports, Func<bool> applyCache, string property)
+        private bool SendCommandForced(string command, Func<long> reports, Func<bool> applyCache, string property,
+            bool urgent = false)
         {
             // A write counts as sent only once its writer returned without an
             // exception (CommandWritePin.Written, reported by the adapter after the
@@ -9703,7 +9704,11 @@ namespace Flex.Smoothlake.FlexLib
             int before = watched.Written;
             long reportsBefore;
             lock (_reportedCacheSync) reportsBefore = reports();
-            int seq = SendCommand(command);
+            int seq;
+            // JJFlex patch: write order (MIGRATION.md item 25): a forced OFF goes
+            // before every ordinary write waiting at the adapter's gate.
+            using (urgent ? CommandWritePin.UrgentWrites() : null)
+                seq = SendCommand(command);
             bool sent = seq != 0 && watched.Written > before;
             if (!sent) return false;
             // The cache follows our write only while the radio has said nothing
@@ -9726,7 +9731,7 @@ namespace Flex.Smoothlake.FlexLib
             if (!_mox) return false;
             _mox = false;
             return true;
-        }, "Mox");
+        }, "Mox", urgent: true);
 
         /// <summary>JJFlex patch (MIGRATION.md item 22): transmit tune 0, whatever the cache reads. True when it was written.</summary>
         public bool SendTuneOff() => SendCommandForced("transmit tune 0", () => _txTuneReports, () =>
@@ -9734,7 +9739,7 @@ namespace Flex.Smoothlake.FlexLib
             if (!_txTune) return false;
             _txTune = false;
             return true;
-        }, nameof(TXTune));
+        }, nameof(TXTune), urgent: true);
 
         /// <summary>JJFlex patch (MIGRATION.md item 22): mic input, whatever the cache reads. True when it was written.</summary>
         public bool SendMicInput(string input) => SendCommandForced("mic input " + (input ?? "").ToUpper(), () => _micInputReports, () =>

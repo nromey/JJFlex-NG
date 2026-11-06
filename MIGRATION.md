@@ -306,11 +306,13 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     #596 B4)**: keep the comment-marked JJFlex patches ("write order (MIGRATION.md
     item 25)") in `FlexLib_API/FlexLib/CommandConnection.cs` (`CommandWritePin.AtTheBytes`
     and the `atTheBytes` parameter of `CommandWritePin.Pin`; in
-    `CommandCommunicationBase`, the `_writeGate` semaphore with `EnterWriteGate`,
-    `EnterWriteGateAsync`, `ExitWriteGate`, `AdmitAtTheBytes` and `ReportRefusal`), in
-    `TcpCommandCommunication.Write` and `.WriteAsync`, and in
-    `TlsCommandCommunication.Write`. (Numbered 25 because the other junk box batch
-    holds 24.)
+    `CommandCommunicationBase`, the `_writeGate` (a `CommandWriteGate`) with
+    `EnterWriteGate`, `EnterWriteGateAsync`, `ExitWriteGate`, `AdmitAtTheBytes` and
+    `ReportRefusal`; the `CommandWriteGate` class; and `CommandWritePin.UrgentWrites`
+    with `UrgentNow`), in `TcpCommandCommunication.Write` and `.WriteAsync`, in
+    `TlsCommandCommunication.Write`, and in `Radio.cs` the `urgent` parameter of
+    `SendCommandForced`, which `SendMoxOff` and `SendTuneOff` set. (Numbered 25
+    because the other junk box batch holds 24.)
     - **What it is.** One write at a time per adapter. Each `Write`/`WriteAsync`,
       after item 21's `AdmitWrite` (whose question waits for the dispatch gate,
       outside this one), takes the write gate, asks the pin's `AtTheBytes`
@@ -321,10 +323,21 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     - **What holds it, and for how long.** One write: its in-memory `AtTheBytes`
       question and the hand-off of one line to the stream (AutoFlush, so the
       socket send, which returns once the kernel has buffered it). Never the
-      dispatch gate's wait, and nothing else is taken under it. Another write, the
-      kill among them, therefore waits for at most one line's hand-off; only a
-      stalled link makes that long, and then nothing can go out on that connection
-      anyway. Callers' setters only queue and never take it.
+      dispatch gate's wait, and nothing else is taken under it. Callers' setters
+      only queue and never take it.
+    - **Who goes next (corrected 2026-11-06, Codex's R2 on the rulings round).**
+      This entry first said every write, the kill included, waits for at most one
+      line. With a plain semaphore that was false: an OFF queued behind ordinary
+      waiters (measured: the line in progress, then `mic input BAL`, then
+      `xmit 0`). Now a forced OFF (`SendMoxOff`, `SendTuneOff`, marked with
+      `CommandWritePin.UrgentWrites`) goes before every ordinary waiter, so **an
+      OFF waits for at most the line in progress when it arrives, plus any other
+      OFF already waiting**. Ordinary writes wait behind waiting OFFs and get no
+      such bound. The OFF still takes the gate (never exempt: that would put two
+      writers into one StreamWriter and reopen B4). An OFF queued on the command
+      loop waits for the loop as before; this gate adds at most one line to that.
+      Only a stalled link makes the line in progress long, and then nothing can go
+      out on that connection anyway.
     - **Why.** Two LOCAL writes overtook each other: an immediate VOX or CW
       break-in restore was admitted, then preempted before its writer; the
       operator's OFF was queued and written by the command loop meanwhile; then the
@@ -339,7 +352,8 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
       the command loop are already ordered with the operator's queued writes by the
       loop itself.
     - **Pinned by** `TransportWriteOrderTests` (Codex's schedule on the real TCP
-      adapter, its opposite-order control, the at-the-bytes refusal, and
+      adapter, its opposite-order control, the at-the-bytes refusal, the forced
+      OFF's three-thread schedule (R2), the J10 retry against a new run (R1), and
       `The_write_gate_is_still_patched_into_the_vendor_transport`, which also pins
       this entry).
     - **Re-apply after an upgrade.** Merge, never blind-copy. Each adapter's write

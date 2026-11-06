@@ -110,6 +110,31 @@ public sealed class CommandWritePin : IDisposable
     /// <summary>JJFlex patch: write order (MIGRATION.md item 25). The question asked at the bytes, under the write gate; null for none.</summary>
     public Func<string?>? AtTheBytes { get; }
 
+    // JJFlex patch: write order (MIGRATION.md item 25), rulings round two (Codex's R2).
+    [ThreadStatic] private static int _urgentDepth;
+
+    /// <summary>JJFlex patch: write order (MIGRATION.md item 25). This thread's writes are urgent: a forced OFF.</summary>
+    internal static bool UrgentNow => _urgentDepth > 0;
+
+    /// <summary>
+    /// JJFlex patch: write order (MIGRATION.md item 25). Mark this thread's
+    /// command writes, until Dispose, as urgent: at the adapter's write gate they
+    /// go before every ordinary waiter. Only for a forced OFF.
+    /// </summary>
+    public static IDisposable UrgentWrites() => new UrgentScope();
+
+    private sealed class UrgentScope : IDisposable
+    {
+        private bool _disposed;
+        public UrgentScope() => _urgentDepth++;
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _urgentDepth--;
+        }
+    }
+
     /// <summary>The first refusal of a write under this pin, or null.</summary>
     public string? Refusal { get; private set; }
 
@@ -158,6 +183,58 @@ public sealed class CommandWritePin : IDisposable
     }
 }
 
+// JJFlex patch: write order (MIGRATION.md item 25). One writer at a time per
+// adapter; an urgent write (a forced OFF) goes before every ordinary waiter
+// (rulings round two, Codex's R2). Monitor-based, so it costs nothing when free.
+public sealed class CommandWriteGate
+{
+    private readonly object _sync = new object();
+    private bool _held;
+    private int _urgentWaiting;
+
+    internal CommandWriteGate() { }
+
+    /// <summary>Take the gate: an urgent writer waits only for the holder; an ordinary one also for every urgent waiter.</summary>
+    public void Enter(bool urgent)
+    {
+        lock (_sync)
+        {
+            if (urgent) _urgentWaiting++;
+            try
+            {
+                while (_held || (!urgent && _urgentWaiting > 0))
+                    System.Threading.Monitor.Wait(_sync);
+            }
+            finally
+            {
+                if (urgent) _urgentWaiting--;
+            }
+            _held = true;
+        }
+    }
+
+    /// <summary>Take the gate only if it can be had at once.</summary>
+    public bool TryEnter(bool urgent = false)
+    {
+        lock (_sync)
+        {
+            if (_held || (!urgent && _urgentWaiting > 0)) return false;
+            _held = true;
+            return true;
+        }
+    }
+
+    /// <summary>Let it go; every waiter re-checks, an urgent one first by the rule above.</summary>
+    public void Exit()
+    {
+        lock (_sync)
+        {
+            _held = false;
+            System.Threading.Monitor.PulseAll(_sync);
+        }
+    }
+}
+
 // JJFlex patch: both adapters serialize identity selection and delivery on this gate.
 // No socket wait holds it. Radio's teardown uses the same gate, so an old callback
 // cannot pass a check and then tear down a replacement installed in the gap.
@@ -178,21 +255,33 @@ public abstract class CommandCommunicationBase : ICommandCommunication
     // line to the stream (AutoFlush: the socket send, which returns once the
     // kernel has buffered the line). Never the dispatch gate's wait: AdmitWrite's
     // question under ConnectionSync, bounded by SerializeBound, is asked BEFORE
-    // this gate is taken, and nothing is taken while it is held. So another write,
-    // the kill among them, waits at most for one line's hand-off. Only a stalled
-    // link (the kernel's send buffer full) makes that long, and then no write can
-    // go out on that connection anyway. The refusal and delivery callbacks run
-    // after it is released.
-    private readonly System.Threading.SemaphoreSlim _writeGate = new System.Threading.SemaphoreSlim(1, 1);
+    // this gate is taken, and nothing is taken while it is held. The refusal and
+    // delivery callbacks run after it is released.
+    //
+    // WHO GOES NEXT (rulings round two, Codex's R2): an URGENT write, a forced OFF
+    // (Radio.SendMoxOff and SendTuneOff, marked with CommandWritePin.UrgentWrites),
+    // goes before every ordinary write already waiting. So an OFF waits for at
+    // most the line in progress when it arrives (and any other OFF ahead of it),
+    // never behind an ordinary backlog. Ordinary writes wait while an OFF waits.
+    // Only a stalled link (the kernel's send buffer full) makes the line in
+    // progress long, and then no write can go out on that connection anyway.
+    // The OFF is never exempt from the gate: that would let two writers into
+    // one StreamWriter and reopen B4.
+    private readonly CommandWriteGate _writeGate = new CommandWriteGate();
 
-    /// <summary>JJFlex patch: write order (MIGRATION.md item 25). Take the write gate.</summary>
-    protected void EnterWriteGate() => _writeGate.Wait();
+    /// <summary>JJFlex patch: write order (MIGRATION.md item 25). Take the write gate, an urgent write first.</summary>
+    protected void EnterWriteGate() => _writeGate.Enter(CommandWritePin.UrgentNow);
 
-    /// <summary>JJFlex patch: write order (MIGRATION.md item 25). Take the write gate without blocking a thread.</summary>
-    protected System.Threading.Tasks.Task EnterWriteGateAsync() => _writeGate.WaitAsync();
+    /// <summary>JJFlex patch: write order (MIGRATION.md item 25). Take the write gate off the caller's thread.</summary>
+    protected System.Threading.Tasks.Task EnterWriteGateAsync()
+    {
+        bool urgent = CommandWritePin.UrgentNow;   // read on the caller's thread, before any await
+        return _writeGate.TryEnter(urgent) ? System.Threading.Tasks.Task.CompletedTask
+            : System.Threading.Tasks.Task.Run(() => _writeGate.Enter(urgent));
+    }
 
     /// <summary>JJFlex patch: write order (MIGRATION.md item 25). Let the write gate go.</summary>
-    protected void ExitWriteGate() => _writeGate.Release();
+    protected void ExitWriteGate() => _writeGate.Exit();
 
     /// <summary>
     /// JJFlex patch: write order (MIGRATION.md item 25). Called UNDER the write
