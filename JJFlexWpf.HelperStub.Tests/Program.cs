@@ -27,6 +27,45 @@
 //   --slow-open <engine>:<ms> hold every OpenChannelAck for that engine back by ms
 //   --bad-applied <how>      answer every Ok OpenChannelAck with malformed applied values:
 //                            missing, order, duplicate or refused
+//   --exit-early <code>      exit with that code before connecting (the helper's 2, 3, 4 or 8)
+//   --error-first            answer Hello with Error 257, then close and exit 6 (the
+//                            helper refusing a first message)
+//   --heartbeat-first        answer Hello with a Heartbeat before the HelloAck (out of
+//                            handshake order: a protocol error JJ Flexible finds)
+//   --garbled-hello          answer Hello with a HelloAck whose payload is one byte long
+//                            (a HelloAck that cannot be read)
+//   --stderr <text>          write that line to standard error at once (nothing, if the
+//                            host did not connect it)
+//   --stderr-lines <n>       write n numbered lines to standard error at once
+//   --reply-queue <bytes>    queue everything it sends for a writer thread, with the
+//                            helper's accounting made small (WriterQueueModel): FrameOut
+//                            and Heartbeat dropped once the RAW bytes waiting pass half
+//                            the limit; a reply that would take the CHARGED bytes (raw
+//                            plus 64 a message) past the limit ends the connection with
+//                            exit 6, saying so on standard error; a message leaves both
+//                            counts when the writer takes it, before its write (the
+//                            helper's 16 MiB raw and 32 MiB charged, made small). Every
+//                            100 ms it writes "reply bytes peak <n> frames dropped <m>",
+//                            the peak being the replies' charged bytes, to standard error.
+//   --fatal-after <n>        after n frames, send Error 257 naming a limit, close, exit 6
+//                            (the helper's answer to a client that overflows a bound)
+//   --fail-build <n>:<ms>    hold the n-th OpenChannel ms, then answer ChannelBuildFailed;
+//                            closes read meanwhile get one CloseChannelAck UnknownChannel
+//                            after it, as the helper answers a channel closed during a
+//                            build that failed
+//   --close-unknown          answer every CloseChannel UnknownChannel (the helper's answer
+//                            to a close it reads after the channel left its table)
+//   --swallow-closes         answer no CloseChannel at all (the helper's answer to a
+//                            close repeated before its ack)
+//   --slow-settings <ms>     take this long over each SetSetting
+//   --request-limit <n>      more than n settings and closes waiting: Error 257, close,
+//                            exit 6 (the helper's 4,096 limit, made small)
+//   --hold-setting-acks <engine>:<answer|drop>
+//                            hold that engine's SettingAcks until its channel closes; then
+//                            send the CloseChannelAck and, for answer, each held setting as
+//                            UnknownChannel after it (the shape the helper has today for a
+//                            setting read after a close), or, for drop, nothing (the other
+//                            reading of "nothing more for that channel")
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -50,7 +89,13 @@ internal static class Program
 
     private static NamedPipeClientStream _pipe = null!;
     private static readonly object WriteGate = new();
-    private static readonly BlockingCollection<object> Work = new(new ConcurrentQueue<object>(), 64);
+    // Bounded like the helper's frame queue, plus room for a request limit to be reached.
+    private static BlockingCollection<object> Work = new(new ConcurrentQueue<object>(), 64);
+    private static int _slowSettingsMs, _requestLimit = -1, _requestsWaiting;
+    private static string? _holdAcksEngine;
+    private static bool _holdAcksAnswer;
+    /// <summary>Held SettingAcks by channel. Processing thread only.</summary>
+    private static readonly Dictionary<uint, List<string>> HeldAcks = new();
     private static readonly Dictionary<uint, StubChannel> Channels = new();
     private static readonly HashSet<uint> UsedIds = new();
     private static int _delay = 2448, _slowStart, _stallAfter = -1, _stallMs, _crashAfter = -1, _crashCode, _breakAfter = -1;
@@ -65,6 +110,17 @@ internal static class Program
     private static int _slowOpenMs;
     private static long _framesProcessed;
     private static bool _answered;
+    private static bool _errorFirst, _heartbeatFirst, _garbledHello;
+    private static long _replyLimit = -1;
+    private static readonly object OutboxGate = new();
+    /// <summary>--reply-queue only; under OutboxGate.</summary>
+    private static WriterQueueModel? Outbox;
+    private static readonly AutoResetEvent OutboxWake = new(false);
+    private static int _fatalAfter = -1;
+    private static int _failBuild = -1, _failBuildMs, _opens;
+    private static bool _closeUnknown, _swallowCloses;
+    /// <summary>Channels whose build is pending a failure, and how many closes each has had meanwhile. Under Channels' lock.</summary>
+    private static readonly Dictionary<uint, int> Building = new();
 
     private sealed class StubChannel
     {
@@ -108,6 +164,34 @@ internal static class Program
                     case "--refuse-setting": _refuseSetting = Next(); break;
                     case "--refuse-open": RefuseOpen.Add(Next()); break;
                     case "--bad-applied": _badApplied = Next(); break;
+                    case "--exit-early": Environment.Exit(int.Parse(Next(), CultureInfo.InvariantCulture)); break;
+                    case "--error-first": _errorFirst = true; break;
+                    case "--heartbeat-first": _heartbeatFirst = true; break;
+                    case "--reply-queue": _replyLimit = long.Parse(Next(), CultureInfo.InvariantCulture); Outbox = new WriterQueueModel(_replyLimit); break;
+                    case "--stderr": Console.Error.WriteLine(Next()); break;
+                    case "--stderr-lines":
+                    {
+                        int lines = int.Parse(Next(), CultureInfo.InvariantCulture);
+                        for (int k = 1; k <= lines; k++) Console.Error.WriteLine("stub line " + k.ToString(CultureInfo.InvariantCulture));
+                        break;
+                    }
+                    case "--garbled-hello": _garbledHello = true; break;
+                    case "--fatal-after": _fatalAfter = int.Parse(Next(), CultureInfo.InvariantCulture); break;
+                    case "--fail-build": (_failBuild, _failBuildMs) = Pair(); break;
+                    case "--close-unknown": _closeUnknown = true; break;
+                    case "--swallow-closes": _swallowCloses = true; break;
+                    case "--hold-setting-acks":
+                    {
+                        var p = Next().Split(':');
+                        _holdAcksEngine = p[0];
+                        _holdAcksAnswer = p[1] == "answer";
+                        break;
+                    }
+                    case "--slow-settings": _slowSettingsMs = int.Parse(Next(), CultureInfo.InvariantCulture); break;
+                    case "--request-limit":
+                        _requestLimit = int.Parse(Next(), CultureInfo.InvariantCulture);
+                        Work = new(new ConcurrentQueue<object>(), 64 + _requestLimit + 1);
+                        break;
                     case "--slow-open": { var p = Next().Split(':'); _slowOpenEngine = p[0]; _slowOpenMs = int.Parse(p[1], CultureInfo.InvariantCulture); break; }
                     default: throw new FormatException("unknown argument " + args[i]);
                 }
@@ -132,6 +216,20 @@ internal static class Program
             Environment.Exit(ExitWrongServer);
 
         new Thread(ProcessLoop) { IsBackground = true, Priority = ThreadPriority.AboveNormal }.Start();
+        if (_replyLimit >= 0)
+        {
+            new Thread(OutboxLoop) { IsBackground = true }.Start();
+            new Thread(() =>
+            {
+                while (true)
+                {
+                    Thread.Sleep(100);
+                    long peak, dropped;
+                    lock (OutboxGate) { peak = Outbox!.ReplyChargePeak; dropped = Outbox.Dropped; }
+                    Console.Error.WriteLine($"reply bytes peak {peak} frames dropped {dropped}");
+                }
+            }) { IsBackground = true }.Start();
+        }
         ReadLoop();
         return ExitClean;
     }
@@ -161,11 +259,55 @@ internal static class Program
     private static void Send(object message)
     {
         var bytes = WdspProtocol.Encode(message);
+        if (_replyLimit >= 0) { Queue(message, bytes); return; }
         lock (WriteGate)
         {
             try { _pipe.Write(bytes); }
             catch (IOException) { Environment.Exit(ExitClean); }
             catch (ObjectDisposedException) { Environment.Exit(ExitClean); }
+        }
+    }
+
+    /// <summary>
+    /// --reply-queue: the helper's accounting of what waits for its writer, made
+    /// small (see WriterQueueModel: both its counters, its thresholds and its
+    /// dequeue point). The fatal Error is never dropped and never bounded.
+    /// </summary>
+    private static void Queue(object message, byte[] bytes)
+    {
+        var kind = message switch
+        {
+            WdspFrameOut or WdspHeartbeat => WriterQueueModel.Kind.Droppable,
+            WdspError e when WdspProtocol.IsFatal(e.Code) => WriterQueueModel.Kind.Final,
+            _ => WriterQueueModel.Kind.Reply,
+        };
+        lock (OutboxGate)
+        {
+            if (Outbox!.Enqueue(bytes, kind) == WriterQueueModel.Outcome.LimitReached)
+            {
+                Console.Error.WriteLine($"reply limit: queuing {bytes.Length + WriterQueueModel.Overhead} more would pass {Outbox.Limit}; " +
+                    $"{Outbox.Charge} charged waiting, {Outbox.ReplyCharge} of it replies");
+                Console.Error.Flush();
+                Environment.Exit(ExitProtocol);
+            }
+        }
+        OutboxWake.Set();
+    }
+
+    private static void OutboxLoop()
+    {
+        while (true)
+        {
+            byte[]? next;
+            // Off both counters as it is taken, before the blocking write, as in the helper.
+            lock (OutboxGate) next = Outbox!.TakeNext();
+            if (next == null) { OutboxWake.WaitOne(20); continue; }
+            lock (WriteGate)
+            {
+                try { _pipe.Write(next); }
+                catch (IOException) { Environment.Exit(ExitClean); }
+                catch (ObjectDisposedException) { Environment.Exit(ExitClean); }
+            }
         }
     }
 
@@ -180,7 +322,9 @@ internal static class Program
     private static EngineSettingDescriptor[] NnrSettings() => new EngineSettingDescriptor[] {
         new("model", "audio.denoise.nnr.model", EngineSettingKind.Choice, new EngineSettingValue(0, "standard"),
             Options: new[] { new EngineSettingOption("standard", "audio.denoise.nnr.model.standard"),
-                             new EngineSettingOption("premium", "audio.denoise.nnr.model.premium") }, ChangesLatency: true),
+                             new EngineSettingOption("premium", "audio.denoise.nnr.model.premium"),
+                             new EngineSettingOption("standard_cw", "audio.denoise.nnr.model.standard_cw"),
+                             new EngineSettingOption("premium_cw", "audio.denoise.nnr.model.premium_cw") }, ChangesLatency: true),
         new("mask_floor_db", "audio.denoise.nnr.mask_floor_db", EngineSettingKind.Number, new EngineSettingValue(-25),
             -40, -10, 0, "audio.unit.decibels", new double[] { -40, -35, -30, -27, -25, -22, -20, -15, -10 }),
     };
@@ -197,9 +341,9 @@ internal static class Program
         ["nr2"] = Nr2Settings(),
     };
 
-    /// <summary>The channel's delay: the stub's base delay, one frame more for NNR's premium model.</summary>
+    /// <summary>The channel's delay: the stub's base delay, one frame more for NNR's two premium models.</summary>
     private static int LatencyFor(string engine, IReadOnlyDictionary<string, WdspValue> values) =>
-        _delay + (engine == "nnr" && values.TryGetValue("model", out var m) && m.Choice == "premium" ? 480 : 0);
+        _delay + (engine == "nnr" && values.TryGetValue("model", out var m) && m.Choice is "premium" or "premium_cw" ? 480 : 0);
 
     private static WdspHelloAck Offer()
     {
@@ -237,7 +381,15 @@ internal static class Program
                 {
                     if (message is not WdspHello hello) { ProtocolError("expected Hello", WdspResult.UnexpectedMessage); return; }
                     helloSeen = true;
+                    if (_errorFirst) { ProtocolError("refused by the test's command line", WdspResult.UnexpectedMessage); return; }
                     if (_slowStart > 0) Thread.Sleep(_slowStart);
+                    if (_heartbeatFirst) Send(WdspHeartbeat.Instance);
+                    if (_garbledHello)
+                    {
+                        // length 3, type 0x0002, one byte of payload: too short for any HelloAck.
+                        lock (WriteGate) { _pipe.Write(new byte[] { 3, 0, 0, 0, 0x02, 0x00, 0x01 }); }
+                        continue;
+                    }
                     if (_reject || hello.Lowest > 1 || hello.Highest < 1)
                     {
                         Send(new WdspHelloReject(2, 3, "this helper speaks protocol 2 to 3"));
@@ -271,9 +423,23 @@ internal static class Program
                 }
                 Work.Add(frame);
                 return;
-            case WdspSetSetting or WdspCloseChannel: Work.Add(message); return;
+            case WdspCloseChannel close:
+                lock (Channels)
+                    if (Building.TryGetValue(close.Channel, out int held)) { Building[close.Channel] = held + 1; return; }
+                if (_swallowCloses) return;
+                AddRequest(message);
+                return;
+            case WdspSetSetting: AddRequest(message); return;
             case WdspHeartbeat or WdspError: return;
         }
+    }
+
+    /// <summary>A setting or a close joins the queue; past the limit, the connection ends as the helper ends it.</summary>
+    private static void AddRequest(object message)
+    {
+        if (Interlocked.Increment(ref _requestsWaiting) > _requestLimit && _requestLimit >= 0)
+            ProtocolError($"more than {_requestLimit} settings and closes queued", WdspResult.UnexpectedMessage);
+        Work.Add(message);
     }
 
     private static void Open(WdspOpenChannel open)
@@ -283,6 +449,19 @@ internal static class Program
         WdspOpenChannelAck ack;
         lock (Channels)
         {
+            if (++_opens == _failBuild && open.Channel != 0 && UsedIds.Add(open.Channel))
+            {
+                Building[open.Channel] = 0;
+                new Thread(() =>
+                {
+                    Thread.Sleep(_failBuildMs);
+                    int closes;
+                    lock (Channels) { closes = Building[open.Channel]; Building.Remove(open.Channel); }
+                    Send(Refuse(WdspResult.ChannelBuildFailed, "the build failed, by the test's command line"));
+                    if (closes > 0) Send(new WdspCloseChannelAck(open.Channel, WdspResult.UnknownChannel));
+                }) { IsBackground = true }.Start();
+                return;
+            }
             if (open.Channel == 0 || !UsedIds.Add(open.Channel)) ack = Refuse(WdspResult.ChannelIdInUse, "id in use");
             else if (!Engines.TryGetValue(open.EngineId, out var descriptors) || Omit.Contains(open.EngineId)) ack = Refuse(WdspResult.EngineNotOffered, $"engine {open.EngineId} is not offered");
             else if (open.Direction > 1) ack = Refuse(WdspResult.DirectionNotServed, "unknown direction");
@@ -351,6 +530,7 @@ internal static class Program
                     if (ch == null) break;
                     long count = Interlocked.Increment(ref _framesProcessed);
                     if (count == _crashAfter) Environment.Exit(_crashCode);
+                    if (count == _fatalAfter) { ProtocolError("the client queued more than the stub's limit of settings and closes", WdspResult.UnexpectedMessage); return; }
                     if (count == _breakAfter) { lock (WriteGate) _pipe.Dispose(); Environment.Exit(ExitClean); }
                     if (count == _stallAfter) Thread.Sleep(_stallMs);
                     var timer = Stopwatch.StartNew();
@@ -368,9 +548,17 @@ internal static class Program
                 }
                 case WdspSetSetting set:
                 {
+                    Interlocked.Decrement(ref _requestsWaiting);
+                    if (_slowSettingsMs > 0) Thread.Sleep(_slowSettingsMs);
                     StubChannel? ch;
                     lock (Channels) Channels.TryGetValue(set.Channel, out ch);
                     if (ch == null) { Send(new WdspSettingAck(set.Channel, WdspResult.UnknownChannel, set.Setting.Name, WdspValue.None)); break; }
+                    if (ch.Engine == _holdAcksEngine)
+                    {
+                        if (!HeldAcks.TryGetValue(ch.Id, out var held)) HeldAcks[ch.Id] = held = new List<string>();
+                        held.Add(set.Setting.Name);
+                        break;
+                    }
                     var d = Engines[ch.Engine].FirstOrDefault(x => x.Name == set.Setting.Name);
                     if (d == null) Send(new WdspSettingAck(set.Channel, WdspResult.UnknownSetting, set.Setting.Name, WdspValue.None));
                     else if (d.ChangesLatency) Send(new WdspSettingAck(set.Channel, WdspResult.SettingNeedsNewChannel, d.Name, ch.Values[d.Name]));
@@ -385,9 +573,12 @@ internal static class Program
                 }
                 case WdspCloseChannel close:
                 {
+                    Interlocked.Decrement(ref _requestsWaiting);
                     bool had;
                     lock (Channels) had = Channels.Remove(close.Channel);
-                    Send(new WdspCloseChannelAck(close.Channel, had ? WdspResult.Ok : WdspResult.UnknownChannel));
+                    Send(new WdspCloseChannelAck(close.Channel, had && !_closeUnknown ? WdspResult.Ok : WdspResult.UnknownChannel));
+                    if (HeldAcks.Remove(close.Channel, out var late) && _holdAcksAnswer)
+                        foreach (var name in late) Send(new WdspSettingAck(close.Channel, WdspResult.UnknownChannel, name, WdspValue.None));
                     break;
                 }
             }

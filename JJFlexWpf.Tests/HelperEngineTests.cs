@@ -247,6 +247,62 @@ public sealed class HelperEngineTests
         Assert.Equal(2, Interlocked.Read(ref rig.Host.SetSettingsSent));
     }
 
+    /// <summary>
+    /// The helper's buffer depth, k, is three frames for NNR's premium and
+    /// premium CW models and two for every other engine and model (ruled
+    /// 2026-11-06, S11), chosen from the starting model when the engine is
+    /// built: a model change is already a new instance. Through the catalog's
+    /// own factory, as the app builds it.
+    /// </summary>
+    [Theory]
+    [InlineData("nnr", null, 2)]
+    [InlineData("nnr", "standard", 2)]
+    [InlineData("nnr", "premium", 3)]
+    [InlineData("nnr", "standard_cw", 2)]
+    [InlineData("nnr", "premium_cw", 3)]
+    [InlineData("nr2", null, 2)]
+    public void The_buffer_depth_is_three_frames_for_the_premium_models_and_two_for_the_rest(string id, string? model, int depth)
+    {
+        var row = new DenoiseEngineCatalog().Find(id)!;
+        var initial = new Dictionary<string, EngineSettingValue>();
+        if (model != null) initial["model"] = new EngineSettingValue(0, model);
+        using var engine = Assert.IsType<WdspHelperEngine>(row.Factory!(initial));
+        Assert.Equal(depth, engine.PipelineDepth);
+        Assert.Equal(depth, WdspPipelineDepth.For(id, model));
+    }
+
+    /// <summary>
+    /// Over the stub, a premium CW channel's delay carries the three-frame
+    /// buffer, and every frame comes back aligned to it: the k the engine
+    /// reports is the k it waits.
+    /// </summary>
+    [Fact]
+    public void A_premium_cw_channel_waits_three_frames_and_its_delay_says_so()
+    {
+        using var rig = new HelperTestRig();
+        using var engine = rig.Engine("nnr", new Dictionary<string, EngineSettingValue> { ["model"] = new(0, "premium_cw") });
+        Assert.True(engine.IsAvailable, engine.UnavailabilityDetail);
+        Assert.Equal(3, engine.PipelineDepth);
+        Assert.Equal(2448 + 480 + 3 * 480, engine.LatencySamples);
+        // A ramp through the stub's echo: the output at sample t is the input at t minus the reported delay.
+        var input = new float[480]; var output = new float[480];
+        int total = 40 * 480, checkedSamples = 0;
+        for (int f = 0; f < 40; f++)
+        {
+            for (int i = 0; i < 480; i++) input[i] = (f * 480 + i) / (float)total;
+            HelperTestRig.Pace(engine);
+            if (!engine.ProcessFrame(input, output)) continue;
+            for (int i = 0; i < 480; i++)
+            {
+                int t = f * 480 + i - engine.LatencySamples;
+                if (t < 0) continue;
+                Assert.Equal(t / (float)total, output[i], 6);
+                checkedSamples++;
+            }
+        }
+        Assert.True(checkedSamples > 20 * 480, $"only {checkedSamples} samples could be checked");
+    }
+
     [Fact]
     public void A_latency_setting_is_only_ever_a_starting_value_and_fixes_the_delay()
     {
@@ -257,7 +313,9 @@ public sealed class HelperEngineTests
         Assert.True(standard.TrySetSetting("model", new EngineSettingValue(0, "standard")));
         using var premium = rig.Engine("nnr", new Dictionary<string, EngineSettingValue> {
             ["model"] = new(0, "premium"), ["mask_floor_db"] = new(-30) });
-        Assert.Equal(2448 + 480 + 960, premium.LatencySamples);
+        // The premium model's buffer is three frames, not two (ruled 2026-11-06, S11).
+        Assert.Equal(3, premium.PipelineDepth);
+        Assert.Equal(2448 + 480 + 3 * 480, premium.LatencySamples);
         Assert.Equal("premium", premium.GetSetting("model").Choice);
         Assert.Equal(-30, premium.GetSetting("mask_floor_db").Number);
         Assert.True(premium.TrySetSetting("model", new EngineSettingValue(0, "premium")));

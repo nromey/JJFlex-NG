@@ -62,6 +62,9 @@
     <!-- The measured JAWS Shift+Space streams (#800), one source file compiled
          into both test projects so the two replays cannot drift apart. -->
     <Compile Include="..\Radios.Tests\Fixtures\JawsShiftSpaceCapture20261022.cs" Link="Fixtures\JawsShiftSpaceCapture20261022.cs" />
+    <!-- The stub's model of the helper's writer queue, compiled here too so the
+         tests can hold it to the helper's numbers directly. -->
+    <Compile Include="..\JJFlexWpf.HelperStub.Tests\WriterQueueModel.cs" Link="HelperStub\WriterQueueModel.cs" />
   </ItemGroup>
 
   <ItemGroup>

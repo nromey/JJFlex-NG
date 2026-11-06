@@ -18,7 +18,7 @@ namespace JJFlexWpf.Tests;
 /// the never-orphaned guarantees. Windowless; every stub process hidden, in
 /// a job, and gone at the end.
 /// </summary>
-public sealed class HelperLifecycleTests
+public sealed partial class HelperLifecycleTests
 {
     private readonly Xunit.Abstractions.ITestOutputHelper _out;
 

@@ -66,6 +66,10 @@ namespace JJFlexWpf
         WrongSampleRate, WrongFrameLength, ReopenLatencyDiffers,
         Stall, BrokenPipe, ProcessExited, FatalProtocolError, HandshakeDeadline, StartFailed,
         FileMissing, StartBlocked, SettingRefused, NonFatalError,
+        /// <summary>Exit 2 (a bad command line) or 5 (its pipe's server was not JJ Flexible): no restart can mend it.</summary>
+        UnrecoverableExit,
+        /// <summary>Exit 8: the helper could not make its own folder its working directory. Missing, as far as the operator is concerned.</summary>
+        NoWorkingDirectory,
     }
 
     /// <summary>A protocol error: fatal, the connection is broken.</summary>
@@ -848,14 +852,80 @@ namespace JJFlexWpf
             WdspCondition.WrongFrameLength or WdspCondition.ReopenLatencyDiffers => Unavailability.HelperVersionMismatch,
             WdspCondition.Stall or WdspCondition.BrokenPipe or WdspCondition.ProcessExited or
             WdspCondition.FatalProtocolError or WdspCondition.HandshakeDeadline or
-            WdspCondition.StartFailed => Unavailability.HelperNotRunning,
-            WdspCondition.FileMissing or WdspCondition.StartBlocked => Unavailability.HelperMissing,
+            WdspCondition.StartFailed or WdspCondition.UnrecoverableExit => Unavailability.HelperNotRunning,
+            WdspCondition.FileMissing or WdspCondition.StartBlocked or
+            WdspCondition.NoWorkingDirectory => Unavailability.HelperMissing,
             WdspCondition.SettingRefused or WdspCondition.NonFatalError => null,
             _ => null,
         };
 
-        /// <summary>True when a condition follows the restart policy and counts toward its cap.</summary>
+        /// <summary>
+        /// True when a condition follows the restart policy and counts toward its
+        /// cap. Exits 2 and 5 leave the helper not running too, but give up at
+        /// once: no restart can mend them (ruled 2026-11-06).
+        /// </summary>
         public static bool CountsTowardCap(WdspCondition condition) =>
-            MapCondition(condition) == Unavailability.HelperNotRunning;
+            MapCondition(condition) == Unavailability.HelperNotRunning && condition != WdspCondition.UnrecoverableExit;
+
+        // ------------------------------------------------------------------
+        // The helper's exit codes: the appendix's "The command line and exit
+        // codes" gives 0 and 2 to 7; the helper's README adds 8. Every exit is
+        // the crash path (the appendix's rule) except three that no restart can
+        // mend, which give up at once (ruled by Noel 2026-11-06, S12; the
+        // appendix is to say so too, S14): 2, a bad command line; 5, a pipe
+        // whose server was not JJ Flexible; 8, a helper that cannot use its own
+        // folder, which is reported as missing. Naming every code means a trace
+        // and an engine's detail say why rather than a bare number.
+        // ------------------------------------------------------------------
+
+        public const uint ExitClosed = 0, ExitBadCommandLine = 2, ExitNoParent = 3, ExitNoPipe = 4,
+            ExitWrongServer = 5, ExitProtocolError = 6, ExitRejected = 7, ExitNoWorkingDirectory = 8;
+
+        /// <summary>What the helper's exit code means, in plain words, for the trace and the detail. Never spoken.</summary>
+        public static string DescribeExit(uint code) => code switch
+        {
+            ExitClosed => "it saw its pipe close or its parent exit",
+            ExitBadCommandLine => "a bad command line",
+            ExitNoParent => "it could not open JJ Flexible's process",
+            ExitNoPipe => "it could not connect to its pipe",
+            ExitWrongServer => "its pipe's server was not JJ Flexible's process",
+            ExitProtocolError => "a protocol error, which includes JJ Flexible leaving more requests or replies queued than the helper holds",
+            ExitRejected => "it had rejected the protocol version",
+            ExitNoWorkingDirectory => "it could not make its own folder its working directory",
+            _ => $"a crash, or a code the helper does not use (0x{code:X8})",
+        };
+
+        /// <summary>
+        /// Exit 6 is the helper ending the connection for a protocol error; 2 and
+        /// 5 a helper that cannot run; 8 a helper that cannot use its own folder;
+        /// every other exit, a crash included, the process exiting.
+        /// </summary>
+        public static WdspCondition ConditionForExit(uint code) => code switch
+        {
+            ExitProtocolError => WdspCondition.FatalProtocolError,
+            ExitBadCommandLine or ExitWrongServer => WdspCondition.UnrecoverableExit,
+            ExitNoWorkingDirectory => WdspCondition.NoWorkingDirectory,
+            _ => WdspCondition.ProcessExited,
+        };
+
+        /// <summary>
+        /// One sentence naming an exit, and what the helper said before it, if
+        /// anything. Exit 8 opens with "the helper is missing", which is how it
+        /// is reported (ruled 2026-11-06). For the trace and the detail; never spoken.
+        /// </summary>
+        public static string ExitDetail(uint code, string? helperSaid) =>
+            (code == ExitNoWorkingDirectory ? "the helper is missing: it" : "the helper") +
+            $" exited with code {code} ({DescribeExit(code)})" + (helperSaid != null ? "; before closing it said " + helperSaid : "");
+
+        /// <summary>A fatal Error ends the connection: the sender closes the pipe after it.</summary>
+        public static bool IsFatal(WdspResult code) => code is WdspResult.MalformedMessage or WdspResult.UnexpectedMessage;
+
+        /// <summary>An Error, for the trace and a detail: its code by number and name, its channel and its text, cut to 300 characters.</summary>
+        public static string DescribeError(WdspError error)
+        {
+            string name = IsKnownResult(error.Code) ? error.Code.ToString() : "unknown";
+            string text = error.Text.Length > 300 ? error.Text[..300] + " [cut]" : error.Text;
+            return $"Error {(ushort)error.Code} {name} on channel {error.Channel}: {text}";
+        }
     }
 }

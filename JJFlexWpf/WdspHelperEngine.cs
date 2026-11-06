@@ -10,6 +10,48 @@ using Radios;
 namespace JJFlexWpf
 {
     /// <summary>
+    /// k, the helper's buffer depth: how many 10 ms frames behind its input an
+    /// engine's answer is expected. Every frame of k is 10 ms more delay and
+    /// 10 ms more room for the helper's round trip before the bank falls back
+    /// to delayed pass-through. Ruled by Noel 2026-11-06 (S11, Track A's
+    /// ruling 4): three frames for NNR's premium and premium CW models, whose
+    /// worst round trips Track A measured at the edge of what two allow, and
+    /// two for every other engine.
+    /// </summary>
+    /// <remarks>
+    /// One named value per engine and model, so a later Advanced setting
+    /// (#873) can adjust each by name. Chosen when an engine instance is built,
+    /// from its starting model: a model change is already a new instance (the
+    /// model changes the latency), so k is fixed for an instance's life, like
+    /// its delay.
+    /// </remarks>
+    public static class WdspPipelineDepth
+    {
+        public const int NnrStandard = 2;
+        public const int NnrPremium = 3;
+        public const int NnrStandardCw = 2;
+        public const int NnrPremiumCw = 3;
+        public const int Nr2 = 2;
+        /// <summary>Any engine or model not named above, such as one a later helper adds.</summary>
+        public const int Other = 2;
+
+        /// <summary>The depth for an engine and, for NNR, its model option (null: the helper's default model, standard).</summary>
+        public static int For(string engineId, string? model) => engineId switch
+        {
+            "nnr" => model switch
+            {
+                null or "standard" => NnrStandard,
+                "premium" => NnrPremium,
+                "standard_cw" => NnrStandardCw,
+                "premium_cw" => NnrPremiumCw,
+                _ => Other,
+            },
+            "nr2" => Nr2,
+            _ => Other,
+        };
+    }
+
+    /// <summary>
     /// A noise reducer that runs in the WDSP helper (NNR or NR2), and looks to
     /// the rest of JJ Flexible exactly like an in-process engine. One instance
     /// is one mono channel on the helper's pipe; the bank makes two for stereo.
@@ -36,8 +78,14 @@ namespace JJFlexWpf
     {
         public const string HelperFileName = "jjflex-wdsp-helper.exe";
 
-        /// <summary>k: how many frames behind the input an answer is expected. Per instance, never on the wire.</summary>
-        public const int DefaultPipelineDepth = 2;
+        /// <summary>
+        /// k for an engine or model not named in <see cref="WdspPipelineDepth"/>.
+        /// Per instance, never on the wire; see <see cref="WdspPipelineDepth.For"/>.
+        /// </summary>
+        public const int DefaultPipelineDepth = WdspPipelineDepth.Other;
+
+        /// <summary>The setting that chooses NNR's model, and so its buffer depth.</summary>
+        internal const string ModelSetting = "model";
 
         /// <summary>
         /// Where the app's copy of the helper lives. Set by
@@ -167,19 +215,21 @@ namespace JJFlexWpf
             IReadOnlyDictionary<string, EngineSettingValue>? starting = null)
             : this(WdspHost.Default, engineId, direction, starting) { }
 
+        /// <param name="pipelineDepth">k; null, as the app always builds it, for <see cref="WdspPipelineDepth.For"/> the engine and its starting model.</param>
         /// <param name="offlineWait">
         /// The offline bench only, and never set by the catalog: <see cref="ProcessFrame"/>
         /// then waits, bounded, for frame n minus k's answer, so a faster-than-real-time
         /// caller gets exactly the live path's delay and never runs ahead of the helper.
         /// </param>
         internal WdspHelperEngine(WdspHost host, string engineId, DenoiseDirection direction,
-            IReadOnlyDictionary<string, EngineSettingValue>? starting, int pipelineDepth = DefaultPipelineDepth,
+            IReadOnlyDictionary<string, EngineSettingValue>? starting, int? pipelineDepth = null,
             bool offlineWait = false)
         {
             Host = host;
             Id = engineId;
             Direction = direction == DenoiseDirection.Transmit ? WdspProtocol.Transmit : WdspProtocol.Receive;
-            PipelineDepth = Math.Max(1, pipelineDepth);
+            string? model = starting != null && starting.TryGetValue(ModelSetting, out var m) ? m.Choice : null;
+            PipelineDepth = Math.Max(1, pipelineDepth ?? WdspPipelineDepth.For(engineId, model));
             OfflineWait = offlineWait;
             _starting = starting;
             host.Attach(this);
@@ -365,19 +415,49 @@ namespace JJFlexWpf
             return list;
         }
 
-        /// <summary>Writer thread: a SetSetting for every value asked for since this channel last heard.</summary>
-        internal void CollectChangedSettings(WdspChannel ch, List<byte[]> into)
+        /// <summary>
+        /// Writer thread: a SetSetting for every value asked for since this
+        /// channel last heard, at most <paramref name="room"/> of them, and none
+        /// for a setting that already has <paramref name="perSetting"/> sent and
+        /// unanswered. True when one was left, for want of room or for its own
+        /// answer; it stays asked for, so a later call sends its latest value.
+        /// </summary>
+        /// <remarks>
+        /// The per-setting limit is what keeps one setting that never stops
+        /// changing from starving the others: it can hold only that many slots,
+        /// so every other changed setting finds room, and the helper's queue holds
+        /// at most that many of its values, so a later setting is applied after a
+        /// handful of requests rather than behind hundreds. Each setting's latest
+        /// value goes at most one answer after its previous one.
+        /// </remarks>
+        internal bool CollectChangedSettings(WdspChannel ch, List<byte[]> into, int room, int perSetting)
         {
             var slots = _slots;
-            if (slots == null) return;
+            if (slots == null) return false;
+            bool left = false;
             for (int i = 0; i < slots.Length; i++)
             {
                 var s = slots[i];
                 if (s.D.ChangesLatency) continue;
                 if (!s.Read(out int version, out var value) || version == ch.SentVersions[i]) continue;
+                if (Volatile.Read(ref ch.SettingOutstanding[i]) >= perSetting) { left = true; continue; }
+                if (room <= 0) return true;
                 into.Add(WdspProtocol.Encode(new WdspSetSetting(ch.Id, new WdspNamedValue(s.D.Name, WdspValue.From(value)))));
                 ch.SentVersions[i] = version;
+                Interlocked.Increment(ref ch.SettingOutstanding[i]); // before it is written, so its answer cannot come first
+                room--;
             }
+            return left;
+        }
+
+        /// <summary>Reader thread: which setting slot an answer names, or -1.</summary>
+        internal int SettingIndex(string name)
+        {
+            var slots = _slots;
+            if (slots == null) return -1;
+            for (int i = 0; i < slots.Length; i++)
+                if (string.Equals(slots[i].D.Name, name, StringComparison.Ordinal)) return i;
+            return -1;
         }
 
         /// <summary>Reader thread: the helper answered an OpenChannel.</summary>

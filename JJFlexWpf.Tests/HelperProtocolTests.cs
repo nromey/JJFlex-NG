@@ -558,6 +558,8 @@ public sealed class HelperProtocolTests
             [WdspCondition.StartFailed] = Unavailability.HelperNotRunning,
             [WdspCondition.FileMissing] = Unavailability.HelperMissing,
             [WdspCondition.StartBlocked] = Unavailability.HelperMissing,
+            [WdspCondition.NoWorkingDirectory] = Unavailability.HelperMissing,
+            [WdspCondition.UnrecoverableExit] = Unavailability.HelperNotRunning,
             [WdspCondition.SettingRefused] = null,
             [WdspCondition.NonFatalError] = null,
         };
@@ -565,7 +567,9 @@ public sealed class HelperProtocolTests
         foreach (var (condition, mapped) in expected)
         {
             Assert.Equal(mapped, WdspProtocol.MapCondition(condition));
-            Assert.Equal(mapped == Unavailability.HelperNotRunning, WdspProtocol.CountsTowardCap(condition));
+            // Exits 2 and 5 leave the helper not running, but give up at once (ruled 2026-11-06).
+            Assert.Equal(mapped == Unavailability.HelperNotRunning && condition != WdspCondition.UnrecoverableExit,
+                WdspProtocol.CountsTowardCap(condition));
         }
     }
 }
