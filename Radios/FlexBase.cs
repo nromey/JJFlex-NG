@@ -3967,6 +3967,8 @@ namespace Radios
             // teardown because cancellation came only after it (review
             // section 8).
             BeginTeardownOperation("Disconnect");
+            // A tuning correction is about this connection (R3).
+            RetireTuneCorrection("the connection ending");
             // Every teardown unkeys FIRST (#596, #861; Codex's checks of the
             // 2026-11-02 batch): stop what this computer feeds the
             // transmitter, drop this session's own carriers, let the writes
@@ -6580,8 +6582,6 @@ namespace Radios
             {
                 mySliceAdded = true;
                 slc.PropertyChanged += new PropertyChangedEventHandler(slicePropertyChangedHandler);
-                // Every frequency report's ARRIVAL, equal ones included (#642, repair round 9).
-                slc.FrequencyReported += SliceFrequencyReported;
                 slc.PropertyChanged += new PropertyChangedEventHandler((s2, e2) =>
                 {
                     // One field per notification: a mode report never blesses
@@ -9276,6 +9276,8 @@ namespace Radios
                     int old = _RXVFO;
                     _RXVFO = value;
                     Tracing.TraceLine($"RXVFO:{old}→{value} valid={ValidVFO(value)} slices={MyNumSlices}", TraceLevel.Info);
+                    // A spoken tuning correction was about the slice left behind (R3).
+                    RetireTuneCorrection("a change of selected slice");
                     if (ValidVFO(value))
                     {
                         // Capture the slice at set time (identity): if the

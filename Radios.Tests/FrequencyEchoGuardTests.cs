@@ -8,35 +8,22 @@ using G = Radios.FrequencyEchoGuard;
 namespace Radios.Tests
 {
     /// <summary>
-    /// The frequency echo guard's whole state table, cell by cell (#642,
-    /// junk box repair round 8). Rounds 3 to 7 tested the guard by the
-    /// schedules each re-check found, and every re-check found a state they
-    /// had not reached. So the guard was rebuilt as four states and these tests
-    /// visit every state against every event, with an injected clock.
+    /// The frequency echo guard's whole state table, cell by cell (#642).
+    /// Rebuilt in the 2026-11-02 junk box's second rulings round after the 8600
+    /// bench measured that the radio never reports a tune to the client that
+    /// sent it (only to every other client): the reply is the receipt, and the
+    /// AwaitingReport state, which waited for that report, is gone.
     /// </summary>
     /// <remarks>
     /// <para>
     /// The states: Idle, Queued (asked, not written), Sent (written, not
-    /// answered), AwaitingReport (answered with success while the radio's
-    /// report is not our value and nothing has been reported since the write).
-    /// </para>
-    /// <para>
-    /// Repair round 9 split "a report" in two, because FlexLib raises its Freq
-    /// notification only for a CHANGED number: <c>Accept</c> (a changed value,
-    /// may it enter the caches?) changes no state, and <c>Reported</c> (a
-    /// report ARRIVED, changed or not, from FlexLib's patched
-    /// <c>Slice.FrequencyReported</c>) is the event the state machine moves on.
-    /// Running out of time now also calls the owner back.
-    /// </para>
-    /// <para>
-    /// The events: a new request; the send of the latest request and of an
-    /// older one; a success reply for the latest (the radio reporting our
-    /// value; another value after a report since the write; another value
-    /// with none) and for an older one; an error reply or a local refusal for
-    /// the latest and for an older one; a report equal to the latest request
-    /// and one of anything else; and running out of time. A slice's removal
-    /// takes its guard with it, and the send of a removed slice is a local
-    /// refusal; those are tested through FlexBase in TuningReceiptTests.
+    /// answered). The events: a new request; the send of the latest request and
+    /// of an older one; a success reply for the latest and for an older one; an
+    /// error reply or a local refusal for the latest, for an older one, and for
+    /// the latest after a give-up; a changed report equal to the latest request
+    /// and one of anything else; and running out of time. FlexLib's cache, which
+    /// the owner sets from each success reply, is tested through FlexBase in
+    /// TuningReceiptTests.
     /// </para>
     /// </remarks>
     public class FrequencyEchoGuardTests
@@ -71,14 +58,6 @@ namespace Radios.Tests
             return (g, id);
         }
 
-        private (G g, long id) InAwaitingReport()
-        {
-            var (g, id) = InSent();
-            Assert.False(g.Acknowledged(id, Was));         // the radio still reports the old number, nothing since
-            Assert.Equal(G.State.AwaitingReport, g.Now);
-            return (g, id);
-        }
-
         private static void Reads(G g, G.Reading reading, ulong pending = Asked)
         {
             Assert.Equal(reading, g.Read(out ulong p));
@@ -95,7 +74,6 @@ namespace Radios.Tests
             Reads(g, G.Reading.Idle);
             Assert.True(g.Accept(Was));
             Assert.True(g.Accept(Other));
-            Assert.False(g.Reported(Other, out _));
             Assert.Equal(G.State.Idle, g.Now);
             Assert.Empty(_gaveUp);
         }
@@ -105,18 +83,18 @@ namespace Radios.Tests
         {
             var g = Guard();
             g.Sending(1);
-            Assert.False(g.Acknowledged(1, Asked));
+            Assert.False(g.Acknowledged(1));
             Assert.False(g.Refused(1, "late"));
             Assert.Equal(G.State.Idle, g.Now);
         }
 
         [Fact]
-        public void Idle_after_an_answer_ignores_that_request_s_late_events()
+        public void Idle_after_an_answer_ignores_that_requests_late_events()
         {
             var (g, id) = InSent();
-            Assert.True(g.Acknowledged(id, Asked));
+            Assert.True(g.Acknowledged(id));
             g.Sending(id);
-            Assert.False(g.Acknowledged(id, Asked));
+            Assert.False(g.Acknowledged(id));
             Assert.False(g.Refused(id, "late error"));
             Assert.Equal(G.State.Idle, g.Now);
         }
@@ -161,7 +139,6 @@ namespace Radios.Tests
             Assert.True(g.Accept(Asked));
             Assert.False(g.Accept(Was));
             Assert.False(g.Accept(Other));
-            Assert.False(g.Reported(Other, out _));        // arrived, but before the write: no change
             Assert.Equal(G.State.Queued, g.Now);
             Reads(g, G.Reading.Pending);
         }
@@ -172,7 +149,7 @@ namespace Radios.Tests
             var g = Guard();
             long old = g.Requested(Was);
             g.Requested(Asked);
-            Assert.False(g.Acknowledged(old, Asked));
+            Assert.False(g.Acknowledged(old));
             Assert.False(g.Refused(old, "older"));
             Assert.Equal(G.State.Queued, g.Now);
         }
@@ -187,15 +164,11 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Queued_success_of_the_latest_is_judged_as_if_sent()
+        public void Queued_success_of_the_latest_is_Idle()
         {
             var (g, id) = InQueued();
-            Assert.True(g.Acknowledged(id, Asked));
+            Assert.True(g.Acknowledged(id));
             Assert.Equal(G.State.Idle, g.Now);
-
-            var (h, id2) = InQueued();
-            Assert.False(h.Acknowledged(id2, Was));
-            Assert.Equal(G.State.AwaitingReport, h.Now);
         }
 
         [Fact]
@@ -243,50 +216,23 @@ namespace Radios.Tests
         {
             var (g, _) = InSent();
             Assert.False(g.Accept(Was));                   // the number it replaced
-            Assert.False(g.Accept(Other));                 // a clamp, the knob, another client
-            Assert.True(g.Accept(Asked));                  // its own value
-            Assert.False(g.Reported(Asked, out _));        // arrived: noted, nothing ends
+            Assert.False(g.Accept(Other));                 // made at the radio before our tune ran
+            Assert.True(g.Accept(Asked));
             Assert.Equal(G.State.Sent, g.Now);             // no report settles it: only the answer does
             Reads(g, G.Reading.Pending);
         }
 
         [Fact]
-        public void Sent_success_with_the_radio_reporting_our_value_is_Idle()
+        public void Sent_success_of_the_latest_is_Idle_whatever_was_reported_before_it()
         {
+            // The radio never reports our own tune to us (the 8600 bench); its
+            // success reply is the receipt. A move reported before the reply was
+            // made at the radio before our tune, which overrode it.
             var (g, id) = InSent();
-            Assert.True(g.Acknowledged(id, Asked));
-            Assert.Equal(G.State.Idle, g.Now);
-        }
-
-        [Fact]
-        public void Sent_success_after_a_report_since_the_write_is_Idle_whatever_the_number()
-        {
-            var (g, id) = InSent();
-            Assert.False(g.Accept(Other));                 // kept out of the reading,
-            Assert.False(g.Reported(Other, out _));        // but it came
-            Assert.True(g.Acknowledged(id, Other));
+            Assert.False(g.Accept(Other));
+            Assert.True(g.Acknowledged(id));
             Assert.Equal(G.State.Idle, g.Now);
             Reads(g, G.Reading.Idle);
-        }
-
-        [Fact]
-        public void Sent_success_with_nothing_reported_and_another_number_awaits_the_report()
-        {
-            var (g, id) = InSent();
-            Assert.False(g.Acknowledged(id, Was));
-            Assert.Equal(G.State.AwaitingReport, g.Now);
-            Reads(g, G.Reading.Pending);
-        }
-
-        [Fact]
-        public void Sent_a_report_before_the_send_does_not_count_as_one_since()
-        {
-            var (g, id) = InQueued();
-            Assert.False(g.Accept(Other));                 // while still queued
-            Assert.False(g.Reported(Other, out _));
-            g.Sending(id);
-            Assert.False(g.Acknowledged(id, Other));
-            Assert.Equal(G.State.AwaitingReport, g.Now);
         }
 
         [Fact]
@@ -297,7 +243,7 @@ namespace Radios.Tests
             g.Sending(old);
             long latest = g.Requested(Asked);
             g.Sending(latest);
-            Assert.False(g.Acknowledged(old, Asked));
+            Assert.False(g.Acknowledged(old));
             Assert.False(g.Refused(old, "older"));
             Assert.Equal(G.State.Sent, g.Now);
         }
@@ -326,63 +272,39 @@ namespace Radios.Tests
             Assert.Equal(new[] { Asked }, _gaveUp);
         }
 
-        // ── AwaitingReport ──
+        // ── After a give-up ──
 
         [Fact]
-        public void AwaitingReport_any_report_ends_it_and_is_believed()
+        public void A_late_refusal_of_the_request_given_up_on_is_reported_once()
         {
-            var (g, _) = InAwaitingReport();
-            Assert.True(g.Accept(Other));                  // a changed value may enter the caches,
-            Assert.Equal(G.State.AwaitingReport, g.Now);   // but only its arrival ends the wait
-            Assert.True(g.Reported(Other, out ulong asked));
-            Assert.Equal(Asked, asked);
+            var (g, id) = InSent();
+            _now += G.GiveUpMs;
             Assert.Equal(G.State.Idle, g.Now);
-
-            var (h, _) = InAwaitingReport();
-            Assert.True(h.Reported(Was, out _));           // an UNCHANGED report: no Accept at all
-            Assert.Equal(G.State.Idle, h.Now);
-            Assert.False(h.Reported(Was, out _));          // once
+            Assert.True(g.Refused(id, "late error"));      // the owner says where the slice is
+            Assert.False(g.Refused(id, "again"));
+            Assert.Equal(G.State.Idle, g.Now);
         }
 
         [Fact]
-        public void AwaitingReport_new_request_is_Queued_again()
+        public void A_late_success_of_the_request_given_up_on_changes_no_state()
         {
-            var (g, _) = InAwaitingReport();
+            var (g, id) = InSent();
+            _now += G.GiveUpMs;
+            Assert.False(g.Acknowledged(id));               // the owner still puts it in FlexLib's cache
+            Assert.Equal(G.State.Idle, g.Now);
+        }
+
+        [Fact]
+        public void A_late_refusal_of_an_earlier_request_after_a_newer_one_is_not_reported()
+        {
+            var (g, id) = InSent();
+            _now += G.GiveUpMs;
+            Assert.Equal(G.State.Idle, g.Now);
             g.Requested(Other);
-            Assert.Equal(G.State.Queued, g.Now);
+            Assert.False(g.Refused(id, "late error"));
         }
 
-        [Fact]
-        public void AwaitingReport_sends_and_answers_change_nothing()
-        {
-            var (g, id) = InAwaitingReport();
-            g.Sending(id);
-            Assert.False(g.Acknowledged(id, Asked));
-            Assert.Equal(G.State.AwaitingReport, g.Now);
-        }
-
-        [Fact]
-        public void AwaitingReport_refusal_of_the_latest_is_Idle_and_of_an_older_one_nothing()
-        {
-            var (g, id) = InAwaitingReport();
-            Assert.False(g.Refused(id - 1, "older"));
-            Assert.Equal(G.State.AwaitingReport, g.Now);
-            Assert.True(g.Refused(id, "late error"));
-            Assert.Equal(G.State.Idle, g.Now);
-        }
-
-        [Fact]
-        public void AwaitingReport_is_given_up_on_the_window_after_the_send()
-        {
-            var (g, _) = InAwaitingReport();
-            _now += G.GiveUpMs - 1;
-            Assert.Equal(G.State.AwaitingReport, g.Now);
-            _now += 1;
-            Assert.Equal(G.State.Idle, g.Now);
-            Assert.Equal(new[] { Asked }, _gaveUp);
-        }
-
-        // ── Sequences the old guard got wrong, on the table ──
+        // ── Sequences the old guards got wrong, on the table ──
 
         [Fact]
         public void A_burst_of_any_length_is_held_and_no_older_value_gets_in()
@@ -392,33 +314,7 @@ namespace Radios.Tests
             for (ulong i = 1; i <= 1000; i++) { id = g.Requested(Was + i * 100); g.Sending(id); }
             for (ulong i = 1; i < 1000; i++) Assert.False(g.Accept(Was + i * 100));
             Reads(g, G.Reading.Pending, Was + 1000 * 100);
-            Assert.True(g.Acknowledged(id, Was + 1000 * 100));
-        }
-
-        [Fact]
-        public void A_genuine_move_before_the_answer_is_read_from_the_radio_after_it()
-        {
-            var g = Guard();
-            long id = g.Requested(Asked);
-            g.Sending(id);
-            Assert.True(g.Accept(Asked));                  // our own report
-            g.Reported(Asked, out _);
-            Assert.False(g.Accept(Other));                 // a genuine move, kept out of the caches for now
-            g.Reported(Other, out _);
-            Assert.True(g.Acknowledged(id, Other));        // the radio's report is Other
-            Reads(g, G.Reading.Idle);                      // and the reader reads the radio
-        }
-
-        [Fact]
-        public void An_unchanged_report_after_the_write_counts_as_one()
-        {
-            // Codex's eighth re-check, blocker 1, on the table: the radio
-            // reports a number equal to FlexLib's cache, so no Accept happens,
-            // only Reported. The answer then closes the window.
-            var (g, id) = InSent();
-            Assert.False(g.Reported(Was, out _));
-            Assert.True(g.Acknowledged(id, Was));
-            Assert.Equal(G.State.Idle, g.Now);
+            Assert.True(g.Acknowledged(id));
         }
 
         [Fact]
@@ -437,11 +333,9 @@ namespace Radios.Tests
         public void Only_running_out_of_time_calls_the_owner_back()
         {
             var (g, id) = InSent();
-            g.Acknowledged(id, Asked);
+            g.Acknowledged(id);
             var (h, hid) = InSent();
             h.Refused(hid, "error");
-            var (k, _) = InAwaitingReport();
-            k.Reported(Was, out _);
             Assert.Empty(_gaveUp);
         }
 
@@ -470,18 +364,17 @@ namespace Radios.Tests
                 "a tune writes FlexLib's Freq setter again, so FlexLib's number is no longer the radio's report (repair round 5).");
             Assert.True(text.Contains("reply => TuneReplied(slice, id, hz, reply)", StringComparison.Ordinal),
                 "the tune's reply no longer carries its request (repair round 5).");
-            Assert.True(text.Contains("closed = guard.Acknowledged(id, LibFreqtoLong(slice.Freq));", StringComparison.Ordinal)
-                        && text.Contains("closed = guard.Refused(id, \"the radio answered \" + reply);", StringComparison.Ordinal),
-                "the tune's reply does not reach its own request's guard.");
+            Assert.True(text.Contains("guard.Acknowledged(id);", StringComparison.Ordinal)
+                        && text.Contains("if (guard.NewestReply(id)) slice.AcceptTuneReply(LongFreqToLibFreq(requestedHz));", StringComparison.Ordinal)
+                        && text.Contains("if (guard.Refused(id, \"the radio answered \" + reply))", StringComparison.Ordinal),
+                "the tune's reply is no longer its receipt (round two of the rulings round, the 8600 bench).");
             Assert.True(text.Contains("== FrequencyEchoGuard.Reading.Pending\r\n                ? pending : LibFreqtoLong(slice.Freq);", StringComparison.Ordinal)
                         || text.Contains("== FrequencyEchoGuard.Reading.Pending\n                ? pending : LibFreqtoLong(slice.Freq);", StringComparison.Ordinal),
                 "a slice's value is not the pending request or the radio's report (repair round 8).");
-            Assert.True(text.Contains("slc.FrequencyReported += SliceFrequencyReported;", StringComparison.Ordinal)
-                        && text.Contains("if (guard.Reported(hz, out ulong requested))", StringComparison.Ordinal)
-                        && text.Contains("if (!changed) Reconcile(slice, requested, \"the radio's report after its answer\");", StringComparison.Ordinal),
-                "every report's arrival no longer reaches the guard (repair round 9).");
+            Assert.False(text.Contains("slc.FrequencyReported += SliceFrequencyReported;", StringComparison.Ordinal),
+                "the tuning core waits again for a report of our own tune, which the radio never sends us (the 8600 bench).");
             Assert.True(text.Contains("gaveUp: (requested, line) => q.Enqueue((FunctionDel)(() =>", StringComparison.Ordinal)
-                        && text.Contains("if (Reconcile(s, requested, \"gave up waiting for the radio's answer\"))", StringComparison.Ordinal)
+                        && text.Contains("Reconcile(s, requested, null);", StringComparison.Ordinal)
                         && text.Contains("}), \"TuneReconcile\")", StringComparison.Ordinal),
                 "running out of time no longer brings what is derived with it (repair round 9).");
             Assert.True(CountOf(text, "ObservedOrPending(s, LibFreqtoLong(s.Freq))") >= 3,

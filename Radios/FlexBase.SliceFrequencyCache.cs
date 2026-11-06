@@ -189,38 +189,18 @@ namespace Radios
                     // queue, never where it was noticed: that can be under the
                     // roster's lock (repair round 11).
                     Tracing.TraceLine(line, System.Diagnostics.TraceLevel.Warning);
-                    // Spoken when it ends elsewhere (J4); and if so, the radio's
-                    // late answer, should it still come, is spoken too.
-                    if (Reconcile(s, requested, "gave up waiting for the radio's answer"))
-                        EchoGuardFor(s).LateAnswerPossible(requested);
+                    // Never spoken (J4, round two): with no answer, where the
+                    // radio is is not known; the late reply, or a late refusal,
+                    // settles it (TuneReplied).
+                    Reconcile(s, requested, null);
                 }), "TuneReconcile")));
 
-        /// <summary>
-        /// FlexLib's report that this slice's frequency ARRIVED, changed or not
-        /// (repair round 9; a JJFlex patch, MIGRATION.md item 23). The guard
-        /// counts it as the radio's answer to a write; when it was the report
-        /// an answer was waiting for, what is derived follows the radio.
-        /// </summary>
-        private void SliceFrequencyReported(Slice slice, double mhz, bool changed)
-        {
-            ulong hz = LibFreqtoLong(mhz);
-            var guard = EchoGuardFor(slice);
-            // J4: a changed report is dated as an outside move, or recognised as
-            // the late answer to a tune we gave up on, BEFORE Reported, which
-            // may end a window and so change what "outside" means.
-            bool late = changed && guard.ChangedReportArrived(hz);
-            // A changed value's Freq notification follows at once and does the
-            // derived work itself, the guard Idle by then; only an unchanged
-            // report needs the reconcile (repair round 10: it ran twice).
-            if (guard.Reported(hz, out ulong requested))
-            {
-                if (!changed) Reconcile(slice, requested, "the radio's report after its answer");
-                // The window ended on this changed report: the derived work is
-                // the Freq notification's, the spoken correction is ours (J4).
-                else TuneEndedElsewhere(slice, requested, hz, "the radio's report after its answer");
-            }
-            else if (late) TuneEndedElsewhere(slice, 0, hz, "the radio's late answer, after the guard gave up");
-        }
+        // Repair rounds 9 to 11 subscribed here to FlexLib's Slice.FrequencyReported
+        // (MIGRATION.md item 23), to see the radio's report of our own tune
+        // arrive. The 8600 bench of 2026-11-06 measured that report never comes
+        // to the client that tuned (Fail 1), so nothing here waits for it any
+        // more and the subscription is gone: the reply is the receipt
+        // (TuneReplied, Slice.AcceptTuneReply, item 26).
 
         /// <summary>How many times a reconcile has run the slice's handler. For tests.</summary>
         internal int ReconcileRuns;
@@ -305,6 +285,9 @@ namespace Radios
                 if (EchoGuardFor(slice).Refused(id, "the command loop is not running")) Reconcile(slice, value, null);
                 return false;
             }
+            // A newer tune of ours speaks its own number: an earlier correction
+            // not yet heard is retired so it is not salvaged after it (R3).
+            RetireTuneCorrection("a newer tune");
             return true;
         }
 
@@ -458,25 +441,31 @@ namespace Radios
 
         /// <summary>
         /// The radio's reply to tune request <paramref name="id"/>, on the
-        /// receive thread (repair round 8). Success answers the request: the
-        /// window ends, and readers read the radio's report, unless the radio
-        /// has said nothing at all since the write and does not yet report our
-        /// value, in which case the guard waits for that report. An error
-        /// means nothing changed. When the window ends on a number other than
-        /// ours, the slice's handler is run again so the caches, the filter
-        /// edges and the where-you-are record follow the radio.
+        /// receive thread (repair round 8). Success is the receipt: the
+        /// window ends at the value asked for (round two of the rulings round).
+        /// An error means nothing changed: the slice's handler is run again so
+        /// the caches, the filter edges and the where-you-are record follow the
+        /// radio's last answer, and that number is said (J4).
         /// </summary>
         private void TuneReplied(Slice slice, long id, ulong requestedHz, CommandReply reply)
         {
             var guard = EchoGuardFor(slice);
-            bool closed;
-            if (reply.Acknowledged) closed = guard.Acknowledged(id, LibFreqtoLong(slice.Freq));
-            else
+            if (reply.Acknowledged)
             {
-                Tracing.TraceLine("tune reply: slice " + slice.Letter + " " + reply, System.Diagnostics.TraceLevel.Info);
-                closed = guard.Refused(id, "the radio answered " + reply);
+                // The receipt (round two of the rulings round, the 8600 bench's
+                // Fail 1): the radio sends the new frequency to every OTHER client
+                // and none to this one. The latest request's window ends, then
+                // FlexLib's cache takes the value this reply answers, latest or
+                // not (the radio is there as of this reply), and its Freq
+                // notification brings everything derived along. This runs on the
+                // reader, in order with the radio's statuses, so one sent after
+                // this reply still wins.
+                guard.Acknowledged(id);
+                if (guard.NewestReply(id)) slice.AcceptTuneReply(LongFreqToLibFreq(requestedHz));
+                return;
             }
-            if (closed) Reconcile(slice, requestedHz, reply.Acknowledged ? "answered" : "refused: " + reply);
+            Tracing.TraceLine("tune reply: slice " + slice.Letter + " " + reply, System.Diagnostics.TraceLevel.Info);
+            if (guard.Refused(id, "the radio answered " + reply)) Reconcile(slice, requestedHz, "refused: " + reply);
         }
 
         /// <summary>
@@ -524,11 +513,22 @@ namespace Radios
         // the number we asked for, which is the number spoken, the number it is
         // on is said: the bare frequency, as F says it, no "corrected" label
         // ("I'd just speak the number personally rather than hearing
-        // 'corrected' every ten seconds on a say satellite"). A stream of
-        // outside moves is NOT spoken move by move (11:12); the rule is
-        // FrequencyEchoGuard.OutsideStreamMs. Coalescing queued tunes was
-        // rejected by Noel (11:08) and is not done. The 1.2 s give-up stands
-        // (J5) until the bench measures SmartLink.
+        // 'corrected' every ten seconds on a say satellite"). Coalescing queued
+        // tunes was rejected by Noel (11:08) and is not done. The 1.2 s give-up
+        // stands (J5) until the bench measures SmartLink.
+        //
+        // ROUND TWO (the 8600 bench, Fail 1): it is said ONLY when the radio's
+        // position is known and differs from what was spoken, which is when our
+        // latest tune is REFUSED (an error reply, not sent, locked at its
+        // write, the loop ended, or refused late after a give-up). Then the
+        // slice is on its last answer. A success reply means it is on what was
+        // spoken. A give-up says nothing: with no answer, where the radio is is
+        // not known, and round one's give-up correction would have spoken the
+        // stale cached number the bench measured. Outside moves (another
+        // client, Doppler tracking) are never a tune of ours ending elsewhere,
+        // so they are never spoken, one or a stream; F and the title read them.
+        // A move that arrived before our reply was overridden at the radio by
+        // our tune, so nothing is left held back to correct.
 
         /// <summary>The last correction handed to speech, or null. Set before the speech gate. For tests.</summary>
         internal string LastTuneCorrection { get; private set; }
@@ -536,15 +536,39 @@ namespace Radios
         /// <summary>How many corrections have been handed to speech. For tests.</summary>
         internal int TuneCorrections;
 
+        /// <summary>A correction was handed to speech and has not been retired since.</summary>
+        private int _tuneCorrectionLive;
+
+        /// <summary>How many times a spoken correction has been retired. For tests.</summary>
+        internal int TuneCorrectionsRetired;
+
         /// <summary>
-        /// The window on our latest tune of <paramref name="slice"/> ended with
-        /// the radio on <paramref name="endedHz"/>, not <paramref name="requestedHz"/>
-        /// (0 when the requested number is not known here: a late answer, which
-        /// is said whenever it is admitted). Says the bare number, unless a
-        /// newer tune of ours is already outstanding (it speaks for itself), the
-        /// slice is gone, the connection is ending or narrated by someone else,
-        /// or the slice is being moved by a stream from outside. Traced either
-        /// way. Returns whether it was handed to speech.
+        /// A spoken correction is about one slice, one request and one
+        /// connection (Codex's R3 on the rulings round): a newer tune of ours
+        /// (which speaks its own number), a change of selected slice, or the
+        /// connection ending makes any copy of it not yet heard false, and an
+        /// interrupt must not salvage it after the newer readback. Retired
+        /// through the arbiter's supersession, which keeps an unheard copy from
+        /// being rescued. Cheap when nothing is live.
+        /// </summary>
+        internal void RetireTuneCorrection(string by)
+        {
+            if (System.Threading.Interlocked.Exchange(ref _tuneCorrectionLive, 0) == 0) return;
+            System.Threading.Interlocked.Increment(ref TuneCorrectionsRetired);
+            try { ScreenReaderOutput.Supersede(Speech.SpeechSubject.TuneEndedElsewhere, by); }
+            catch (System.Exception ex)
+            {
+                Tracing.TraceLine("RetireTuneCorrection: " + ex.Message, System.Diagnostics.TraceLevel.Warning);
+            }
+        }
+
+        /// <summary>
+        /// Our latest tune of <paramref name="slice"/> was refused, and the radio
+        /// is on <paramref name="endedHz"/>, not <paramref name="requestedHz"/>.
+        /// Says the bare number, unless a newer tune of ours is already
+        /// outstanding (it speaks for itself), the slice is gone, or the
+        /// connection is ending or narrated by someone else. Traced either way.
+        /// Returns whether it was handed to speech.
         /// </summary>
         private bool TuneEndedElsewhere(Slice slice, ulong requestedHz, ulong endedHz, string ending)
         {
@@ -558,8 +582,6 @@ namespace Radios
                 var guard = EchoGuardFor(slice);
                 if (guard.Read(out _) != FrequencyEchoGuard.Reading.Idle) not = "a newer tune of ours is outstanding, and speaks for itself";
                 else if (!IsConnected || Disconnecting) not = "the connection is ending";
-                else if (guard.OutsideStream(FrequencyEchoGuard.OutsideStreamMs))
-                    not = "the slice is being moved from outside (a stream, such as Doppler tracking); its moves are not spoken one by one";
                 else
                 {
                     var slices = mySlices;
@@ -579,6 +601,7 @@ namespace Radios
                 string text = Lexicon.Get("connect.home.frequency_ended_on", ("freqText", number));
                 LastTuneCorrection = text;
                 System.Threading.Interlocked.Increment(ref TuneCorrections);
+                System.Threading.Interlocked.Exchange(ref _tuneCorrectionLive, 1);
                 Tracing.TraceLine(head + "spoken: " + text, System.Diagnostics.TraceLevel.Info);
                 if (!SuppressSpeech)
                     ScreenReaderOutput.Speak(text, Speech.SpeechIntent.Queue, VerbosityLevel.Critical,

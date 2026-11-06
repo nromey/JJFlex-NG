@@ -247,11 +247,16 @@ namespace Radios.Tests
             Slice a = ReadySlice(0, tx: true, active: true, mhz: 14.100);
             SliceArrives(rig, a);
 
+            // Rulings round two (the 8600 bench): a report before our answer was
+            // made at the radio before our step ran, which overrode it; one after
+            // the answer is believed.
             rig.RXFrequency = 14_100_100;
             Drain(rig);
             SliceReportsFreq(rig, a, 14.250);
             Assert.Equal(14_100_100UL, rig.RXFrequency);
             AnswerLastTune(a);
+            Assert.Equal(14_100_100UL, rig.RXFrequency);
+            SliceReportsFreq(rig, a, 14.250);
             Assert.Equal(14_250_000UL, rig.RXFrequency);
         }
 

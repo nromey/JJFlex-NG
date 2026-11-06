@@ -12,76 +12,53 @@ namespace Radios
     /// <remarks>
     /// <para>
     /// <b>The bug (#266).</b> Tuning is a read-modify-write against a number
-    /// the radio also reports. Over SmartLink the radio's report of an OLDER
-    /// value (the one before our write, or an earlier step of a held key)
-    /// arrives after our newer request has been made, and a reader that
+    /// the radio also reports. Over SmartLink a report of an OLDER value
+    /// arrived after our newer request had been made, and a reader that
     /// believed it stepped from there: tuning under-travelled and went
     /// non-monotonic.
     /// </para>
     /// <para>
-    /// <b>The model (repair round 8, #642).</b> Rounds 3 to 7 patched a guard
-    /// that tried to tell a stale report from a genuine one by remembering the
-    /// numbers a chain had superseded, which numbers older requests had asked
-    /// for, and which replies were outstanding. Every round found a state it
-    /// got wrong: a genuine move to a remembered number was swallowed, a long
-    /// burst outgrew the memory, a report the latest was waiting for was lost.
-    /// This model does not try to classify a report at all. It rests on two
-    /// facts:
+    /// <b>The model, as of the 2026-11-02 junk box's second rulings round
+    /// (#642, the 8600 bench of 2026-11-06).</b> Rounds 8 to 11 assumed the
+    /// radio reports a tune's new frequency to the client that sent it, no
+    /// later than its reply, and waited for that report (an "AwaitingReport"
+    /// state). <b>Measured on the radio, that report never comes</b>: a slice's
+    /// new rf_frequency goes to every OTHER client, and the sender gets only
+    /// its reply, "R|0|". So every step waited, gave up after 1.2 s, and read
+    /// FlexLib's cached OLD frequency, which stayed until another client
+    /// connected. The model now rests on the reply alone:
     /// </para>
     /// <list type="bullet">
-    /// <item>Tunes go out through the reply-bearing path, not FlexLib's
-    /// setter (repair round 5), so FlexLib's own number for the slice is
-    /// always the radio's last report, rejected or not. Nothing is lost by
-    /// keeping a report out of the READING: it is still there to read
-    /// afterwards.</item>
-    /// <item>The radio answers each command with a reply, and sends a
-    /// command's own status no later than its reply (the one premise; see
-    /// below).</item>
+    /// <item><b>A success reply is the receipt.</b> The owner puts the
+    /// requested value into FlexLib's cache from the reply callback
+    /// (<c>Slice.AcceptTuneReply</c>, MIGRATION.md item 26), and the latest
+    /// request's window ends there. Nothing waits for a report of our own
+    /// write.</item>
+    /// <item><b>An error reply is a refusal</b>: the window ends and readers
+    /// read FlexLib's cache, the radio's last answer or report.</item>
+    /// <item><b>Order settles the rest.</b> Replies and statuses arrive on one
+    /// connection in the order the radio sent them, and the reply callback runs
+    /// on the reader in that order. A status that arrives BEFORE our reply
+    /// reports a change the radio made before it ran our tune, which our tune
+    /// then overrode; it is kept out of the reading while ours is unanswered,
+    /// and the reply's value replaces it. A status that arrives AFTER the reply
+    /// is a later change (another client, the knob) and wins as any report
+    /// does.</item>
     /// </list>
     /// <para>
-    /// So: <b>while our latest request is unanswered, a reader reads that
-    /// request's value, and a report is let into the caches only when it
-    /// equals that value. Once the latest request is answered (or refused, or
-    /// out of time), a reader reads the radio's last report.</b> Older
-    /// requests and their replies do not matter at all: the latest request
-    /// overrides them at the radio, and its reply comes after their statuses.
-    /// A genuine change during the window (a clamp, the knob, another client)
-    /// is therefore not believed at once, as #266's guard believed it, but one
-    /// reply later; it is never lost.
-    /// </para>
-    /// <para>
-    /// <b>The states.</b> Idle, Queued (asked, not yet written), Sent
-    /// (written, not answered), and AwaitingReport (answered with success
-    /// while the radio's last report is not our value AND no report at all
-    /// has arrived since the write, the one situation in which the reply may
-    /// have overtaken our own status). The full table, every state against
-    /// every event, is in the round 8 report and is pinned cell by cell in
-    /// <c>FrequencyEchoGuardTests</c>.
-    /// </para>
-    /// <para>
-    /// <b>A report ARRIVING is an event of its own (repair round 9).</b>
-    /// "Has the radio reported since our write?" must count every frequency
-    /// report, including one equal to FlexLib's cached number, which FlexLib's
-    /// Freq notification skips. So arrivals come from FlexLib's
-    /// <c>Slice.FrequencyReported</c> (a JJFlex patch, MIGRATION.md item 23)
-    /// into <see cref="Reported"/>, and <see cref="Accept"/> only decides
-    /// whether a CHANGED value may enter the caches.
-    /// </para>
-    /// <para>
-    /// <b>The premise.</b> That the radio sends a command's own status no
-    /// later than its reply, on the one command connection, is not measured on
-    /// a radio. If it were ever false, AwaitingReport keeps the reading on our
-    /// value until the next report, so a single step still reads correctly;
-    /// the trace distinguishes "answered" from "answered, waiting for its
-    /// report".
+    /// <b>The states.</b> Idle, Queued (asked, not yet written) and Sent
+    /// (written, not answered). Older requests' replies do not end the window,
+    /// but each success still updates FlexLib's cache (the radio is there as of
+    /// that reply), so a refused newest step reads the last step that took.
     /// </para>
     /// <para>
     /// <b>It always ends.</b> <see cref="GiveUpMs"/> after the write, or
     /// <see cref="UnsentGiveUpMs"/> after the request if it is never written,
-    /// the guard is Idle whatever arrived, and readers read the radio.
-    /// Holding a frequency the radio is not on, for a blind operator, is not a
-    /// trade worth making for a race window. The guard keeps no history, so
-    /// nothing in it can grow or be outgrown.
+    /// the guard is Idle and readers read FlexLib's cache. A reply that arrives
+    /// later still updates that cache (and a late REFUSAL of the request given
+    /// up on is reported to the owner, <see cref="Refused"/>). Holding a
+    /// frequency the radio is not on, for a blind operator, is not a trade
+    /// worth making for a race window.
     /// </para>
     /// <para>
     /// <b>One guard per slice</b> (repair round 3), and every trace is written
@@ -93,12 +70,13 @@ namespace Radios
     {
         /// <summary>
         /// How long after our write was sent to wait for the radio to answer
-        /// it before letting the radio's report win.
+        /// it before reading FlexLib's cache instead.
         /// </summary>
         /// <remarks>
         /// Sized against a slow SmartLink round trip (commonly 100-300 ms), so
         /// roughly four times the worst case; it also bounds how long a lost
-        /// reply can keep a reader on a number the radio may not be on.
+        /// reply can keep a reader on a number the radio may not be on. Kept
+        /// until the bench measures SmartLink (J5, ruled by Noel 2026-11-06).
         /// </remarks>
         internal const int GiveUpMs = 1200;
 
@@ -112,14 +90,14 @@ namespace Radios
         /// <summary>What a reader should take as a slice's frequency.</summary>
         internal enum Reading
         {
-            /// <summary>Nothing of ours is outstanding: the radio's last report.</summary>
+            /// <summary>Nothing of ours is outstanding: FlexLib's cache.</summary>
             Idle,
             /// <summary>Our latest request is unanswered: its value.</summary>
             Pending,
         }
 
-        /// <summary>The guard's state (repair round 8). See the class remarks.</summary>
-        internal enum State { Idle, Queued, Sent, AwaitingReport }
+        /// <summary>The guard's state. See the class remarks.</summary>
+        internal enum State { Idle, Queued, Sent }
 
         private readonly object _lock = new object();
         private readonly string _name;
@@ -131,27 +109,12 @@ namespace Radios
         private ulong _requested;
         private long _requestedAt;
         private long _sentAt;
-        private bool _reportSinceSend;
 
-        // J4 (ruled by Noel 2026-11-06 11:06 to 11:12): what the spoken
-        // correction needs from the guard. See <see cref="OutsideStreamMs"/>.
-        private long _lastOutsideAt = long.MinValue;
-        private ulong _lateAnswerFor;
-        private long _lateAnswerUntil = long.MinValue;
+        /// <summary>The request given up on, so its late refusal is still reported; 0 for none.</summary>
+        private long _gaveUpId;
 
-        /// <summary>
-        /// How recently another source must have moved this slice for its moves
-        /// to count as a STREAM (J4): a correction is not spoken while the
-        /// slice's frequency is being moved from outside, such as a satellite
-        /// program's Doppler tracking (Noel 11:12: "I don't think each move
-        /// should be spoken on something like satellite"). An outside move is a
-        /// frequency report that CHANGED the slice's number while no tune of
-        /// ours was outstanding, and was not the late answer to one of ours. A
-        /// single correction (a clamp, a refusal, a move held back during our
-        /// own tune) is spoken; once outside moves keep arriving, the moves
-        /// stop being spoken until they have been quiet this long.
-        /// </summary>
-        internal const int OutsideStreamMs = 5000;
+        /// <summary>The newest request whose success reply has been put into FlexLib's cache.</summary>
+        private long _settledId;
 
         /// <param name="name">Appears in traces, e.g. "slice A".</param>
         /// <param name="clock">
@@ -162,11 +125,10 @@ namespace Radios
         /// Called (outside the guard's lock) with the request's value and the
         /// give-up's trace line when the window ends by running out of time
         /// (repair round 9), so what is derived from the frequency can follow
-        /// the radio as it does after an answer. When it is given, the guard
-        /// does NOT write that trace itself: the give-up may be noticed by a
-        /// reader holding the roster's lock, and the owner writes the line
-        /// later, off that lock (repair round 11). Without an owner the guard
-        /// traces it at once.
+        /// FlexLib's cache. When it is given, the guard does NOT write that
+        /// trace itself: the give-up may be noticed by a reader holding the
+        /// roster's lock, and the owner writes the line later, off that lock
+        /// (repair round 11). Without an owner the guard traces it at once.
         /// </param>
         internal FrequencyEchoGuard(string name, Func<long> clock = null, Action<ulong, string> gaveUp = null)
         {
@@ -199,66 +161,9 @@ namespace Radios
                 _state = State.Queued;
                 _requested = requested;
                 _requestedAt = _clock();
-                _reportSinceSend = false;
-                _lateAnswerUntil = long.MinValue;   // a new request: no older one's late answer is news
+                _gaveUpId = 0;
                 return ++_id;
             }
-        }
-
-        /// <summary>
-        /// The radio reported a CHANGED frequency, <paramref name="reportedHz"/>
-        /// (J4). Asked before <see cref="Reported"/>, which may end a window.
-        /// Returns true when it is the late answer to our latest request, after
-        /// that request was given up and a correction was spoken for it
-        /// (<see cref="LateAnswerPossible"/>): then the slice did end on what we
-        /// asked, and that is said too. Otherwise, while nothing of ours is
-        /// outstanding and it is not the value we last asked for, it is an
-        /// outside move, and dated for <see cref="OutsideStream"/>.
-        /// </summary>
-        internal bool ChangedReportArrived(ulong reportedHz)
-        {
-            string gave;
-            ulong gaveUpOn = 0;
-            bool late = false;
-            lock (_lock)
-            {
-                long now = _clock();
-                gave = ExpireLocked(now, ref gaveUpOn);
-                if (_state == State.Idle)
-                {
-                    if (now < _lateAnswerUntil && reportedHz == _lateAnswerFor)
-                    {
-                        late = true;
-                        _lateAnswerUntil = long.MinValue;
-                    }
-                    else if (reportedHz != _requested) _lastOutsideAt = now;
-                }
-            }
-            Note(gave, gaveUpOn);
-            return late;
-        }
-
-        /// <summary>
-        /// A correction was spoken for request <paramref name="requested"/>
-        /// after the guard gave up on it (J4): if the radio's answer then
-        /// arrives late, within <see cref="UnsentGiveUpMs"/>, it is the
-        /// frequency the slice really ended on, and is said too.
-        /// </summary>
-        internal void LateAnswerPossible(ulong requested)
-        {
-            lock (_lock)
-            {
-                if (_state != State.Idle || _requested != requested) return;
-                _lateAnswerFor = requested;
-                _lateAnswerUntil = _clock() + UnsentGiveUpMs;
-            }
-        }
-
-        /// <summary>Whether an outside move of this slice was reported within <paramref name="withinMs"/> (J4).</summary>
-        internal bool OutsideStream(int withinMs)
-        {
-            lock (_lock)
-                return _lastOutsideAt != long.MinValue && _clock() - _lastOutsideAt < withinMs;
         }
 
         /// <summary>
@@ -277,22 +182,19 @@ namespace Radios
                 {
                     _state = State.Sent;
                     _sentAt = _clock();
-                    _reportSinceSend = false;
                 }
             }
             Note(gave, gaveUpOn);
         }
 
         /// <summary>
-        /// The radio answered request <paramref name="id"/> with success, and
-        /// <paramref name="reportedHz"/> is its last report for the slice.
-        /// For the latest request in Queued or Sent: Idle when the radio
-        /// already reports our value or any report has arrived since the
-        /// write (that report, or a later one, is the radio's answer);
-        /// otherwise AwaitingReport. An older id, or any other state: no
-        /// change. Returns true when this ended the window.
+        /// The radio answered request <paramref name="id"/> with success: that
+        /// is its receipt (the radio reports the new frequency to every client
+        /// but this one). For the latest request in Queued or Sent: Idle, and
+        /// true. Anything else: no change, false. The owner puts the value into
+        /// FlexLib's cache for every success, latest or not.
         /// </summary>
-        internal bool Acknowledged(long id, ulong reportedHz)
+        internal bool Acknowledged(long id)
         {
             string line = null, gave;
             ulong gaveUpOn = 0;
@@ -302,19 +204,10 @@ namespace Radios
                 gave = ExpireLocked(_clock(), ref gaveUpOn);
                 if (id == _id && (_state == State.Queued || _state == State.Sent))
                 {
-                    if (reportedHz == _requested || _reportSinceSend)
-                    {
-                        _state = State.Idle;
-                        closed = true;
-                        line = "FrequencyEcho:" + _name + " answered after " + (_clock() - _requestedAt)
-                            + " ms; the radio reports " + reportedHz + " (asked " + _requested + ")";
-                    }
-                    else
-                    {
-                        _state = State.AwaitingReport;
-                        line = "FrequencyEcho:" + _name + " answered after " + (_clock() - _requestedAt)
-                            + " ms with no report of it yet; holding " + _requested + " for the radio's report";
-                    }
+                    _state = State.Idle;
+                    closed = true;
+                    line = "FrequencyEcho:" + _name + " answered after " + (_clock() - _requestedAt)
+                        + " ms; settled at " + _requested + ", the radio's reply being its receipt";
                 }
             }
             Note(gave, gaveUpOn);
@@ -323,10 +216,28 @@ namespace Radios
         }
 
         /// <summary>
+        /// Whether the success reply to request <paramref name="id"/> is newer
+        /// than every reply already put into FlexLib's cache, and so may be. One
+        /// connection delivers replies in order; this keeps an out-of-order
+        /// reply (a test can make one) from setting the cache back.
+        /// </summary>
+        internal bool NewestReply(long id)
+        {
+            lock (_lock)
+            {
+                if (id <= _settledId) return false;
+                _settledId = id;
+                return true;
+            }
+        }
+
+        /// <summary>
         /// Request <paramref name="id"/> changed nothing: the slice was locked
         /// or gone, the command connection refused it, or the radio answered
         /// with an error. For the latest request in any state but Idle: Idle,
-        /// and true. An older id: no change, false.
+        /// and true. For the latest request already given up on: true, once,
+        /// so its owner can say where the slice really is (a late refusal). An
+        /// older id: no change, false.
         /// </summary>
         internal bool Refused(long id, string why)
         {
@@ -337,7 +248,13 @@ namespace Radios
                 {
                     _state = State.Idle;
                     line = "FrequencyEcho:" + _name + " the tune to " + _requested + " was refused (" + why
-                        + "); reading the radio's own report";
+                        + "); reading the radio's last answer";
+                }
+                else if (id == _id && _gaveUpId == id)
+                {
+                    _gaveUpId = 0;
+                    line = "FrequencyEcho:" + _name + " the tune to " + _requested + " was refused late, after it was"
+                        + " given up on (" + why + "); reading the radio's last answer";
                 }
             }
             if (line != null) Tracing.TraceLine(line, TraceLevel.Info);
@@ -346,10 +263,9 @@ namespace Radios
 
         /// <summary>
         /// Should the radio's CHANGED report <paramref name="echoed"/> go into
-        /// the caches? Idle and AwaitingReport: yes. Queued or Sent: only when
-        /// it is the latest request's value. Changes no state: that the report
-        /// arrived is <see cref="Reported"/>'s, which FlexLib raises for every
-        /// report, changed or not, just before this (repair round 9).
+        /// the caches? Idle: yes. Queued or Sent: only when it is the latest
+        /// request's value; any other was made at the radio before our request
+        /// ran, and our request overrides it there.
         /// </summary>
         internal bool Accept(ulong echoed)
         {
@@ -359,20 +275,13 @@ namespace Radios
             lock (_lock)
             {
                 gave = ExpireLocked(_clock(), ref gaveUpOn);
-                switch (_state)
+                if (_state == State.Idle) accepted = true;
+                else
                 {
-                    case State.Idle:
-                        accepted = true;
-                        break;
-                    case State.AwaitingReport:
-                        accepted = true;
-                        break;
-                    default:
-                        accepted = echoed == _requested;
-                        if (!accepted)
-                            line = "FrequencyEcho:" + _name + " kept " + echoed + " out of the reading until "
-                                + _requested + " is answered (" + (_clock() - _requestedAt) + " ms in)";
-                        break;
+                    accepted = echoed == _requested;
+                    if (!accepted)
+                        line = "FrequencyEcho:" + _name + " kept " + echoed + " out of the reading until "
+                            + _requested + " is answered (" + (_clock() - _requestedAt) + " ms in)";
                 }
             }
             Note(gave, gaveUpOn);
@@ -381,38 +290,9 @@ namespace Radios
         }
 
         /// <summary>
-        /// The radio reported this slice's frequency, <paramref name="reportedHz"/>,
-        /// changed or not (repair round 9). Sent: noted as a report since the
-        /// write. AwaitingReport: the awaited report; Idle, and true, with
-        /// <paramref name="requested"/> the request it answered. Idle and
-        /// Queued: no change (a report before the write is not an answer to it).
-        /// </summary>
-        internal bool Reported(ulong reportedHz, out ulong requested)
-        {
-            string line = null, gave;
-            ulong gaveUpOn = 0;
-            bool closed = false;
-            lock (_lock)
-            {
-                gave = ExpireLocked(_clock(), ref gaveUpOn);
-                requested = _requested;
-                if (_state == State.Sent) _reportSinceSend = true;
-                else if (_state == State.AwaitingReport)
-                {
-                    _state = State.Idle;
-                    closed = true;
-                    line = "FrequencyEcho:" + _name + " the radio's report after its answer: " + reportedHz;
-                }
-            }
-            Note(gave, gaveUpOn);
-            if (line != null) Tracing.TraceLine(line, TraceLevel.Info);
-            return closed;
-        }
-
-        /// <summary>
         /// What a reader should take as this slice's frequency, read once:
         /// Pending with the latest request's value while it is unanswered
-        /// (Queued, Sent or AwaitingReport), else Idle (the radio's report).
+        /// (Queued or Sent), else Idle (FlexLib's cache).
         /// </summary>
         internal Reading Read(out ulong pending)
         {
@@ -434,22 +314,22 @@ namespace Radios
 
         /// <summary>
         /// Out of time: Queued <see cref="UnsentGiveUpMs"/> after the request,
-        /// Sent or AwaitingReport <see cref="GiveUpMs"/> after the write.
-        /// Call holding the lock.
+        /// Sent <see cref="GiveUpMs"/> after the write. Call holding the lock.
         /// </summary>
         private string ExpireLocked(long now, ref ulong gaveUpOn)
         {
             bool expired = _state switch
             {
                 State.Queued => now - _requestedAt >= UnsentGiveUpMs,
-                State.Sent or State.AwaitingReport => now - _sentAt >= GiveUpMs,
+                State.Sent => now - _sentAt >= GiveUpMs,
                 _ => false,
             };
             if (!expired) return null;
             string line = "FrequencyEcho:" + _name + " gave up on " + _requested + " ("
                 + (_state == State.Queued ? "never written" : "no answer") + " after "
-                + (now - (_state == State.Queued ? _requestedAt : _sentAt)) + " ms); reading the radio's own report";
+                + (now - (_state == State.Queued ? _requestedAt : _sentAt)) + " ms); reading the radio's last answer";
             _state = State.Idle;
+            _gaveUpId = _id;
             gaveUpOn = _requested;
             return line;
         }

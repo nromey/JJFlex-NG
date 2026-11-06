@@ -348,6 +348,34 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     - **When it could be removed.** If FlexLib serializes its own command writes
       and offers a conditional write asked at the moment of writing.
 
+26. **A tune's success reply is its receipt (2026-11-06, the 2026-11-02 junk box's
+    rulings round two, from the 8600 bench)**: keep the comment-marked JJFlex patch
+    in `FlexLib_API/FlexLib/Slice.cs`, `Slice.AcceptTuneReply(double mhz)`, declared
+    just above `_freq`.
+    - **What it is.** It puts the value a tune asked for into FlexLib's slice
+      frequency cache and raises the `Freq` notification when the value changes.
+      The app calls it from the success reply of its own `slice tune` command
+      (`FlexBase.TuneReplied`), which runs on the reader in order with the radio's
+      statuses, so a status the radio sends after the reply still overwrites it.
+    - **Why.** Measured on a FLEX-8600 on 2026-11-06 (bench report
+      `2026-11-06-junkbox-1102-bench-report.md`, Fail 1): the radio sends a slice's
+      new `rf_frequency` to every OTHER client and none to the client that tuned
+      it, which gets only `R|0|`. The app tunes through the reply-bearing path
+      rather than the `Freq` setter (whose cache write before sending stood in for
+      that status), so FlexLib's cache stayed on the OLD frequency until another
+      client connected, and every reader that asks the slice (F, the title, the
+      transmit notice, `TXFrequencyAsReported`) read the old number.
+    - **Item 23 has no consumer since this change.** The app no longer subscribes
+      to `Slice.FrequencyReported`: it waited for a report of our own tune that
+      never comes. The patch is left in place, harmless; removing it is a separate
+      decision.
+    - **Pinned by** `TuningReceiptTests.The_FlexLib_tune_reply_patch_is_marked_and_in_place`
+      and the reply-only tests beside it.
+    - **Re-apply after an upgrade.** Merge `Slice.cs`; the member is an addition
+      that uses the private `_freq` and `RaisePropertyChanged`.
+    - **When it could be removed.** If the radio starts reporting a tune to the
+      client that sent it, or the app goes back to the `Freq` setter.
+
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 
 FlexLib is not the only vendor code in this repo, and a patch in one of the
