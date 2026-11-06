@@ -2537,5 +2537,29 @@ namespace Radios.Tests
             Assert.DoesNotContain("mic input PC", rig.MicWrites);
             Assert.DoesNotContain("mic input MIC", rig.MicWrites);
         }
+    
+        [Fact]
+        public void A_stop_made_while_an_attempts_PC_is_going_out_still_puts_the_recorded_input_back()
+        {
+            // Self re-check of J10: the attempt runs off the start's thread, so a
+            // stop can land between its PC leaving and FlexLib's reading of it.
+            // Then the stop's put-back read MIC, judged itself void, and the radio
+            // was left on PC with nothing owed. The attempt now holds the receive
+            // channel's lock for its switch, as the start does.
+            using var rig = StartedWithoutARecord();
+            object retry = ArmedRetry(rig);
+            System.Threading.Thread? stop = null;
+            rig.Vendor.Transport.CommandWritten = c =>
+            {
+                if (c != "mic input PC" || stop != null) return;
+                stop = new System.Threading.Thread(() => rig.StopPcAudio()) { IsBackground = true };
+                stop.Start();
+                stop.Join(300);                              // it may run now, or wait for the attempt
+            };
+            Assert.Equal("OnPc", Attempt(rig, retry));
+            Assert.NotNull(stop);
+            Assert.True(stop!.Join(3000));
+            Assert.Equal(new[] { "mic input PC", "mic input MIC" }, rig.MicWrites);
+        }
     }
 }

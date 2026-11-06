@@ -89,14 +89,26 @@ namespace Radios.Tests.StationConnect
             // fail is not recorded and refuses its pin, as a throwing writer does.
             var pin = CurrentPin;
             if (!AdmitWrite(CurrentConnection)) return;
+            // And the write order (item 25), as the real adapters apply it: the
+            // pin's question at the bytes and the "writer" under the write gate,
+            // the outcome told after it is let go.
             string? failAll = FailEveryWriteOf;
-            if (FailNextWrite || (failAll != null && CommandText(msg ?? "").StartsWith(failAll, StringComparison.Ordinal)))
+            string? refused = null;
+            bool failed = false;
+            EnterWriteGate();
+            try
             {
-                FailNextWrite = false;
-                ReportWrite(pin, false, "the write failed (test)");
-                return;
+                if (!AdmitAtTheBytes(pin, out refused)) { }
+                else if (FailNextWrite || (failAll != null && CommandText(msg ?? "").StartsWith(failAll, StringComparison.Ordinal)))
+                {
+                    FailNextWrite = false;
+                    failed = true;
+                }
+                else lock (Written) Written.Add(msg ?? "");
             }
-            lock (Written) Written.Add(msg ?? "");
+            finally { ExitWriteGate(); }
+            if (refused != null) { ReportRefusal(pin, refused); return; }
+            if (failed) { ReportWrite(pin, false, "the write failed (test)"); return; }
             ReportWrite(pin, true);
             CommandWritten?.Invoke(CommandText(msg ?? ""));
         }

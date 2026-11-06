@@ -2684,11 +2684,7 @@ namespace Radios
                 // A new PC-audio session: whatever the healer reported in the
                 // last one does not silence it in this one (#686, round two).
                 _pcMicDiverged = false;
-                // Whether this start leaves PC to be tried again (J10), and for what.
-                bool retryPc = false;
-                Radio retryRadio = null;
-                CommandConnection retryConnection = null;
-                long retryRun = 0;
+                _startPcRetry = null;   // J10: set below only when PC is left to try again
                 if (GuardSkips("MicInput=PC for computer transmit audio"))
                 {
                     // mic_input is station-global and persists (audit 1.6),
@@ -2730,13 +2726,12 @@ namespace Radios
                     // capture: a retry is bound to these (J10), so a connection
                     // or run that changes during this start ends it rather than
                     // handing it to the replacement.
-                    retryRadio = theRadio;
-                    retryConnection = retryRadio?.CurrentCommandConnection;
-                    retryRun = Interlocked.Read(ref _remoteAudioRun);
+                    // Until PC is established below, it is left to try again (J10).
+                    _startPcRetry = theRadio == null ? null : new PcSwitchRetry(theRadio,
+                        theRadio.CurrentCommandConnection, Interlocked.Read(ref _remoteAudioRun), opusOutputChannel);
                     var capture = CaptureMic(theRadio);
                     MicInputSwap leftover = null, swap = null;
                     string notChanged;
-                    retryPc = true;   // until PC is established below (J10)
                     lock (_micSwitchLock)
                     {
                         notChanged = CaptureNoLongerCurrent(capture);
@@ -2759,7 +2754,7 @@ namespace Radios
                     else if (string.Equals(capture.Input ?? "", "PC", StringComparison.OrdinalIgnoreCase))
                     {
                         _pcMicExpected = true;   // already PC: nothing to switch, nothing to put back
-                        retryPc = false;
+                        _startPcRetry = null;
                     }
                     else
                     {
@@ -2776,7 +2771,7 @@ namespace Radios
                             // silent revert from a deliberate operator choice. See
                             // checkPcMicSelection.
                             _pcMicExpected = true;
-                            retryPc = false;
+                            _startPcRetry = null;
                         }
                         else
                         {
@@ -2827,9 +2822,11 @@ namespace Radios
                             // J10: a PC this start could not record or write is
                             // tried again, bound to THIS session, run, radio and
                             // connection (ruled by Noel 2026-11-06 11:28).
-                            if (retryPc && retryRadio != null)
+                            retry = _startPcRetry;
+                            _startPcRetry = null;
+                            if (retry != null)
                             {
-                                retry = new PcSwitchRetry(retryRadio, retryConnection, retryRun, _micSessionId);
+                                retry.Session = _micSessionId;
                                 _pcSwitchRetry = retry;
                             }
                         }
@@ -2881,23 +2878,34 @@ namespace Radios
         /// <summary>One start's retry of its PC switch (J10), bound to that start.</summary>
         internal sealed class PcSwitchRetry
         {
-            public PcSwitchRetry(Radio radio, CommandConnection connection, long run, long session)
+            public PcSwitchRetry(Radio radio, CommandConnection connection, long run, object channel)
             {
+                Channel = channel ?? new object();
                 Radio = radio;
                 Connection = connection;
                 Run = run;
-                Session = session;
             }
             public Radio Radio { get; }
             public CommandConnection Connection { get; }
             public long Run { get; }
-            public long Session { get; }
+            /// <summary>The PC-audio session it belongs to, set when the start opens it.</summary>
+            public long Session { get; set; }
+            /// <summary>The receive channel the start and its stop lock; an attempt's switch takes it too.</summary>
+            public object Channel { get; }
             /// <summary>Attempts made so far, the start's own not counted.</summary>
             public int Attempts;
         }
 
         /// <summary>The retry in force, or null. Written under <see cref="_micSwitchLock"/>.</summary>
         private PcSwitchRetry _pcSwitchRetry;
+
+        /// <summary>
+        /// The retry a start in progress will arm when its session opens: its own
+        /// radio, connection and run, read BEFORE its capture, so a connection or
+        /// run that changes during the start ends it rather than handing it to the
+        /// replacement. Only the start touches it, under the receive channel's lock.
+        /// </summary>
+        private PcSwitchRetry _startPcRetry;
 
         /// <summary>How long between attempts. Never less: the retry must not loop hot.</summary>
         internal const int PcSwitchRetryMs = 1000;
@@ -2961,61 +2969,70 @@ namespace Radios
                 string over = PcSwitchRetryOver(retry);
                 if (over != null) return StopPcSwitchRetry(retry, head + "stopped - " + over);
                 var capture = CaptureMic(retry.Radio);
-                MicInputSwap swap = null;
-                string notRecorded = null;
-                lock (_micSwitchLock)
+                // The rest under the receive channel's lock, as the start makes
+                // its switch and the stop its put-back: a stop cannot read the
+                // mic input between this PC going out and FlexLib's reading of
+                // it, and so decide its put-back is void while the radio is on
+                // PC (self re-check). Never the capture above, which can wait
+                // a second for the report gate.
+                lock (retry.Channel)
                 {
-                    over = PcSwitchRetryOver(retry);
-                    if (over == null)
+                    MicInputSwap swap = null;
+                    string notRecorded = null;
+                    lock (_micSwitchLock)
                     {
-                        notRecorded = CaptureNoLongerCurrent(capture);
-                        if (notRecorded == null && !ReferenceEquals(capture.Connection, retry.Connection))
-                            over = "the record was taken on another command connection";
-                        else if (notRecorded == null)
+                        over = PcSwitchRetryOver(retry);
+                        if (over == null)
                         {
-                            // Another route recorded and switched it (the switch back):
-                            // its record stands, and this retry is done.
-                            if (_micInputSwap != null || _pcMicExpected)
-                                over = "the mic input has been recorded and switched by another route";
-                            else
+                            notRecorded = CaptureNoLongerCurrent(capture);
+                            if (notRecorded == null && !ReferenceEquals(capture.Connection, retry.Connection))
+                                over = "the record was taken on another command connection";
+                            else if (notRecorded == null)
                             {
-                                swap = new MicInputSwap(capture, madeBySwitchBack: false);
-                                _micInputSwap = swap;
+                                // Another route recorded and switched it (the switch back):
+                                // its record stands, and this retry is done.
+                                if (_micInputSwap != null || _pcMicExpected)
+                                    over = "the mic input has been recorded and switched by another route";
+                                else
+                                {
+                                    swap = new MicInputSwap(capture, madeBySwitchBack: false);
+                                    _micInputSwap = swap;
+                                }
                             }
                         }
                     }
-                }
-                if (over != null) return StopPcSwitchRetry(retry, head + "stopped - " + over);
-                if (notRecorded != null)
-                {
-                    if (capture.Recorded)
-                        return StopPcSwitchRetry(retry, head + "stopped - " + notRecorded);
-                    Tracing.TraceLine(head + notRecorded + "; nothing written; trying again in " + PcSwitchRetryMs + " ms",
-                        TraceLevel.Warning);
+                    if (over != null) return StopPcSwitchRetry(retry, head + "stopped - " + over);
+                    if (notRecorded != null)
+                    {
+                        if (capture.Recorded)
+                            return StopPcSwitchRetry(retry, head + "stopped - " + notRecorded);
+                        Tracing.TraceLine(head + notRecorded + "; nothing written; trying again in " + PcSwitchRetryMs + " ms",
+                            TraceLevel.Warning);
+                        return PcSwitchAttempt.TryAgain;
+                    }
+                    if (string.Equals(capture.Input ?? "", "PC", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _pcMicExpected = true;
+                        return EndPcSwitchRetry(retry, head + "the radio reports PC; nothing to switch, nothing to put back");
+                    }
+                    bool written = false;
+                    string refused = PcUnderRecord(capture, () => PcSwitchRetryOver(retry),
+                        () => written = capture.Radio.SendMicInput("PC"));
+                    if (refused == null && written)
+                    {
+                        _pcMicExpected = true;
+                        return EndPcSwitchRetry(retry, head + "mic input '" + capture.Input + "' recorded and PC written; the stop puts '"
+                            + capture.Input + "' back");
+                    }
+                    lock (_micSwitchLock)
+                        if (ReferenceEquals(_micInputSwap, swap)) _micInputSwap = null;
+                    if (PcSwitchRetryOver(retry) is string gone)
+                        return StopPcSwitchRetry(retry, head + "PC NOT written - " + (refused ?? "the transport did not take it")
+                            + "; stopped - " + gone);
+                    Tracing.TraceLine(head + "PC NOT written - " + (refused ?? "the transport did not take it")
+                        + "; nothing is owed; trying again in " + PcSwitchRetryMs + " ms", TraceLevel.Warning);
                     return PcSwitchAttempt.TryAgain;
                 }
-                if (string.Equals(capture.Input ?? "", "PC", StringComparison.OrdinalIgnoreCase))
-                {
-                    _pcMicExpected = true;
-                    return EndPcSwitchRetry(retry, head + "the radio reports PC; nothing to switch, nothing to put back");
-                }
-                bool written = false;
-                string refused = PcUnderRecord(capture, () => PcSwitchRetryOver(retry),
-                    () => written = capture.Radio.SendMicInput("PC"));
-                if (refused == null && written)
-                {
-                    _pcMicExpected = true;
-                    return EndPcSwitchRetry(retry, head + "mic input '" + capture.Input + "' recorded and PC written; the stop puts '"
-                        + capture.Input + "' back");
-                }
-                lock (_micSwitchLock)
-                    if (ReferenceEquals(_micInputSwap, swap)) _micInputSwap = null;
-                if (PcSwitchRetryOver(retry) is string gone)
-                    return StopPcSwitchRetry(retry, head + "PC NOT written - " + (refused ?? "the transport did not take it")
-                        + "; stopped - " + gone);
-                Tracing.TraceLine(head + "PC NOT written - " + (refused ?? "the transport did not take it")
-                    + "; nothing is owed; trying again in " + PcSwitchRetryMs + " ms", TraceLevel.Warning);
-                return PcSwitchAttempt.TryAgain;
             }
             catch (Exception ex)
             {
