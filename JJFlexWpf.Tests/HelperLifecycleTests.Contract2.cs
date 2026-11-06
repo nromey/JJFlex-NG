@@ -144,6 +144,43 @@ public sealed partial class HelperLifecycleTests
         Assert.Equal(WdspHelperState.Running, rig.Host.State);
     }
 
+    /// <summary>
+    /// The same rule for a protocol error JJ Flexible finds itself before the
+    /// handshake (here a Heartbeat ahead of the HelloAck, out of handshake
+    /// order): the crash path, counted, and restarted.
+    /// </summary>
+    [Fact]
+    public void A_protocol_error_found_before_the_handshake_is_the_crash_path()
+    {
+        using var rig = new HelperTestRig(n => n == 1 ? new[] { "--heartbeat-first" } : Array.Empty<string>(),
+            SlowRestart(TimeSpan.FromSeconds(2)));
+        var engine = rig.Engine("nnr");
+        HelperTestRig.Until(() => rig.Host.State == WdspHelperState.Restarting, "the helper to go down");
+        _out.WriteLine("host: " + rig.Host.Detail);
+        Assert.Equal(Unavailability.HelperNotRunning, engine.Unavailability);
+        Assert.Equal(WdspCondition.FatalProtocolError, rig.Host.LastFailureCondition);
+        Assert.Equal(1, rig.Host.Failures);
+        Assert.Contains("before the handshake: Heartbeat before the handshake", rig.Host.Detail);
+    }
+
+    /// <summary>
+    /// What stays a mismatch: a HelloAck that cannot even be read is an invalid
+    /// HelloAck, which Contract 2 maps to HelperVersionMismatch, never retried.
+    /// </summary>
+    [Fact]
+    public void A_HelloAck_that_cannot_be_read_is_still_a_mismatch()
+    {
+        using var rig = new HelperTestRig(_ => new[] { "--garbled-hello" });
+        var engine = rig.Engine("nnr");
+        _out.WriteLine(engine.UnavailabilityDetail);
+        Assert.Equal(Unavailability.HelperVersionMismatch, engine.Unavailability);
+        Assert.Equal(WdspHelperState.VersionMismatch, rig.Host.State);
+        Assert.Contains("an invalid HelloAck", engine.UnavailabilityDetail);
+        Thread.Sleep(600);
+        Assert.Equal(0, rig.Host.Failures);
+        Assert.Single(rig.Host.LaunchedProcessIds);
+    }
+
     // ------------------------------------------------------------------ closes
 
     /// <summary>

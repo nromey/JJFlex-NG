@@ -30,6 +30,10 @@
 //   --exit-early <code>      exit with that code before connecting (the helper's 2, 3, 4 or 8)
 //   --error-first            answer Hello with Error 257, then close and exit 6 (the
 //                            helper refusing a first message)
+//   --heartbeat-first        answer Hello with a Heartbeat before the HelloAck (out of
+//                            handshake order: a protocol error JJ Flexible finds)
+//   --garbled-hello          answer Hello with a HelloAck whose payload is one byte long
+//                            (a HelloAck that cannot be read)
 //   --fatal-after <n>        after n frames, send Error 257 naming a limit, close, exit 6
 //                            (the helper's answer to a client that overflows a bound)
 //   --fail-build <n>:<ms>    hold the n-th OpenChannel ms, then answer ChannelBuildFailed;
@@ -93,7 +97,7 @@ internal static class Program
     private static int _slowOpenMs;
     private static long _framesProcessed;
     private static bool _answered;
-    private static bool _errorFirst;
+    private static bool _errorFirst, _heartbeatFirst, _garbledHello;
     private static int _fatalAfter = -1;
     private static int _failBuild = -1, _failBuildMs, _opens;
     private static bool _closeUnknown, _swallowCloses;
@@ -144,6 +148,8 @@ internal static class Program
                     case "--bad-applied": _badApplied = Next(); break;
                     case "--exit-early": Environment.Exit(int.Parse(Next(), CultureInfo.InvariantCulture)); break;
                     case "--error-first": _errorFirst = true; break;
+                    case "--heartbeat-first": _heartbeatFirst = true; break;
+                    case "--garbled-hello": _garbledHello = true; break;
                     case "--fatal-after": _fatalAfter = int.Parse(Next(), CultureInfo.InvariantCulture); break;
                     case "--fail-build": (_failBuild, _failBuildMs) = Pair(); break;
                     case "--close-unknown": _closeUnknown = true; break;
@@ -291,6 +297,13 @@ internal static class Program
                     helloSeen = true;
                     if (_errorFirst) { ProtocolError("refused by the test's command line", WdspResult.UnexpectedMessage); return; }
                     if (_slowStart > 0) Thread.Sleep(_slowStart);
+                    if (_heartbeatFirst) Send(WdspHeartbeat.Instance);
+                    if (_garbledHello)
+                    {
+                        // length 3, type 0x0002, one byte of payload: too short for any HelloAck.
+                        lock (WriteGate) { _pipe.Write(new byte[] { 3, 0, 0, 0, 0x02, 0x00, 0x01 }); }
+                        continue;
+                    }
                     if (_reject || hello.Lowest > 1 || hello.Highest < 1)
                     {
                         Send(new WdspHelloReject(2, 3, "this helper speaks protocol 2 to 3"));
