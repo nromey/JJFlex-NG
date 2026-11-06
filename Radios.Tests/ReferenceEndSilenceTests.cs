@@ -974,4 +974,84 @@ public sealed class ReferenceEndSilenceTests : IDisposable
         Assert.False(f.Rig.TxReferenceEndSilenceHeld);
         Assert.False(f.Rig.TxReferenceArmed, "positive control: at receive the lease goes, and a send is admitted again");
     }
+
+    // ── Round five (7e): the Fixer's injected stage refuses while a reference is in the way ──
+
+    private static Radios.Fixer.FixerTransmitGate FixerGate()
+    {
+        var g = new Radios.Fixer.FixerTransmitGate();
+        g.BeginRun("TX-7Q9Z");
+        g.DeclareLoad("50 ohm dummy load on ANT1", Radios.Fixer.FixerLoadKind.DummyLoad);
+        return g;
+    }
+
+    private static Radios.Fixer.InjectedTransmitFacts RunFixersInjectedStage(FlexBase rig, Radios.Fixer.FixerTransmitGate gate) =>
+        Radios.ChainChecks.FixerTransmitAudioBoundary.Create(gate, () => rig)
+            .InjectedTransmit(Radios.Fixer.TransmitStageSet.InjectedTransmit)();
+
+    /// <summary>
+    /// Ruled in by Noel 2026-11-06 03:14: the Fixer's tone and voice stage
+    /// refuses while a reference is armed or its end silence is held, saying
+    /// what is in the way (DRAFT), and reads as not run, never as a failed
+    /// measurement. Nothing is armed, charged or keyed, and the reference is
+    /// left exactly as it was.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]   // armed, not yet played
+    [InlineData(true)]    // played to its end: the silence is held
+    public async Task The_Fixers_tone_and_voice_stage_refuses_while_a_reference_is_in_the_way(bool atItsEnd)
+    {
+        Lexicon.Load(Lexicon.Partitions);
+        using var f = atItsEnd ? await ReferenceRunToItsEnd("ref-fixer-held") : await ReferenceArmedOnly("ref-fixer-armed");
+        var gate = FixerGate();
+
+        var facts = RunFixersInjectedStage(f.Rig, gate);
+
+        string reason = Lexicon.Get(atItsEnd ? "audio.check.reference_end_silence_busy" : "audio.check.reference_already_armed");
+        Assert.Equal("Nothing was transmitted. " + reason, facts.Detail);
+        Assert.Empty(facts.Probes);
+        Assert.False(facts.Keyed);
+        Assert.Equal(0, gate.TransmitCount);
+        Assert.False(f.Rig.TxToneEngaged, "the stage armed its tone over the reference");
+        Assert.True(f.Rig.TxReferenceArmed, "the stage disarmed the reference");
+        Assert.Equal(atItsEnd, f.Rig.TxReferenceEndSilenceHeld);
+
+        // Where the Fixer reports it: not run, in the refusal's own words.
+        var outcome = Radios.Fixer.TransmitStages.Injected(facts);
+        Assert.True(outcome.NothingMeasured);
+        Assert.Equal(facts.Detail, outcome.Answer);
+    }
+
+    /// <summary>The control: with no reference, the stage goes on to the gate as before, and nothing here is said.</summary>
+    [Fact]
+    public void With_no_reference_the_Fixers_stage_runs_as_before()
+    {
+        Lexicon.Load(Lexicon.Partitions);
+        var f = new RigOnVendorRadio("ref-fixer-none");
+        using var _ = f;
+        Assert.False(f.Rig.TxReferenceArmed);
+        var gate = FixerGate();
+        var facts = RunFixersInjectedStage(f.Rig, gate);
+        Assert.DoesNotContain("reference", facts.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEqual("", facts.Detail);   // the gate's own answer on this unkeyable fixture, or the path's, exactly as before
+    }
+
+    /// <summary>A real arm through <c>TxReferenceStartAsync</c>, not keyed and not played.</summary>
+    private static async Task<RigOnVendorRadio> ReferenceArmedOnly(string serial)
+    {
+        var f = new RigOnVendorRadio(serial);
+        f.AddOwnSlice(0, 14.25, "USB");
+        Set(f.Rig, "_TXVFO", 0);
+        Set(f.Rig, "_IsConnected", true);
+        f.Rig.q.MainLoop = true;
+        f.Vendor.Status("transmit vox_enable=1");
+        f.Rig.TxFilePlayer.Load(Content(Rate / 5), Rate, "reference");
+        f.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command == "transmit set vox_enable=0") f.Vendor.ReplyOk(f.Vendor.LastSequence);
+        };
+        Assert.True(await ArmAgain(f), "positive control: the reference armed");
+        Assert.False(f.Rig.TxReferenceEndSilenceHeld);
+        return f;
+    }
 }

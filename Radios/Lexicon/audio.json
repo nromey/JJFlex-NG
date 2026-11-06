@@ -1228,6 +1228,7 @@
   "audio.check.send_already_playing": {"text": "A recording is being sent, and only one thing can replace your microphone at a time. Let it finish or stop it first.", "delivery": null},
   "audio.check.reference_end_silence_held": {"text": "The last pass has ended, and the radio has not yet gone back to receive. Arm it again once it has.", "delivery": null},
   "audio.check.reference_end_silence_busy": {"text": "A reference recording has just finished, and the radio has not yet gone back to receive. Try again once it has.", "delivery": null},
+  "audio.check.fixer_reference_in_the_way": {"text": "Nothing was transmitted. {reason}", "delivery": null},
   "audio.full_duplex.label": {"text": "Full duplex", "delivery": null},
   "audio.full_duplex.command": {"text": "Toggle full duplex", "delivery": null},
   "audio.full_duplex.on": {"text": "Full duplex on", "delivery": null},

@@ -2317,6 +2317,7 @@ namespace Radios.Tests
                 // Round five (7d, 7e): a send, or the Fixer's injected stage,
                 // refused during the silence after a reference's end.
                 "audio.check.reference_end_silence_busy",
+                "audio.check.fixer_reference_in_the_way",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
