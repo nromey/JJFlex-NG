@@ -200,17 +200,49 @@ public sealed class CommandWriteGate
         lock (_sync)
         {
             if (urgent) _urgentWaiting++;
-            try
-            {
-                while (_held || (!urgent && _urgentWaiting > 0))
-                    System.Threading.Monitor.Wait(_sync);
-            }
-            finally
-            {
-                if (urgent) _urgentWaiting--;
-            }
-            _held = true;
+            WaitRegisteredLocked(urgent);
         }
+    }
+
+    /// <summary>
+    /// Take the gate without blocking the caller (rulings round three, Codex's
+    /// F2). An urgent writer is REGISTERED here, synchronously, before any wait
+    /// is handed to the thread pool, so no ordinary writer can enter ahead of it
+    /// while the pool is busy. Completed at once when the gate is free.
+    /// </summary>
+    public System.Threading.Tasks.Task EnterAsync(bool urgent)
+    {
+        lock (_sync)
+        {
+            if (!_held && (urgent || _urgentWaiting == 0))
+            {
+                _held = true;
+                return System.Threading.Tasks.Task.CompletedTask;
+            }
+            if (urgent) _urgentWaiting++;
+        }
+        return System.Threading.Tasks.Task.Run(() =>
+        {
+            lock (_sync) WaitRegisteredLocked(urgent);
+        });
+    }
+
+    /// <summary>Urgent writers waiting now, registered. For tests and traces.</summary>
+    public int UrgentWaiting { get { lock (_sync) return _urgentWaiting; } }
+
+    /// <summary>Wait for the gate, this writer already registered if urgent; then hold it. Call holding _sync.</summary>
+    private void WaitRegisteredLocked(bool urgent)
+    {
+        try
+        {
+            while (_held || (!urgent && _urgentWaiting > 0))
+                System.Threading.Monitor.Wait(_sync);
+        }
+        finally
+        {
+            if (urgent) _urgentWaiting--;
+        }
+        _held = true;
     }
 
     /// <summary>Take the gate only if it can be had at once.</summary>
@@ -273,12 +305,10 @@ public abstract class CommandCommunicationBase : ICommandCommunication
     protected void EnterWriteGate() => _writeGate.Enter(CommandWritePin.UrgentNow);
 
     /// <summary>JJFlex patch: write order (MIGRATION.md item 25). Take the write gate off the caller's thread.</summary>
-    protected System.Threading.Tasks.Task EnterWriteGateAsync()
-    {
-        bool urgent = CommandWritePin.UrgentNow;   // read on the caller's thread, before any await
-        return _writeGate.TryEnter(urgent) ? System.Threading.Tasks.Task.CompletedTask
-            : System.Threading.Tasks.Task.Run(() => _writeGate.Enter(urgent));
-    }
+    protected System.Threading.Tasks.Task EnterWriteGateAsync() =>
+        // Urgency read, and an urgent waiter registered, on the caller's thread,
+        // before any wait is handed off (rulings round three, Codex's F2).
+        _writeGate.EnterAsync(CommandWritePin.UrgentNow);
 
     /// <summary>JJFlex patch: write order (MIGRATION.md item 25). Let the write gate go.</summary>
     protected void ExitWriteGate() => _writeGate.Exit();

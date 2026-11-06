@@ -314,6 +314,7 @@ namespace Radios.Tests
             Assert.Equal(1, Count(tls, "if (!AdmitAtTheBytes(pin, out refused))"));
             Assert.Equal(1, Count(tcp, "EnterWriteGate();"));
             Assert.Equal(1, Count(tcp, "await EnterWriteGateAsync()"));
+            Assert.Contains("_writeGate.EnterAsync(CommandWritePin.UrgentNow)", connection);   // round three, F2
             Assert.Equal(1, Count(tls, "EnterWriteGate();"));
             Assert.True(Count(connection + tcp + tls, "JJFlex patch: write order (MIGRATION.md item 25)") >= 5);
             Assert.Contains("25. **Command write order", File.ReadAllText(Repo("MIGRATION.md")));
@@ -435,6 +436,40 @@ namespace Radios.Tests
             Assert.True(first.Join(3000) && ordinary.Join(3000) && unkey.Join(3000));
             var wire = writer.Commands.Where(x => !x.StartsWith("S", StringComparison.Ordinal)).ToArray();
             Assert.Equal(new[] { "first line", off, "mic input BAL" }, wire);
+        }
+
+    
+
+        // ── Round three, Codex's F2: an urgent async write registers at once ──
+
+        private static CommandWriteGate NewGate() =>
+            (CommandWriteGate)Activator.CreateInstance(typeof(CommandWriteGate), Any, null, Array.Empty<object>(), null)!;
+
+        [Fact]
+        public void An_urgent_async_waiter_is_registered_before_its_wait_is_handed_off()
+        {
+            // Codex's async-priority probe: the async path failed TryEnter and
+            // only then scheduled the wait, so until a pool thread ran it an
+            // ordinary writer could enter ahead of the urgent one.
+            var gate = NewGate();
+            Assert.True(gate.TryEnter());                      // the line in progress
+            var urgent = gate.EnterAsync(urgent: true);
+            Assert.Equal(1, gate.UrgentWaiting);               // registered synchronously
+            gate.Exit();
+            Assert.False(gate.TryEnter());                     // no ordinary writer gets in ahead of it
+            Assert.True(urgent.Wait(3000));
+            Assert.False(gate.TryEnter(urgent: true));         // the urgent writer holds it
+            gate.Exit();
+            Assert.Equal(0, gate.UrgentWaiting);
+        }
+
+        [Fact]
+        public void An_async_write_with_the_gate_free_takes_it_at_once()
+        {
+            var gate = NewGate();
+            Assert.True(gate.EnterAsync(urgent: false).IsCompleted);
+            Assert.False(gate.TryEnter());
+            gate.Exit();
         }
 
     }

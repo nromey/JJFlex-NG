@@ -338,6 +338,11 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
       loop waits for the loop as before; this gate adds at most one line to that.
       Only a stalled link makes the line in progress long, and then nothing can go
       out on that connection anyway.
+      An urgent writer on the async path (`WriteAsync`, through
+      `CommandWriteGate.EnterAsync`) is registered synchronously, on the caller's
+      thread, before its wait is handed to the thread pool (2026-11-06, Codex's F2),
+      so a busy pool cannot let an ordinary writer in ahead of it. Today's forced
+      OFFs use the synchronous path.
     - **Why.** Two LOCAL writes overtook each other: an immediate VOX or CW
       break-in restore was admitted, then preempted before its writer; the
       operator's OFF was queued and written by the command loop meanwhile; then the
