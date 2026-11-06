@@ -313,6 +313,17 @@ public sealed class TransmitSliceNoticeTests
     }
 
     [Fact]
+    public async Task A_notice_never_begun_gives_up_at_ten_seconds()
+    {
+        // J27, ruled by Noel 2026-11-06 16:50: "cap it at 10, 30 seems kind of excessive."
+        Assert.Equal(10_000, TransmitSliceNotice.QueuedCeilingMs);
+        int polls = 0;
+        Assert.False(await TransmitSliceNotice.HeardAsync(new FakeWords(), () => true,
+            _ => { polls++; return Task.CompletedTask; }));
+        Assert.Equal(10_000 / TransmitSliceNotice.PollMs, polls);
+    }
+
+    [Fact]
     public async Task A_notice_never_begun_stops_at_its_own_longer_bound()
     {
         int polls = 0;

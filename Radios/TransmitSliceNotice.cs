@@ -297,7 +297,7 @@ namespace Radios
                 // The ceiling bounds the reader's own time with the sentence. Time
                 // spent not yet begun, behind our OWN speech, is not the reader
                 // failing, and a send is not refused for it (rulings round two,
-                // the bench's Fail 2); it has its own, longer bound.
+                // the bench's Fail 2); it has its own bound, ten seconds (J27).
                 bool begun = words.Started;
                 if (begun ? waited >= ceilingMs : queued >= queuedCeilingMs) return false;
                 await Task.WhenAny(news, delay(PollMs)).ConfigureAwait(true);
@@ -308,9 +308,11 @@ namespace Radios
         /// <summary>
         /// How long a notice may wait, not yet begun, behind our own speech
         /// before the door gives up (rulings round two). Escape, a stop or a
-        /// closed window ends the wait at once through stillWanted.
+        /// closed window ends the wait at once through stillWanted. Ten seconds,
+        /// ruled by Noel 2026-11-06 16:50 (J27): "cap it at 10, 30 seems kind of
+        /// excessive."
         /// </summary>
-        public const int QueuedCeilingMs = 30_000;
+        public const int QueuedCeilingMs = 10_000;
 
         /// <summary>
         /// At the moment of keying: true when the door may key, false when it
