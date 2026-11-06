@@ -36,6 +36,14 @@
 // Measures existing files against an unprocessed reference (CwMeasure.cs).
 // nrbench cwscan <capture.wav> [--start s] [--seconds s] [--window s] [--step s]
 // Lists the keyed pitches in each stretch of a capture: how to find a station.
+// nrbench cwpeaks <capture.wav> [--pitch Hz] [--start s] [--seconds s] [--window s]
+//     [--step s] [--min-db dB] [--by-spread]
+// Lists the pitches standing out while the main station is not keyed.
+// nrbench cwelements <capture.wav> [--pitch Hz] [--start s] [--seconds s] [--window s]
+// The main station's elements over time: fades, or a second station at its pitch.
+// nrbench cwband <capture.wav> <file.wav>... --pitch Hz --span from-to [--span from-to]...
+//     [--half-width Hz] [--exclude Hz]...
+// A station too faint to classify, by its long-average level over the noise floor.
 // nrbench cpu [input.wav] [--out <report.txt>] [--deepfilter <nativeDir>]
 // CPU mode defaults to generated noise and cpu-report.txt; it opens no device.
 // nrbench synth <speech.wav> <outDir> [--start s] [--seconds s] [--snr dB]

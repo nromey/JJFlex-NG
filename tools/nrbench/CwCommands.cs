@@ -20,6 +20,15 @@ namespace NrBench;
 //     says the files are already aligned to the reference, so no delay is searched for.
 //   nrbench cwscan <capture.wav> [--start s] [--seconds s] [--window s] [--step s]
 //     Lists the keyed pitches in each stretch of a capture, best first: how to find a station.
+//   nrbench cwpeaks <capture.wav> [--pitch Hz] [--start s] [--seconds s] [--window s] [--step s] [--min-db dB] [--by-spread]
+//     Lists the pitches that stand out while the main station is NOT keyed: how to find a
+//     weaker station that answers between the main station's transmissions.
+//   nrbench cwband <capture.wav> <file.wav>... --pitch Hz --span from-to [--span from-to]...
+//       [--half-width Hz] [--exclude Hz]...
+//     A station too faint to classify, measured over a long average, in the capture and each file.
+//   nrbench cwelements <capture.wav> [--pitch Hz] [--start s] [--seconds s] [--window s]
+//     The main station's elements over time, from the capture alone: fades, or a second
+//     station at the same pitch.
 // The left channel only: these captures are a centred slice, left equal to right, and the
 // commands print how far apart the two channels actually are.
 partial class BenchApp
@@ -157,9 +166,9 @@ partial class BenchApp
                 $"({found.ScoreDb - found.RunnerUpScoreDb:0.0} dB). Listen, then give the station's pitch with --pitch.");
         double pitch = pitchHz ?? found.Hz;
         var pass = FindPassband(capture, pitch);
-        var mask = MakeMask(capture, pitch);
         var others = specs.Select(s => s.Hz).ToArray();
-        var stations = specs.Select(s => new CwStation(s, MakeMask(capture, s.Hz, s.From, s.To))).ToList();
+        var mask = MakeMask(capture, pitch, others: others);
+        var stations = specs.Select(s => new CwStation(s, MakeMask(capture, s.Hz, s.From, s.To, new[] { pitch }.Concat(others.Where(o => o != s.Hz)).ToArray()))).ToList();
         int keyBlocks = mask.Key.Count(k => k == true), gapBlocks = mask.Key.Count(k => k == false);
         Console.WriteLine($"{name}: pitch {pitch:0.0} Hz{(pitchHz != null ? $" (given; the finder chose {found.Hz:0.0})" : "")}; passband {pass.Lo:0} to {pass.Hi:0} Hz.");
 
@@ -259,9 +268,9 @@ partial class BenchApp
         var found = FindPitch(capture);
         double pitch = pitchHz ?? found.Hz;
         var pass = FindPassband(capture, pitch);
-        var mask = MakeMask(capture, pitch);
         var others = specs.Select(s => s.Hz).ToArray();
-        var stations = specs.Select(s => new CwStation(s, MakeMask(capture, s.Hz, s.From, s.To))).ToList();
+        var mask = MakeMask(capture, pitch, others: others);
+        var stations = specs.Select(s => new CwStation(s, MakeMask(capture, s.Hz, s.From, s.To, new[] { pitch }.Concat(others.Where(o => o != s.Hz)).ToArray()))).ToList();
         int? lag = aligned ? 0 : null;
         Console.WriteLine($"Reference {reference} ({words}), {capture.Length / (double)Rate:0.0} s from {start:0.0} s.");
         Console.WriteLine($"Pitch {pitch:0.0} Hz{(pitchHz != null ? $" (given; the finder chose {found.Hz:0.0})" : $" (next best {found.RunnerUpHz:0} Hz, {found.ScoreDb - found.RunnerUpScoreDb:0.0} dB less active)")}; passband {pass.Lo:0} to {pass.Hi:0} Hz; " +
@@ -286,6 +295,228 @@ partial class BenchApp
             for (int s = 0; s < stations.Count; s++) Console.WriteLine(StationLine(stations[s], StationFigures(x, stations[s], pass.Lo, pass.Hi), stationRefs[s], mainChange));
             if (segments) Console.WriteLine(SegmentLine(f, wideRef));
             if (narrow) Console.WriteLine(CwLine(Path.GetFileName(path) + " then the narrow filter", Measure(NarrowBand(x, pitch, width), mask, pitch, pitch - width / 2, pitch + width / 2, others, lag), narrowRef));
+        }
+        return 0;
+    }
+
+    /// <summary>
+    /// The other stations: in each stretch, only the frames where the main station is NOT keyed
+    /// (its own mask, so its keying sidebands and the AGC's pumping on it are out of the way),
+    /// each pitch's loud level (90th percentile) above its neighbours within 150 Hz, and its
+    /// keying spread (90th less 20th percentile), for every pitch that stands out.
+    /// </summary>
+    static int CwPeaksCommand(string[] a)
+    {
+        if (a.Length < 1) { Console.Error.WriteLine("cwpeaks wants <capture.wav> --pitch Hz"); return 2; }
+        double start = 0, seconds = 0, window = 10, step = 5, pitch = double.NaN, minDb = 6;
+        bool bySpread = false;
+        for (int i = 1; i < a.Length; i++)
+            switch (a[i])
+            {
+                case "--start": start = double.Parse(a[++i], CultureInfo.InvariantCulture); break;
+                case "--seconds": seconds = double.Parse(a[++i], CultureInfo.InvariantCulture); break;
+                case "--window": window = double.Parse(a[++i], CultureInfo.InvariantCulture); break;
+                case "--step": step = double.Parse(a[++i], CultureInfo.InvariantCulture); break;
+                case "--pitch": pitch = double.Parse(a[++i], CultureInfo.InvariantCulture); break;
+                case "--min-db": minDb = double.Parse(a[++i], CultureInfo.InvariantCulture); break;
+                case "--by-spread": bySpread = true; break;
+                default: throw new ArgumentException("Unknown cwpeaks argument " + a[i]);
+            }
+        var raw = LoadWav(Path.GetFullPath(a[0]), out int ch, out _);
+        var whole = LeftChannel(raw, ch, out string words);
+        var capture = CwSpan(whole, start, seconds);
+        if (double.IsNaN(pitch)) pitch = FindPitch(capture).Hz;
+        var mask = MakeMask(capture, pitch);
+        const int N = 4096, hop = 1024;
+        double bin = (double)Rate / N;
+        int lo = (int)(200 / bin), hi = (int)(3000 / bin);
+        var win = Hann(N);
+        var buf = new System.Numerics.Complex[N];
+        Console.WriteLine($"{a[0]} ({words}), main station {pitch:0.0} Hz. Pitches standing {minDb:0} dB or more above their neighbours while the main station is not keyed, per {window:0} s stretch: loud level above neighbours, keying spread, and the share of the stretch's quiet frames it is loud in.");
+        for (double t = 0; t + window <= capture.Length / (double)Rate + 1e-9; t += step)
+        {
+            int f0 = (int)(t * Rate), f1 = (int)((t + window) * Rate) - N;
+            var frames = new List<double[]>();
+            for (int at = f0; at <= f1; at += hop)
+            {
+                // Quiet for the main station: no key-down block anywhere under this frame.
+                int b0 = Math.Max(0, (at - CwWindow / 2) / CwHop), b1 = Math.Min(mask.Key.Length - 1, (at + N - CwWindow / 2) / CwHop);
+                bool keyed = false;
+                for (int b = b0; b <= b1 && !keyed; b++) keyed = mask.Key[b] == true;
+                if (keyed) continue;
+                for (int i = 0; i < N; i++) buf[i] = capture[at + i] * win[i];
+                Fft(buf, false);
+                var lv = new double[hi - lo + 1];
+                for (int k = lo; k <= hi; k++) { double s = 0; for (int j = -1; j <= 1; j++) s += buf[k + j].Real * buf[k + j].Real + buf[k + j].Imaginary * buf[k + j].Imaginary; lv[k - lo] = 10 * Math.Log10(s + 1e-30); }
+                frames.Add(lv);
+            }
+            if (frames.Count < 10) { Console.WriteLine($"{start + t:0} to {start + t + window:0} s: the main station is keyed nearly throughout ({frames.Count} quiet frames)."); continue; }
+            var p90 = new double[hi - lo + 1]; var p20 = new double[hi - lo + 1];
+            for (int k = 0; k < p90.Length; k++) { var c = frames.Select(f => f[k]).Order().ToArray(); p90[k] = Percentile(c, .9); p20[k] = Percentile(c, .2); }
+            var found = new List<string>();
+            var taken = new List<int>();
+            int nb = (int)(150 / bin);
+            if (bySpread)
+            {
+                // A keyed station that is too weak to stand above its neighbours in level still
+                // swings more than noise does: each pitch's spread above the band's typical spread.
+                var spread = p90.Zip(p20, (x, y) => x - y).ToArray();
+                double typical = Percentile(spread.Order().ToArray(), .5);
+                foreach (int k in Enumerable.Range(0, spread.Length).OrderByDescending(k => spread[k]))
+                {
+                    if (taken.Any(x => Math.Abs(x - k) * bin < 40)) continue;
+                    if (spread[k] - typical < minDb) break;
+                    taken.Add(k);
+                    found.Add($"{(lo + k) * bin:0} Hz spread {spread[k] - typical:+0.0} dB above the band's");
+                    if (found.Count == 6) break;
+                }
+                Console.WriteLine($"{start + t:0} to {start + t + window:0} s ({frames.Count} quiet frames, typical spread {typical:0.0} dB): " + (found.Count == 0 ? "nothing stands out." : string.Join("; ", found) + "."));
+                continue;
+            }
+            foreach (int k in Enumerable.Range(0, p90.Length).OrderByDescending(k => p90[k]))
+            {
+                if (taken.Any(x => Math.Abs(x - k) * bin < 40)) continue;
+                var around = Enumerable.Range(Math.Max(0, k - nb), Math.Min(p90.Length, k + nb + 1) - Math.Max(0, k - nb)).Where(j => Math.Abs(j - k) > 3).Select(j => p90[j]).Order().ToArray();
+                double above = p90[k] - Percentile(around, .5);
+                if (above < minDb) continue;
+                taken.Add(k);
+                double floorK = Percentile(around, .5);
+                double share = frames.Count(f => f[k] > floorK + minDb) / (double)frames.Count;
+                found.Add($"{(lo + k) * bin:0} Hz +{above:0.0} dB, spread {p90[k] - p20[k]:0.0} dB, loud in {100 * share:0} percent");
+                if (found.Count == 6) break;
+            }
+            Console.WriteLine($"{start + t:0} to {start + t + window:0} s ({frames.Count} quiet frames): " + (found.Count == 0 ? "nothing stands out." : string.Join("; ", found) + "."));
+        }
+        return 0;
+    }
+
+    /// <summary>
+    /// The main station's elements over time, from the reference alone: per stretch, how many,
+    /// and their level against the take's median element (median and weakest). A cluster of weak
+    /// elements is a fade, or a second station at the same pitch (a caller zero-beating).
+    /// </summary>
+    static int CwElementsCommand(string[] a)
+    {
+        if (a.Length < 1) { Console.Error.WriteLine("cwelements wants <capture.wav> --pitch Hz"); return 2; }
+        double start = 0, seconds = 0, window = 5, pitch = double.NaN;
+        for (int i = 1; i < a.Length; i++)
+            switch (a[i])
+            {
+                case "--start": start = double.Parse(a[++i], CultureInfo.InvariantCulture); break;
+                case "--seconds": seconds = double.Parse(a[++i], CultureInfo.InvariantCulture); break;
+                case "--window": window = double.Parse(a[++i], CultureInfo.InvariantCulture); break;
+                case "--pitch": pitch = double.Parse(a[++i], CultureInfo.InvariantCulture); break;
+                default: throw new ArgumentException("Unknown cwelements argument " + a[i]);
+            }
+        var raw = LoadWav(Path.GetFullPath(a[0]), out int ch, out _);
+        var capture = CwSpan(LeftChannel(raw, ch, out string words), start, seconds);
+        if (double.IsNaN(pitch)) pitch = FindPitch(capture).Hz;
+        var mask = MakeMask(capture, pitch);
+        var f = Measure(capture, mask, pitch, 200, 3000, null, 0);
+        var levels = f.ElementSignal.Select(v => v > 0 ? 10 * Math.Log10(v) : double.NaN).ToArray();
+        double median = Median(levels.Where(v => !double.IsNaN(v)).ToList());
+        Console.WriteLine($"{a[0]} ({words}), station {pitch:0.0} Hz: {mask.Elements.Length} elements; per {window:0} s, the elements seen and their signal against the take's median element (median, weakest).");
+        for (double t = 0; t < capture.Length / (double)Rate; t += window)
+        {
+            var here = Enumerable.Range(0, levels.Length).Where(e => f.ElementCentreSeconds[e] >= t && f.ElementCentreSeconds[e] < t + window).ToList();
+            var seen = here.Where(e => !double.IsNaN(levels[e])).Select(e => levels[e] - median).ToList();
+            int unclassified = (int)(mask.Key.Skip((int)(t * Rate / CwHop)).Take((int)(window * Rate / CwHop)).Count(k => k == null) * 100.0 / (window * Rate / CwHop));
+            // Where the weak elements are (10 dB or more under the take's median), their own pitch:
+            // the peak, within 80 Hz of the station, of their summed spectrum (5.9 Hz bins).
+            var weakOnes = here.Where(e => !double.IsNaN(levels[e]) && levels[e] - median <= -10).ToList();
+            string weakPitch = "";
+            if (weakOnes.Count >= 2)
+            {
+                const int N = 8192;
+                var w = Hann(N); var buf = new System.Numerics.Complex[N]; var sum = new double[N / 2];
+                foreach (int e in weakOnes)
+                {
+                    var el = mask.Elements[e];
+                    int centre = (el.Start + el.End) / 2 * CwHop + CwWindow / 2, at = centre - N / 2;
+                    if (at < 0 || at + N > capture.Length) continue;
+                    for (int i = 0; i < N; i++) buf[i] = capture[at + i] * w[i];
+                    Fft(buf, false);
+                    for (int k = 0; k < N / 2; k++) sum[k] += buf[k].Real * buf[k].Real + buf[k].Imaginary * buf[k].Imaginary;
+                }
+                double binHz = (double)Rate / N;
+                int k0 = (int)((pitch - 80) / binHz), k1 = (int)((pitch + 80) / binHz);
+                int best = Enumerable.Range(k0, k1 - k0 + 1).OrderByDescending(k => sum[k]).First();
+                weakPitch = $"; its {weakOnes.Count} weak elements peak at {best * binHz:0} Hz";
+            }
+            Console.WriteLine($"{start + t:0} to {start + t + window:0} s: {here.Count} elements" + (seen.Count == 0 ? "" : $", median {Median(seen):+0.0;-0.0;0.0} dB, weakest {seen.Min():+0.0;-0.0;0.0} dB") + weakPitch + $"; {unclassified} percent unclassified.");
+        }
+        return 0;
+    }
+
+    /// <summary>
+    /// A weak station too faint to classify element by element, measured the way an ear hears it:
+    /// the long-average spectrum over the given stretches, the power within a few hertz of its
+    /// pitch against the noise floor 60 to 150 Hz either side (other stations' pitches excluded),
+    /// in the capture and in each file. "Above the floor" is the station; the change against the
+    /// capture is what each engine kept of it. Files must be aligned to the capture.
+    /// </summary>
+    static int CwBandCommand(string[] a)
+    {
+        if (a.Length < 2) { Console.Error.WriteLine("cwband wants <capture.wav> <file.wav>... --pitch Hz --span from-to [--span from-to]..."); return 2; }
+        double pitch = double.NaN, half = 12;
+        var spans = new List<(double From, double To)>();
+        var exclude = new List<double>();
+        var files = new List<string>();
+        for (int i = 1; i < a.Length; i++)
+            switch (a[i])
+            {
+                case "--pitch": pitch = double.Parse(a[++i], CultureInfo.InvariantCulture); break;
+                case "--half-width": half = double.Parse(a[++i], CultureInfo.InvariantCulture); break;
+                case "--exclude": exclude.Add(double.Parse(a[++i], CultureInfo.InvariantCulture)); break;
+                case "--span":
+                {
+                    var p = a[++i].Split('-');
+                    spans.Add((double.Parse(p[0], CultureInfo.InvariantCulture), double.Parse(p[1], CultureInfo.InvariantCulture)));
+                    break;
+                }
+                default: files.Add(Path.GetFullPath(a[i])); break;
+            }
+        if (double.IsNaN(pitch) || spans.Count == 0) throw new ArgumentException("cwband needs --pitch and at least one --span");
+        const int N = 8192, hop = 2048;
+        double bin = (double)Rate / N;
+        var w = Hann(N);
+        double[] Spectrum(float[] x)
+        {
+            var sum = new double[N / 2]; int count = 0;
+            var buf = new System.Numerics.Complex[N];
+            foreach (var (from, to) in spans)
+                for (int at = (int)(from * Rate); at + N <= Math.Min(x.Length, (int)(to * Rate)); at += hop)
+                {
+                    for (int i = 0; i < N; i++) buf[i] = x[at + i] * w[i];
+                    Fft(buf, false);
+                    for (int k = 0; k < N / 2; k++) sum[k] += buf[k].Real * buf[k].Real + buf[k].Imaginary * buf[k].Imaginary;
+                    count++;
+                }
+            return sum.Select(v => v / Math.Max(1, count)).ToArray();
+        }
+        (double Peak, double Floor) Read(double[] sp)
+        {
+            int k0 = (int)Math.Round((pitch - half) / bin), k1 = (int)Math.Round((pitch + half) / bin);
+            double peak = 0; for (int k = k0; k <= k1; k++) peak += sp[k];
+            var around = Enumerable.Range((int)((pitch - 150) / bin), (int)(300 / bin))
+                .Where(k => Math.Abs(k * bin - pitch) >= 60 && exclude.All(e => Math.Abs(k * bin - e) >= 40)).Select(k => sp[k]).Order().ToArray();
+            return (peak, Percentile(around, .5) * (k1 - k0 + 1));
+        }
+        var cap = LoadWav(Path.GetFullPath(a[0]), out int ch, out _);
+        var capture = LeftChannel(cap, ch, out string words);
+        var (cp, cf) = Read(Spectrum(capture));
+        double capSignal = cp - cf;
+        Console.WriteLine($"{a[0]} ({words}): within {half:0} Hz of {pitch:0} Hz over " + string.Join(", ", spans.Select(s => $"{s.From:0.#} to {s.To:0.#} s")) +
+                          $": {10 * Math.Log10(cp / cf):0.0} dB above the noise floor 60 to 150 Hz away" + (exclude.Count > 0 ? $" (stations at {string.Join(", ", exclude.Select(e => e.ToString("0")))} Hz left out of the floor)" : "") + ".");
+        foreach (string path in files)
+        {
+            var x = LeftChannel(LoadWav(path, out int fc, out _), fc, out _);
+            var (p, f) = Read(Spectrum(x));
+            double signal = p - f;
+            string kept = capSignal <= 0 ? "the capture shows nothing there to keep"
+                : signal <= 0 ? "nothing above its own floor: not kept"
+                : $"the station's power {10 * Math.Log10(signal / capSignal):+0.0;-0.0;0.0} dB against the capture's";
+            Console.WriteLine($"  {Path.GetFileName(path)}: {10 * Math.Log10(p / f):0.0} dB above its floor; {kept}; its floor {10 * Math.Log10(f / cf):+0.0;-0.0;0.0} dB against the capture's.");
         }
         return 0;
     }

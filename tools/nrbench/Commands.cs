@@ -13,6 +13,9 @@ partial class BenchApp
             if(args[0]=="cw")return Cw(args[1..]);
             if(args[0]=="cwmeasure")return CwMeasureCommand(args[1..]);
             if(args[0]=="cwscan")return CwScanCommand(args[1..]);
+            if(args[0]=="cwpeaks")return CwPeaksCommand(args[1..]);
+            if(args[0]=="cwelements")return CwElementsCommand(args[1..]);
+            if(args[0]=="cwband")return CwBandCommand(args[1..]);
             if(args[0]=="selftest")
             {
                 string? recording=null,mutation=null;

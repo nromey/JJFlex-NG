@@ -11,6 +11,8 @@ namespace NrBench;
 //   cw-weak-station  a second station 6 dB weaker beside the main one. The pitch finder must
 //                    name it; deleting it must not improve the main station's figures, and its
 //                    own figures must show the loss. Lowering the noise instead must read as kept.
+//   cw-neighbour     a strong neighbour 65 Hz away keying while the main station is silent: named
+//                    with --station, its leak must not become the main station's elements.
 //   cw-fast          40 wpm, 30 ms dits in strict alternation: the dits must be measured, and a
 //                    known 10 dB noise reduction must still read as 10 dB.
 //   cw-fresh-noise   the station over NEW noise at the same level must read as no change (the
@@ -18,11 +20,15 @@ namespace NrBench;
 //   cw-noise-only    noise alone: almost nothing may be classified as keying.
 //   cw-pitch-step    a keyed station plus a noise band that switches on part way through (the
 //                    operator widening the filter): the pitch finder must choose the station.
+//   cw-pitch-agc     a fast AGC pumping the whole band with the keying: the station must still win,
+//                    clearly ahead of the band's noise.
 // Their mutations (selftest --mutation <name>), each of which must turn its check red:
 //   cw-global-threshold        the old classifier, one Otsu split over the span: "cw-fade" fails
 //   cw-rest-includes-stations  the rest of the passband keeps the other station: "cw-weak-station" fails
 //   cw-edge-guard              the edge guard widened to 20 ms either side: "cw-fast" fails
+//   cw-no-station-veto         a named neighbour's leak is not vetoed: "cw-neighbour" fails
 //   cw-pitch-longspan          the old whole-span pitch score: "cw-pitch-step" fails
+//   cw-pitch-common-mode       the band's common movement left in: "cw-pitch-agc" fails
 partial class BenchApp
 {
     /// <summary>The faded-QSB scene: Codex's reproduction, noise 10 dB down, the tone's second half faded.</summary>
@@ -143,6 +149,20 @@ partial class BenchApp
             Console.WriteLine($"INFO cw-weak-station: deletion moved the weaker station {weak.StationChangeDb - main.StationChangeDb:+0.0;-0.0;0.0} dB against the main ({weak.Kept} of {weak.Measured} kept); " +
                               $"the main station's rest of the passband moved {e.RestBelowStation - r.RestBelowStation:+0.00;-0.00;0.00} dB.");
         }));
+        tests.Add(("cw-neighbour", () =>
+        {
+            // A strong neighbour 65 Hz away, 15 dB louder, keying only while the main station is
+            // silent (the main keys in the first half, the neighbour in the second). Named with its
+            // pitch, its leak into the main station's tone band must not become the main's elements.
+            var main = MakeSynthCw(20, 700, 0, 71);
+            var near = MakeSynthCw(20, 765, 15, 73);
+            int half = main.Tone.Length / 2;
+            var mix = main.Noise.Select((v, i) => v + (i < half ? main.Tone[i] : 0) + (i >= half ? near.Tone[i] : 0)).ToArray();
+            var mask = MakeMask(mix, 700, others: new[] { 765.0 });
+            int late = mask.Elements.Count(e => (e.Start * CwHop + CwWindow / 2) > half + Rate / 2);
+            Assert(late <= mask.Elements.Length * .05, $"With the neighbour named, {late} of the main station's {mask.Elements.Length} elements fell where only the neighbour was keying");
+            Console.WriteLine($"INFO cw-neighbour: {late} of {mask.Elements.Length} main-station elements where only the neighbour keyed.");
+        }));
         tests.Add(("cw-fast", () =>
         {
             var s = FastCw(12, 61);
@@ -178,6 +198,23 @@ partial class BenchApp
             var mask = MakeMask(s.Mix(), 700);
             int certain = mask.Key.Count(k => k != null);
             Assert(certain <= mask.Key.Length * .05, $"Noise alone: {certain} of {mask.Key.Length} blocks were classified as key-down or gap");
+        }));
+        tests.Add(("cw-pitch-agc", () =>
+        {
+            // A fast AGC: while the station at 650 Hz is keyed, the whole band (noise included)
+            // drops 12 dB, so every bin alternates with the keying. The station must still win, and
+            // the band's noise must not score near it.
+            var s = MakeSynthCw(20, 650, 6, 69);
+            var mix = new float[s.Tone.Length];
+            double gain = 1, down = Math.Pow(10, -12 / 20.0), step = 1.0 / (.005 * Rate);
+            for (int i = 0; i < mix.Length; i++)
+            {
+                gain = s.Keyed[i] ? Math.Max(down, gain - step) : Math.Min(1, gain + step / 20);
+                mix[i] = (float)((s.Tone[i] + s.Noise[i]) * gain);
+            }
+            var pitch = FindPitch(mix);
+            Assert(Math.Abs(pitch.Hz - 650) <= 6 && pitch.ScoreDb - pitch.RunnerUpScoreDb >= 3,
+                $"Under a pumping AGC the pitch finder chose {pitch.Hz:0} Hz ({pitch.ScoreDb:0.0} dB) with {pitch.RunnerUpHz:0} Hz next ({pitch.RunnerUpScoreDb:0.0} dB); the station is at 650 Hz");
         }));
         tests.Add(("cw-pitch-step", () =>
         {

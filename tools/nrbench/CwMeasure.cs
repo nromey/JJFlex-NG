@@ -7,8 +7,9 @@ namespace NrBench;
 // from a gap full of hiss at the station's own pitch. This one follows the station's
 // tone:
 //   1. The pitch: the bin whose level ALTERNATES most within short stretches (keying),
-//      not the loudest bin (a carrier) and not the bin whose level merely changed once
-//      over the span (a filter widened part way through).
+//      not the loudest bin (a carrier), not the bin whose level merely changed once over
+//      the span (a filter widened part way through), and not what moves with the whole
+//      band (a fast AGC pumping, a static crash).
 //   2. When the station is keyed: from the reference (the unprocessed capture) at the
 //      pitch, against a threshold that follows the station's own level through fades.
 //      Where the local keying is too faint to tell from noise, blocks are UNCERTAIN and
@@ -72,6 +73,20 @@ partial class BenchApp
                 double s = 0;
                 for (int j = -2; j <= 2; j++) s += power[k + j];
                 levels[k - lo][f] = (float)(10 * Math.Log10(s + 1e-30));
+            }
+        }
+        // What moves the whole band at once is not keying: a fast AGC pumping on a strong signal,
+        // or a static crash. Take each frame's median level across the band out of every bin, so
+        // only what one pitch does on its own is scored.
+        if (Mutation != "cw-pitch-common-mode")
+        {
+            var column = new double[hi - lo + 1];
+            for (int f = 0; f < frames; f++)
+            {
+                for (int k = 0; k < column.Length; k++) column[k] = levels[k][f];
+                Array.Sort(column);
+                float m = (float)column[column.Length / 2];
+                for (int k = 0; k < column.Length; k++) levels[k][f] -= m;
             }
         }
         var score = new double[hi - lo + 1];
@@ -284,12 +299,22 @@ partial class BenchApp
         return noiseSpreadDb.Value;
     }
 
-    static CwMask MakeMask(float[] reference, double pitch, double spanStart = 0, double spanEnd = double.PositiveInfinity)
+    static CwMask MakeMask(float[] reference, double pitch, double spanStart = 0, double spanEnd = double.PositiveInfinity, IReadOnlyList<double>? others = null)
     {
         var tone = ToneBlocks(reference, pitch);
         var smooth = Median3(tone);
         int n = smooth.Length;
         var raw = new bool?[n];
+        // The tone band is down only 25 dB 70 Hz away (and 33 dB at 75), so a strong neighbour keying
+        // while this station is silent shows in it as faint elements. Where a named neighbour is
+        // louder in its own band than this station is in its, the block belongs to neither.
+        var louder = new bool[n];
+        if (others != null && Mutation != "cw-no-station-veto")
+            foreach (double o in others)
+            {
+                var other = Median3(ToneBlocks(reference, o));
+                for (int i = 0; i < n && i < other.Length; i++) louder[i] |= other[i] > smooth[i];
+            }
         double minContrast = NoiseSpreadDb() + CertainMarginDb, reported;
         if (Mutation == "cw-global-threshold")
         {
@@ -317,7 +342,7 @@ partial class BenchApp
         for (int i = 0; i < n; i++)
         {
             double t = (i * CwHop + CwWindow / 2) / (double)Rate;
-            if (t < spanStart || t >= spanEnd) raw[i] = null;
+            if (t < spanStart || t >= spanEnd || louder[i]) raw[i] = null;
         }
         var key = new bool?[n];
         int g = EdgeGuardBlocks;
