@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Linq;
 using Flex.Smoothlake.FlexLib;
 using Radios;
 using Radios.SmartLink;
@@ -79,6 +80,82 @@ namespace Radios.Tests
             Assert.True(rig.PrepareSmartLinkForSerial(Radio6300, allowInteractiveLogin: false, savedAccounts: Saved(Operator, Owner)));
 
             Assert.Equal(Owner, rig.CurrentSmartLinkEmail);
+        }
+
+        /// <summary>
+        /// Integration finding 6. ReconnectRemote skipped the #798 plan
+        /// whenever ANY active session was connected, so a radio on another
+        /// saved account waited 15 seconds and heard the old hardcoded
+        /// sentence. The fast path now stands only when the active session's
+        /// current list names the radio; otherwise the plan decides.
+        /// </summary>
+        [Fact]
+        public void The_plan_decides_unless_the_active_session_lists_the_radio()
+        {
+            Assert.True(FlexBase.ThePlanDecidesTheConnect(Radio6300));            // no active session
+
+            var active = _coordinator.EnsureSessionForAccount(Operator);
+            var (_, wan) = Listed(Operator, SomeOtherRadio);
+            Assert.Same(active, _coordinator.ActiveSession);
+            Assert.True(FlexBase.ThePlanDecidesTheConnect(Radio6300));            // live, but not listing it
+
+            wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Radio6300) });
+            WaitUntil(() => active.RadioListSnapshot.Radios.Any(r => r.Serial == Radio6300), "the list never landed");
+            Assert.False(FlexBase.ThePlanDecidesTheConnect(Radio6300));           // listed: the fast path stands
+        }
+
+        [Fact]
+        public void ReconnectRemote_asks_the_one_question_before_skipping_the_plan()
+        {
+            string src = FlexBasePartials.JoinedText();
+            string reconnect = Body(src, "public bool ReconnectRemote(");
+            Assert.Contains("ThePlanDecidesTheConnect(serial)", reconnect, StringComparison.Ordinal);
+            Assert.DoesNotContain("bool wanAlreadyConnected = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.IsConnected == true;",
+                reconnect, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Integration finding 4 (#401's class). With no session up yet, the
+        /// picker's "Trying ... as" sentence and the row label named the
+        /// active default account while the plan signed in as the radio's own.
+        /// They now name the account the plan uses, from one reading.
+        /// </summary>
+        [Fact]
+        public void The_account_named_before_a_connect_is_the_one_the_plan_signs_in_as()
+        {
+            Assert.True(RadioConfig.Update(Radio6300, cfg => { cfg.PreferredAccount = Owner; }));
+            try
+            {
+                Assert.Equal(Owner, FlexBase.AccountThatWillBroker(Radio6300, Operator, new[] { Operator, Owner }));
+                // Nothing known: the default, as before.
+                Assert.Equal(Operator, FlexBase.AccountThatWillBroker(SomeOtherRadio, Operator, new[] { Operator, Owner }));
+            }
+            finally
+            {
+                RadioConfig.Update(Radio6300, cfg => { cfg.PreferredAccount = ""; });
+            }
+        }
+
+        /// <summary>
+        /// The other half of finding 6: now that the plan runs with a live
+        /// session, its "nothing better is known" case keeps the old fast
+        /// path, with no sign-in and no account selector.
+        /// </summary>
+        [Fact]
+        public void With_a_live_session_and_nothing_known_the_plan_signs_in_to_nothing()
+        {
+            _coordinator.EnsureSessionForAccount(Operator);
+            Listed(Operator, SomeOtherRadio);                 // live, not listing the radio
+            var rig = NewRig();
+            int selectorAsked = 0;
+            rig.ShowAccountSelector = _ => { selectorAsked++; return (false, null!, false); };
+
+            bool ready = rig.PrepareSmartLinkForSerial(Radio6300, allowInteractiveLogin: false,
+                savedAccounts: Saved(Operator, Owner));        // Owner has not answered: no verdict
+
+            Assert.True(ready);
+            Assert.Equal(0, selectorAsked);
+            Assert.Null(rig.LastConnectFailureReport);
         }
     }
 }

@@ -2633,10 +2633,25 @@ namespace Radios
         /// session can broker the serial, because that is then genuinely the
         /// account the attempt will use.
         /// </summary>
-        public static string AccountThatWillBroker(string serial, string activeAccountEmail)
+        public static string AccountThatWillBroker(string serial, string activeAccountEmail,
+            IEnumerable<string> savedAccounts = null)
         {
             try
             {
+                // When the #798 plan will decide this connect, the account it
+                // uses is the one to name, from one reading (integration pass,
+                // finding 4; #401's class). With no session up yet, the bank
+                // below has nothing and the default was named while the plan
+                // signed in as the radio's own account.
+                if (ThePlanDecidesTheConnect(serial))
+                {
+                    var saved = savedAccounts ?? AccountManager.Accounts.Where(a => a != null).Select(a => a.Email);
+                    var plan = PlanSmartLinkSignIn(TakeAccountPictureFor(serial, saved: saved));
+                    if (plan.Kind == SmartLinkSignInPlanKind.UseHeldSession
+                        || plan.Kind == SmartLinkSignInPlanKind.SignInAsRadiosAccount)
+                        return plan.Account;
+                    return activeAccountEmail ?? "";
+                }
                 var session = ResolveBrokeringSession(serial, out _);
                 if (session != null && !string.IsNullOrEmpty(session.AccountId))
                     return session.AccountId;
@@ -2646,6 +2661,26 @@ namespace Radios
                 Tracing.TraceLine($"AccountThatWillBroker({serial}): {ex.Message}", TraceLevel.Warning);
             }
             return activeAccountEmail ?? "";
+        }
+
+        /// <summary>
+        /// Whether the #798 plan decides a SmartLink connect to
+        /// <paramref name="serial"/>: true unless the active session is live
+        /// AND its current list names the radio, which is the one state the
+        /// fast path (no preparation) is right for. Asked by
+        /// <see cref="ReconnectRemote"/> and by <see cref="AccountThatWillBroker"/>,
+        /// so the account named before a connect and the connect itself
+        /// take the same path (integration pass, findings 4 and 6).
+        /// </summary>
+        internal static bool ThePlanDecidesTheConnect(string serial)
+        {
+            var active = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
+            if (active == null || !active.IsConnected) return true;
+            var s = active.RadioListSnapshot;
+            bool listsIt = s.SessionConnected && s.ArrivedOnTheLiveConnection
+                && s.Radios != null
+                && s.Radios.Any(r => r != null && string.Equals(r.Serial, serial, StringComparison.OrdinalIgnoreCase));
+            return !listsIt;
         }
 
         /// <summary>What a SmartLink connect to one serial should do about signing in.</summary>
@@ -2980,6 +3015,18 @@ namespace Radios
                 }
 
                 default:
+                    // Nothing better is known. With a SmartLink session already
+                    // live, that is the path ReconnectRemote always took: no
+                    // sign-in, straight on to finding the radio through the
+                    // sessions that are up. Only with none live does the saved
+                    // default sign in (integration pass, finding 6: the plan
+                    // now runs with a live session, and must not add a sign-in
+                    // prompt to the case it has nothing to say about).
+                    if (coordinator.ActiveSession?.IsConnected == true)
+                    {
+                        Tracing.TraceLine($"PrepareSmartLinkForSerial: {serial} nothing better known and a session is live — no sign-in{at()}", TraceLevel.Info);
+                        return true;
+                    }
                     return setupRemote(allowInteractiveLogin);
             }
         }

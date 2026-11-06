@@ -3280,10 +3280,15 @@ namespace Radios
                 // own remote pass runs setupRemote on this same instance, and
                 // a report it left must not stand in for this connect (#798).
                 LastConnectFailureReport = null;
-                bool wanAlreadyConnected = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.IsConnected == true;
+                // The fast path stands only when the active session is live AND
+                // its current list names this radio; any other state is the
+                // #798 plan's to decide (integration pass, finding 6). A live
+                // session on another account used to skip the plan, and the
+                // radio's own account was then waited on for 15 seconds.
+                bool wanAlreadyConnected = !ThePlanDecidesTheConnect(serial);
                 if (wanAlreadyConnected)
                 {
-                    Tracing.TraceLine($"ReconnectRemote: WAN already connected, skipping auth ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    Tracing.TraceLine($"ReconnectRemote: the active SmartLink session lists {serial}, skipping auth ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 }
                 else
                 {
