@@ -18,6 +18,7 @@ namespace NrBench;
 // It is a measure, not a verdict: it cannot hear artefacts or a watery character.
 partial class BenchApp
 {
+    static bool PrintSpectrum;
     const int CwHop = 480, CwWindow = 1920, CwFft = 4096;
     const double ToneHalfWidth = 50, RestGuard = 100;
 
@@ -79,7 +80,7 @@ partial class BenchApp
         return new((lo + best + frac) * bin, score[best], second < 0 ? double.NaN : (lo + second) * bin, second < 0 ? double.NaN : score[second]);
     }
 
-    /// <summary>The receiver's passband around the pitch: where the long-term median level stays within 12 dB of its peak.</summary>
+    /// <summary>The receiver's passband around the pitch: where the long-term noise floor (20th percentile) stays within 8 dB of its plateau.</summary>
     static (double Lo, double Hi) FindPassband(float[] x, double pitch)
     {
         const int N = 4096, hop = 4096;
@@ -96,8 +97,9 @@ partial class BenchApp
             Fft(buf, false);
             for (int k = 0; k <= maxBin; k++) levels[k][f] = (float)(10 * Math.Log10(buf[k].Real * buf[k].Real + buf[k].Imaginary * buf[k].Imaginary + 1e-30));
         }
-        // Median over time is the noise floor the receiver lets through; smoothed over about 50 Hz.
-        var median = levels.Select(l => (double)l.Order().ElementAt(l.Length / 2)).ToArray();
+        // The 20th percentile over time is the noise floor the receiver lets through, with the
+        // stations mostly out of it (a median still holds a busy pileup); smoothed over about 50 Hz.
+        var median = levels.Select(l => (double)l.Order().ElementAt(l.Length / 5)).ToArray();
         var smooth = new double[median.Length];
         for (int k = 0; k < median.Length; k++)
         {
@@ -106,10 +108,18 @@ partial class BenchApp
         }
         int lowest = (int)(100 / bin);
         double top = smooth.Skip(lowest).Max();
+        if (PrintSpectrum)
+            Console.WriteLine("Long-term floor (20th percentile) by 100 Hz band, dB below the peak, 100 Hz upward: " + string.Join(", ",
+                Enumerable.Range(1, 38).Select(band => (top - Enumerable.Range((int)(band * 100 / bin), (int)(100 / bin)).Where(k => k <= maxBin).Average(k => smooth[k])).ToString("0"))));
+        // The edges are where the floor falls 8 dB below its own plateau: the median floor over the
+        // bins within 30 dB of the peak. A plateau, not the peak, because a busy pileup or the
+        // receiver's own shaping can raise a hump of 15 dB around the pitch inside a flat passband.
+        var near = Enumerable.Range(lowest, maxBin - lowest + 1).Where(k => smooth[k] >= top - 30).Select(k => smooth[k]).Order().ToArray();
+        double edge = near[near.Length / 2] - 8;
         int c = Math.Clamp((int)Math.Round(pitch / bin), lowest, maxBin);
         int l = c, h = c;
-        while (l > lowest && smooth[l - 1] >= top - 12) l--;
-        while (h < maxBin && smooth[h + 1] >= top - 12) h++;
+        while (l > lowest && smooth[l - 1] >= edge) l--;
+        while (h < maxBin && smooth[h + 1] >= edge) h++;
         return (l * bin, h * bin);
     }
 

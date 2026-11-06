@@ -163,7 +163,7 @@ partial class BenchApp
 
     static int CwMeasureCommand(string[] a)
     {
-        if (a.Length < 2) { Console.Error.WriteLine("cwmeasure wants <reference.wav> <file.wav>..."); return 2; }
+        if (a.Length < 1) { Console.Error.WriteLine("cwmeasure wants <reference.wav> [<file.wav>...]"); return 2; }
         double start = 0, seconds = 0, width = 250; double? pitchHz = null; bool narrow = false;
         var files = new List<string>();
         string reference = Path.GetFullPath(a[0]);
@@ -175,6 +175,7 @@ partial class BenchApp
                 case "--width": width = double.Parse(a[++i], CultureInfo.InvariantCulture); break;
                 case "--pitch": pitchHz = double.Parse(a[++i], CultureInfo.InvariantCulture); break;
                 case "--narrow": narrow = true; break;
+                case "--spectrum": PrintSpectrum = true; break;
                 default: files.Add(Path.GetFullPath(a[i])); break;
             }
         var raw = LoadWav(reference, out int ch, out _);
