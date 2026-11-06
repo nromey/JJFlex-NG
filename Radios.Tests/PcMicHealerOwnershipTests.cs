@@ -2561,5 +2561,41 @@ namespace Radios.Tests
             Assert.True(stop!.Join(3000));
             Assert.Equal(new[] { "mic input PC", "mic input MIC" }, rig.MicWrites);
         }
+    
+
+        // ── Rulings round three (the second 8600 bench): the healer's own write owes a put-back ──
+
+        [Fact]
+        public void A_heal_over_another_stations_choice_owes_that_choice_back_at_the_stop()
+        {
+            // The bench: another station chose MIC (voiding our start's debt,
+            // correctly), our key healed it back to PC, and the disconnect owed
+            // nothing, so the radio was left on PC. The heal overwrote a value;
+            // that value is what is owed now.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+            rig.RadioReports("BAL");                        // another station's choice
+            rig.Check();                                     // our key heals it back to PC
+            Assert.Equal(new[] { "mic input PC", "mic input PC" }, rig.MicWrites);
+            rig.StopPcAudio();
+            Assert.Equal(new[] { "mic input PC", "mic input PC", "mic input BAL" }, rig.MicWrites);
+        }
+
+        [Fact]
+        public void A_choice_reported_after_the_heal_settles_the_heals_debt()
+        {
+            // Put back only what matches: a newer choice after the heal is left alone.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("BAL");
+            rig.Check();
+            rig.RadioReports("ACC");                        // chosen again, after the heal
+            rig.StopPcAudio();
+            Assert.DoesNotContain("mic input BAL", rig.MicWrites);
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+        }
     }
 }

@@ -2203,10 +2203,13 @@ namespace Radios
         /// <see cref="MicCapture.Recorded"/>: then the caller changes NOTHING
         /// (round 12, B2), because what it would change could not be recorded.
         /// </summary>
-        private MicCapture CaptureMic(Radio radio)
+        private MicCapture CaptureMic(Radio radio) => CaptureMicWithin(radio, MicSnapshotBoundMs);
+
+        /// <summary><see cref="CaptureMic"/> with its own bound on the report gate (the healer's is short: it runs on the audio loop).</summary>
+        private MicCapture CaptureMicWithin(Radio radio, int boundMs)
         {
             object gate = InterlockReports.ConnectionSyncOf(radio);
-            if (radio != null && gate != null && System.Threading.Monitor.TryEnter(gate, MicSnapshotBoundMs))
+            if (radio != null && gate != null && System.Threading.Monitor.TryEnter(gate, boundMs))
             {
                 try
                 {
@@ -2223,7 +2226,7 @@ namespace Radios
                 }
                 finally { System.Threading.Monitor.Exit(gate); }
             }
-            Tracing.TraceLine("CaptureMic: the radio's report gate was not had in " + MicSnapshotBoundMs
+            Tracing.TraceLine("CaptureMic: the radio's report gate was not had in " + boundMs
                 + " ms; the mic input could not be recorded, so it will not be changed", TraceLevel.Warning);
             return new MicCapture { Radio = radio, Recorded = false };
         }
@@ -2275,6 +2278,9 @@ namespace Radios
 
         /// <summary>How long <see cref="CaptureMic"/> waits for the report gate.</summary>
         internal const int MicSnapshotBoundMs = 1000;
+
+        /// <summary>How long the healer waits for it: it runs on the audio loop (rulings round three).</summary>
+        internal const int HealCaptureBoundMs = 50;
 
         /// <summary>The swap was saved on <paramref name="radio"/>'s current command connection, and that connection is still up.</summary>
         private static bool OnItsOwnLiveConnection(Radio radio, MicInputSwap swap) =>
@@ -3740,17 +3746,58 @@ namespace Radios
                 // connection and this run, still current at the transport's
                 // write, and PC still expected.
                 var radio = theRadio;
-                var heal = new MicCapture
+                // The heal overwrites a value, so it owes that value back (rulings
+                // round three, the second bench: after a heal, a disconnect left the
+                // radio on PC with nothing owed). Recorded as a start records it,
+                // in one step under the report gate, briefly (this is the audio
+                // loop); the put-back follows the same rules as the start's: only
+                // on its own radio, connection and run, and only while the radio
+                // still reads the PC written here with no choice reported since.
+                var heal = CaptureMicWithin(radio, HealCaptureBoundMs);
+                MicInputSwap healDebt = null, replaced = null;
+                if (heal.Recorded && !string.Equals(heal.Input ?? "", "PC", StringComparison.OrdinalIgnoreCase))
                 {
-                    Radio = radio,
-                    Connection = radio?.CurrentCommandConnection as CommandConnection,
-                    Run = Interlocked.Read(ref _remoteAudioRun),
-                    Recorded = radio?.CurrentCommandConnection != null,
-                };
+                    lock (_micSwitchLock)
+                    {
+                        var old = _micInputSwap;
+                        // An earlier debt still standing is kept; one a choice has
+                        // already settled (the case that led here) is replaced.
+                        if (CaptureNoLongerCurrent(heal) == null
+                            && (old == null || NewerMicChoice(radio.MicInput, old) || old.ChoiceReportedSince))
+                        {
+                            replaced = old;
+                            healDebt = new MicInputSwap(heal, madeBySwitchBack: false);
+                            _micInputSwap = healDebt;
+                        }
+                    }
+                }
+                else if (!heal.Recorded)
+                {
+                    // Not recorded in time: heal as before, owing nothing, and say so.
+                    Tracing.TraceLine("checkPcMicSelection: the overwritten input could not be recorded in "
+                        + HealCaptureBoundMs + " ms; healing without a put-back", TraceLevel.Warning);
+                    heal = new MicCapture
+                    {
+                        Radio = radio,
+                        Connection = radio?.CurrentCommandConnection as CommandConnection,
+                        Run = Interlocked.Read(ref _remoteAudioRun),
+                        Recorded = radio?.CurrentCommandConnection != null,
+                    };
+                }
+                bool healed = false;
                 string refused = PcUnderRecord(heal, () => _pcMicExpected ? null : "PC is no longer expected",
-                    () => heal.Radio.SendMicInput("PC"));
-                if (refused != null)
-                    Tracing.TraceLine("checkPcMicSelection: the re-assert of PC was NOT written - " + refused, TraceLevel.Warning);
+                    () => healed = heal.Radio.SendMicInput("PC"));
+                if (refused != null || !healed)
+                {
+                    // Nothing was overwritten, so nothing new is owed.
+                    if (healDebt != null)
+                        lock (_micSwitchLock)
+                            if (ReferenceEquals(_micInputSwap, healDebt)) _micInputSwap = replaced;
+                    Tracing.TraceLine("checkPcMicSelection: the re-assert of PC was NOT written - " + (refused ?? "the transport did not take it"),
+                        TraceLevel.Warning);
+                }
+                else if (healDebt != null)
+                    Tracing.TraceLine("checkPcMicSelection: '" + heal.Input + "' is owed back at the stop, as a start's input is", TraceLevel.Info);
             }
             catch (Exception ex)
             {
