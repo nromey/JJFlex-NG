@@ -2381,5 +2381,128 @@ namespace Radios.Tests
             Assert.True(speak > 0, "Home's return status is no longer spoken under its subject");
             Assert.Contains("stillValid: stillTrue", text.Substring(speak, 120), StringComparison.Ordinal);
         }
+    
+
+        // ── Round four: J28, ruled by Noel 2026-11-06 16:52 ──
+        //
+        // A typed frequency is not said as set until the radio has answered:
+        // the rig hands the typed entry the radio's own answer to ITS tune.
+
+        private sealed class Answers
+        {
+            public readonly List<string> Got = new();
+            public readonly List<(int Ms, TaskCompletionSource<bool> Gate)> Waits = new();
+            public void Add<T>(T answer) { lock (Got) Got.Add(answer!.ToString()!); }
+            public string[] Now { get { lock (Got) return Got.ToArray(); } }
+            public void Park(FlexBase rig)
+            {
+                var field = typeof(FlexBase).GetField("TuneAnswerDelay", BindingFlags.Instance | BindingFlags.NonPublic);
+                Assert.True(field != null, "a typed tune has no bound of its own to wait on");
+                field!.SetValue(rig, (Func<int, Task>)(ms =>
+                {
+                    var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    lock (Waits) Waits.Add((ms, gate));
+                    return gate.Task;
+                }));
+            }
+            public int[] Asked { get { lock (Waits) return Waits.Select(w => w.Ms).ToArray(); } }
+            /// <summary>Let every parked wait of <paramref name="ms"/> run out, and give its continuation time to run.</summary>
+            public void Elapse(int ms)
+            {
+                List<TaskCompletionSource<bool>> due;
+                lock (Waits) due = Waits.Where(w => w.Ms == ms).Select(w => w.Gate).ToList();
+                foreach (var g in due) g.TrySetResult(true);
+                var until = DateTime.UtcNow.AddSeconds(2);
+                while (DateTime.UtcNow < until && Now.Length == 0) Thread.Sleep(10);
+                Thread.Sleep(50);
+            }
+        }
+
+        private static void TypedTune(Bench b, ulong hz, Answers answers)
+        {
+            var tune = typeof(FlexBase).GetMethod("TuneAwaitingAnswer", BindingFlags.Instance | BindingFlags.Public);
+            Assert.True(tune != null, "nothing hands a typed frequency the radio's answer");
+            Type answerType = tune!.GetParameters()[1].ParameterType.GetGenericArguments()[0];
+            var cb = Delegate.CreateDelegate(tune.GetParameters()[1].ParameterType, answers,
+                typeof(Answers).GetMethod(nameof(Answers.Add))!.MakeGenericMethod(answerType));
+            tune.Invoke(b.Rig, new object[] { hz, cb });
+        }
+
+        [Fact]
+        public void A_typed_tune_is_accepted_only_when_the_radio_acknowledges_it()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            var answers = new Answers();
+            answers.Park(b.Rig);
+            TypedTune(b, 14_200_000, answers);
+            Drain(b.Rig);
+            Assert.Empty(answers.Now);                       // written, not yet answered: nothing said
+            AckTune(b, 0);
+            Assert.Equal(new[] { "Accepted" }, answers.Now);
+        }
+
+        [Fact]
+        public void A_typed_tune_the_radio_refuses_is_refused_and_no_correction_number_follows()
+        {
+            // The second bench: typed 60 MHz said "Frequency set to 60.000
+            // megahertz" and then the number the radio kept. Now only the
+            // refusal is told, and J4's bare number is not added to it.
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            var answers = new Answers();
+            answers.Park(b.Rig);
+            TypedTune(b, 60_000_000, answers);
+            Drain(b.Rig);
+            RejectTune(b, 0, "");
+            Assert.Equal(new[] { "Refused" }, answers.Now);
+            Assert.Equal(0, Corrections(b));
+        }
+
+        [Fact]
+        public void A_typed_tune_with_no_answer_says_so_at_the_guards_own_bound_and_a_late_answer_still_arrives()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            var answers = new Answers();
+            answers.Park(b.Rig);
+            TypedTune(b, 14_200_000, answers);
+            Drain(b.Rig);
+            Assert.Contains(FrequencyEchoGuard.GiveUpMs, answers.Asked);   // 1.2 s after the write
+            Assert.Contains(FrequencyEchoGuard.UnsentGiveUpMs, answers.Asked);   // 10 s if it never goes out
+            answers.Elapse(FrequencyEchoGuard.GiveUpMs);
+            Assert.Equal(new[] { "NoAnswerYet" }, answers.Now);
+            answers.Elapse(FrequencyEchoGuard.UnsentGiveUpMs);
+            Assert.Equal(new[] { "NoAnswerYet" }, answers.Now);            // said once
+            AckTune(b, 0);
+            Assert.Equal(new[] { "NoAnswerYet", "Accepted" }, answers.Now);
+        }
+
+        [Fact]
+        public void A_newer_tune_of_the_slice_supersedes_the_typed_tunes_answer()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            var answers = new Answers();
+            answers.Park(b.Rig);
+            TypedTune(b, 14_200_000, answers);
+            b.Rig.RXFrequency = 14_200_100;                  // an arrow step after the Enter
+            Drain(b.Rig);
+            AckTune(b, 0);
+            AckTune(b, 1);
+            Assert.Empty(answers.Now);
+        }
+
+        [Fact]
+        public void A_typed_tune_that_cannot_be_sent_is_refused_at_once()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            Set(a, "_lock", true);
+            var answers = new Answers();
+            answers.Park(b.Rig);
+            TypedTune(b, 14_200_000, answers);
+            Assert.Equal(new[] { "Refused" }, answers.Now);
+        }
     }
 }

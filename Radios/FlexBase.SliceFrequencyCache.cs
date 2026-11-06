@@ -250,13 +250,16 @@ namespace Radios
         /// fix: a caller must not speak a frequency it did not tune to).</returns>
         private bool RequestTune(Slice slice, ulong value, bool selectedTune, string what)
         {
+            var answered = TakeTuneAnswer();   // J28: a typed tune's waiter, or null
             if (slice.Lock)
             {
                 Tracing.TraceLine(what + ": slice " + slice.Letter + " is locked, so its tune to " + value
                     + " was not sent", System.Diagnostics.TraceLevel.Info);
+                if (answered != null) TellTuneAnswer(answered, TuneAnswer.Refused);
                 return false;
             }
             long id = EchoGuardFor(slice).Requested(value);
+            WaitForTuneAnswer(slice, id, answered);
             // The optimistic value is held WITH the slice it is written to, in
             // every cache that describes that slice, through the one commit
             // (repair round 11): a slice removed since the press gets nothing
@@ -264,6 +267,7 @@ namespace Radios
             if (!CommitSliceFacts(slice, () => PublishTuning(slice, value, selectedTune)))
             {
                 EchoGuardFor(slice).Refused(id, "the slice is gone");
+                AnswerTune(slice, id, TuneAnswer.Refused);
                 return false;
             }
             double mhz = LongFreqToLibFreq(value);
@@ -274,8 +278,9 @@ namespace Radios
                     {
                         // Accepted, but the loop ended before it ran (integration
                         // fix 2): conceded, as a refusal is.
+                        bool typed = AnswerTune(slice, id, TuneAnswer.Refused);
                         if (EchoGuardFor(slice).Refused(id, "the command loop ended before it ran"))
-                            Reconcile(slice, value, "the command loop ended before it ran");
+                            Reconcile(slice, value, typed ? null : "the command loop ended before it ran");
                     }))
             {
                 Tracing.TraceLine(what + ": the command loop will not run the tune of slice " + slice.Letter
@@ -283,6 +288,7 @@ namespace Radios
                 // Refused at the press: nothing was spoken for it, so nothing is
                 // corrected (J4); the caches still follow the radio.
                 if (EchoGuardFor(slice).Refused(id, "the command loop is not running")) Reconcile(slice, value, null);
+                AnswerTune(slice, id, TuneAnswer.Refused);
                 return false;
             }
             // A newer tune of ours speaks its own number: an earlier correction
@@ -357,13 +363,16 @@ namespace Radios
             {
                 Tracing.TraceLine(what + ": " + refused + " (slice " + slice.Letter + "), so its tune to " + mhz
                     + " was not sent to any slice", System.Diagnostics.TraceLevel.Info);
-                if (guard.Refused(id, refused) && refused != "the slice is gone") Reconcile(slice, LibFreqtoLong(mhz), refused);
+                bool typedRefused = AnswerTune(slice, id, TuneAnswer.Refused);
+                if (guard.Refused(id, refused) && refused != "the slice is gone")
+                    Reconcile(slice, LibFreqtoLong(mhz), typedRefused ? null : refused);
                 return;
             }
             string command = "slice tune " + slice.Index + " " + Flex.Util.StringHelper.DoubleToString(mhz, "f6");
             if (!slice.AutoPan) command += " autopan=0";
             // Marked before the write, so the reply cannot come back ahead of it.
             guard.Sending(id);
+            NoAnswerAfter(slice, id, FrequencyEchoGuard.GiveUpMs);   // J28: the guard's own bound
             // No lock of ours is held across this write (repair round 7).
             ulong hz = LibFreqtoLong(mhz);
             string refusal = SendRadioCommandWithReply(slice.Radio, command, reply => TuneReplied(slice, id, hz, reply));
@@ -371,7 +380,8 @@ namespace Radios
             {
                 Tracing.TraceLine(what + ": slice " + slice.Letter + "'s tune to " + mhz + " was not sent: " + refusal,
                     System.Diagnostics.TraceLevel.Info);
-                if (guard.Refused(id, refusal)) Reconcile(slice, hz, "not sent: " + refusal);
+                bool typedRefused = AnswerTune(slice, id, TuneAnswer.Refused);
+                if (guard.Refused(id, refusal)) Reconcile(slice, hz, typedRefused ? null : "not sent: " + refusal);
             }
         }
 
@@ -462,10 +472,14 @@ namespace Radios
                 // this reply still wins.
                 guard.Acknowledged(id);
                 if (guard.NewestReply(id)) PublishReply(slice, LongFreqToLibFreq(requestedHz));
+                AnswerTune(slice, id, TuneAnswer.Accepted);   // J28: after the caches, so a reader sees the new number
                 return;
             }
             Tracing.TraceLine("tune reply: slice " + slice.Letter + " " + reply, System.Diagnostics.TraceLevel.Info);
             bool closed = guard.Refused(id, "the radio answered " + reply);
+            // J28: a typed tune's refusal is the typed entry's to say ("Unable to
+            // tune this frequency"); J4's bare number is then not added to it.
+            bool typed = AnswerTune(slice, id, TuneAnswer.Refused);
             // A refusal's numeric body is the frequency the radio KEPT (round
             // three, Codex's B2; the vendor's own SetFreqReply reads it the same
             // way, and CommandReply.Text says so). Published with the same order
@@ -474,7 +488,7 @@ namespace Radios
             // radio last answered or reported.
             if (TryKeptFrequency(reply.Text, out double keptMhz) && guard.NewestReply(id))
                 PublishReply(slice, keptMhz);
-            if (closed) Reconcile(slice, requestedHz, "refused: " + reply);
+            if (closed) Reconcile(slice, requestedHz, typed ? null : "refused: " + reply);
         }
 
         /// <summary>
@@ -594,6 +608,152 @@ namespace Radios
 
         /// <summary>Home's return status was just spoken; it describes the selection as it is now.</summary>
         public void NoteReturnStatusSpoken() => System.Threading.Interlocked.Exchange(ref _returnStatusLive, 1);
+
+        // ── J28, ruled by Noel 2026-11-06 16:52: a typed frequency waits for the radio ──
+        //
+        // "Telling you that it has tuned to that frequency and then saying it's
+        // invalid is misleading." The typed entry is told the radio's own answer
+        // to ITS tune, and says nothing about the frequency until then. Every
+        // tune funnels through RequestTune, which knows the request's id; the
+        // reply, a refusal at the write, and the bounds all answer that id.
+
+        /// <summary>The radio's answer to a typed tune (J28).</summary>
+        public enum TuneAnswer
+        {
+            /// <summary>The radio acknowledged the tune: it is on the frequency asked for.</summary>
+            Accepted,
+            /// <summary>The radio refused it, or it could not be sent: the slice stays where it was.</summary>
+            Refused,
+            /// <summary>
+            /// No answer within the guard's own bound (<see cref="FrequencyEchoGuard.GiveUpMs"/>
+            /// after the write, or <see cref="FrequencyEchoGuard.UnsentGiveUpMs"/> if it is never
+            /// written). Said once; the real answer is still handed over if it comes.
+            /// </summary>
+            NoAnswerYet,
+        }
+
+        /// <summary>The typed tune waiting on one slice: the request it waits on, and who is told.</summary>
+        private sealed class TuneWaiter
+        {
+            public TuneWaiter(long id, System.Action<TuneAnswer> answered) { Id = id; Answered = answered; }
+            public long Id { get; }
+            public System.Action<TuneAnswer> Answered { get; }
+            public bool ToldNoAnswer;
+        }
+
+        /// <summary>At most one waiter per slice: a newer tune of the slice supersedes it. Under its own lock.</summary>
+        private readonly System.Collections.Generic.Dictionary<Slice, TuneWaiter> _tuneWaiters =
+            new(System.Collections.Generic.ReferenceEqualityComparer.Instance);
+
+        /// <summary>The waiter the next RequestTune on this thread belongs to (set only by <see cref="TuneAwaitingAnswer"/>).</summary>
+        [System.ThreadStatic] private static System.Action<TuneAnswer> t_tuneAnswer;
+
+        /// <summary>The bounds' wait. Tests park it so they can let a bound run out by hand.</summary>
+        internal System.Func<int, System.Threading.Tasks.Task> TuneAnswerDelay = ms => System.Threading.Tasks.Task.Delay(ms);
+
+        /// <summary>
+        /// Tune exactly as the typed entry always has (<see cref="VirtualRXFrequency"/>)
+        /// and be told the radio's answer to THAT tune (J28). <paramref name="answered"/>
+        /// runs on whatever thread the answer arrives on, never under a lock of
+        /// ours: marshal before touching a window. A tune refused before it is
+        /// sent (transmitting, no slice, a locked slice) is answered at once.
+        /// </summary>
+        public void TuneAwaitingAnswer(ulong value, System.Action<TuneAnswer> answered)
+        {
+            if (answered == null) throw new System.ArgumentNullException(nameof(answered));
+            t_tuneAnswer = answered;
+            try { VirtualRXFrequency = value; }
+            finally
+            {
+                // Not taken by a request: nothing was asked of the radio.
+                var untaken = t_tuneAnswer;
+                t_tuneAnswer = null;
+                if (untaken != null)
+                {
+                    Tracing.TraceLine("TuneAwaitingAnswer: the tune to " + value + " was not requested (transmitting, or no slice); refused",
+                        System.Diagnostics.TraceLevel.Info);
+                    TellTuneAnswer(untaken, TuneAnswer.Refused);
+                }
+            }
+        }
+
+        /// <summary>RequestTune takes the waiter this thread brought, if any: once.</summary>
+        private static System.Action<TuneAnswer> TakeTuneAnswer()
+        {
+            var a = t_tuneAnswer;
+            t_tuneAnswer = null;
+            return a;
+        }
+
+        /// <summary>
+        /// Request <paramref name="id"/> on <paramref name="slice"/> now owns the
+        /// slice's waiter: <paramref name="answered"/>'s, or none (a tune that is
+        /// not typed supersedes a typed one still waiting, which is then told
+        /// nothing more). The unsent bound starts here.
+        /// </summary>
+        private void WaitForTuneAnswer(Slice slice, long id, System.Action<TuneAnswer> answered)
+        {
+            lock (_tuneWaiters)
+            {
+                if (answered == null)
+                {
+                    if (_tuneWaiters.Remove(slice))
+                        Tracing.TraceLine("TuneAwaitingAnswer: a newer tune of slice " + slice.Letter
+                            + " supersedes the typed tune's answer", System.Diagnostics.TraceLevel.Info);
+                    return;
+                }
+                _tuneWaiters[slice] = new TuneWaiter(id, answered);
+            }
+            NoAnswerAfter(slice, id, FrequencyEchoGuard.UnsentGiveUpMs);
+        }
+
+        /// <summary>Tell the slice's waiter NoAnswerYet after <paramref name="ms"/>, if it is still waiting on <paramref name="id"/>.</summary>
+        private void NoAnswerAfter(Slice slice, long id, int ms)
+        {
+            lock (_tuneWaiters)
+                if (!_tuneWaiters.TryGetValue(slice, out var w) || w.Id != id) return;
+            System.Threading.Tasks.Task wait;
+            try { wait = TuneAnswerDelay(ms); }
+            catch (System.Exception) { return; }
+            wait.ContinueWith(_ => AnswerTune(slice, id, TuneAnswer.NoAnswerYet),
+                System.Threading.Tasks.TaskScheduler.Default);
+        }
+
+        /// <summary>
+        /// Hand <paramref name="answer"/> for request <paramref name="id"/> to the
+        /// slice's waiter, if it is waiting on that request. Accepted and Refused
+        /// end the wait; NoAnswerYet is told once and the wait goes on. True when
+        /// a waiter took a final answer, so the caller says nothing of its own
+        /// about it (the typed entry speaks for its tune).
+        /// </summary>
+        private bool AnswerTune(Slice slice, long id, TuneAnswer answer)
+        {
+            System.Action<TuneAnswer> tell;
+            lock (_tuneWaiters)
+            {
+                if (!_tuneWaiters.TryGetValue(slice, out var w) || w.Id != id) return false;
+                if (answer == TuneAnswer.NoAnswerYet)
+                {
+                    if (w.ToldNoAnswer) return false;
+                    w.ToldNoAnswer = true;
+                }
+                else _tuneWaiters.Remove(slice);
+                tell = w.Answered;
+            }
+            Tracing.TraceLine("TuneAwaitingAnswer: slice " + slice.Letter + ", request " + id + ": " + answer,
+                System.Diagnostics.TraceLevel.Info);
+            TellTuneAnswer(tell, answer);
+            return answer != TuneAnswer.NoAnswerYet;
+        }
+
+        private static void TellTuneAnswer(System.Action<TuneAnswer> tell, TuneAnswer answer)
+        {
+            try { tell(answer); }
+            catch (System.Exception ex)
+            {
+                Tracing.TraceLine("TuneAwaitingAnswer: the answer's handler threw: " + ex.Message, System.Diagnostics.TraceLevel.Warning);
+            }
+        }
 
         /// <summary>How many times a connection has fallen, ours or not (round four, B3): a sentence about one connection is not true on the next.</summary>
         private long _connectionFalls;

@@ -357,7 +357,8 @@ namespace Radios.Tests
             // Integration fix 2: with its drop callback, which concedes as a refusal does.
             Assert.Equal(1, CountOf(text, "if (q == null || !q.Enqueue((FunctionDel)(() => WriteTuneTo(slice, id, mhz, what)), what,"));
             Assert.Equal(1, CountOf(text, "if (EchoGuardFor(slice).Refused(id, \"the command loop ended before it ran\"))"));
-            Assert.Equal(1, CountOf(text, "Reconcile(slice, value, \"the command loop ended before it ran\");"));
+            // J28: unless a typed tune took the refusal, which then says it itself.
+            Assert.Equal(1, CountOf(text, "Reconcile(slice, value, typed ? null : \"the command loop ended before it ran\");"));
             Assert.True(text.Contains("bool accepted = EchoGuardFor(s).Accept(echoed);", StringComparison.Ordinal),
                 "the slice's guard is never consulted on a Freq report (#266).");
             Assert.False(text.Contains("slice.Freq = mhz", StringComparison.Ordinal),

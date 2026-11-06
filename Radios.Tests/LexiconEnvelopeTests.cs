@@ -119,7 +119,9 @@ namespace Radios.Tests
             // the mic input left on PC at a disconnect, Noel's Chatty and Terse.
             // Twenty-two from its round two (Codex's R5): the neutral form, when
             // no carrier was established (DRAFT).
-            Assert.Equal(22, ladders);
+            // Twenty-three from its round four (J28): a typed frequency the radio
+            // refused, Noel's sentence at Terse and Chatty.
+            Assert.Equal(23, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -2117,6 +2119,11 @@ namespace Radios.Tests
                 "connect.home.frequency_ended_on_slice",
                 // Round four (#861, J20): Noel's own wording, 2026-11-06 16:34.
                 "audio.mic.still_switching_to_pc",
+                // Round four (#642, J28): Noel's own wording at Terse and Chatty
+                // (2026-11-06 16:52); Chatty's slot DRAFT for the keyboard audit.
+                // And what is said when the radio has not answered: DRAFT prose.
+                "settings.tuning.unable_to_tune",
+                "settings.tuning.tune_no_answer",
                 // Round two (#496, the bench's Fail 3): Settings with no radio
                 // says the PTT changes were not saved. DRAFT prose.
                 "settings.commit.ptt_not_saved",

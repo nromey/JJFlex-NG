@@ -146,4 +146,63 @@ public sealed class QuickTypeCommitTests
         Assert.Null(elsewhere.Correction);
         Assert.Equal("20 meter band, 14.200 megahertz", elsewhere.Arrival);
     }
+
+    // ---------------- J28: a typed frequency waits for the radio ----------------
+    // Ruled by Noel 2026-11-06 16:52: "Terse should just do an error beep and
+    // say unable to tune this frequency. Heck, maybe both places could say that."
+
+    [Theory]
+    [InlineData(VerbosityLevel.Terse)]
+    [InlineData(VerbosityLevel.Chatty)]
+    public void A_refused_typed_frequency_beeps_and_says_unable_at_terse_and_chatty(VerbosityLevel level)
+    {
+        var said = FreqOutHandlers.TypedTuneSpeech(FlexBase.TuneAnswer.Refused, level);
+        Assert.True(said.Beep);
+        Assert.Equal("Unable to tune this frequency", said.Sentence);
+        Assert.False(said.Arrived);
+    }
+
+    [Fact]
+    public void An_accepted_typed_frequency_says_its_arrival_and_nothing_else()
+    {
+        var said = FreqOutHandlers.TypedTuneSpeech(FlexBase.TuneAnswer.Accepted, VerbosityLevel.Terse);
+        Assert.False(said.Beep);
+        Assert.Null(said.Sentence);
+        Assert.True(said.Arrived);
+    }
+
+    [Fact]
+    public void A_typed_frequency_with_no_answer_says_so_without_the_refusal_beep()
+    {
+        var said = FreqOutHandlers.TypedTuneSpeech(FlexBase.TuneAnswer.NoAnswerYet, VerbosityLevel.Terse);
+        Assert.False(said.Beep);
+        Assert.Equal("No answer from the radio yet", said.Sentence);
+        Assert.False(said.Arrived);
+    }
+
+    [Fact]
+    public void The_commit_no_longer_says_the_frequency_was_set_before_the_radio_answers()
+    {
+        // Read in the source, as this class reads the delivery: the commit
+        // hands its tune to the rig and says nothing about the frequency until
+        // the answer comes; the arrival sentence is said only on Accepted.
+        var dir = new System.IO.DirectoryInfo(System.AppContext.BaseDirectory);
+        while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+        string text = System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, "JJFlexWpf", "FreqOutHandlers.cs"));
+        int commit = text.IndexOf("private void CommitQuickType()", System.StringComparison.Ordinal);
+        int end = text.IndexOf("internal static (SixtyMeterChannels.ModeCorrection? Correction, string Arrival) QuickTypeCommitOutcome(", commit, System.StringComparison.Ordinal);
+        Assert.True(commit > 0 && end > commit);
+        string body = text.Substring(commit, end - commit);
+        Assert.Contains("TuneAwaitingAnswer(freqHz,", body, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("SetRXFrequency?.Invoke(freqHz)", body, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("QuickTypeCommitOutcome(", body.Substring(0, body.IndexOf("TuneAwaitingAnswer(freqHz,", System.StringComparison.Ordinal)), System.StringComparison.Ordinal);
+        int say = text.IndexOf("private void SayTypedTuneAnswer(", System.StringComparison.Ordinal);
+        Assert.True(say > 0, "nothing says the radio's answer to a typed frequency");
+        string sayBody = text.Substring(say, 2500);
+        Assert.Contains("EarconPlayer.LeaderInvalidTone();", sayBody, System.StringComparison.Ordinal);
+        Assert.True(sayBody.IndexOf("if (!said.Arrived) return;", System.StringComparison.Ordinal)
+            < sayBody.IndexOf("QuickTypeCommitOutcome(", System.StringComparison.Ordinal),
+            "the arrival is said before the radio accepted the tune");
+    }
 }

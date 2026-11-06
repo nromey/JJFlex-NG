@@ -1047,25 +1047,73 @@ public class FreqOutHandlers
 
         // Convert MHz to Hz (ulong, our internal format)
         ulong freqHz = (ulong)(freqMhz.Value * 1_000_000);
-        SetRXFrequency?.Invoke(freqHz);
-        CheckBandBoundary(freqHz);
 
-        // Typewriter bell in mechanical mode, regular ding otherwise
+        // Typewriter bell in mechanical mode, regular ding otherwise: the
+        // entry is taken. It claims nothing about the radio.
         if (TypingSound == TypingSoundMode.Mechanical)
             EarconPlayer.TypewriterBellTone();
         else
             EarconPlayer.DingTone();
         string display = FormatFreqForSpeech(freqMhz.Value);
+        // J28 (ruled by Noel 2026-11-06 16:52): nothing is said about the
+        // frequency until the radio has answered THIS tune. The second bench
+        // typed 60 MHz and heard "Frequency set to 60.000 megahertz", then the
+        // frequency the radio kept. The tune goes out exactly as before
+        // (VirtualRXFrequency), and the answer is said on the window's thread.
+        var rig = Rig;
+        if (rig == null)
+            SayTypedTuneAnswer(FlexBase.TuneAnswer.Refused, freqHz, display);
+        else
+            rig.TuneAwaitingAnswer(freqHz, answer =>
+                _window.Dispatcher.BeginInvoke(new Action(() => SayTypedTuneAnswer(answer, freqHz, display))));
+        CancelQuickType();
+    }
+
+    /// <summary>
+    /// What a typed frequency's answer is said as (J28). Pure, so it can be
+    /// tested without a window. Refused: the refusal sound and "Unable to tune
+    /// this frequency" (Terse and Chatty both, Noel's wording; Chatty's slot is
+    /// DRAFT for the keyboard audit). No answer yet: says so, once, without the
+    /// refusal sound, since nothing was refused. Accepted: the arrival, as it
+    /// always was.
+    /// </summary>
+    internal static (bool Beep, string? Sentence, bool Arrived) TypedTuneSpeech(FlexBase.TuneAnswer answer, VerbosityLevel level)
+        => answer switch
+        {
+            FlexBase.TuneAnswer.Accepted => (false, null, true),
+            FlexBase.TuneAnswer.Refused => (true, Lexicon.Get("settings.tuning.unable_to_tune", level), false),
+            _ => (false, Lexicon.Get("settings.tuning.tune_no_answer"), false),
+        };
+
+    /// <summary>
+    /// The radio's answer to a typed frequency, on the window's thread (J28).
+    /// Only an accepted tune says where it landed, crosses a band boundary, or
+    /// asks 60 m for its mode: a refused one changed nothing.
+    /// </summary>
+    private void SayTypedTuneAnswer(FlexBase.TuneAnswer answer, ulong freqHz, string display)
+    {
+        var said = TypedTuneSpeech(answer, Radios.ScreenReaderOutput.CurrentVerbosity);
+        // The refusal sound the app already uses for a key or command it cannot
+        // carry out (the JJ key's "not recognised"): there is no other error earcon.
+        if (said.Beep) EarconPlayer.LeaderInvalidTone();
+        if (said.Sentence != null)
+        {
+            Radios.ScreenReaderOutput.Speak(said.Sentence, VerbosityLevel.Terse, true,
+                subject: Radios.Speech.SpeechSubject.TypedTuneAnswer);
+            return;
+        }
+        if (!said.Arrived) return;
+        CheckBandBoundary(freqHz);
         // No rig, no mode to correct: the correction is only asked for with a
         // rig, and with one only what is known is said (#312, repair round two).
-        var outcome = QuickTypeCommitOutcome(License?.Country ?? "US", freqHz, Rig?.Mode, display);
         var rig = Rig;
+        var outcome = QuickTypeCommitOutcome(License?.Country ?? "US", freqHz, rig?.Mode, display);
         if (rig != null && outcome.Correction != null)
             SixtyMeterModeDelivery.Deliver(rig, outcome.Arrival, outcome.Correction,
                 Radios.Speech.SpeechIntent.Interrupt);
         else
-            Radios.ScreenReaderOutput.Speak(outcome.Arrival, VerbosityLevel.Terse, true);
-        CancelQuickType();
+            Radios.ScreenReaderOutput.Speak(outcome.Arrival, VerbosityLevel.Terse, true,
+                subject: Radios.Speech.SpeechSubject.TypedTuneAnswer);
     }
 
     /// <summary>

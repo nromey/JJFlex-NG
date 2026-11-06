@@ -718,6 +718,14 @@ namespace Radios.Speech
         public const string PcMicStillSwitching = "pc-mic-still-switching";
 
         /// <summary>
+        /// The radio's answer to a frequency typed on Home (#642, J28, ruled by
+        /// Noel 2026-11-06 16:52): "Frequency set to ..." only once the radio
+        /// accepted it, "Unable to tune this frequency" when it refused, and
+        /// "No answer from the radio yet" when it has not answered in time.
+        /// </summary>
+        public const string TypedTuneAnswer = "typed-tune-answer";
+
+        /// <summary>
         /// Subjects that are stale status: what a sentence that must be heard next
         /// (the transmit notice) may retire from our own backlog (rulings round
         /// three, Codex's F1). Required notices and refusals are never in it.
