@@ -610,4 +610,166 @@ public sealed class ReferenceEndSilenceTests : IDisposable
         Assert.Equal(ReferenceSilenceEnd.Received, how);
         Assert.True(MicIsBack(f.Rig.TxFilePlayer));
     }
+
+    // ── Round four repair (part 6e-2): a re-key never replays a finished pass ──
+
+    /// <summary>True when some sample of the buffer is the reference itself (its content is 0.4).</summary>
+    private static bool CarriesTheReference(float[] buf)
+    {
+        foreach (float s in buf) if (Math.Abs(s - 0.4f) < 1e-4f) return true;
+        return false;
+    }
+
+    /// <summary>Frames of audio, each checked: nothing but exact silence.</summary>
+    private static bool OnlySilence(TxFilePlayer player, int frames)
+    {
+        for (int i = 0; i < frames; i++)
+        {
+            var buf = MicBuffer();
+            player.Process(buf, Floats, Rate);
+            if (!AllZero(buf)) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// A re-key while the silence is held, the JAWS synthetic re-key's shape:
+    /// our key down again (the app's own transmit setter, which asks the player
+    /// to restart an armed reference), the radio's Mox rising (which asks it
+    /// too), the transmit stream restarting cold. The transmitter carries
+    /// silence: not the reference again, and not the microphone. Codex's
+    /// round four check raised it; it did not reproduce before this repair,
+    /// because both restart requests are refused past the end. Inside the
+    /// final fade as well as after it.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_re_key_during_the_silence_carries_silence_not_the_reference_or_the_microphone(bool intoTheFade)
+    {
+        using var f = await ReferenceRunToItsEnd("ref-silence-rekey-" + intoTheFade, intoTheFade);
+        ReferenceSilenceEnd? how = null;
+        f.Rig.TxReferenceEndSilenceUntilReceive(h => how = h);
+        NoteRadioMox(f.Rig, false);                          // the app lets go after the tail
+        f.Vendor.Status("interlock state=UNKEY_REQUESTED source=SW");
+
+        f.Rig.Transmit = true;                               // the re-key, through our own key
+        Drain(f.Rig);
+        NoteRadioMox(f.Rig, true);
+        f.Vendor.Status("interlock state=TRANSMITTING source=SW");
+        var first = NextBufferAfterAStall(f.Rig.TxFilePlayer);
+        Assert.True(AllZero(first), "the re-key put the reference or the microphone on the air");
+        Assert.True(OnlySilence(f.Rig.TxFilePlayer, 100), "the re-key carried something other than silence");
+        Assert.True(f.Rig.TxFilePlayer.ReachedEnd, "the finished pass started again");
+        Assert.True(f.Rig.TxReferenceEndSilenceHeld);
+        Assert.Null(how);
+
+        NoteRadioMox(f.Rig, false);
+        f.Vendor.Status("interlock state=READY");
+        Assert.True(await Within(() => how == ReferenceSilenceEnd.Received, 2_000));
+        Assert.True(MicIsBack(f.Rig.TxFilePlayer));
+    }
+
+    /// <summary>
+    /// The race the re-key leaves open: a restart asked for in the pass's last
+    /// buffer, its test passed on the UI thread while the audio thread ran off
+    /// the end. Created here as the state that race leaves, the request planted
+    /// past the end, because one thread cannot interleave the two. Until this
+    /// repair the player honoured it and played the reference again over its
+    /// own held silence. A restart asked for mid-pass still restarts.
+    /// </summary>
+    [Fact]
+    public void A_restart_asked_for_as_the_pass_ran_off_its_end_does_not_replay_it()
+    {
+        var restartFlag = typeof(TxFilePlayer).GetField("_restartOnNextBuffer", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        // Control: mid-pass, a restart is honoured.
+        var midPass = new TxFilePlayer();
+        midPass.Load(Content(Rate / 5), Rate, "reference");
+        midPass.StartHoldingSilenceAtEnd();
+        for (int i = 0; i < 10; i++) midPass.Process(MicBuffer(), Floats, Rate);
+        int before = midPass.PlayedFrames;
+        midPass.RestartOnNextBuffer();
+        midPass.Process(MicBuffer(), Floats, Rate);
+        Assert.True(midPass.PlayedFrames < before, "positive control: a restart mid-pass starts the pass again");
+
+        foreach (bool intoTheFade in new[] { false, true })
+        {
+            var player = new TxFilePlayer();
+            player.Load(Content(Rate / 5), Rate, "reference");
+            player.StartHoldingSilenceAtEnd();
+            if (intoTheFade) RunIntoTheFinalFade(player); else RunToTheEnd(player);
+            restartFlag.SetValue(player, true);
+            for (int i = 0; i < 100; i++)
+            {
+                var buf = MicBuffer();
+                player.Process(buf, Floats, Rate);
+                Assert.False(CarriesTheReference(buf), "the finished pass was played again (into the fade: " + intoTheFade + ")");
+                Assert.True(AllZero(buf), "the held silence carried something (into the fade: " + intoTheFade + ")");
+            }
+            Assert.True(player.ReachedEnd);
+            Assert.True(player.HoldingEndSilence);
+        }
+    }
+
+    /// <summary>
+    /// After the radio receives, with no new arm, the reference is over: a
+    /// re-key is an ordinary transmission on the microphone, and the lease that
+    /// would have restarted the reference is gone.
+    /// </summary>
+    [Fact]
+    public async Task A_re_key_after_receive_with_no_new_arm_is_ordinary_transmit_on_the_microphone()
+    {
+        using var f = await ReferenceRunToItsEnd("ref-silence-after-receive");
+        ReferenceSilenceEnd? how = null;
+        f.Rig.TxReferenceEndSilenceUntilReceive(h => how = h);
+        NoteRadioMox(f.Rig, false);
+        f.Vendor.Status("interlock state=READY");
+        Assert.True(await Within(() => how == ReferenceSilenceEnd.Received, 2_000));
+        Assert.False(f.Rig.TxReferenceArmed, "positive control: the reference stood down at receive");
+
+        f.Rig.Transmit = true;
+        Drain(f.Rig);
+        NoteRadioMox(f.Rig, true);
+        f.Vendor.Status("interlock state=TRANSMITTING source=SW");
+        var first = NextBufferAfterAStall(f.Rig.TxFilePlayer);
+        Assert.False(CarriesTheReference(first), "the reference played again with no arm");
+        Assert.True(f.Rig.TxFilePlayer.Idle);
+        Assert.True(MicIsBack(f.Rig.TxFilePlayer), "an ordinary transmission carries the microphone");
+    }
+
+    /// <summary>A fresh arm after receive still plays the reference: the repair refuses only a finished pass, never a new one.</summary>
+    [Fact]
+    public async Task A_fresh_arm_after_receive_plays_the_reference_again()
+    {
+        using var f = await ReferenceRunToItsEnd("ref-silence-fresh-arm");
+        ReferenceSilenceEnd? how = null;
+        f.Rig.TxReferenceEndSilenceUntilReceive(h => how = h);
+        NoteRadioMox(f.Rig, false);
+        f.Vendor.Status("interlock state=READY");
+        Assert.True(await Within(() => how == ReferenceSilenceEnd.Received, 2_000));
+
+        Assert.True(await ArmAgain(f), "a fresh arm after receive was refused");
+        NoteRadioMox(f.Rig, true);
+        f.Vendor.Status("interlock state=TRANSMITTING source=SW");
+        bool heard = false;
+        for (int i = 0; i < 50 && !heard; i++)
+        {
+            var buf = MicBuffer();
+            f.Rig.TxFilePlayer.Process(buf, Floats, Rate);
+            heard = CarriesTheReference(buf);
+        }
+        Assert.True(heard, "the fresh arm never played the reference");
+        RunToTheEnd(f.Rig.TxFilePlayer);
+        Assert.True(f.Rig.TxReferenceEndSilenceHeld, "the second pass holds its own end");
+    }
+
+    /// <summary>Arm the reference again through <c>TxReferenceStartAsync</c>, as the fixture's first arm did.</summary>
+    private static async Task<bool> ArmAgain(RigOnVendorRadio f)
+    {
+        var arm = f.Rig.TxReferenceStartAsync();
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        while (!arm.IsCompleted && DateTime.UtcNow < deadline) { Drain(f.Rig); await Task.Delay(1); }
+        return arm.IsCompleted && await arm;
+    }
 }

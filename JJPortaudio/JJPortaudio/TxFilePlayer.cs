@@ -330,6 +330,14 @@ namespace JJPortaudio
         }
 
         /// <summary>Keep an armed source engaged but begin its next keyed pass at the start.</summary>
+        /// <remarks>
+        /// <b>A pass that has reached its end is never started again this way</b>
+        /// (round three: a finished pass stands the arm down, so no second pass
+        /// happens silently). The test here is only the cheap early refusal;
+        /// <see cref="Process"/> asks the same question again when it takes the
+        /// request, because only the audio thread knows whether the end came
+        /// first (round four repair, 6e-2).
+        /// </remarks>
         public void RestartOnNextBuffer()
         {
             if (Engaged && !_reachedEnd) _restartOnNextBuffer = true;
@@ -387,12 +395,21 @@ namespace JJPortaudio
             if (_restartOnNextBuffer)
             {
                 _restartOnNextBuffer = false;
-                _pos = 0.0;
-                _playedFrames = 0;
-                _reachedEnd = false;
-                _fade = 0f;
-                state = StFileFadeIn;
-                _state = state;
+                // A pass that has run off its end is finished, and a finished
+                // pass never restarts on a re-key: that needs a fresh arm. The
+                // request can arrive here past the end when it was asked for
+                // in the last buffer, as the end was reached on this thread
+                // (RestartOnNextBuffer's own test is on the UI thread). For a
+                // reference that would replay it over its held silence.
+                if (!_reachedEnd)
+                {
+                    _pos = 0.0;
+                    _playedFrames = 0;
+                    _reachedEnd = false;
+                    _fade = 0f;
+                    state = StFileFadeIn;
+                    _state = state;
+                }
             }
 
             float[] samples = _samples;
