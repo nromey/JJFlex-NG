@@ -9,6 +9,44 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-11-06 (COVERS 2026-11-04 23:45 TO 2026-11-06 08:39, MEASURED FROM `f5a6fa10`) — THE FIRST NIGHT MODE: BOTH JUNK BOX BATCHES CODEX-CLEAN, UNIFIED TAKES ROUND FIVE CLEAN, SPRINT 49 FOLLOW-UPS CHECKED, WW1USA RECORDED
+
+*Covers Noel's surgery day (2026-11-05, light until the evening) and the first night mode, 01:33 to 08:26 on 2026-11-06, run under `JJFlex-private/planning/NIGHT-MODE.md` (approved 00:53). Noel said "morning" at 08:26 in the sound processing window, which messaged the junk box and Check your audio windows; both replied "received" and then "wrapped up" (08:28 and 08:39). The orchestrator and Maestro windows were offline all night. The recap is at the top of `for-noel/2026-11-06-night-status.md`.*
+
+**Main:** nothing since `f5a6fa10` but this entry. All work is on branches, none merged to main.
+
+**Junk box 2026-11-02 (`junkbox/2026-11-02-batch`, 42 commits since the last seal, to `8d0716ff`).** Every fix passed Codex: #596 at re-check 12, #861 with #600 at 13, #863 at 10, #642 (rebuilt, merged in from `junkbox/2026-11-02-r5-tuning`) at 11, #774 earlier. Three FlexLib patches, MIGRATION.md items 21 to 23, under Noel's ruling of 2026-11-05 23:54 that FlexLib may be patched without asking when the patch is listed (`memory/feedback_flexlib_patches_are_allowed_when_listed.md`). A fresh integration read found eight more things; their round 16 finished at 08:39, its Codex re-check NOT run. Tests at the tip: Radios.Tests 7,436, the windowless filter 703. The 8600 harness bench has not run; plan in `for-claude/2026-11-06-junkbox-1102-bench-plan.md`. Measured on the 8600 at 06:30: an unkey from receive is answered within 0.1 to 0.2 s.
+
+**Junk box 2026-11-06 (`junkbox/2026-11-06-batch`, 30 commits, `d683feaf`, worktree `jjflex-jb1106`).** The next nine, picked at 01:49 by the handoff: #798 with #613, #747, #741, #680, #889, #477, #713 built, each Codex-clean after up to five re-checks; #748 and #888 wait on questions J2 and J1. Its integration read found two blockers (registration's background check switches the active SmartLink account; both batches numbered a FlexLib patch 23, renumbered to 24); the fix round finished at 08:39, re-check not run. Radios.Tests 6,673, filter 601.
+
+**Unified takes (#864, `takes/unified`, 23 commits, `253f0576`).** Round four's harness and SmartLink benches passed (01:33, 01:37 to 01:41, 8600, zero watts into the load); Codex FIX FIRST (a mic leak in the reference's final 10 ms fade); repair 6e then PASS. Round five built at 04:42 (Noel's answers to C1 to C3 plus four carried items), then four repairs on one ownership mechanism (7h, 7i, 7j, 7k) until Codex passed it at 07:53. Waiting: question C4, a ten-minute hands-off bench regression on the real desktop, and F2 (needs the window harness). New entries #897, #898, #900, #901.
+
+**Sound processing (#737, Sprint 49).** WW1USA recorded on Don's 6300 over SmartLink, 80 m CW, receive only (two takes; take 2's last 13 s hold a 1.9 s carrier from an accidental Ctrl+Shift+T, about 10 W into SWR 2.2, recorded in the notes). Night work: the priority script (#896, running hidden); the bench given every helper engine and a CW measure (`sprint49/bench-cw`, 2 commits) and 36 renders of the takes; Track B's side of Contract 2 (`sprint49/track-b-contract2`, 5 commits, first runs against the real helper, an x86-only race found and fixed). **Neither merged:** Codex found the CW measure scores deleting a faded weak station as improvement (not sound for ranking), and Track B classifies a fatal error before the handshake as a version mismatch (one blocker, four follow-ups). New entries #886 to #896 from the evening's listening and Don's radio, among them #888 (no AGC-off gain control), #892 (typed CW does not send) and #894 (the CW sprint, ahead of Connect).
+
+**Seal checks:**
+- No dependency advisories.
+- Memory drift: 92 paths and 55 symbols, unchanged from the last seal.
+- Codex instruction tests not re-run: main, CLAUDE.md and AGENTS.md are unchanged since `f5a6fa10`. Sandbox healthy.
+- NVDA logs archived as `2026-11-06-*` (the live log at speech level, 888 lines).
+- Backups: memory (10 projects), AppData (49 files), Claude state and the dev mirror, private docs (after the AAR).
+- MEMORY.md 17.1 KB, still over 12 KB; Current State rewritten; no banners awaiting archive.
+
+**Junk box intake (3c-ter):** sixteen entries opened since the last seal (#886 to #901), all targeted; the eight JUNKBOX ones all prioritized. 250 junk box entries, 0 unprioritized, 496 open.
+
+**Cross-surface:** Codex wrote 72 reports since the last seal (15 dated 2026-11-05, 57 dated 2026-11-06, in `for-claude/`), logged in `codex-evaluation.md` by the window that ran each; one was stopped by OpenAI's security filter and resumed with plainer wording. The WDSP helper repository (`C:\dev\jjflex-wdsp-helper`, no remote) has 29 commits since the last seal, from Track A's repair rounds on 2026-11-05. JJFlex-private 196 commits. Freight Fate 16 unpushed and one dirty file, Civ VI two dirty files: Noel's call. No debug build and no nightly promote.
+
+**Waiting on Noel:** 28 night questions (J1 to J13, S1 to S14, C4), J1 and J2 first; the four Track A rulings of 2026-11-05; the archiving of six old top-level planning files.
+
+**Carried over:**
+- Codex re-checks of both junk box integration rounds; the 1102 harness bench on the 8600; then the merges, each with its keyboard audit and changelog.
+- Unified takes: C4 and the hands-off bench regression, then the merge.
+- Sprint 49: the Track B blocker repair; the bench's fade controls and the other three findings before S10's blind listen means anything.
+- Old Codex check worktrees (`jjflex-cx*`) to remove once their branches merge.
+
+### Rigmeter snapshot — end of 2026-11-06
+
+Main did not move since `f5a6fa10`, so rigmeter's main-only figures are zero for the span (snapshot re-written for `f5a6fa10`). Branch work, measured against each branch's merge base with main: `junkbox/2026-11-02-batch` 138 files, +21,574 / −873 overall; `junkbox/2026-11-06-batch` 63 files, +6,544 / −575; `takes/unified` 98 files, +13,628 / −232. The two Sprint 49 follow-ups are 5 and 2 commits on top of `sprint49/integration`.
+
 ## END-OF-DAY SEAL — 2026-11-04, SECOND SEAL (COVERS 00:30 TO 23:45, MEASURED FROM `c549eb1f`) — THE JUNK BOX THROUGH REPAIR ROUND 4, UNIFIED TAKES ROUND THREE BENCHED, NOEL'S UNDO JOURNAL AND COMMAND LANGUAGE
 
 *Second seal under this date. The first (below) covers the evening before; this one covers the working day after it.*
