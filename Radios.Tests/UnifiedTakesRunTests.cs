@@ -331,4 +331,79 @@ public sealed class UnifiedTakesRunTests : IDisposable
         Assert.Contains(LoopbackEndOutcome.Mutes, outcome.Restored);
         Assert.False(c.HeldMute[2]);
     }
+
+    // ── Round five (7f): the header's power facts are the power the take went out at ──
+
+    /// <summary>
+    /// The bench of 2026-11-04 read <c>dummy-load=False</c> on a take made under
+    /// "Dummy load, no RF": the header was captured at admission, before the
+    /// check set its power. Created state: a take admitted with the operator's
+    /// 50 W and no dummy load, the check's dummy load noted before keying, the
+    /// take written, read back.
+    /// </summary>
+    [Fact]
+    public async Task A_take_made_under_dummy_load_no_RF_has_a_header_that_says_so()
+    {
+        var c = UnifiedTakesMuteTests.ThreeSlices();
+        using var _ = c;
+        var run = Admit(c);
+        Assert.Equal("False", run.GetType().GetField("_facts", BindingFlags.Instance | BindingFlags.NonPublic) is { } field
+            ? ((IEnumerable<KeyValuePair<string, string>>)field.GetValue(run)!).Single(f => f.Key == "dummy-load").Value
+            : "missing");   // positive control: the admission really did read no dummy load
+        run.NoteCheckPower(AudioCheckPowerModes.DummyLoad,
+            new AudioCheckPowerStep(AudioCheckPowerAct.EngageDummyLoad), currentPower: 50, dummyLoadActive: false);
+        var sink = new Sink();
+        Assert.True(await Within(c, run.ArmAsync(_root, sink.Start, muteOthers: true)), run.NotSavedReason);
+        sink.Plays(1);
+        Assert.True(await Within(c, run.Finished));
+
+        string folder = run.DirectoryPath!;
+        Assert.Equal("True", Header(folder, "dummy-load"));
+        Assert.Equal("0", Header(folder, "rf-power"));
+        Assert.Equal("dummy-load", Header(folder, "check-power"));
+        Assert.Single(TakeHeader.Read(Path.Combine(folder, "take.txt")), f => f.Key == "rf-power");
+        Assert.Single(TakeHeader.Read(Path.Combine(folder, "take.txt")), f => f.Key == "dummy-load");
+        Assert.True(TakeReader.Inspect(folder).CanMeasure);
+    }
+
+    /// <summary>The control: with no note (Looped back, whose power the arrangement owns), the admission's facts stand.</summary>
+    [Fact]
+    public async Task A_take_with_no_power_note_keeps_the_admissions_facts()
+    {
+        var c = UnifiedTakesMuteTests.ThreeSlices();
+        using var _ = c;
+        var run = Admit(c);
+        var sink = new Sink();
+        Assert.True(await Within(c, run.ArmAsync(_root, sink.Start, muteOthers: true)), run.NotSavedReason);
+        sink.Plays(1);
+        Assert.True(await Within(c, run.Finished));
+        Assert.Equal("False", Header(run.DirectoryPath!, "dummy-load"));
+        Assert.Null(Header(run.DirectoryPath!, "check-power"));
+    }
+
+    [Theory]
+    [InlineData(AudioCheckPowerModes.DummyLoad, AudioCheckPowerAct.EngageDummyLoad, 0, 50, false, "dummy-load", 0, true)]
+    [InlineData(AudioCheckPowerModes.DummyLoad, AudioCheckPowerAct.None, 0, 0, true, "dummy-load", 0, true)]        // the operator's own dummy load, left theirs
+    [InlineData(AudioCheckPowerModes.DummyLoad, AudioCheckPowerAct.SetPower, 1, 50, false, "dummy-load", 1, false)]  // a radio that cannot run at zero: its floor
+    [InlineData(AudioCheckPowerModes.LowPower, AudioCheckPowerAct.SetPower, 10, 50, false, "low-power", 10, false)]  // the cap
+    [InlineData(AudioCheckPowerModes.LowPower, AudioCheckPowerAct.None, 0, 5, false, "low-power", 5, false)]         // already under the cap
+    public void The_power_the_check_commanded_is_what_the_header_records(AudioCheckPowerModes mode, AudioCheckPowerAct act, int watts,
+        int current, bool dummyBefore, string choice, int rf, bool dummy)
+    {
+        var p = CheckTakePower.From(mode, new AudioCheckPowerStep(act, watts), current, dummyBefore);
+        Assert.Equal(new CheckTakePower(choice, rf, dummy), p);
+    }
+
+    /// <summary>The check notes its power after the power rule has acted and before it keys.</summary>
+    [Fact]
+    public void The_check_notes_its_power_after_the_power_rule_and_before_keying()
+    {
+        string check = File.ReadAllText(Path.Combine(FlexBasePartials.RepoRoot(), "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.Check.cs"));
+        int setPower = check.IndexOf("else if (power.Act == AudioCheckPowerAct.SetPower)", StringComparison.Ordinal);
+        int note = check.IndexOf("_take?.NoteCheckPower(_powerMode, power, currentPower, theirDummyLoad);", StringComparison.Ordinal);
+        int key = check.IndexOf("_ptt.KeyForCheck();", StringComparison.Ordinal);
+        int admit = check.IndexOf("AdmitTake(rig);", StringComparison.Ordinal);
+        Assert.True(admit > 0 && setPower > admit && note > setPower && key > note,
+            "admission, then the power rule, then the note, then the key");
+    }
 }

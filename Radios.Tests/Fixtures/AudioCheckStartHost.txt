@@ -232,7 +232,7 @@ public class Host
         // (CheckYourAudioDialog.SaveTakes.cs). Saving is off in every scenario here.
         private TakeStub _take;
         private void AdmitTake(FlexBase rig) { }
-        private sealed class TakeStub { public void NoteKeyed() { } }
+        private sealed class TakeStub { public void NoteKeyed() { } public void NoteCheckPower(AudioCheckPowerModes m, AudioCheckPowerStep s, int c, bool d) { } }
         /*StartAsync*/
         /*StopCheck*/
     }

@@ -1486,6 +1486,9 @@ public partial class CheckYourAudioDialog
                         using (rig.AppInitiatedSettingChanges()) rig.XmitPower = saved;
                     }, CheckPutBack.Power(saved, checkPower));
                 }
+                // The take's header says the power it went out at, not the
+                // power before this block (Unified takes, round five, 7f).
+                _take?.NoteCheckPower(_powerMode, power, currentPower, theirDummyLoad);
 
                 if (_method == AudioCheckListenMethods.Monitor &&
                     rig.Monitor != FlexBase.OffOnValues.on)

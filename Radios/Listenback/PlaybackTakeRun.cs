@@ -94,6 +94,17 @@ public sealed class PlaybackTakeRun
     /// <summary>The keying edge: what fed the transmitter, never read later at playback.</summary>
     public void NoteKeyed() => _source ??= _rig.PlaybackTakeSource;
 
+    private CheckTakePower? _power;
+
+    /// <summary>
+    /// The power the check commanded, just before it keys (round five, 7f):
+    /// written in place of the admission's <c>rf-power</c> and
+    /// <c>dummy-load</c>, which were read before the check set its power, with
+    /// the check's choice beside them. A take with no note keeps the admission's.
+    /// </summary>
+    public void NoteCheckPower(AudioCheckPowerModes mode, AudioCheckPowerStep step, int currentPower, bool dummyLoadActive) =>
+        _power ??= CheckTakePower.From(mode, step, currentPower, dummyLoadActive);
+
     /// <summary>
     /// Just before the playback is requested. False, with <see cref="NotSavedReason"/>,
     /// when nothing will be saved; the playback goes ahead either way.
@@ -137,6 +148,7 @@ public sealed class PlaybackTakeRun
             ? (_rig.LoopbackArranged ? "isolated" : "unknown")
             : Mutes.Isolated ? "isolated" : "contaminated";
         var facts = _facts.ToList();
+        _power?.WriteInto(facts);
         if (_source != null) facts.Add(new("source", _source));
         facts.Add(new("capture-isolation", isolation));
         if (!Mutes.Isolated) facts.Add(new("capture-isolation-reason", Mutes.Failure));
