@@ -130,6 +130,13 @@ public sealed class ReferenceEndSilenceTests : IDisposable
         public void Dispose() => Disposed++;
     }
 
+    /// <summary>
+    /// Named for what it drives (round four repair, 6e-3): the holder is HANDED
+    /// to <c>FinishReferencePass</c>, not detected, and the radio's wait is the
+    /// stand-in. Detecting the holder is <see cref="ReferenceEndTests"/>; the
+    /// wait itself, and every way the microphone is kept off the encoder, is
+    /// <c>Radios.Tests.ReferenceEndSilenceTests</c>.
+    /// </summary>
     [Theory]
     [InlineData("Check", false)]
     [InlineData("App", false)]
@@ -137,7 +144,7 @@ public sealed class ReferenceEndSilenceTests : IDisposable
     [InlineData("Elsewhere", false)]   // transmitting, not ours, not hardware
     [InlineData("Nobody", false)]
     [InlineData("App", true)]          // a hand mic pressed under the app's own key
-    public void For_every_holder_the_microphone_never_reaches_the_transmitter_between_the_end_and_receive(string holderName, bool hardware)
+    public void For_each_holder_named_the_window_keeps_the_microphone_off_until_the_radios_wait_ends(string holderName, bool hardware)
     {
         var holder = Enum.Parse<Holder>(holderName);
         AssertTheDeskIsSafe();
@@ -163,12 +170,21 @@ public sealed class ReferenceEndSilenceTests : IDisposable
     }
 
     /// <summary>
-    /// The window's own ways out reach <c>DisarmReference</c>: its close, the
-    /// radio's teardown and a radio switch. Each ends the silence at once, lets
-    /// the watch go, and a later end of the radio's wait does nothing.
+    /// <c>DisarmReference</c>, on a named radio, as the window's close, the
+    /// radio's teardown and every change of radio call it: it ends the silence
+    /// at once, lets the watch go, and a later end of the radio's wait does
+    /// nothing. Called directly: <c>Closed</c> and <c>SetRig</c> need the built
+    /// window. Renamed in round four repair (6e-3); it was named for the close
+    /// and the switch, which it does not drive.
     /// </summary>
+    /// <remarks>
+    /// <b>The microphone coming back here is TODAY'S close behaviour, not a
+    /// safety guarantee.</b> With a hardware push to talk still held, a close
+    /// gives the microphone back while the radio transmits (Codex's round four
+    /// check, B2). That waits on Noel's ruling and is deliberately unchanged.
+    /// </remarks>
     [Fact]
-    public void A_closing_window_or_a_departing_radio_ends_the_silence_at_once()
+    public void DisarmReference_ends_the_silence_at_once_and_a_later_wait_does_nothing()
     {
         AssertTheDeskIsSafe();
         ReferencePassAtItsEnd();
@@ -189,9 +205,14 @@ public sealed class ReferenceEndSilenceTests : IDisposable
         Assert.Equal(1, watch.Disposed);
     }
 
-    /// <summary>The connection went: the radio's wait has already handed the microphone back; the window puts the input back and lets go.</summary>
+    /// <summary>
+    /// The radio's wait reports the connection gone, having handed the
+    /// microphone back itself (stood in here by <c>TxFileStop</c>): the window
+    /// puts the input back and lets go. The disconnect itself is
+    /// <c>Radios.Tests.ReferenceEndSilenceTests</c>.
+    /// </summary>
     [Fact]
-    public void A_lost_connection_ends_the_silence_and_the_window_lets_go()
+    public void When_the_radios_wait_reports_the_connection_gone_the_window_lets_go()
     {
         AssertTheDeskIsSafe();
         ReferencePassAtItsEnd();
@@ -204,9 +225,14 @@ public sealed class ReferenceEndSilenceTests : IDisposable
         Assert.Equal(1, watch.Disposed);
     }
 
-    /// <summary>An older pass's wait ending cannot act for a newer pass, or for one this window has let go of.</summary>
+    /// <summary>
+    /// The WINDOW's guard: an older pass's wait ending does nothing in the
+    /// window for a newer pass, and neither does one for a radio the window no
+    /// longer has (stood in by clearing <c>_rig</c>). The radio's own guard, on
+    /// the player, is <c>Radios.Tests.ReferenceEndSilenceTests.An_older_wait_held_up_across_a_newer_pass_cannot_end_that_pass_silence</c>.
+    /// </summary>
     [Fact]
-    public void An_older_wait_or_another_radio_cannot_act_for_this_pass()
+    public void The_window_ignores_an_older_waits_end_and_one_for_a_radio_it_has_let_go()
     {
         AssertTheDeskIsSafe();
         ReferencePassAtItsEnd();
@@ -228,7 +254,7 @@ public sealed class ReferenceEndSilenceTests : IDisposable
 
     /// <summary>Ruled 01:39 to 01:41: chatty and terse as Noel gave them; critical as terse and diagnostic as chatty, the house convention.</summary>
     [Fact]
-    public void The_sentence_follows_the_verbosity_tier()
+    public void The_sentence_chosen_follows_the_verbosity_tier()
     {
         AssertTheDeskIsSafe();
         string S(bool hardware, VerbosityLevel level) => CheckYourAudioDialog.ReferenceFinishedSentence(Holder.Elsewhere, hardware, level);

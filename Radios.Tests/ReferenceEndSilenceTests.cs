@@ -183,11 +183,14 @@ public sealed class ReferenceEndSilenceTests : IDisposable
         player.StartHoldingSilenceAtEnd();
         RunToTheEnd(player);
 
-        // Starting again from held silence goes straight to the file.
+        // Starting again from held silence goes straight to the file. Every
+        // sample, not only the exact microphone value: the file fades in from
+        // zero and never passes its own 0.4, a microphone ramp would start at
+        // 0.9 (strengthened in round four repair, 6e-3).
         player.StartHoldingSilenceAtEnd();
         var first = MicBuffer();
         player.Process(first, Floats, Rate);
-        foreach (float s in first) Assert.NotEqual(Mic, s);
+        Assert.All(first, s => Assert.InRange(s, 0f, 0.4f + 1e-5f));
         Assert.True(player.Engaged);
 
         // A load (a send replacing it) is a Stop first: the hold is let go.
@@ -509,6 +512,9 @@ public sealed class ReferenceEndSilenceTests : IDisposable
     public async Task Under_a_hardware_line_the_silence_lasts_until_the_operator_lets_go()
     {
         using var f = await ReferenceRunToItsEnd("ref-silence-hardware");
+        // Our key is not down: only the radio's interlock says transmit, as
+        // under a hardware line (strengthened in round four repair, 6e-3).
+        Set(f.Rig, "_Transmit", false);
         f.Vendor.Status("interlock state=TRANSMITTING source=MIC");
         ReferenceSilenceEnd? how = null;
         f.Rig.TxReferenceEndSilenceUntilReceive(h => how = h);
@@ -538,6 +544,12 @@ public sealed class ReferenceEndSilenceTests : IDisposable
     /// <c>TxFileStop</c>: the silence ends there and then, and the wait, when it
     /// ends, finds nothing to do.
     /// </summary>
+    /// <remarks>
+    /// The microphone back while the radio still transmits is today's disarm
+    /// and close behaviour. Under a hardware push to talk still held it waits
+    /// on Noel's ruling (Codex's round four check, B2), so this pins what is,
+    /// not what is safe.
+    /// </remarks>
     [Fact]
     public async Task A_disarm_ends_the_silence_at_once_and_the_wait_then_does_nothing()
     {
@@ -553,8 +565,13 @@ public sealed class ReferenceEndSilenceTests : IDisposable
         Assert.Equal(ReferenceSilenceEnd.AlreadyReleased, how);
     }
 
+    /// <summary>
+    /// The disconnect's VOX release (<c>DisconnectVoxPauses</c>, which both
+    /// disconnect paths call) ends the silence and the lease. Named for what it
+    /// drives in round four repair (6e-3): not the whole disconnect.
+    /// </summary>
     [Fact]
-    public async Task A_disconnect_ends_the_silence()
+    public async Task The_disconnects_VOX_release_ends_the_silence()
     {
         using var f = await ReferenceRunToItsEnd("ref-silence-disconnect");
         typeof(FlexBase).GetMethod("DisconnectVoxPauses", BindingFlags.Instance | BindingFlags.NonPublic)!
@@ -564,9 +581,14 @@ public sealed class ReferenceEndSilenceTests : IDisposable
         Assert.True(MicIsBack(f.Rig.TxFilePlayer));
     }
 
-    /// <summary>An older wait still running cannot end a newer pass's silence.</summary>
+    /// <summary>
+    /// Two waits for ONE pass: only the newest ends its silence. Renamed in
+    /// round four repair (6e-3): it said "a newer pass", which it never made.
+    /// An older wait against a newer pass is
+    /// <see cref="An_older_wait_held_up_across_a_newer_pass_cannot_end_that_pass_silence"/>.
+    /// </summary>
     [Fact]
-    public async Task Only_the_newest_wait_ends_the_silence()
+    public async Task Of_two_waits_for_one_pass_only_the_newest_ends_the_silence()
     {
         using var f = await ReferenceRunToItsEnd("ref-silence-generation");
         ReferenceSilenceEnd? older = null, newer = null;
