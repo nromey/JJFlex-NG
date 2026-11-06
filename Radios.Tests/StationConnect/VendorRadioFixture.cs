@@ -78,6 +78,9 @@ namespace Radios.Tests.StationConnect
 
         /// <summary>The next admitted write fails before its bytes, as a throwing writer does (repair round 9).</summary>
         public volatile bool FailNextWrite;
+
+        /// <summary>Every admitted write whose command starts with this fails, until cleared (repair round 10).</summary>
+        public volatile string? FailEveryWriteOf;
         public override void Write(string msg)
         {
             // The write-time gate (MIGRATION.md item 21) as the real adapters
@@ -86,7 +89,8 @@ namespace Radios.Tests.StationConnect
             // fail is not recorded and refuses its pin, as a throwing writer does.
             var pin = CurrentPin;
             if (!AdmitWrite(CurrentConnection)) return;
-            if (FailNextWrite)
+            string? failAll = FailEveryWriteOf;
+            if (FailNextWrite || (failAll != null && CommandText(msg ?? "").StartsWith(failAll, StringComparison.Ordinal)))
             {
                 FailNextWrite = false;
                 ReportWrite(pin, false, "the write failed (test)");

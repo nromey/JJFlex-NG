@@ -181,6 +181,36 @@ namespace Radios
                 return last != null && last.IsReceive && last.Sequence > Interlocked.Read(ref _offMark);
             }
 
+            /// <summary>
+            /// THE one question about whether this key of ours has really ended
+            /// on <paramref name="target"/> (repair round 10, Codex's #596 B16):
+            /// asked by its falling cue (<see cref="EndedOn"/>) and by every
+            /// restoration of the transmit chain, so the two cannot disagree.
+            /// Null when the key is not on that connection, never went out, or
+            /// ended (our xmit 0 written and a receive reported after it); else
+            /// why it has not.
+            /// </summary>
+            internal string? WhyNotEndedOn(CommandConnection? target)
+            {
+                int state = State;
+                if (state is Asked or NeverWentState) return null;
+                if (target == null || !ReferenceEquals(Connection, target)) return null;
+                if (state == OnWritten) return "our own " + What + " went out and its off has not been written";
+                return ReceiveReportedAfterOff() ? null
+                    : "the radio has not reported receive since our own " + What + "'s off went out";
+            }
+
+            /// <summary>This key's carrier has ended on <paramref name="target"/>: OFF written and receive reported after it.</summary>
+            internal bool EndedOn(CommandConnection? target) =>
+                State == OffWritten && target != null && ReferenceEquals(Connection, target) && WhyNotEndedOn(target) == null;
+
+            /// <summary>Its xmit 1 (or tune ON) went out and no off has been written.</summary>
+            internal bool OffUnwrittenOn(CommandConnection? target) =>
+                State == OnWritten && target != null && ReferenceEquals(Connection, target);
+
+            /// <summary>"key" or "tune", for the trace.</summary>
+            internal string What { get; init; } = "key";
+
             /// <summary>Its carrier may still be up or still be reported: asked, on, or off with no receive reported since.</summary>
             internal bool Live => State switch
             {
@@ -211,6 +241,38 @@ namespace Radios
         {
             var key = LatestOwnKey;
             if (key != null && key.NoteOffWritten(InterlockReports.Sequence)) RaiseOwnKeyChanged();
+        }
+
+        /// <summary>
+        /// Our latest tune carrier, tracked as a key (repair round 10, Codex's
+        /// #596 B16, the sibling family): ON WRITTEN when its transmit tune 1
+        /// really went out, OFF WRITTEN when its transmit tune 0 did.
+        /// </summary>
+        private OwnKey? _latestOwnTune;
+
+        /// <summary>Our transmit tune 0 was really written.</summary>
+        private void NoteOwnTuneOffWritten() => Volatile.Read(ref _latestOwnTune)?.NoteOffWritten(InterlockReports.Sequence);
+
+        /// <summary>
+        /// Why a carrier of OUR OWN keeps the transmit chain from being restored
+        /// on <paramref name="connection"/>, or null (repair round 10, Codex's
+        /// #596 B16): our latest key or tune went out and has not ended by
+        /// <see cref="OwnKey.WhyNotEndedOn"/>, the same question its falling cue
+        /// asks. A receive report from before our xmit 0 was written is not the
+        /// end of our key, so a failed unkey can no longer be read as receive.
+        /// Reads only.
+        /// </summary>
+        internal string? OwnCarrierNotEnded(object? connection)
+        {
+            var c = connection as CommandConnection;
+            return LatestOwnKey?.WhyNotEndedOn(c) ?? Volatile.Read(ref _latestOwnTune)?.WhyNotEndedOn(c);
+        }
+
+        /// <summary>Our latest key or tune went out on <paramref name="connection"/> and its off has not been written.</summary>
+        private bool OwnOffUnwritten(object? connection)
+        {
+            var c = connection as CommandConnection;
+            return LatestOwnKey?.OffUnwrittenOn(c) == true || Volatile.Read(ref _latestOwnTune)?.OffUnwrittenOn(c) == true;
         }
 
         /// <summary>Transmissions this rig has asked for: every key, send, check and tune (repair rounds 6 and 7).</summary>
@@ -291,7 +353,7 @@ namespace Radios
             // report-anchored rule.
             bool ReportsReceive() => !_Transmit && RadioInterlockConfirmsReceive
                 && (key != null
-                    ? ReferenceEquals(key.Connection, connection) && key.ReceiveReportedAfterOff()
+                    ? key.EndedOn(connection)
                     : InterlockReports.ConfirmsReceiveFor(connection, releaseMark, episodeMark));
             // Our ON never went out: nothing to wait for.
             bool KeyNeverWent() => key != null && key.NeverWent;

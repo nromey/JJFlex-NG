@@ -1127,6 +1127,135 @@ namespace Radios.Tests
             Assert.Single(Commands("xmit 0"));
         }
 
+        // ── Round 10, Codex's #596 B16: a failed unkey is never read as receive ──
+
+        /// <summary>The teardown's own unkey-and-confirm, as Disconnect calls it.</summary>
+        private bool TeardownUnkeysAndConfirms(int receiveWaitMs = 300) =>
+            _f.Rig.UnkeyBeforePuttingBack("test teardown", TimeSpan.FromSeconds(2), receiveWaitMs);
+
+        /// <summary>The mic put-back's own write, for radio and connection now, owing MIC over the PC we left.</summary>
+        private string[] MicPutBackNow()
+        {
+            _f.Vendor.Status("transmit mic_selection=PC");
+            var swapType = typeof(FlexBase).GetNestedType("MicInputSwap", BindingFlags.NonPublic)!;
+            object swap = Activator.CreateInstance(swapType, BindingFlags.Public | BindingFlags.Instance, null,
+                new object?[] { "MIC", _f.Vendor.Radio, 0L, false }, null)!;
+            typeof(FlexBase).GetMethod("PutBackNow", Private)!.Invoke(_f.Rig, new object[] { _f.Vendor.Radio, swap, "round ten test", 0L });
+            return Commands("mic input MIC");
+        }
+
+        /// <summary>Deliver READY from another thread once our xmit 0 has really gone out and been marked.</summary>
+        private Thread ReceiveAfterOurOffIsWritten()
+        {
+            var t = new Thread(() =>
+            {
+                var until = DateTime.UtcNow.AddSeconds(5);
+                while (DateTime.UtcNow < until && (Commands("xmit 0").Length == 0 || (bool)Get(_f.Rig, "_ownKeyRequested")!))
+                    Thread.Sleep(2);
+                Thread.Sleep(20);
+                Interlock("READY", 0);
+            }) { IsBackground = true };
+            t.Start();
+            return t;
+        }
+
+        [Fact]
+        public void A_teardown_whose_unkey_cannot_be_written_puts_nothing_back_under_our_outstanding_key()
+        {
+            // Codex's B16: a READY from before our xmit 1 read as receive after the
+            // teardown's xmit 0 failed, and the mic was put back under our key.
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            OurKeyWentOutUnderAStaleReceiveReport(() => send.Transmit = true);
+            _f.Vendor.Transport.FailEveryWriteOf = "xmit 0";
+            Assert.False(TeardownUnkeysAndConfirms(), "the teardown confirmed receive with our own key's off unwritten");
+            Assert.Empty(Commands("xmit 0"));
+            Assert.True((bool)Get(_f.Rig, "_ownKeyRequested")!);
+            string? why = _f.Rig.RestoreRefusedAtWrite(_f.Vendor.Radio, _f.Vendor.Radio.CurrentCommandConnection!);
+            Assert.NotNull(why);
+            Assert.Contains("its off has not been written", why!);
+            Assert.Empty(MicPutBackNow());
+            _f.Vendor.Transport.FailEveryWriteOf = null;
+        }
+
+        [Fact]
+        public void A_teardown_whose_first_unkey_fails_writes_it_again_and_still_waits_for_a_later_receive()
+        {
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            OurKeyWentOutUnderAStaleReceiveReport(() => send.Transmit = true);
+            _f.Vendor.Transport.FailNextWrite = true;            // the first xmit 0 only
+            Assert.False(TeardownUnkeysAndConfirms(), "the old READY was read as the end of our key");
+            Assert.Single(Commands("xmit 0"));                    // the second attempt went out
+            Assert.False((bool)Get(_f.Rig, "_ownKeyRequested")!);
+            Assert.Contains("has not reported receive since our own key's off went out",
+                _f.Rig.RestoreRefusedAtWrite(_f.Vendor.Radio, _f.Vendor.Radio.CurrentCommandConnection!)!);
+            Assert.Empty(MicPutBackNow());
+        }
+
+        [Fact]
+        public void A_teardown_whose_unkey_went_out_confirms_on_a_receive_reported_after_it_and_puts_back()
+        {
+            // The control: no failure, and the radio's READY after our xmit 0.
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            OurKeyWentOutUnderAStaleReceiveReport(() => send.Transmit = true);
+            var later = ReceiveAfterOurOffIsWritten();
+            Assert.True(TeardownUnkeysAndConfirms(3000));
+            Assert.True(later.Join(5000));
+            Assert.Null(_f.Rig.RestoreRefusedAtWrite(_f.Vendor.Radio, _f.Vendor.Radio.CurrentCommandConnection!));
+            Assert.Single(MicPutBackNow());
+        }
+
+        [Fact]
+        public void A_teardown_after_a_key_that_never_went_out_is_not_held_by_it()
+        {
+            // Our ON was revoked in the queue: nothing was transmitted, so the
+            // radio's receive is enough.
+            Interlock("READY", 0);
+            _hold = true;
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            send.Transmit = true;
+            _f.Rig.RevokeAdmittedTransmitWork("a drop (test)");
+            _hold = false;
+            Drained();
+            Assert.Empty(Commands("xmit 1"));
+            Assert.True(_f.Rig.LatestOwnKey!.NeverWent);
+            Interlock("READY", 0);
+            Assert.True(TeardownUnkeysAndConfirms());
+            Assert.Null(_f.Rig.RestoreRefusedAtWrite(_f.Vendor.Radio, _f.Vendor.Radio.CurrentCommandConnection!));
+        }
+
+        [Fact]
+        public void A_teardown_whose_tune_off_cannot_be_written_puts_nothing_back_under_our_tune()
+        {
+            // The sibling carrier family: our transmit tune 1 went out under a
+            // stale tune=0, the teardown's tune off fails every time.
+            OurTuneWentOutUnderAStaleTuneOffReport();
+            _f.Vendor.Transport.FailEveryWriteOf = "transmit tune 0";
+            Assert.False(TeardownUnkeysAndConfirms());
+            Assert.Empty(Commands("transmit tune 0"));
+            Assert.Contains("our own tune went out and its off has not been written",
+                _f.Rig.RestoreRefusedAtWrite(_f.Vendor.Radio, _f.Vendor.Radio.CurrentCommandConnection!)!);
+            Assert.Empty(MicPutBackNow());
+            _f.Vendor.Transport.FailEveryWriteOf = null;
+        }
+
+        [Fact]
+        public void A_teardown_whose_tune_off_went_out_confirms_on_a_receive_reported_after_it()
+        {
+            OurTuneWentOutUnderAStaleTuneOffReport();
+            var later = new Thread(() =>
+            {
+                var until = DateTime.UtcNow.AddSeconds(5);
+                while (DateTime.UtcNow < until && (Commands("transmit tune 0").Length == 0 || (bool)Get(_f.Rig, "_ownTuneRequested")!))
+                    Thread.Sleep(2);
+                Thread.Sleep(20);
+                Interlock("READY", 0);
+            }) { IsBackground = true };
+            later.Start();
+            Assert.True(TeardownUnkeysAndConfirms(3000));
+            Assert.True(later.Join(5000));
+            Assert.Null(_f.Rig.RestoreRefusedAtWrite(_f.Vendor.Radio, _f.Vendor.Radio.CurrentCommandConnection!));
+        }
+
         private static int Count(string text, string what)
         {
             int n = 0, at = 0;

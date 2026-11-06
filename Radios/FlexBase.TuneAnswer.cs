@@ -106,7 +106,7 @@ namespace Radios
                         bool off = false;
                         string refusedAtWrite = WriteOnPinnedTarget(owner, connection, null, () => off = owner.SendTuneOff(),
                             () => ForeignCarrier(owner), unkeyOfOurs: true);
-                        if (refusedAtWrite == null && off) _ownTuneRequested = false;
+                        if (refusedAtWrite == null && off) { _ownTuneRequested = false; NoteOwnTuneOffWritten(); }
                         else
                             JJTrace.Tracing.TraceLine("TuneWrite: the " + what + " off NOT sent at its write - "
                                 + (refusedAtWrite ?? "the transport did not take it"), System.Diagnostics.TraceLevel.Info);
@@ -119,15 +119,29 @@ namespace Radios
                         // Our tune ON goes out when the cache read off; a report may
                         // clear the cache again at once, so the request is what counts.
                         bool wasOn = radio.TXTune;
-                        radio.TXTune = true;
+                        // Whether it really went out (repair round 10, B16): a pin
+                        // with no question of its own, only to read the outcome.
+                        var tuneConnection = radio.CurrentCommandConnection;
+                        bool written;
+                        using (var pin = tuneConnection != null ? Flex.Smoothlake.FlexLib.CommandWritePin.Pin(tuneConnection) : null)
+                        {
+                            radio.TXTune = true;
+                            written = pin != null && pin.Written > 0;
+                        }
                         if (!wasOn) _ownTuneRequested = true;
+                        if (written)
+                        {
+                            var tune = new OwnKey(TransmissionsAsked) { What = "tune" };
+                            tune.NoteOnWritten(tuneConnection);
+                            System.Threading.Volatile.Write(ref _latestOwnTune, tune);
+                        }
                     }
                     // An ordinary OFF, the emergency kill's included
                     // (TransmitKillSwitch.DropCarrier), is forced whenever a tune
                     // may be up, whatever FlexLib's cache reads (round 8, B14).
                     else if (radio.TXTune || _ownTuneRequested)
                     {
-                        if (radio.SendTuneOff()) _ownTuneRequested = false;
+                        if (radio.SendTuneOff()) { _ownTuneRequested = false; NoteOwnTuneOffWritten(); }
                         else radio.TXTune = false;
                     }
                     if (latest) _tuneOnQueued = false;

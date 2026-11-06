@@ -461,7 +461,7 @@ public partial class FlexBase
             bool cwOwed = _cwSentThisConnection;
             if (cwOwed) EnqueueOwnCwClear(radio, why);
             bool mayBeKeyed = _Transmit || radio.Mox || radio.TXTune || _ownKeyRequested || _ownTuneRequested
-                              || !RadioInterlockConfirmsReceive;
+                              || !RadioInterlockConfirmsReceive || OwnCarrierNotEnded(radio.CurrentCommandConnection) != null;
             if (!mayBeKeyed)
             {
                 Tracing.TraceLine("Teardown (" + why + "): nothing transmitting; nothing to unkey before putting back",
@@ -473,21 +473,39 @@ public partial class FlexBase
             }
             Tracing.TraceLine("Teardown (" + why + "): the radio may be transmitting (interlock " + InterlockNow()
                 + "); unkeying this session's own carriers, each checked again as it goes out", TraceLevel.Warning);
+            object connection = radio.CurrentCommandConnection;
             UnkeyOwnCarrier("teardown (" + why + ")");
             EnqueueTuneWrite(false, "teardown tune", null, ownCarrierOnly: true);
             bool drained = DrainCommandQueueAsync(drainBound).GetAwaiter().GetResult();
             if (!drained)
                 Tracing.TraceLine("Teardown (" + why + "): the unkey had not left the command queue after "
                     + (int)drainBound.TotalMilliseconds + " ms", TraceLevel.Warning);
-            bool receive = await(() => RadioInterlockConfirmsReceive, receiveWaitMs);
+            // Our own off did not go out (repair round 10, Codex's #596 B16):
+            // the forced off is tried once more before anything else.
+            if (drained && OwnOffUnwritten(connection))
+            {
+                Tracing.TraceLine("Teardown (" + why + "): our own off was not written; trying it once more",
+                    TraceLevel.Warning);
+                UnkeyOwnCarrier("teardown (" + why + "), second attempt");
+                EnqueueTuneWrite(false, "teardown tune", null, ownCarrierOnly: true);
+                if (!DrainCommandQueueAsync(drainBound).GetAwaiter().GetResult())
+                    Tracing.TraceLine("Teardown (" + why + "): the second unkey had not left the command queue after "
+                        + (int)drainBound.TotalMilliseconds + " ms", TraceLevel.Warning);
+            }
+            // Receive, and our own carrier ended by the question its falling cue
+            // asks: a receive reported after our own off really went out.
+            bool receive = await(() => RadioInterlockConfirmsReceive && OwnCarrierNotEnded(connection) == null, receiveWaitMs);
             if (receive)
             {
                 Tracing.TraceLine("Teardown (" + why + "): the radio reports receive; putting back may go ahead,"
                     + " and each put-back asks again as it writes", TraceLevel.Info);
                 return true;
             }
-            _teardownStillOnAir = "the radio's interlock still reported " + InterlockNow() + " " + receiveWaitMs
-                + " ms into the teardown (a foot switch, VOX or another client may be keying it)";
+            string own = OwnCarrierNotEnded(connection);
+            _teardownStillOnAir = own != null
+                ? own + ", " + receiveWaitMs + " ms into the teardown"
+                : "the radio's interlock still reported " + InterlockNow() + " " + receiveWaitMs
+                    + " ms into the teardown (a foot switch, VOX or another client may be keying it)";
             Tracing.TraceLine("Teardown (" + why + "): " + _teardownStillOnAir
                 + "; nothing in the transmit chain will be put back, so the room microphone cannot be switched onto the air",
                 TraceLevel.Warning);
@@ -542,6 +560,11 @@ public partial class FlexBase
     {
         string onAir = _teardownStillOnAir;
         if (onAir != null) return onAir;
+        // A carrier of our own that has not ended, by the question its falling
+        // cue asks (repair round 10, Codex's #596 B16): a receive report from
+        // before our off was written does not count.
+        string own = OwnCarrierNotEnded(target?.CurrentCommandConnection);
+        if (own != null) return own;
         if (InterlockConfirmsReceiveOn(target)) return null;
         string state;
         try { state = target?.InterlockState.ToString() ?? "no radio"; }
