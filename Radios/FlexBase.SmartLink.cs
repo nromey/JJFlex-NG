@@ -32,6 +32,18 @@ namespace Radios
             public List<string> Warnings { get; } = new List<string>();
             /// <summary>Account the radio would be registered to.</summary>
             public string AccountEmail { get; set; } = string.Empty;
+
+            /// <summary>
+            /// The account this check resolved, which the confirm step names
+            /// and the registration is sent under. Set once, by the preflight
+            /// that made this check, and readable outside this assembly but
+            /// not settable: a later preflight makes a NEW check and cannot
+            /// change this one (repair round 1 of #713).
+            /// </summary>
+            public SmartLinkAccount Account { get; internal set; }
+
+            /// <summary>The radio this check was made for, by serial.</summary>
+            public string RadioSerial { get; internal set; } = string.Empty;
         }
 
         /// <summary>
@@ -146,7 +158,12 @@ namespace Radios
                 return check;
             }
 
-            _registrationAccount = account;
+            // Bound to THIS check, not to the rig: the confirmation names this
+            // account, and only this check carries it to the send. A status
+            // refresh that runs another preflight meanwhile makes another
+            // check and changes nothing here (repair round 1, Codex B1).
+            check.Account = account;
+            check.RadioSerial = theRadio.Serial ?? string.Empty;
             check.AccountEmail = account.Email;
 
             var others = OtherConnectedStations;
@@ -170,12 +187,6 @@ namespace Radios
             check.CanProceed = true;
             return check;
         }
-
-        /// <summary>
-        /// The account the last <see cref="PreflightSmartLinkRegistration"/>
-        /// resolved, which its confirm step named and registration sends under.
-        /// </summary>
-        private SmartLinkAccount _registrationAccount;
 
         /// <summary>
         /// The saved SmartLink account registration on this radio goes
@@ -513,9 +524,12 @@ namespace Radios
         /// text from <see cref="RegistrationStateText"/>. The subscription is dropped
         /// once the handshake reaches any terminal state.
         /// </summary>
+        /// <param name="confirmed">The check the operator confirmed: the
+        /// registration is sent under ITS account, for ITS radio, and refused
+        /// if the connected radio is no longer that radio.</param>
         /// <returns>False if the command could not be sent at all.</returns>
-        public bool BeginSmartLinkRegistration(Action<string, bool> onStateChange)
-            => SendRegistrationCommand(register: true, onStateChange);
+        public bool BeginSmartLinkRegistration(RegistrationCheck confirmed, Action<string, bool> onStateChange)
+            => SendRegistrationCommand(register: true, confirmed, onStateChange);
 
         /// <summary>
         /// Remove this radio's SmartLink registration.
@@ -525,15 +539,38 @@ namespace Radios
         /// it can never be reached over SmartLink again without someone travelling to
         /// it. Callers must warn about this in the strongest terms they have.
         /// </summary>
-        public bool BeginSmartLinkUnregistration(Action<string, bool> onStateChange)
-            => SendRegistrationCommand(register: false, onStateChange);
+        public bool BeginSmartLinkUnregistration(RegistrationCheck confirmed, Action<string, bool> onStateChange)
+            => SendRegistrationCommand(register: false, confirmed, onStateChange);
 
-        private bool SendRegistrationCommand(bool register, Action<string, bool> onStateChange, int attempt = 1)
+        /// <summary>
+        /// The account a confirmed check may be sent under, on the radio now
+        /// connected: the check's own account, or null when the check is not
+        /// a proceedable one or was made for another radio. Never the rig's
+        /// latest preflight, and never the connection's account.
+        /// </summary>
+        internal static SmartLinkAccount AccountConfirmedFor(RegistrationCheck confirmed, string connectedSerial)
         {
-            // The account the preflight resolved and the confirm step named
-            // (#713); the connection's account only if no preflight ran.
-            var account = _registrationAccount ?? _currentAccount;
-            if (theRadio == null || !IsConnected || account == null) return false;
+            if (confirmed == null || !confirmed.CanProceed || confirmed.Account == null) return null;
+            if (string.IsNullOrEmpty(connectedSerial)
+                || !string.Equals(confirmed.RadioSerial, connectedSerial, StringComparison.OrdinalIgnoreCase))
+                return null;
+            return confirmed.Account;
+        }
+
+        private bool SendRegistrationCommand(bool register, RegistrationCheck confirmed, Action<string, bool> onStateChange, int attempt = 1)
+        {
+            if (theRadio == null || !IsConnected) return false;
+            // The account the operator confirmed, carried by the check itself
+            // (#713, repair round 1). Asked again on the retry, so a radio
+            // that changed in between is refused rather than registered.
+            var account = AccountConfirmedFor(confirmed, theRadio.Serial);
+            if (account == null)
+            {
+                Tracing.TraceLine(
+                    $"SendRegistrationCommand: refused, the confirmed check does not cover this radio (check={(confirmed == null ? "none" : confirmed.RadioSerial + " " + confirmed.AccountEmail)}, connected={theRadio.Serial})",
+                    TraceLevel.Warning);
+                return false;
+            }
             // Registration binds the radio to an ACCOUNT and persists in the
             // radio. Both directions — register and unregister — change what
             // the radio keeps, so both sit inside the hold (audit 2.9).
@@ -585,7 +622,7 @@ namespace Radios
                             Thread.Sleep(2000);
                             // Re-entering fetches a fresh JWT — SmartLink id_tokens
                             // live 60 seconds, so the first one may already be dead.
-                            if (!SendRegistrationCommand(register, onStateChange, attempt: 2))
+                            if (!SendRegistrationCommand(register, confirmed, onStateChange, attempt: 2))
                                 onStateChange?.Invoke("The retry could not be sent. See the trace file for details.", true);
                         });
                         return;

@@ -479,7 +479,9 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
-            StartRegistration(register: true);
+            // The check the confirmation named is the one sent (#713): a
+            // status refresh's preflight meanwhile cannot change its account.
+            StartRegistration(register: true, check);
         }
 
         /// <summary>
@@ -519,10 +521,10 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
-            StartRegistration(register: false);
+            StartRegistration(register: false, check);
         }
 
-        private void StartRegistration(bool register)
+        private void StartRegistration(bool register, FlexBase.RegistrationCheck confirmed)
         {
             if (_rig == null) return;
 
@@ -558,7 +560,7 @@ namespace JJFlexWpf.Dialogs
                 }
             });
 
-            if (!(register ? _rig.BeginSmartLinkRegistration(OnState) : _rig.BeginSmartLinkUnregistration(OnState)))
+            if (!(register ? _rig.BeginSmartLinkRegistration(confirmed, OnState) : _rig.BeginSmartLinkUnregistration(confirmed, OnState)))
             {
                 SetupRegisterStatus.Text =
                     Lexicon.Get("settings.radio.register.command_not_sent");

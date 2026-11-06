@@ -78,7 +78,17 @@ namespace Radios
         /// <c>EnsureSessionForAccount</c>, so the list-received latch is only
         /// satisfied by the account actually being waited on.
         /// </summary>
-        private string CurrentSessionKey => _currentAccount?.Email ?? "default-account";
+        private string CurrentSessionKey => _flowAccountKey ?? _currentAccount?.Email ?? "default-account";
+
+        /// <summary>
+        /// The account a connect flow called with an explicit account is
+        /// waiting on, for the duration of that call; null otherwise. The
+        /// registration query asks under the radio's own account (#713), and
+        /// the latch and the capture of the server's answer must follow the
+        /// account asked, not the connection's account (repair round 1).
+        /// Written under <c>_wanIntakeLock</c>, which the intake reads under.
+        /// </summary>
+        private string _flowAccountKey;
 
         /// <summary>
         /// Adapter from the coordinator's attributed list event. Replaces the
@@ -2126,10 +2136,14 @@ namespace Radios
             {
                 { "jwtLength", jwt?.Length ?? 0 }
             });
+            string flowKeyBefore = null;
+            bool scopedFlow = false;
             try
             {
                 if (string.IsNullOrWhiteSpace(accountEmail))
                     accountEmail = _currentAccount?.Email ?? "default-account";
+                else
+                    lock (_wanIntakeLock) { flowKeyBefore = _flowAccountKey; _flowAccountKey = accountEmail; scopedFlow = true; }
                 var session = Radios.SmartLink.SmartLinkServices.Coordinator.EnsureSessionForAccount(accountEmail);
 
                 // Take the intake, so `radios` and `wanListReceived` get
@@ -2336,6 +2350,13 @@ namespace Radios
                 sw.Stop();
                 Tracing.TraceLine($"ConnectToSmartLink: EXCEPTION {ex.GetType().Name}: {ex.Message} (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                 return SmartLinkConnectResult.ConnectFailed;
+            }
+            finally
+            {
+                // A scoped flow's key lasts for the call: after it, the intake
+                // goes back to listening for the connection's own account.
+                if (scopedFlow)
+                    lock (_wanIntakeLock) { _flowAccountKey = flowKeyBefore; }
             }
         }
 

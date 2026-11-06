@@ -353,6 +353,65 @@ namespace Radios.Tests
         }
 
         // ------------------------------------------------------------------
+        // #713: the registration query asks under the radio's own account
+        // ------------------------------------------------------------------
+
+        private static readonly FieldInfo? CurrentAccountField =
+            typeof(FlexBase).GetField("_currentAccount", BindingFlags.NonPublic | BindingFlags.Instance);
+
+        private Radios.SmartLinkRegistrationEvidence.Finding AskWithCurrentAccount(string current, string asked)
+        {
+            _coordinator.GetOrCreateSession(asked);
+            MockWanServer wan;
+            lock (_servers) wan = _servers[asked];
+            var rig = NewRig();
+            Assert.True(CurrentAccountField != null, "FlexBase._currentAccount is not where this test sets it.");
+            CurrentAccountField!.SetValue(rig, new SmartLinkAccount { Email = current, FriendlyName = current });
+
+            // The server answers the registration with the account's list,
+            // explicitly empty: a fresh absence, as for a first registration.
+            var server = Task.Run(() =>
+            {
+                WaitUntil(() => wan.SendRegisterCallCount > 0, "the query never registered on the asked account's session");
+                Thread.Sleep(200);
+                wan.RaiseWanRadioRadioListReceived(Array.Empty<Radio>());
+            });
+            var finding = rig.AskSmartLinkAboutSerial(Radio6300, asked, "test-jwt");
+            server.Wait(15000);
+            return finding;
+        }
+
+        /// <summary>
+        /// Repair round 1, Codex's second #713 blocker. The query opens the
+        /// asked account's session, but the intake's one-shot latch and the
+        /// capture of the server's answer were keyed to the CONNECTION's
+        /// account. So account B's fresh list was not "ours", no live answer
+        /// was captured, and a fresh absence came back Unknown after the full
+        /// list wait.
+        /// </summary>
+        [Fact]
+        public void A_query_under_the_radios_own_account_hears_that_accounts_answer()
+        {
+            var sw = Stopwatch.StartNew();
+            var finding = AskWithCurrentAccount(current: Operator, asked: Owner);
+            sw.Stop();
+
+            Assert.True(finding.FromALiveServerAnswer,
+                "The asked account's own list was not taken as the server's answer, because the reply was filtered by the connection's account.");
+            Assert.Equal(FlexBase.SmartLinkRegistrationQuery.NotInAccountList, finding.Verdict);
+            Assert.True(sw.ElapsedMilliseconds < 8000, $"The query took {sw.ElapsedMilliseconds} ms: it sat out the list wait.");
+        }
+
+        /// <summary>The control: the same push under the matching account was always heard.</summary>
+        [Fact]
+        public void A_query_under_the_connections_own_account_hears_its_answer()
+        {
+            var finding = AskWithCurrentAccount(current: Owner, asked: Owner);
+            Assert.True(finding.FromALiveServerAnswer);
+            Assert.Equal(FlexBase.SmartLinkRegistrationQuery.NotInAccountList, finding.Verdict);
+        }
+
+        // ------------------------------------------------------------------
         // #613: the ten-second wait with nothing to wait for
         // ------------------------------------------------------------------
 

@@ -97,6 +97,69 @@ namespace Radios.Tests
             Assert.Same(A, _rig.ResolveRegistrationAccount(serial, Saved));
         }
 
+        private static readonly FieldInfo TheRadio =
+            typeof(FlexBase).GetField("theRadio", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        private static readonly FieldInfo IsConnectedField =
+            typeof(FlexBase).GetField("_IsConnected", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+        /// <summary>A rig on a local radio, as Radio Setup sees it when Register is pressed. No transport leaves the process.</summary>
+        private Radios.Tests.StationConnect.VendorRadioFixture OnALocalRadio(string serial)
+        {
+            Assert.True(TheRadio != null && IsConnectedField != null, "FlexBase's radio fields are not where this test sets them.");
+            var vendor = new Radios.Tests.StationConnect.VendorRadioFixture(serial);
+            TheRadio.SetValue(_rig, vendor.Radio);
+            IsConnectedField.SetValue(_rig, true);
+            return vendor;
+        }
+
+        /// <summary>
+        /// Repair round 1, Codex's first #713 blocker. The confirmation names
+        /// the account from ONE preflight; a status refresh runs another
+        /// preflight while the confirmation is open (Radio Setup's
+        /// RefreshSetupStatuses does), and its answer must not become the
+        /// account the registration is sent under.
+        /// </summary>
+        [Fact]
+        public void A_status_refresh_after_the_confirmation_cannot_change_the_account_it_is_sent_under()
+        {
+            string serial = NewSerial();
+            OnALocalRadio(serial);
+
+            var confirmed = _rig.PreflightSmartLinkRegistration();      // what the confirm step names
+            Assert.True(confirmed.CanProceed, confirmed.BlockReason);
+            Assert.Equal(Default, confirmed.AccountEmail);
+
+            CurrentAccount.SetValue(_rig, B);                          // the resolution changes meanwhile
+            var refreshed = _rig.PreflightSmartLinkRegistration();      // the status refresh
+            Assert.Equal(Owner, refreshed.AccountEmail);
+
+            // What the send uses is the CONFIRMED check's account, on this
+            // radio. Red at eab81fbd, where the send read a rig-wide field the
+            // refresh had just overwritten with the owner's account.
+            var sentUnder = FlexBase.AccountConfirmedFor(confirmed, serial);
+            Assert.Same(A, sentUnder);
+            Assert.Same(A, confirmed.Account);
+            Assert.Same(B, FlexBase.AccountConfirmedFor(refreshed, serial));
+        }
+
+        /// <summary>
+        /// The retry, and any send, asks the check again against the radio now
+        /// connected: a check made for another radio is refused, never sent.
+        /// </summary>
+        [Fact]
+        public void A_confirmed_check_is_refused_on_any_other_radio()
+        {
+            string serial = NewSerial();
+            OnALocalRadio(serial);
+            var confirmed = _rig.PreflightSmartLinkRegistration();
+            Assert.Same(A, FlexBase.AccountConfirmedFor(confirmed, serial));
+
+            Assert.Null(FlexBase.AccountConfirmedFor(confirmed, NewSerial()));
+            Assert.Null(FlexBase.AccountConfirmedFor(confirmed, ""));
+            Assert.Null(FlexBase.AccountConfirmedFor(null!, serial));
+            Assert.Null(FlexBase.AccountConfirmedFor(new FlexBase.RegistrationCheck { CanProceed = false }, serial));
+        }
+
         /// <summary>
         /// The wiring: both registration doors ask the resolver, neither asks
         /// the saved default directly, and the account the preflight resolved
@@ -113,13 +176,31 @@ namespace Radios.Tests
             Assert.Contains("ResolveRegistrationAccount(theRadio.Serial)", preflight, StringComparison.Ordinal);
             Assert.DoesNotContain("TryLoadSavedAccount()", preflight, StringComparison.Ordinal);
             Assert.Contains("check.AccountEmail = account.Email;", preflight, StringComparison.Ordinal);
-            Assert.Contains("_registrationAccount = account;", preflight, StringComparison.Ordinal);
+            Assert.Contains("check.Account = account;", preflight, StringComparison.Ordinal);
+            Assert.DoesNotContain("_registrationAccount", src, StringComparison.Ordinal);
 
             Assert.Contains("ResolveRegistrationAccount(serial)", query, StringComparison.Ordinal);
             Assert.DoesNotContain("TryLoadSavedAccount()", query, StringComparison.Ordinal);
 
-            Assert.Contains("_registrationAccount ?? _currentAccount", send, StringComparison.Ordinal);
+            Assert.Contains("AccountConfirmedFor(confirmed, theRadio.Serial)", send, StringComparison.Ordinal);
             Assert.Contains("GetJwtFromSavedAccount(account)", send, StringComparison.Ordinal);
+            Assert.Contains("SendRegistrationCommand(register, confirmed, onStateChange, attempt: 2)", send, StringComparison.Ordinal);
+            Assert.DoesNotContain("_currentAccount", send, StringComparison.Ordinal);
+
+            // And Radio Setup sends the check its confirmation named.
+            string setup = System.IO.File.ReadAllText(System.IO.Path.Combine(RepoRoot(), "JJFlexWpf", "Dialogs", "SettingsDialog.RadioSetup.cs"));
+            Assert.Contains("StartRegistration(register: true, check);", setup, StringComparison.Ordinal);
+            Assert.Contains("StartRegistration(register: false, check);", setup, StringComparison.Ordinal);
+            Assert.Contains("_rig.BeginSmartLinkRegistration(confirmed, OnState)", setup, StringComparison.Ordinal);
+        }
+
+        private static string RepoRoot()
+        {
+            var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln")))
+                dir = dir.Parent;
+            Assert.True(dir != null, "Could not find the repository root above " + AppContext.BaseDirectory);
+            return dir!.FullName;
         }
 
         private static string Body(string text, string signature)
