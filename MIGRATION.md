@@ -302,6 +302,52 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     and the behaviour test beside it. (Numbered 23 at the merge of 2026-11-06: items 21 and 22 were
     added on the batch branch the same week.)
 
+25. **Command write order (2026-11-06, the 2026-11-02 junk box batch; Codex's
+    #596 B4)**: keep the comment-marked JJFlex patches ("write order (MIGRATION.md
+    item 25)") in `FlexLib_API/FlexLib/CommandConnection.cs` (`CommandWritePin.AtTheBytes`
+    and the `atTheBytes` parameter of `CommandWritePin.Pin`; in
+    `CommandCommunicationBase`, the `_writeGate` semaphore with `EnterWriteGate`,
+    `EnterWriteGateAsync`, `ExitWriteGate`, `AdmitAtTheBytes` and `ReportRefusal`), in
+    `TcpCommandCommunication.Write` and `.WriteAsync`, and in
+    `TlsCommandCommunication.Write`. (Numbered 25 because the other junk box batch
+    holds 24.)
+    - **What it is.** One write at a time per adapter. Each `Write`/`WriteAsync`,
+      after item 21's `AdmitWrite` (whose question waits for the dispatch gate,
+      outside this one), takes the write gate, asks the pin's `AtTheBytes`
+      question, hands its one line to the writer, and lets the gate go; the pin is
+      told the refusal or the outcome after that. Every write takes it, pinned or
+      not, the emergency kill's OFF included (a `StreamWriter` is not safe for two
+      writers anyway).
+    - **What holds it, and for how long.** One write: its in-memory `AtTheBytes`
+      question and the hand-off of one line to the stream (AutoFlush, so the
+      socket send, which returns once the kernel has buffered it). Never the
+      dispatch gate's wait, and nothing else is taken under it. Another write, the
+      kill among them, therefore waits for at most one line's hand-off; only a
+      stalled link makes that long, and then nothing can go out on that connection
+      anyway. Callers' setters only queue and never take it.
+    - **Why.** Two LOCAL writes overtook each other: an immediate VOX or CW
+      break-in restore was admitted, then preempted before its writer; the
+      operator's OFF was queued and written by the command loop meanwhile; then the
+      restore's ON went out. Wire OFF, OFF, ON, cache OFF, nothing owed. Not the
+      accepted interval of a radio change not yet received: no report is involved.
+      The operator's choice is recorded before his write is queued, and his write
+      waits for this gate, so a restore either writes first (and his OFF follows
+      it) or sees his choice at the bytes and refuses.
+    - **The app's callers:** `FlexBase.StepOnPinnedTarget`'s `atTheBytes`, passed by
+      the VOX owner's restore (`VoxPauseOwner`'s operator question) and by both mic
+      put-backs (`PutBackNow`, `WriteSwitchBackPutBack`'s raw send). Restores made ON
+      the command loop are already ordered with the operator's queued writes by the
+      loop itself.
+    - **Pinned by** `TransportWriteOrderTests` (Codex's schedule on the real TCP
+      adapter, its opposite-order control, the at-the-bytes refusal, and
+      `The_write_gate_is_still_patched_into_the_vendor_transport`, which also pins
+      this entry).
+    - **Re-apply after an upgrade.** Merge, never blind-copy. Each adapter's write
+      must take the gate after `AdmitWrite` and before its writer, ask
+      `AdmitAtTheBytes` under it, and report to the pin only after releasing it.
+    - **When it could be removed.** If FlexLib serializes its own command writes
+      and offers a conditional write asked at the moment of writing.
+
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 
 FlexLib is not the only vendor code in this repo, and a patch in one of the

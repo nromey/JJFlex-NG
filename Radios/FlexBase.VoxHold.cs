@@ -135,10 +135,15 @@ namespace Radios
                             // reader's dispatch gate (Codex's B9/B10 family).
                             // Integration fix 3 (Codex's #596 B3): and asked there
                             // first whether the operator has chosen since it was owed.
+                            // Integration fix 4 (Codex's #596 B4): and asked once more
+                            // under the transport's write gate, at the bytes, so an
+                            // operator OFF the command loop writes meanwhile cannot be
+                            // overtaken by this ON (MIGRATION.md item 25).
                             (on, step, operatorOverruled) => StepOnPinnedTarget(radio, connection, step,
                                 on && radio != null
                                     ? () => operatorOverruled?.Invoke() ?? RestoreRefusedAtWrite(radio, (object?)connection ?? NoConnection)
-                                    : null));
+                                    : null,
+                                atTheBytes: on ? operatorOverruled : null));
                         OperatorChangedRadioSetting -= NoteVoxPauseOperatorChange;
                         OperatorChangedRadioSetting += NoteVoxPauseOperatorChange;
                         WatchVoxRetry(_voxPauses, connection as CommandConnection);

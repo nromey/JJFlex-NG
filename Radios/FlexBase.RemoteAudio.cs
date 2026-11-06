@@ -2236,6 +2236,18 @@ namespace Radios
                     string v = MicDebtVoid(radio, swap);
                     if (v != null) { voided = v; return v; }
                     return RestoreRefusedAtWrite(radio, swap.Connection);
+                },
+                // And once more AT THE BYTES, under the transport's write gate
+                // (integration fix 4, Codex's #596 B4; MIGRATION.md item 25): an
+                // operator's mic choice the command loop writes meanwhile changes
+                // FlexLib's cache before its own write, and that write waits for
+                // this gate, so it is never overtaken by this older value.
+                atTheBytes: () =>
+                {
+                    if (Interlocked.Read(ref _remoteAudioRun) != run) return "a newer remote-audio run has begun since it was decided";
+                    string v = MicDebtVoid(radio, swap);
+                    if (v != null) voided = v;
+                    return v;
                 });
 
                 if (voided != null)
@@ -2529,6 +2541,16 @@ namespace Radios
                             return "the radio has reported another mic input since the check";
                         }
                         return RestoreRefusedAtWrite(radio, pin.Connection);
+                    },
+                    // At the bytes too, under the write gate (integration fix 4,
+                    // Codex's #596 B4; MIGRATION.md item 25).
+                    atTheBytes: () =>
+                    {
+                        if (Interlocked.Read(ref _remoteAudioRun) != pin.Run)
+                            return "a newer remote-audio run has begun since it was queued";
+                        if (!NewerMicChoice(radio.MicInput, swap) && !swap.ChoiceReportedSince) return null;
+                        rawNewer = true;
+                        return "the mic input has changed since the check";
                     });
                     if (rawNewer)
                     {

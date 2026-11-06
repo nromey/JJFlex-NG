@@ -817,8 +817,10 @@ namespace Radios.Tests
             string ssl = System.IO.File.ReadAllText(Repo("FlexLib_API/FlexLib/SslClientTls12.cs"));
             Assert.Contains("protected static void ReportWrite(CommandWritePin? pin, bool ok, string? why = null)", connection);
             Assert.Contains("internal void Admit() => Admitted++;", connection);
-            Assert.Equal(2, Count(tcp, "ReportWrite(pin, true);"));
-            Assert.Contains("bool ok = session.Client.TryWrite(msg, out string? failure);", tls);
+            // Reported after the writer AND after item 25's write gate is let go.
+            Assert.Equal(2, Count(tcp, "ReportWrite(pin, wrote, failed);"));
+            Assert.Contains("else ok = session.Client.TryWrite(msg, out failure);", tls);
+            Assert.Contains("ReportWrite(pin, ok, failure);", tls);
             Assert.Contains("public bool TryWrite(string message, out string? failure)", ssl);
             Assert.Contains("using var own = pin == null && current != null ? CommandWritePin.Pin(current) : null;", radio);
             Assert.Contains("A write counts only when its writer returned", System.IO.File.ReadAllText(Repo("MIGRATION.md")));

@@ -91,13 +91,22 @@ public class TlsCommandCommunication : CommandCommunicationBase
         // JJFlex patch: write-time gate (MIGRATION.md item 21), against the session written.
         var pin = CommandWritePin.Current;
         if (!AdmitWrite(session?.Connection)) return;
-        // JJFlex patch: the write's outcome, after the writer (MIGRATION.md item 22).
-        if (session?.Connection.State != CommandConnectionState.Connected)
+        // JJFlex patch: write order (MIGRATION.md item 25). The question at the
+        // bytes and the writer as one step against every other write on this
+        // adapter; the outcome is reported after the gate is let go.
+        string? refused = null, failure = null;
+        bool ok = false;
+        EnterWriteGate();
+        try
         {
-            ReportWrite(pin, false, "the command connection is not connected");
-            return;
+            if (!AdmitAtTheBytes(pin, out refused)) { /* refused at the bytes: told after the gate */ }
+            // JJFlex patch: the write's outcome, after the writer (MIGRATION.md item 22).
+            else if (session?.Connection.State != CommandConnectionState.Connected)
+                failure = "the command connection is not connected";
+            else ok = session.Client.TryWrite(msg, out failure);
         }
-        bool ok = session.Client.TryWrite(msg, out string? failure);
+        finally { ExitWriteGate(); }
+        if (refused != null) { ReportRefusal(pin, refused); return; }
         ReportWrite(pin, ok, failure);
     }
 }

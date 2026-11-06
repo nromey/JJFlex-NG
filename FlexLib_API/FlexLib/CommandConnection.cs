@@ -70,12 +70,14 @@ public sealed class CommandWritePin : IDisposable
     /// <summary>How long a predicate waits for the dispatch gate before the write fails closed.</summary>
     public static TimeSpan SerializeBound { get; set; } = TimeSpan.FromMilliseconds(100);
 
-    private CommandWritePin(CommandConnection connection, Func<string?>? predicate, Action<string>? onRefused, bool sendWhenUnconfirmed)
+    private CommandWritePin(CommandConnection connection, Func<string?>? predicate, Action<string>? onRefused, bool sendWhenUnconfirmed,
+        Func<string?>? atTheBytes)
     {
         Connection = connection;
         Predicate = predicate;
         OnRefused = onRefused;
         SendWhenUnconfirmed = sendWhenUnconfirmed;
+        AtTheBytes = atTheBytes;
         _outer = _current;
         _current = this;
     }
@@ -87,9 +89,15 @@ public sealed class CommandWritePin : IDisposable
     /// dispatch gate cannot be had in time, or the predicate throws, the write still goes,
     /// after the predicate is asked without the gate. Only the predicate's positive answer,
     /// or a connection that is not the pinned one, refuses it. Never refused by contention.</param>
+    /// <param name="atTheBytes">JJFlex patch: write order (MIGRATION.md item 25). Asked
+    /// under the adapter's write gate, after admission and immediately before the
+    /// writer, with no other lock: null to write, else why not. For a restore's
+    /// "has the operator chosen since" question, whose answer a local write by the
+    /// command loop can change. It must only read memory: no I/O, no locks.</param>
     public static CommandWritePin Pin(CommandConnection connection, Func<string?>? predicate = null, Action<string>? onRefused = null,
-        bool sendWhenUnconfirmed = false) =>
-        new CommandWritePin(connection ?? throw new ArgumentNullException(nameof(connection)), predicate, onRefused, sendWhenUnconfirmed);
+        bool sendWhenUnconfirmed = false, Func<string?>? atTheBytes = null) =>
+        new CommandWritePin(connection ?? throw new ArgumentNullException(nameof(connection)), predicate, onRefused, sendWhenUnconfirmed,
+            atTheBytes);
 
     internal static CommandWritePin? Current => _current;
     public CommandConnection Connection { get; }
@@ -98,6 +106,9 @@ public sealed class CommandWritePin : IDisposable
 
     /// <summary>An unkey: contention or an unanswerable predicate never refuses it.</summary>
     public bool SendWhenUnconfirmed { get; }
+
+    /// <summary>JJFlex patch: write order (MIGRATION.md item 25). The question asked at the bytes, under the write gate; null for none.</summary>
+    public Func<string?>? AtTheBytes { get; }
 
     /// <summary>The first refusal of a write under this pin, or null.</summary>
     public string? Refusal { get; private set; }
@@ -153,6 +164,57 @@ public sealed class CommandWritePin : IDisposable
 public abstract class CommandCommunicationBase : ICommandCommunication
 {
     public object ConnectionSync { get; } = new object();
+
+    // JJFlex patch: write order (MIGRATION.md item 25). One write at a time per
+    // adapter, from its question at the bytes to the writer returning, so two LOCAL
+    // writes cannot overtake each other between a decision and its bytes (Codex's
+    // #596 B4 of the 2026-11-02 junk box: a VOX restore admitted, preempted before
+    // its writer, an operator OFF written by the command loop meanwhile, then the
+    // restore's ON). Every write takes it, pinned or not, the emergency kill's OFF
+    // included: a StreamWriter is not safe for two writers anyway.
+    //
+    // WHAT HOLDS IT, AND FOR HOW LONG: one Write or WriteAsync, for (a) its pin's
+    // AtTheBytes question, which only reads memory, and (b) handing one command
+    // line to the stream (AutoFlush: the socket send, which returns once the
+    // kernel has buffered the line). Never the dispatch gate's wait: AdmitWrite's
+    // question under ConnectionSync, bounded by SerializeBound, is asked BEFORE
+    // this gate is taken, and nothing is taken while it is held. So another write,
+    // the kill among them, waits at most for one line's hand-off. Only a stalled
+    // link (the kernel's send buffer full) makes that long, and then no write can
+    // go out on that connection anyway. The refusal and delivery callbacks run
+    // after it is released.
+    private readonly System.Threading.SemaphoreSlim _writeGate = new System.Threading.SemaphoreSlim(1, 1);
+
+    /// <summary>JJFlex patch: write order (MIGRATION.md item 25). Take the write gate.</summary>
+    protected void EnterWriteGate() => _writeGate.Wait();
+
+    /// <summary>JJFlex patch: write order (MIGRATION.md item 25). Take the write gate without blocking a thread.</summary>
+    protected System.Threading.Tasks.Task EnterWriteGateAsync() => _writeGate.WaitAsync();
+
+    /// <summary>JJFlex patch: write order (MIGRATION.md item 25). Let the write gate go.</summary>
+    protected void ExitWriteGate() => _writeGate.Release();
+
+    /// <summary>
+    /// JJFlex patch: write order (MIGRATION.md item 25). Called UNDER the write
+    /// gate, immediately before the writer: the pin's question at the bytes. True
+    /// to write. Refused, nothing is written; the caller reports the refusal to
+    /// the pin after releasing the gate (<see cref="ReportRefusal"/>) with
+    /// <paramref name="why"/>. A question that throws refuses (fails closed),
+    /// except for an unkey of the caller's own carrier, which no unanswerable
+    /// question may stop.
+    /// </summary>
+    protected static bool AdmitAtTheBytes(CommandWritePin? pin, out string? why)
+    {
+        why = null;
+        var question = pin?.AtTheBytes;
+        if (question == null) return true;
+        try { why = question(); }
+        catch (Exception ex) { why = pin!.SendWhenUnconfirmed ? null : "the write's own check at the bytes failed (" + ex.Message + ")"; }
+        return why == null;
+    }
+
+    /// <summary>JJFlex patch: write order (MIGRATION.md item 25). A refusal at the bytes, told to the pin outside the write gate.</summary>
+    protected static void ReportRefusal(CommandWritePin? pin, string why) => pin?.Refuse(why);
     public CommandConnection? CurrentConnection { get; private set; }
     public bool IsConnected => CurrentConnection?.State == CommandConnectionState.Connected;
     public abstract System.Net.IPAddress? LocalIp { get; set; }

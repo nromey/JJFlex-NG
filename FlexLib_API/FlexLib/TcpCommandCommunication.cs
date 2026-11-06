@@ -138,19 +138,33 @@ public class TcpCommandCommunication : CommandCommunicationBase
         var pin = CommandWritePin.Current;
         if (!AdmitWrite(attempt?.Connection)) return;
         var writer = attempt?.Writer;
-        // JJFlex patch: the write's outcome, after the writer (MIGRATION.md item 22).
-        if (attempt?.Connection.State != CommandConnectionState.Connected || writer == null)
+        // JJFlex patch: write order (MIGRATION.md item 25). The question at the
+        // bytes and the writer are one step against every other write on this
+        // adapter; the outcome is reported after the gate is let go.
+        string? refused = null, failed = null;
+        bool wrote = false, threw = false;
+        EnterWriteGate();
+        try
         {
-            ReportWrite(pin, false, "the command connection had no writer");
-            return;
+            if (!AdmitAtTheBytes(pin, out refused)) { /* refused at the bytes: told after the gate */ }
+            // JJFlex patch: the write's outcome, after the writer (MIGRATION.md item 22).
+            else if (attempt?.Connection.State != CommandConnectionState.Connected || writer == null)
+                failed = "the command connection had no writer";
+            else
+            {
+                try { writer.Write(msg); wrote = true; }
+                catch (Exception ex)
+                {
+                    failed = "the write failed: " + ex.Message;
+                    threw = true;
+                    Debug.WriteLine($"Error writing to radio TCP: {ex}");
+                }
+            }
         }
-        try { writer.Write(msg); ReportWrite(pin, true); }
-        catch (Exception ex)
-        {
-            ReportWrite(pin, false, "the write failed: " + ex.Message);
-            Debug.WriteLine($"Error writing to radio TCP: {ex}");
-            _ = Task.Run(() => FinishAttempt(attempt));
-        }
+        finally { ExitWriteGate(); }
+        if (refused != null) { ReportRefusal(pin, refused); return; }
+        ReportWrite(pin, wrote, failed);
+        if (threw) _ = Task.Run(() => FinishAttempt(attempt!));
     }
 
     public async Task WriteAsync(string msg)
@@ -160,19 +174,31 @@ public class TcpCommandCommunication : CommandCommunicationBase
         var pin = CommandWritePin.Current;
         if (!AdmitWrite(attempt?.Connection)) return;
         var writer = attempt?.Writer;
-        // JJFlex patch: the write's outcome, after the writer, on the pin captured above (item 22).
-        if (attempt?.Connection.State != CommandConnectionState.Connected || writer == null)
+        // JJFlex patch: write order (MIGRATION.md item 25), as Write, on the pin captured above.
+        string? refused = null, failed = null;
+        bool wrote = false, threw = false;
+        await EnterWriteGateAsync().ConfigureAwait(false);
+        try
         {
-            ReportWrite(pin, false, "the command connection had no writer");
-            return;
+            if (!AdmitAtTheBytes(pin, out refused)) { /* refused at the bytes: told after the gate */ }
+            // JJFlex patch: the write's outcome, after the writer, on the pin captured above (item 22).
+            else if (attempt?.Connection.State != CommandConnectionState.Connected || writer == null)
+                failed = "the command connection had no writer";
+            else
+            {
+                try { await writer.WriteAsync(msg).ConfigureAwait(false); wrote = true; }
+                catch (Exception ex)
+                {
+                    failed = "the write failed: " + ex.Message;
+                    threw = true;
+                    Debug.WriteLine($"Error writing to radio TCP: {ex}");
+                }
+            }
         }
-        try { await writer.WriteAsync(msg).ConfigureAwait(false); ReportWrite(pin, true); }
-        catch (Exception ex)
-        {
-            ReportWrite(pin, false, "the write failed: " + ex.Message);
-            Debug.WriteLine($"Error writing to radio TCP: {ex}");
-            _ = Task.Run(() => FinishAttempt(attempt));
-        }
+        finally { ExitWriteGate(); }
+        if (refused != null) { ReportRefusal(pin, refused); return; }
+        ReportWrite(pin, wrote, failed);
+        if (threw) _ = Task.Run(() => FinishAttempt(attempt!));
     }
 
     public delegate void IsConnectedChangedEventHandler(bool connected);

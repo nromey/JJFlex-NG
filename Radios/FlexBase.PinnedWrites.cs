@@ -124,12 +124,20 @@ public partial class FlexBase
     /// </summary>
     /// <param name="onRefused">Told, on the writing thread, the moment the
     /// transport refuses a write (a queued item marks itself withheld).</param>
+    /// <param name="atTheBytes">Asked again under the transport's write gate,
+    /// immediately before the bytes, with no other lock (MIGRATION.md item 25,
+    /// Codex's #596 B4): a restore's "has the operator chosen since" question.
+    /// An operator's choice is recorded before its own write is queued, and that
+    /// write waits for this gate, so either the restore's bytes go first and the
+    /// operator's follow them, or the restore sees the choice here and refuses.
+    /// It must only read memory. Null for none.</param>
     internal string? StepOnPinnedTarget(Radio? radio, object? connection, Func<string?> step,
-        Func<string?>? atTheWrite = null, Action<string>? onRefused = null, bool unkeyOfOurs = false)
+        Func<string?>? atTheWrite = null, Action<string>? onRefused = null, bool unkeyOfOurs = false,
+        Func<string?>? atTheBytes = null)
     {
         string? notTarget = PinnedTargetRefused(radio, connection);
         if (notTarget != null) return notTarget;
-        using var pin = CommandWritePin.Pin((CommandConnection)connection!, atTheWrite, onRefused, unkeyOfOurs);
+        using var pin = CommandWritePin.Pin((CommandConnection)connection!, atTheWrite, onRefused, unkeyOfOurs, atTheBytes);
         var outer = t_stepPin;
         t_stepPin = pin;
         try
