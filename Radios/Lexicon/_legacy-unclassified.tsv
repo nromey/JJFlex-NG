@@ -593,7 +593,6 @@ audio.filter.calculator.computed_low	a3066278a1801b5f
 audio.filter.calculator.need_one_more	f7b063e7c2cceb7f
 audio.filter.high_edge	56f2c0a052bddee1
 audio.filter.low_edge	1a0d7900d2e8c56d
-audio.filter.preset_selected	8458c7ca48ce6d78
 audio.filter.presets.edges_must_be_whole	c4c1fa376de3c7f3
 audio.filter.presets.entry_title	badd643879dc0bd7
 audio.filter.presets.high_above_low	231f4a0d6bb3e67a
@@ -2292,13 +2291,11 @@ settings.dummy_load.on	1dd80cff629228ab
 settings.esc.available_reopen	8881d49819110ae5
 settings.field_panel.hidden	44c1946ade0a378e
 settings.field_panel.shown	a272f3a07c1e8fa9
-settings.filter.active_preset_status	e563119d75b19a9d
 settings.filter.at_limit	1fc56c4b3e59a873
 settings.filter.at_minimum	1443787ccacaf3d6
 settings.filter.edge_status_lower	e5df69391d93f371
 settings.filter.edge_status_upper	6addcd160dda5229
 settings.filter.no_presets	5b213f9ca6627b08
-settings.filter.preset_announce	9650d26942810a1c
 settings.filter.preset_narrowest	0ec62892a5c8503f
 settings.filter.preset_widest	fc0aa159b8d3325d
 settings.filter.range	bcd214dfaf007046

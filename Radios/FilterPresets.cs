@@ -31,11 +31,43 @@ public class FilterPreset
     }
 
     /// <summary>
-    /// Format preset for speech: "2.4 k SSB" at Terse, "2400 hertz SSB" at
-    /// Chatty, "250 hertz CW" at either — the shared width formatter (#747).
+    /// What every route that announces this preset says: its name once, then
+    /// the filter it sets for <paramref name="mode"/>, in the readout form
+    /// (#747; Noel, 2026-11-06, J15: "every Chatty filter readout"). At
+    /// Chatty "Wide, filter 100 to 2800, width 2700 hertz"; at Terse "Wide,
+    /// 2.7 k". DRAFT. The edges are the ones the preset puts on the radio,
+    /// mirrored for a lower-sideband mode as <see cref="FilterPresets.MirrorForMode"/>
+    /// does.
     /// </summary>
-    public string FormatForSpeech()
-        => $"{HertzSpeech.Width(Width, HertzUnitStyle.KiloLetter)} {Name}".Trim();
+    /// <remarks>
+    /// Until round four of the 2026-11-06 junk box each route wrapped a
+    /// fragment that already carried the name, so the name was said twice
+    /// and no edges were said at all: "Wide, 2700 hertz Wide" (Codex's
+    /// re-verify, F1). Alt with a bracket, the Filter menu's preset items
+    /// and the active-preset status all say this now.
+    /// </remarks>
+    public string Announcement(string mode)
+        => Announcement(mode, ScreenReaderOutput.CurrentVerbosity);
+
+    /// <summary>The announcement at the given verbosity; see <see cref="Announcement(string)"/>.</summary>
+    public string Announcement(string mode, VerbosityLevel level)
+    {
+        var (low, high) = FilterPresets.MirrorForMode(mode ?? "USB", Low, High);
+        return Lexicon.Get("settings.filter.preset_said", level, ("name", Name), ("low", low), ("high", high),
+            ("width", HertzSpeech.ReadoutWidth(high - low, HertzUnitStyle.KiloLetter, level)));
+    }
+
+    /// <summary>
+    /// The active preset as Speak Status and the Status window give it:
+    /// "preset Wide, filter 100 to 2800, width 2700 hertz" at Chatty,
+    /// "preset Wide, 2.7 k" at Terse. DRAFT.
+    /// </summary>
+    public string StatusSentence(string mode)
+        => StatusSentence(mode, ScreenReaderOutput.CurrentVerbosity);
+
+    /// <summary>The status sentence at the given verbosity; see <see cref="StatusSentence(string)"/>.</summary>
+    public string StatusSentence(string mode, VerbosityLevel level)
+        => Lexicon.Get("settings.filter.active_preset_status", ("description", Announcement(mode, level)));
 
     /// <summary>
     /// The same words for text on a menu or a list, which is not on the

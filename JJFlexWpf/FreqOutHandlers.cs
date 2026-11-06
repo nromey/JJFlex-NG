@@ -3401,10 +3401,9 @@ public class FreqOutHandlers
         {
             var (mirroredLow, mirroredHigh) = FilterPresets.MirrorForMode(mode, preset.Low, preset.High);
             Rig.SetFilter(mirroredLow, mirroredHigh);
-            Radios.ScreenReaderOutput.Speak(
-                Lexicon.Get("settings.filter.preset_announce",
-                    ("name", preset.Name), ("description", preset.FormatForSpeech())),
-                VerbosityLevel.Terse, true);
+            // The preset's one announcement: its name once, then the filter
+            // it set (#747 round four, J15).
+            Radios.ScreenReaderOutput.Speak(preset.Announcement(mode), VerbosityLevel.Terse, true);
         }
         e.Handled = true;
     }
@@ -3543,8 +3542,7 @@ public class FreqOutHandlers
             int idx = FilterPresets.FindActivePreset(mode, Rig.FilterLow, Rig.FilterHigh);
             if (idx < 0) return null;
             var presets = FilterPresets.GetPresetsForMode(mode);
-            return Lexicon.Get("settings.filter.active_preset_status",
-                ("description", presets[idx].FormatForSpeech()));
+            return presets[idx].StatusSentence(mode);
         }
     }
 

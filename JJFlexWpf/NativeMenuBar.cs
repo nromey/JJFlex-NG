@@ -1111,8 +1111,8 @@ public class NativeMenuBar : IDisposable
                     string currentMode = Rig.Mode ?? "USB";
                     var (mLow, mHigh) = FilterPresets.MirrorForMode(currentMode, preset.Low, preset.High);
                     Rig.SetFilter(mLow, mHigh);
-                    SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.preset_selected",
-                        ("preset", preset.Name), ("width", preset.FormatForSpeech())));
+                    // The preset's one announcement, as Alt with a bracket says it (#747 round four).
+                    SpeakAfterMenuClose(preset.Announcement(currentMode));
                 });
             }
         }

@@ -120,7 +120,8 @@ namespace Radios.Tests
             // Chatty form that says more (Noel's ruling J2). DRAFT prose.
             // Thirty-two: the filter layer's width readouts, Terse and Chatty
             // (#747, J13). DRAFT prose.
-            Assert.Equal(32, ladders);
+            // Thirty-three: the preset announcement (#747 round four).
+            Assert.Equal(33, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -2206,6 +2207,11 @@ namespace Radios.Tests
                 // dial is refused, never dialled through another account.
                 // DRAFT prose.
                 "connect.failure.smartlink_planned_account_dropped",
+                // Round four (#747, J15's scope): every filter preset
+                // announcement says the name once, then the filter readout.
+                // DRAFT prose.
+                "settings.filter.preset_said",
+                "settings.filter.active_preset_status",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
@@ -2220,7 +2226,9 @@ namespace Radios.Tests
             // width readouts (#747, J13).
             // 3082 since its round two removed the edge-mode timeout's
             // "Filter edge mode ended" (#748; every exit says off).
-            Assert.Equal(3082, unclassified);
+            // 3079 since round four replaced the preset announcement's two
+            // wrappers and reworded the active-preset status (#747).
+            Assert.Equal(3079, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

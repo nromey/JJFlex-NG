@@ -350,7 +350,6 @@
   "audio.filter.calculator.need_one_more": "Enter one more value to compute.",
   "audio.filter.high_edge": "High edge {high}",
   "audio.filter.low_edge": "Low edge {low}",
-  "audio.filter.preset_selected": "{preset}, {width}",
   "audio.filter.presets.edges_must_be_whole": "Low and High must be whole numbers, in hertz.",
   "audio.filter.presets.entry_title": "Filter Preset",
   "audio.filter.presets.high_above_low": "The High edge must be above the Low edge.",
