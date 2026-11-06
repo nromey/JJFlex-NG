@@ -161,4 +161,41 @@ public sealed class AudioSampleKeyDownTests : IDisposable
         Assert.Equal(3000L, FlexBase.OwnAudioSampleEchoWindowMs);
         Assert.Equal(restart, FlexBase.ShouldRestartAudioSampleOnRadioKeyDown(ownStartMs, nowMs));
     }
+
+    [Fact]
+    public void Our_own_unkeys_momentary_Mox_in_the_radios_unkey_batch_is_not_a_key_down()
+    {
+        // The 8600 bench of 2026-11-06 (Fail 5): the radio's status batch for
+        // our own unkey reads InterlockState UnkeyRequested, then a momentary
+        // Mox:True, Ready, Mox:False. That Mox:True restarted the sample, so the
+        // peak after a transmission was the empty restarted tail, not the
+        // transmission's.
+        using var f = new RigOnVendorRadio("audio-sample-unkey-batch");
+        object copy = new object();
+        f.Rig.ResetScMicMax();
+        Mox(f.Rig, true);                      // our key's echo
+        MicSample(f.Rig, copy, -6f);           // the transmission's peak
+        Mox(f.Rig, false);                     // our release
+        f.Rig.RetireOwnAudioSampleClaim();
+        f.Vendor.Status("interlock state=UNKEY_REQUESTED source=SW tx_client_handle=0x" + RigOnVendorRadio.OurHandle.ToString("X8"));
+        Mox(f.Rig, true);                      // the momentary Mox:True in the unkey batch
+        f.Vendor.Status("interlock state=READY");
+        Mox(f.Rig, false);
+        Assert.True(f.Rig.ScMicReportedSinceReset, "the unkey batch's momentary Mox restarted the sample");
+        Assert.Equal(-6f, f.Rig.ScMicMaxDb);   // the peak asked for afterwards is the transmission's
+    }
+
+    [Fact]
+    public void A_key_down_reported_while_the_radio_is_ready_still_starts_a_fresh_peak()
+    {
+        // Control: the narrow rule leaves an ordinary outside key-down alone,
+        // whose Mox can arrive before its interlock report.
+        using var f = new RigOnVendorRadio("audio-sample-ready-keydown");
+        object copy = new object();
+        MicSample(f.Rig, copy, -3f);
+        f.Vendor.Status("interlock state=READY");
+        Mox(f.Rig, true);
+        Assert.False(f.Rig.ScMicReportedSinceReset);
+    }
+
 }

@@ -7670,6 +7670,21 @@ namespace Radios
         /// transmit-audio figures unless our own key already did (#651).</summary>
         private void restartAudioSampleOnRadioKeyDown()
         {
+            // Not a key-down: the radio's status batch for an unkey reads
+            // InterlockState UnkeyRequested, then a momentary Mox:True, Ready,
+            // Mox:False (the 8600 bench of 2026-11-06, Fail 5). Restarting there
+            // threw away the transmission's peak just as it ended. The rule is
+            // narrow on purpose: an ordinary key-down's Mox can arrive before its
+            // own interlock report, so only "the radio says it is unkeying" counts.
+            try
+            {
+                if (theRadio?.InterlockState == Flex.Smoothlake.FlexLib.InterlockState.UnkeyRequested)
+                {
+                    Tracing.TraceLine("Mox: a momentary key-down inside the radio's unkey; the audio sample is kept", TraceLevel.Info);
+                    return;
+                }
+            }
+            catch { }
             long now = Environment.TickCount64;
             long own = Interlocked.Exchange(ref _ownAudioSampleStartMs, 0);
             if (ShouldRestartAudioSampleOnRadioKeyDown(own, now))
