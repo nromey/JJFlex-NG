@@ -365,19 +365,27 @@ namespace JJFlexWpf
             return list;
         }
 
-        /// <summary>Writer thread: a SetSetting for every value asked for since this channel last heard.</summary>
-        internal void CollectChangedSettings(WdspChannel ch, List<byte[]> into)
+        /// <summary>
+        /// Writer thread: a SetSetting for every value asked for since this
+        /// channel last heard, at most <paramref name="room"/> of them. True when
+        /// one was left for want of room; it stays asked for, so the next call
+        /// sends its latest value.
+        /// </summary>
+        internal bool CollectChangedSettings(WdspChannel ch, List<byte[]> into, int room)
         {
             var slots = _slots;
-            if (slots == null) return;
+            if (slots == null) return false;
             for (int i = 0; i < slots.Length; i++)
             {
                 var s = slots[i];
                 if (s.D.ChangesLatency) continue;
                 if (!s.Read(out int version, out var value) || version == ch.SentVersions[i]) continue;
+                if (room <= 0) return true;
                 into.Add(WdspProtocol.Encode(new WdspSetSetting(ch.Id, new WdspNamedValue(s.D.Name, WdspValue.From(value)))));
                 ch.SentVersions[i] = version;
+                room--;
             }
+            return false;
         }
 
         /// <summary>Reader thread: the helper answered an OpenChannel.</summary>

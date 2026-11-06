@@ -40,6 +40,15 @@
 //                            to a close it reads after the channel left its table)
 //   --swallow-closes         answer no CloseChannel at all (the helper's answer to a
 //                            close repeated before its ack)
+//   --slow-settings <ms>     take this long over each SetSetting
+//   --request-limit <n>      more than n settings and closes waiting: Error 257, close,
+//                            exit 6 (the helper's 4,096 limit, made small)
+//   --hold-setting-acks <engine>:<answer|drop>
+//                            hold that engine's SettingAcks until its channel closes; then
+//                            send the CloseChannelAck and, for answer, each held setting as
+//                            UnknownChannel after it (the shape the helper has today for a
+//                            setting read after a close), or, for drop, nothing (the other
+//                            reading of "nothing more for that channel")
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -63,7 +72,13 @@ internal static class Program
 
     private static NamedPipeClientStream _pipe = null!;
     private static readonly object WriteGate = new();
-    private static readonly BlockingCollection<object> Work = new(new ConcurrentQueue<object>(), 64);
+    // Bounded like the helper's frame queue, plus room for a request limit to be reached.
+    private static BlockingCollection<object> Work = new(new ConcurrentQueue<object>(), 64);
+    private static int _slowSettingsMs, _requestLimit = -1, _requestsWaiting;
+    private static string? _holdAcksEngine;
+    private static bool _holdAcksAnswer;
+    /// <summary>Held SettingAcks by channel. Processing thread only.</summary>
+    private static readonly Dictionary<uint, List<string>> HeldAcks = new();
     private static readonly Dictionary<uint, StubChannel> Channels = new();
     private static readonly HashSet<uint> UsedIds = new();
     private static int _delay = 2448, _slowStart, _stallAfter = -1, _stallMs, _crashAfter = -1, _crashCode, _breakAfter = -1;
@@ -133,6 +148,18 @@ internal static class Program
                     case "--fail-build": (_failBuild, _failBuildMs) = Pair(); break;
                     case "--close-unknown": _closeUnknown = true; break;
                     case "--swallow-closes": _swallowCloses = true; break;
+                    case "--hold-setting-acks":
+                    {
+                        var p = Next().Split(':');
+                        _holdAcksEngine = p[0];
+                        _holdAcksAnswer = p[1] == "answer";
+                        break;
+                    }
+                    case "--slow-settings": _slowSettingsMs = int.Parse(Next(), CultureInfo.InvariantCulture); break;
+                    case "--request-limit":
+                        _requestLimit = int.Parse(Next(), CultureInfo.InvariantCulture);
+                        Work = new(new ConcurrentQueue<object>(), 64 + _requestLimit + 1);
+                        break;
                     case "--slow-open": { var p = Next().Split(':'); _slowOpenEngine = p[0]; _slowOpenMs = int.Parse(p[1], CultureInfo.InvariantCulture); break; }
                     default: throw new FormatException("unknown argument " + args[i]);
                 }
@@ -301,11 +328,19 @@ internal static class Program
                 lock (Channels)
                     if (Building.TryGetValue(close.Channel, out int held)) { Building[close.Channel] = held + 1; return; }
                 if (_swallowCloses) return;
-                Work.Add(message);
+                AddRequest(message);
                 return;
-            case WdspSetSetting: Work.Add(message); return;
+            case WdspSetSetting: AddRequest(message); return;
             case WdspHeartbeat or WdspError: return;
         }
+    }
+
+    /// <summary>A setting or a close joins the queue; past the limit, the connection ends as the helper ends it.</summary>
+    private static void AddRequest(object message)
+    {
+        if (Interlocked.Increment(ref _requestsWaiting) > _requestLimit && _requestLimit >= 0)
+            ProtocolError($"more than {_requestLimit} settings and closes queued", WdspResult.UnexpectedMessage);
+        Work.Add(message);
     }
 
     private static void Open(WdspOpenChannel open)
@@ -414,9 +449,17 @@ internal static class Program
                 }
                 case WdspSetSetting set:
                 {
+                    Interlocked.Decrement(ref _requestsWaiting);
+                    if (_slowSettingsMs > 0) Thread.Sleep(_slowSettingsMs);
                     StubChannel? ch;
                     lock (Channels) Channels.TryGetValue(set.Channel, out ch);
                     if (ch == null) { Send(new WdspSettingAck(set.Channel, WdspResult.UnknownChannel, set.Setting.Name, WdspValue.None)); break; }
+                    if (ch.Engine == _holdAcksEngine)
+                    {
+                        if (!HeldAcks.TryGetValue(ch.Id, out var held)) HeldAcks[ch.Id] = held = new List<string>();
+                        held.Add(set.Setting.Name);
+                        break;
+                    }
                     var d = Engines[ch.Engine].FirstOrDefault(x => x.Name == set.Setting.Name);
                     if (d == null) Send(new WdspSettingAck(set.Channel, WdspResult.UnknownSetting, set.Setting.Name, WdspValue.None));
                     else if (d.ChangesLatency) Send(new WdspSettingAck(set.Channel, WdspResult.SettingNeedsNewChannel, d.Name, ch.Values[d.Name]));
@@ -431,9 +474,12 @@ internal static class Program
                 }
                 case WdspCloseChannel close:
                 {
+                    Interlocked.Decrement(ref _requestsWaiting);
                     bool had;
                     lock (Channels) had = Channels.Remove(close.Channel);
                     Send(new WdspCloseChannelAck(close.Channel, had && !_closeUnknown ? WdspResult.Ok : WdspResult.UnknownChannel));
+                    if (HeldAcks.Remove(close.Channel, out var late) && _holdAcksAnswer)
+                        foreach (var name in late) Send(new WdspSettingAck(close.Channel, WdspResult.UnknownChannel, name, WdspValue.None));
                     break;
                 }
             }

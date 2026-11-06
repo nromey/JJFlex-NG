@@ -76,6 +76,7 @@ namespace JJFlexWpf
         public const int ShutdownWaitMs = 500;
         public const int OfflineFrameWaitMs = 2000;
         public const int ExitNamingWaitMs = 250;
+        public const int MaxSettingsInFlightDefault = 256;
 
         /// <summary>One delay per automatic restart; its length is the cap.</summary>
         public IReadOnlyList<TimeSpan> RestartDelays { get; init; } = new[] {
@@ -101,6 +102,14 @@ namespace JJFlexWpf
         /// delayed pass-through, as for any late frame.
         /// </summary>
         public TimeSpan ExitNamingWait { get; init; } = TimeSpan.FromMilliseconds(ExitNamingWaitMs);
+        /// <summary>
+        /// The most SetSettings one connection has sent and not yet had
+        /// answered. The helper ends a connection that leaves more than 4,096
+        /// settings and closes queued; holding back here, and sending only each
+        /// setting's latest value when room comes, keeps every connection far
+        /// below that however fast a value changes, and loses no value.
+        /// </summary>
+        public int MaxSettingsInFlight { get; init; } = MaxSettingsInFlightDefault;
 
         public static WdspHostPolicy Default { get; } = new();
     }
@@ -148,6 +157,12 @@ namespace JJFlexWpf
         public long ExitSeenAt;
         /// <summary>What the helper said in a fatal Error (256 or 257) before it closed the pipe, if anything.</summary>
         public volatile string? HelperSaid;
+        /// <summary>SetSettings sent on this connection and not yet answered. Interlocked; the writer adds, the reader takes away.</summary>
+        public int SettingsInFlight;
+        /// <summary>1 while the writer is holding settings back for room, so an answer wakes it. Interlocked.</summary>
+        public int SettingsHeld;
+        /// <summary>Writer only: which channel's settings go first, turn about, so one busy channel cannot starve another.</summary>
+        public int SettingRotation;
 
         public WdspConnection(int startNumber, string pipeName, string commandLine, NamedPipeServerStream pipe,
             WdspNative.Started started)
@@ -200,6 +215,13 @@ namespace JJFlexWpf
 
         public long DiscardBelow;
         public uint Latency;
+        /// <summary>
+        /// This channel's share of the connection's settings in flight.
+        /// Interlocked. When its close is answered, whatever is left is taken
+        /// off the connection at once: a setting the helper answers after the
+        /// close is then not counted twice, and one it never answers leaks nothing.
+        /// </summary>
+        public int SettingsInFlight;
         public volatile bool Opened, Closed, OpenSent;
         /// <summary>Per setting, the asked-for version this channel already has. Writer thread only.</summary>
         public readonly int[] SentVersions;
@@ -351,6 +373,12 @@ namespace JJFlexWpf
         internal long SetSettingsSent;
         internal long SettingAcksReceived;
         internal long FramesSent;
+        /// <summary>The most settings ever in flight on one connection at once.</summary>
+        internal long PeakSettingsInFlight;
+        /// <summary>SettingAcks for a channel already closed (sent before the close, answered after it): discarded, as expected.</summary>
+        internal long SettingAcksAfterClose;
+        /// <summary>SettingAcks for a channel this connection never opened: traced as a disagreement.</summary>
+        internal long SettingAcksUnplaced;
         /// <summary>CloseChannels queued, one per channel ever.</summary>
         internal long CloseChannelsSent;
         /// <summary>CloseChannelAcks that settled a channel this end had closed (Ok, or UnknownChannel for one the helper had already let go).</summary>
@@ -1045,8 +1073,12 @@ namespace JJFlexWpf
                 $"; the helper was still running {Policy.ExitNamingWait.TotalMilliseconds} ms later");
         }
 
+        /// <summary>Tests only: runs on the reader before each message is handled (a test holds it to stop the reader reading).</summary>
+        internal Action<WdspConnection>? DispatchHookForTest;
+
         private void Dispatch(WdspConnection c, WdspMessageType type, ReadOnlySpan<byte> payload)
         {
+            DispatchHookForTest?.Invoke(c);
             if (type == WdspMessageType.FrameOut)
             {
                 if (c.HelloResult == null) throw new WdspProtocolException("FrameOut before the handshake", WdspResult.UnexpectedMessage);
@@ -1095,8 +1127,23 @@ namespace JJFlexWpf
                     return;
                 case WdspSettingAck ack:
                     Interlocked.Increment(ref SettingAcksReceived);
-                    if (c.ById.TryGetValue(ack.Channel, out var target)) target.Engine.OnSettingAck(ack);
-                    else Trace.WriteLine($"WdspHost: discarded a SettingAck for forgotten channel {ack.Channel}");
+                    if (c.ById.TryGetValue(ack.Channel, out var target))
+                    {
+                        if (TakeOne(ref target.SettingsInFlight)) SettingAnswered(c, 1);
+                        target.Engine.OnSettingAck(ack);
+                    }
+                    else if (ack.Channel != 0 && ack.Channel < Volatile.Read(ref c.NextChannelId))
+                    {
+                        // Sent before the close, answered after it (UnknownChannel): its
+                        // count went when the close was answered.
+                        Interlocked.Increment(ref SettingAcksAfterClose);
+                        Trace.WriteLine($"WdspHost: discarded a SettingAck for channel {ack.Channel}, already closed: {ResultName(ack.Result)}");
+                    }
+                    else
+                    {
+                        Interlocked.Increment(ref SettingAcksUnplaced);
+                        Trace.WriteLine($"WdspHost: discarded a SettingAck for channel {ack.Channel}, which this connection never opened");
+                    }
                     return;
                 case WdspHeartbeat:
                     return;
@@ -1133,7 +1180,12 @@ namespace JJFlexWpf
                 Trace.WriteLine($"WdspHost: the helper answered a close for channel {ack.Channel}, which JJ Flexible has not closed: {ResultName(ack.Result)}");
                 return;
             }
-            if (ch != null) c.ById.TryRemove(ack.Channel, out _);
+            if (ch != null)
+            {
+                c.ById.TryRemove(ack.Channel, out _);
+                int left = Interlocked.Exchange(ref ch.SettingsInFlight, 0);
+                if (left > 0) SettingAnswered(c, left);
+            }
             bool issued = ack.Channel != 0 && ack.Channel < Volatile.Read(ref c.NextChannelId);
             bool settles = ack.Result == WdspResult.Ok ? ch != null : ack.Result == WdspResult.UnknownChannel && issued;
             if (!settles)
@@ -1145,6 +1197,37 @@ namespace JJFlexWpf
             Interlocked.Increment(ref CloseAcksSettled);
             if (ack.Result != WdspResult.Ok)
                 Trace.WriteLine($"WdspHost: channel {ack.Channel}'s close was answered UnknownChannel, as expected: the helper had already let it go");
+        }
+
+        /// <summary>Take one from a count that must not go below zero (an answer nobody asked for takes nothing).</summary>
+        private static bool TakeOne(ref int count)
+        {
+            int seen = Volatile.Read(ref count);
+            while (seen > 0)
+            {
+                int was = Interlocked.CompareExchange(ref count, seen - 1, seen);
+                if (was == seen) return true;
+                seen = was;
+            }
+            return false;
+        }
+
+        /// <summary>Reader: settings answered; room again, so wake a writer that was holding some back.</summary>
+        private static void SettingAnswered(WdspConnection c, int count)
+        {
+            Interlocked.Add(ref c.SettingsInFlight, -count);
+            if (Volatile.Read(ref c.SettingsHeld) != 0) c.Wake.Set();
+        }
+
+        private void NoteSettingsInFlight(int now)
+        {
+            long peak = Volatile.Read(ref PeakSettingsInFlight);
+            while (now > peak)
+            {
+                long was = Interlocked.CompareExchange(ref PeakSettingsInFlight, now, peak);
+                if (was == peak) return;
+                peak = was;
+            }
         }
 
         private static string ResultName(WdspResult result) =>
@@ -1203,7 +1286,8 @@ namespace JJFlexWpf
                     while (c.Control.TryDequeue(out var message)) { c.Pipe.Write(message); wrote = true; }
                     if (c.HelloDone)
                     {
-                        foreach (var ch in c.Lives)
+                        var lives = c.Lives;
+                        foreach (var ch in lives)
                         {
                             if (!ch.Opened || ch.Closed) continue;
                             while (ch.TryPeekSend(out var samples, out ulong seq))
@@ -1214,10 +1298,32 @@ namespace JJFlexWpf
                                 Interlocked.Increment(ref FramesSent);
                                 wrote = true;
                             }
-                            ch.Engine.CollectChangedSettings(ch, settings);
-                            foreach (var s in settings) { c.Pipe.Write(s); Interlocked.Increment(ref SetSettingsSent); wrote = true; }
+                        }
+                        // Settings after the frames, within the room left, each channel
+                        // first in turn. A value not sent now stays asked for, and its
+                        // latest form goes when an answer makes room.
+                        bool held = false;
+                        int start = c.SettingRotation++;
+                        for (int k = 0; k < lives.Length; k++)
+                        {
+                            var ch = lives[(int)((uint)(start + k) % (uint)lives.Length)];
+                            if (!ch.Opened || ch.Closed) continue;
+                            int room = Policy.MaxSettingsInFlight - Volatile.Read(ref c.SettingsInFlight);
+                            if (ch.Engine.CollectChangedSettings(ch, settings, room)) held = true;
+                            foreach (var s in settings)
+                            {
+                                // Counted before it is written, so its answer can never arrive first.
+                                NoteSettingsInFlight(Interlocked.Increment(ref c.SettingsInFlight));
+                                Interlocked.Increment(ref ch.SettingsInFlight);
+                                c.Pipe.Write(s);
+                                Interlocked.Increment(ref SetSettingsSent);
+                                wrote = true;
+                            }
                             settings.Clear();
                         }
+                        Interlocked.Exchange(ref c.SettingsHeld, held ? 1 : 0);
+                        // An answer may have made room between the count and the flag: look again now.
+                        if (held && Volatile.Read(ref c.SettingsInFlight) < Policy.MaxSettingsInFlight) c.Wake.Set();
                     }
                     if (wrote) lastSend = Now;
                     else if (Now - lastSend >= beat) { c.Pipe.Write(heartbeat); lastSend = Now; }

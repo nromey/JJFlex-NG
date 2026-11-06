@@ -171,6 +171,139 @@ public sealed partial class HelperLifecycleTests
         Assert.Equal(0, Interlocked.Read(ref rig.Host.CloseAcksSettled));
     }
 
+    // ------------------------------------------------------------------ the helper's limits
+
+    private static int InFlight(HelperTestRig rig) => Volatile.Read(ref rig.Host.CurrentConnection!.SettingsInFlight);
+
+    /// <summary>
+    /// The helper ends a connection that leaves more than 4,096 settings and
+    /// closes queued. However fast a value changes, the host keeps no more than
+    /// its cap in flight, sends each setting's latest value when room comes,
+    /// and loses nothing. The stub plays the helper with a limit of 12 and a
+    /// slow processing thread (20 ms a setting); the cap here is 8.
+    /// </summary>
+    [Fact]
+    public void Settings_in_flight_never_pass_the_cap_however_fast_a_value_changes()
+    {
+        using var rig = new HelperTestRig(_ => new[] { "--slow-settings", "20", "--request-limit", "12" },
+            HelperTestRig.Fast with { MaxSettingsInFlight = 8 });
+        var engine = rig.Engine("nr2");
+        Assert.True(engine.IsAvailable);
+        var t = System.Diagnostics.Stopwatch.StartNew();
+        int changes = 0;
+        while (t.ElapsedMilliseconds < 1500)
+        {
+            Assert.True(engine.TrySetSetting("trained_t2", new EngineSettingValue(0.02 + (changes % 28) * 0.01)));
+            changes++;
+        }
+        Assert.True(engine.TrySetSetting("trained_t2", new EngineSettingValue(0.3))); // never one of the values above
+        HelperTestRig.Until(() => engine.GetSetting("trained_t2").Number == 0.3 && InFlight(rig) == 0, "the last value applied", 15000);
+        long sent = Interlocked.Read(ref rig.Host.SetSettingsSent);
+        _out.WriteLine($"{changes} changes, {sent} SetSettings sent, peak in flight {Interlocked.Read(ref rig.Host.PeakSettingsInFlight)}");
+        Assert.True(engine.IsAvailable);
+        Assert.Equal(0, rig.Host.Failures);
+        Assert.Single(rig.Host.LaunchedProcessIds);
+        Assert.InRange(Interlocked.Read(ref rig.Host.PeakSettingsInFlight), 1, 8);
+        Assert.True(sent < changes, "the values were not coalesced");
+    }
+
+    /// <summary>
+    /// A client that does overflow the helper's limit (here, a host whose cap is
+    /// above the stub's limit) ends as the helper ends it: Error 257, the close,
+    /// exit 6. That reads as a protocol failure, named, and follows the crash
+    /// path; the engine keeps its delay, so the bank's delayed pass-through
+    /// carries on with no jump.
+    /// </summary>
+    [Fact]
+    public void Overflowing_the_helpers_limit_reads_as_a_named_protocol_failure_and_keeps_the_delay()
+    {
+        using var rig = new HelperTestRig(n => n == 1 ? new[] { "--slow-settings", "20", "--request-limit", "12" } : Array.Empty<string>(),
+            SlowRestart() with { MaxSettingsInFlight = 100_000 });
+        var engine = rig.Engine("nr2");
+        int latency = engine.LatencySamples;
+        Assert.Equal(3408, latency);
+        int i = 0;
+        while (rig.Host.State == WdspHelperState.Running && i < 2_000_000) { engine.TrySetSetting("trained_t2", new EngineSettingValue(0.02 + (i % 28) * 0.01)); i++; }
+        HelperTestRig.Until(() => rig.Host.State == WdspHelperState.Restarting, "the helper to end the connection");
+        _out.WriteLine(engine.UnavailabilityDetail);
+        Assert.Equal(WdspCondition.FatalProtocolError, rig.Host.LastFailureCondition);
+        Assert.Equal(Unavailability.HelperNotRunning, engine.Unavailability);
+        Assert.Contains("the helper exited with code 6 (a protocol error", engine.UnavailabilityDetail);
+        Assert.Contains("before closing it said Error 257 UnexpectedMessage on channel 0: more than 12 settings and closes queued", engine.UnavailabilityDetail);
+        Assert.Equal(1, rig.Host.Failures);
+        Assert.False(engine.IsAvailable);
+        Assert.Equal(latency, engine.LatencySamples);
+    }
+
+    /// <summary>
+    /// Track A's open question: a setting the helper reads after its channel's
+    /// close is answered UnknownChannel after the CloseChannelAck today, and
+    /// might be answered not at all if that is ruled the other way. Either way
+    /// its count goes when the close is answered, the late answer is discarded
+    /// as expected, and the room it held comes back. With a cap of 2 and two
+    /// settings held, another engine's setting waits, and then gets through.
+    /// </summary>
+    [Theory]
+    [InlineData("answer")]
+    [InlineData("drop")]
+    public void A_setting_answered_after_its_close_or_never_leaks_nothing(string how)
+    {
+        using var rig = new HelperTestRig(_ => new[] { "--hold-setting-acks", "nnr:" + how },
+            HelperTestRig.Fast with { MaxSettingsInFlight = 2 });
+        var held = rig.Engine("nnr");
+        var other = rig.Engine("nr2");
+        Assert.True(held.TrySetSetting("mask_floor_db", new EngineSettingValue(-30)));
+        HelperTestRig.Until(() => Interlocked.Read(ref rig.Host.SetSettingsSent) == 1, "the first setting sent");
+        Assert.True(held.TrySetSetting("mask_floor_db", new EngineSettingValue(-35)));
+        HelperTestRig.Until(() => Interlocked.Read(ref rig.Host.SetSettingsSent) == 2, "the second setting sent");
+        Assert.Equal(2, InFlight(rig));
+        Assert.True(other.TrySetSetting("trained_t2", new EngineSettingValue(0.3)));
+        Thread.Sleep(300);
+        Assert.Equal(2, Interlocked.Read(ref rig.Host.SetSettingsSent)); // held back: no room
+        held.Dispose();
+        HelperTestRig.Until(() => other.GetSetting("trained_t2").Number == 0.3, "the other engine's setting, once the close made room");
+        HelperTestRig.Until(() => InFlight(rig) == 0, "nothing left in flight");
+        Thread.Sleep(200);
+        Assert.Equal(0, InFlight(rig));
+        Assert.Equal(how == "answer" ? 2 : 0, Interlocked.Read(ref rig.Host.SettingAcksAfterClose));
+        Assert.Equal(0, Interlocked.Read(ref rig.Host.SettingAcksUnplaced));
+        Assert.Equal(1, Interlocked.Read(ref rig.Host.CloseAcksSettled));
+        Assert.True(other.IsAvailable);
+    }
+
+    /// <summary>
+    /// The helper's other limit, 32 MB of replies waiting to be written, is
+    /// reached only by a client that stops reading. The host's reader cannot
+    /// stop for long unnoticed: nothing read for the stall time is a stall, and
+    /// the helper is ended. At the most the helper can send in that time (about
+    /// 3 MB a second for sixteen channels of FrameOuts), a 500 ms stall leaves
+    /// under 2 MB queued, against a 16 MB point where it starts dropping
+    /// FrameOuts and 32 MB where it ends the connection.
+    /// </summary>
+    [Fact]
+    public void A_reader_that_stops_reading_is_a_stall_long_before_the_helpers_reply_limit()
+    {
+        using var rig = new HelperTestRig(policy: SlowRestart());
+        var engine = rig.Engine("nr2");
+        Assert.True(engine.IsAvailable);
+        using var gate = new ManualResetEventSlim(false);
+        var t = System.Diagnostics.Stopwatch.StartNew();
+        rig.Host.DispatchHookForTest = _ => gate.Wait(15000);
+        try
+        {
+            using var feeder = new Feeder(engine);
+            HelperTestRig.Until(() => rig.Host.State == WdspHelperState.Restarting, "the stall", 6000);
+        }
+        finally
+        {
+            rig.Host.DispatchHookForTest = null;
+            gate.Set();
+        }
+        _out.WriteLine($"stall after {t.ElapsedMilliseconds} ms (policy {rig.Host.Policy.Stall.TotalMilliseconds} ms)");
+        Assert.Equal(WdspCondition.Stall, rig.Host.LastFailureCondition);
+        Assert.InRange(t.ElapsedMilliseconds, (long)rig.Host.Policy.Stall.TotalMilliseconds, (long)rig.Host.Policy.Stall.TotalMilliseconds + 1500);
+    }
+
     /// <summary>The words for each code, held to the helper's README so a renamed code cannot drift silently.</summary>
     [Fact]
     public void Each_exit_code_has_its_own_words_and_only_6_is_a_protocol_error()
