@@ -1781,6 +1781,7 @@ namespace Radios
                 + txFilePlayer.ContentSampleRate + " Hz"
                 + (reference ? ", a reference: silence in place of the microphone after its end" : ""), TraceLevel.Info);
             _txFileFlowsWhileReceiving = false;
+            StaleReferenceSilenceWaits();   // a new pass; no older wait may act for it
             if (reference) txFilePlayer.StartHoldingSilenceAtEnd();
             else txFilePlayer.Start();
         }
@@ -1822,6 +1823,7 @@ namespace Radios
                 + txFilePlayer.ContentSeconds.ToString("F1") + " s at "
                 + txFilePlayer.ContentSampleRate + " Hz — reaching the radio while receiving so VOX can key on it",
                 TraceLevel.Info);
+            StaleReferenceSilenceWaits();
             txFilePlayer.Start();
             _txFileFlowsWhileReceiving = true;
         }
@@ -1839,6 +1841,7 @@ namespace Radios
             {
                 Tracing.TraceLine("TxFileStop", TraceLevel.Info);
                 _txFileFlowsWhileReceiving = false;
+                StaleReferenceSilenceWaits();   // whatever the waits were for has ended here
                 txFilePlayer.Stop();
                 // A disarm during an owned transmission stops the samples
                 // immediately, but VOX remains paused until the radio reports

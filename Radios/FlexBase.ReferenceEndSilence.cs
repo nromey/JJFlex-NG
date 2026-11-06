@@ -59,6 +59,19 @@ namespace Radios
     /// pass's silence.
     /// </para>
     /// <para>
+    /// <b>The generation moves when a wait begins AND whenever the player is
+    /// started or stopped through FlexBase</b> (round four repair, part 6e-3).
+    /// Until then it moved only when a wait began, so a wait whose callback was
+    /// held up after deciding (receive seen, or its connection gone, a
+    /// reconnect on the same FlexBase included) and before it took the gate
+    /// could resume after a disarm, a fresh arm and the newer pass's end, but
+    /// before the window's poll had asked for that pass's own wait. It then
+    /// read the newer pass's silence as its own and stopped it, with the radio
+    /// transmitting the newer pass. A wait now belongs to the pass that was
+    /// playing when it began; a new pass cannot begin without a start through
+    /// FlexBase, so it can never be mistaken for the old one.
+    /// </para>
+    /// <para>
     /// <b>It cannot hold a transmitter keyed.</b> It replaces what the encoder is
     /// handed; nothing that keys or unkeys the radio reads it. What it can do,
     /// if every way out failed, is leave the microphone off the encoder on a
@@ -71,6 +84,13 @@ namespace Radios
     public partial class FlexBase
     {
         private int _referenceSilenceGeneration;
+
+        /// <summary>
+        /// The player is being started or stopped: every wait already running
+        /// belongs to a pass that is over. Called by the starts and
+        /// <see cref="TxFileStop"/>; see the remarks.
+        /// </summary>
+        private void StaleReferenceSilenceWaits() => Interlocked.Increment(ref _referenceSilenceGeneration);
 
         /// <summary>
         /// True while a reference recording has run off its end and the

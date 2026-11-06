@@ -764,6 +764,75 @@ public sealed class ReferenceEndSilenceTests : IDisposable
         Assert.True(f.Rig.TxReferenceEndSilenceHeld, "the second pass holds its own end");
     }
 
+    // ── Round four repair (part 6e-3): an older wait against a newer pass ──
+
+    /// <summary>
+    /// Codex's schedule (round four check, lifecycle audit): the radio's wait
+    /// for an older pass decides (receive seen, or its connection replaced by a
+    /// reconnect on the same FlexBase) and is then held up before it takes the
+    /// gate. Meanwhile the window disarms, arms again, and the newer pass plays
+    /// to its end, before the window's poll has asked for that pass's own wait.
+    /// The older wait then resumes. Holding the gate on this thread is what
+    /// holds it up, exactly where a stall would. Until this repair it read the
+    /// newer pass's silence as its own and stopped it, the radio transmitting.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]   // the older wait saw receive
+    [InlineData(true)]    // the older wait saw its connection replaced: a reconnect
+    public async Task An_older_wait_held_up_across_a_newer_pass_cannot_end_that_pass_silence(bool reconnect)
+    {
+        using var f = await ReferenceRunToItsEnd("ref-silence-older-" + reconnect);
+        var player = f.Rig.TxFilePlayer;
+        ReferenceSilenceEnd? older = null;
+        f.Rig.TxReferenceEndSilenceUntilReceive(h => older = h);
+        object gate = typeof(FlexBase).GetField("_voxPauseGate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(f.Rig)!;
+
+        System.Threading.Monitor.Enter(gate);
+        try
+        {
+            // No await in here: the gate is held by this thread.
+            NoteRadioMox(f.Rig, false);
+            if (reconnect)
+            {
+                PlantNewConnection(f);
+                System.Threading.Thread.Sleep(200);           // the older wait sees its connection gone, and waits at the gate
+                typeof(FlexBase).GetMethod("DisconnectVoxPauses", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(f.Rig, null);                      // what the disconnect does before the reconnect
+            }
+            else
+            {
+                f.Vendor.Status("interlock state=READY");
+                System.Threading.Thread.Sleep(200);           // the older wait sees receive, and waits at the gate
+                f.Rig.TxFileStop();                            // the window's DisarmReference
+            }
+            Assert.True(older == null, "positive control: the older wait is held up at the gate");
+
+            // The fresh arm, the key, and the newer pass played to its end.
+            f.Vendor.Status("transmit vox_enable=0");
+            var arm = f.Rig.TxReferenceStartAsync();
+            Assert.True(arm.IsCompleted && arm.Result, "positive control: the fresh arm went through");
+            NoteRadioMox(f.Rig, true);
+            f.Vendor.Status("interlock state=TRANSMITTING source=SW");
+            RunToTheEnd(player);
+            Assert.True(f.Rig.TxReferenceEndSilenceHeld, "positive control: the newer pass holds its end");
+        }
+        finally { System.Threading.Monitor.Exit(gate); }
+
+        Assert.True(await Within(() => older != null, 2_000), "the older wait never ended");
+        Assert.Equal(ReferenceSilenceEnd.AlreadyReleased, older);
+        Assert.True(f.Rig.RadioInterlockReportsTransmit, "positive control: the radio is transmitting the newer pass");
+        Assert.True(f.Rig.TxReferenceEndSilenceHeld, "an older wait ended the newer pass's silence while the radio transmits");
+        Assert.True(OnlySilence(player, 30), "the microphone reached the encoder");
+
+        // The newer pass's own wait ends it, at receive.
+        ReferenceSilenceEnd? newer = null;
+        f.Rig.TxReferenceEndSilenceUntilReceive(h => newer = h);
+        NoteRadioMox(f.Rig, false);
+        f.Vendor.Status("interlock state=READY");
+        Assert.True(await Within(() => newer == ReferenceSilenceEnd.Received, 2_000));
+        Assert.True(MicIsBack(player));
+    }
+
     /// <summary>Arm the reference again through <c>TxReferenceStartAsync</c>, as the fixture's first arm did.</summary>
     private static async Task<bool> ArmAgain(RigOnVendorRadio f)
     {
