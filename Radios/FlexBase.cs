@@ -8536,6 +8536,9 @@ namespace Radios
                     return;
                 }
                 CancelSlicePlayback();
+                // The key this OFF ends (round 12, Codex's #596 F5): the one
+                // current when it was asked, not whichever is latest when it runs.
+                var offFor = LatestOwnKey;
                 // An ordinary unkey is unconditional, as the emergency kill's
                 // is (TransmitKillSwitch.DropCarrier comes here). Only a
                 // send's own release is pinned (TransmitAdmitted).
@@ -8549,7 +8552,7 @@ namespace Radios
                     // (TransmitKillSwitch.DropCarrier) and is never swallowed.
                     if (radio.Mox || _ownKeyRequested || RadioInterlockReportsTransmit)
                     {
-                        if (WriteOwnOff(radio, r => r.SendMoxOff(), out long offMark)) { _ownKeyRequested = false; NoteOwnOffWritten(offMark); }
+                        if (WriteOwnOff(radio, r => r.SendMoxOff(), out long offMark)) { _ownKeyRequested = false; NoteOwnOffWritten(offFor, offMark); }
                         // A link that is down takes nothing: the setter then lets
                         // the cache fall as it always did, so our side's transmit
                         // state ends with the connection.
@@ -8579,13 +8582,6 @@ namespace Radios
             var key = new OwnKey(origin, LatestOwnKey, keyedConnection as CommandConnection);
             Volatile.Write(ref _latestOwnKey, key);
             t_keyAskedHere = key;
-            // A queue not running drops the item unrun (round 11, B17): nothing
-            // will write it, so it never goes out, rather than staying asked.
-            if (q == null || !q.MainLoop)
-            {
-                key.NoteNeverWent();
-                RaiseOwnKeyChanged();
-            }
             // The radio's interlock reports so far: a receive report must belong
             // to this transmission to confirm its end (repair round 5, #863 N1).
             NoteTransmitEpisodeBegins();
@@ -8596,7 +8592,7 @@ namespace Radios
             // that a revocation waits for (repair round 3), and the identity
             // check is made with the write (repair round 5).
             long work = Volatile.Read(ref _transmitWorkGeneration);
-            q.Enqueue((FunctionDel)(() =>
+            bool queued = q != null && q.Enqueue((FunctionDel)(() =>
             {
                 bool on = false;
                 try
@@ -8630,6 +8626,14 @@ namespace Radios
                             + " and no falling cue is owed for it", TraceLevel.Info);
                 }
             }), "Mox");
+            // Settled never gone out only on the queue's own answer that it
+            // dropped the item (round 12, Codex's #596 B18): one fact, so a key
+            // the loop will still write can never be recorded as never gone out.
+            if (!queued)
+            {
+                key.NoteNeverWent();
+                RaiseOwnKeyChanged();
+            }
         }
 
         /// <summary>
@@ -13713,7 +13717,13 @@ namespace Radios
                 }
             }
 
-            public void Enqueue(object o, string name = null, bool beforeMainLoop = false)
+            /// <returns>
+            /// True when the item was queued, or run at once before the main
+            /// loop; false when it was dropped because the loop is not running
+            /// (repair round 12, Codex's #596 B18). This is the ONE answer to
+            /// "will it run": a caller that must know never reads MainLoop itself.
+            /// </returns>
+            public bool Enqueue(object o, string name = null, bool beforeMainLoop = false)
             {
                 // A write queued under an ambient QueuedWriteGate is asked
                 // again at its RUN whether it may still go out (Track G2,
@@ -13743,13 +13753,13 @@ namespace Radios
                         DbgTrace("q.Enqueue:" + name);
                         if (func != null) func();
                         DbgTrace("q.Enqueue:done " + name);
+                        return true;
                     }
-                    else Tracing.TraceLine("q:outside main loop", TraceLevel.Error);
+                    Tracing.TraceLine("q:outside main loop", TraceLevel.Error);
+                    return false;
                 }
-                else
-                {
-                    q.Add(item);
-                }
+                q.Add(item);
+                return true;
             }
 
             public QItem_t Dequeue()

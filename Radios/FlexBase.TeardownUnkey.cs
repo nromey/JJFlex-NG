@@ -402,6 +402,7 @@ public partial class FlexBase
         CancelSlicePlayback();
         Radio owner = theRadio;
         object connection = owner?.CurrentCommandConnection;
+        var offFor = LatestOwnKey;   // the key this unkey ends (round 12, F5)
         q.Enqueue((FunctionDel)(() =>
         {
             // Ownership checked with the write (repair round 5, rule 1).
@@ -412,7 +413,7 @@ public partial class FlexBase
                 () => OurCarrierToUnkey(owner, connection, why) ? null : NotOurs,
                 () => off = WriteOwnOff(owner, r => r.SendMoxOff(), out offMark),
                 () => ForeignCarrier(owner), unkeyOfOurs: true);
-            if (refused == null && off) { _ownKeyRequested = false; NoteOwnOffWritten(offMark); return; }
+            if (refused == null && off) { _ownKeyRequested = false; NoteOwnOffWritten(offFor, offMark); return; }
             refused ??= "the transport did not take it";
             if (refused != NotOurs)
                 Tracing.TraceLine("Teardown unkey (" + why + "): not sent; " + refused, TraceLevel.Info);

@@ -86,9 +86,11 @@ namespace Radios
                 tuneKey = new OwnKey(asked, System.Threading.Volatile.Read(ref _latestOwnTune),
                     connection as Flex.Smoothlake.FlexLib.CommandConnection) { What = "tune" };
                 System.Threading.Volatile.Write(ref _latestOwnTune, tuneKey);
-                if (q == null || !q.MainLoop) tuneKey.NoteNeverWent();
             }
-            q.Enqueue((FunctionDel)(() =>
+            // The tune this OFF ends (round 12, Codex's #596 F5): the one current
+            // when it was asked.
+            var tuneOffFor = value ? null : System.Threading.Volatile.Read(ref _latestOwnTune);
+            bool queued = q != null && q.Enqueue((FunctionDel)(() =>
             {
                 bool tuneWritten = false;
                 try
@@ -122,7 +124,7 @@ namespace Radios
                         string refusedAtWrite = WriteOnPinnedTarget(owner, connection, null,
                             () => off = WriteOwnOff(owner, r => r.SendTuneOff(), out offMark),
                             () => ForeignCarrier(owner), unkeyOfOurs: true);
-                        if (refusedAtWrite == null && off) { _ownTuneRequested = false; NoteOwnTuneOffWritten(offMark); }
+                        if (refusedAtWrite == null && off) { _ownTuneRequested = false; NoteOwnTuneOffWritten(tuneOffFor, offMark); }
                         else
                             JJTrace.Tracing.TraceLine("TuneWrite: the " + what + " off NOT sent at its write - "
                                 + (refusedAtWrite ?? "the transport did not take it"), System.Diagnostics.TraceLevel.Info);
@@ -150,7 +152,7 @@ namespace Radios
                     // may be up, whatever FlexLib's cache reads (round 8, B14).
                     else if (radio.TXTune || _ownTuneRequested)
                     {
-                        if (WriteOwnOff(radio, r => r.SendTuneOff(), out long offMark)) { _ownTuneRequested = false; NoteOwnTuneOffWritten(offMark); }
+                        if (WriteOwnOff(radio, r => r.SendTuneOff(), out long offMark)) { _ownTuneRequested = false; NoteOwnTuneOffWritten(tuneOffFor, offMark); }
                         else radio.TXTune = false;
                     }
                     if (latest) _tuneOnQueued = false;
@@ -169,6 +171,8 @@ namespace Radios
                     }
                 }
             }), "TXTune");
+            // Never gone out only on the queue's own answer (round 12, B18).
+            if (!queued) tuneKey?.NoteNeverWent();
         }
 
         /// <summary>The connection is gone: nothing queued for it is ours to count.</summary>

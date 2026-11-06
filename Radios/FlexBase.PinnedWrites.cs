@@ -204,6 +204,7 @@ public partial class FlexBase
         CancelSlicePlayback();
         Radio? owner = a.Radio;
         object? connection = a.Connection;
+        var offFor = LatestOwnKey;   // the key this release ends (round 12, F5)
         q.Enqueue((FunctionDel)(() =>
         {
             // Whose carrier it is, asked before AND at the transport write,
@@ -218,7 +219,7 @@ public partial class FlexBase
             string? why = WriteOnPinnedTarget(owner, connection, () => ForeignCarrier(owner!),
                 () => off = WriteOwnOff(owner!, r => r.SendMoxOff(), out offMark),
                 () => ForeignCarrier(owner!), unkeyOfOurs: true);
-            if (why == null && off) { _ownKeyRequested = false; NoteOwnOffWritten(offMark); return; }
+            if (why == null && off) { _ownKeyRequested = false; NoteOwnOffWritten(offFor, offMark); return; }
             Tracing.TraceLine("TransmitAdmission: " + what + " NOT sent at its write - " + (why ?? "the transport did not take it"),
                 TraceLevel.Warning);
         }), "Mox (a send's own release)");

@@ -195,12 +195,17 @@ namespace Radios
                 return Interlocked.CompareExchange(ref _state, NeverWentState, Asked) == Asked;
             }
 
-            /// <summary>Our OFF was written, the reports standing at <paramref name="mark"/>: only from ON WRITTEN.</summary>
+            /// <summary>
+            /// Our OFF was written, the reports standing at <paramref name="mark"/>:
+            /// it ends this key if its ON went out, or, when this key never went
+            /// out, the predecessor whose carrier it stood for (round 12, F5).
+            /// </summary>
             internal bool NoteOffWritten(long mark)
             {
-                if (State != OnWritten) return false;
-                Interlocked.Exchange(ref _offMark, mark);
-                return Interlocked.CompareExchange(ref _state, OffWritten, OnWritten) == OnWritten;
+                var target = State == NeverWentState ? Previous : this;
+                if (target == null || target.State != OnWritten) return false;
+                Interlocked.Exchange(ref target._offMark, mark);
+                return Interlocked.CompareExchange(ref target._state, OffWritten, OnWritten) == OnWritten;
             }
 
             /// <summary>
@@ -291,9 +296,12 @@ namespace Radios
         /// <paramref name="mark"/> when its writer succeeded: the latest own key,
         /// if its ON went out (or it continues one that did), is now off.
         /// </summary>
-        private void NoteOwnOffWritten(long mark)
+        private void NoteOwnOffWritten(OwnKey? offFor, long mark)
         {
-            var key = LatestOwnKey;
+            // The key the OFF was asked for (round 12, Codex's #596 F5), not
+            // whichever is latest now: a newer ask published after this OFF was
+            // queued must not keep the earlier carrier's end from being recorded.
+            var key = offFor ?? LatestOwnKey;
             if (key != null && key.NoteOffWritten(mark)) RaiseOwnKeyChanged();
         }
 
@@ -344,7 +352,8 @@ namespace Radios
         private OwnKey? _latestOwnTune;
 
         /// <summary>Our transmit tune 0 was really written, dated at its writer's success (round 10, F2).</summary>
-        private void NoteOwnTuneOffWritten(long mark) => Volatile.Read(ref _latestOwnTune)?.NoteOffWritten(mark);
+        private void NoteOwnTuneOffWritten(OwnKey? offFor, long mark) =>
+            (offFor ?? Volatile.Read(ref _latestOwnTune))?.NoteOffWritten(mark);
 
         /// <summary>
         /// Why a carrier of OUR OWN keeps the transmit chain from being restored

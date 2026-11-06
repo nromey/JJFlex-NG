@@ -1327,7 +1327,10 @@ namespace Radios.Tests
             Assert.True(_f.Rig.LatestOwnKey!.NeverWent);
             Assert.Empty(MicPutBackNow());                        // round 10 wrote MIC here
             Interlock("READY", 0);
-            Assert.Single(MicPutBackNow());                        // and once the radio says receive, it goes
+            // Once the radio says receive, it goes: the direct put-back, and the
+            // earlier one kept owed may also be retried by that READY (round 12:
+            // asserting exactly one raced that retry).
+            Assert.NotEmpty(MicPutBackNow());
         }
 
         // ── Round 11, Codex's #596 B17: from the moment a key of ours is asked
@@ -1396,6 +1399,88 @@ namespace Radios.Tests
             Drained();
             Assert.True(_f.Rig.LatestOwnKey!.NeverWent);
             Assert.Single(MicPutBackNow());                        // nothing went out: the receive is enough
+        }
+
+        // ── Round 12, Codex's #596 B18: never gone out only on the queue's own answer ──
+
+        [Fact]
+        public void A_key_is_settled_never_gone_out_only_when_the_queue_dropped_it()
+        {
+            // Codex's B18: the key was settled from one look at MainLoop, the loop
+            // started before Enqueue looked again, and a key recorded as never
+            // gone out was written. Here the loop starts the moment the key is
+            // settled, as in Codex's schedule.
+            Interlock("READY", 0);
+            var settled = typeof(FlexBase).GetEvent("OwnKeyChanged", Private)!;
+            Action startTheLoop = () => _f.Rig.q.MainLoop = true;
+            _f.Rig.q.MainLoop = false;
+            settled.GetAddMethod(true)!.Invoke(_f.Rig, new object[] { startTheLoop });
+            try
+            {
+                new FlexBaseVoiceMessageRig(_f.Rig).Transmit = true;
+                _f.Rig.q.MainLoop = true;
+                Drained();
+                var key = _f.Rig.LatestOwnKey!;
+                Assert.True(key.NeverWent);
+                Assert.Empty(Commands("xmit 1"));            // never gone out, and never written
+            }
+            finally { settled.GetRemoveMethod(true)!.Invoke(_f.Rig, new object[] { startTheLoop }); }
+        }
+
+        [Fact]
+        public void A_tune_asked_while_the_queue_is_not_running_never_goes_out_and_one_asked_while_it_runs_does()
+        {
+            Interlock("READY", 0);
+            var latestTune = typeof(FlexBase).GetField("_latestOwnTune", Private)!;
+            _f.Rig.q.MainLoop = false;
+            _f.Rig.TxTune = true;
+            Assert.True(((FlexBase.OwnKey)latestTune.GetValue(_f.Rig)!).NeverWent);
+            _f.Rig.q.MainLoop = true;
+            Drained();
+            Assert.Empty(Commands("transmit tune 1"));
+            _f.Rig.TxTune = true;
+            Drained();
+            Assert.Single(Commands("transmit tune 1"));
+            Assert.False(((FlexBase.OwnKey)latestTune.GetValue(_f.Rig)!).NeverWent);
+        }
+
+        // ── Round 12, Codex's #596 F5: an OFF ends the key it was asked for ──
+
+        [Fact]
+        public void An_off_queued_before_a_newer_ask_ends_its_own_key_and_the_receive_after_it_releases_the_restore()
+        {
+            Interlock("READY", 0);
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            send.Transmit = true;
+            Drained();                                       // ON written
+            _hold = true;
+            send.Transmit = false;                           // OFF queued for that key
+            send.Transmit = true;                            // a newer ask, published before the OFF runs
+            _f.Rig.RevokeAdmittedTransmitWork("a drop (test)");
+            _hold = false;
+            Drained();
+            Assert.Single(Commands("xmit 0"));
+            Assert.True(_f.Rig.LatestOwnKey!.NeverWent);
+            Interlock("READY", 0);                           // the radio's word after our OFF
+            Assert.Null(_f.Rig.RestoreRefusedAtWrite(_f.Vendor.Radio, _f.Vendor.Radio.CurrentCommandConnection!));
+            Assert.NotEmpty(MicPutBackNow());                 // round 11 held this forever
+        }
+
+        [Fact]
+        public void A_tune_off_queued_before_a_newer_tune_ends_its_own_tune()
+        {
+            Interlock("READY", 0);
+            _f.Rig.TxTune = true;
+            Drained();                                       // tune ON written
+            _hold = true;
+            _f.Rig.TxTune = false;                           // OFF queued for that tune
+            _f.Rig.TxTune = true;                            // a newer tune asked
+            _f.Rig.RevokeAdmittedTransmitWork("a drop (test)");
+            _hold = false;
+            Drained();
+            Assert.Single(Commands("transmit tune 0"));
+            Interlock("READY", 0);
+            Assert.Null(_f.Rig.RestoreRefusedAtWrite(_f.Vendor.Radio, _f.Vendor.Radio.CurrentCommandConnection!));
         }
 
         private static int Count(string text, string what)
