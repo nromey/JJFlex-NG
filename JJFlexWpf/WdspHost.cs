@@ -351,6 +351,12 @@ namespace JJFlexWpf
         internal long SetSettingsSent;
         internal long SettingAcksReceived;
         internal long FramesSent;
+        /// <summary>CloseChannels queued, one per channel ever.</summary>
+        internal long CloseChannelsSent;
+        /// <summary>CloseChannelAcks that settled a channel this end had closed (Ok, or UnknownChannel for one the helper had already let go).</summary>
+        internal long CloseAcksSettled;
+        /// <summary>CloseChannelAcks this end could not place: traced, and nothing else.</summary>
+        internal long CloseAcksUnexpected;
         /// <summary>The condition of the last failure acted on, for the tests.</summary>
         internal WdspCondition? LastFailureCondition { get { lock (Gate) return _lastFailureCondition; } }
         private WdspCondition? _lastFailureCondition;
@@ -497,9 +503,12 @@ namespace JJFlexWpf
             ch.Closed = true;
             var c = ch.Conn;
             c.Lives = c.Lives.Where(l => l != ch).ToArray();
+            // Once per channel: Closed is set above, under the lock, so no path
+            // sends a second close, and nothing anywhere waits for this one's ack.
             if (ch.OpenSent && !c.Stopping)
             {
                 c.Control.Enqueue(WdspProtocol.Encode(new WdspCloseChannel(ch.Id)));
+                Interlocked.Increment(ref CloseChannelsSent);
                 c.Wake.Set();
             }
         }
@@ -1082,8 +1091,7 @@ namespace JJFlexWpf
                     else Trace.WriteLine($"WdspHost: discarded an OpenChannelAck for forgotten channel {ack.Channel}");
                     return;
                 case WdspCloseChannelAck ack:
-                    if (!c.ById.TryRemove(ack.Channel, out _) || ack.Result != WdspResult.Ok)
-                        Trace.WriteLine($"WdspHost: CloseChannelAck for channel {ack.Channel}: {ack.Result}");
+                    OnCloseAck(c, ack);
                     return;
                 case WdspSettingAck ack:
                     Interlocked.Increment(ref SettingAcksReceived);
@@ -1104,6 +1112,43 @@ namespace JJFlexWpf
                     return;
             }
         }
+
+        /// <summary>
+        /// A CloseChannelAck. JJ Flexible sends one close per channel and never
+        /// waits for its answer. The helper, as repaired, gives a close repeated
+        /// before its ack no answer of its own, and answers UnknownChannel to a
+        /// close it reads after the channel has left its table: a channel closed
+        /// while a build was failing, an open it refused, or a repeat read just
+        /// after the ack was queued. So for a channel this connection has closed,
+        /// Ok and UnknownChannel both simply settle it. Anything else means the
+        /// two ends disagree about a channel, and is traced as that.
+        /// </summary>
+        private void OnCloseAck(WdspConnection c, WdspCloseChannelAck ack)
+        {
+            c.ById.TryGetValue(ack.Channel, out var ch);
+            if (ch != null && !ch.Closed)
+            {
+                // Kept: the channel is still ours, and its frames are still wanted.
+                Interlocked.Increment(ref CloseAcksUnexpected);
+                Trace.WriteLine($"WdspHost: the helper answered a close for channel {ack.Channel}, which JJ Flexible has not closed: {ResultName(ack.Result)}");
+                return;
+            }
+            if (ch != null) c.ById.TryRemove(ack.Channel, out _);
+            bool issued = ack.Channel != 0 && ack.Channel < Volatile.Read(ref c.NextChannelId);
+            bool settles = ack.Result == WdspResult.Ok ? ch != null : ack.Result == WdspResult.UnknownChannel && issued;
+            if (!settles)
+            {
+                Interlocked.Increment(ref CloseAcksUnexpected);
+                Trace.WriteLine($"WdspHost: a CloseChannelAck JJ Flexible cannot place, for channel {ack.Channel}: {ResultName(ack.Result)}");
+                return;
+            }
+            Interlocked.Increment(ref CloseAcksSettled);
+            if (ack.Result != WdspResult.Ok)
+                Trace.WriteLine($"WdspHost: channel {ack.Channel}'s close was answered UnknownChannel, as expected: the helper had already let it go");
+        }
+
+        private static string ResultName(WdspResult result) =>
+            WdspProtocol.IsKnownResult(result) ? result.ToString() : "code " + (ushort)result;
 
         private static bool RateAllows(WdspConnection c)
         {

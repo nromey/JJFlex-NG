@@ -32,6 +32,14 @@
 //                            helper refusing a first message)
 //   --fatal-after <n>        after n frames, send Error 257 naming a limit, close, exit 6
 //                            (the helper's answer to a client that overflows a bound)
+//   --fail-build <n>:<ms>    hold the n-th OpenChannel ms, then answer ChannelBuildFailed;
+//                            closes read meanwhile get one CloseChannelAck UnknownChannel
+//                            after it, as the helper answers a channel closed during a
+//                            build that failed
+//   --close-unknown          answer every CloseChannel UnknownChannel (the helper's answer
+//                            to a close it reads after the channel left its table)
+//   --swallow-closes         answer no CloseChannel at all (the helper's answer to a
+//                            close repeated before its ack)
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -72,6 +80,10 @@ internal static class Program
     private static bool _answered;
     private static bool _errorFirst;
     private static int _fatalAfter = -1;
+    private static int _failBuild = -1, _failBuildMs, _opens;
+    private static bool _closeUnknown, _swallowCloses;
+    /// <summary>Channels whose build is pending a failure, and how many closes each has had meanwhile. Under Channels' lock.</summary>
+    private static readonly Dictionary<uint, int> Building = new();
 
     private sealed class StubChannel
     {
@@ -118,6 +130,9 @@ internal static class Program
                     case "--exit-early": Environment.Exit(int.Parse(Next(), CultureInfo.InvariantCulture)); break;
                     case "--error-first": _errorFirst = true; break;
                     case "--fatal-after": _fatalAfter = int.Parse(Next(), CultureInfo.InvariantCulture); break;
+                    case "--fail-build": (_failBuild, _failBuildMs) = Pair(); break;
+                    case "--close-unknown": _closeUnknown = true; break;
+                    case "--swallow-closes": _swallowCloses = true; break;
                     case "--slow-open": { var p = Next().Split(':'); _slowOpenEngine = p[0]; _slowOpenMs = int.Parse(p[1], CultureInfo.InvariantCulture); break; }
                     default: throw new FormatException("unknown argument " + args[i]);
                 }
@@ -282,7 +297,13 @@ internal static class Program
                 }
                 Work.Add(frame);
                 return;
-            case WdspSetSetting or WdspCloseChannel: Work.Add(message); return;
+            case WdspCloseChannel close:
+                lock (Channels)
+                    if (Building.TryGetValue(close.Channel, out int held)) { Building[close.Channel] = held + 1; return; }
+                if (_swallowCloses) return;
+                Work.Add(message);
+                return;
+            case WdspSetSetting: Work.Add(message); return;
             case WdspHeartbeat or WdspError: return;
         }
     }
@@ -294,6 +315,19 @@ internal static class Program
         WdspOpenChannelAck ack;
         lock (Channels)
         {
+            if (++_opens == _failBuild && open.Channel != 0 && UsedIds.Add(open.Channel))
+            {
+                Building[open.Channel] = 0;
+                new Thread(() =>
+                {
+                    Thread.Sleep(_failBuildMs);
+                    int closes;
+                    lock (Channels) { closes = Building[open.Channel]; Building.Remove(open.Channel); }
+                    Send(Refuse(WdspResult.ChannelBuildFailed, "the build failed, by the test's command line"));
+                    if (closes > 0) Send(new WdspCloseChannelAck(open.Channel, WdspResult.UnknownChannel));
+                }) { IsBackground = true }.Start();
+                return;
+            }
             if (open.Channel == 0 || !UsedIds.Add(open.Channel)) ack = Refuse(WdspResult.ChannelIdInUse, "id in use");
             else if (!Engines.TryGetValue(open.EngineId, out var descriptors) || Omit.Contains(open.EngineId)) ack = Refuse(WdspResult.EngineNotOffered, $"engine {open.EngineId} is not offered");
             else if (open.Direction > 1) ack = Refuse(WdspResult.DirectionNotServed, "unknown direction");
@@ -399,7 +433,7 @@ internal static class Program
                 {
                     bool had;
                     lock (Channels) had = Channels.Remove(close.Channel);
-                    Send(new WdspCloseChannelAck(close.Channel, had ? WdspResult.Ok : WdspResult.UnknownChannel));
+                    Send(new WdspCloseChannelAck(close.Channel, had && !_closeUnknown ? WdspResult.Ok : WdspResult.UnknownChannel));
                     break;
                 }
             }

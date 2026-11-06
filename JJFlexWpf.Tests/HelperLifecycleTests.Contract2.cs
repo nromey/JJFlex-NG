@@ -93,6 +93,84 @@ public sealed partial class HelperLifecycleTests
         Assert.Single(rig.Host.LaunchedProcessIds);
     }
 
+    // ------------------------------------------------------------------ closes
+
+    /// <summary>
+    /// A channel closed while its build was failing: the helper answers the
+    /// open (ChannelBuildFailed), then the close, UnknownChannel, because the
+    /// channel never reached its table. That answer settles a channel this
+    /// end closed; it is not the two ends disagreeing. One close per channel.
+    /// </summary>
+    [Fact]
+    public void A_close_answered_UnknownChannel_after_a_failed_build_settles_the_channel()
+    {
+        // A linger longer than the build, so the helper is still there to answer.
+        using var rig = new HelperTestRig(n => n == 1 ? new[] { "--fail-build", "2:600" } : Array.Empty<string>(),
+            HelperTestRig.Fast with { Linger = TimeSpan.FromSeconds(3) });
+        var engine = rig.Engine("nnr");
+        Assert.True(engine.IsAvailable);
+        engine.Reset(); // closes channel 1 (Ok) and opens channel 2, whose build will fail
+        HelperTestRig.Until(() => engine.Channel?.Id == 2, "the reopen to be sent");
+        Thread.Sleep(100); // inside the 600 ms build
+        engine.Dispose(); // the close for channel 2 goes in while it is being built
+        HelperTestRig.Until(() => Interlocked.Read(ref rig.Host.CloseAcksSettled) == 2, "both closes settled", 5000);
+        Thread.Sleep(200);
+        Assert.Equal(2, Interlocked.Read(ref rig.Host.CloseChannelsSent));
+        Assert.Equal(2, Interlocked.Read(ref rig.Host.CloseAcksSettled));
+        Assert.Equal(0, Interlocked.Read(ref rig.Host.CloseAcksUnexpected));
+        Assert.Equal(1, rig.Host.LaunchedProcessIds.Count);
+    }
+
+    /// <summary>
+    /// A close the helper reads after the channel left its table is answered
+    /// UnknownChannel (its README: a repeat read just after the ack was queued
+    /// "may be answered either way"). For a channel this end closed, that too
+    /// just settles it.
+    /// </summary>
+    [Fact]
+    public void A_close_answered_UnknownChannel_for_a_closed_channel_settles_it()
+    {
+        using var rig = new HelperTestRig(_ => new[] { "--close-unknown" });
+        var engine = rig.Engine("nr2");
+        Assert.True(engine.IsAvailable);
+        engine.Dispose();
+        HelperTestRig.Until(() => Interlocked.Read(ref rig.Host.CloseAcksSettled) == 1, "the close settled", 5000);
+        Assert.Equal(1, Interlocked.Read(ref rig.Host.CloseChannelsSent));
+        Assert.Equal(0, Interlocked.Read(ref rig.Host.CloseAcksUnexpected));
+    }
+
+    /// <summary>
+    /// The helper gives a close repeated before its ack no answer at all, so
+    /// nothing may ever wait for a close's answer. Against a stub that answers
+    /// no close: a channel closes, another opens and runs beside the silence,
+    /// a second Dispose and a Reset after it send nothing more, and the helper
+    /// still stops on time when the last engine goes.
+    /// </summary>
+    [Fact]
+    public void Nothing_waits_for_the_answer_to_a_close()
+    {
+        using var rig = new HelperTestRig(_ => new[] { "--swallow-closes" });
+        var first = rig.Engine("nnr");
+        Assert.True(first.IsAvailable);
+        int pid = rig.Host.CurrentProcessId!.Value;
+        first.Dispose();
+        first.Dispose();
+        first.Reset();
+        var second = rig.Engine("nr2"); // inside the linger: the same helper
+        Assert.True(second.IsAvailable);
+        Assert.Equal(pid, rig.Host.CurrentProcessId);
+        var input = new float[480]; var output = new float[480];
+        int answered = 0;
+        for (int i = 0; i < 30; i++) { HelperTestRig.Pace(second); if (second.ProcessFrame(input, output)) answered++; }
+        Assert.True(answered >= 20, $"only {answered} of 30 frames answered beside an unanswered close");
+        Assert.Equal(1, Interlocked.Read(ref rig.Host.CloseChannelsSent));
+        second.Dispose();
+        Assert.True(HelperTestRig.Gone(pid, 3000), "the helper outlived the linger while closes went unanswered");
+        HelperTestRig.Until(() => rig.Host.State == WdspHelperState.Idle, "idle");
+        Assert.Equal(2, Interlocked.Read(ref rig.Host.CloseChannelsSent));
+        Assert.Equal(0, Interlocked.Read(ref rig.Host.CloseAcksSettled));
+    }
+
     /// <summary>The words for each code, held to the helper's README so a renamed code cannot drift silently.</summary>
     [Fact]
     public void Each_exit_code_has_its_own_words_and_only_6_is_a_protocol_error()
