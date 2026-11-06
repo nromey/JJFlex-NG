@@ -7686,10 +7686,22 @@ namespace Flex.Smoothlake.FlexLib
             {
                 string new_value = StringHelper.Sanitize(value.ToUpper());
 
-                if (_callsign != new_value)
+                // JJFlex patch (MIGRATION.md item 23): the check and the cache
+                // write take the identity gate, and the command is built from
+                // new_value, never by reading _callsign again, which a report
+                // on the reader thread can change in between. Nothing is sent
+                // or raised while the gate is held.
+                bool changed;
+                lock (_identityGate)
                 {
-                    _callsign = new_value;
-                    SendCommand("radio callsign " + _callsign);
+                    changed = _callsign != new_value;
+                    if (changed) _callsign = new_value;
+                }
+
+                if (changed)
+                {
+                    AfterIdentityCached?.Invoke();
+                    SendCommand("radio callsign " + new_value);
                     RaisePropertyChanged(nameof(Callsign));
                 }
                 else if (new_value != value)
@@ -7712,10 +7724,19 @@ namespace Flex.Smoothlake.FlexLib
             {
                 string new_value = StringHelper.Sanitize(value);
 
-                if (_nickname != new_value)
+                // JJFlex patch (MIGRATION.md item 23): as Callsign above, the
+                // command carries new_value, not a second read of _nickname.
+                bool changed;
+                lock (_identityGate)
                 {
-                    _nickname = new_value;
-                    SendCommand("radio name " + _nickname);
+                    changed = _nickname != new_value;
+                    if (changed) _nickname = new_value;
+                }
+
+                if (changed)
+                {
+                    AfterIdentityCached?.Invoke();
+                    SendCommand("radio name " + new_value);
                     RaisePropertyChanged(nameof(Nickname));
                 }
                 else if (new_value != value)
@@ -7774,9 +7795,17 @@ namespace Flex.Smoothlake.FlexLib
             if (callsignChanged) RaisePropertyChanged(nameof(Callsign));
         }
 
-        // JJFlex patch: guards the radio's identity fields against a list copy
-        // racing the radio's own reports and the Connected flag (MIGRATION.md item 23).
+        // JJFlex patch: guards the radio's identity fields (MIGRATION.md item 23).
+        // Taken by every writer: the list copy, the radio's own reports (status and
+        // info), the Connected flag, and the two sending setters. Only field reads
+        // and writes happen under it; nothing is sent or raised while it is held.
         private readonly object _identityGate = new object();
+
+        // JJFlex patch (MIGRATION.md item 23): a test seam, null in the product.
+        // Invoked by the Callsign and Nickname setters after the gated cache write
+        // and before the command is built, which is exactly where a report on the
+        // reader thread could land; the tests land one there.
+        internal Action AfterIdentityCached;
 
         private int _num_tx = 0;
         /// <summary>

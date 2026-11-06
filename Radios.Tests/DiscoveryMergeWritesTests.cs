@@ -211,7 +211,7 @@ namespace Radios.Tests
         }
 
         /// <summary>Take the fake command transport down, as a radio we are not talking to has it.</summary>
-        private static void DropTransport(VendorRadioFixture vendor)
+        internal static void DropTransport(VendorRadioFixture vendor)
         {
             var current = typeof(CommandCommunicationBase).GetProperty("CurrentConnection")!.GetValue(vendor.Transport);
             typeof(CommandCommunicationBase).GetMethod("PublishDisconnected", BindingFlags.NonPublic | BindingFlags.Instance)!
@@ -309,6 +309,23 @@ namespace Radios.Tests
                 Assert.DoesNotContain("_callbacks.GetCallsign()", body, StringComparison.Ordinal);
                 Assert.DoesNotContain("_callbacks.GetNickname()", body, StringComparison.Ordinal);
             }
+
+            // Repair round 3, Codex F4: the commit helpers and the baselines.
+            // Each box and its baseline are filled together; each commit goes
+            // through the one tested decision, with its own box, callbacks and
+            // rule, and assigns the baseline from its result.
+            string show = Body(dialog, "private void ShowValues(");
+            Assert.Contains("CallBox.Text = _shownCallsign = ", show, StringComparison.Ordinal);
+            Assert.Contains("NameBox.Text = _shownNickname = ", show, StringComparison.Ordinal);
+            string call = dialog.Substring(dialog.IndexOf("private void CommitCallsignIfEdited()", StringComparison.Ordinal));
+            call = call.Substring(0, call.IndexOf(';') + 1);
+            Assert.Contains("_shownCallsign = CommitIdentity(_shownCallsign, CallBox.Text,", call, StringComparison.Ordinal);
+            Assert.Contains("_callbacks.SetCallsign, _callbacks.GetCallsign, Radios.FlexBase.CallsignAsTheRadioKeepsIt", call, StringComparison.Ordinal);
+            string name = dialog.Substring(dialog.IndexOf("private void CommitNicknameIfEdited()", StringComparison.Ordinal));
+            name = name.Substring(0, name.IndexOf(';') + 1);
+            Assert.Contains("_shownNickname = CommitIdentity(_shownNickname, NameBox.Text,", name, StringComparison.Ordinal);
+            Assert.Contains("_callbacks.SetNickname(name), _callbacks.GetNickname, Radios.FlexBase.NicknameAsTheRadioKeepsIt", name, StringComparison.Ordinal);
+            Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(dialog, @"_callbacks\.Set(Callsign|Nickname)\b").Count);
         }
 
         /// <summary>The FlexLib patch that makes the update silent, pinned at its source (MIGRATION.md item 23).</summary>
@@ -443,7 +460,7 @@ namespace Radios.Tests
             return list;
         }
 
-        private static string Body(string text, string signature)
+        internal static string Body(string text, string signature)
         {
             int start = text.IndexOf(signature, StringComparison.Ordinal);
             Assert.True(start >= 0, signature + " is not where this test reads it.");
@@ -458,7 +475,7 @@ namespace Radios.Tests
             return "";
         }
 
-        private static string RepoRoot()
+        internal static string RepoRoot()
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);
             while (dir != null && !File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln")))

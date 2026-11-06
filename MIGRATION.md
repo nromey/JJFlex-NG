@@ -216,9 +216,20 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     nickname, `UpdateInfo` callsign and name) and the `Connected` setter take
     the same gate. Without it a copy could write the name, a connect and the
     radio's own report could land during its notification, and the copy then
-    wrote the stale callsign over the report. Keep all six gated sites on a new
-    drop. Pinned by
-    `Radios.Tests/DiscoveryMergeWritesTests`. Numbered 23 because items 21 and
+    wrote the stale callsign over the report. **Repair round 3 (2026-11-06)
+    patches the two sending setters themselves.** `Callsign` and `Nickname`
+    assigned the sanitized value to the shared field and then built the command
+    by reading that field AGAIN, so a report received in between was put on the
+    wire as if the operator had typed it. Each now does its check and write
+    under the same gate and builds the command from its own sanitized value;
+    the command and the notification go out after the gate is released. The
+    setters also carry a test seam, `AfterIdentityCached`, null in the product,
+    invoked between the write and the command. Keep all eight gated sites on a
+    new drop: the list copy, the two parser cases in `ParseRadioStatus`, the two
+    in `UpdateInfo`, the `Connected` setter, and both setters. Pinned by
+    `Radios.Tests/DiscoveryMergeWritesTests` and `Radios.Tests/IdentityGateTests`
+    (a contention row per site, the wire argument under a landed report, and a
+    source pin that nothing is raised or sent inside the gate). Numbered 23 because items 21 and
     22 are taken on branches not yet merged (the 2026-11-02 junk box's write-time
     gate and forced writes, and the r5-tuning branch's own 22); renumber at merge
     if those land differently. Keep it until a FlexLib release offers a

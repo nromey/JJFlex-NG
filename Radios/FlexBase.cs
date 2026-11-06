@@ -9654,6 +9654,18 @@ namespace Radios
         }
 
         /// <summary>
+        /// A typed callsign as the radio keeps it: FlexLib's setter upper-cases
+        /// and sanitizes. Radio Info compares with this to learn whether an
+        /// edit took (#477, repair round 3).
+        /// </summary>
+        public static string CallsignAsTheRadioKeepsIt(string typed)
+            => Flex.Util.StringHelper.Sanitize((typed ?? string.Empty).ToUpper());
+
+        /// <summary>A typed name as the radio keeps it: <see cref="RenameRadio"/> trims, FlexLib sanitizes.</summary>
+        public static string NicknameAsTheRadioKeepsIt(string typed)
+            => Flex.Util.StringHelper.Sanitize((typed ?? string.Empty).Trim());
+
+        /// <summary>
         /// The front-panel display (screensaver) mode choices the radio
         /// understands, as displayable names. Model-independent — FlexLib
         /// defines one enum for the whole line.
