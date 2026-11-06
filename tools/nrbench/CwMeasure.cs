@@ -41,9 +41,12 @@ partial class BenchApp
     /// <summary>How far a stretch's level spread must exceed noise alone's before keying there counts as seen.</summary>
     const double CertainMarginDb = 3;
     /// <summary>
-    /// A gap must sit near the local floor: within this share of noise alone's spread. A block above
-    /// that and below the key-down threshold is too loud for noise and too quiet for key-down here,
-    /// which is what a faded element beside strong ones looks like, so it is neither.
+    /// A gap must sit near the local floor: within this share of white noise's spread, or within the
+    /// recording's own spread of its quieter blocks (their 90th percentile above the floor), whichever
+    /// is larger. A block above that and below the key-down threshold is too loud for noise and too
+    /// quiet for key-down here, which is what a faded element beside strong ones looks like, so it
+    /// is neither. The recording's own figure matters on air: static, a fast AGC recovering, and a
+    /// station's own decay between elements all spread real gaps wider than white noise does.
     /// </summary>
     const double GapCeilingShare = .75;
 
@@ -307,14 +310,25 @@ partial class BenchApp
         var raw = new bool?[n];
         // The tone band is down only 25 dB 70 Hz away (and 33 dB at 75), so a strong neighbour keying
         // while this station is silent shows in it as faint elements. Where a named neighbour is
-        // louder in its own band than this station is in its, the block belongs to neither.
+        // keyed and louder in its own band than this station is in its, the block belongs to neither.
         var louder = new bool[n];
         if (others != null && Mutation != "cw-no-station-veto")
+        {
             foreach (double o in others)
             {
+                // Only while the neighbour is KEYED (above its own local midpoint, where its keying
+                // can be seen at all): between its elements its band holds noise like ours.
                 var other = Median3(ToneBlocks(reference, o));
-                for (int i = 0; i < n && i < other.Length; i++) louder[i] |= other[i] > smooth[i];
+                var (of, op) = LocalSpread(other);
+                for (int i = 0; i < n && i < other.Length; i++)
+                    louder[i] |= op[i] - of[i] >= NoiseSpreadDb() + CertainMarginDb && other[i] > of[i] + (op[i] - of[i]) / 2 && other[i] > smooth[i];
             }
+            // Widened by the edge guard, so the neighbour's element edges go with it.
+            var wide = new bool[n];
+            for (int i = 0; i < n; i++)
+                if (louder[i]) for (int j = Math.Max(0, i - EdgeGuardBlocks); j <= Math.Min(n - 1, i + EdgeGuardBlocks); j++) wide[j] = true;
+            louder = wide;
+        }
         double minContrast = NoiseSpreadDb() + CertainMarginDb, reported;
         if (Mutation == "cw-global-threshold")
         {
@@ -328,6 +342,13 @@ partial class BenchApp
             // local key-down level, so a fade lowers it with the signal. Where the stretch spreads
             // no more than noise would, nothing is classified.
             var (floor, peak) = LocalSpread(smooth);
+            var quiet = new List<double>();
+            for (int i = 0; i < n; i++)
+            {
+                double contrast = peak[i] - floor[i];
+                if (contrast >= minContrast && smooth[i] <= floor[i] + contrast / 2) quiet.Add(smooth[i] - floor[i]);
+            }
+            double ceiling = Math.Max(GapCeilingShare * (minContrast - CertainMarginDb), quiet.Count > 0 ? Percentile(quiet.Order().ToArray(), .9) : 0);
             var thresholds = new List<double>();
             for (int i = 0; i < n; i++)
             {
@@ -335,7 +356,7 @@ partial class BenchApp
                 if (contrast < minContrast) { raw[i] = null; continue; }
                 double t = floor[i] + contrast / 2;
                 thresholds.Add(t);
-                raw[i] = smooth[i] > t ? true : smooth[i] <= Math.Min(t, floor[i] + GapCeilingShare * (minContrast - CertainMarginDb)) ? false : null;
+                raw[i] = smooth[i] > t ? true : smooth[i] <= Math.Min(t, floor[i] + ceiling) ? false : null;
             }
             reported = thresholds.Count > 0 ? Percentile(thresholds.Order().ToArray(), .5) : double.NaN;
         }
@@ -349,9 +370,10 @@ partial class BenchApp
         for (int i = 0; i < n; i++)
         {
             if (raw[i] == null) continue;
-            bool same = true;
-            for (int j = Math.Max(0, i - g); j <= Math.Min(n - 1, i + g); j++) same &= raw[j] == raw[i];
-            key[i] = same ? raw[i] : null;
+            // Dropped only near the OPPOSITE class: a block beside an unclassified one is still what it is.
+            bool clear = true;
+            for (int j = Math.Max(0, i - g); j <= Math.Min(n - 1, i + g); j++) clear &= raw[j] == null || raw[j] == raw[i];
+            key[i] = clear ? raw[i] : null;
         }
         var elements = new List<CwElement>();
         int shortOnes = 0;

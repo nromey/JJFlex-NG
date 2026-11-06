@@ -112,11 +112,21 @@ partial class BenchApp
     sealed record CwStation(CwStationSpec Spec, CwMask Mask);
 
     /// <summary>One file's line for a second station, against the reference and against the main station's own change.</summary>
-    static string StationLine(CwStation st, CwFigures file, CwFigures reference, double mainChangeDb)
+    /// <summary>A second station's figures, or null where too little of it can be classified to measure.</summary>
+    static CwFigures? TryMeasure(float[] x, CwMask mask, double pitch, double lo, double hi, IReadOnlyList<double> others, int lag)
     {
+        try { return Measure(x, mask, pitch, lo, hi, others, lag); }
+        catch (InvalidOperationException) { return null; }
+    }
+
+    static string StationLine(CwStation st, CwFigures? file, CwFigures? reference, double mainChangeDb)
+    {
+        if (file == null || reference == null)
+            return $"  the station at {st.Spec.Words}: too little of it can be classified element by element to measure (see cwband for a long-average reading).";
         var s = Survival(file, reference, mainChangeDb);
         if (double.IsNaN(s.StationChangeDb)) return $"  the station at {st.Spec.Words}: too few of its elements seen to follow ({s.Measured}).";
         return $"  the station at {st.Spec.Words}: {s.StationChangeDb - mainChangeDb:+0.0;-0.0;0.0} dB against the main station; elements kept {s.Kept} of {s.Measured}; " +
+               $"its weakest third of elements {s.WeakAgainstStrongDb:+0.0;-0.0;0.0} dB against its strongest half; " +
                $"key-down {file.Separation:0.0} dB above its gaps ({file.Separation - reference.Separation:+0.0;-0.0;0.0} dB against the capture).";
     }
 
@@ -173,9 +183,9 @@ partial class BenchApp
         Console.WriteLine($"{name}: pitch {pitch:0.0} Hz{(pitchHz != null ? $" (given; the finder chose {found.Hz:0.0})" : "")}; passband {pass.Lo:0} to {pass.Hi:0} Hz.");
 
         Directory.CreateDirectory(outDir);
-        var renders = new List<(int Number, CwEngine Engine, string Kind, float[] Audio, CwFigures Figures, double KeyDb, List<CwFigures> Stations)>();
+        var renders = new List<(int Number, CwEngine Engine, string Kind, float[] Audio, CwFigures Figures, double KeyDb, List<CwFigures?> Stations)>();
         CwFigures? wideRef = null, narrowRef = null;
-        var stationRefs = new List<CwFigures>();
+        var stationRefs = new List<CwFigures?>();
         var refused = new List<string>();
         int number = 0;
         foreach (string id in order)
@@ -200,7 +210,7 @@ partial class BenchApp
                 number++;
                 // Every render here has its delay removed, so it is aligned by construction: no search.
                 var f = Measure(audio, mask, pitch, lo, hi, others, 0);
-                var st = stations.Select(s => Measure(audio, s.Mask, s.Spec.Hz, lo, hi, new[] { pitch }.Concat(others.Where(o => o != s.Spec.Hz)).ToArray(), 0)).ToList();
+                var st = stations.Select(s => TryMeasure(audio, s.Mask, s.Spec.Hz, lo, hi, new[] { pitch }.Concat(others.Where(o => o != s.Spec.Hz)).ToArray(), 0)).ToList();
                 if (engine.Stage == null && kind == "wide") { wideRef = f; stationRefs = st; }
                 if (engine.Stage == null && kind == "narrow") narrowRef = f;
                 renders.Add((number, engine, kind, audio, f, KeyDownRmsDb(narrow, mask, 0), st));
@@ -277,8 +287,8 @@ partial class BenchApp
                           $"{mask.Key.Count(k => k == true)} key-down and {mask.Key.Count(k => k == false)} gap blocks, {mask.Elements.Length} elements, " +
                           $"{100.0 * mask.UncertainBlocks / mask.Key.Length:0} percent too faint or too near an edge to classify.");
         foreach (var s in stations) Console.WriteLine($"Also followed: the station at {s.Spec.Words}, {s.Mask.Elements.Length} elements seen.");
-        CwFigures StationFigures(float[] x, CwStation s, double lo, double hi) =>
-            Measure(x, s.Mask, s.Spec.Hz, lo, hi, new[] { pitch }.Concat(others.Where(o => o != s.Spec.Hz)).ToArray(), lag ?? 0);
+        CwFigures? StationFigures(float[] x, CwStation s, double lo, double hi) =>
+            TryMeasure(x, s.Mask, s.Spec.Hz, lo, hi, new[] { pitch }.Concat(others.Where(o => o != s.Spec.Hz)).ToArray(), lag ?? 0);
         var wideRef = Measure(capture, mask, pitch, pass.Lo, pass.Hi, others, 0);
         var stationRefs = stations.Select(s => StationFigures(capture, s, pass.Lo, pass.Hi)).ToList();
         var narrowCapture = NarrowBand(capture, pitch, width);
