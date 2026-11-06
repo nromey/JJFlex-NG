@@ -2161,11 +2161,12 @@ namespace Radios.Tests
             // different hat.
             // And at Chatty the width is whole hertz with its label (#747,
             // ruled 2026-11-05: "k on terse and 00 on chatty", and 2026-11-06
-            // J13: "wide at end is fine"); this pinned "2.7 kilohertz" here
-            // until the first, and "2700 hertz" until the second.
+            // J15: "filter 100 to 2850, width 2750 hertz"); this pinned "2.7
+            // kilohertz" here until the first, "2700 hertz" until J13, and
+            // "2700 hertz wide" until J15.
             var (h, _) = OpenFilter(VerbosityLevel.Chatty);
             Assert.Equal(
-                "Filter layer. RX filter 100 to 2800, 2700 hertz wide. Press H for a list of keys, Escape to revert changes, Enter to accept.",
+                "Filter layer. RX filter 100 to 2800, width 2700 hertz. Press H for a list of keys, Escape to revert changes, Enter to accept.",
                 Assert.Single(h.Said));
             Assert.Equal("receive", h.Layer.CurrentGroup);
             Assert.Null(h.Layer.CurrentTarget);

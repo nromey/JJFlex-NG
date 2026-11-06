@@ -34,8 +34,8 @@ namespace Radios
     /// Diagnostic as Chatty does. Below 1 kHz a width is its plain number at
     /// every level, as it always was.</para>
     /// <para><b>A filter READOUT labels its width at Chatty</b> (Noel,
-    /// 2026-11-06, night question J13): "Filter 100 to 2900, 2800 hertz
-    /// wide", through <see cref="ReadoutWidth(int, HertzUnitStyle)"/>. Terse
+    /// 2026-11-06, J13 and then J15): "Filter 100 to 2900, width 2800
+    /// hertz", through <see cref="ReadoutWidth(int, HertzUnitStyle)"/>. Terse
     /// keeps the kilo form.</para>
     /// <para><b>The kilo form never rounds</b> (Claude's reading of the ruling,
     /// to be confirmed with Noel): it carries exactly the decimals the value
@@ -79,19 +79,23 @@ namespace Radios
 
         /// <summary>
         /// The width in a filter READOUT, spoken after the filter's edges:
-        /// "Filter 100 to 2900, 2.8 k" at Terse and "Filter 100 to 2900, 2800
-        /// hertz wide" at Chatty.
+        /// "Filter 100 to 2900, 2.8 k" at Terse and "Filter 100 to 2900, width
+        /// 2800 hertz" at Chatty.
         /// </summary>
         /// <remarks>
         /// <b>Noel's ruling, 2026-11-06 11:38 and 11:39 (night question
         /// J13):</b> keep the Terse readout as it is, the never-rounding kilo
         /// form (<i>"This is great for terse"</i>); at Chatty the width gets a
         /// label, not a bare number (<i>"As currently designed, you just get a
-        /// number thrown at you"</i>), and <i>"wide at end is fine"</i>. So
-        /// Critical and Terse speak <paramref name="terseStyle"/> exactly as
+        /// number thrown at you"</i>). <b>J15, 16:01, replacing J13's "hertz
+        /// wide":</b> <i>"I didn't know we had width in there when I suggested
+        /// wide. I'd do a combination. I'd say filter 100 to 2850, width 2750
+        /// hertz"</i>, for every Chatty filter readout. So Critical and Terse
+        /// speak <paramref name="terseStyle"/> exactly as
         /// <see cref="Width(int, HertzUnitStyle, VerbosityLevel)"/> does, and
-        /// Chatty and Diagnostic speak the whole number of hertz followed by
-        /// "hertz wide", at every width, below 1 kHz too.
+        /// Chatty and Diagnostic speak "width", the whole number of hertz and
+        /// "hertz", at every width, below 1 kHz too ("width 500 hertz"; J16
+        /// keeps Terse's bare "500").
         /// </remarks>
         public static string ReadoutWidth(int hz, HertzUnitStyle terseStyle)
             => ReadoutWidth(hz, terseStyle, ScreenReaderOutput.CurrentVerbosity);
@@ -100,7 +104,7 @@ namespace Radios
         public static string ReadoutWidth(int hz, HertzUnitStyle terseStyle, VerbosityLevel level)
             => SpeaksKiloForm(level)
                 ? Width(hz, terseStyle, level)
-                : Lexicon.Get("settings.filter.width_hertz_wide", ("width", hz.ToString(CultureInfo.CurrentCulture)));
+                : Lexicon.Get("settings.filter.width_named_hertz", ("width", hz.ToString(CultureInfo.CurrentCulture)));
 
         /// <summary>
         /// A width to SHOW: the never-rounding kilo form at and above 1 kHz,

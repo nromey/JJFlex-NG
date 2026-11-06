@@ -38,7 +38,7 @@ namespace Radios.Tests
         {
             string keys = Src("JJFlexWpf", "KeyCommands.cs");
             // A filter readout's width since the J13 ruling (2026-11-06):
-            // "2.75 k" at Terse, "2750 hertz wide" at Chatty, with the
+            // "2.75 k" at Terse, "width 2750 hertz" at Chatty (J15), with the
             // sentence itself on the verbosity dial.
             string rx = Statement(keys, "rx.Width = () =>");
             Assert.Contains("Radios.HertzSpeech.ReadoutWidth(rx.Bank.Width, Radios.HertzUnitStyle.KiloLetter)", rx, StringComparison.Ordinal);
@@ -52,7 +52,7 @@ namespace Radios.Tests
         /// Every filter READOUT, the ones that say the edges and then the
         /// width, takes its width from <see cref="HertzSpeech.ReadoutWidth(int, HertzUnitStyle)"/>:
         /// the bracket keys, the layer's report and the Ctrl+J readouts
-        /// (J13, Noel 2026-11-06: "Filter 100 to 2900, 2800 hertz wide").
+        /// (J15, Noel 2026-11-06: "Filter 100 to 2900, width 2800 hertz").
         /// </summary>
         [Fact]
         public void Every_filter_readout_takes_the_readout_width()

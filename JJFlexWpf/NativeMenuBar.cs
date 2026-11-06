@@ -1870,9 +1870,11 @@ public class NativeMenuBar : IDisposable
         });
 
         // #888: these step the one AGC field, so with AGC off they move the
-        // off gain and say so; otherwise the threshold, as always.
-        AddWired(parent, "AGC Threshold Up", () => AdjustAgcField(FlexBase.AGCThresholdIncrement));
-        AddWired(parent, "AGC Threshold Down", () => AdjustAgcField(-FlexBase.AGCThresholdIncrement));
+        // off gain and say so; otherwise the threshold, as always. Named
+        // "AGC Level", true in both modes (Noel, 2026-11-06, J18; they were
+        // "AGC Threshold Up" and "Down").
+        AddWired(parent, "AGC Level Up", () => AdjustAgcField(FlexBase.AGCThresholdIncrement));
+        AddWired(parent, "AGC Level Down", () => AdjustAgcField(-FlexBase.AGCThresholdIncrement));
 
         AddSep(parent);
 

@@ -97,8 +97,9 @@ namespace Radios.Tests
         }
 
         // ------------------------------------------------------------------
-        // The J13 ruling (Noel, 2026-11-06 11:38 and 11:39): a filter READOUT
-        // says "Filter 100 to 2900, 2800 hertz wide" at Chatty, and keeps the
+        // The J13 and J15 rulings (Noel, 2026-11-06 11:38 and 16:01): a filter
+        // READOUT says "Filter 100 to 2900, width 2800 hertz" at Chatty (J15
+        // replaced J13's "2800 hertz wide" on every one), and keeps the
         // never-rounding kilo form at Terse. Every expected string below is a
         // hand-written literal, assembled as the operator hears it, and DRAFT.
         // ------------------------------------------------------------------
@@ -112,10 +113,10 @@ namespace Radios.Tests
         }
 
         [Theory]
-        [InlineData(2750, "2.75 k", "2750 hertz wide")]
-        [InlineData(2800, "2.8 k", "2800 hertz wide")]
-        [InlineData(2850, "2.85 k", "2850 hertz wide")]
-        [InlineData(500, "500", "500 hertz wide")]
+        [InlineData(2750, "2.75 k", "width 2750 hertz")]
+        [InlineData(2800, "2.8 k", "width 2800 hertz")]
+        [InlineData(2850, "2.85 k", "width 2850 hertz")]
+        [InlineData(500, "500", "width 500 hertz")]
         public void The_bracket_readouts_width_is_short_at_terse_and_labelled_at_chatty(int hz, string terse, string chatty)
         {
             Assert.Equal(terse, HertzSpeech.ReadoutWidth(hz, HertzUnitStyle.Bare, VerbosityLevel.Terse));
@@ -128,11 +129,11 @@ namespace Radios.Tests
         [InlineData(100, 2850, VerbosityLevel.Terse, "Filter 100 to 2850, 2.75 k")]
         [InlineData(100, 2900, VerbosityLevel.Terse, "Filter 100 to 2900, 2.8 k")]
         [InlineData(100, 2950, VerbosityLevel.Terse, "Filter 100 to 2950, 2.85 k")]
-        [InlineData(100, 2850, VerbosityLevel.Chatty, "Filter 100 to 2850, 2750 hertz wide")]
-        [InlineData(100, 2900, VerbosityLevel.Chatty, "Filter 100 to 2900, 2800 hertz wide")]
-        [InlineData(100, 2950, VerbosityLevel.Chatty, "Filter 100 to 2950, 2850 hertz wide")]
+        [InlineData(100, 2850, VerbosityLevel.Chatty, "Filter 100 to 2850, width 2750 hertz")]
+        [InlineData(100, 2900, VerbosityLevel.Chatty, "Filter 100 to 2900, width 2800 hertz")]
+        [InlineData(100, 2950, VerbosityLevel.Chatty, "Filter 100 to 2950, width 2850 hertz")]
         [InlineData(100, 600, VerbosityLevel.Terse, "Filter 100 to 600, 500")]
-        [InlineData(100, 600, VerbosityLevel.Chatty, "Filter 100 to 600, 500 hertz wide")]
+        [InlineData(100, 600, VerbosityLevel.Chatty, "Filter 100 to 600, width 500 hertz")]
         public void The_bracket_readout_assembled(int low, int high, VerbosityLevel level, string heard)
         {
             Assert.Equal(heard, Lexicon.Get("settings.filter.range", ("low", low), ("high", high),
@@ -141,9 +142,9 @@ namespace Radios.Tests
 
         [Theory]
         [InlineData(VerbosityLevel.Terse, "RX filter 100 to 2850, 2.75 k", "Width 2.75 k, 100 to 2850", "TX filter 100 to 2850, 2.75 k", "TX width 2.75 k, 100 to 2850")]
-        [InlineData(VerbosityLevel.Chatty, "RX filter 100 to 2850, 2750 hertz wide", "RX filter 100 to 2850, 2750 hertz wide", "TX filter 100 to 2850, 2750 hertz wide", "TX filter 100 to 2850, 2750 hertz wide")]
+        [InlineData(VerbosityLevel.Chatty, "RX filter 100 to 2850, width 2750 hertz", "RX filter 100 to 2850, width 2750 hertz", "TX filter 100 to 2850, width 2750 hertz", "TX filter 100 to 2850, width 2750 hertz")]
         [InlineData(VerbosityLevel.Critical, "RX filter 100 to 2850, 2.75 k", "Width 2.75 k, 100 to 2850", "TX filter 100 to 2850, 2.75 k", "TX width 2.75 k, 100 to 2850")]
-        [InlineData(VerbosityLevel.Diagnostic, "RX filter 100 to 2850, 2750 hertz wide", "RX filter 100 to 2850, 2750 hertz wide", "TX filter 100 to 2850, 2750 hertz wide", "TX filter 100 to 2850, 2750 hertz wide")]
+        [InlineData(VerbosityLevel.Diagnostic, "RX filter 100 to 2850, width 2750 hertz", "RX filter 100 to 2850, width 2750 hertz", "TX filter 100 to 2850, width 2750 hertz", "TX filter 100 to 2850, width 2750 hertz")]
         public void The_filter_layers_readouts_assembled(VerbosityLevel level, string rxReport, string rxWidth, string txReport, string txWidth)
         {
             string W(int hz) => HertzSpeech.ReadoutWidth(hz, HertzUnitStyle.KiloLetter, level);

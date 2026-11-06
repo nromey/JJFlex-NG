@@ -2191,14 +2191,16 @@ namespace Radios.Tests
                 // is labelled for what it is while AGC is off. DRAFT prose.
                 "audio.fields.agc_off_gain",
                 // Junk box 2026-11-06 rulings round (#747, Noel's ruling J13):
-                // a filter readout's width is "2.75 k" at Terse and "2750
-                // hertz wide" at Chatty; the layer's two width readouts became
-                // ladders so Chatty does not say "Width ... wide". The
+                // a filter readout's width is "2.75 k" at Terse and, since
+                // J15, "width 2750 hertz" at Chatty; the layer's two width
+                // readouts became ladders so Chatty says the readout. The
                 // kilohertz-words unit went with the style nothing used.
                 // DRAFT prose.
                 "audio.filter_layer.width",
                 "audio.filter_layer.tx_width",
-                "settings.filter.width_hertz_wide",
+                // Round three (J15): "width 2750 hertz" replaced "2750 hertz
+                // wide" at Chatty. DRAFT prose.
+                "settings.filter.width_named_hertz",
                 // Junk box 2026-11-06 rulings round two (#798, Codex B1-R): a
                 // connect whose planned account lost its session before the
                 // dial is refused, never dialled through another account.

@@ -3346,7 +3346,7 @@ public class FreqOutHandlers
         {
             // One formatter for every filter width (#747): the kilo form at
             // Terse, never rounded ("2.75 k"); at Chatty the whole number
-            // with its label, "2800 hertz wide" (Noel, 2026-11-06, J13). The
+            // with its label, "width 2800 hertz" (Noel, 2026-11-06, J15). The
             // edges stay exact integers, as they always were.
             string widthStr = Radios.HertzSpeech.ReadoutWidth(high - low, Radios.HertzUnitStyle.Bare);
             bool lowClamped = low != requestedLow;

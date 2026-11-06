@@ -148,8 +148,8 @@ namespace Radios.Tests
             Assert.DoesNotContain("_agcThresholdControl.Value = _rig.AGCThreshold;", poll, StringComparison.Ordinal);
 
             string menu = Src("JJFlexWpf", "NativeMenuBar.cs");
-            Assert.Contains("AddWired(parent, \"AGC Threshold Up\", () => AdjustAgcField(FlexBase.AGCThresholdIncrement));", menu, StringComparison.Ordinal);
-            Assert.Contains("AddWired(parent, \"AGC Threshold Down\", () => AdjustAgcField(-FlexBase.AGCThresholdIncrement));", menu, StringComparison.Ordinal);
+            Assert.Contains("AddWired(parent, \"AGC Level Up\", () => AdjustAgcField(FlexBase.AGCThresholdIncrement));", menu, StringComparison.Ordinal);
+            Assert.Contains("AddWired(parent, \"AGC Level Down\", () => AdjustAgcField(-FlexBase.AGCThresholdIncrement));", menu, StringComparison.Ordinal);
             string adjust = Body(menu, "private void AdjustAgcField(int step)");
             Assert.Contains("FlexBase.AgcFieldIsOffLevel(Rig.AGCSpeed)", adjust, StringComparison.Ordinal);
             Assert.Contains("Rig.SetAgcFieldValue(offLevel, v)", adjust, StringComparison.Ordinal);

@@ -194,7 +194,7 @@ namespace Radios.Tests
         [Fact]
         public void Each_step_in_edge_mode_names_the_held_edge_at_chatty()
         {
-            const string filter = "Filter 100 to 2900, 2800 hertz wide";
+            const string filter = "Filter 100 to 2900, width 2800 hertz";
             Assert.Equal(filter, FilterBracketKeys.HeldStepSentence(FilterEdge.Low, filter, VerbosityLevel.Terse));
             Assert.Equal("Low edge held. " + filter, FilterBracketKeys.HeldStepSentence(FilterEdge.Low, filter, VerbosityLevel.Chatty));
             Assert.Equal("High edge held. " + filter, FilterBracketKeys.HeldStepSentence(FilterEdge.High, filter, VerbosityLevel.Chatty));

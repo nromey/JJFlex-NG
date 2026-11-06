@@ -5424,8 +5424,8 @@ public class KeyCommands
     /// The filter report — low, high and width — in the one wording both
     /// the layer and the Ctrl+J readouts use, so two doors into the same
     /// fact say the same sentence. The width is a filter readout's width
-    /// from the shared formatter (#747): "2.75 k" at Terse, "2750 hertz
-    /// wide" at Chatty (Noel, 2026-11-06, J13).
+    /// from the shared formatter (#747): "2.75 k" at Terse, "width 2750
+    /// hertz" at Chatty (Noel, 2026-11-06, J15).
     /// </summary>
     private static string FilterReport(string key, int low, int high)
         => Radios.Lexicon.Get(key, ("low", low), ("high", high),
@@ -5465,8 +5465,7 @@ public class KeyCommands
         // The width through the shared formatter, as the layer's own report
         // says it (#747, integration pass finding 10). Terse leads with the
         // width ("Width 2.75 k, 100 to 2850"); Chatty is the ruled readout,
-        // "RX filter 100 to 2850, 2750 hertz wide" (J13): "Width 2750 hertz
-        // wide" would say width twice.
+        // "RX filter 100 to 2850, width 2750 hertz" (J15).
         rx.Width = () => Radios.Lexicon.Get("audio.filter_layer.width", Radios.ScreenReaderOutput.CurrentVerbosity,
             ("width", Radios.HertzSpeech.ReadoutWidth(rx.Bank.Width, Radios.HertzUnitStyle.KiloLetter)), ("low", rx.Bank.Low), ("high", rx.Bank.High));
         rx.Report = () => FilterReport("audio.filter.rx_report", rx.Bank.Low, rx.Bank.High);
