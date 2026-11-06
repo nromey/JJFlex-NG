@@ -761,10 +761,23 @@ namespace Radios
         private void UpdateRadioDiscoveryFields(Radio newRadio, Radio oldRadio, string accountId)
         {
             Tracing.TraceLine("UpdateRadioDiscoveryFields:" + newRadio.Nickname + ' ' + newRadio.Callsign, TraceLevel.Info);
-            if (oldRadio.Nickname != newRadio.Nickname)
-                oldRadio.Nickname = newRadio.Nickname;
-            if (oldRadio.Callsign != newRadio.Callsign)
-                oldRadio.Callsign = newRadio.Callsign;
+            // A LIST NEVER COMMANDS A RADIO'S NAME OR CALLSIGN (#477, under #397).
+            // FlexLib's Nickname and Callsign setters send "radio name" and
+            // "radio callsign", which the radio keeps in its firmware, and this
+            // merge adopts the CONNECTED radio as its target - so a SmartLink
+            // snapshot that lagged a rename wrote the old name back into
+            // somebody's radio. The list is a copy of what the radio says about
+            // itself; the radio is the authority:
+            // - Connected, the radio reports its own name and callsign in its
+            //   status, so the list's copy is not applied at all.
+            // - Not connected, the list is the only source for the picker's
+            //   row, so the copy is applied through UpdateIdentityFromList, a
+            //   FlexLib patch that updates the record and sends nothing
+            //   (MIGRATION.md item 23).
+            // Not an ownership check: no radio, ours or anyone's, is ever told
+            // its name by a list.
+            if (!oldRadio.Connected)
+                oldRadio.UpdateIdentityFromList(newRadio.Nickname, newRadio.Callsign);
             if (oldRadio.Status != newRadio.Status)
                 oldRadio.Status = newRadio.Status;
             if (oldRadio.GuiClientIPs != newRadio.GuiClientIPs)

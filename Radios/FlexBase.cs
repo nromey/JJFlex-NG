@@ -2311,19 +2311,22 @@ namespace Radios
 
         /// <summary>
         /// Sprint 27 Track A / Phase A.3 — persists a SmartLink listen-port
-        /// preference on the account currently bound to this connection, and
-        /// refreshes the in-memory account reference so the next auto-apply
-        /// on connect (see <see cref="ApplyAccountPortPreferenceIfAny"/>) uses
-        /// the new value. Pass null to clear the preference (revert to FlexLib
-        /// default behavior). Returns false if no account is bound or the port
+        /// preference on the account currently bound to this connection. It is
+        /// a record of what the operator applied, and NOTHING applies it to a
+        /// radio on connect: that auto-apply was removed on 2026-08-29 after it
+        /// wrote one account's port into another account's radio, and its
+        /// method was deleted on 2026-11-06 (#477). The only writer of a radio's
+        /// forwarded port is the Network tab's Apply, through
+        /// <see cref="SetSmartLinkPortForwarding"/>. Pass null to clear the
+        /// preference (revert to FlexLib default behavior). Returns false if no account is bound or the port
         /// is invalid. Validation is delegated to
         /// <see cref="SmartLinkAccountManager.IsValidPort"/> so the UI can
         /// check the same rule before calling.
         ///
         /// <para>QB Track C — meaning contract: from this build on, the value
         /// saved here carries exactly ONE meaning — the RADIO-side forwarded
-        /// port (Tier 1), written by the Network tab's port-forward Apply and
-        /// re-applied on connect. The client-side hole-punch port, which an
+        /// port (Tier 1), written by the Network tab's port-forward Apply.
+        /// The client-side hole-punch port, which an
         /// older build also wrote into this same field, lives per-radio in
         /// <see cref="RadioConfig.FixedHolePunchPort"/> now. Legacy punch
         /// values already on disk are still honored by sendRemoteConnect's
@@ -2347,23 +2350,6 @@ namespace Radios
             return true;
         }
 
-        /// <summary>
-        /// Sprint 27 Track A / Phase A.2 — auto-apply the active SmartLink
-        /// account's saved listen-port preference (Tier 1) to the connected
-        /// radio. Called from the post-connect success branch of
-        /// <see cref="Connect(string, bool)"/> for remote (WAN) rigs only.
-        ///
-        /// <para>Silent no-op (trace only) in all of the following cases:</para>
-        /// <list type="bullet">
-        /// <item>No account is bound to the current connection.</item>
-        /// <item>The account has no <see cref="SmartLinkAccount.ConfiguredListenPort"/> set.</item>
-        /// <item>The radio's firmware already reports the account's configured port on TCP and UDP (nothing to change).</item>
-        /// </list>
-        ///
-        /// <para>Only calls <see cref="SetSmartLinkPortForwarding"/> when a
-        /// change is actually needed, to avoid spurious radio commands on every
-        /// reconnect.</para>
-        /// </summary>
         /// <summary>
         /// Sprint 27 Track D. Most-recent NetworkTest report for the active
         /// session (any radio, latest timestamp). Null if nothing cached.
@@ -2562,44 +2548,6 @@ namespace Radios
             if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return true;
             if (b[0] == 192 && b[1] == 168) return true;
             return false;
-        }
-
-        private void ApplyAccountPortPreferenceIfAny()
-        {
-            if (_currentAccount == null)
-            {
-                Tracing.TraceLine("ApplyAccountPortPreferenceIfAny: no current account; skipping", TraceLevel.Info);
-                return;
-            }
-            int? preferred = _currentAccount.ConfiguredListenPort;
-            if (!preferred.HasValue)
-            {
-                Tracing.TraceLine($"ApplyAccountPortPreferenceIfAny: account {_currentAccount.Email} has no preference; using FlexLib default", TraceLevel.Info);
-                return;
-            }
-            if (theRadio == null)
-            {
-                Tracing.TraceLine("ApplyAccountPortPreferenceIfAny: theRadio is null; skipping", TraceLevel.Warning);
-                return;
-            }
-
-            int port = preferred.Value;
-            bool alreadyMatches =
-                PortForwardingEnabled &&
-                PortForwardingTcpPort == port &&
-                PortForwardingUdpPort == port;
-            if (alreadyMatches)
-            {
-                Tracing.TraceLine($"ApplyAccountPortPreferenceIfAny: radio already reports tcp={port} udp={port} enabled; no-op", TraceLevel.Info);
-                return;
-            }
-
-            Tracing.TraceLine($"ApplyAccountPortPreferenceIfAny: account={_currentAccount.Email} applying port={port} (radio reports enabled={PortForwardingEnabled} tcp={PortForwardingTcpPort} udp={PortForwardingUdpPort})", TraceLevel.Info);
-            bool ok = SetSmartLinkPortForwarding(true, port, port);
-            if (!ok)
-            {
-                Tracing.TraceLine($"ApplyAccountPortPreferenceIfAny: SetSmartLinkPortForwarding returned false; preference not applied", TraceLevel.Warning);
-            }
         }
 
         private Thread mainThread;
@@ -2952,13 +2900,14 @@ namespace Radios
                     // offer "apply my port on connect", the owner of THAT radio has
                     // to have said yes to it, on that radio.
                     //
-                    // ApplyAccountPortPreferenceIfAny() now has NO CALLERS. The
-                    // Network tab writes through FlexBase.SetSmartLinkPortForwarding
-                    // directly (SettingsDialog.xaml.cs:841), which is the operator
-                    // action described above. The method is left in place, unused,
-                    // only so this comment has something to point at; deleting it is
-                    // safe and should happen in a quieter moment. Do NOT re-add the
-                    // call from here.
+                    // ApplyAccountPortPreferenceIfAny() WAS DELETED on 2026-11-06
+                    // (#477), having had no callers since this removal; the trace
+                    // above is all that is left of it. The only writer of a radio's
+                    // forwarded port is the Network tab's Apply, which calls
+                    // FlexBase.SetSmartLinkPortForwarding from
+                    // SettingsDialog.PerformPortForwardApply: the operator action
+                    // described above. Do NOT re-add a port write here, or anywhere
+                    // on the connect path, under any name.
 
                     // Sprint 27 Track B / Phase B.3 — attempt UPnP mapping
                     // for Tier 2 opt-in accounts. Silent no-op when UPnP is

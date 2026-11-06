@@ -7713,6 +7713,38 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
+        // JJFlex patch: identity from a radio LIST, never a command (MIGRATION.md item 23).
+        // The Nickname and Callsign setters above send "radio name" and "radio callsign",
+        // and the radio keeps both in its firmware. A client merging a radio list (a
+        // SmartLink list is a lagging copy of what the radio says about itself) must
+        // update its own record and send nothing. Sanitized exactly as the setters do.
+        /// <summary>
+        /// Update the client's copy of the radio's nickname and callsign from a radio
+        /// list WITHOUT sending anything to the radio. Null leaves a field as it is.
+        /// </summary>
+        public void UpdateIdentityFromList(string nickname, string callsign)
+        {
+            if (nickname != null)
+            {
+                string new_nickname = StringHelper.Sanitize(nickname);
+                if (_nickname != new_nickname)
+                {
+                    _nickname = new_nickname;
+                    RaisePropertyChanged(nameof(Nickname));
+                }
+            }
+
+            if (callsign != null)
+            {
+                string new_callsign = StringHelper.Sanitize(callsign.ToUpper());
+                if (_callsign != new_callsign)
+                {
+                    _callsign = new_callsign;
+                    RaisePropertyChanged(nameof(Callsign));
+                }
+            }
+        }
+
         private int _num_tx = 0;
         /// <summary>
         /// The number of transmitters that are currently available and 

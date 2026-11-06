@@ -188,6 +188,23 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     without enabling telnet tracing. Remove this patch if a later FlexLib release
     exposes the same radio-reported field.
 
+23. **Identity from a radio list, never a command (2026-11-06)**: keep the
+    comment-marked JJFlex patch in `FlexLib_API/FlexLib/Radio.cs`, the public
+    `UpdateIdentityFromList(nickname, callsign)` beside the `Nickname` setter.
+    The stock `Nickname` and `Callsign` setters send `radio name` and
+    `radio callsign`, which the radio keeps in firmware, and FlexLib's
+    `SendCommand` asks only whether the TRANSPORT is up. `FlexBase`'s SmartLink
+    list merge (`UpdateRadioDiscoveryFields`) used those setters, so a list that
+    lagged a rename could write the old name back into somebody's radio. The
+    merge now leaves a connected radio's identity to the radio's own status and
+    updates any other copy through this method, which sets the fields, raises
+    `PropertyChanged`, and sends nothing. Pinned by
+    `Radios.Tests/DiscoveryMergeWritesTests`. Numbered 23 because items 21 and
+    22 are taken on branches not yet merged (the 2026-11-02 junk box's write-time
+    gate and forced writes, and the r5-tuning branch's own 22); renumber at merge
+    if those land differently. Keep it until a FlexLib release offers a
+    non-sending way to update a radio's identity.
+
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 
 FlexLib is not the only vendor code in this repo, and a patch in one of the
