@@ -116,6 +116,7 @@ public partial class ScreenFieldsPanel : UserControl
     private CheckBox _squelchCheck = null!;
     private ValueFieldControl _squelchLevelControl = null!;
     private ValueFieldControl _rfGainControl = null!;
+    private CheckBox _rfPreampCheck = null!;
     private System.Windows.Controls.TextBlock _rxFilterWidthDisplay = null!;
 
     #endregion
@@ -253,10 +254,10 @@ public partial class ScreenFieldsPanel : UserControl
         _atuCheck.Visibility = hasATU ? Visibility.Visible : Visibility.Collapsed;
         _atuModeControl.Visibility = hasATU ? Visibility.Visible : Visibility.Collapsed;
 
-        // RF Gain bounds vary by radio model — update from connected radio
-        _rfGainControl.Min = rig.RFGainMin;
-        _rfGainControl.Max = rig.RFGainMax;
-        _rfGainControl.Step = rig.RFGainIncrement;
+        // RF Gain bounds vary by radio model — update from connected radio.
+        // The panadapter reports them a moment later, and again on a band
+        // change, so PollReceiver re-applies them whenever they move (#889).
+        ApplyRfGainShape(rig);
 
         // QB Track I — TX power personality follows the TX antenna from the
         // first paint (PollTX keeps it honest afterwards).
@@ -986,6 +987,18 @@ public partial class ScreenFieldsPanel : UserControl
         _rfGainControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.RFGain = v; };
         ReceiverContent.Children.Add(_rfGainControl);
 
+        // #889: where the radio offers RF gain as only two settings, 0 and one
+        // other, it is a preamp, and a switch says so where a number field
+        // offering two values reads as broken. Named "RF preamp" by Noel,
+        // 2026-11-05. Collapsed until the radio reports that shape; the
+        // number field shows until then, exactly as before, so there is
+        // always one RF gain control on Home and never none.
+        _rfPreampCheck = MakeToggle(Lexicon.Get("audio.fields.rf_preamp"));
+        _rfPreampCheck.Visibility = Visibility.Collapsed;
+        _rfPreampCheck.Checked += (s, e) => ToggleRfPreamp(true);
+        _rfPreampCheck.Unchecked += (s, e) => ToggleRfPreamp(false);
+        ReceiverContent.Children.Add(_rfPreampCheck);
+
         // Read-only RX filter width display. The accessible name tracks the
         // text (PollReceiver refreshes both together), so the screen reader
         // reads the current width on focus by itself — no GotFocus Speak.
@@ -1352,6 +1365,44 @@ public partial class ScreenFieldsPanel : UserControl
 
     #endregion
 
+    /// <summary>
+    /// Give RF gain the shape the radio last reported (#889): the RF preamp
+    /// switch when it offers exactly two settings with 0 as one of them, the
+    /// number field otherwise, with the field's bounds re-applied whenever
+    /// they move. Before the radio has reported anything the field shows
+    /// with its defaults, as it always did. Called at Initialize and on
+    /// every receiver poll, so a band change that changes the radio's
+    /// answer changes the control with it, both ways.
+    /// </summary>
+    private void ApplyRfGainShape(FlexBase rig)
+    {
+        if (_rfGainControl.Min != rig.RFGainMin) _rfGainControl.Min = rig.RFGainMin;
+        if (_rfGainControl.Max != rig.RFGainMax) _rfGainControl.Max = rig.RFGainMax;
+        if (_rfGainControl.Step != rig.RFGainIncrement) _rfGainControl.Step = rig.RFGainIncrement;
+
+        bool asSwitch = rig.RFGainIsPreampSwitch(out _);
+        var fieldWanted = asSwitch ? Visibility.Collapsed : Visibility.Visible;
+        var switchWanted = asSwitch ? Visibility.Visible : Visibility.Collapsed;
+        if (_rfGainControl.Visibility != fieldWanted) _rfGainControl.Visibility = fieldWanted;
+        if (_rfPreampCheck.Visibility != switchWanted) _rfPreampCheck.Visibility = switchWanted;
+    }
+
+    /// <summary>
+    /// The RF preamp switch, pressed: the radio's own "on" setting or 0, and
+    /// the sentence that says which (DRAFT wording).
+    /// </summary>
+    private void ToggleRfPreamp(bool on)
+    {
+        if (_polling || _rig == null) return;
+        if (!_rig.RFGainIsPreampSwitch(out int onDb)) return;
+        string sentence = on
+            ? Lexicon.Get("audio.fields.rf_preamp_on", ("db", onDb))
+            : Lexicon.Get("audio.fields.rf_preamp_off");
+        ToggleRig(Lexicon.Get("audio.fields.rf_preamp"),
+            v => { if (_rig != null) _rig.RFGain = v == FlexBase.OffOnValues.on ? onDb : 0; },
+            on, sentence);
+    }
+
     #region Rig Toggle Helpers
 
     /// <param name="sentence">
@@ -1686,7 +1737,10 @@ public partial class ScreenFieldsPanel : UserControl
         _squelchLevelControl.Visibility = squelchOn ? Visibility.Visible : Visibility.Collapsed;
         if (squelchOn) _squelchLevelControl.Value = _rig.SquelchLevel;
 
+        ApplyRfGainShape(_rig);
         _rfGainControl.Value = _rig.RFGain;
+        if (_rfPreampCheck.Visibility == Visibility.Visible)
+            _rfPreampCheck.IsChecked = _rig.RFGain != 0;
 
         // RX filter width (read-only)
         int filterLow = _rig.FilterLow;

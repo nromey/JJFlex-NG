@@ -2152,6 +2152,11 @@ namespace Radios.Tests
                 "audio.filter.tx_report",
                 "settings.filter.width_hertz_words",
                 "settings.filter.width_kilohertz_words",
+                // Junk box 2026-11-06 (#889): RF gain offered as two settings is
+                // an RF preamp switch, named by Noel 2026-11-05. DRAFT prose.
+                "audio.fields.rf_preamp",
+                "audio.fields.rf_preamp_on",
+                "audio.fields.rf_preamp_off",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

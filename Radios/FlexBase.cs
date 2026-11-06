@@ -5576,6 +5576,10 @@ namespace Radios
                                 str += i.ToString() + ' ';
                             }
                             Tracing.TraceLine("RFGainMarkers:" + str, TraceLevel.Info);
+                            // Kept, not just traced (#889): two markers with 0
+                            // as one of them is the radio offering RF gain as
+                            // a preamp switch, and Home presents it as one.
+                            RFGainMarkers = p.RFGainMarkers?.ToArray() ?? Array.Empty<int>();
                         }
                         break;
                 }
@@ -12379,6 +12383,36 @@ namespace Radios
         public int RFGainMin = -10;
         public int RFGainMax = 30;
         public int RFGainIncrement = 10;
+
+        /// <summary>
+        /// The RF gain settings the radio marks for the active panadapter, as
+        /// it last reported them. Empty until it has (#889).
+        /// </summary>
+        public int[] RFGainMarkers = Array.Empty<int>();
+
+        /// <summary>
+        /// True when the radio offers RF gain as exactly two settings, one of
+        /// them 0, which Home presents as an RF preamp switch rather than a
+        /// number field (#889). <paramref name="onDb"/> is the other setting,
+        /// read from the radio's own markers and never assumed: the 6300
+        /// reports 0 and 20, but a model or band that reports another pair
+        /// gets its own figure, and anything with a real range keeps the
+        /// number field.
+        /// </summary>
+        public bool RFGainIsPreampSwitch(out int onDb) => IsPreampSwitch(RFGainMarkers, out onDb);
+
+        /// <summary>The rule behind <see cref="RFGainIsPreampSwitch"/>, on any marker list.</summary>
+        public static bool IsPreampSwitch(IReadOnlyList<int> markers, out int onDb)
+        {
+            onDb = 0;
+            if (markers == null || markers.Count != 2) return false;
+            // A preamp ADDS gain: the other setting must be above 0. A pair of
+            // 0 and a negative number would be an attenuator, which this is
+            // not, and it keeps the number field.
+            if (markers[0] == 0 && markers[1] > 0) { onDb = markers[1]; return true; }
+            if (markers[1] == 0 && markers[0] > 0) { onDb = markers[0]; return true; }
+            return false;
+        }
         public int RFGain
         {
             get { return (activePan != null) ? activePan.RFGain : 0; }

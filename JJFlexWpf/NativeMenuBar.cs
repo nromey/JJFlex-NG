@@ -1877,12 +1877,30 @@ public class NativeMenuBar : IDisposable
 
         AddSep(parent);
 
-        AddWired(parent, "RF Gain Up", () =>
-            AdjustValue("RF Gain", () => Rig.RFGain, v => Rig.RFGain = v,
-                Rig.RFGainIncrement, Rig.RFGainMin, Rig.RFGainMax));
-        AddWired(parent, "RF Gain Down", () =>
-            AdjustValue("RF Gain", () => Rig.RFGain, v => Rig.RFGain = v,
-                -Rig.RFGainIncrement, Rig.RFGainMin, Rig.RFGainMax));
+        AddWired(parent, "RF Gain Up", () => AdjustRfGain(up: true));
+        AddWired(parent, "RF Gain Down", () => AdjustRfGain(up: false));
+    }
+
+    /// <summary>
+    /// RF Gain Up and Down. They already stepped 0 and 20 correctly on a radio
+    /// that offers only those two (#889); what changes is the answer, which
+    /// uses Home's RF preamp words there ("RF preamp on, 20 dB") instead of a
+    /// bare number. Anything with a real range is answered as before.
+    /// </summary>
+    private void AdjustRfGain(bool up)
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        if (Rig.RFGainIsPreampSwitch(out int onDb))
+        {
+            int value = up ? onDb : 0;
+            Rig.RFGain = value;
+            SpeakAfterMenuClose(value != 0
+                ? Radios.Lexicon.Get("audio.fields.rf_preamp_on", ("db", onDb))
+                : Radios.Lexicon.Get("audio.fields.rf_preamp_off"));
+            return;
+        }
+        AdjustValue("RF Gain", () => Rig.RFGain, v => Rig.RFGain = v,
+            up ? Rig.RFGainIncrement : -Rig.RFGainIncrement, Rig.RFGainMin, Rig.RFGainMax);
     }
 
     /// <summary>
