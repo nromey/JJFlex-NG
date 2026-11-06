@@ -2202,5 +2202,25 @@ namespace Radios.Tests
             RejectTune(b, 0, "14.100000");                   // out of order: older than the settled one
             EveryReaderSays(b.Rig, 14_100_200);
         }
+    
+
+        [Fact]
+        public void Homes_return_status_is_retired_when_the_selection_or_its_frequency_changes()
+        {
+            // The bench's 4.1: "Listening on 21.260 ... slice B" replayed after
+            // the selection had moved to A. Bound like the correction (round three).
+            var retired = typeof(FlexBase).GetField("ReturnStatusesRetired", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)!;
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            Add(b, 1, tx: false, active: false, mhz: 7.100);
+            b.Rig.NoteReturnStatusSpoken();
+            Reports(a, 14.100000);                           // unchanged: still true
+            Assert.Equal(0, (int)retired.GetValue(b.Rig)!);
+            Reports(a, 14.150000);                           // the selected slice moved
+            Assert.Equal(1, (int)retired.GetValue(b.Rig)!);
+            b.Rig.NoteReturnStatusSpoken();
+            b.Rig.RXVFO = 1;                                 // the selection moved
+            Assert.Equal(2, (int)retired.GetValue(b.Rig)!);
+        }
     }
 }

@@ -703,6 +703,21 @@ namespace Radios.Speech
         public const string MicInputLeftOnPc = "mic-input-left-on-pc";
 
         /// <summary>
+        /// The compact status said when Home is returned to ("Listening on 21.260
+        /// megahertz, USB, 15 meter band, slice B"). True only while the selected
+        /// slice and its frequency stay as they were: a change of either retires
+        /// an unheard copy (rulings round three, the bench's 4.1 replay).
+        /// </summary>
+        public const string ReturnStatus = "return-status";
+
+        /// <summary>
+        /// Subjects that are stale status: what a sentence that must be heard next
+        /// (the transmit notice) may retire from our own backlog (rulings round
+        /// three, Codex's F1). Required notices and refusals are never in it.
+        /// </summary>
+        public static readonly string[] StaleStatus = { ReturnStatus };
+
+        /// <summary>
         /// A tune ended somewhere other than the frequency spoken for it (J4,
         /// ruled by Noel 2026-11-06): refused, clamped, given up, or another
         /// client's move held back during it. The bare frequency it ended on,

@@ -5540,8 +5540,11 @@ namespace Radios
                         {
                             Tracing.TraceLine("Freq:slice " + s.Index.ToString() + " " + s.Freq.ToString(), TraceLevel.Verbose);
                             // A spoken correction about this slice is false once it
-                            // reads another number (round three, Codex's B1).
+                            // reads another number (round three, Codex's B1); so is
+                            // Home's return status, if this is the selected slice.
                             RetireCorrectionIfNoLongerTrue(s, null);
+                            if (System.Threading.Volatile.Read(ref _returnStatusLive) != 0 && ReferenceEquals(s, SelectedSliceNow()))
+                                RetireReturnStatus("the selected slice's frequency changed");
                             ulong echoed = LibFreqtoLong(s.Freq);
                             // This slice's own guard, asked ONCE for both
                             // caches (repair round 3): one slice, one answer.
@@ -9297,8 +9300,10 @@ namespace Radios
                     int old = _RXVFO;
                     _RXVFO = value;
                     Tracing.TraceLine($"RXVFO:{old}→{value} valid={ValidVFO(value)} slices={MyNumSlices}", TraceLevel.Info);
-                    // A spoken tuning correction was about the slice left behind (R3).
+                    // A spoken tuning correction was about the slice left behind (R3),
+                    // and so was Home's return status (round three).
                     RetireTuneCorrection("a change of selected slice");
+                    RetireReturnStatus("a change of selected slice");
                     if (ValidVFO(value))
                     {
                         // Capture the slice at set time (identity): if the

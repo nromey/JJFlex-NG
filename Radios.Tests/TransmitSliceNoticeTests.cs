@@ -321,14 +321,32 @@ public sealed class TransmitSliceNoticeTests
     }
 
     [Fact]
+    public void Asking_for_the_notice_keeps_a_required_notice_and_retires_only_stale_status()
+    {
+        // Codex's F1, notice-debt and its control: J3's required "mic left on
+        // PC" sentence (Queue, Critical, its own subject, not Protected) was
+        // retired with the Home chatter. Only stale status goes now.
+        var r = new Reader();
+        var required = r.Arbiter.EmitQueued("Mic input still set to PC. The radio did not confirm it stopped transmitting.",
+            VerbosityLevel.Critical, "test", SpeechSubject.MicInputLeftOnPc, additive: false)!;
+        var stale = r.Arbiter.EmitQueued("Listening on 21.260 megahertz, USB, 15 meter band, slice B",
+            VerbosityLevel.Chatty, "test", SpeechSubject.ReturnStatus, additive: false)!;
+        ICountdownWords words = r.Speech.SayWhole("Transmitting on slice A, 21.195.000", SpeechSubject.TransmitSliceNotice, ahead: true);
+        Assert.False(r.Arbiter.Inspect(required).Superseded);       // the required notice stays owed
+        Assert.True(r.Arbiter.Inspect(stale).Superseded);           // the stale status goes
+        Assert.False(words.Failed);
+    }
+
+    [Fact]
     public void Asking_for_the_notice_retires_our_own_ordinary_backlog()
     {
         // The stale arrival and salvaged sentences ahead of the notice are
         // retired when it is asked for, so it goes next.
         var r = new Reader();
-        r.Arbiter.Emit("JJ Flexible Home, frequency, 21.260.000", false, SpeechIntent.Queue, VerbosityLevel.Chatty, "test");
+        r.Arbiter.Emit("Listening on 21.195 megahertz, USB, 15 meter band, slice A", false, SpeechIntent.Queue,
+            VerbosityLevel.Chatty, "test", subject: SpeechSubject.ReturnStatus);
         r.Arbiter.Emit("Listening on 21.260 megahertz, USB, 15 meter band, slice B", false, SpeechIntent.Queue,
-            VerbosityLevel.Chatty, "test", subject: "home-arrival-test");
+            VerbosityLevel.Chatty, "test", subject: SpeechSubject.ReturnStatus);
         ICountdownWords words = r.Speech.SayWhole("Transmitting on slice A, 21.195.000", SpeechSubject.TransmitSliceNotice, ahead: true);
         Assert.False(words.Failed);                    // the notice itself stands
         // Both were retired when the notice was asked for, the notice kept:

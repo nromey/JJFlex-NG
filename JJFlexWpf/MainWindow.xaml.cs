@@ -2272,7 +2272,11 @@ public partial class MainWindow : UserControl
             // once they exist, this is real information about where the
             // operator returned to.
             string status = Radios.RadioStatusBuilder.BuildSpokenStatus(rig);
-            Radios.ScreenReaderOutput.Speak(status, Radios.VerbosityLevel.Chatty);
+            // Its own subject (rulings round three): the rig retires an unheard
+            // copy when the selected slice or its frequency changes, so it is not
+            // salvaged later describing a slice the operator has moved off.
+            Radios.ScreenReaderOutput.Speak(status, Radios.VerbosityLevel.Chatty, subject: Radios.Speech.SpeechSubject.ReturnStatus);
+            rig.NoteReturnStatusSpoken();
         }
         else if (rig == null)
         {

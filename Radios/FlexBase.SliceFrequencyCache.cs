@@ -589,6 +589,32 @@ namespace Radios
         /// <summary>How many times a spoken correction has been retired. For tests.</summary>
         internal int TuneCorrectionsRetired;
 
+        /// <summary>The return status (SpeechSubject.ReturnStatus) was handed to speech and not retired since.</summary>
+        private int _returnStatusLive;
+
+        /// <summary>Home's return status was just spoken; it describes the selection as it is now.</summary>
+        public void NoteReturnStatusSpoken() => System.Threading.Interlocked.Exchange(ref _returnStatusLive, 1);
+
+        /// <summary>How many times an unheard return status has been retired. For tests.</summary>
+        internal int ReturnStatusesRetired;
+
+        /// <summary>
+        /// The selection or the selected slice's frequency changed: an unheard
+        /// return status now describes the past, and is retired (rulings round
+        /// three, the bench's 4.1 replay; the same binding as B1). Cheap when
+        /// none is live.
+        /// </summary>
+        internal void RetireReturnStatus(string by)
+        {
+            if (System.Threading.Interlocked.Exchange(ref _returnStatusLive, 0) == 0) return;
+            System.Threading.Interlocked.Increment(ref ReturnStatusesRetired);
+            try { ScreenReaderOutput.Supersede(Speech.SpeechSubject.ReturnStatus, by); }
+            catch (System.Exception ex)
+            {
+                Tracing.TraceLine("RetireReturnStatus: " + ex.Message, System.Diagnostics.TraceLevel.Warning);
+            }
+        }
+
         /// <summary>
         /// The fact a live correction states has changed (round three, Codex's
         /// B1): its slice now reads another number (another client, the knob, a

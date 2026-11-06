@@ -1240,7 +1240,8 @@ namespace Radios.Speech
         }
 
         /// <summary>
-        /// Retire every ORDINARY utterance still owed, queued or held, so a
+        /// Retire our own STALE STATUS still owed (<see cref="SpeechSubject.StaleStatus"/>,
+        /// narrowed in rulings round three), queued or held, so a
         /// sentence that must be heard before a key goes next (the 2026-11-02
         /// junk box's rulings round two, the 8600 bench's Fail 2). On the bench
         /// the transmit-slice notice queued behind the Home arrival sentence and
@@ -1262,6 +1263,11 @@ namespace Radios.Speech
                     {
                         if (e.SupersededBy != null || e.Protected) continue;
                         if (keepSubject != null && string.Equals(e.Subject, keepSubject, StringComparison.Ordinal)) continue;
+                        // Stale status only (rulings round three, Codex's F1): a
+                        // required notice or refusal at Critical is not Protected,
+                        // and J3's "mic left on PC" went with the chatter. Speech
+                        // that declared no subject is not known to be stale either.
+                        if (e.Subject == null || Array.IndexOf(SpeechSubject.StaleStatus, e.Subject) < 0) continue;
                         e.SupersededBy = by;
                         e.SupersededByOrigin = origin;
                         e.SupersededAtUtc = now;

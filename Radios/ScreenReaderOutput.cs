@@ -944,7 +944,8 @@ namespace Radios
         /// <param name="message">The message to speak</param>
         /// <param name="level">Verbosity level — Critical always spoken, Terse at Terse+, Chatty at Chatty only</param>
         /// <param name="interrupt">If true, interrupts any current speech</param>
-        public static void Speak(string message, VerbosityLevel level, bool interrupt = false,
+        /// <param name="subject">What it is about, so it can be retired when that changes (optional).</param>
+        public static void Speak(string message, VerbosityLevel level, bool interrupt = false, string? subject = null,
             [CallerFilePath] string callerFile = "",
             [CallerLineNumber] int callerLine = 0,
             [CallerMemberName] string callerMember = "")
@@ -956,7 +957,7 @@ namespace Radios
                 RecordGated(message, level, null, origin);
                 return;
             }
-            _arbiter.Emit(message, interrupt, null, level, origin);
+            _arbiter.Emit(message, interrupt, null, level, origin, subject);
         }
 
         /// <summary>
