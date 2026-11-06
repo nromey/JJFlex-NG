@@ -66,6 +66,18 @@ namespace Radios
     /// the request it answers.
     /// </para>
     /// <para>
+    /// <b>A report settles only the LATEST request (repair round 6).</b> A
+    /// number is not a request's identity: step up, up again and back down,
+    /// and the first and third requests ask for the same number, so the radio's
+    /// report of the FIRST arrives looking exactly like the third's
+    /// confirmation. Statuses carry no command id, but replies do, and the
+    /// radio answers commands in order. So the guard keeps every request of the
+    /// chain the radio has not yet answered (<c>_unanswered</c>), and a report
+    /// equal to the latest request does not settle it while an older,
+    /// unanswered request asked for that same number: it is that older
+    /// request's report, stale like any other.
+    /// </para>
+    /// <para>
     /// <b>A refused tune concedes at once.</b> A locked slice, a slice gone,
     /// a fallen command connection or an error reply means nothing changed,
     /// so readers read the radio's last report straight away
@@ -145,6 +157,13 @@ namespace Radios
         private readonly System.Collections.Generic.List<ulong> _superseded = new();
         internal const int ChainLimit = 64;
 
+        /// <summary>
+        /// The chain's requests the radio has not answered yet, oldest first
+        /// (repair round 6): their id and the number each asked for. Bounded
+        /// with the chain.
+        /// </summary>
+        private readonly System.Collections.Generic.List<(long Id, ulong Hz)> _unanswered = new();
+
         /// <param name="name">Appears in traces, e.g. "slice A".</param>
         /// <param name="clock">
         /// Milliseconds from any fixed origin. Injectable so the give-up path can
@@ -171,7 +190,7 @@ namespace Radios
             {
                 long now = _clock();
                 bool chain = _armed && !ExpiredLocked(now);
-                if (!chain) _superseded.Clear();
+                if (!chain) { _superseded.Clear(); _unanswered.Clear(); }
                 else Supersede(_requested);
                 Supersede(replaced);
                 _superseded.Remove(requested);
@@ -181,7 +200,10 @@ namespace Radios
                 _requested = requested;
                 _armedAt = now;
                 _sentAt = -1;
-                return ++_id;
+                long id = ++_id;
+                if (_unanswered.Count >= ChainLimit) _unanswered.RemoveAt(0);
+                _unanswered.Add((id, requested));
+                return id;
             }
         }
 
@@ -210,6 +232,7 @@ namespace Radios
         {
             lock (_lock)
             {
+                Answered(id);
                 if (!_armed || id != _id || _refused) return false;
                 _refused = true;
                 _superseded.Clear();
@@ -239,14 +262,31 @@ namespace Radios
         {
             lock (_lock)
             {
+                Answered(id);
                 if (!_armed || id != _id || _refused) return;
-                if (reportedHz != _requested) return;
+                if (reportedHz != _requested || OlderUnansweredAsked(reportedHz)) return;
                 _armed = false;
                 _superseded.Clear();
+                _unanswered.Clear();
                 Tracing.TraceLine(
                     "FrequencyEcho:" + _name + " confirmed at " + reportedHz + " by the radio's reply after "
                     + (_clock() - _armedAt) + " ms", TraceLevel.Verbose);
             }
+        }
+
+        /// <summary>The radio has answered request <paramref name="id"/>, with success or not. Call holding the lock.</summary>
+        private void Answered(long id) => _unanswered.RemoveAll(r => r.Id == id);
+
+        /// <summary>
+        /// An older request of the chain, not yet answered, asked for
+        /// <paramref name="hz"/> too, so a report of it may be that request's
+        /// (repair round 6). Call holding the lock.
+        /// </summary>
+        private bool OlderUnansweredAsked(ulong hz)
+        {
+            foreach (var r in _unanswered)
+                if (r.Id < _id && r.Hz == hz) return true;
+            return false;
         }
 
         private void Supersede(ulong value)
@@ -297,6 +337,18 @@ namespace Radios
             {
                 if (!_armed) return true;
 
+                if (echoed == _requested && !_refused && OlderUnansweredAsked(echoed))
+                {
+                    // The latest request's number, but an older request still
+                    // unanswered asked for it too: this is that one's report
+                    // (repair round 6), and it settles nothing.
+                    Tracing.TraceLine(
+                        "FrequencyEcho:" + _name + " ignored a report of " + echoed
+                        + " from an older request still unanswered; the latest asks for the same number",
+                        TraceLevel.Info);
+                    return false;
+                }
+
                 if (echoed == _requested && !_refused)
                 {
                     // Settled. The radio has our value; there is nothing left to
@@ -312,6 +364,7 @@ namespace Radios
                     // window was wide open and there was simply nothing to reject.
                     _armed = false;
                     _superseded.Clear();
+                    _unanswered.Clear();
                     Tracing.TraceLine(
                         "FrequencyEcho:" + _name + " settled at " + echoed + " after "
                         + (_clock() - _armedAt) + " ms", TraceLevel.Verbose);
@@ -323,6 +376,7 @@ namespace Radios
                 {
                     _armed = false;
                     _superseded.Clear();
+                    _unanswered.Clear();
                     if (_refused)
                         Tracing.TraceLine(
                             "FrequencyEcho:" + _name + " accepting " + echoed + " after our refused tune to "
@@ -349,6 +403,7 @@ namespace Radios
                 // the front-panel knob. The radio is the authority.
                 _armed = false;
                 _superseded.Clear();
+                _unanswered.Clear();
                 return true;
             }
         }

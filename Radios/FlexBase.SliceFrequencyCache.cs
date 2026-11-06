@@ -215,33 +215,67 @@ namespace Radios
         /// setter (repair round 5): the command that setter would send,
         /// through the slice's own radio.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>The check is held across the write (repair round 6, rule 3).</b>
+        /// The roster's lock is the one <c>sliceRemoved</c> takes to remove a
+        /// slice, and it is held from the membership check through the socket
+        /// write, so a removal either happens first (and nothing is sent) or
+        /// waits until the write is done. Until round 6 the lock was released
+        /// after the check, and a removal on another thread in between let the
+        /// command go to the removed slice's reusable index.
+        /// </para>
+        /// <para>
+        /// <b>Why this cannot deadlock, and what must stay true.</b> Under the
+        /// lock the write takes only FlexLib's reply table and trace lists, and
+        /// FlexLib's transports write without their connection lock (the
+        /// carried "no dispatch gate while a caller may own a vendor
+        /// collection lock" patch). The trace may synchronously raise
+        /// <c>Radio.PropertyChanged</c> for <c>TelnetTraceOutput</c>; none of
+        /// its subscribers takes the roster's lock or waits on another thread.
+        /// Keep it so: a subscriber that took the roster's lock on another
+        /// thread while FlexLib held its trace lists would deadlock against
+        /// this. FlexLib's own slice list is NOT taken here, because
+        /// <c>RemoveAllSlices</c> raises our removal while holding it.
+        /// </para>
+        /// <para>
+        /// <b>What is left is the radio's.</b> The radio removes a slice, and
+        /// may reuse its index, before its status reaches us; a command already
+        /// written, or written in the moment between FlexLib parsing that
+        /// status and our removal handler running, cannot be told from one sent
+        /// a millisecond before the radio's status left it. No client-side
+        /// lock closes that.
+        /// </para>
+        /// </remarks>
         private void WriteTuneTo(Slice slice, long id, double mhz, string what)
         {
             var guard = EchoGuardFor(slice);
-            bool ours;
+            string refused = null, refusal = null;
             var slices = mySlices;
-            if (slices == null) ours = false;
-            else lock (slices) ours = slices.Contains(slice);
-            if (!ours)
+            if (slices == null) refused = "the slice is gone";
+            else
             {
-                Tracing.TraceLine(what + ": slice " + slice.Letter + " is gone, so its tune to " + mhz
+                lock (slices)
+                {
+                    if (!slices.Contains(slice)) refused = "the slice is gone";
+                    else if (slice.Lock) refused = "the slice is locked";
+                    else
+                    {
+                        string command = "slice tune " + slice.Index + " " + Flex.Util.StringHelper.DoubleToString(mhz, "f6");
+                        if (!slice.AutoPan) command += " autopan=0";
+                        // Marked before the write, so the reply cannot come back ahead of it.
+                        guard.Sending(id);
+                        refusal = SendRadioCommandWithReply(slice.Radio, command, reply => TuneReplied(slice, id, reply));
+                    }
+                }
+            }
+            if (refused != null)
+            {
+                Tracing.TraceLine(what + ": " + refused + " (slice " + slice.Letter + "), so its tune to " + mhz
                     + " was not sent to any slice", System.Diagnostics.TraceLevel.Info);
-                guard.Refused(id, "the slice is gone");
-                return;
+                guard.Refused(id, refused);
             }
-            if (slice.Lock)
-            {
-                Tracing.TraceLine(what + ": slice " + slice.Letter + " was locked before its tune to " + mhz
-                    + " could be sent", System.Diagnostics.TraceLevel.Info);
-                guard.Refused(id, "the slice is locked");
-                return;
-            }
-            string command = "slice tune " + slice.Index + " " + Flex.Util.StringHelper.DoubleToString(mhz, "f6");
-            if (!slice.AutoPan) command += " autopan=0";
-            // Marked before the write, so the reply cannot come back ahead of it.
-            guard.Sending(id);
-            string refusal = SendRadioCommandWithReply(slice.Radio, command, reply => TuneReplied(slice, id, reply));
-            if (refusal != null)
+            else if (refusal != null)
             {
                 Tracing.TraceLine(what + ": slice " + slice.Letter + "'s tune to " + mhz + " was not sent: " + refusal,
                     System.Diagnostics.TraceLevel.Info);

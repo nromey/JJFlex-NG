@@ -11998,9 +11998,14 @@ namespace Radios
                     catch (NullReferenceException) { earsInputs = null; }
                     if (!(earsInputs?.Contains(earsAntenna) ?? false))
                         throw new InvalidOperationException("loopback-ears-port-unavailable");
+                    // The ears go to the transmit slice's ONE value (#642,
+                    // repair round 6), a tune still on its way included.
+                    Slice earsTransmit = SliceForTransmitSetting();
+                    double earsMhz = earsTransmit == null ? 0.0
+                        : LongFreqToLibFreq(ValueOf(earsTransmit, _rxCache, _txCache));
                     if (
                         !resources.Configure(mySlices, arrangementRadio.PanadapterList,
-                            SliceForTransmitSetting(), earsAntenna))
+                            earsTransmit, earsAntenna, earsMhz))
                         throw new InvalidOperationException("loopback-ears-missing");
                     ears = resources.Slice;
                 }

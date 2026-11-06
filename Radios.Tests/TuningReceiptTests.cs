@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
 using Flex.Smoothlake.FlexLib;
 using Radios.StationConnect;
 using Radios.Tests.StationConnect;
@@ -520,6 +522,238 @@ namespace Radios.Tests
             EveryReaderSays(b.Rig, 14_100_200);
             Drain(b.Rig);
             Assert.Equal(14_100_200UL, LastTune(b, a));
+        }
+        // ── Repair round 6 (Codex's fifth re-check) ──
+
+        /// <summary>
+        /// Codex's blocker 1, its exact schedule: up, up again, and back down
+        /// to the first step's number, all three sent. The radio reports and
+        /// answers each in order, each report before its own reply. The FIRST
+        /// request's report carries the latest request's number but is not its
+        /// confirmation, so the middle step's report that follows must not be
+        /// believed, and the next step down starts from the latest request.
+        /// </summary>
+        [Fact]
+        public void A_reversal_is_not_settled_by_an_older_requests_report_of_the_same_number()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+
+            b.Rig.RXFrequency = 14_100_100;
+            b.Rig.RXFrequency = 14_100_200;
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            Assert.Equal(3, Tunes(b).Count);
+
+            Reports(a, 14.100100); AckTune(b, 0);            // the first request's report, then its reply
+            EveryReaderSays(b.Rig, 14_100_100);
+            Reports(a, 14.100200); AckTune(b, 1);            // the middle request's
+            EveryReaderSays(b.Rig, 14_100_100);
+
+            b.Rig.RXFrequency = b.Rig.RXFrequency - 100;     // the next step down
+            Drain(b.Rig);
+            Assert.Equal(14_100_000UL, LastTune(b, a));
+        }
+
+        /// <summary>
+        /// The same reversal, carried through: the latest request's own report
+        /// then settles it, and a genuine move after that is believed.
+        /// </summary>
+        [Fact]
+        public void A_reversal_settles_on_the_latest_requests_own_report()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+
+            b.Rig.RXFrequency = 14_100_100;
+            b.Rig.RXFrequency = 14_100_200;
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            Reports(a, 14.100100); AckTune(b, 0);
+            Reports(a, 14.100200); AckTune(b, 1);
+            Reports(a, 14.100100); AckTune(b, 2);            // the latest's own report and reply
+            EveryReaderSays(b.Rig, 14_100_100);
+            Reports(a, 14.100200);                           // somebody else moves it: believed now
+            EveryReaderSays(b.Rig, 14_100_200);
+        }
+
+        /// <summary>
+        /// Control (Codex's): three distinct steps, reported and answered in
+        /// order. The intermediate reports rewind nothing, and the next step
+        /// down starts from the last.
+        /// </summary>
+        [Fact]
+        public void A_monotonic_run_reported_in_order_keeps_its_last_step()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+
+            for (int i = 0; i < 3; i++) b.Rig.RXFrequency = b.Rig.RXFrequency + 100;
+            Drain(b.Rig);
+            Reports(a, 14.100100); AckTune(b, 0);
+            Reports(a, 14.100200); AckTune(b, 1);
+            EveryReaderSays(b.Rig, 14_100_300);
+            b.Rig.RXFrequency = b.Rig.RXFrequency - 100;
+            Drain(b.Rig);
+            Assert.Equal(14_100_200UL, LastTune(b, a));
+        }
+
+        private static Xvtr Transverter(VendorRadioFixture v, int index, string name, double rfMhz)
+        {
+            var x = new Xvtr(v.Radio);
+            Set(x, "_index", index);
+            Set(x, "_name", name);
+            Set(x, "_rfFreq", rfMhz);
+            Set(x, "_ifFreq", 28.0);
+            Set(x, "_valid", true);
+            return x;
+        }
+
+        /// <summary>
+        /// Codex's blocker 2, its exact schedule: definitions at 144 and 432
+        /// MHz, the transmit slice on 144.1. A band change to 432.1 is sent but
+        /// not yet reported, and drive is then set: the drive goes to the
+        /// definition for the band the slice is being tuned to, the band F
+        /// names, never the old band's.
+        /// </summary>
+        [Fact]
+        public void Transverter_drive_set_after_a_band_change_is_sent_goes_to_the_new_bands_definition()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 144.100);
+            typeof(FlexBase).GetField("theRadio", Private)!.SetValue(b.Rig, b.V.Radio);
+            var addX = typeof(FlexBase).GetMethod("xvtrAdded", Private)!;
+            addX.Invoke(b.Rig, new object[] { Transverter(b.V, 0, "2M", 144.0) });
+            addX.Invoke(b.Rig, new object[] { Transverter(b.V, 1, "70CM", 432.0) });
+            try
+            {
+                Assert.Equal("2M", b.Rig.ActiveXvtrName);    // control: the instrument sees the band
+
+                b.Rig.TXFrequency = 432_100_000;
+                Drain(b.Rig);
+                Assert.Equal(432_100_000UL, b.Rig.TXFrequency);
+                Assert.Equal("70CM", b.Rig.ActiveXvtrName);
+
+                b.Rig.XvtrDrivePowerCentiDbm = 500;
+                Drain(b.Rig);
+                List<string> cmds = b.V.Transport.Commands;
+                Assert.Contains("xvtr set 1 max_power=5.00", cmds);
+                Assert.DoesNotContain(cmds, c => c.StartsWith("xvtr set 0 ", StringComparison.Ordinal));
+
+                Reports(a, 432.100000);                      // the radio's report: still the new band
+                Assert.Equal("70CM", b.Rig.ActiveXvtrName);
+            }
+            finally { typeof(FlexBase).GetField("theRadio", Private)!.SetValue(b.Rig, null); }
+        }
+
+        /// <summary>
+        /// Codex's blocker 3: the slice is removed on another thread at the
+        /// moment WriteTuneTo has checked it and is about to write (the guard's
+        /// Sending boundary). The tune must not reach the transport for a slice
+        /// that is no longer ours: either the removal waits for the write, or
+        /// the write sees the removal. Here the removal is started on another
+        /// thread and given time to finish before the write goes on.
+        /// </summary>
+        [Fact]
+        public void A_slice_removed_between_the_check_and_the_write_gets_no_tune_after_its_removal()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            var mine = (List<Slice>)typeof(FlexBase).GetField("mySlices", Private)!.GetValue(b.Rig)!;
+            var remove = typeof(FlexBase).GetMethod("sliceRemoved", Private)!;
+            var binding = new ObservationBinding(new object(), new ConnectionAttempt("test-serial"));
+
+            b.Rig.RXFrequency = 14_100_100;
+            int armed = 0, fired = 0;
+            Task? removal = null;
+            Clock(b.Rig, a, () =>
+            {
+                if (Volatile.Read(ref armed) == 1 && Interlocked.Exchange(ref fired, 1) == 0)
+                {
+                    removal = Task.Run(() => remove.Invoke(b.Rig, new object[] { a, binding }));
+                    removal.Wait(1000);                      // it finishes now unless the write holds it off
+                }
+                return 0;
+            });
+            bool? ownedAtWrite = null;
+            b.V.Transport.CommandWritten = cmd =>
+            {
+                if (cmd.StartsWith("slice tune ", StringComparison.Ordinal))
+                    lock (mine) ownedAtWrite = mine.Contains(a);
+            };
+
+            Volatile.Write(ref armed, 1);
+            Drain(b.Rig);
+            Assert.Equal(1, Volatile.Read(ref fired));       // the boundary was reached
+            Assert.True(removal!.Wait(5000));                // and the removal did happen
+            lock (mine) Assert.DoesNotContain(a, mine);
+            // The write went ahead while the slice was still ours, and only then
+            // did the removal finish: the removal waited for it.
+            Assert.True(ownedAtWrite.HasValue, "no tune was written at all");
+            Assert.True(ownedAtWrite!.Value, "a tune was written for a slice already removed");
+        }
+
+        /// <summary>Control for the above: removed before the queue runs, nothing is written at all.</summary>
+        [Fact]
+        public void A_slice_removed_before_its_tune_runs_gets_nothing()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.RXFrequency = 14_100_100;
+            typeof(FlexBase).GetMethod("sliceRemoved", Private)!
+                .Invoke(b.Rig, new object[] { a, new ObservationBinding(new object(), new ConnectionAttempt("test-serial")) });
+            Drain(b.Rig);
+            Assert.Empty(Tunes(b));
+        }
+        // ── The sweep of raw readers on the transmit path (repair round 6) ──
+
+        /// <summary>
+        /// The loopback ears are tuned to the frequency the caller gives them,
+        /// which the arrangement takes from the transmit slice's one value.
+        /// The control: the old overload still tunes them to FlexLib's number.
+        /// </summary>
+        [Fact]
+        public void The_loopback_ears_go_to_the_transmit_frequency_they_are_given()
+        {
+            var v = new VendorRadioFixture("ears-" + Guid.NewGuid().ToString("N"));
+            Slice Make(int index, double mhz)
+            {
+                Slice s = v.NewSlice(index, 123, mhz, "USB");
+                var pan = (Panadapter)Activator.CreateInstance(typeof(Panadapter), Private, null, new object[] { v.Radio }, null)!;
+                typeof(Panadapter).GetProperty(nameof(Panadapter.StreamID))!.GetSetMethod(true)!
+                    .Invoke(pan, new object[] { (uint)(0x40000000 + index) });
+                typeof(Slice).GetProperty(nameof(Slice.Panadapter))!.GetSetMethod(true)!.Invoke(s, new object[] { pan });
+                return s;
+            }
+            Slice tx = Make(0, 144.100);
+            var before = new[] { tx };
+            var resources = new LoopbackSliceResources(before, before.Select(s => s.Panadapter));
+            Slice ears = Make(1, 7.100);
+            var roster = new[] { tx, ears };
+            var pans = roster.Select(s => s.Panadapter).ToArray();
+            Assert.True(resources.Capture(roster, pans));
+            Assert.True(resources.Configure(roster, pans, tx, "XVTR", 432.100));
+            Assert.Equal(432.100, ears.Freq);
+        }
+
+        /// <summary>
+        /// Every reader on the transmit path that took FlexLib's number for
+        /// the transmit slice now takes its one value: the transverter for
+        /// drive, the listenback's listener and its record, and the loopback
+        /// ears. A source pin, so a new raw read on these paths is seen.
+        /// </summary>
+        [Fact]
+        public void The_transmit_path_reads_the_transmit_slices_one_value()
+        {
+            string dir = System.IO.Path.Combine(FlexBasePartials.RepoRoot(), "Radios");
+            string xv = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "FlexBase.Transverter.cs"));
+            Assert.DoesNotContain("SliceForTransmitSetting()?.Freq", xv);
+            Assert.Contains("LongFreqToLibFreq(ValueOf(txSlice, _rxCache, _txCache))", xv);
+            string lb = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "FlexBase.Listenback.cs"));
+            Assert.DoesNotContain("tx.Freq", lb);
+            Assert.Contains("double txMhz = LongFreqToLibFreq(ValueOf(tx, _rxCache, _txCache));", lb);
+            string main = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "FlexBase.cs"));
+            Assert.Contains("earsTransmit, earsAntenna, earsMhz))", main);
         }
     }
 }

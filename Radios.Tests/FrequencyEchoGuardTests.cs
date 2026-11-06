@@ -355,5 +355,45 @@ namespace Radios.Tests
             _now += FrequencyEchoGuard.GiveUpMs;           // well past the older send
             Assert.Equal(FrequencyEchoGuard.Reading.Pending, g.Read(out _));
         }
+        // ── Repair round 6: a report settles only the latest request ──
+
+        [Fact]
+        public void A_report_of_a_number_an_older_unanswered_request_asked_for_does_not_settle_the_latest()
+        {
+            var g = Guard();
+            long first = g.Requested(Was, Asked);
+            long second = g.Requested(Asked, 14_200_200);
+            long third = g.Requested(14_200_200, Asked);  // back to the first request's number
+            g.Sending(first); g.Sending(second); g.Sending(third);
+            Assert.False(g.Accept(Asked));                 // the FIRST request's report
+            g.Acknowledged(first, Asked);                  // its reply: equal, but not the latest's
+            Assert.Equal(FrequencyEchoGuard.Reading.Pending, g.Read(out _));
+            Assert.False(g.Accept(14_200_200));            // the second's report is still stale
+            g.Acknowledged(second, 14_200_200);
+            Assert.True(g.Accept(Asked));                  // now only the latest can have asked for it
+            Assert.Equal(FrequencyEchoGuard.Reading.Idle, g.Read(out _));
+        }
+
+        [Fact]
+        public void An_older_request_refused_is_answered_and_no_longer_holds_off_the_latest()
+        {
+            var g = Guard();
+            long first = g.Requested(Was, Asked);
+            g.Requested(Asked, 14_200_200);
+            g.Requested(14_200_200, Asked);
+            Assert.False(g.Refused(first, "the radio answered an error"));
+            Assert.True(g.Accept(Asked));
+        }
+
+        [Fact]
+        public void The_reply_does_not_settle_the_latest_while_an_older_request_for_its_number_is_unanswered()
+        {
+            var g = Guard();
+            g.Requested(Was, Asked);
+            g.Requested(Asked, 14_200_200);
+            long third = g.Requested(14_200_200, Asked);
+            g.Acknowledged(third, Asked);                  // out of order: the older one is still unanswered
+            Assert.Equal(FrequencyEchoGuard.Reading.Pending, g.Read(out _));
+        }
     }
 }

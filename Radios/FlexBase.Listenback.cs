@@ -216,6 +216,11 @@ public partial class FlexBase
             var tx = SliceForTransmitSetting();
             string expectedLoopbackAntenna = TXAntennaList.Find(a => a.StartsWith("XVT", StringComparison.OrdinalIgnoreCase));
             if (tx?.Panadapter == null) throw new InvalidOperationException("no-transmit-pan");
+            // The transmit slice's ONE value (#642, repair round 6): a tune still
+            // on its way is where this take transmits, so the listener goes
+            // there and the take records it. FlexLib's own number is only what
+            // the radio last reported.
+            double txMhz = LongFreqToLibFreq(ValueOf(tx, _rxCache, _txCache));
             if (Transmit || LoopbackArranged) throw new InvalidOperationException("radio-busy");
             if (options.OffAir && DummyLoadMode) throw new InvalidOperationException("dummy-load-active");
             if (options.OffAir && OffAirListenbackRefusalReason is { Length: > 0 } refusal)
@@ -313,7 +318,7 @@ public partial class FlexBase
                     string savedCenter = ownedLoopback.SavedPanCenter.ToString("F6", CultureInfo.InvariantCulture);
                     snapshot.Settings.Add(new("ears-pan-center", savedCenter,
                         $"display pan set 0x{earsPan.StreamID:X} center={savedCenter}", $"display pan 0x{earsPan.StreamID:X}",
-                        "center", "pan", earsPan.StreamID, RequestedValue: tx.Freq.ToString("F6", CultureInfo.InvariantCulture)));
+                        "center", "pan", earsPan.StreamID, RequestedValue: txMhz.ToString("F6", CultureInfo.InvariantCulture)));
                     snapshot.Settings.Add(new("ears-frequency", savedFrequency,
                         $"slice tune {ears.Index} {savedFrequency}", $"slice {ears.Index}",
                         "RF_frequency", "slice", (uint)ears.Index, RequestedValue: ears.Freq.ToString("F6", CultureInfo.InvariantCulture)));
@@ -385,7 +390,7 @@ public partial class FlexBase
                 rxAnt = OtherTransverterReceiveInput(pan.RXAntennaList, tx.TXAnt);
             if (options.OffAir && string.IsNullOrEmpty(rxAnt)) throw new InvalidOperationException("no-other-transverter-input");
             if (!string.IsNullOrEmpty(rxAnt) && !(pan.RXAntennaList?.Contains(rxAnt) ?? false)) throw new InvalidOperationException("receive-antenna-unavailable");
-            double receiveFrequency = tx.Freq;
+            double receiveFrequency = txMhz;
             string receiveMode = tx.DemodMode;
             if (created != null)
             {
@@ -466,7 +471,7 @@ public partial class FlexBase
                 ["daxiq-capacity"] = radio.DAXIQCapacity.ToString(CultureInfo.InvariantCulture),
                 ["pan-id"] = pan.StreamID.ToString("X"), ["receive-antenna"] = pan.RXAnt,
                 ["rf-gain"] = pan.RFGain.ToString(CultureInfo.InvariantCulture),
-                ["tx-frequency-mhz"] = tx.Freq.ToString("R", CultureInfo.InvariantCulture), ["mode"] = tx.DemodMode,
+                ["tx-frequency-mhz"] = txMhz.ToString("R", CultureInfo.InvariantCulture), ["mode"] = tx.DemodMode,
                 ["tx-antenna"] = tx.TXAnt, ["rf-power"] = radio.RFPower.ToString(CultureInfo.InvariantCulture),
                 ["dummy-load"] = DummyLoadMode.ToString(), ["tx-filter-low"] = TXFilterLow.ToString(CultureInfo.InvariantCulture),
                 ["tx-filter-high"] = TXFilterHigh.ToString(CultureInfo.InvariantCulture), ["mic-input"] = MicSource,
