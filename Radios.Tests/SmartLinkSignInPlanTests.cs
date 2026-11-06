@@ -276,6 +276,64 @@ namespace Radios.Tests
             Assert.Equal(Plan.SignInAsUsual, plan.Kind);
         }
 
+        /// <summary>
+        /// Repair round 1, Codex B1. The WAN bank keeps a radio's handle, and
+        /// the account that delivered it, across a drop, which is right for a
+        /// recovery dial. It is NOT live attribution. Here account A once
+        /// listed the radio and its session has since disconnected; the
+        /// operator has since chosen account B for the radio. The resolver must
+        /// answer B, and the plan must sign in as B, not A.
+        /// </summary>
+        [Fact]
+        public void A_dropped_sessions_old_attribution_does_not_outrank_the_radios_chosen_account()
+        {
+            var (operatorSession, _) = Listed(Operator, Radio6300);
+            var rig = NewRig();
+            rig.ReplayHeldListsIntoTheIntake(Operator, sessionWasAlreadyConnected: true);
+            Assert.Equal(Operator, FlexBase.WanAccountForSerial(Radio6300));   // the bank holds the old attribution
+
+            _coordinator.DisconnectSession(operatorSession.SessionId);
+            WaitUntil(() => !operatorSession.IsConnected, "the operator's session never reported disconnected");
+            Assert.True(RadioConfig.Update(Radio6300, cfg => { cfg.PreferredAccount = Owner; }));
+            try
+            {
+                var route = RadioAccountRouting.ForSerial(Radio6300);
+                Assert.Equal(new AccountRoute(Owner, AccountRouteSource.Preferred), route);
+
+                var plan = FlexBase.PlanSmartLinkSignIn(Radio6300, new[] { Operator, Owner },
+                    _coordinator.AllSessions, route);
+                Assert.Equal(Plan.SignInAsRadiosAccount, plan.Kind);
+                Assert.Equal(Owner, plan.Account);
+            }
+            finally
+            {
+                RadioConfig.Update(Radio6300, cfg => { cfg.PreferredAccount = ""; });
+            }
+        }
+
+        /// <summary>
+        /// The control for the test above: while the session that listed the
+        /// radio is connected and its list is current, that live attribution
+        /// still outranks the stored choice.
+        /// </summary>
+        [Fact]
+        public void A_current_listing_is_live_attribution_and_outranks_the_stored_choice()
+        {
+            Listed(Operator, Radio6300);
+            var rig = NewRig();
+            rig.ReplayHeldListsIntoTheIntake(Operator, sessionWasAlreadyConnected: true);
+            Assert.True(RadioConfig.Update(Radio6300, cfg => { cfg.PreferredAccount = Owner; }));
+            try
+            {
+                Assert.Equal(new AccountRoute(Operator, AccountRouteSource.LiveAttribution),
+                    RadioAccountRouting.ForSerial(Radio6300));
+            }
+            finally
+            {
+                RadioConfig.Update(Radio6300, cfg => { cfg.PreferredAccount = ""; });
+            }
+        }
+
         // ------------------------------------------------------------------
         // #798: the shared routing resolver's order (#405's routing half)
         // ------------------------------------------------------------------

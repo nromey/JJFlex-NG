@@ -10,7 +10,7 @@ namespace Radios
         /// <summary>No tier answered: nothing on record says which account reaches the radio.</summary>
         None,
 
-        /// <summary>A SmartLink session listed the radio; the account whose list delivered it.</summary>
+        /// <summary>A SmartLink session lists the radio on its connection that is up now; the account whose list delivered it.</summary>
         LiveAttribution,
 
         /// <summary>The operator's deliberate, sticky choice for this radio (<see cref="RadioConfig.PreferredAccount"/>).</summary>
@@ -87,7 +87,10 @@ namespace Radios
             if (string.IsNullOrWhiteSpace(serial)) return AccountRoute.None;
 
             string live = "";
-            try { live = FlexBase.WanAccountForSerial(serial) ?? ""; }
+            // Live means a session whose list carrying the serial is current
+            // NOW. The bank's attribution from a dropped session is history,
+            // and must not outrank the radio's chosen account (repair round 1).
+            try { live = FlexBase.CurrentWanAccountForSerial(serial) ?? ""; }
             catch (Exception ex)
             {
                 Tracing.TraceLine($"RadioAccountRouting.ForSerial({serial}): live attribution unreadable: {ex.Message}", TraceLevel.Warning);
