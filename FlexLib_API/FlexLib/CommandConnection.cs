@@ -53,6 +53,65 @@ public sealed class RadioClientReport
     public bool LocalPtt { get; }
 }
 
+// JJFlex patch: write-time gate (MIGRATION.md item 21). A caller pins its command
+// writes, on this thread, to the CommandConnection it checked, with an optional
+// predicate. The transport admits a pinned write only to that connection, still
+// Connected, and only if the predicate still holds when the write really happens,
+// asked under ConnectionSync so a report the reader has dispatched is seen. Nothing
+// is held across I/O: the decision is made under the gate, the bytes go out after.
+// A refused write is not written; the pin records why and calls the caller back.
+// Unpinned writes (the emergency kill, every ordinary command) are untouched.
+public sealed class CommandWritePin : IDisposable
+{
+    [ThreadStatic] private static CommandWritePin? _current;
+    private readonly CommandWritePin? _outer;
+    private bool _disposed;
+
+    /// <summary>How long a predicate waits for the dispatch gate before the write fails closed.</summary>
+    public static TimeSpan SerializeBound { get; set; } = TimeSpan.FromMilliseconds(100);
+
+    private CommandWritePin(CommandConnection connection, Func<string?>? predicate, Action<string>? onRefused)
+    {
+        Connection = connection;
+        Predicate = predicate;
+        OnRefused = onRefused;
+        _outer = _current;
+        _current = this;
+    }
+
+    /// <summary>Pin this thread's command writes, until Dispose, to <paramref name="connection"/>.</summary>
+    /// <param name="predicate">Asked at each write, under the transport's dispatch gate: null to write, else why not. It must only read state: no I/O, no locks.</param>
+    /// <param name="onRefused">Told why, on the writing thread, when a write is refused.</param>
+    public static CommandWritePin Pin(CommandConnection connection, Func<string?>? predicate = null, Action<string>? onRefused = null) =>
+        new CommandWritePin(connection ?? throw new ArgumentNullException(nameof(connection)), predicate, onRefused);
+
+    internal static CommandWritePin? Current => _current;
+    public CommandConnection Connection { get; }
+    public Func<string?>? Predicate { get; }
+    private Action<string>? OnRefused { get; }
+
+    /// <summary>The first refusal of a write under this pin, or null.</summary>
+    public string? Refusal { get; private set; }
+
+    /// <summary>Writes admitted under this pin.</summary>
+    public int Written { get; private set; }
+
+    internal void Refuse(string why)
+    {
+        Refusal ??= why;
+        try { OnRefused?.Invoke(why); } catch { }
+    }
+
+    internal void Admit() => Written++;
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _current = _outer;
+    }
+}
+
 // JJFlex patch: both adapters serialize identity selection and delivery on this gate.
 // No socket wait holds it. Radio's teardown uses the same gate, so an old callback
 // cannot pass a check and then tear down a replacement installed in the gap.
@@ -67,6 +126,54 @@ public abstract class CommandCommunicationBase : ICommandCommunication
     public abstract bool Connect(System.Net.IPAddress radioIp, int radioPort, int srcPort, out CommandConnection? connection);
     public abstract void Disconnect();
     public abstract void Write(string msg);
+
+    /// <summary>
+    /// JJFlex patch: write-time gate (MIGRATION.md item 21). Called by each
+    /// adapter's Write with the connection of the attempt it is about to write
+    /// through. True to write. An unpinned write is always admitted.
+    /// </summary>
+    protected bool AdmitWrite(CommandConnection? target)
+    {
+        var pin = CommandWritePin.Current;
+        if (pin == null) return true;
+        if (!ReferenceEquals(target, pin.Connection))
+        {
+            pin.Refuse("the command connection it was pinned to is no longer the one being written");
+            return false;
+        }
+        if (target!.State != CommandConnectionState.Connected)
+        {
+            pin.Refuse("the command connection it was pinned to has ended");
+            return false;
+        }
+        var predicate = pin.Predicate;
+        if (predicate != null)
+        {
+            string? why;
+            if (!System.Threading.Monitor.TryEnter(ConnectionSync, CommandWritePin.SerializeBound))
+                why = "the radio's reports could not be read in time to confirm the write";
+            else
+            {
+                try
+                {
+                    // Under the gate the reader dispatches under: a report it has
+                    // dispatched is seen, and none is dispatched while this decides.
+                    why = !ReferenceEquals(CurrentConnection, target) || target.State != CommandConnectionState.Connected
+                        ? "the command connection it was pinned to has changed or ended"
+                        : predicate();
+                }
+                catch (Exception ex) { why = "the write's own check failed (" + ex.Message + ")"; }
+                finally { System.Threading.Monitor.Exit(ConnectionSync); }
+            }
+            if (why != null)
+            {
+                pin.Refuse(why);
+                return false;
+            }
+        }
+        pin.Admit();
+        return true;
+    }
 
     public event Action<CommandConnectionChanged>? ConnectionChanged;
     public event Action<CommandDataReceived>? DataReceived;

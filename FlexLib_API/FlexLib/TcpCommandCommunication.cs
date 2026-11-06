@@ -134,6 +134,8 @@ public class TcpCommandCommunication : CommandCommunicationBase
         // JJFlex patch: callers can own vendor collection locks. Do not take the
         // reader's dispatch gate while sending; retain only this attempt's writer.
         var attempt = Volatile.Read(ref _attempt);
+        // JJFlex patch: write-time gate (MIGRATION.md item 21), against the attempt written.
+        if (!AdmitWrite(attempt?.Connection)) return;
         var writer = attempt?.Writer;
         if (attempt?.Connection.State != CommandConnectionState.Connected || writer == null) return;
         try { writer.Write(msg); }

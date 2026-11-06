@@ -77,6 +77,9 @@ namespace Radios.Tests.StationConnect
         public Action<string>? CommandWritten;
         public override void Write(string msg)
         {
+            // The write-time gate (MIGRATION.md item 21) as the real adapters
+            // apply it: this fake's one attempt is its current connection.
+            if (!AdmitWrite(CurrentConnection)) return;
             lock (Written) Written.Add(msg ?? "");
             CommandWritten?.Invoke(CommandText(msg ?? ""));
         }

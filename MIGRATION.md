@@ -188,6 +188,45 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     without enabling telnet tracing. Remove this patch if a later FlexLib release
     exposes the same radio-reported field.
 
+21. **Command write-time gate (2026-11-05, ruled by Noel 23:49)**: keep the
+    comment-marked JJFlex patches ("write-time gate (MIGRATION.md item 21)") in
+    `FlexLib_API/FlexLib/CommandConnection.cs` (the `CommandWritePin` class, and
+    `CommandCommunicationBase.AdmitWrite`), in `TcpCommandCommunication.Write`
+    and `TlsCommandCommunication.Write` (each calls `AdmitWrite` with the
+    connection of the attempt or session it is about to write through), and in
+    `Radio.SendCommand` (its not-connected early return tells a pinned caller).
+    - **What it is.** A caller pins its command writes, on its own thread, to the
+      `CommandConnection` it checked, with an optional predicate. A pinned write
+      is admitted only to that connection, still Connected, and only if the
+      predicate still holds AT the write. The predicate is asked under the
+      transport's `ConnectionSync`, the gate the reader dispatches every report
+      under, so a report already dispatched is seen; the bytes go out after the
+      gate is released (no lock is held across I/O). A predicate that cannot get
+      the gate within `CommandWritePin.SerializeBound` (100 ms) fails closed. A
+      refused write is not written, and the pin records and reports why.
+      Unpinned writes (the emergency kill, every ordinary command) are untouched.
+    - **Why.** The check-to-write interval: the app checked its radio, connection,
+      ownership, receive and mic selection, then FlexLib's setter wrote through
+      whatever attempt was current when it actually wrote. Codex's fifth
+      re-checks of the 2026-11-02 junk box batch reproduced it: a writer paused
+      past the app's one-second drain at `SendCommand`'s pre-write point wrote
+      xmit 0, vox_enable=1 and mic input MIC onto a connected replacement (#596
+      B9, #861 N1, also with the real TCP adapter and a memory stream), and a
+      foreign client's carrier, a reported transmit or a newer mic choice
+      arriving after the check was never seen (#596 B10, #861 N3). The app's
+      callers are in `Radios/FlexBase.PinnedWrites.cs` (`StepOnPinnedTarget`).
+    - **Re-apply after an upgrade.** Merge, never blind-copy, the four files.
+      `CommandWritePin` and `AdmitWrite` are additions. Each adapter's `Write`
+      must call `AdmitWrite` with the connection of the exact attempt or session
+      it then writes through, before it writes. `RepairFiveTransmitTests.
+      The_write_time_gate_is_still_patched_into_the_vendor_transport` pins all
+      five sites and this entry; the boundary schedules in that class are its
+      behavioural tests.
+    - **When it could be removed.** If FlexLib ever offers a connection-bound,
+      conditional command write (write this on that connection only if a
+      condition holds when it is written), or if every app write moves to its
+      own per-connection writer.
+
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 
 FlexLib is not the only vendor code in this repo, and a patch in one of the

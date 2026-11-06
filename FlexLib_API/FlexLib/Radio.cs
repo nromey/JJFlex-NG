@@ -4788,6 +4788,8 @@ namespace Flex.Smoothlake.FlexLib
             if (_commandCommunication is null || !_commandCommunication.IsConnected)
             {
                 // TODO: handle disconnect
+                // JJFlex patch: write-time gate (MIGRATION.md item 21): a pinned caller is told.
+                CommandWritePin.Current?.Refuse("the command connection is not connected");
                 return 0;
             }
 
