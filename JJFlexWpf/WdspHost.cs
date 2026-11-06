@@ -170,6 +170,13 @@ namespace JJFlexWpf
         public long ExitSeenAt;
         /// <summary>What the helper said in a fatal Error (256 or 257) before it closed the pipe, if anything.</summary>
         public volatile string? HelperSaid;
+        /// <summary>
+        /// Set once the reader will read no more: it reached the end of the pipe
+        /// (so <see cref="HelperSaid"/> is final) or stopped for any other reason.
+        /// The writer waits on it, bounded, before naming an exit it found first.
+        /// Never disposed, like <see cref="Wake"/>.
+        /// </summary>
+        public readonly ManualResetEventSlim ReaderDone = new(false);
         /// <summary>SetSettings sent on this connection and not yet answered. Interlocked; the writer adds, the reader takes away.</summary>
         public int SettingsInFlight;
         /// <summary>1 while the writer is holding settings back for room, so an answer wakes it. Interlocked.</summary>
@@ -624,8 +631,12 @@ namespace JJFlexWpf
             if (last != null) Teardown(last, kill: false);
         }
 
-        /// <summary>How long the control thread leaves a connected helper's exit for the reader to name: twice the reader's own wait.</summary>
-        private long ExitGraceTicks => 2 * Ticks(Policy.ExitNamingWait);
+        /// <summary>
+        /// How long the control thread leaves a connected helper's exit for the
+        /// reader or writer to name: three times their wait, longer than the
+        /// writer's whole wait (for the exit, then for the reader to finish).
+        /// </summary>
+        private long ExitGraceTicks => 3 * Ticks(Policy.ExitNamingWait);
 
         private int NextWaitMsLocked()
         {
@@ -996,6 +1007,9 @@ namespace JJFlexWpf
         /// <summary>Tests only: runs on the breaking thread the instant its failure is visible.</summary>
         internal Action<WdspConnection>? FailurePublishedForTest;
 
+        /// <summary>Tests only: runs on the writer when it has found the pipe gone and begins waiting for the reader to finish reading.</summary>
+        internal Action<WdspConnection>? WriterAwaitsReaderForTest;
+
         /// <summary>Tests only: break this connection as the reader or writer would.</summary>
         internal void BreakForTest(WdspConnection c, WdspCondition condition, string detail) => Break(c, condition, detail);
 
@@ -1030,7 +1044,8 @@ namespace JJFlexWpf
                     int n = c.Pipe.Read(buffer, 0, buffer.Length);
                     if (n == 0)
                     {
-                        PipeEnded(c, "the helper closed the pipe");
+                        c.ReaderDone.Set(); // everything the helper wrote has been read, its last Error included
+                        PipeEnded(c, "the helper closed the pipe", writer: false);
                         return;
                     }
                     ReadOnlySpan<byte> data = buffer.AsSpan(0, n);
@@ -1066,7 +1081,12 @@ namespace JJFlexWpf
             }
             catch (Exception ex)
             {
-                PipeEnded(c, ex.GetType().Name + ": " + ex.Message);
+                c.ReaderDone.Set();
+                PipeEnded(c, ex.GetType().Name + ": " + ex.Message, writer: false);
+            }
+            finally
+            {
+                c.ReaderDone.Set();
             }
         }
 
@@ -1078,7 +1098,16 @@ namespace JJFlexWpf
         /// included, and anything it said first goes with it. Still running
         /// after the wait: a broken pipe, and the control thread kills it.
         /// </summary>
-        private void PipeEnded(WdspConnection c, string how)
+        /// <remarks>
+        /// The writer can find the end while the reader is still behind, with
+        /// the helper's last Error unread in the pipe. A process that has exited
+        /// proves nothing about what has been read, so the writer then also waits,
+        /// bounded by the same time again, for the reader to reach the end of the
+        /// pipe; the reason it publishes then carries what the helper said. If
+        /// the reader is held longer than that, the exit is still named, without
+        /// the text.
+        /// </remarks>
+        private void PipeEnded(WdspConnection c, string how, bool writer)
         {
             if (c.Stopping) return;
             uint? code = null;
@@ -1087,6 +1116,11 @@ namespace JJFlexWpf
                 if (c.Exited.WaitOne(Policy.ExitNamingWait)) code = WdspNative.ExitCode(c.Process);
             }
             catch (ObjectDisposedException) { return; } // torn down meanwhile: nothing left to say
+            if (writer && !c.ReaderDone.IsSet)
+            {
+                WriterAwaitsReaderForTest?.Invoke(c);
+                c.ReaderDone.Wait(Policy.ExitNamingWait);
+            }
             if (c.Stopping) return;
             if (code is uint x) Break(c, WdspProtocol.ConditionForExit(x), WdspProtocol.ExitDetail(x, c.HelperSaid));
             else Break(c, WdspCondition.BrokenPipe, how + (c.HelperSaid is { } said ? "; before closing it said " + said : "") +
@@ -1359,8 +1393,9 @@ namespace JJFlexWpf
             }
             catch (Exception ex)
             {
-                // The writer can see the pipe end first; it names the exit just as the reader does.
-                PipeEnded(c, "writing: " + ex.GetType().Name + ": " + ex.Message);
+                // The writer can see the pipe end first; it names the exit just as the
+                // reader does, once the reader has read what the helper said last.
+                PipeEnded(c, "writing: " + ex.GetType().Name + ": " + ex.Message, writer: true);
             }
         }
 

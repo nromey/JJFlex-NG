@@ -155,6 +155,44 @@ public sealed partial class HelperLifecycleTests
     }
 
     /// <summary>
+    /// And when the writer finds the end first while the reader is merely
+    /// behind, what the helper said before closing still reaches the reason:
+    /// the Error is in the pipe, unread, and the writer waits (bounded) for the
+    /// reader to finish reading before it publishes. Deterministic both ways:
+    /// the reader is held until the writer either waits for it (the repaired
+    /// host) or publishes without it (the host before the repair, where the
+    /// Error text was lost: Codex's check saw three runs in four lose it with
+    /// a 75 ms reader pause).
+    /// </summary>
+    [Fact]
+    public void An_exit_the_writer_finds_first_keeps_what_the_helper_said()
+    {
+        using var rig = new HelperTestRig(n => n == 1 ? new[] { "--fatal-after", "5" } : Array.Empty<string>(), SlowRestart());
+        var engine = rig.Engine("nr2");
+        Assert.True(engine.IsAvailable);
+        using var gate = new ManualResetEventSlim(false);
+        int writerWaited = 0;
+        rig.Host.WriterAwaitsReaderForTest = _ => { Interlocked.Increment(ref writerWaited); gate.Set(); };
+        rig.Host.FailurePublishedForTest = _ => gate.Set();
+        rig.Host.DispatchHookForTest = _ => gate.Wait(15000);
+        try
+        {
+            using var feeder = new Feeder(engine);
+            HelperTestRig.Until(() => rig.Host.State == WdspHelperState.Restarting, "the helper to go down", 8000);
+        }
+        finally
+        {
+            rig.Host.DispatchHookForTest = null;
+            gate.Set();
+        }
+        _out.WriteLine(engine.UnavailabilityDetail);
+        Assert.Contains("the helper exited with code 6 (a protocol error", engine.UnavailabilityDetail);
+        Assert.Contains("before closing it said Error 257 UnexpectedMessage on channel 0: the client queued more than", engine.UnavailabilityDetail);
+        Assert.Equal(WdspCondition.FatalProtocolError, rig.Host.LastFailureCondition);
+        Assert.Equal(1, Volatile.Read(ref writerWaited)); // the writer, not the reader, found the end
+    }
+
+    /// <summary>
     /// A fatal Error before the HelloAck (Error 257, then the close and exit 6)
     /// is a protocol error like any other: Contract 2's Fatal rule sends it down
     /// the crash path, and only a HelloReject is a version mismatch. So it is
