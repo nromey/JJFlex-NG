@@ -19,6 +19,18 @@
 // --recording supplies the real delay-finder control; default is bin/input.
 // --mutation deliberately disables one check and must return failure.
 // Every suite runs selftest first and refuses to render if any control fails.
+// --helper names the WDSP helper (jjflex-wdsp-helper.exe) for NNR and NR2; by
+// default runtimes\win-x64\native beside the bench, then Track A's local build.
+// The selftest checks every NNR model, NR2 and NR4; CwChecks.cs lists their
+// mutations.
+// nrbench cw <capture.wav> <outDir> [--name <take>] [--start s] [--seconds s]
+//     [--width Hz] [--helper <helper.exe>] [--deepfilter <nativeDir>]
+// CW mode renders one CW capture through every engine, wide and then through a
+// narrow filter at the station's pitch, level-matched on the station, with the
+// CW measure's figures in <take>-measures.txt. CwCommands.cs has the details.
+// nrbench cwmeasure <reference.wav> <file.wav>... [--start s] [--seconds s]
+//     [--pitch Hz] [--width Hz] [--narrow]
+// Measures existing files against an unprocessed reference (CwMeasure.cs).
 // nrbench cpu [input.wav] [--out <report.txt>] [--deepfilter <nativeDir>]
 // CPU mode defaults to generated noise and cpu-report.txt; it opens no device.
 // nrbench synth <speech.wav> <outDir> [--start s] [--seconds s] [--snr dB]

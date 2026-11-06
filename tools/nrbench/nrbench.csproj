@@ -40,6 +40,14 @@
     <Compile Include="..\..\JJFlexWpf\CapturedNoiseWolaEngine.cs" Link="src\CapturedNoiseWolaEngine.cs" />
     <Compile Include="..\..\JJFlexWpf\PerChannelDenoiserBank.cs" Link="src\PerChannelDenoiserBank.cs" />
     <Compile Include="..\..\JJFlexWpf\NoiseReductionProvider.cs" Link="src\NoiseReductionProvider.cs" />
+    <!-- Sprint 49 bench CW: the WDSP helper engines (NNR, NR2), compiled by link
+         like the rest, so the bench drives the app's own host and engine over the
+         pipe. The helper executable is NOT copied here: it is GPL, built in its own
+         repository, and the bench is told where it is (the helper option). -->
+    <Compile Include="..\..\JJFlexWpf\WdspHost.cs" Link="src\WdspHost.cs" />
+    <Compile Include="..\..\JJFlexWpf\WdspHelperEngine.cs" Link="src\WdspHelperEngine.cs" />
+    <Compile Include="..\..\JJFlexWpf\WdspProtocol.cs" Link="src\WdspProtocol.cs" />
+    <Compile Include="..\..\JJFlexWpf\WdspNative.cs" Link="src\WdspNative.cs" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\..\runtimes\win-x64\native\deepfilter.dll;..\..\runtimes\win-x64\native\deepfilter.LICENSE-*.txt;..\..\runtimes\win-x64\native\DeepFilterNet3_onnx.tar.gz">
@@ -51,6 +59,7 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\..\runtimes\win-x64\native\rnnoise.dll;..\..\runtimes\win-x64\native\rnnoise.COPYING.txt" Link="runtimes\win-x64\native\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\runtimes\win-x64\native\specbleach.dll;..\..\runtimes\win-x64\native\LICENSE-libspecbleach*.txt" Link="runtimes\win-x64\native\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\runtimes\win-x86\native\rnnoise.dll;..\..\runtimes\win-x86\native\rnnoise.COPYING.txt" Link="runtimes\win-x86\native\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

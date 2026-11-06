@@ -10,10 +10,12 @@ partial class BenchApp
             if(args.Length==0){Usage();return 2;}
             if(args[0]=="synth")return Synth(args[1..]);
             if(args[0]=="cpu")return Cpu(args[1..]);
+            if(args[0]=="cw")return Cw(args[1..]);
+            if(args[0]=="cwmeasure")return CwMeasureCommand(args[1..]);
             if(args[0]=="selftest")
             {
                 string? recording=null,mutation=null;
-                for(int i=1;i<args.Length;i++)switch(args[i]) {case "--recording":recording=args[++i];break;case "--mutation":mutation=args[++i];break;default:throw new ArgumentException("Unknown selftest argument "+args[i]);}
+                for(int i=1;i<args.Length;i++)switch(args[i]) {case "--recording":recording=args[++i];break;case "--mutation":mutation=args[++i];break;case "--helper":HelperPath=Path.GetFullPath(args[++i]);break;default:throw new ArgumentException("Unknown selftest argument "+args[i]);}
                 return SelfTest(recording,mutation);
             }
             bool suite=args[0]=="suite";
@@ -22,7 +24,7 @@ partial class BenchApp
             string output=suite?Path.Combine(root,"results"):Path.GetFullPath(args[1]);
             string? native=null,stereoRecording=null;
             var externals=new List<string>();
-            for(int i=2;i<args.Length;i++)switch(args[i]) {case "--out" when suite:output=Path.GetFullPath(args[++i]);break;case "--deepfilter":native=args[++i];break;case "--stereo-recording":stereoRecording=Path.GetFullPath(args[++i]);break;case "--external":externals.Add(Path.GetFullPath(args[++i]));break;default:throw new ArgumentException("Unknown render argument "+args[i]);}
+            for(int i=2;i<args.Length;i++)switch(args[i]) {case "--out" when suite:output=Path.GetFullPath(args[++i]);break;case "--deepfilter":native=args[++i];break;case "--stereo-recording":stereoRecording=Path.GetFullPath(args[++i]);break;case "--external":externals.Add(Path.GetFullPath(args[++i]));break;case "--helper":HelperPath=Path.GetFullPath(args[++i]);break;default:throw new ArgumentException("Unknown render argument "+args[i]);}
             // Only folders with audio.wav participate; nothing is emitted for any other folder.
             var recordings=suite ? Directory.GetDirectories(root).Order(StringComparer.OrdinalIgnoreCase).Select(d=>Path.Combine(d,"audio.wav")).Where(File.Exists).ToArray() : new[]{Path.GetFullPath(args[0])};
             foreach(string path in externals.Concat(stereoRecording==null?Array.Empty<string>():new[]{stereoRecording}))
@@ -44,6 +46,7 @@ partial class BenchApp
             return 0;
         }
         catch(Exception ex){Console.Error.WriteLine("REFUSED: "+ex);return 1;}
+        finally{DisposeBenchHost();}
     }
     static void ImportExternal(Recording data,string path)
     {
@@ -54,7 +57,7 @@ partial class BenchApp
         WriteWav(Path.Combine(data.Output,file),audio,channels);
         data.ExternalDescriptions.Add(file,$"Imported by --external: the 48 kHz copy of {Path.GetFileName(path)} ({format}). Preserved at its original level; no alignment or engine-setting claim is made.");
     }
-    static void Usage()=>Console.Error.WriteLine("nrbench suite <recordingsRoot> [--out <resultsRoot>] [--deepfilter <nativeDir>] [--stereo-recording <audio.wav>]\nnrbench <input.wav> <outDir> [--deepfilter <nativeDir>] [--stereo-recording <audio.wav>] [--external <render.wav>]\nnrbench selftest [--recording <audio.wav>] [--mutation <control>]\nnrbench cpu [input.wav] [--out <report.txt>] [--deepfilter <nativeDir>]\nnrbench synth <speech.wav> <outDir> [--start s] [--seconds s] [--snr dB] [--carrier Hz] [--seed n]\nnrbench synth <speech.wav> <outDir> --noise <file[@gainDb]> [--noise ...] [--noise-skip s] [--start s] [--seconds s] [--snr dB]");
+    static void Usage()=>Console.Error.WriteLine("nrbench suite <recordingsRoot> [--out <resultsRoot>] [--deepfilter <nativeDir>] [--stereo-recording <audio.wav>]\nnrbench <input.wav> <outDir> [--deepfilter <nativeDir>] [--stereo-recording <audio.wav>] [--external <render.wav>]\nnrbench selftest [--recording <audio.wav>] [--mutation <control>] [--helper <helper.exe>]\nnrbench cw <capture.wav> <outDir> [--name <take>] [--start s] [--seconds s] [--width Hz] [--helper <helper.exe>] [--deepfilter <nativeDir>]\nnrbench cwmeasure <reference.wav> <file.wav>... [--start s] [--seconds s] [--pitch Hz] [--width Hz] [--narrow]\nnrbench cpu [input.wav] [--out <report.txt>] [--deepfilter <nativeDir>]\nnrbench synth <speech.wav> <outDir> [--start s] [--seconds s] [--snr dB] [--carrier Hz] [--seed n]\nnrbench synth <speech.wav> <outDir> --noise <file[@gainDb]> [--noise ...] [--noise-skip s] [--start s] [--seconds s] [--snr dB]");
     static string LibraryPath(string? directory=null)
     {
         if(directory!=null)return Path.Combine(Path.GetFullPath(directory),JJFlexWpf.DeepFilterNet3Engine.LibraryFileName);

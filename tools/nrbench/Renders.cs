@@ -23,6 +23,9 @@ partial class BenchApp
             "deepfilternet3" => $"DeepFilterNet3 limit {(Value("attenuation_limit_db") == 100 ? "unlimited" : Value("attenuation_limit_db").ToString("0.###", CultureInfo.InvariantCulture) + " dB")}",
             "rnnoise" => $"{(Variant == "Historical" ? "rnnoise-before-sprint49 (old input level, aligned blend)" : "rnnoise (corrected input level, aligned blend)")} {Settings.Strength * 100:0} percent",
             "spectral_capture" => $"capture subtract {Value("subtraction_amount"):0.##} floor {Value("spectral_floor"):0.###}, {ProfileSource}",
+            "nnr" => $"NNR {Settings.Values.FirstOrDefault(v => v.Name == "model")?.Choice ?? "standard"} (WDSP helper)",
+            "nr2" => "NR2 at WDSP's receive defaults (WDSP helper)",
+            "nr4" => "NR4 (libspecbleach) at the app's defaults",
             _ => Settings.EngineId
         };
         public double Value(string name) => Settings.Values.Single(x => x.Name == name).Number;
@@ -61,6 +64,8 @@ partial class BenchApp
         "deepfilternet3" => new DeepFilterNet3Engine(libraryPath:library),
         "rnnoise" => new RnnoiseEngine(Enum.Parse<RnnoiseScaling>(stage.Variant)),
         "spectral_capture" => new SpectralCaptureEngine(),
+        "nnr" or "nr2" => MakeHelperEngine(stage),
+        "nr4" => new SpecbleachEngine(Starting(stage)),
         _ => throw new InvalidOperationException("Unknown engine " + stage.Settings.EngineId)
     };
     static void ApplySettings(Stage stage, IDenoiseEngine engine, int channel)
@@ -127,8 +132,11 @@ partial class BenchApp
             foreach(var p in providers)
             {
                 var bank=p.Bank!;
-                if (!bank.IsAvailable || bank.FallbackFrames != 0 || bank.LateFrames != 0 || bank.CarryLatencySamples != 0)
-                    throw new InvalidOperationException($"{p.EngineId}: unavailable or failed frames: fallback {bank.FallbackFrames}, late {bank.LateFrames}, carry {bank.CarryLatencySamples}");
+                // A helper engine answers false for its first frames by design (k frames of round
+                // trip, then the frames its own delay discards); exactly that many, never more.
+                long startup=0;for(int ch=0;ch<bank.Channels;ch++)startup+=StartupLateFrames(bank.EngineFor(ch));
+                if (!bank.IsAvailable || bank.FallbackFrames != 0 || bank.LateFrames != startup || bank.CarryLatencySamples != 0)
+                    throw new InvalidOperationException($"{p.EngineId}: unavailable or failed frames: fallback {bank.FallbackFrames}, late {bank.LateFrames} (startup {startup}), carry {bank.CarryLatencySamples}");
             }
         }
         public void Dispose() { foreach(var p in providers) p.Dispose(); }
@@ -153,6 +161,11 @@ partial class BenchApp
         chain.CheckHealth();
         if(chain.Latency != latency) throw new InvalidOperationException("Latency changed during render");
         if(output.Any(x=>!float.IsFinite(x))) throw new InvalidOperationException("Non-finite engine output");
+        if(stages.Any(s=>IsNewEngine(s.Settings.EngineId)))
+        {
+            // The control for the new engines' self-checks: a broken engine that passes audio through unchanged.
+            if(Mutation=="engine-bypass"){Array.Clear(output);for(int i=0;i<input.Length && i+channels*latency<output.Length;i++)output[i+channels*latency]=input[i];}
+        }
         return output;
     }
 }
