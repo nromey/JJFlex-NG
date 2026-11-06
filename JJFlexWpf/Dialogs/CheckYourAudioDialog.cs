@@ -643,6 +643,20 @@ public partial class CheckYourAudioDialog : JJFlexDialog
         UpdateRadioControlAvailability();
         if (rig != null)
         {
+            // A switch straight to another radio lets the departing radio's
+            // tone and reference go, as the branch below does for a radio that
+            // leaves with none arriving (round four repair, part 6e-3). The
+            // shell's own switch tears the old radio down first
+            // (EndCheckBeforeTeardown, from UnwireRadioEvents), which makes this
+            // a second, harmless release there; but a surface holding an older
+            // radio can call ShowOrFocus with it and reach this switch with no
+            // teardown at all, and a window must never leave a departing radio
+            // armed, whoever called it.
+            if (oldRig != null && !ReferenceEquals(oldRig, rig))
+            {
+                DisarmTone(speak: false, rig: oldRig);
+                DisarmReference(speak: false, rig: oldRig);
+            }
             LoadPerRadioPrefs();
             LoadToneSettings();
             // A fresh rig is never armed — arming does not survive a radio

@@ -44,6 +44,38 @@ public sealed class UnifiedTakesReferenceEndTests
         return body[at..end];
     }
 
+    /// <summary>
+    /// Round four repair (6e-3): every change of radio lets the departing
+    /// radio's tone and reference go, a switch straight to another radio as
+    /// well as a radio leaving with none arriving. Pinned in source because
+    /// the real <c>SetRig</c> cannot run without the built window (its poll
+    /// timer needs a dispatcher, which brings a window with it); the release
+    /// itself, <c>DisarmReference</c> on a named radio, is driven in
+    /// <c>JJFlexWpf.Tests.ReferenceEndSilenceTests</c>.
+    /// </summary>
+    [Fact]
+    public void Every_change_of_radio_lets_the_departing_radios_tone_and_reference_go()
+    {
+        string setRig = Body(Dialog("CheckYourAudioDialog.cs"), "public void SetRig(FlexBase? rig)");
+        int arriving = setRig.IndexOf("if (rig != null)", StringComparison.Ordinal);
+        int leaving = setRig.IndexOf("        else", arriving, StringComparison.Ordinal);
+        Assert.True(arriving > 0 && leaving > arriving, "SetRig's two branches moved");
+        string arrivingBranch = setRig[arriving..leaving];
+        string leavingBranch = setRig[leaving..];
+
+        // A switch: the departing radio, named, and only when it is another one.
+        int guard = arrivingBranch.IndexOf("if (oldRig != null && !ReferenceEquals(oldRig, rig))", StringComparison.Ordinal);
+        Assert.True(guard > 0, "a switch to another radio no longer releases the departing one");
+        int load = arrivingBranch.IndexOf("LoadPerRadioPrefs();", StringComparison.Ordinal);
+        string released = arrivingBranch[guard..load];
+        Assert.Contains("DisarmReference(speak: false, rig: oldRig);", released);
+        Assert.Contains("DisarmTone(speak: false, rig: oldRig);", released);
+
+        // A radio leaving with none arriving, unchanged.
+        Assert.Contains("DisarmReference(speak: false, rig: oldRig);", leavingBranch);
+        Assert.Contains("DisarmTone(speak: false, rig: oldRig);", leavingBranch);
+    }
+
     [Fact]
     public void A_check_the_reference_rode_stops_by_the_same_call_the_Stop_button_makes()
     {
