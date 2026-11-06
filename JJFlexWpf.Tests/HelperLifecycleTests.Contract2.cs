@@ -1,0 +1,112 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using Radios;
+using Xunit;
+
+namespace JJFlexWpf.Tests;
+
+/// <summary>
+/// The helper as it behaves after its 2026-11-05 repair rounds, read by the
+/// host: its exit codes named, its closes taken as they are now answered, its
+/// queue limits never approached. Same class, same windowless rules.
+/// </summary>
+public sealed partial class HelperLifecycleTests
+{
+    /// <summary>Restarts held off, so a test can read the reason while the helper is down.</summary>
+    private static WdspHostPolicy SlowRestart(TimeSpan? constructionWait = null) => HelperTestRig.Fast with
+    {
+        RestartDelays = new[] { TimeSpan.FromSeconds(30) },
+        ConstructionWait = constructionWait ?? HelperTestRig.Fast.ConstructionWait,
+    };
+
+    // ------------------------------------------------------------------ exit codes
+
+    /// <summary>
+    /// Every way the helper exits is named, in the reason an engine gives and
+    /// the host's detail (which the trace prints), never a bare number or a
+    /// pipe that merely closed. The stub exits as the helper does: 8 and 2
+    /// before it connects; 6 after an Error 257, which is how the helper ends
+    /// a client that overflowed one of its limits; 5 and 7, its own codes; 9,
+    /// a crash. Every one is still the crash path, counted, and the engine keeps
+    /// its delay while down, which is what the bank's delayed pass-through
+    /// lines up on.
+    /// </summary>
+    [Theory]
+    [InlineData("--exit-early", "8", 8u, "could not make its own folder its working directory", false, false)]
+    [InlineData("--exit-early", "2", 2u, "a bad command line", false, false)]
+    [InlineData("--fatal-after", "5", 6u, "a protocol error", true, true)]
+    [InlineData("--crash-after", "5:5", 5u, "its pipe's server was not JJ Flexible's process", true, false)]
+    [InlineData("--crash-after", "5:7", 7u, "it had rejected the protocol version", true, false)]
+    [InlineData("--crash-after", "5:9", 9u, "a crash", true, false)]
+    public void Every_helper_exit_is_named_in_the_reason_the_engine_gives(string fault, string how, uint code, string meaning,
+        bool opensFirst, bool protocolError)
+    {
+        using var rig = new HelperTestRig(n => n == 1 ? new[] { fault, how } : Array.Empty<string>(),
+            SlowRestart(opensFirst ? null : TimeSpan.FromSeconds(2)));
+        var engine = rig.Engine("nnr");
+        if (opensFirst)
+        {
+            Assert.True(engine.IsAvailable);
+            Assert.Equal(3408, engine.LatencySamples);
+            using var feeder = new Feeder(engine);
+            HelperTestRig.Until(() => rig.Host.State == WdspHelperState.Restarting, "the helper to go down");
+        }
+        else HelperTestRig.Until(() => rig.Host.State == WdspHelperState.Restarting, "the helper to go down");
+
+        string detail = engine.UnavailabilityDetail;
+        _out.WriteLine("engine: " + detail);
+        _out.WriteLine("host: " + rig.Host.Detail);
+        Assert.False(engine.IsAvailable);
+        Assert.Equal(Unavailability.HelperNotRunning, engine.Unavailability);
+        Assert.Contains($"the helper exited with code {code}", detail);
+        Assert.Contains(meaning, detail);
+        Assert.Contains($"exited with code {code}", rig.Host.Detail);
+        Assert.Equal(1, rig.Host.Failures); // the crash path, counted toward the cap
+        Assert.Equal(protocolError ? WdspCondition.FatalProtocolError : WdspCondition.ProcessExited, rig.Host.LastFailureCondition);
+        if (protocolError)
+            Assert.Contains("before closing it said Error 257 UnexpectedMessage on channel 0: the client queued more than", detail);
+        // No jump: the delay the bank lined up on stands while the helper is down.
+        Assert.Equal(opensFirst ? 3408 : 0, engine.LatencySamples);
+    }
+
+    /// <summary>
+    /// The helper refusing JJ Flexible's first message (Error 257, then the
+    /// close and exit 6) is its answer to the handshake: a mismatch that names
+    /// what it said, never retried and never counted, even though the pipe
+    /// breaks a moment later.
+    /// </summary>
+    [Fact]
+    public void An_Error_before_the_handshake_is_the_helpers_refusal_named_and_never_retried()
+    {
+        using var rig = new HelperTestRig(_ => new[] { "--error-first" });
+        var engine = rig.Engine("nnr");
+        Assert.False(engine.IsAvailable);
+        Assert.Equal(Unavailability.HelperVersionMismatch, engine.Unavailability);
+        _out.WriteLine(engine.UnavailabilityDetail);
+        Assert.Contains("the helper refused JJ Flexible's handshake: Error 257 UnexpectedMessage on channel 0: refused by the test's command line",
+            engine.UnavailabilityDetail);
+        Assert.Equal(WdspHelperState.VersionMismatch, rig.Host.State);
+        Thread.Sleep(600);
+        Assert.Equal(0, rig.Host.Failures);
+        Assert.Single(rig.Host.LaunchedProcessIds);
+    }
+
+    /// <summary>The words for each code, held to the helper's README so a renamed code cannot drift silently.</summary>
+    [Fact]
+    public void Each_exit_code_has_its_own_words_and_only_6_is_a_protocol_error()
+    {
+        var codes = new uint[] { 0, 2, 3, 4, 5, 6, 7, 8 };
+        var words = codes.Select(WdspProtocol.DescribeExit).ToArray();
+        Assert.Equal(words.Length, words.Distinct().Count());
+        Assert.All(words, w => Assert.DoesNotContain("a crash", w));
+        Assert.Contains("a crash", WdspProtocol.DescribeExit(1));
+        Assert.Contains("0xC0000005", WdspProtocol.DescribeExit(0xC0000005));
+        foreach (var c in codes)
+            Assert.Equal(c == 6 ? WdspCondition.FatalProtocolError : WdspCondition.ProcessExited, WdspProtocol.ConditionForExit(c));
+        // Both conditions are the crash path, as the appendix rules every exit to be.
+        Assert.True(WdspProtocol.CountsTowardCap(WdspCondition.FatalProtocolError));
+        Assert.True(WdspProtocol.CountsTowardCap(WdspCondition.ProcessExited));
+    }
+}

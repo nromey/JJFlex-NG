@@ -27,6 +27,11 @@
 //   --slow-open <engine>:<ms> hold every OpenChannelAck for that engine back by ms
 //   --bad-applied <how>      answer every Ok OpenChannelAck with malformed applied values:
 //                            missing, order, duplicate or refused
+//   --exit-early <code>      exit with that code before connecting (the helper's 2, 3, 4 or 8)
+//   --error-first            answer Hello with Error 257, then close and exit 6 (the
+//                            helper refusing a first message)
+//   --fatal-after <n>        after n frames, send Error 257 naming a limit, close, exit 6
+//                            (the helper's answer to a client that overflows a bound)
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -65,6 +70,8 @@ internal static class Program
     private static int _slowOpenMs;
     private static long _framesProcessed;
     private static bool _answered;
+    private static bool _errorFirst;
+    private static int _fatalAfter = -1;
 
     private sealed class StubChannel
     {
@@ -108,6 +115,9 @@ internal static class Program
                     case "--refuse-setting": _refuseSetting = Next(); break;
                     case "--refuse-open": RefuseOpen.Add(Next()); break;
                     case "--bad-applied": _badApplied = Next(); break;
+                    case "--exit-early": Environment.Exit(int.Parse(Next(), CultureInfo.InvariantCulture)); break;
+                    case "--error-first": _errorFirst = true; break;
+                    case "--fatal-after": _fatalAfter = int.Parse(Next(), CultureInfo.InvariantCulture); break;
                     case "--slow-open": { var p = Next().Split(':'); _slowOpenEngine = p[0]; _slowOpenMs = int.Parse(p[1], CultureInfo.InvariantCulture); break; }
                     default: throw new FormatException("unknown argument " + args[i]);
                 }
@@ -237,6 +247,7 @@ internal static class Program
                 {
                     if (message is not WdspHello hello) { ProtocolError("expected Hello", WdspResult.UnexpectedMessage); return; }
                     helloSeen = true;
+                    if (_errorFirst) { ProtocolError("refused by the test's command line", WdspResult.UnexpectedMessage); return; }
                     if (_slowStart > 0) Thread.Sleep(_slowStart);
                     if (_reject || hello.Lowest > 1 || hello.Highest < 1)
                     {
@@ -351,6 +362,7 @@ internal static class Program
                     if (ch == null) break;
                     long count = Interlocked.Increment(ref _framesProcessed);
                     if (count == _crashAfter) Environment.Exit(_crashCode);
+                    if (count == _fatalAfter) { ProtocolError("the client queued more than the stub's limit of settings and closes", WdspResult.UnexpectedMessage); return; }
                     if (count == _breakAfter) { lock (WriteGate) _pipe.Dispose(); Environment.Exit(ExitClean); }
                     if (count == _stallAfter) Thread.Sleep(_stallMs);
                     var timer = Stopwatch.StartNew();

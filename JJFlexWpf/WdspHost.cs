@@ -75,6 +75,7 @@ namespace JJFlexWpf
         public const int ConstructionWaitMs = 3000;
         public const int ShutdownWaitMs = 500;
         public const int OfflineFrameWaitMs = 2000;
+        public const int ExitNamingWaitMs = 250;
 
         /// <summary>One delay per automatic restart; its length is the cap.</summary>
         public IReadOnlyList<TimeSpan> RestartDelays { get; init; } = new[] {
@@ -93,6 +94,13 @@ namespace JJFlexWpf
         public TimeSpan ShutdownWait { get; init; } = TimeSpan.FromMilliseconds(ShutdownWaitMs);
         /// <summary>The offline bench's per-frame wait; the live path never waits.</summary>
         public TimeSpan OfflineFrameWait { get; init; } = TimeSpan.FromMilliseconds(OfflineFrameWaitMs);
+        /// <summary>
+        /// When the pipe ends, how long the reader waits for the helper to exit
+        /// so the failure can name its exit code. The helper exits a few
+        /// milliseconds after its pipe breaks; the audio meanwhile is the bank's
+        /// delayed pass-through, as for any late frame.
+        /// </summary>
+        public TimeSpan ExitNamingWait { get; init; } = TimeSpan.FromMilliseconds(ExitNamingWaitMs);
 
         public static WdspHostPolicy Default { get; } = new();
     }
@@ -130,6 +138,16 @@ namespace JJFlexWpf
         public WdspFailure? Failure;
         public bool IsBroken => Volatile.Read(ref Failure) != null;
         public long LastBadTrace;
+        /// <summary>
+        /// Set by the reader once the helper has connected. From then on the
+        /// reader, not the control thread, names an exit: it sees the pipe
+        /// end, waits for the code, and has read what the helper said first.
+        /// </summary>
+        public volatile bool Connected;
+        /// <summary>Control thread only: when it first saw the process gone (0 until then).</summary>
+        public long ExitSeenAt;
+        /// <summary>What the helper said in a fatal Error (256 or 257) before it closed the pipe, if anything.</summary>
+        public volatile string? HelperSaid;
 
         public WdspConnection(int startNumber, string pipeName, string commandLine, NamedPipeServerStream pipe,
             WdspNative.Started started)
@@ -333,6 +351,9 @@ namespace JJFlexWpf
         internal long SetSettingsSent;
         internal long SettingAcksReceived;
         internal long FramesSent;
+        /// <summary>The condition of the last failure acted on, for the tests.</summary>
+        internal WdspCondition? LastFailureCondition { get { lock (Gate) return _lastFailureCondition; } }
+        private WdspCondition? _lastFailureCondition;
         internal string? LastCommandLine { get; private set; }
         internal string? LastPipeName { get; private set; }
 
@@ -518,10 +539,12 @@ namespace JJFlexWpf
             {
                 WdspConnection? c;
                 int wait;
-                lock (Gate) { if (_disposed) break; c = _conn; wait = NextWaitMsLocked(); }
+                bool exitSeen;
+                lock (Gate) { if (_disposed) break; c = _conn; wait = NextWaitMsLocked(); exitSeen = c != null && c.ExitSeenAt != 0; }
                 try
                 {
-                    if (c != null) WaitHandle.WaitAny(new[] { _controlWake, c.Exited }, wait);
+                    // Once the exit is seen, its handle stays signalled: wait on the wake alone, or this would spin.
+                    if (c != null && !exitSeen) WaitHandle.WaitAny(new[] { _controlWake, c.Exited }, wait);
                     else _controlWake.WaitOne(wait);
                 }
                 catch (ObjectDisposedException) { }
@@ -547,6 +570,9 @@ namespace JJFlexWpf
             if (last != null) Teardown(last, kill: false);
         }
 
+        /// <summary>How long the control thread leaves a connected helper's exit for the reader to name: twice the reader's own wait.</summary>
+        private long ExitGraceTicks => 2 * Ticks(Policy.ExitNamingWait);
+
         private int NextWaitMsLocked()
         {
             long now = Now, next = now + Stopwatch.Frequency; // at most a second between looks
@@ -557,6 +583,7 @@ namespace JJFlexWpf
                 else next = Math.Min(next, Volatile.Read(ref c.LastReceive) + Ticks(Policy.Stall));
                 if (_lingerUntil != 0) next = Math.Min(next, _lingerUntil);
                 if (c.HelloDone && _failures > 0) next = Math.Min(next, c.HelloAt + Ticks(Policy.CleanRunReset));
+                if (c.ExitSeenAt != 0) next = Math.Min(next, c.ExitSeenAt + ExitGraceTicks);
             }
             else if (_state == WdspHelperState.Restarting && _wanted.Count > 0) next = Math.Min(next, _restartAt);
             long ms = (next - now) * 1000 / Stopwatch.Frequency + 1;
@@ -569,6 +596,17 @@ namespace JJFlexWpf
             var c = _conn;
             if (c != null)
             {
+                // A definite answer to the handshake, a reject or one that cannot
+                // be used, wins over the pipe closing behind it: the helper closes
+                // straight after an Error, and that break is not a crash.
+                if (!c.HelloProcessed && c.HelloResult is { } early and not WdspHelloAck)
+                {
+                    c.HelloProcessed = true;
+                    MismatchLocked(c, early is WdspHelloReject reject
+                        ? $"the helper rejected protocol 1; it speaks {reject.Lowest} to {reject.Highest} ({reject.Detail})"
+                        : early as string ?? "unreadable handshake");
+                    stop = c; return;
+                }
                 if (Volatile.Read(ref c.Failure) is { } failure)
                 {
                     FailLocked(c, failure.Condition, failure.Detail, raise);
@@ -576,7 +614,13 @@ namespace JJFlexWpf
                 }
                 if (c.Exited.WaitOne(0))
                 {
-                    FailLocked(c, WdspCondition.ProcessExited, "exit code " + (WdspNative.ExitCode(c.Process)?.ToString() ?? "unknown"), raise);
+                    if (c.ExitSeenAt == 0) c.ExitSeenAt = now;
+                    // Connected: the reader will see the pipe end and name the
+                    // exit with what the helper said; give it the time it takes.
+                    if (c.Connected && now - c.ExitSeenAt < ExitGraceTicks) return;
+                    uint? code = WdspNative.ExitCode(c.Process);
+                    if (code is uint x) FailLocked(c, WdspProtocol.ConditionForExit(x), WdspProtocol.ExitDetail(x, c.HelperSaid), raise);
+                    else FailLocked(c, WdspCondition.ProcessExited, "the helper exited; its exit code could not be read", raise);
                     stop = c; return;
                 }
                 if (!c.HelloProcessed && c.HelloResult == null && now - c.StartedAt > Ticks(Policy.HandshakeDeadline))
@@ -604,12 +648,7 @@ namespace JJFlexWpf
                             SetStateLocked(WdspHelperState.Running, $"helper {ack.HelperVersion}, pid {c.Pid}");
                             // Not "back" yet: a handshake reopens nothing. BackAfterCapLocked waits for the channels.
                             break;
-                        case WdspHelloReject reject:
-                            MismatchLocked(c, $"the helper rejected protocol 1; it speaks {reject.Lowest} to {reject.Highest} ({reject.Detail})");
-                            stop = c; return;
-                        default:
-                            MismatchLocked(c, c.HelloResult as string ?? "unreadable handshake");
-                            stop = c; return;
+                        // A reject or an unusable answer was handled first, above.
                     }
                 }
                 if (c.HelloDone)
@@ -729,6 +768,7 @@ namespace JJFlexWpf
         private void FailLocked(WdspConnection? c, WdspCondition condition, string detail, List<WdspHelperStateChangedEventArgs> raise)
         {
             if (c != null) DetachConnectionLocked(c);
+            _lastFailureCondition = condition;
             Trace.WriteLine($"WdspHost: {condition}: {detail}");
             var reason = WdspProtocol.MapCondition(condition) ?? Unavailability.HelperNotRunning;
             if (!WdspProtocol.CountsTowardCap(condition))
@@ -866,7 +906,9 @@ namespace JJFlexWpf
             bool exited = c.Exited.WaitOne(Policy.ShutdownWait);
             c.Job.Dispose();
             if (!exited) c.Exited.WaitOne(Policy.ShutdownWait);
-            Trace.WriteLine($"WdspHost: pid {c.Pid} stopped, exit code {WdspNative.ExitCode(c.Process)?.ToString() ?? "pending"}" +
+            uint? code = WdspNative.ExitCode(c.Process);
+            Trace.WriteLine($"WdspHost: pid {c.Pid} stopped, exit code " +
+                (code is uint x ? $"{x} ({(kill && x == 1 ? "ended by JJ Flexible" : WdspProtocol.DescribeExit(x))})" : "pending") +
                 (exited ? "" : " (ended by closing its job)"));
             c.Exited.Dispose();
             c.Process.Dispose();
@@ -919,6 +961,7 @@ namespace JJFlexWpf
                     return;
                 }
                 Volatile.Write(ref c.LastReceive, Now);
+                c.Connected = true;
                 c.Control.Enqueue(WdspProtocol.Encode(new WdspHello(WdspProtocol.ProtocolVersion, WdspProtocol.ProtocolVersion, JJFlexibleVersion)));
                 new Thread(() => WriterLoop(c)) { IsBackground = true, Name = "WDSP helper writer" }.Start();
                 var reader = new WdspFrameReader();
@@ -929,7 +972,7 @@ namespace JJFlexWpf
                     int n = c.Pipe.Read(buffer, 0, buffer.Length);
                     if (n == 0)
                     {
-                        if (!c.Stopping) Break(c, WdspCondition.BrokenPipe, "the helper closed the pipe");
+                        PipeEnded(c, "the helper closed the pipe");
                         return;
                     }
                     ReadOnlySpan<byte> data = buffer.AsSpan(0, n);
@@ -967,8 +1010,30 @@ namespace JJFlexWpf
             }
             catch (Exception ex)
             {
-                if (!c.Stopping) Break(c, WdspCondition.BrokenPipe, ex.GetType().Name + ": " + ex.Message);
+                PipeEnded(c, ex.GetType().Name + ": " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// The pipe ended under the reader. The helper exits a few milliseconds
+        /// after its pipe closes, so wait (bounded) for it and name the exit:
+        /// 6 is the helper ending the connection for a protocol error, a flood
+        /// included, and anything it said first goes with it. Still running
+        /// after the wait: a broken pipe, and the control thread kills it.
+        /// </summary>
+        private void PipeEnded(WdspConnection c, string how)
+        {
+            if (c.Stopping) return;
+            uint? code = null;
+            try
+            {
+                if (c.Exited.WaitOne(Policy.ExitNamingWait)) code = WdspNative.ExitCode(c.Process);
+            }
+            catch (ObjectDisposedException) { return; } // torn down meanwhile: nothing left to say
+            if (c.Stopping) return;
+            if (code is uint x) Break(c, WdspProtocol.ConditionForExit(x), WdspProtocol.ExitDetail(x, c.HelperSaid));
+            else Break(c, WdspCondition.BrokenPipe, how + (c.HelperSaid is { } said ? "; before closing it said " + said : "") +
+                $"; the helper was still running {Policy.ExitNamingWait.TotalMilliseconds} ms later");
         }
 
         private void Dispatch(WdspConnection c, WdspMessageType type, ReadOnlySpan<byte> payload)
@@ -993,6 +1058,17 @@ namespace JJFlexWpf
                         c.HelloResult = reject;
                         _controlWake.Set();
                         return;
+                    case WdspError refusal:
+                        // The helper refusing what JJ Flexible sent first (Error 257,
+                        // then the close and exit 6). Its answer to the handshake,
+                        // and a definite one: the same Hello would be refused again.
+                        // Not echoed: both ends are closing.
+                        string said = WdspProtocol.DescribeError(refusal);
+                        c.HelperSaid = said;
+                        Trace.WriteLine("WdspHost: the helper refused the handshake: " + said);
+                        c.HelloResult = "the helper refused JJ Flexible's handshake: " + said;
+                        _controlWake.Set();
+                        return;
                     default:
                         throw new WdspProtocolException(type + " before the handshake", WdspResult.UnexpectedMessage);
                 }
@@ -1015,6 +1091,11 @@ namespace JJFlexWpf
                     else Trace.WriteLine($"WdspHost: discarded a SettingAck for forgotten channel {ack.Channel}");
                     return;
                 case WdspHeartbeat:
+                    return;
+                case WdspError error when WdspProtocol.IsFatal(error.Code):
+                    // Once per connection, never rate-limited: it is the reason the pipe is about to close.
+                    c.HelperSaid = WdspProtocol.DescribeError(error);
+                    Trace.WriteLine("WdspHost: the helper is ending the connection: " + c.HelperSaid);
                     return;
                 case WdspError error:
                     if (RateAllows(c))

@@ -857,5 +857,48 @@ namespace JJFlexWpf
         /// <summary>True when a condition follows the restart policy and counts toward its cap.</summary>
         public static bool CountsTowardCap(WdspCondition condition) =>
             MapCondition(condition) == Unavailability.HelperNotRunning;
+
+        // ------------------------------------------------------------------
+        // The helper's exit codes: the appendix's "The command line and exit
+        // codes" gives 0 and 2 to 7; the helper's README adds 8. Every exit is
+        // still the crash path (the appendix's rule); these only name it, so a
+        // trace and an engine's detail say why rather than a bare number.
+        // ------------------------------------------------------------------
+
+        public const uint ExitClosed = 0, ExitBadCommandLine = 2, ExitNoParent = 3, ExitNoPipe = 4,
+            ExitWrongServer = 5, ExitProtocolError = 6, ExitRejected = 7, ExitNoWorkingDirectory = 8;
+
+        /// <summary>What the helper's exit code means, in plain words, for the trace and the detail. Never spoken.</summary>
+        public static string DescribeExit(uint code) => code switch
+        {
+            ExitClosed => "it saw its pipe close or its parent exit",
+            ExitBadCommandLine => "a bad command line",
+            ExitNoParent => "it could not open JJ Flexible's process",
+            ExitNoPipe => "it could not connect to its pipe",
+            ExitWrongServer => "its pipe's server was not JJ Flexible's process",
+            ExitProtocolError => "a protocol error, which includes JJ Flexible leaving more requests or replies queued than the helper holds",
+            ExitRejected => "it had rejected the protocol version",
+            ExitNoWorkingDirectory => "it could not make its own folder its working directory",
+            _ => $"a crash, or a code the helper does not use (0x{code:X8})",
+        };
+
+        /// <summary>Exit 6 is the helper ending the connection for a protocol error; every other exit is the process exiting.</summary>
+        public static WdspCondition ConditionForExit(uint code) =>
+            code == ExitProtocolError ? WdspCondition.FatalProtocolError : WdspCondition.ProcessExited;
+
+        /// <summary>One sentence naming an exit, and what the helper said before it, if anything.</summary>
+        public static string ExitDetail(uint code, string? helperSaid) =>
+            $"the helper exited with code {code} ({DescribeExit(code)})" + (helperSaid != null ? "; before closing it said " + helperSaid : "");
+
+        /// <summary>A fatal Error ends the connection: the sender closes the pipe after it.</summary>
+        public static bool IsFatal(WdspResult code) => code is WdspResult.MalformedMessage or WdspResult.UnexpectedMessage;
+
+        /// <summary>An Error, for the trace and a detail: its code by number and name, its channel and its text, cut to 300 characters.</summary>
+        public static string DescribeError(WdspError error)
+        {
+            string name = IsKnownResult(error.Code) ? error.Code.ToString() : "unknown";
+            string text = error.Text.Length > 300 ? error.Text[..300] + " [cut]" : error.Text;
+            return $"Error {(ushort)error.Code} {name} on channel {error.Channel}: {text}";
+        }
     }
 }
