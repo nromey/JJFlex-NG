@@ -486,6 +486,30 @@ namespace Radios
             return null;
         }
 
+        /// <summary>The run that muted the shack speaker, and on which radio; null when no run changed it.</summary>
+        private sealed class SpeakerMute
+        {
+            public SpeakerMute(long run, Radio radio) { Run = run; Radio = radio; }
+            public long Run { get; }
+            public Radio Radio { get; }
+        }
+
+        /// <summary>What the current run's start changed on the shack speaker (rulings round two).</summary>
+        private volatile SpeakerMute _speakerMutedBy;
+
+        /// <summary>
+        /// Why a finishing run leaves the shack speaker as it is, or null to
+        /// unmute it (rulings round two, the 8600 bench's Fail 6). Pure. Only
+        /// what this run changed is put back: a speaker found muted when PC
+        /// audio started stays muted; one already unmuted is left alone.
+        /// </summary>
+        internal static string ShackSpeakerPutBackSkip(bool thisRunMutedIt, bool mutedNow)
+        {
+            if (!thisRunMutedIt) return "it was found muted when PC audio started (or this run did not mute it), so it is left as found";
+            if (!mutedNow) return "the shack speaker is already unmuted";
+            return null;
+        }
+
         private bool _PCAudio;
         /// <summary>
         /// Audio over PC
@@ -807,9 +831,16 @@ namespace Radios
             // owner gate here is reverted. Someone physically in the shack
             // unmutes at the radio, which was always true. The hold still
             // applies, as it did before Track G3.
+            // What was found is recorded first (rulings round two, the 8600
+            // bench's Fail 6): the stop puts back only what this run changed, so
+            // a speaker found muted is left muted, under the same "put back only
+            // what matches" ruling as the mic input (Noel, 2026-11-02).
+            bool speakerFoundMuted = theRadio.IsMuteLocalAudioWhenRemoteOn;
+            _speakerMutedBy = null;
             if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=true on remote audio start"))
             {
                 theRadio.IsMuteLocalAudioWhenRemoteOn = true;
+                if (!speakerFoundMuted) _speakerMutedBy = new SpeakerMute(run, theRadio);
             }
             opusOutputChannel = new audioChannelData(rxStream, "JJFlexRadio.OpusOutputChan");
             opusOutputChannel.PortAudioStream = new JJAudioStream();
@@ -1408,10 +1439,13 @@ namespace Radios
                 speakerRadio != null, IsConnected, Disconnecting);
             if (speakerRefusal == null)
             {
-                // Put back only what matches (Noel, 2026-11-02): unmute only
-                // while the radio still mutes it; already unmuted is left alone.
-                if (!speakerRadio.IsMuteLocalAudioWhenRemoteOn)
-                    Tracing.TraceLine("remoteAudioProc: the shack speaker is already unmuted; left as it is", TraceLevel.Info);
+                // Only what THIS run muted, while still muted (Fail 6).
+                var mutedBy = _speakerMutedBy;
+                string keep = ShackSpeakerPutBackSkip(
+                    mutedBy != null && mutedBy.Run == run && ReferenceEquals(mutedBy.Radio, speakerRadio),
+                    speakerRadio.IsMuteLocalAudioWhenRemoteOn);
+                if (keep != null)
+                    Tracing.TraceLine("remoteAudioProc: the shack speaker is left as it is - " + keep, TraceLevel.Info);
                 else if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop"))
                 {
                     speakerRadio.IsMuteLocalAudioWhenRemoteOn = false;

@@ -85,7 +85,7 @@ public sealed class DisconnectPutBackOrderTests
         int write = text.IndexOf("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop", StringComparison.Ordinal);
         Assert.True(write > 0);
         string speaker = text.Substring(Math.Max(0, write - 300), 300);
-        Assert.Contains("if (!speakerRadio.IsMuteLocalAudioWhenRemoteOn)", speaker, StringComparison.Ordinal);
+        Assert.Contains("speakerRadio.IsMuteLocalAudioWhenRemoteOn);", speaker, StringComparison.Ordinal);
     }
 
     [Fact]
