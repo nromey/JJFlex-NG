@@ -109,9 +109,13 @@ namespace Radios.Speech
         /// frequency is not heard when it is cut, so a cut here is a failure,
         /// and on the estimate path it is held for the untracked margin.
         /// </summary>
-        public Radios.ICountdownWords SayWhole(string text, string subject)
+        /// <param name="ahead">Retire our own ordinary backlog first, so this
+        /// sentence goes next (rulings round two, the bench's Fail 2).</param>
+        public Radios.ICountdownWords SayWhole(string text, string subject, bool ahead = false)
         {
             if (string.IsNullOrEmpty(text)) return Radios.CountdownWords.Undelivered;
+            if (ahead) _arbiter.RetireOrdinaryBacklog("a transmit notice that must be heard before the key",
+                "CountdownSpeech.SayWhole", subject);
             var piece = _arbiter.EmitQueued(text, VerbosityLevel.Critical, "CountdownSpeech.SayWhole",
                 subject, additive: false);
             return piece == null ? Radios.CountdownWords.Undelivered : new Words(this, piece, onlyWarning: true, wholeOnly: true);

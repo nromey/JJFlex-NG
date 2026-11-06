@@ -1240,6 +1240,39 @@ namespace Radios.Speech
         }
 
         /// <summary>
+        /// Retire every ORDINARY utterance still owed, queued or held, so a
+        /// sentence that must be heard before a key goes next (the 2026-11-02
+        /// junk box's rulings round two, the 8600 bench's Fail 2). On the bench
+        /// the transmit-slice notice queued behind the Home arrival sentence and
+        /// sentences salvaged from the closed dialog, and its gate gave up before
+        /// it said a word, refusing the send over our own backlog. Protected
+        /// (safety) entries and the <paramref name="keepSubject"/> are left
+        /// alone; unsent text is taken back from the pump; a retired entry is
+        /// never salvaged. Whatever the reader is saying right now finishes.
+        /// Returns how many were retired.
+        /// </summary>
+        internal int RetireOrdinaryBacklog(string by, string? origin, string? keepSubject)
+        {
+            lock (_lock)
+            {
+                var now = _clock.UtcNow;
+                int n = 0;
+                foreach (var list in new[] { _believedQueued, _held })
+                    foreach (var e in list)
+                    {
+                        if (e.SupersededBy != null || e.Protected) continue;
+                        if (keepSubject != null && string.Equals(e.Subject, keepSubject, StringComparison.Ordinal)) continue;
+                        e.SupersededBy = by;
+                        e.SupersededByOrigin = origin;
+                        e.SupersededAtUtc = now;
+                        n++;
+                    }
+                WithdrawSupersededFromPumpLocked(now);
+                return n;
+            }
+        }
+
+        /// <summary>
         /// Take back ONE followed piece, and only that one (#863, repair round
         /// 3, Codex's second re-check F1): a cancelled check's own notice must
         /// not stay queued, and a newer attempt's notice on the same subject

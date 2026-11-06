@@ -285,9 +285,57 @@ public sealed class TransmitSliceNoticeTests
     public async Task Words_that_never_finish_stop_at_the_ceiling()
     {
         int polls = 0;
-        Assert.False(await TransmitSliceNotice.HeardAsync(new FakeWords(), () => true,
+        Assert.False(await TransmitSliceNotice.HeardAsync(new FakeWords { Started = true }, () => true,
             _ => { polls++; return Task.CompletedTask; }, ceilingMs: 10 * TransmitSliceNotice.PollMs));
         Assert.Equal(10, polls);
+    }
+
+    // ── Rulings round two (the 8600 bench, Fail 2): not refused over our own backlog ──
+
+    [Fact]
+    public async Task A_notice_waiting_behind_our_own_speech_past_the_ceiling_is_still_heard_and_keys()
+    {
+        // The bench: queued behind the Home arrival sentence and salvaged
+        // sentences, never begun, and refused at about 8 s. Begun at 9 s here,
+        // finished at 10 s: heard.
+        var words = new FakeWords();
+        int polls = 0;
+        int beginAt = 9000 / TransmitSliceNotice.PollMs, endAt = 10_000 / TransmitSliceNotice.PollMs;
+        Task Delay(int ms)
+        {
+            polls++;
+            if (polls == beginAt) words.Started = true;
+            if (polls == endAt) words.Finished = true;
+            return Task.CompletedTask;
+        }
+        Assert.True(await TransmitSliceNotice.HeardAsync(words, () => true, Delay));
+    }
+
+    [Fact]
+    public async Task A_notice_never_begun_stops_at_its_own_longer_bound()
+    {
+        int polls = 0;
+        Assert.False(await TransmitSliceNotice.HeardAsync(new FakeWords(), () => true,
+            _ => { polls++; return Task.CompletedTask; }, queuedCeilingMs: 20 * TransmitSliceNotice.PollMs));
+        Assert.Equal(20, polls);
+    }
+
+    [Fact]
+    public void Asking_for_the_notice_retires_our_own_ordinary_backlog()
+    {
+        // The stale arrival and salvaged sentences ahead of the notice are
+        // retired when it is asked for, so it goes next.
+        var r = new Reader();
+        r.Arbiter.Emit("JJ Flexible Home, frequency, 21.260.000", false, SpeechIntent.Queue, VerbosityLevel.Chatty, "test");
+        r.Arbiter.Emit("Listening on 21.260 megahertz, USB, 15 meter band, slice B", false, SpeechIntent.Queue,
+            VerbosityLevel.Chatty, "test", subject: "home-arrival-test");
+        ICountdownWords words = r.Speech.SayWhole("Transmitting on slice A, 21.195.000", SpeechSubject.TransmitSliceNotice, ahead: true);
+        Assert.False(words.Failed);                    // the notice itself stands
+        // Both were retired when the notice was asked for, the notice kept:
+        Assert.Equal(0, r.Arbiter.RetireOrdinaryBacklog("again", "test", SpeechSubject.TransmitSliceNotice));
+        Assert.False(words.Failed);
+        // And the doors ask for it that way.
+        Assert.Contains("SayWhole(sentence, Speech.SpeechSubject.TransmitSliceNotice, ahead: true)", Source("Radios/TransmitSliceNotice.cs"));
     }
 
     // ── B3: heard means heard whole, through the real speech layer ───────

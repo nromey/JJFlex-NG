@@ -223,7 +223,10 @@ namespace Radios
             Tracing.TraceLine("TransmitSliceNotice (" + door + "): the transmit slice is not the selected one; saying \""
                 + sentence + "\" before keying", TraceLevel.Info);
             ICountdownWords words;
-            try { words = ScreenReaderOutput.CountdownSpeech.SayWhole(sentence, Speech.SpeechSubject.TransmitSliceNotice); }
+            // Ahead of our own ordinary backlog (rulings round two, the bench's
+            // Fail 2): stale arrival and salvaged sentences are retired, so the
+            // notice is not queued behind them until its gate gives up.
+            try { words = ScreenReaderOutput.CountdownSpeech.SayWhole(sentence, Speech.SpeechSubject.TransmitSliceNotice, ahead: true); }
             catch (Exception ex)
             {
                 Tracing.TraceLine("TransmitSliceNotice (" + door + "): could not be said: " + ex.Message, TraceLevel.Warning);
@@ -249,22 +252,34 @@ namespace Radios
         /// (nothing to say) are true at once.
         /// </summary>
         public static async Task<bool> HeardAsync(ICountdownWords words, Func<bool> stillWanted,
-            Func<int, Task> delay = null, int ceilingMs = CeilingMs)
+            Func<int, Task> delay = null, int ceilingMs = CeilingMs, int queuedCeilingMs = QueuedCeilingMs)
         {
             if (words == null) return true;
             delay ??= Task.Delay;
-            int waited = 0;
+            int waited = 0, queued = 0;
             while (true)
             {
                 if (stillWanted != null && !stillWanted()) return false;
                 if (words.Failed) return false;
                 Task news = words.NextNews;
                 if (words.Finished) return true;
-                if (waited >= ceilingMs) return false;
+                // The ceiling bounds the reader's own time with the sentence. Time
+                // spent not yet begun, behind our OWN speech, is not the reader
+                // failing, and a send is not refused for it (rulings round two,
+                // the bench's Fail 2); it has its own, longer bound.
+                bool begun = words.Started;
+                if (begun ? waited >= ceilingMs : queued >= queuedCeilingMs) return false;
                 await Task.WhenAny(news, delay(PollMs)).ConfigureAwait(true);
-                waited += PollMs;
+                if (begun) waited += PollMs; else queued += PollMs;
             }
         }
+
+        /// <summary>
+        /// How long a notice may wait, not yet begun, behind our own speech
+        /// before the door gives up (rulings round two). Escape, a stop or a
+        /// closed window ends the wait at once through stillWanted.
+        /// </summary>
+        public const int QueuedCeilingMs = 30_000;
 
         /// <summary>
         /// At the moment of keying: true when the door may key, false when it
