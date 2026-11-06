@@ -148,8 +148,11 @@ namespace Radios
             /// CONTINUES that carrier (a push-to-talk takeover of a send, held
             /// push to talk becoming the lock) rather than never going out.
             /// </summary>
-            /// <remarks>Let go once this key's own ON is settled, so the keys of a
-            /// session never form an ever-growing chain.</remarks>
+            /// <remarks>Let go once this key's own ON is written, so the keys of a
+            /// session never form an ever-growing chain. A key that never went out
+            /// keeps it (repair round 11, Codex's #863 F1): the predecessor's
+            /// carrier, or its unfinished receive, is still the question for the
+            /// restores and the next key.</remarks>
             internal OwnKey? Previous => Volatile.Read(ref _previous);
 
             /// <summary>The count of transmissions asked when this key was asked.</summary>
@@ -173,9 +176,11 @@ namespace Radios
 
             internal bool NoteNeverWent()
             {
-                bool moved = Interlocked.CompareExchange(ref _state, NeverWentState, Asked) == Asked;
-                Volatile.Write(ref _previous, null);
-                return moved;
+                // Keep the predecessor (round 11, F1), collapsed to the key that
+                // holds evidence, so a run of keys that never went out is one hop.
+                var previous = Previous;
+                if (previous != null && previous.State == NeverWentState) Volatile.Write(ref _previous, previous.Previous);
+                return Interlocked.CompareExchange(ref _state, NeverWentState, Asked) == Asked;
             }
 
             /// <summary>Our OFF was written, the reports standing at <paramref name="mark"/>: only from ON WRITTEN.</summary>
@@ -215,7 +220,9 @@ namespace Radios
                 // Still queued: an earlier key of ours may still hold the carrier it
                 // would continue (round 10, S6), and that one answers for now.
                 if (state == Asked) return Previous?.WhyNotEndedOn(target);
-                if (state == NeverWentState) return null;
+                // Never went out: nothing of its own to end, but its predecessor's
+                // carrier or unfinished receive still answers (round 11, F1).
+                if (state == NeverWentState) return Previous?.WhyNotEndedOn(target);
                 if (target == null || !ReferenceEquals(Connection, target)) return null;
                 if (state == OnWritten) return "our own " + What + " went out and its off has not been written";
                 return ReceiveReportedAfterOff() ? null
@@ -229,7 +236,7 @@ namespace Radios
             /// <summary>Its xmit 1 (or tune ON) went out and no off has been written.</summary>
             internal bool OffUnwrittenOn(CommandConnection? target) =>
                 State == OnWritten ? target != null && ReferenceEquals(Connection, target)
-                : State == Asked && Previous?.OffUnwrittenOn(target) == true;
+                : State is Asked or NeverWentState && Previous?.OffUnwrittenOn(target) == true;
 
             /// <summary>"key" or "tune", for the trace.</summary>
             internal string What { get; init; } = "key";
@@ -239,6 +246,8 @@ namespace Radios
             {
                 Asked or OnWritten => true,
                 OffWritten => !ReceiveReportedAfterOff(),
+                // A key that never went out labels no carrier (unchanged in
+                // round 11); its predecessor's evidence matters to restores only.
                 _ => false,
             };
         }

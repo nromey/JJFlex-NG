@@ -1277,6 +1277,59 @@ namespace Radios.Tests
             Assert.Null(_f.Rig.RestoreRefusedAtWrite(_f.Vendor.Radio, _f.Vendor.Radio.CurrentCommandConnection!));
         }
 
+        // ── Round 11, Codex's #863 F1: a successor that never went out keeps
+        //    the predecessor's unfinished receive ──
+
+        [Fact]
+        public void A_revoked_key_after_our_written_off_does_not_discard_the_wait_for_its_receive()
+        {
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            OurKeyWentOutUnderAStaleReceiveReport(() => send.Transmit = true);
+            send.Transmit = false;
+            Drained();
+            Assert.Single(Commands("xmit 0"));                    // our off really went out
+            var connection = _f.Vendor.Radio.CurrentCommandConnection!;
+            Assert.Contains("has not reported receive since", _f.Rig.RestoreRefusedAtWrite(_f.Vendor.Radio, connection)!);
+
+            _hold = true;
+            send.Transmit = true;                                 // a successor key...
+            _f.Rig.RevokeAdmittedTransmitWork("a drop (test)");   // ...revoked in the queue
+            _hold = false;
+            Drained();
+            Assert.True(_f.Rig.LatestOwnKey!.NeverWent);
+            Assert.Contains("has not reported receive since", _f.Rig.RestoreRefusedAtWrite(_f.Vendor.Radio, connection)!);
+            Assert.Empty(MicPutBackNow());                        // round 10 wrote MIC here
+
+            Interlock("READY", 0);                                // the radio's word after our off
+            Assert.Null(_f.Rig.RestoreRefusedAtWrite(_f.Vendor.Radio, connection));
+        }
+
+        [Fact]
+        public void Codexs_reproduction_a_revoked_successor_after_an_unconfirmed_off_puts_no_mic_back()
+        {
+            // The ninth #863 re-check's exact schedule: READY before, then our
+            // xmit 1 and xmit 0 with no status after either, then a new ON
+            // asked and revoked as the teardown revokes it.
+            Interlock("READY", 0);
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            send.Transmit = true;
+            Drained();
+            send.Transmit = false;
+            Drained();
+            Assert.Equal(new[] { "xmit 1", "xmit 0" }, _f.Vendor.Transport.Commands.Where(c => c.StartsWith("xmit")).ToArray());
+            var connection = _f.Vendor.Radio.CurrentCommandConnection!;
+            Assert.Empty(MicPutBackNow());                        // the control: no receive since our off
+            _hold = true;
+            send.Transmit = true;
+            _f.Rig.RevokeAdmittedTransmitWork("teardown (test)");
+            _hold = false;
+            Drained();
+            Assert.True(_f.Rig.LatestOwnKey!.NeverWent);
+            Assert.Empty(MicPutBackNow());                        // round 10 wrote MIC here
+            Interlock("READY", 0);
+            Assert.Single(MicPutBackNow());                        // and once the radio says receive, it goes
+        }
+
         private static int Count(string text, string what)
         {
             int n = 0, at = 0;
