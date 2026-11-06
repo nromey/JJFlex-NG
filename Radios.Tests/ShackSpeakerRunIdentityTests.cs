@@ -135,12 +135,19 @@ namespace Radios.Tests
             string text = FlexBasePartials.JoinedText();
             int found = text.IndexOf("bool speakerFoundMuted = SpeakerFoundForRun(theRadio);", StringComparison.Ordinal);
             int mute = text.IndexOf("theRadio.IsMuteLocalAudioWhenRemoteOn = true;", StringComparison.Ordinal);
-            int owed = text.IndexOf("if (!speakerFoundMuted) _speakerMutedBy = new SpeakerMute(run, theRadio);", StringComparison.Ordinal);
+            int owed = text.IndexOf("if (!speakerFoundMuted) _speakerMutedBy = new SpeakerMute(run, theRadio, speakerConnection, speakerChoices);", StringComparison.Ordinal);
             Assert.True(found > 0 && mute > found && owed > mute, "the start no longer records the speaker it found before muting it");
+            // The start's mute is its own method now (round four, S1), called by
+            // the run, so a test can drive it; the run must still call it.
+            Assert.Contains("MuteShackSpeakerForRun(run);", text, StringComparison.Ordinal);
             int unmute = text.IndexOf("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop", StringComparison.Ordinal);
             string before = text.Substring(Math.Max(0, unmute - 600), Math.Min(600, unmute));
-            Assert.Contains("ShackSpeakerPutBackSkip(", before, StringComparison.Ordinal);
-            Assert.Contains("mutedBy.Run == run && ReferenceEquals(mutedBy.Radio, speakerRadio)", before, StringComparison.Ordinal);
+            Assert.Contains("ShackSpeakerKeepFor(run, speakerRadio)", before, StringComparison.Ordinal);
+            int keepFor = text.IndexOf("internal string ShackSpeakerKeepFor(", StringComparison.Ordinal);
+            Assert.True(keepFor > 0, "the stop's put-back decision is gone");
+            string helper = text.Substring(keepFor, Math.Min(700, text.Length - keepFor));
+            Assert.Contains("mutedBy.Run == run && ReferenceEquals(mutedBy.Radio, speakerRadio)", helper, StringComparison.Ordinal);
+            Assert.Contains("ShackSpeakerPutBackSkip(", helper, StringComparison.Ordinal);
         }
 
     }

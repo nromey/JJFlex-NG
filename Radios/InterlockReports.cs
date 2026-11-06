@@ -95,6 +95,21 @@ namespace Radios
         internal static long MicChoicesReported(CommandConnection? connection) =>
             connection != null && MicChoiceCounts.TryGetValue(connection, out var box) ? Interlocked.Read(ref box.Value) : 0;
 
+        /// <summary>How many shack-speaker settings the radio has reported on each connection (round four, S1).</summary>
+        private static readonly ConditionalWeakTable<CommandConnection, StrongBox<long>> SpeakerChoiceCounts = new();
+
+        /// <summary>
+        /// How many times the radio has reported the shack speaker's setting
+        /// (<c>mute_local_audio_when_remote=</c>) on <paramref name="connection"/>
+        /// (round four, Codex's re-check S1). The radio never sends a status back
+        /// to the client that wrote it (measured on the 8600 over LAN, 2026-11-06),
+        /// so EVERY report is another station's choice, even one that lands on
+        /// the value this app set: a put-back decided before it is no longer
+        /// this app's to make. Unlike the mic count, no value is excluded.
+        /// </summary>
+        internal static long SpeakerChoicesReported(CommandConnection? connection) =>
+            connection != null && SpeakerChoiceCounts.TryGetValue(connection, out var box) ? Interlocked.Read(ref box.Value) : 0;
+
         /// <summary>The sequence of the last report read, on any connection; zero before the first.</summary>
         private static long _sequence;
 
@@ -209,6 +224,15 @@ namespace Radios
                     string value = (end < 0 ? text.Substring(from) : text.Substring(from, end - from)).TrimEnd('\r', '\n');
                     if (string.Equals(value, "PC", StringComparison.OrdinalIgnoreCase)) return;
                     var box = MicChoiceCounts.GetValue(data!.Connection, _ => new StrongBox<long>());
+                    Interlocked.Increment(ref box.Value);
+                    return;
+                }
+                // The shack speaker's setting, counted per connection (round
+                // four, S1): a radio status carrying mute_local_audio_when_remote=.
+                if (string.CompareOrdinal(text, bar + 1, "radio ", 0, 6) == 0)
+                {
+                    if (text.IndexOf(" mute_local_audio_when_remote=", bar, StringComparison.Ordinal) < 0) return;
+                    var box = SpeakerChoiceCounts.GetValue(data!.Connection, _ => new StrongBox<long>());
                     Interlocked.Increment(ref box.Value);
                     return;
                 }

@@ -2639,5 +2639,61 @@ namespace Radios.Tests
             Assert.True(holder.Join(3000));
             Assert.Equal(1, (int)typeof(FlexBase).GetProperty("PcSwitchStillReports", Private)!.GetValue(rig.Rig)!);   // once
         }
+    
+
+        // ── Round four, Codex's re-check S1: the shack speaker across a PC-audio run ──
+
+        private static readonly MethodInfo? SpeakerKeepFor = typeof(FlexBase).GetMethod("ShackSpeakerKeepFor", Private);
+
+        private static string[] SpeakerWrites(PcAudioRig rig) =>
+            rig.Vendor.Transport.Commands.Where(x => x.StartsWith("radio set mute_local_audio_when_remote", StringComparison.Ordinal)).ToArray();
+
+        /// <summary>The run's own speaker mute, exactly as remoteAudioProc makes it when PC audio starts.</summary>
+        private static void RunMutesTheSpeaker(PcAudioRig rig)
+        {
+            var mute = typeof(FlexBase).GetMethod("MuteShackSpeakerForRun", Private);
+            Assert.True(mute != null, "the start's speaker mute cannot be reached");
+            mute!.Invoke(rig.Rig, new object[] { (long)RunField.GetValue(rig.Rig)! });
+        }
+
+        private static string? KeepAtStop(PcAudioRig rig) =>
+            (string?)SpeakerKeepFor!.Invoke(rig.Rig, new object[] { (long)RunField.GetValue(rig.Rig)!, rig.Vendor.Radio });
+
+        [Fact]
+        public void A_run_after_another_stations_mute_then_unmute_owns_its_own_mute_and_the_disconnect_writes_nothing()
+        {
+            // The connect found 1 and wrote 0; another station then chose 1 and
+            // 0. A later PC-audio run counts the speaker as found unmuted, so it
+            // owns the mute it makes, and its stop gives back the station's 0.
+            Assert.True(SpeakerKeepFor != null, "nothing decides the run's speaker put-back by itself");
+            using var rig = new PcAudioRig(5_000_000, beforePcAudio: "MIC");
+            rig.Vendor.Status("radio mute_local_audio_when_remote=1");
+            typeof(FlexBase).GetMethod("NoteSpeakerFoundAtConnect", Private)!.Invoke(rig.Rig, new object[] { rig.Vendor.Radio });
+            rig.Vendor.Radio.IsMuteLocalAudioWhenRemoteOn = false;           // the connect's unmute
+            rig.Vendor.Status("radio mute_local_audio_when_remote=1");       // another station mutes
+            rig.Vendor.Status("radio mute_local_audio_when_remote=0");       // and deliberately unmutes
+            RunMutesTheSpeaker(rig);
+            Assert.Equal("radio set mute_local_audio_when_remote=1", SpeakerWrites(rig).Last());   // the run mutes
+            Assert.Null(KeepAtStop(rig));                                      // and its stop unmutes: the station's 0
+            rig.Vendor.Radio.IsMuteLocalAudioWhenRemoteOn = false;           // what remoteAudioProc's exit then writes
+            int before = SpeakerWrites(rig).Length;
+            typeof(FlexBase).GetMethod("PutBackSpeakerFoundAtConnect", Private)!.Invoke(rig.Rig, new object[] { "test" });
+            Assert.Equal(before, SpeakerWrites(rig).Length);                  // the connect's 1 is no longer owed
+        }
+
+        [Fact]
+        public void A_runs_stop_leaves_a_mute_another_station_chose_after_the_runs_own()
+        {
+            // The run found 0 and wrote 1; another station then chose 0 and 1.
+            // The 1 is now theirs, and the stop does not unmute over it.
+            Assert.True(SpeakerKeepFor != null, "nothing decides the run's speaker put-back by itself");
+            using var rig = new PcAudioRig(5_000_000, beforePcAudio: "MIC");
+            rig.Vendor.Status("radio mute_local_audio_when_remote=0");
+            RunMutesTheSpeaker(rig);
+            Assert.Null(KeepAtStop(rig));                                      // control: no choice since, it unmutes
+            rig.Vendor.Status("radio mute_local_audio_when_remote=0");
+            rig.Vendor.Status("radio mute_local_audio_when_remote=1");
+            Assert.NotNull(KeepAtStop(rig));
+        }
     }
 }

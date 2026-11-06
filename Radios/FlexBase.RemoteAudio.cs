@@ -489,9 +489,20 @@ namespace Radios
         /// <summary>The run that muted the shack speaker, and on which radio; null when no run changed it.</summary>
         private sealed class SpeakerMute
         {
-            public SpeakerMute(long run, Radio radio) { Run = run; Radio = radio; }
+            /// <param name="choicesAtMute">The speaker reports on the run's connection, read BEFORE its write.</param>
+            public SpeakerMute(long run, Radio radio, object connection, long choicesAtMute)
+            { Run = run; Radio = radio; Connection = connection; ChoicesAtMute = choicesAtMute; }
             public long Run { get; }
             public Radio Radio { get; }
+            public object Connection { get; }
+            public long ChoicesAtMute { get; }
+            /// <summary>
+            /// Another station has set the speaker since this run muted it (round
+            /// four, S1): the radio never echoes this app's own write, so any
+            /// report since is someone else's, and the mute is theirs now.
+            /// </summary>
+            public bool ChoiceReportedSince =>
+                InterlockReports.SpeakerChoicesReported(Connection as CommandConnection) != ChoicesAtMute;
         }
 
         /// <summary>What the current run's start changed on the shack speaker (rulings round two).</summary>
@@ -501,13 +512,28 @@ namespace Radios
         private sealed class SpeakerAtConnect
         {
             public SpeakerAtConnect(Radio radio, object connection, bool foundMuted)
-            { Radio = radio; Connection = connection; FoundMuted = foundMuted; }
+            {
+                Radio = radio; Connection = connection; FoundMuted = foundMuted;
+                ChoicesAtRecord = InterlockReports.SpeakerChoicesReported(connection as CommandConnection);
+            }
             public Radio Radio { get; }
             public object Connection { get; }
             public bool FoundMuted { get; }
+            /// <summary>The speaker reports on <see cref="Connection"/> when the value was found, before the connect's own unmute.</summary>
+            public long ChoicesAtRecord { get; }
+            /// <summary>
+            /// Another station has set the speaker since (round four, Codex's
+            /// re-check S1). The radio never echoes this app's own write, so any
+            /// report since is someone else's choice, even one that lands on the
+            /// 0 the app set: "the radio still reads our 0" cannot tell the two
+            /// apart, and this can. The obligation is then retired, for the
+            /// disconnect and for every later PC-audio run on the connection.
+            /// </summary>
+            public bool ChoiceReportedSince =>
+                InterlockReports.SpeakerChoicesReported(Connection as CommandConnection) != ChoicesAtRecord;
         }
 
-        private volatile SpeakerAtConnect _speakerAtConnect;
+        private SpeakerAtConnect _speakerAtConnect;   // read with Volatile/Interlocked
 
         /// <summary>
         /// A local connect is about to unmute the shack speaker (Noel's
@@ -517,15 +543,26 @@ namespace Radios
         private void NoteSpeakerFoundAtConnect(Radio radio)
         {
             if (radio == null) return;
-            _speakerAtConnect = new SpeakerAtConnect(radio, radio.CurrentCommandConnection, radio.IsMuteLocalAudioWhenRemoteOn);
+            InterlockReports.Watch(radio);
+            Volatile.Write(ref _speakerAtConnect, new SpeakerAtConnect(radio, radio.CurrentCommandConnection, radio.IsMuteLocalAudioWhenRemoteOn));
         }
 
-        /// <summary>The connect's record, while it still describes this radio and connection.</summary>
+        /// <summary>
+        /// The connect's record, while it still describes this radio and
+        /// connection AND no other station has set the speaker since (round
+        /// four, S1). A record a newer choice has settled is retired here, once.
+        /// </summary>
         private SpeakerAtConnect SpeakerConnectRecord(Radio radio)
         {
-            var r = _speakerAtConnect;
-            return r != null && radio != null && ReferenceEquals(r.Radio, radio)
-                && ReferenceEquals(r.Connection, radio.CurrentCommandConnection) ? r : null;
+            var r = Volatile.Read(ref _speakerAtConnect);
+            if (r == null || radio == null || !ReferenceEquals(r.Radio, radio)
+                || !ReferenceEquals(r.Connection, radio.CurrentCommandConnection)) return null;
+            if (!r.ChoiceReportedSince) return r;
+            if (ReferenceEquals(Interlocked.CompareExchange(ref _speakerAtConnect, null, r), r))
+                Tracing.TraceLine("Speaker: another station has set the shack speaker since the connect found it "
+                    + (r.FoundMuted ? "muted" : "unmuted") + "; its choice stands, and the connect's value is not put back",
+                    TraceLevel.Info);
+            return null;
         }
 
         /// <summary>
@@ -538,8 +575,10 @@ namespace Radios
 
         /// <summary>
         /// At a deliberate disconnect, before the hang-up: a speaker the local
-        /// connect found muted and unmuted is muted again, only while the radio
-        /// still reads the 0 the app set (put back only what matches) and PC audio
+        /// connect found muted and unmuted is muted again, only while no other
+        /// station has set the speaker since (round four, S1: the radio never
+        /// echoes our own write, so any report is theirs), the radio still reads
+        /// the 0 the app set (put back only what matches), and PC audio
         /// is not running (its stop has its own put-back, which now starts from the
         /// connect's found value). Never throws.
         /// </summary>
@@ -548,8 +587,8 @@ namespace Radios
             try
             {
                 var radio = theRadio;
-                var r = SpeakerConnectRecord(radio);
-                _speakerAtConnect = null;
+                var r = SpeakerConnectRecord(radio);   // null too when another station has set it since (S1)
+                Volatile.Write(ref _speakerAtConnect, null);
                 if (r == null || !r.FoundMuted) return;
                 if (PCAudio)
                 {
@@ -577,6 +616,41 @@ namespace Radios
         /// what this run changed is put back: a speaker found muted when PC
         /// audio started stays muted; one already unmuted is left alone.
         /// </summary>
+        /// <summary>
+        /// PC audio is starting: record what the speaker was found at, then mute
+        /// it (see remoteAudioProc for the rulings). The speaker reports on the
+        /// connection are read BEFORE the write (round four, Codex's re-check
+        /// S1), so any report after it is another station's choice.
+        /// </summary>
+        private void MuteShackSpeakerForRun(long run)
+        {
+            bool speakerFoundMuted = SpeakerFoundForRun(theRadio);
+            _speakerMutedBy = null;
+            InterlockReports.Watch(theRadio);
+            var speakerConnection = theRadio.CurrentCommandConnection;
+            long speakerChoices = InterlockReports.SpeakerChoicesReported(speakerConnection as CommandConnection);
+            if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=true on remote audio start"))
+            {
+                theRadio.IsMuteLocalAudioWhenRemoteOn = true;
+                if (!speakerFoundMuted) _speakerMutedBy = new SpeakerMute(run, theRadio, speakerConnection, speakerChoices);
+            }
+        }
+
+        /// <summary>
+        /// Why run <paramref name="run"/>'s end leaves the shack speaker as it is,
+        /// or null to unmute it: <see cref="ShackSpeakerPutBackSkip"/>, and first
+        /// whether another station has set the speaker since this run muted it
+        /// (round four, Codex's re-check S1). Reads only.
+        /// </summary>
+        internal string ShackSpeakerKeepFor(long run, Radio speakerRadio)
+        {
+            var mutedBy = _speakerMutedBy;
+            bool ours = mutedBy != null && mutedBy.Run == run && ReferenceEquals(mutedBy.Radio, speakerRadio);
+            if (ours && mutedBy.ChoiceReportedSince)
+                return "another station has set the shack speaker since this run muted it, so the setting is theirs now";
+            return ShackSpeakerPutBackSkip(ours, speakerRadio.IsMuteLocalAudioWhenRemoteOn);
+        }
+
         internal static string ShackSpeakerPutBackSkip(bool thisRunMutedIt, bool mutedNow)
         {
             if (!thisRunMutedIt) return "it was found muted when PC audio started (or this run did not mute it), so it is left as found";
@@ -909,13 +983,7 @@ namespace Radios
             // bench's Fail 6): the stop puts back only what this run changed, so
             // a speaker found muted is left muted, under the same "put back only
             // what matches" ruling as the mic input (Noel, 2026-11-02).
-            bool speakerFoundMuted = SpeakerFoundForRun(theRadio);
-            _speakerMutedBy = null;
-            if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=true on remote audio start"))
-            {
-                theRadio.IsMuteLocalAudioWhenRemoteOn = true;
-                if (!speakerFoundMuted) _speakerMutedBy = new SpeakerMute(run, theRadio);
-            }
+            MuteShackSpeakerForRun(run);
             opusOutputChannel = new audioChannelData(rxStream, "JJFlexRadio.OpusOutputChan");
             opusOutputChannel.PortAudioStream = new JJAudioStream();
             // Track J (#462): the callback rate is passed rather than defaulted.
@@ -1513,11 +1581,9 @@ namespace Radios
                 speakerRadio != null, IsConnected, Disconnecting);
             if (speakerRefusal == null)
             {
-                // Only what THIS run muted, while still muted (Fail 6).
-                var mutedBy = _speakerMutedBy;
-                string keep = ShackSpeakerPutBackSkip(
-                    mutedBy != null && mutedBy.Run == run && ReferenceEquals(mutedBy.Radio, speakerRadio),
-                    speakerRadio.IsMuteLocalAudioWhenRemoteOn);
+                // Only what THIS run muted, while still muted (Fail 6), and
+                // only while no other station has set it since (S1).
+                string keep = ShackSpeakerKeepFor(run, speakerRadio);
                 if (keep != null)
                     Tracing.TraceLine("remoteAudioProc: the shack speaker is left as it is - " + keep, TraceLevel.Info);
                 else if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop"))

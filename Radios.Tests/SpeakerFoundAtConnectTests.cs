@@ -86,4 +86,49 @@ public sealed class SpeakerFoundAtConnectTests : IDisposable
         int hangUp = text.IndexOf("theRadio.Disconnect();", StringComparison.Ordinal);
         Assert.True(putBack > 0 && hangUp > putBack, "the disconnect does not put the speaker back before the hang-up");
     }
+
+    // ── Round four, Codex's re-check S1: a newer choice of the same value ──
+    //
+    // The radio never sends a status back to the client that wrote it (the
+    // 8600 bench, LAN): so ANY mute_local_audio_when_remote report after the
+    // connect recorded what it found is another station's choice, and it
+    // retires the connect's obligation, even when it lands on the very value
+    // the app had set.
+
+    private static RigOnVendorRadio AnotherStationMutesThenUnmutes()
+    {
+        var f = FoundMutedThenUnmutedAtConnect();
+        f.Vendor.Status("radio mute_local_audio_when_remote=1");     // another station mutes...
+        f.Vendor.Status("radio mute_local_audio_when_remote=0");     // ...then deliberately unmutes
+        return f;
+    }
+
+    [Fact]
+    public void Another_stations_unmute_after_our_own_is_not_overwritten_at_the_disconnect()
+    {
+        // Codex's speaker-choice probe: the disconnect wrote 1 over the newer 0.
+        using var f = AnotherStationMutesThenUnmutes();
+        int before = Writes(f).Length;
+        PutBack!.Invoke(f.Rig, new object[] { "test" });
+        Assert.Equal(before, Writes(f).Length);
+        Assert.False(f.Vendor.Radio.IsMuteLocalAudioWhenRemoteOn);
+    }
+
+    [Fact]
+    public void A_PC_audio_run_after_that_choice_counts_the_speaker_as_the_station_left_it()
+    {
+        using var f = AnotherStationMutesThenUnmutes();
+        Assert.False((bool)FoundForRun!.Invoke(f.Rig, new object[] { f.Vendor.Radio })!);
+    }
+
+    [Fact]
+    public void With_no_choice_reported_the_record_still_puts_back_what_it_found()
+    {
+        // Control: the app's own 0 is never reported back to it, so with no
+        // report since, the record stands and the found 1 is put back.
+        using var f = FoundMutedThenUnmutedAtConnect();
+        Assert.True((bool)FoundForRun!.Invoke(f.Rig, new object[] { f.Vendor.Radio })!);
+        PutBack!.Invoke(f.Rig, new object[] { "test" });
+        Assert.Equal("radio set mute_local_audio_when_remote=1", Writes(f).Last());
+    }
 }
