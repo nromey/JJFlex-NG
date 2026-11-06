@@ -1,3 +1,4 @@
+using System.Reflection;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -318,6 +319,36 @@ public sealed class TransmitSliceNoticeTests
         Assert.False(await TransmitSliceNotice.HeardAsync(new FakeWords(), () => true,
             _ => { polls++; return Task.CompletedTask; }, queuedCeilingMs: 20 * TransmitSliceNotice.PollMs));
         Assert.Equal(20, polls);
+    }
+
+    // ── Round three (the second 8600 bench, Fail 2's speech): Home's arrival holds while a notice is due ──
+
+    [Fact]
+    public async Task A_notice_is_due_from_when_it_is_said_until_its_wait_ends()
+    {
+        var notice = typeof(TransmitSliceNotice);
+        var mark = notice.GetMethod("MarkDue", BindingFlags.NonPublic | BindingFlags.Static);
+        var due = notice.GetProperty("NoticeDue", BindingFlags.Public | BindingFlags.Static);
+        Assert.True(mark != null && due != null, "nothing tells Home a send's notice is due");
+        mark!.Invoke(null, null);
+        Assert.True((bool)due!.GetValue(null)!);
+        var words = new FakeWords { Started = true, Finished = true };
+        Assert.True(await TransmitSliceNotice.HeardAsync(words, () => true, _ => Task.CompletedTask));
+        Assert.False((bool)due.GetValue(null)!);        // heard: Home may speak again
+    }
+
+    [Fact]
+    public void Homes_arrival_speech_holds_while_a_notice_is_due()
+    {
+        // The bench: as the long-recording question closed, Home's arrival
+        // prefix cut the notice at its first word, and "Listening on ... slice B"
+        // was said ahead of it; every notice-bearing send keyed 11 s after Send.
+        string display = Source("JJFlexWpf/Controls/FrequencyDisplay.xaml.cs");
+        string main = Source("JJFlexWpf/MainWindow.xaml.cs");
+        string notice = Source("Radios/TransmitSliceNotice.cs");
+        Assert.Contains("if (Radios.TransmitSliceNotice.NoticeDue)", display);
+        Assert.Contains("if (Radios.TransmitSliceNotice.NoticeDue)", main);
+        Assert.Contains("MarkDue();", notice);
     }
 
     [Fact]

@@ -226,6 +226,9 @@ namespace Radios
             // Ahead of our own ordinary backlog (rulings round two, the bench's
             // Fail 2): stale arrival and salvaged sentences are retired, so the
             // notice is not queued behind them until its gate gives up.
+            // Due from before it is asked for until its wait ends (rulings round
+            // three): Home's arrival speech holds meanwhile.
+            MarkDue();
             try { words = ScreenReaderOutput.CountdownSpeech.SayWhole(sentence, Speech.SpeechSubject.TransmitSliceNotice, ahead: true); }
             catch (Exception ex)
             {
@@ -255,6 +258,34 @@ namespace Radios
             Func<int, Task> delay = null, int ceilingMs = CeilingMs, int queuedCeilingMs = QueuedCeilingMs)
         {
             if (words == null) return true;
+            try { return await HeardCoreAsync(words, stillWanted, delay, ceilingMs, queuedCeilingMs).ConfigureAwait(true); }
+            finally { ClearDue(); }
+        }
+
+        // ── A notice is due (rulings round three, the second 8600 bench) ──
+        //
+        // On the bench, as the long-recording question closed, Home's arrival
+        // prefix ("JJ Flexible Home, frequency, ...", an interrupt) cut the
+        // notice at its first word and the return status ("Listening on ...
+        // slice B") was said ahead of it: every notice-bearing send keyed 11 s
+        // after Send. Both are where-you-are speech about Home, which the notice
+        // supersedes for the moment it is due, so they hold (are not said) while
+        // it is: from just before it is asked for until its wait ends, bounded so
+        // a wait that never ends cannot silence Home for good.
+
+        private static long _dueUntil;
+
+        /// <summary>A send's transmit-slice notice is about to be said, or is being waited for.</summary>
+        public static bool NoticeDue => Environment.TickCount64 < System.Threading.Interlocked.Read(ref _dueUntil);
+
+        internal static void MarkDue() =>
+            System.Threading.Interlocked.Exchange(ref _dueUntil, Environment.TickCount64 + CeilingMs + QueuedCeilingMs);
+
+        internal static void ClearDue() => System.Threading.Interlocked.Exchange(ref _dueUntil, 0);
+
+        private static async Task<bool> HeardCoreAsync(ICountdownWords words, Func<bool> stillWanted,
+            Func<int, Task> delay, int ceilingMs, int queuedCeilingMs)
+        {
             delay ??= Task.Delay;
             int waited = 0, queued = 0;
             while (true)
@@ -346,6 +377,7 @@ namespace Radios
         public static void Retire(Notice notice, string why)
         {
             if (notice?.Words == null) return;
+            ClearDue();
             try { ScreenReaderOutput.CountdownSpeech.Withdraw(notice.Words, why); }
             catch (Exception ex)
             {

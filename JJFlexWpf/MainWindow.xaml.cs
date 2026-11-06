@@ -2271,6 +2271,13 @@ public partial class MainWindow : UserControl
             // While slices are absent the connect flow owns the narration;
             // once they exist, this is real information about where the
             // operator returned to.
+            // Held while a send's transmit notice is due (rulings round three):
+            // it was said ahead of the notice on the second bench.
+            if (Radios.TransmitSliceNotice.NoticeDue)
+            {
+                JJTrace.Tracing.TraceLine("Return status held; a send's transmit notice is due", System.Diagnostics.TraceLevel.Info);
+                return;
+            }
             string status = Radios.RadioStatusBuilder.BuildSpokenStatus(rig);
             // Its own subject (rulings round three): the rig retires an unheard
             // copy when the selected slice or its frequency changes, so it is not
