@@ -2720,6 +2720,18 @@ namespace Radios
             public AccountRoute Route => RadioAccountRouting.Resolve(LiveAccount, Preferred, LastSeen);
 
             /// <summary>
+            /// The first of <paramref name="tiers"/>, in order, that is a saved
+            /// account; empty when none is. THE tier walk for "which saved
+            /// account is this radio's": the connect's plan walks the chosen
+            /// then the last-seen account through it, and registration walks
+            /// the live account, then those two, through the same one
+            /// (integration pass, finding 5), so one radio can never resolve
+            /// to two accounts.
+            /// </summary>
+            public string FirstSaved(params string[] tiers)
+                => tiers.FirstOrDefault(IsSaved) ?? "";
+
+            /// <summary>
             /// Whether an account is one of this picture's saved accounts.
             /// </summary>
             public bool IsSaved(string account)
@@ -2832,12 +2844,12 @@ namespace Radios
                 return new SmartLinkSignInPlan(SmartLinkSignInPlanKind.NotListedByAnySavedAccount, "",
                     $"all {saved.Count} saved account(s) answer on their live connections, and none lists the radio");
 
-            if (IsSaved(picture.Preferred))
-                return new SmartLinkSignInPlan(SmartLinkSignInPlanKind.SignInAsRadiosAccount, picture.Preferred,
-                    "the radio's chosen account has no live list that answers");
-            if (IsSaved(picture.LastSeen))
-                return new SmartLinkSignInPlan(SmartLinkSignInPlanKind.SignInAsRadiosAccount, picture.LastSeen,
-                    "the account that last listed the radio has no live list that answers");
+            string own = picture.FirstSaved(picture.Preferred, picture.LastSeen);
+            if (own.Length > 0)
+                return new SmartLinkSignInPlan(SmartLinkSignInPlanKind.SignInAsRadiosAccount, own,
+                    string.Equals(own, picture.Preferred, StringComparison.OrdinalIgnoreCase)
+                        ? "the radio's chosen account has no live list that answers"
+                        : "the account that last listed the radio has no live list that answers");
 
             return new SmartLinkSignInPlan(SmartLinkSignInPlanKind.SignInAsUsual, "",
                 "no saved account is known to reach the radio, and not every saved account answers");

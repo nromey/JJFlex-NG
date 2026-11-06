@@ -48,10 +48,16 @@ namespace Radios
     /// </summary>
     /// <remarks>
     /// <para><b>The order.</b> Live attribution first (the account whose
-    /// SmartLink list delivered the serial, which is what the connect path's
-    /// <c>ResolveBrokeringSession</c> already routes by), then the operator's
-    /// <see cref="RadioConfig.PreferredAccount"/>, then the observed
-    /// <see cref="RadioConfig.LastSeenViaAccount"/>, then empty.</para>
+    /// session's CURRENT list names the serial; never the WAN bank, which can
+    /// lag), then the operator's <see cref="RadioConfig.PreferredAccount"/>,
+    /// then the observed <see cref="RadioConfig.LastSeenViaAccount"/>, then
+    /// empty.</para>
+    /// <para><b>This is the route as recorded, not the account signed in
+    /// as.</b> A tier may name an account nobody saved. The account actually
+    /// used, by the connect's plan and by registration alike, is the first
+    /// SAVED account in this same order
+    /// (<c>FlexBase.AccountPicture.FirstSaved</c>; integration pass, finding
+    /// 5).</para>
     /// <para><b>Resolved from the RADIO, never from a mutable default.</b>
     /// The saved default account is deliberately not a tier: which account
     /// happens to be the default says nothing about whose radio this is. A

@@ -202,8 +202,9 @@ namespace Radios
         /// <summary>
         /// The saved SmartLink account registration on this radio goes
         /// through (#713): the radio's own account by
-        /// <see cref="RadioAccountRouting.ForSerial"/> when that names a saved
-        /// account, otherwise the saved default as before.
+        /// the first saved account in the connect's own tier order (live,
+        /// chosen, last seen; <see cref="AccountPicture.FirstSaved"/>),
+        /// otherwise the saved default as before.
         /// </summary>
         /// <remarks>
         /// <para><b>Routing, not permission.</b> This answers which account to
@@ -221,26 +222,24 @@ namespace Radios
         /// account manager, as production always does.</param>
         internal SmartLinkAccount ResolveRegistrationAccount(string serial, IReadOnlyList<SmartLinkAccount> savedAccounts = null)
         {
-            var route = RadioAccountRouting.ForSerial(serial);
-            var saved = savedAccounts ?? AccountManager.Accounts;
-            var own = AccountForRoute(route, saved);
+            var saved = (savedAccounts ?? AccountManager.Accounts).Where(a => a != null).ToList();
+            // One reading, and the connect's own tier walk over it: the live
+            // account, then the chosen, then the last-seen, the first that is
+            // saved (integration pass, finding 5). Taking only the top tier
+            // and dropping to the default when it was unsaved let one radio
+            // connect as one account and register to another.
+            var picture = TakeAccountPictureFor(serial, saved: saved.Select(a => a.Email));
+            string email = picture.FirstSaved(picture.LiveAccount, picture.Preferred, picture.LastSeen);
+            var own = saved.FirstOrDefault(a => string.Equals(a.Email, email, StringComparison.OrdinalIgnoreCase));
             if (own != null)
             {
-                Tracing.TraceLine($"ResolveRegistrationAccount: {serial} goes through its own account '{own.Email}' ({route.Source})", TraceLevel.Info);
+                Tracing.TraceLine($"ResolveRegistrationAccount: {serial} goes through its own account '{own.Email}' (route {picture.Route})", TraceLevel.Info);
                 return own;
             }
             Tracing.TraceLine(
-                $"ResolveRegistrationAccount: {serial} names no saved account (route {route}); using the saved default, as before",
+                $"ResolveRegistrationAccount: {serial} names no saved account (route {picture.Route}); using the saved default, as before",
                 TraceLevel.Info);
             return TryLoadSavedAccount() ? _currentAccount : null;
-        }
-
-        /// <summary>The saved account a route names, or null when it names none that is saved.</summary>
-        internal static SmartLinkAccount AccountForRoute(AccountRoute route, IReadOnlyList<SmartLinkAccount> saved)
-        {
-            if (route.IsEmpty || saved == null) return null;
-            return saved.FirstOrDefault(a => a != null
-                && string.Equals(a.Email, route.Account, StringComparison.OrdinalIgnoreCase));
         }
 
         /// <summary>

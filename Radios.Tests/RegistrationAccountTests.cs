@@ -68,6 +68,27 @@ namespace Radios.Tests
             Assert.Same(A, CurrentAccount.GetValue(_rig));
         }
 
+        /// <summary>
+        /// Integration finding 5: registration walks the same tiers, in the
+        /// same order, filtered by "saved", as the connect's plan. A radio
+        /// whose chosen account is no longer saved, and that was last seen on
+        /// a saved account other than the default, connects as that account;
+        /// registration used to take only the top tier, find it unsaved, and
+        /// drop to the default, so one radio resolved to two accounts.
+        /// </summary>
+        [Fact]
+        public void A_chosen_account_nobody_saved_falls_to_the_last_seen_account_as_the_connect_does()
+        {
+            string serial = NewSerial();
+            Assert.True(KnownRadioRoster.SetPreferredAccount(serial, "gone@example.com"));
+            Assert.True(KnownRadioRoster.RecordSighting(serial, "Owner6300", "FLEX-6300", isRemote: true, accountEmail: Owner));
+
+            Assert.Same(B, _rig.ResolveRegistrationAccount(serial, Saved));
+            // And the connect's plan names the same account for the same radio.
+            var picture = FlexBase.TakeAccountPictureFor(serial, saved: new[] { Default, Owner });
+            Assert.Equal(Owner, FlexBase.PlanSmartLinkSignIn(picture).Account);
+        }
+
         [Fact]
         public void A_radio_last_seen_on_another_account_registers_to_that_account()
         {
