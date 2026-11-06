@@ -367,25 +367,47 @@ namespace JJFlexWpf
 
         /// <summary>
         /// Writer thread: a SetSetting for every value asked for since this
-        /// channel last heard, at most <paramref name="room"/> of them. True when
-        /// one was left for want of room; it stays asked for, so the next call
-        /// sends its latest value.
+        /// channel last heard, at most <paramref name="room"/> of them, and none
+        /// for a setting that already has <paramref name="perSetting"/> sent and
+        /// unanswered. True when one was left, for want of room or for its own
+        /// answer; it stays asked for, so a later call sends its latest value.
         /// </summary>
-        internal bool CollectChangedSettings(WdspChannel ch, List<byte[]> into, int room)
+        /// <remarks>
+        /// The per-setting limit is what keeps one setting that never stops
+        /// changing from starving the others: it can hold only that many slots,
+        /// so every other changed setting finds room, and the helper's queue holds
+        /// at most that many of its values, so a later setting is applied after a
+        /// handful of requests rather than behind hundreds. Each setting's latest
+        /// value goes at most one answer after its previous one.
+        /// </remarks>
+        internal bool CollectChangedSettings(WdspChannel ch, List<byte[]> into, int room, int perSetting)
         {
             var slots = _slots;
             if (slots == null) return false;
+            bool left = false;
             for (int i = 0; i < slots.Length; i++)
             {
                 var s = slots[i];
                 if (s.D.ChangesLatency) continue;
                 if (!s.Read(out int version, out var value) || version == ch.SentVersions[i]) continue;
+                if (Volatile.Read(ref ch.SettingOutstanding[i]) >= perSetting) { left = true; continue; }
                 if (room <= 0) return true;
                 into.Add(WdspProtocol.Encode(new WdspSetSetting(ch.Id, new WdspNamedValue(s.D.Name, WdspValue.From(value)))));
                 ch.SentVersions[i] = version;
+                Interlocked.Increment(ref ch.SettingOutstanding[i]); // before it is written, so its answer cannot come first
                 room--;
             }
-            return false;
+            return left;
+        }
+
+        /// <summary>Reader thread: which setting slot an answer names, or -1.</summary>
+        internal int SettingIndex(string name)
+        {
+            var slots = _slots;
+            if (slots == null) return -1;
+            for (int i = 0; i < slots.Length; i++)
+                if (string.Equals(slots[i].D.Name, name, StringComparison.Ordinal)) return i;
+            return -1;
         }
 
         /// <summary>Reader thread: the helper answered an OpenChannel.</summary>

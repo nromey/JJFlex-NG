@@ -124,6 +124,18 @@ namespace JJFlexWpf
         /// </summary>
         public int MaxSettingsInFlight { get; init; } = MaxSettingsInFlightDefault;
 
+        public const int MaxInFlightPerSettingDefault = 1;
+
+        /// <summary>
+        /// The most SetSettings for any one setting of one channel sent and not
+        /// yet answered. One: a value changing faster than the helper answers
+        /// goes as its latest form once its previous answer is in, so it can
+        /// never take the room every other setting needs (Codex found a later
+        /// setting starved behind an earlier one that never stopped changing,
+        /// 2026-11-06). Tests raise it to exercise the connection's cap alone.
+        /// </summary>
+        public int MaxInFlightPerSetting { get; init; } = MaxInFlightPerSettingDefault;
+
         public static WdspHostPolicy Default { get; } = new();
     }
 
@@ -179,8 +191,16 @@ namespace JJFlexWpf
         public readonly ManualResetEventSlim ReaderDone = new(false);
         /// <summary>SetSettings sent on this connection and not yet answered. Interlocked; the writer adds, the reader takes away.</summary>
         public int SettingsInFlight;
-        /// <summary>1 while the writer is holding settings back for room, so an answer wakes it. Interlocked.</summary>
+        /// <summary>1 while the writer is holding settings back (for room, or for a setting's own answer), so an answer wakes it. Interlocked.</summary>
         public int SettingsHeld;
+        /// <summary>
+        /// Counts every answer that freed a setting's turn or the connection's
+        /// room. Interlocked. The writer reads it before deciding what to hold and
+        /// again after publishing <see cref="SettingsHeld"/>, so an answer between
+        /// the two cannot be missed, and a setting held for its own answer does not
+        /// make the writer spin.
+        /// </summary>
+        public long SettingProgress;
         /// <summary>Writer only: which channel's settings go first, turn about, so one busy channel cannot starve another.</summary>
         public int SettingRotation;
 
@@ -245,10 +265,13 @@ namespace JJFlexWpf
         public volatile bool Opened, Closed, OpenSent;
         /// <summary>Per setting, the asked-for version this channel already has. Writer thread only.</summary>
         public readonly int[] SentVersions;
+        /// <summary>Per setting, SetSettings sent on this channel and not yet answered. Interlocked; the writer adds, the reader takes away.</summary>
+        public readonly int[] SettingOutstanding;
 
         public WdspChannel(WdspHelperEngine engine, WdspConnection conn, uint id, int pipelineDepth, int[] sentVersions, bool offline)
         {
             Engine = engine; Conn = conn; Id = id; SentVersions = sentVersions;
+            SettingOutstanding = new int[sentVersions.Length];
             for (int i = 0; i < SendCapacity; i++) SendFrames[i] = new float[WdspProtocol.FrameLength];
             int slots = 8;
             while (slots < pipelineDepth + 2) slots <<= 1;
@@ -1191,7 +1214,15 @@ namespace JJFlexWpf
                     Interlocked.Increment(ref SettingAcksReceived);
                     if (c.ById.TryGetValue(ack.Channel, out var target))
                     {
-                        if (TakeOne(ref target.SettingsInFlight)) SettingAnswered(c, 1);
+                        // The room first, then the setting's own turn, so the writer can
+                        // never count this setting twice at once; SettingAnswered then
+                        // counts the progress the writer looks for, after both.
+                        bool counted = TakeOne(ref target.SettingsInFlight);
+                        if (counted) Interlocked.Decrement(ref c.SettingsInFlight);
+                        int slot = target.Engine.SettingIndex(ack.Name);
+                        bool turn = slot >= 0 && slot < target.SettingOutstanding.Length && TakeOne(ref target.SettingOutstanding[slot]);
+                        if (slot < 0) Trace.WriteLine($"WdspHost: a SettingAck on channel {ack.Channel} names {ack.Name}, which its engine does not have");
+                        if (counted || turn) SettingAnswered(c, 0);
                         target.Engine.OnSettingAck(ack);
                     }
                     else if (ack.Channel != 0 && ack.Channel < Volatile.Read(ref c.NextChannelId))
@@ -1274,10 +1305,15 @@ namespace JJFlexWpf
             return false;
         }
 
-        /// <summary>Reader: settings answered; room again, so wake a writer that was holding some back.</summary>
+        /// <summary>
+        /// Reader: settings answered; room or a setting's turn again, so wake a
+        /// writer that was holding some back. The progress count is raised (a
+        /// full fence) before the held flag is read, the mirror of the writer.
+        /// </summary>
         private static void SettingAnswered(WdspConnection c, int count)
         {
-            Interlocked.Add(ref c.SettingsInFlight, -count);
+            if (count != 0) Interlocked.Add(ref c.SettingsInFlight, -count);
+            Interlocked.Increment(ref c.SettingProgress);
             if (Volatile.Read(ref c.SettingsHeld) != 0) c.Wake.Set();
         }
 
@@ -1362,16 +1398,18 @@ namespace JJFlexWpf
                             }
                         }
                         // Settings after the frames, within the room left, each channel
-                        // first in turn. A value not sent now stays asked for, and its
-                        // latest form goes when an answer makes room.
+                        // first in turn, and no setting with an answer still owed. A
+                        // value not sent now stays asked for, and its latest form goes
+                        // when an answer makes room or gives that setting its turn.
                         bool held = false;
+                        long progress = Interlocked.Read(ref c.SettingProgress);
                         int start = c.SettingRotation++;
                         for (int k = 0; k < lives.Length; k++)
                         {
                             var ch = lives[(int)((uint)(start + k) % (uint)lives.Length)];
                             if (!ch.Opened || ch.Closed) continue;
                             int room = Policy.MaxSettingsInFlight - Volatile.Read(ref c.SettingsInFlight);
-                            if (ch.Engine.CollectChangedSettings(ch, settings, room)) held = true;
+                            if (ch.Engine.CollectChangedSettings(ch, settings, room, Policy.MaxInFlightPerSetting)) held = true;
                             foreach (var s in settings)
                             {
                                 // Counted before it is written, so its answer can never arrive first.
@@ -1384,8 +1422,11 @@ namespace JJFlexWpf
                             settings.Clear();
                         }
                         Interlocked.Exchange(ref c.SettingsHeld, held ? 1 : 0);
-                        // An answer may have made room between the count and the flag: look again now.
-                        if (held && Volatile.Read(ref c.SettingsInFlight) < Policy.MaxSettingsInFlight) c.Wake.Set();
+                        // An answer may have come between the look and the flag (it then
+                        // saw no flag and woke nobody): look again now. Only an answer
+                        // moves the count, so a setting waiting on its own answer
+                        // does not make this spin.
+                        if (held && Interlocked.Read(ref c.SettingProgress) != progress) c.Wake.Set();
                     }
                     if (wrote) lastSend = Now;
                     else if (Now - lastSend >= beat) { c.Pipe.Write(heartbeat); lastSend = Now; }

@@ -359,13 +359,15 @@ public sealed partial class HelperLifecycleTests
     /// closes queued. However fast a value changes, the host keeps no more than
     /// its cap in flight, sends each setting's latest value when room comes,
     /// and loses nothing. The stub plays the helper with a limit of 12 and a
-    /// slow processing thread (20 ms a setting); the cap here is 8.
+    /// slow processing thread (20 ms a setting); the cap here is 8. The limit
+    /// of one unanswered request per setting is lifted here, so the cap alone
+    /// is what keeps the helper alive; the next test holds that limit.
     /// </summary>
     [Fact]
     public void Settings_in_flight_never_pass_the_cap_however_fast_a_value_changes()
     {
         using var rig = new HelperTestRig(_ => new[] { "--slow-settings", "20", "--request-limit", "12" },
-            HelperTestRig.Fast with { MaxSettingsInFlight = 8 });
+            HelperTestRig.Fast with { MaxSettingsInFlight = 8, MaxInFlightPerSetting = int.MaxValue });
         var engine = rig.Engine("nr2");
         Assert.True(engine.IsAvailable);
         var t = System.Diagnostics.Stopwatch.StartNew();
@@ -387,6 +389,49 @@ public sealed partial class HelperLifecycleTests
     }
 
     /// <summary>
+    /// A setting that changes without end must not starve another setting on
+    /// the same channel. With the shipped cap (256) and a slow helper (20 ms a
+    /// setting), NR2's gain method flips as fast as a thread can flip it while,
+    /// 50 ms in, the trained threshold is set once. That value must be in
+    /// effect within a second, while the flood is still going. (Codex's check
+    /// of the contract 2 round: before the repair the later setting waited
+    /// behind every freed slot and 255 queued requests, 12 seconds in its run.)
+    /// Afterwards both settings' latest values are in effect.
+    /// </summary>
+    [Fact]
+    public void A_setting_that_never_stops_changing_does_not_starve_another_on_its_channel()
+    {
+        using var rig = new HelperTestRig(_ => new[] { "--slow-settings", "20" });
+        var engine = rig.Engine("nr2");
+        Assert.True(engine.IsAvailable);
+        Assert.Equal(WdspHostPolicy.MaxSettingsInFlightDefault, rig.Host.Policy.MaxSettingsInFlight);
+        string[] gains = { "linear", "log" };
+        var t = System.Diagnostics.Stopwatch.StartNew();
+        long setAt = -1, appliedAt = -1;
+        int i = 0;
+        while (t.ElapsedMilliseconds < 3000)
+        {
+            engine.TrySetSetting("gain_method", new EngineSettingValue(0, gains[i++ % 2]));
+            if (setAt < 0 && t.ElapsedMilliseconds >= 50)
+            {
+                Assert.True(engine.TrySetSetting("trained_t2", new EngineSettingValue(0.3)));
+                setAt = t.ElapsedMilliseconds;
+            }
+            if (setAt >= 0 && appliedAt < 0 && engine.GetSetting("trained_t2").Number == 0.3) appliedAt = t.ElapsedMilliseconds;
+        }
+        string last = gains[(i - 1) % 2];
+        _out.WriteLine($"{i} gain changes; threshold set at {setAt} ms, in effect at {appliedAt} ms; " +
+            $"{Interlocked.Read(ref rig.Host.SetSettingsSent)} sent, peak in flight {Interlocked.Read(ref rig.Host.PeakSettingsInFlight)}");
+        Assert.True(appliedAt >= 0, "the threshold was still not in effect when the flood ended, 3 s in");
+        Assert.InRange(appliedAt - setAt, 0, 1000);
+        // One unanswered request per setting, and this channel has two settings.
+        Assert.InRange(Interlocked.Read(ref rig.Host.PeakSettingsInFlight), 1, 2);
+        HelperTestRig.Until(() => engine.GetSetting("gain_method").Choice == last && InFlight(rig) == 0, "the last gain method in effect", 15000);
+        Assert.Equal(0.3, engine.GetSetting("trained_t2").Number);
+        Assert.Equal(0, rig.Host.Failures);
+    }
+
+    /// <summary>
     /// A client that does overflow the helper's limit (here, a host whose cap is
     /// above the stub's limit) ends as the helper ends it: Error 257, the close,
     /// exit 6. That reads as a protocol failure, named, and follows the crash
@@ -397,7 +442,7 @@ public sealed partial class HelperLifecycleTests
     public void Overflowing_the_helpers_limit_reads_as_a_named_protocol_failure_and_keeps_the_delay()
     {
         using var rig = new HelperTestRig(n => n == 1 ? new[] { "--slow-settings", "20", "--request-limit", "12" } : Array.Empty<string>(),
-            SlowRestart() with { MaxSettingsInFlight = 100_000 });
+            SlowRestart() with { MaxSettingsInFlight = 100_000, MaxInFlightPerSetting = int.MaxValue });
         var engine = rig.Engine("nr2");
         int latency = engine.LatencySamples;
         Assert.Equal(3408, latency);
@@ -428,7 +473,7 @@ public sealed partial class HelperLifecycleTests
     public void A_setting_answered_after_its_close_or_never_leaks_nothing(string how)
     {
         using var rig = new HelperTestRig(_ => new[] { "--hold-setting-acks", "nnr:" + how },
-            HelperTestRig.Fast with { MaxSettingsInFlight = 2 });
+            HelperTestRig.Fast with { MaxSettingsInFlight = 2, MaxInFlightPerSetting = 2 });
         var held = rig.Engine("nnr");
         var other = rig.Engine("nr2");
         Assert.True(held.TrySetSetting("mask_floor_db", new EngineSettingValue(-30)));

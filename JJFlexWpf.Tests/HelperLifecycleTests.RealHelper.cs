@@ -109,7 +109,8 @@ public sealed partial class HelperLifecycleTests
     /// <summary>
     /// A value changed as fast as a thread can change it, on both engines of a
     /// real helper running audio, never takes the helper near its limit: no
-    /// protocol error, the cap holds, and the last value is the one in effect.
+    /// protocol error, no more than one request per setting is ever unanswered,
+    /// and the last value is the one in effect.
     /// </summary>
     [Fact]
     public void Real_helper_a_flood_of_setting_changes_never_ends_the_connection()
@@ -139,6 +140,8 @@ public sealed partial class HelperLifecycleTests
             $"peak in flight {Interlocked.Read(ref rig.Host.PeakSettingsInFlight)}");
         Assert.Equal(0, rig.Host.Failures);
         Assert.Single(rig.Host.LaunchedProcessIds);
-        Assert.InRange(Interlocked.Read(ref rig.Host.PeakSettingsInFlight), 1, WdspHostPolicy.MaxSettingsInFlightDefault);
+        // One unanswered request per setting, and two settings were changing:
+        // far inside the cap, and so far inside the helper's 4,096.
+        Assert.InRange(Interlocked.Read(ref rig.Host.PeakSettingsInFlight), 1, 2);
     }
 }
