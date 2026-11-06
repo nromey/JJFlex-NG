@@ -3332,8 +3332,6 @@ public class FreqOutHandlers
         high = Math.Min(high, highMax);
         if (high - low < minWidth) high = low + minWidth; // safety
 
-        Rig.SetFilter(low, high);
-
         // Boundary announcements — only announce "at limit" when clamping actually
         // restricted movement, not just because an edge sits at a mode boundary.
         // In LSB, high is naturally 0 == highMax; the old OR check falsely said
@@ -3344,11 +3342,6 @@ public class FreqOutHandlers
         }
         else
         {
-            // One formatter for every filter width (#747): the kilo form at
-            // Terse, never rounded ("2.75 k"); at Chatty the whole number
-            // with its label, "width 2800 hertz" (Noel, 2026-11-06, J15). The
-            // edges stay exact integers, as they always were.
-            string widthStr = Radios.HertzSpeech.ReadoutWidth(high - low, Radios.HertzUnitStyle.Bare);
             bool lowClamped = low != requestedLow;
             bool highClamped = high != requestedHigh;
             string atLimit = "";
@@ -3358,16 +3351,17 @@ public class FreqOutHandlers
                 atLimit = Lexicon.Get("settings.filter.suffix_lower_limit");
             else if (highClamped)
                 atLimit = Lexicon.Get("settings.filter.suffix_upper_limit");
-            string filterSentence = Lexicon.Get("settings.filter.range",
-                ("low", low), ("high", high), ("width", widthStr), ("limit", atLimit));
-            // In edge mode the readout says the held edge too, at Chatty, so
-            // the mode is said WHILE you are in it and not only on the way in
-            // (#748: nothing ever said again which edge was held). Terse keeps
-            // the plain readout; the panned edge tone marks which edge moved.
-            if (decision.Action == Radios.BracketAction.MoveHeldEdge)
-                filterSentence = Radios.FilterBracketKeys.HeldStepSentence(
-                    _filterEdgeMode, filterSentence, Radios.ScreenReaderOutput.CurrentVerbosity);
-            Radios.ScreenReaderOutput.Speak(filterSentence, VerbosityLevel.Terse, true);
+            // The readout is said once FlexLib has run the write, from the
+            // edges it produced (#747 round six): in FM it changes nothing,
+            // and in RTTY and other modes it may stop short of this handler's
+            // own bounds, so the edges asked for are never what is said. One
+            // formatter for the width: "2.75 k" at Terse, "width 2750 hertz"
+            // at Chatty (J15). In edge mode the held edge leads at Chatty
+            // (#748), so the mode is said WHILE you are in it.
+            var held = decision.Action == Radios.BracketAction.MoveHeldEdge ? _filterEdgeMode : Radios.FilterEdge.None;
+            Rig.SetFilter(low, high, applied => Radios.ScreenReaderOutput.Speak(
+                Radios.FilterReadouts.Bracket(applied, atLimit, held, Radios.ScreenReaderOutput.CurrentVerbosity),
+                VerbosityLevel.Terse, true));
         }
         e.Handled = true;
     }

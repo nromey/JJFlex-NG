@@ -5267,6 +5267,13 @@ public class KeyCommands
         public int MinWidth = 50;
         public Func<int> StepNow = () => 50;
         public Action<int, int> Apply = (l, h) => { };
+        /// <summary>
+        /// Optional: write a pair and say the result once the write has run,
+        /// from the edges it produced (#747 round six). Null keeps the engine's
+        /// own readout of the requested edges, which is right only where the
+        /// layer's rails are the radio's own (the transmit side).
+        /// </summary>
+        public Action<int, int, Func<string>, Action<string>>? ApplyThenSay;
         public Func<int, string> LowEdge = v => v.ToString();
         public Func<int, string> HighEdge = v => v.ToString();
         public Func<string> Range = () => "";
@@ -5332,6 +5339,7 @@ public class KeyCommands
             Read = () => s.Bank.Low,
             Constrain = v => ClampSafe(v, s.LowMin(), s.Bank.High - s.MinWidth),
             Apply = v => s.Apply(v, s.Bank.High),
+            ApplyThenSay = s.ApplyThenSay == null ? null : (v, say) => s.ApplyThenSay(v, s.Bank.High, () => s.LowEdge(s.Bank.Low), say),
             Number = s.LowEdge,
             DescribeSelected = s.LowEdge,
             DescribeRail = v => AtLimit(s.LowEdge(v)),
@@ -5350,6 +5358,7 @@ public class KeyCommands
             Read = () => s.Bank.High,
             Constrain = v => ClampSafe(v, s.Bank.Low + s.MinWidth, s.HighMax()),
             Apply = v => s.Apply(s.Bank.Low, v),
+            ApplyThenSay = s.ApplyThenSay == null ? null : (v, say) => s.ApplyThenSay(s.Bank.Low, v, () => s.HighEdge(s.Bank.High), say),
             Number = s.HighEdge,
             DescribeSelected = s.HighEdge,
             DescribeRail = v => AtLimit(s.HighEdge(v)),
@@ -5371,6 +5380,7 @@ public class KeyCommands
             Read = () => s.Bank.Low,
             Constrain = v => ClampSafe(v, s.LowMin(), s.HighMax() - s.Bank.Width),
             Apply = v => s.Apply(v, v + s.Bank.Width),
+            ApplyThenSay = s.ApplyThenSay == null ? null : (v, say) => s.ApplyThenSay(v, v + s.Bank.Width, s.Range, say),
             Number = _ => s.Range(),
             DescribeSelected = _ => s.Report(),
             DescribeRail = _ => AtLimit(s.Range()),
@@ -5390,6 +5400,7 @@ public class KeyCommands
             Read = () => s.Bank.Width,
             Constrain = v => { var (l, h) = EdgesForWidth(s, v); return h - l; },
             Apply = v => { var (l, h) = EdgesForWidth(s, v); s.Apply(l, h); },
+            ApplyThenSay = s.ApplyThenSay == null ? null : (v, say) => { var (l, h) = EdgesForWidth(s, v); s.ApplyThenSay(l, h, s.Width, say); },
             Number = _ => s.Width(),
             DescribeSelected = _ => s.Width(),
             DescribeRail = _ => AtLimit(s.Width()),
@@ -5459,6 +5470,22 @@ public class KeyCommands
         };
         rx.StepNow = () => FreqOutHandlers.GetAdaptiveFilterStep(rx.Bank.Low, rx.Bank.High);
         rx.Apply = (l, h) => { rx.Bank.Low = l; rx.Bank.High = h; rx.Bank.Touched = true; rig.SetFilter(l, h); };
+        // A move is said once FlexLib has run the write, from the edges it
+        // produced (#747 round six): in FM it changes nothing, and in RTTY
+        // and the other modes it may stop short of the layer's own rails. The
+        // bank takes the request at once, so a held key keeps stepping, and
+        // the result when it lands.
+        rx.ApplyThenSay = (l, h, readout, say) =>
+        {
+            rx.Bank.Low = l; rx.Bank.High = h; rx.Bank.Touched = true;
+            rig.SetFilter(l, h, applied =>
+            {
+                rx.Bank.Low = applied.Low; rx.Bank.High = applied.High;
+                say(Radios.FilterReadouts.Said(applied, (_, _) => readout(),
+                    (low, high) => AtLimit(Radios.Lexicon.Get("audio.filter.range", ("low", low), ("high", high))),
+                    Radios.ScreenReaderOutput.CurrentVerbosity));
+            });
+        };
         rx.LowEdge = v => Radios.Lexicon.Get("audio.filter.low_edge", ("low", v));
         rx.HighEdge = v => Radios.Lexicon.Get("audio.filter.high_edge", ("high", v));
         rx.Range = () => Radios.Lexicon.Get("audio.filter.range", ("low", rx.Bank.Low), ("high", rx.Bank.High));

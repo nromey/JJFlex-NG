@@ -244,6 +244,7 @@
   "settings.filter.suffix_lower_limit": ", lower limit",
   "settings.filter.suffix_upper_limit": ", upper limit",
   "settings.filter.width_kilo": "{width} k",
+  "settings.filter.unchanged": {"text": "Filter unchanged at {low} to {high}, {width}", "delivery": null},
   "settings.filter.width_hertz_words": {"text": "{width} hertz", "delivery": null},
   "settings.filter.width_named_hertz": {"text": "width {width} hertz", "delivery": null},
   "settings.filter_presets.needs_operator_profile": "Filter presets require an active operator profile.",

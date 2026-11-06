@@ -219,7 +219,7 @@ namespace Radios.Tests
             // One decision, taken before anything moves.
             int decide = handler.IndexOf("Radios.FilterBracketKeys.Decide(_filterEdgeMode,", StringComparison.Ordinal);
             Assert.True(decide >= 0, "HandleFilterHotkey must decide through FilterBracketKeys.");
-            int setFilter = handler.IndexOf("Rig.SetFilter(low, high);", StringComparison.Ordinal);
+            int setFilter = handler.IndexOf("Rig.SetFilter(low, high, applied =>", StringComparison.Ordinal);   // the write that reports what it became (#747 round six)
             Assert.True(setFilter > decide);
 
             // The refusal and the grab keys return before the filter is read,

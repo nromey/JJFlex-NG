@@ -58,7 +58,10 @@ namespace Radios.Tests
         public void Every_filter_readout_takes_the_readout_width()
         {
             string handlers = Src("JJFlexWpf", "FreqOutHandlers.cs");
-            Assert.Contains("string widthStr = Radios.HertzSpeech.ReadoutWidth(high - low, Radios.HertzUnitStyle.Bare);", handlers, StringComparison.Ordinal);
+            // Since round six the bracket readout is built from the edges the
+            // write produced, in FilterReadouts.Bracket, with the same width.
+            Assert.Contains("Radios.FilterReadouts.Bracket(applied, atLimit, held,", handlers, StringComparison.Ordinal);
+            Assert.Contains("HertzSpeech.ReadoutWidth(applied.High - applied.Low, HertzUnitStyle.Bare, level)", Src("Radios", "FilterReadouts.cs"), StringComparison.Ordinal);
             string keys = Src("JJFlexWpf", "KeyCommands.cs");
             Assert.Contains("(\"width\", Radios.HertzSpeech.ReadoutWidth(high - low, Radios.HertzUnitStyle.KiloLetter)));",
                 Statement(keys, "private static string FilterReport(string key, int low, int high)"), StringComparison.Ordinal);

@@ -993,9 +993,7 @@ public class NativeMenuBar : IDisposable
             int newHigh = high - filterStep;
             if (newHigh - newLow >= 50)
             {
-                Rig.SetFilter(newLow, newHigh);
-                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.range",
-                    ("low", newLow), ("high", newHigh)));
+                SayFilterWrite(newLow, newHigh, (l, h) => Radios.Lexicon.Get("audio.filter.range", ("low", l), ("high", h)));
             }
             else
             {
@@ -1016,9 +1014,7 @@ public class NativeMenuBar : IDisposable
             }
             else
             {
-                Rig.SetFilter(newLow, newHigh);
-                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.range",
-                    ("low", newLow), ("high", newHigh)));
+                SayFilterWrite(newLow, newHigh, (l, h) => Radios.Lexicon.Get("audio.filter.range", ("low", l), ("high", h)));
             }
         });
         AddWired(parent, "Shift Low Edge Up", () =>
@@ -1028,8 +1024,7 @@ public class NativeMenuBar : IDisposable
             int high = Rig.FilterHigh;
             if (high - newLow >= 10)
             {
-                Rig.SetFilter(newLow, high);
-                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.low_edge", ("low", newLow)));
+                SayFilterWrite(newLow, high, (l, h) => Radios.Lexicon.Get("audio.filter.low_edge", ("low", l)));
             }
             else
             {
@@ -1048,8 +1043,7 @@ public class NativeMenuBar : IDisposable
             }
             else
             {
-                Rig.SetFilter(newLow, Rig.FilterHigh);
-                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.low_edge", ("low", newLow)));
+                SayFilterWrite(newLow, Rig.FilterHigh, (l, h) => Radios.Lexicon.Get("audio.filter.low_edge", ("low", l)));
             }
         });
         AddWired(parent, "Shift High Edge Up", () =>
@@ -1064,8 +1058,7 @@ public class NativeMenuBar : IDisposable
             }
             else
             {
-                Rig.SetFilter(Rig.FilterLow, newHigh);
-                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.high_edge", ("high", newHigh)));
+                SayFilterWrite(Rig.FilterLow, newHigh, (l, h) => Radios.Lexicon.Get("audio.filter.high_edge", ("high", h)));
             }
         });
         AddWired(parent, "Shift High Edge Down", () =>
@@ -1075,8 +1068,7 @@ public class NativeMenuBar : IDisposable
             int newHigh = Rig.FilterHigh - filterStep;
             if (newHigh - low >= 10)
             {
-                Rig.SetFilter(low, newHigh);
-                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.high_edge", ("high", newHigh)));
+                SayFilterWrite(low, newHigh, (l, h) => Radios.Lexicon.Get("audio.filter.high_edge", ("high", h)));
             }
             else
             {
@@ -1126,6 +1118,19 @@ public class NativeMenuBar : IDisposable
                 Rig.SetFilter(dialog.ResultLow.Value, dialog.ResultHigh.Value);
             }
         });
+    }
+
+    /// <summary>
+    /// Write the receive filter from a Filter menu item and say, after the menu
+    /// closes, what it became: <paramref name="readout"/> of the edges FlexLib
+    /// produced, the whole filter with ", at limit" when the mode held it back,
+    /// or "Filter unchanged at ..." when nothing moved (#747 round six). The items used to say the
+    /// edges they asked for, which FM refuses and other modes clamp.
+    /// </summary>
+    private void SayFilterWrite(int low, int high, Func<int, int, string> readout)
+    {
+        Rig?.SetFilter(low, high, applied => SpeakAfterMenuClose(Radios.FilterReadouts.Said(
+            applied, readout, Radios.FilterReadouts.RangeAtLimit, Radios.ScreenReaderOutput.CurrentVerbosity)));
     }
 
     /// <summary>

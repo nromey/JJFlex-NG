@@ -2216,6 +2216,9 @@ namespace Radios.Tests
                 // Round five (#747, Codex B2): a preset the mode would not
                 // take says the filter is unchanged. DRAFT prose.
                 "settings.filter.preset_unchanged",
+                // Round six (#747): a receive filter write that FlexLib did not
+                // take (FM) says the filter is unchanged. DRAFT prose.
+                "settings.filter.unchanged",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
