@@ -138,7 +138,19 @@ namespace Radios
             private long _offMark;
             private CommandConnection? _connection;
 
-            internal OwnKey(long origin, OwnKey? previous = null) { Origin = origin; _previous = previous; }
+            internal OwnKey(long origin, OwnKey? previous = null, CommandConnection? askedOn = null)
+            {
+                Origin = origin;
+                _previous = previous;
+                AskedOn = askedOn;
+            }
+
+            /// <summary>
+            /// The command connection the key was asked for (repair round 11,
+            /// Codex's #596 B17): from the moment it is asked until it is known
+            /// never to have gone out, it may be going out there.
+            /// </summary>
+            internal CommandConnection? AskedOn { get; }
             private OwnKey? _previous;
 
             /// <summary>
@@ -217,9 +229,15 @@ namespace Radios
             internal string? WhyNotEndedOn(CommandConnection? target)
             {
                 int state = State;
-                // Still queued: an earlier key of ours may still hold the carrier it
-                // would continue (round 10, S6), and that one answers for now.
-                if (state == Asked) return Previous?.WhyNotEndedOn(target);
+                // Asked and not yet settled (round 11, Codex's #596 B17): its ON
+                // may be going out right now on that connection, before any
+                // bookkeeping says so. Possibly keyed, for every restore, until it
+                // is known never to have gone out or has ended. On another
+                // connection, an earlier key of ours it would continue answers.
+                if (state == Asked)
+                    return target != null && ReferenceEquals(AskedOn, target)
+                        ? "our own " + What + " has been asked for and may be going out"
+                        : Previous?.WhyNotEndedOn(target);
                 // Never went out: nothing of its own to end, but its predecessor's
                 // carrier or unfinished receive still answers (round 11, F1).
                 if (state == NeverWentState) return Previous?.WhyNotEndedOn(target);

@@ -76,9 +76,23 @@ namespace Radios
             }
             NoteTuneRequest(value);
             // A tune carrier is a transmission too (#863 S1, repair round 6).
-            if (value) NoteTransmissionAsked(carrier: false);
+            OwnKey tuneKey = null;
+            if (value)
+            {
+                long asked = NoteTransmissionAsked(carrier: false);
+                // Our tune, recorded as asked BEFORE anything is written (round 11,
+                // Codex's #596 B17): possibly keyed for every restore until it is
+                // known never to have gone out, or has ended.
+                tuneKey = new OwnKey(asked, System.Threading.Volatile.Read(ref _latestOwnTune),
+                    connection as Flex.Smoothlake.FlexLib.CommandConnection) { What = "tune" };
+                System.Threading.Volatile.Write(ref _latestOwnTune, tuneKey);
+                if (q == null || !q.MainLoop) tuneKey.NoteNeverWent();
+            }
             q.Enqueue((FunctionDel)(() =>
             {
+                bool tuneWritten = false;
+                try
+                {
                 lock (_tuneWriteGate)
                 {
                     bool latest = gen == _tuneWriteGen;
@@ -124,19 +138,12 @@ namespace Radios
                         // Whether it really went out (repair round 10, B16): a pin
                         // with no question of its own, only to read the outcome.
                         var tuneConnection = radio.CurrentCommandConnection;
-                        bool written;
                         using (var pin = tuneConnection != null ? Flex.Smoothlake.FlexLib.CommandWritePin.Pin(tuneConnection) : null)
                         {
                             radio.TXTune = true;
-                            written = pin != null && pin.Written > 0;
+                            tuneWritten = pin != null && pin.Written > 0;
                         }
                         if (!wasOn) _ownTuneRequested = true;
-                        if (written)
-                        {
-                            var tune = new OwnKey(TransmissionsAsked) { What = "tune" };
-                            tune.NoteOnWritten(tuneConnection);
-                            System.Threading.Volatile.Write(ref _latestOwnTune, tune);
-                        }
                     }
                     // An ordinary OFF, the emergency kill's included
                     // (TransmitKillSwitch.DropCarrier), is forced whenever a tune
@@ -147,6 +154,19 @@ namespace Radios
                         else radio.TXTune = false;
                     }
                     if (latest) _tuneOnQueued = false;
+                }
+                }
+                finally
+                {
+                    // Settle the asked tune (round 11): written, or continuing a
+                    // tune of ours still on (as a key continues one, round 10's
+                    // S6), or never gone out.
+                    if (tuneKey != null)
+                    {
+                        var tc = connection as Flex.Smoothlake.FlexLib.CommandConnection;
+                        if (tuneWritten || tuneKey.Previous?.OffUnwrittenOn(tc) == true) tuneKey.NoteOnWritten(tc);
+                        else tuneKey.NoteNeverWent();
+                    }
                 }
             }), "TXTune");
         }

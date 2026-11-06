@@ -1330,6 +1330,74 @@ namespace Radios.Tests
             Assert.Single(MicPutBackNow());                        // and once the radio says receive, it goes
         }
 
+        // ── Round 11, Codex's #596 B17: from the moment a key of ours is asked
+        //    until it is known never to have gone out, it is possibly keyed ──
+
+        /// <summary>Run the mic put-back on another thread at the moment the transport has written <paramref name="command"/>, before its caller returns.</summary>
+        private Func<string[]?> PutBackWhileWriting(string command)
+        {
+            string[]? during = null;
+            bool once = true;
+            var recorder = _f.Vendor.Transport.CommandWritten;
+            _f.Vendor.Transport.CommandWritten = c =>
+            {
+                recorder?.Invoke(c);
+                if (!once || c != command) return;
+                once = false;
+                var t = new Thread(() => during = MicPutBackNow()) { IsBackground = true };
+                t.Start();
+                Assert.True(t.Join(5000), "the put-back never finished");
+            };
+            return () => during;
+        }
+
+        [Fact]
+        public void A_mic_put_back_while_our_key_is_being_written_is_held()
+        {
+            // Codex's B17: an older READY at xmit 1's pre-write point, then the
+            // put-back after the bytes went out and before the bookkeeping.
+            Interlock("READY", 0);
+            ReportAtTheWriteOf("xmit 1", () =>
+            {
+                _f.Vendor.Status("interlock state=READY source= tx_client_handle=0x00000000");
+                Set(_f.Vendor.Radio, "_mox", false);
+            });
+            var during = PutBackWhileWriting("xmit 1");
+            new FlexBaseVoiceMessageRig(_f.Rig).Transmit = true;
+            Drained();
+            Assert.Single(Commands("xmit 1"));
+            Assert.NotNull(during());
+            Assert.Empty(during()!);                              // round 10 wrote MIC here
+        }
+
+        [Fact]
+        public void A_mic_put_back_while_our_tune_is_being_written_is_held()
+        {
+            Interlock("READY", 0);
+            ReportAtTheWriteOf("transmit tune 1", () => Set(_f.Vendor.Radio, "_txTune", false));
+            var during = PutBackWhileWriting("transmit tune 1");
+            _f.Rig.TxTune = true;
+            Drained();
+            Assert.Single(Commands("transmit tune 1"));
+            Assert.NotNull(during());
+            Assert.Empty(during()!);
+        }
+
+        [Fact]
+        public void A_key_still_queued_holds_the_put_back_until_it_is_known_never_to_have_gone_out()
+        {
+            Interlock("READY", 0);
+            _hold = true;
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            send.Transmit = true;                                 // asked, not yet run
+            Assert.Empty(MicPutBackNow());
+            _f.Rig.RevokeAdmittedTransmitWork("a drop (test)");
+            _hold = false;
+            Drained();
+            Assert.True(_f.Rig.LatestOwnKey!.NeverWent);
+            Assert.Single(MicPutBackNow());                        // nothing went out: the receive is enough
+        }
+
         private static int Count(string text, string what)
         {
             int n = 0, at = 0;

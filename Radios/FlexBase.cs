@@ -8576,9 +8576,16 @@ namespace Radios
             long origin = NoteTransmissionAsked(carrier: true);
             // And our own key, whose written ON and OFF anchor its falling cue
             // (repair round 9). The asking thread can read it back.
-            var key = new OwnKey(origin, LatestOwnKey);
+            var key = new OwnKey(origin, LatestOwnKey, keyedConnection as CommandConnection);
             Volatile.Write(ref _latestOwnKey, key);
             t_keyAskedHere = key;
+            // A queue not running drops the item unrun (round 11, B17): nothing
+            // will write it, so it never goes out, rather than staying asked.
+            if (q == null || !q.MainLoop)
+            {
+                key.NoteNeverWent();
+                RaiseOwnKeyChanged();
+            }
             // The radio's interlock reports so far: a receive report must belong
             // to this transmission to confirm its end (repair round 5, #863 N1).
             NoteTransmitEpisodeBegins();
