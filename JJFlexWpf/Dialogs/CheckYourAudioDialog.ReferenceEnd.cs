@@ -29,20 +29,24 @@ namespace JJFlexWpf.Dialogs;
 /// was; that case is Noel's to rule.
 /// </para>
 /// <para>
-/// <b>The app's key is let go the house way for a transmission a window ends
-/// outside the key edges:</b> <c>DialogTransmitKeys.EscapeUnkey</c>, which is
-/// <c>MainWindow.HandleDialogEscapeUnkey</c>, the controller's
-/// <c>EscapeUnlock</c> and then the edges forgetting the hold, as Escape in a
-/// dialog does. With no main window wired (a test), the controller alone.
+/// <b>The app's key is let go through MainWindow's key edges</b>
+/// (<see cref="EndAppKeyForReference"/>, which is
+/// <c>MainWindow.HandleReferenceEndUnkey</c>): the controller's unkey, and
+/// then the edges' input state. With no main window wired (a test), the
+/// controller alone.
 /// </para>
 /// <para>
-/// <b>Not solved here, and reported:</b> an operator still holding Ctrl+Space
-/// under JAWS, which delivers a held key as repeated down/up pairs. Once the
-/// controller is idle, the next synthetic up only clears the edge's guard and
-/// the next synthetic down is a new press, so the radio keys again on the
-/// microphone about a quarter of a second later. The edges forgetting the hold
-/// or not makes no difference to that. Escape and the transmit timeout share
-/// it today. Under NVDA a held key repeats, and repeats never key.
+/// <b>A held Ctrl+Space stays ended until the operator lets go (round five,
+/// 7a).</b> JAWS delivers a held key as repeated down/up pairs. Until round
+/// five the edges forgot the hold here, so once the controller was idle the
+/// next synthetic up only cleared the edge's guard and the next synthetic down
+/// was a new press: the radio keyed again about a quarter of a second later,
+/// and after receive that was the microphone. Now a hold the app ends is
+/// latched, and the hold filter goes on judging the key until it confirms a
+/// real release. The other ways a hold ends without a release (Escape, the
+/// kill switch, a reflected-power cut, the radio turning transmit off on its
+/// own) still forget it, and share the old behaviour (reported, not changed).
+/// Under NVDA a held key repeats, and repeats never key.
 /// </para>
 /// <para>
 /// <b>The tail.</b> <c>ReachedEnd</c> means the player handed over its last
@@ -128,6 +132,16 @@ public partial class CheckYourAudioDialog
     /// sets it.
     /// </summary>
     internal static Action<FlexBase, Action<ReferenceSilenceEnd>>? ReferenceSilenceWaitForTests;
+
+    /// <summary>
+    /// Let go of the app's own key at a reference's end, through MainWindow's
+    /// key edges (<c>HandleReferenceEndUnkey</c>): the controller's unkey, and
+    /// a held push to talk latched until the operator really lets go, so a
+    /// screen reader's synthetic re-down cannot key the radio again (round
+    /// five, 7a). Null with no main window wired (a test): the controller
+    /// alone. True when it unkeyed.
+    /// </summary>
+    internal static Func<bool>? EndAppKeyForReference { get; set; }
 
     /// <summary>The PTT source watch, held from a successful arm until the silence after its pass ends, or a disarm.</summary>
     private IDisposable? _refPttWatch;
@@ -242,7 +256,9 @@ public partial class CheckYourAudioDialog
             case ReferenceEndHolder.App:
                 // Through the controller, never the radio's transmit flag: that
                 // would leave the controller believing it still holds the key.
-                if (DialogTransmitKeys.EscapeUnkey is { } unkey) unkey();
+                // And through the key edges, which latch a hold the operator
+                // may still be pressing (round five, 7a).
+                if (EndAppKeyForReference is { } unkey) unkey();
                 else PttControllerSource?.Invoke()?.EscapeUnlock();
                 return ReferenceEndHolder.App;
             default:

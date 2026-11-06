@@ -35,7 +35,7 @@ public sealed class ReferenceEndTests : IDisposable
     private readonly PttSafetyController _controller;
     private readonly CheckYourAudioDialog _dialog;
     private readonly Func<PttSafetyController?>? _sourceBefore;
-    private readonly Func<bool>? _escapeBefore;
+    private readonly Func<bool>? _endBefore;
 
     public ReferenceEndTests()
     {
@@ -48,15 +48,15 @@ public sealed class ReferenceEndTests : IDisposable
         Assert.True(rigField != null, "production field CheckYourAudioDialog._rig is missing");
         rigField!.SetValue(_dialog, _rig);
         _sourceBefore = AudioWorkshopDialog.PttControllerSource;
-        _escapeBefore = DialogTransmitKeys.EscapeUnkey;
+        _endBefore = CheckYourAudioDialog.EndAppKeyForReference;
         AudioWorkshopDialog.PttControllerSource = () => _controller;
-        DialogTransmitKeys.EscapeUnkey = null;
+        CheckYourAudioDialog.EndAppKeyForReference = null;
     }
 
     public void Dispose()
     {
         AudioWorkshopDialog.PttControllerSource = _sourceBefore;
-        DialogTransmitKeys.EscapeUnkey = _escapeBefore;
+        CheckYourAudioDialog.EndAppKeyForReference = _endBefore;
         if (_controller.IsTransmitting) _controller.EscapeUnlock();
         _controller.Dispose();
         _rig.Dispose();
@@ -104,12 +104,17 @@ public sealed class ReferenceEndTests : IDisposable
         Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
     }
 
+    /// <summary>
+    /// Round five (7a) moved this from <c>DialogTransmitKeys.EscapeUnkey</c>,
+    /// which forgot a held key, to MainWindow's <c>HandleReferenceEndUnkey</c>,
+    /// which latches it; the end-to-end of that is <see cref="ReferenceEndHeldKeyTests"/>.
+    /// </summary>
     [Fact]
-    public void With_a_main_window_the_house_unkey_runs_so_the_key_edges_forget_the_hold()
+    public void With_a_main_window_the_key_edges_let_go_of_the_apps_key()
     {
         AssertTheDeskIsSafe();
         int calls = 0;
-        DialogTransmitKeys.EscapeUnkey = () => { calls++; _controller.EscapeUnlock(); return true; };
+        CheckYourAudioDialog.EndAppKeyForReference = () => { calls++; _controller.EscapeUnlock(); return true; };
         _controller.ToggleLock();
         Assert.Equal(Holder.App, End(Holder.App));
         Assert.Equal(1, calls);

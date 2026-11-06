@@ -334,6 +334,10 @@ public partial class MainWindow : UserControl
         // Escape; anywhere else, Escape while it transmits stops it.
         DialogTransmitKeys.WindowHandlesCheckEscape = w => w is Dialogs.CheckYourAudioDialog;
         DialogTransmitKeys.CheckEscapeElsewhere = Dialogs.CheckYourAudioDialog.StopTransmittingCheckFromElsewhere;
+        // Unified takes, round five (7a): a reference recording's end lets go
+        // of the app's key through the edges, which latch a hold the operator
+        // may still be pressing instead of forgetting it.
+        Dialogs.CheckYourAudioDialog.EndAppKeyForReference = HandleReferenceEndUnkey;
         StartTuneReminder();
         try
         {
@@ -902,6 +906,43 @@ public partial class MainWindow : UserControl
     /// survives a synthesising reader — so it is worth saying loudly once.
     /// </summary>
     private bool _pttProbeExtensionTraced;
+
+    /// <summary>
+    /// The app ended a push-to-talk hold the operator may still be pressing
+    /// (Unified takes, round five, 7a): a reference recording reached its end
+    /// under Ctrl+Space, and the app let go of its own key. Until the
+    /// operator really lets go, the hold filter goes on reading the key as
+    /// held, so a down it reads as the hold continuing keys nothing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why it is needed under one reader and not the other.</b> NVDA passes
+    /// a held key through, and its repeats never reach the edges as presses,
+    /// so a hold the app ended stays ended until a real release and a new
+    /// press. JAWS delivers a held key as down/up PAIRS about 250 ms apart
+    /// (<see cref="Radios.PttHoldFilter"/>), each down a fresh event. Without
+    /// this, the next synthetic up only cleared the repeat guard once the
+    /// controller had left the hold, and the next synthetic down was a new
+    /// press: the radio keyed again about a quarter of a second after the
+    /// reference ended, and once the radio had received, on the desk
+    /// microphone.
+    /// </para>
+    /// <para>
+    /// <b>The filter decides, as it does for every hold.</b> While this is
+    /// set, ups go to the filter exactly as they do in a hold; a down the
+    /// filter reads as <c>ContinueHold</c> is swallowed, as it always was. The
+    /// latch ends silently at the release the filter confirms (an up passed
+    /// straight through, or a deferral no re-down claimed), and a down the
+    /// filter reads as a fresh <c>Press</c> keys as normal. No second
+    /// synthetic-pair test is written here.
+    /// </para>
+    /// <para>
+    /// <b>It never outlives the input state.</b> <see cref="ResetPttInput"/>
+    /// clears it, so Escape, a dialog's window loss, the radio turning transmit
+    /// off on its own and the radio closing all take it with them.
+    /// </para>
+    /// </remarks>
+    private bool _pttHoldEndedByApp;
 
     /// <summary>
     /// Current PTT configuration. Set during radio connect, used by Settings dialog.
@@ -2979,14 +3020,62 @@ public partial class MainWindow : UserControl
             // The synthetic re-down of a hold being absorbed
             // (#216): the transmitter never dropped, so there is
             // nothing to key — just stand down the pending
-            // deferred release.
+            // deferred release. After the app ended the hold itself
+            // (round five, 7a) this is the same down, and it keys nothing
+            // for the same reason: the operator never let go.
             _pttDeferTimer?.Stop();
         }
         else
         {
+            // A fresh press by the filter's reading: whatever the app ended
+            // before it is behind us, and this one keys as normal.
+            EndAppEndedHold("a new press");
             _pttHoldDoor = door;
             _pttController.PttDown();
         }
+    }
+
+    /// <summary>
+    /// The app is ending a push-to-talk hold the operator may still be
+    /// pressing (round five, 7a): leave the hold filter reading the key as
+    /// held, so the next synthetic down of a screen reader that sends pairs
+    /// does not key the radio again. See <see cref="_pttHoldEndedByApp"/>.
+    /// Only for a hold; a lock or any other state has no key held down, and
+    /// its input state goes exactly as it always has.
+    /// </summary>
+    private void LatchAppEndedHold(string why)
+    {
+        _pttHoldEndedByApp = true;
+        _pttHoldDoor = PttDoor.None;
+        Tracing.TraceLine("PTT: the app ended a held push to talk (" + why + "); until the key is"
+            + " really let go, a down the hold filter reads as the hold continuing keys nothing", TraceLevel.Info);
+    }
+
+    /// <summary>The operator really let go, or pressed afresh: the latch ends, silently.</summary>
+    private void EndAppEndedHold(string why)
+    {
+        if (!_pttHoldEndedByApp) return;
+        _pttHoldEndedByApp = false;
+        Tracing.TraceLine("PTT: the hold the app ended is over (" + why + ")", TraceLevel.Info);
+    }
+
+    /// <summary>
+    /// A reference recording reached its end under the app's own key, and
+    /// its tail has run (Unified takes, round three 5b; round five 7a): let go
+    /// of the key through the controller. A HOLD the operator may still be
+    /// pressing is latched rather than forgotten, so a screen reader's
+    /// synthetic re-down cannot key the radio again; anything else (the lock,
+    /// the transmit toggle) forgets its input state as Escape does. True when
+    /// it unkeyed.
+    /// </summary>
+    internal bool HandleReferenceEndUnkey()
+    {
+        if (_pttController == null || !_pttController.IsTransmitting) return false;
+        bool held = _pttController.State == PttSafetyController.PttState.PttHold;
+        _pttController.EscapeUnlock();
+        if (held) LatchAppEndedHold("a reference recording finished");
+        else ResetPttInput();
+        return true;
     }
 
     /// <summary>
@@ -3006,6 +3095,9 @@ public partial class MainWindow : UserControl
         _pttHoldFilter.Reset();
         _pttKeyDown = false;
         _pttHoldDoor = PttDoor.None;
+        // A hold the app ended goes with the rest (round five, 7a): it can
+        // never outlive Escape, a teardown or the radio closing.
+        _pttHoldEndedByApp = false;
     }
 
     /// <summary>
@@ -3049,6 +3141,19 @@ public partial class MainWindow : UserControl
             {
                 _pttController.PttUp();
             }
+        }
+        else if (_pttHoldEndedByApp)
+        {
+            // The app ended this hold (round five, 7a), and the filter still
+            // reads the key as held: this up is judged exactly as it would be
+            // in the hold. Passed straight through, it is the operator letting
+            // go; deferred, only the timer running out with no re-down says so.
+            _pttKeyDown = false;
+            if (_pttHoldFilter.NoteUp(Environment.TickCount64) ==
+                Radios.PttHoldFilter.UpAction.DeferRelease)
+                StartPttDeferTimer(_pttHoldFilter.DeferMs);
+            else
+                EndAppEndedHold("the key was let go");
         }
         else
         {
@@ -3191,6 +3296,7 @@ public partial class MainWindow : UserControl
                     // release whatever hold came after (#778c round two,
                     // Codex F2). Nothing to do when no dialog holds.
                     DialogTransmitKeys.HoldReleased();
+                    EndAppEndedHold("the key was let go");   // a hold the app ended (7a): the release is real
                     return;
                 }
 

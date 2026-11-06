@@ -98,7 +98,8 @@ public sealed class UnifiedTakesReferenceEndTests
         string end = Body(Dialog("CheckYourAudioDialog.ReferenceEnd.cs"),
             "internal ReferenceEndHolder EndTransmissionForReference(");
         string app = Case(end, "case ReferenceEndHolder.App");
-        Assert.Contains("DialogTransmitKeys.EscapeUnkey", app);
+        // Round five (7a): through MainWindow's key edges, which latch a held key.
+        Assert.Contains("EndAppKeyForReference", app);
         Assert.Contains(".EscapeUnlock()", app);
         Assert.DoesNotMatch(new Regex(@"\.Transmit\s*="), end);
     }
