@@ -77,6 +77,14 @@ namespace Radios.Tests
                 Clock = clock;
                 Fixture = new RigOnVendorRadio(Serial);
                 Vendor = Fixture.Vendor;
+                // J10's retry waits on a delay a test completes by hand; parked
+                // here, so no test races a background attempt (null-safe: the
+                // retry did not exist before the rulings round).
+                RetryDelayField?.SetValue(Fixture.Rig, (Func<int, System.Threading.Tasks.Task>)(ms =>
+                {
+                    RetryDelays.Add(ms);
+                    return RetryGate.Task;
+                }));
                 ClockField.SetValue(Fixture.Rig, (Func<long>)(() => Clock));
                 if (beforePcAudio != null)
                 {
@@ -203,6 +211,12 @@ namespace Radios.Tests
                 MarkConnected(false);
                 Fixture.Dispose();   // clears theRadio, whichever radio it is
             }
+
+            /// <summary>Every wait the J10 retry asked for, in milliseconds.</summary>
+            public readonly System.Collections.Concurrent.ConcurrentBag<int> RetryDelays = new();
+
+            /// <summary>Completing this ends the retry's current wait.</summary>
+            public System.Threading.Tasks.TaskCompletionSource RetryGate = new(System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
         }
 
         private static string NotOursSentence(string current) =>
@@ -2347,6 +2361,181 @@ namespace Radios.Tests
             // whose low 32 bits are negative.
             Assert.True(FlexBase.PcMicCheckDue(TwentyFiveDaysMs, FlexBase.PcMicNeverChecked));
             Assert.True(FlexBase.PcMicCheckDue(0L, FlexBase.PcMicNeverChecked));
+        }
+    
+        // ── The 2026-11-02 junk box rulings round, J10 (ruled by Noel
+        //    2026-11-06 11:28): a start that could not record the mic input
+        //    keeps trying, from a fresh record each time, until the radio is
+        //    on PC, bound to its own session, run, radio and connection ──
+
+        private static readonly FieldInfo? RetryDelayField = typeof(FlexBase).GetField("PcSwitchRetryDelay", Private);
+        private static readonly FieldInfo? RetryField = typeof(FlexBase).GetField("_pcSwitchRetry", Private);
+        private static readonly MethodInfo? TryOnceMethod = typeof(FlexBase).GetMethod("TryPcSwitchOnce", Private);
+
+        /// <summary>The retry the start armed; fails when there is none.</summary>
+        private static object ArmedRetry(PcAudioRig rig)
+        {
+            Assert.True(RetryField != null && TryOnceMethod != null && RetryDelayField != null,
+                "a start that could not record the mic input has no retry (J10)");
+            object? retry = RetryField!.GetValue(rig.Rig);
+            Assert.True(retry != null, "the start armed no retry");
+            return retry!;
+        }
+
+        /// <summary>One attempt, made here rather than after the retry's wait.</summary>
+        private static string Attempt(PcAudioRig rig, object retry) =>
+            TryOnceMethod!.Invoke(rig.Rig, new[] { retry })!.ToString()!;
+
+        /// <summary>Start PC audio while the reader holds its report gate past the capture's bound.</summary>
+        private static PcAudioRig StartedWithoutARecord(RadioOwnership ownership = RadioOwnership.Mine)
+        {
+            Declare(ownership);
+            var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            var holder = HoldDispatchFor(rig, 1400);
+            rig.StartPcAudio();
+            Assert.True(holder.Join(3000));
+            Assert.Empty(rig.MicWrites);                     // round 12 still holds at the start: nothing unrecorded is changed
+            return rig;
+        }
+
+        [Theory]
+        [InlineData(RadioOwnership.Mine)]
+        [InlineData(RadioOwnership.SomeoneElses)]
+        public void A_start_that_could_not_record_the_mic_input_switches_it_once_it_can_and_the_stop_puts_it_back(RadioOwnership ownership)
+        {
+            using var rig = StartedWithoutARecord(ownership);
+            object retry = ArmedRetry(rig);
+            Assert.Equal("OnPc", Attempt(rig, retry));       // the gate is free now: recorded, then PC
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+            Assert.True(rig.PcMicExpected);
+            Assert.Null(RetryField!.GetValue(rig.Rig));       // done
+            rig.StopPcAudio();
+            Assert.Equal(new[] { "mic input PC", "mic input MIC" }, rig.MicWrites);   // the start's own put-back
+        }
+
+        [Fact]
+        public void An_attempt_that_still_cannot_record_writes_nothing_and_tries_again()
+        {
+            using var rig = StartedWithoutARecord();
+            object retry = ArmedRetry(rig);
+            var holder = HoldDispatchFor(rig, 1400);
+            Assert.Equal("TryAgain", Attempt(rig, retry));
+            Assert.True(holder.Join(3000));
+            Assert.Empty(rig.MicWrites);
+            Assert.Null(SwapField.GetValue(rig.Rig));
+            Assert.Same(retry, RetryField!.GetValue(rig.Rig));
+            Assert.Equal("OnPc", Attempt(rig, retry));
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+        }
+
+        [Fact]
+        public void A_radio_already_on_PC_by_the_next_attempt_needs_nothing_written()
+        {
+            using var rig = StartedWithoutARecord();
+            object retry = ArmedRetry(rig);
+            rig.RadioReports("PC");
+            Assert.Equal("OnPc", Attempt(rig, retry));
+            Assert.Empty(rig.MicWrites);
+            Assert.True(rig.PcMicExpected);
+            rig.StopPcAudio();
+            Assert.Empty(rig.MicWrites);                     // it was PC: nothing to put back
+        }
+
+        [Fact]
+        public void The_retry_stops_when_PC_audio_stops()
+        {
+            using var rig = StartedWithoutARecord();
+            object retry = ArmedRetry(rig);
+            rig.StopPcAudio();
+            Assert.Equal("Stopped", Attempt(rig, retry));
+            Assert.Empty(rig.MicWrites);
+            Assert.Equal("MIC", rig.MicInput);
+        }
+
+        [Fact]
+        public void The_retry_stops_when_the_connection_is_replaced_and_writes_nothing_to_the_new_one()
+        {
+            using var rig = StartedWithoutARecord();
+            object retry = ArmedRetry(rig);
+            rig.Vendor.Transport.Reconnect();
+            rig.Vendor.Status("interlock state=READY");
+            rig.RadioReports("BAL");                         // the replacement's own input
+            Assert.Equal("Stopped", Attempt(rig, retry));
+            Assert.Empty(rig.MicWrites);
+            Assert.Equal("BAL", rig.MicInput);
+        }
+
+        [Fact]
+        public void The_retry_stops_when_the_radio_changes_and_writes_to_neither()
+        {
+            Declare(RadioOwnership.Mine, SecondSerial);
+            using var rig = StartedWithoutARecord();
+            object retry = ArmedRetry(rig);
+            var first = rig.Vendor;
+            rig.ReconnectTo(SecondSerial, "BAL");
+            Assert.Equal("Stopped", Attempt(rig, retry));
+            Assert.Empty(PcAudioRig.MicWritesOn(first));
+            Assert.Empty(PcAudioRig.MicWritesOn(rig.Vendor));
+        }
+
+        [Fact]
+        public void The_retry_stops_when_a_newer_run_begins()
+        {
+            using var rig = StartedWithoutARecord();
+            object retry = ArmedRetry(rig);
+            rig.NextRunWithoutClearing();
+            Assert.Equal("Stopped", Attempt(rig, retry));
+            Assert.Empty(rig.MicWrites);
+        }
+
+        [Fact]
+        public void The_retry_waits_a_second_between_attempts_and_never_loops_hot()
+        {
+            using var rig = StartedWithoutARecord();
+            object retry = ArmedRetry(rig);
+            WaitFor(() => rig.RetryDelays.Count == 1, "the retry's first wait");
+            Assert.Equal(1000, rig.RetryDelays.Single());
+            // The gate held through the attempt: it records nothing, and waits again.
+            var holder = HoldDispatchFor(rig, 1400);
+            var gate = rig.RetryGate;
+            rig.RetryGate = new System.Threading.Tasks.TaskCompletionSource(System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
+            gate.SetResult();
+            WaitFor(() => rig.RetryDelays.Count == 2, "the retry's second wait, after one attempt");
+            Assert.True(holder.Join(3000));
+            Assert.All(rig.RetryDelays, ms => Assert.Equal(1000, ms));
+            Assert.Empty(rig.MicWrites);
+            // The next wait ends with the gate free: it switches and the retry ends.
+            rig.RetryGate.SetResult();
+            WaitFor(() => rig.MicWrites.Length == 1, "the switch on the attempt after the gate freed");
+            WaitFor(() => RetryField!.GetValue(rig.Rig) == null, "the retry to end");
+            Assert.Equal(2, rig.RetryDelays.Count);
+        }
+    
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void A_start_whose_connection_is_replaced_during_it_leaves_no_retry_to_switch_the_replacement(bool runBegins)
+        {
+            // Round 12's B1, through J10: the retry is bound to the START's own
+            // connection and run, read before its capture, so a replacement
+            // installed during the start is never switched by it.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            StartBlockedOnTheMicLockDuring(rig, true, () =>
+            {
+                if (runBegins) rig.NextRunWithoutClearing();
+                else
+                {
+                    rig.Vendor.Transport.Reconnect();
+                    rig.Vendor.Status("interlock state=READY");
+                    rig.RadioReports("BAL");
+                }
+            });
+            object? retry = RetryField!.GetValue(rig.Rig);
+            if (retry != null) Assert.Equal("Stopped", Attempt(rig, retry));
+            rig.StopPcAudio();
+            Assert.DoesNotContain("mic input PC", rig.MicWrites);
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
         }
     }
 }
