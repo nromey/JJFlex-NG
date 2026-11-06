@@ -10863,6 +10863,16 @@ namespace Radios
                 }
                 if (s != null)
                 {
+                    // The operator's own change voids every restore of this
+                    // setting owed before it (integration fix 3, Codex's #596
+                    // B3), told BEFORE the write is queued so the restore's
+                    // question at the transport sees it. Asked of THIS caller's
+                    // scope, not the rig-wide one, which another thread's VOX
+                    // restore can hold while it waits at the transport and which
+                    // would otherwise swallow the operator's change.
+                    if (!AppScopeOpenOnThisThread)
+                        System.Threading.Volatile.Read(ref _voxPauses)?.OperatorChanged(
+                            s.DemodMode == "CW" ? VoxSetting.CwBreakIn : VoxSetting.SimpleVox);
                     NoteOperatorChangedRadioSetting("Vox");
                     if (s.DemodMode == "CW")
                     {

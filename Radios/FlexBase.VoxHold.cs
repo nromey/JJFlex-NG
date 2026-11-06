@@ -133,8 +133,12 @@ namespace Radios
                             // Round 6: pinned at the transport's own write, and a
                             // restore ON asked receive there again, under the
                             // reader's dispatch gate (Codex's B9/B10 family).
-                            (on, step) => StepOnPinnedTarget(radio, connection, step,
-                                on && radio != null ? () => RestoreRefusedAtWrite(radio, (object?)connection ?? NoConnection) : null));
+                            // Integration fix 3 (Codex's #596 B3): and asked there
+                            // first whether the operator has chosen since it was owed.
+                            (on, step, operatorOverruled) => StepOnPinnedTarget(radio, connection, step,
+                                on && radio != null
+                                    ? () => operatorOverruled?.Invoke() ?? RestoreRefusedAtWrite(radio, (object?)connection ?? NoConnection)
+                                    : null));
                         OperatorChangedRadioSetting -= NoteVoxPauseOperatorChange;
                         OperatorChangedRadioSetting += NoteVoxPauseOperatorChange;
                         WatchVoxRetry(_voxPauses, connection as CommandConnection);

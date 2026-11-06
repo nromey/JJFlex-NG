@@ -1675,6 +1675,128 @@ namespace Radios.Tests
             Assert.False(_f.Rig.VoxPauses.RestoreOwed(FlexBase.VoxSetting.SimpleVox));
         }
 
+        // ── Integration fix 3 (Codex's #596 B3): the operator's own VOX change,
+        //    made while another thread's restore holds the app scope at the
+        //    transport, voids that restore; no retry undoes it ──
+
+        private (FlexBase.VoxSetting Which, string On, string Off, Func<bool> Cache) VoxOrBreakIn(bool cw)
+        {
+            _f.AddOwnSlice(0, 14.25, cw ? "CW" : "USB");
+            Set(_f.Rig, "_TXVFO", 0);
+            Set(_f.Rig, "_IsConnected", true);
+            _f.Vendor.Status(cw ? "transmit break_in=1" : "transmit vox_enable=1");
+            Interlock("READY");
+            return cw
+                ? (FlexBase.VoxSetting.CwBreakIn, "cw break_in 1", "cw break_in 0", () => _f.Vendor.Radio.CWBreakIn)
+                : (FlexBase.VoxSetting.SimpleVox, "transmit set vox_enable=1", "transmit set vox_enable=0", () => _f.Vendor.Radio.SimpleVOXEnable);
+        }
+
+        /// <summary>
+        /// Start a restore on its own thread with the dispatch gate held, and
+        /// return once it is inside its write: its setter has made FlexLib's
+        /// cache read ON, and it waits for the transport inside the app scope.
+        /// </summary>
+        private Thread RestoreWaitingAtTheGate(VoxPauseOwner.Lease lease, Func<bool> cache)
+        {
+            var restorer = new Thread(() => lease.Release(immediate: true)) { IsBackground = true };
+            restorer.Start();
+            WaitFor(cache, "the restore inside its write, waiting for the transport");
+            // Positive control: the overlap Codex found is the one reached here.
+            Assert.True((int)Get(_f.Rig, "_appInitiatedSettingDepth")! > 0, "the restore holds the rig-wide app scope");
+            return restorer;
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void The_operators_VOX_off_during_a_restores_wait_is_not_undone_by_the_next_receive(bool cw)
+        {
+            // Codex's B3 schedule: the restore exhausts its bounded attempts at a
+            // held gate while the operator, on another thread, turns VOX off.
+            var (which, on, off, cache) = VoxOrBreakIn(cw);
+            var lease = _f.Rig.VoxPauses.Acquire(which)!;
+            WaitFor(() => Commands(off).Length == 1, "the pause's off");
+            using var release = new ManualResetEventSlim();
+            using var held = new ManualResetEventSlim();
+            var holder = new Thread(() => { lock (_f.Vendor.Transport.ConnectionSync) { held.Set(); release.Wait(3000); } }) { IsBackground = true };
+            holder.Start();
+            Assert.True(held.Wait(2000));
+            var restorer = RestoreWaitingAtTheGate(lease, cache);
+            _f.Rig.Vox = FlexBase.OffOnValues.off;           // the operator, on this thread
+            Assert.True(restorer.IsAlive, "the operator's change never waits behind the restore");
+            Assert.True(restorer.Join(3000));                  // refused at the gate, not written
+            release.Set();
+            Assert.True(holder.Join(2000));
+            WaitFor(() => Commands(off).Length == 2, "the operator's off really written");
+            Assert.False(cache());
+            Assert.False(_f.Rig.VoxPauses.RestoreOwed(which)); // the operator's choice voided it
+            Assert.False(_f.Rig.VoxPauses.HasWithheld);
+            Interlock("READY");                                // the next receive retries nothing
+            Thread.Sleep(150);
+            Interlock("READY");
+            Thread.Sleep(150);
+            Assert.Empty(Commands(on));
+            Assert.False(cache());
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void A_restore_waiting_at_the_transport_when_the_operator_turns_VOX_off_refuses_at_its_write(bool cw)
+        {
+            // One step with the restore's own decision: the restore passed its
+            // checks before the write, the operator changes it while it waits
+            // for the transport, and the gate then frees within its bound. The
+            // question asked AT the write sees the operator's change.
+            var (which, on, off, cache) = VoxOrBreakIn(cw);
+            var lease = _f.Rig.VoxPauses.Acquire(which)!;
+            WaitFor(() => Commands(off).Length == 1, "the pause's off");
+            using var release = new ManualResetEventSlim();
+            using var held = new ManualResetEventSlim();
+            var holder = new Thread(() => { lock (_f.Vendor.Transport.ConnectionSync) { held.Set(); release.Wait(3000); } }) { IsBackground = true };
+            holder.Start();
+            Assert.True(held.Wait(2000));
+            var restorer = RestoreWaitingAtTheGate(lease, cache);
+            _f.Rig.Vox = FlexBase.OffOnValues.off;           // the operator, on this thread
+            release.Set();                                     // the gate frees before the restore's bound
+            Assert.True(holder.Join(2000));
+            Assert.True(restorer.Join(3000));
+            WaitFor(() => Commands(off).Length == 2, "the operator's off really written");
+            Assert.Empty(Commands(on));                        // never written after the operator's choice
+            Assert.False(cache());
+            Assert.False(_f.Rig.VoxPauses.RestoreOwed(which));
+            Interlock("READY");
+            Thread.Sleep(150);
+            Assert.Empty(Commands(on));
+        }
+
+        [Fact]
+        public void An_app_scoped_VOX_write_on_this_thread_is_still_the_apps_while_another_restore_waits()
+        {
+            // The narrower question is the CALLER's scope: an app write on a
+            // thread that opened one still voids nothing.
+            var (which, on, off, cache) = VoxOrBreakIn(false);
+            var lease = _f.Rig.VoxPauses.Acquire(which)!;
+            WaitFor(() => Commands(off).Length == 1, "the pause's off");
+            using (_f.Rig.AppInitiatedSettingChanges()) _f.Rig.Vox = FlexBase.OffOnValues.off;
+            Assert.True(lease.Paused);
+            Assert.True(lease.Release(immediate: true));
+            Assert.Single(Commands(on));
+        }
+
+        [Fact]
+        public void An_app_scope_answers_for_the_thread_that_opened_it_wherever_it_is_closed()
+        {
+            var scope = _f.Rig.AppInitiatedSettingChanges();
+            Assert.True(_f.Rig.AppScopeOpenOnThisThread);
+            bool seenElsewhere = true;
+            var other = new Thread(() => { seenElsewhere = _f.Rig.AppScopeOpenOnThisThread; scope.Dispose(); });
+            other.Start();
+            Assert.True(other.Join(2000));
+            Assert.False(seenElsewhere);                  // another thread's scope is not this caller's
+            Assert.False(_f.Rig.AppScopeOpenOnThisThread);  // closed on another thread, closed here
+        }
+
         private static int Count(string text, string what)
         {
             int n = 0, at = 0;

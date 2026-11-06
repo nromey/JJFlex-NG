@@ -726,19 +726,41 @@ namespace Radios
         /// </summary>
         private int _appInitiatedSettingDepth;
 
+        /// <summary>
+        /// The same scopes, counted by the thread that opened each one
+        /// (integration fix 3, Codex's #596 B3). The depth above is one count
+        /// for the whole rig, so while ANY thread holds a scope (a VOX restore
+        /// waiting at the transport holds one for up to two bounded attempts),
+        /// the operator's own setter on another thread reads as the app's.
+        /// This record answers the narrower question "did THIS caller open a
+        /// scope?", and only the VOX setter asks it, to void owed restores; the
+        /// rig-wide depth and everything that reads it are unchanged. Keyed by
+        /// the opening thread, so a scope disposed elsewhere still closes its own.
+        /// </summary>
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<int, int> _appScopesByThread = new();
+
+        /// <summary>The calling thread opened an <see cref="AppInitiatedSettingChanges"/> scope that is still open.</summary>
+        internal bool AppScopeOpenOnThisThread =>
+            _appScopesByThread.TryGetValue(Environment.CurrentManagedThreadId, out int open) && open > 0;
+
         private sealed class AppInitiatedSettingScope : IDisposable
         {
             private FlexBase _owner;
+            private readonly int _thread = Environment.CurrentManagedThreadId;
             public AppInitiatedSettingScope(FlexBase owner)
             {
                 _owner = owner;
                 System.Threading.Interlocked.Increment(ref owner._appInitiatedSettingDepth);
+                owner._appScopesByThread.AddOrUpdate(_thread, 1, (_, n) => n + 1);
             }
             public void Dispose()
             {
                 var o = System.Threading.Interlocked.Exchange(ref _owner, null);
                 if (o != null)
+                {
                     System.Threading.Interlocked.Decrement(ref o._appInitiatedSettingDepth);
+                    o._appScopesByThread.AddOrUpdate(_thread, 0, (_, n) => n - 1);
+                }
             }
         }
 
