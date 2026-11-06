@@ -202,7 +202,7 @@ namespace Radios.Tests
             string wan = string.Join("\n", System.IO.Directory.GetFiles(
                 System.IO.Path.Combine(DiscoveryMergeWritesTests.RepoRoot(), "Radios"), "FlexBase.Wan.cs")
                 .Select(System.IO.File.ReadAllText));
-            string connect = Body(wan, "out SmartLinkRegistrationEvidence.AccountList? serverPush)");
+            string connect = Body(wan, "out SmartLinkRegistrationEvidence.AccountList? serverPush, bool activateSession = true)");
             Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(connect, @"session\.RadioListSnapshot").Count);
             Assert.Contains("var listNow = session.RadioListSnapshot;", connect, StringComparison.Ordinal);
             Assert.Contains("OwnRowsMayAnswerTheConnect(listNow, accountEmail, sw)", connect, StringComparison.Ordinal);

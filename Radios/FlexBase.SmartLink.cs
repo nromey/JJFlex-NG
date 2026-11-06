@@ -478,7 +478,9 @@ namespace Radios
             // account while the connection's account is another.
             // This call's own capture (#713, repair round 2): another flow on
             // the rig cannot replace or clear it.
-            var result = ConnectToSmartLink(jwt, askedAccount, out var pushed);
+            // Advisory: the asked account's session is used, never made the
+            // active one (integration pass, finding 1).
+            var result = ConnectToSmartLink(jwt, askedAccount, out var pushed, activateSession: false);
 
             var lists = new List<SmartLinkRegistrationEvidence.AccountList>(HeldAccountLists());
             // The capture belongs to the account the connect flow waited on. A

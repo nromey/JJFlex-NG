@@ -2328,8 +2328,14 @@ namespace Radios
         /// <param name="serverPush">The list the SmartLink server pushed to
         /// THIS call for its account, or null when none came: the evidence a
         /// registration query may read an absence from.</param>
+        /// <param name="activateSession">True for a connect, which makes its
+        /// account's session the active one, as it always has. False for an
+        /// advisory call (the registration query): it uses the account's
+        /// session without making it active, so the spoken status, the next
+        /// connect's fallback and ReconnectRemote's question stay on the
+        /// operator's account (integration pass, finding 1).</param>
         private SmartLinkConnectResult ConnectToSmartLink(string jwt, string accountEmail,
-            out SmartLinkRegistrationEvidence.AccountList? serverPush)
+            out SmartLinkRegistrationEvidence.AccountList? serverPush, bool activateSession = true)
         {
             serverPush = null;
             var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -2344,7 +2350,9 @@ namespace Radios
                 if (string.IsNullOrWhiteSpace(accountEmail))
                     accountEmail = _currentAccount?.Email ?? "default-account";
                 latch = new ConnectLatch(accountEmail);
-                var session = Radios.SmartLink.SmartLinkServices.Coordinator.EnsureSessionForAccount(accountEmail);
+                var session = activateSession
+                    ? Radios.SmartLink.SmartLinkServices.Coordinator.EnsureSessionForAccount(accountEmail)
+                    : Radios.SmartLink.SmartLinkServices.Coordinator.GetOrCreateSession(accountEmail);
 
                 // Take the intake, so `radios` and `wanListReceived` get
                 // populated alongside session.AvailableRadios. The connect flow
