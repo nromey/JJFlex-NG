@@ -18,7 +18,7 @@ namespace Radios
         private readonly Func<FlexBase.VoxSetting, bool, bool, bool> _write;
         private readonly Dictionary<FlexBase.VoxSetting, Pause> _pauses = new();
         private bool _disconnected;
-        private readonly Func<Action, bool>? _enqueue;
+        private readonly Func<Action, Action, bool>? _enqueue;
         private readonly Dictionary<FlexBase.VoxSetting, PendingWrite> _pending = new();
 
         /// <summary>
@@ -64,10 +64,12 @@ namespace Radios
         public VoxPauseOwner(Func<FlexBase.VoxSetting, bool> isOn,
             Func<FlexBase.VoxSetting, bool, bool, bool> write, Func<Action, bool>? enqueue = null,
             Func<string?>? restoreRefusal = null)
-            : this(isOn, write, enqueue, restoreRefusal, null) { }
+            : this(isOn, write, enqueue == null ? null : (action, _) => enqueue(action), restoreRefusal, null) { }
 
+        /// <param name="enqueue">Queues an action, with what to do if the queue
+        /// accepted it but ended before running it (integration fix 2).</param>
         internal VoxPauseOwner(Func<FlexBase.VoxSetting, bool> isOn,
-            Func<FlexBase.VoxSetting, bool, bool, bool> write, Func<Action, bool>? enqueue,
+            Func<FlexBase.VoxSetting, bool, bool, bool> write, Func<Action, Action, bool>? enqueue,
             Func<string?>? restoreRefusal, Func<bool, Func<string?>, string?>? atTheWrite)
         {
             _isOn = isOn ?? throw new ArgumentNullException(nameof(isOn));
@@ -228,6 +230,19 @@ namespace Radios
                         _pending.Remove(which);
                         WriteNow(which, on, true);
                     }
+                },
+                () =>
+                {
+                    // Accepted, but the loop ended before it ran (integration fix
+                    // 2): nothing was written, so a restore stays owed.
+                    lock (_gate)
+                    {
+                        if (!_pending.TryGetValue(which, out var current) || !ReferenceEquals(current, next)) return;
+                        _pending.Remove(which);
+                        if (on) _withheld.Add(which);
+                    }
+                    Tracing.TraceLine("VoxPauseOwner: " + which + "=" + on + " was dropped when the command loop ended"
+                        + (on ? "; the restore is kept as still owed" : ""), TraceLevel.Info);
                 })) return true;
             }
             catch (Exception ex)
@@ -278,7 +293,11 @@ namespace Radios
                 return false;
             }
             if (written) return true;
-            Tracing.TraceLine("VoxPauseOwner: " + which + "=" + on + " was not issued", TraceLevel.Warning);
+            // Not written (integration fix 2, Codex's F1): a restore stays owed
+            // until one is actually written.
+            if (on) _withheld.Add(which);
+            Tracing.TraceLine("VoxPauseOwner: " + which + "=" + on + " was not issued"
+                + (on ? "; the restore is kept as still owed" : ""), TraceLevel.Warning);
             return false;
         }
 

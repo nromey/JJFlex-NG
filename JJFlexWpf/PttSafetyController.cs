@@ -2385,7 +2385,14 @@ namespace JJFlexWpf
         {
             if (State != PttState.Idle)
             {
-                SetTx(false);
+                // Scoped to this client's own carrier (integration fix 2, Codex's
+                // B2): the controller closing is never a reason to unkey another
+                // client's transmission. An import, an exit or a power-off all
+                // reach here.
+                _unkeyOwnCarrierOnly = true;
+                _releaseWhy = "the controller closing";
+                try { SetTx(false); }
+                finally { _unkeyOwnCarrierOnly = false; }
                 State = PttState.Idle;
             }
             StopAllTimers();

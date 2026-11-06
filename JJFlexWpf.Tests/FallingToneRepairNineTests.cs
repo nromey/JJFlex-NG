@@ -424,6 +424,26 @@ public sealed class FallingToneRepairNineTests : IDisposable
         }
     }
 
+    // ── Integration fix 2 (Codex's B2): the controller's closing unkey is our own carrier's only ──
+
+    [Fact]
+    public void Closing_the_controller_never_unkeys_another_clients_carrier()
+    {
+        AssertTheDeskIsSafe();
+        _r.Interlock(InterlockState.Ready);
+        _controller.PttDown();
+        RunNextQueued();                                     // our ON
+        // Another client now holds the transmitter.
+        typeof(Radio).GetField("_txClientHandle", Any)!.SetValue(_r.Radio, 0x0BADF00Du);
+        _r.Interlock(InterlockState.Transmitting);
+        int before;
+        lock (_r.Transport.Written) before = _r.Transport.Written.Count;
+        _controller.Dispose();                               // as an import's power-off still does
+        while (Queued() > 0) RunNextQueued();
+        lock (_r.Transport.Written)
+            Assert.DoesNotContain(_r.Transport.Written.Skip(before), w => w.Contains("|xmit 0"));
+    }
+
     [Fact]
     public void A_carrier_we_did_not_key_still_takes_its_origin_from_the_report()
     {

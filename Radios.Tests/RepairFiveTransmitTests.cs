@@ -1572,13 +1572,40 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void A_profile_import_left_unfinished_is_forgotten_at_the_next_connection()
+        public void An_imports_exemption_covers_only_its_own_power_off_notice_even_when_the_import_fails()
         {
-            // Fix 3: the flag that tells the UI an import's power-off is not a teardown.
-            typeof(FlexBase).GetField("_profileImportInProgress", Private)!.SetValue(_f.Rig, true);
-            Assert.True(_f.Rig.ProfileImportInProgress);
+            // Integration fix 2 (Codex's F2): the flag stayed set after a failed
+            // import, so a later power-off could be taken for the import's. Now
+            // it is taken by the import's own notice and cleared when it returns.
+            bool takenInTheNotice = false;
+            FlexBase.PowerStatusHandler handler = (s, on) => { if (!on) takenInTheNotice = _f.Rig.TakeImportPowerOff(); };
+            _f.Rig.PowerStatus += handler;
+            try
+            {
+                string missing = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "jjflex-no-such-dir", "no-such-file.ssdr_cfg");
+                try { _f.Rig.ImportProfile(missing); } catch { /* a failed import is the point */ }
+            }
+            finally { _f.Rig.PowerStatus -= handler; }
+            Assert.True(takenInTheNotice);                    // the import's own notice is the import's
+            Assert.False(_f.Rig.TakeImportPowerOff());         // and nothing is left for a later power-off
+        }
+
+        [Fact]
+        public void An_imports_exemption_nobody_took_is_cleared_when_its_notice_returns()
+        {
+            // No power-off subscriber took it (or the import failed before
+            // one did): it must not wait for a later, real power-off.
+            string missing = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "jjflex-no-such-dir", "no-such-file.ssdr_cfg");
+            try { _f.Rig.ImportProfile(missing); } catch { /* a failed import is the point */ }
+            Assert.False(_f.Rig.TakeImportPowerOff());
+        }
+
+        [Fact]
+        public void An_imports_exemption_set_when_a_new_connection_begins_is_cleared()
+        {
+            typeof(FlexBase).GetField("_importPowerOffPending", Private)!.SetValue(_f.Rig, 1);
             _f.Vendor.Transport.Reconnect();
-            Assert.False(_f.Rig.ProfileImportInProgress);
+            Assert.False(_f.Rig.TakeImportPowerOff());
         }
 
         [Fact]
@@ -1588,7 +1615,7 @@ namespace Radios.Tests
             int body = main.IndexOf("private void PowerNowOffInternal()", StringComparison.Ordinal);
             Assert.True(body > 0, "PowerNowOffInternal moved");
             string text = main.Substring(body, 2500);
-            int importing = text.IndexOf("bool importing = RigControl?.ProfileImportInProgress == true;", StringComparison.Ordinal);
+            int importing = text.IndexOf("bool importing = RigControl?.TakeImportPowerOff() == true;", StringComparison.Ordinal);
             int release = text.IndexOf("ReleaseKeyForTeardown(\"the radio powered off\");", StringComparison.Ordinal);
             int unwire = text.IndexOf("UnwireDropHandler();", StringComparison.Ordinal);
             int elseAt = text.IndexOf("else", importing, StringComparison.Ordinal);
@@ -1597,8 +1624,55 @@ namespace Radios.Tests
             string flex = System.IO.File.ReadAllText(Repo("Radios/FlexBase.MainThread.cs"));
             int import = flex.IndexOf("internal void ImportProfile(string name)", StringComparison.Ordinal);
             string importBody = flex.Substring(import, 600);
-            Assert.True(importBody.IndexOf("Volatile.Write(ref _profileImportInProgress, true);", StringComparison.Ordinal)
-                < importBody.IndexOf("raisePowerEvent(false);", StringComparison.Ordinal));
+            Assert.True(importBody.IndexOf("Interlocked.Exchange(ref _importPowerOffPending, 1);", StringComparison.Ordinal)
+                < importBody.IndexOf("try { raisePowerEvent(false); }", StringComparison.Ordinal));
+            Assert.Contains("finally { System.Threading.Interlocked.Exchange(ref _importPowerOffPending, 0); }", importBody);
+        }
+
+        // ── Integration fix 2 (Codex's B1): work accepted but not run at the
+        //    loop's end is dropped, never written onto a replacement ──
+
+        [Fact]
+        public void Work_accepted_before_a_reconnect_and_not_run_by_the_loops_end_writes_nothing()
+        {
+            Interlock("READY", 0);
+            _f.AddOwnSlice(0, 14.100, "USB");
+            Set(_f.Rig, "_RXVFO", 0);
+            _hold = true;                                    // the loop is busy: nothing runs
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            send.Transmit = true;                             // a key-on
+            _f.Rig.RXFrequency = 14_100_100;                  // an ordinary tune
+            _f.Rig.MicSource = "MIC";                         // an ordinary setting
+            _f.Rig.HeadphoneGain = 12;
+            int before = _f.Vendor.Transport.Commands.Count;
+            _f.Vendor.Transport.Reconnect();                  // a replacement connection, Connecting forwarded
+            _f.Rig.CloseCommandQueue();                       // the loop ends with them still queued
+            Assert.Equal(before, _f.Vendor.Transport.Commands.Count);   // integration fix 1 ran them onto the replacement
+            Assert.True(_f.Rig.LatestOwnKey!.NeverWent);      // the key's caller was told
+            Assert.Equal(14_100_000UL, _f.Rig.RXFrequency);   // the tune conceded: readers say where the slice is
+        }
+
+        // ── Integration fix 2 (Codex's F1): a VOX restore refused by the gate's
+        //    timeout is retried with a real write ──
+
+        [Fact]
+        public void A_VOX_restore_refused_by_the_gate_timeout_is_written_on_the_next_receive()
+        {
+            _f.AddOwnSlice(0, 14.25, "USB");
+            Set(_f.Rig, "_TXVFO", 0);
+            Set(_f.Rig, "_IsConnected", true);
+            _f.Vendor.Status("transmit vox_enable=1");
+            Interlock("READY");
+            var lease = _f.Rig.VoxPauses.Acquire(FlexBase.VoxSetting.SimpleVox)!;
+            WaitFor(() => Commands("transmit set vox_enable=0").Length == 1, "VOX off");
+            var holder = HoldDispatchFor(350);
+            Assert.False(lease.Release(immediate: true));     // refused at its write: the gate was not had in time
+            Assert.True(holder.Join(2000));
+            Assert.True(_f.Rig.VoxPauses.RestoreOwed(FlexBase.VoxSetting.SimpleVox));
+            Assert.Empty(Commands("transmit set vox_enable=1"));
+            Interlock("READY");                              // the next receive retries it
+            WaitFor(() => Commands("transmit set vox_enable=1").Length == 1, "the restore really written");
+            Assert.False(_f.Rig.VoxPauses.RestoreOwed(FlexBase.VoxSetting.SimpleVox));
         }
 
         private static int Count(string text, string what)

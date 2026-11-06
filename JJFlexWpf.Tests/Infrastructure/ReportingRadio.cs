@@ -145,8 +145,12 @@ internal sealed class ReportingRadio : IDisposable
             var pin = CurrentPin;
             if (!AdmitWrite(CurrentConnection)) return;
             ReportWrite(pin, true);
+            lock (Written) Written.Add(msg ?? "");
             AfterWrite?.Invoke(msg ?? "");
         }
+
+        /// <summary>Every command written, as sent (integration fix 2).</summary>
+        public readonly System.Collections.Generic.List<string> Written = new();
 
         /// <summary>
         /// Called with each written command after its writer succeeded and

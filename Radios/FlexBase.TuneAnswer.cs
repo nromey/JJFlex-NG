@@ -170,7 +170,7 @@ namespace Radios
                         else tuneKey.NoteNeverWent();
                     }
                 }
-            }), "TXTune");
+            }), "TXTune", () => tuneKey?.NoteNeverWent());
             // Never gone out only on the queue's own answer (round 12, B18).
             if (!queued) tuneKey?.NoteNeverWent();
         }

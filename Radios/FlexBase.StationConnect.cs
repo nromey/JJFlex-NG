@@ -1093,7 +1093,6 @@ namespace Radios
                 {
                     FilterObj.RXFreqChange(theRadio.ActiveSlice);
                 }
-                System.Threading.Volatile.Write(ref _profileImportInProgress, false);
                 raisePowerEvent(true);
                 try { if (System.IO.Directory.Exists(importDir)) System.IO.Directory.Delete(importDir, true); }
                 catch (Exception ex) { Tracing.TraceLine("post-import cleanup: " + ex.Message, TraceLevel.Warning); }

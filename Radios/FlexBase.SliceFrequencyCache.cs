@@ -274,7 +274,13 @@ namespace Radios
             double mhz = LongFreqToLibFreq(value);
             // The queue's own answer (integration fix): a write it will not run
             // ends the request at once, and the caches follow the radio again.
-            if (q == null || !q.Enqueue((FunctionDel)(() => WriteTuneTo(slice, id, mhz, what)), what))
+            if (q == null || !q.Enqueue((FunctionDel)(() => WriteTuneTo(slice, id, mhz, what)), what,
+                    () =>
+                    {
+                        // Accepted, but the loop ended before it ran (integration
+                        // fix 2): conceded, as a refusal is.
+                        if (EchoGuardFor(slice).Refused(id, "the command loop ended before it ran")) Reconcile(slice, value);
+                    }))
             {
                 Tracing.TraceLine(what + ": the command loop will not run the tune of slice " + slice.Letter
                     + " to " + value + ", so it was not sent", System.Diagnostics.TraceLevel.Info);

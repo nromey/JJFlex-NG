@@ -373,16 +373,30 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void An_item_the_queue_accepted_runs_even_when_the_loop_ends_before_draining_it()
+        public void An_item_accepted_but_not_run_when_the_loop_ends_is_dropped_and_its_caller_told()
         {
-            // The queue's answer is true only for an item that will run: the
-            // loop's end runs what it had already accepted, and refuses later ones.
+            // Integration fix 2 (Codex's B1): the loop's end runs nothing late;
+            // each accepted item's caller is told it was dropped, and later
+            // items are refused.
             Bench b = NewBench();
-            bool ran = false;
-            Assert.True(b.Rig.q.Enqueue((FlexBase.FunctionDel)(() => ran = true), "test"));
+            bool ran = false, dropped = false;
+            Assert.True(b.Rig.q.Enqueue((FlexBase.FunctionDel)(() => ran = true), "test", () => dropped = true));
             b.Rig.CloseCommandQueue();
-            Assert.True(ran);
+            Assert.False(ran);
+            Assert.True(dropped);
             Assert.False(b.Rig.q.Enqueue((FlexBase.FunctionDel)(() => { }), "after the end"));
+        }
+
+        [Fact]
+        public void A_tune_accepted_but_dropped_at_the_loops_end_reads_where_the_slice_is()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.RXFrequency = 14_100_100;
+            Assert.Equal(true, b.Rig.TuneAdmittedHere);
+            b.Rig.CloseCommandQueue();
+            Assert.Empty(Tunes(b));
+            EveryReaderSays(b.Rig, 14_100_000);
         }
 
         [Fact]

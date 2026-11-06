@@ -120,7 +120,7 @@ namespace Radios
                             // the write (repair round 5).
                             (which, on, immediate) => Ours() && WriteVoxSettingTo(radio!, which, on, immediate),
                             // The queue's own answer (integration fix).
-                            action => q.Enqueue((FunctionDel)(() => action()), "VoxPause"),
+                            (action, dropped) => q.Enqueue((FunctionDel)(() => action()), "VoxPause", dropped),
                             // The family's one question, at every restore write
                             // (repair round 3), pinned to this owner's radio AND
                             // command connection (repair round 4).
@@ -290,6 +290,7 @@ namespace Radios
             }
             using (AppInitiatedSettingChanges())
             {
+                bool wrote = true;
                 FunctionDel write = () =>
                 {
                     using var appWrite = AppInitiatedSettingChanges();
@@ -302,8 +303,18 @@ namespace Radios
                     var reply = new VoxWriteReply(radio, command);
                     try
                     {
+                        // Inside a pinned step its writes are counted (integration
+                        // fix 2, Codex's F1): the setter skips a value its cache
+                        // already holds, and a refused earlier write leaves that
+                        // cache poisoned, so the same command then goes out raw.
+                        int before = PinnedWritesSoFar;
                         if (which == VoxSetting.CwBreakIn) radio.CWBreakIn = on;
                         else radio.SimpleVOXEnable = on;
+                        // Only for a restore (on): an off the cache already reads
+                        // off is the radio's own state, and sends nothing as before.
+                        if (on && t_stepPin != null && PinnedWritesSoFar == before)
+                            SendRadioCommandWithReply(radio, command, null);
+                        if (on && t_stepPin != null) wrote = PinnedWritesSoFar > before;
                         lock (_voxReplyGate) _voxReplies[which] = (radio, on, reply.Result);
                         reply.FinishWrite();
                     }
@@ -315,6 +326,11 @@ namespace Radios
                     catch (Exception ex)
                     {
                         Tracing.TraceLine("WriteVoxSetting: immediate " + which + "=" + on + " threw: " + ex.Message, TraceLevel.Error);
+                        return false;
+                    }
+                    if (!wrote)
+                    {
+                        Tracing.TraceLine("WriteVoxSetting: " + which + "=" + on + " was NOT written", TraceLevel.Warning);
                         return false;
                     }
                     Tracing.TraceLine("WriteVoxSetting: " + which + "=" + on + " issued immediately (app-initiated)", TraceLevel.Info);

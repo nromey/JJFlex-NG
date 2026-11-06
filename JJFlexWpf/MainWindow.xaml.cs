@@ -6132,7 +6132,7 @@ public partial class MainWindow : UserControl
         // A profile import raises this on a live connection (integration fix,
         // 2026-11-06): it is not a teardown, so the connection's drop handling
         // stays wired and the teardown's key release does not run for it.
-        bool importing = RigControl?.ProfileImportInProgress == true;
+        bool importing = RigControl?.TakeImportPowerOff() == true;
         if (importing)
         {
             Tracing.TraceLine("MainWindow PowerNowOff: a profile import, not a teardown; the drop handler stays wired",

@@ -460,7 +460,9 @@ namespace Radios.Tests
             Assert.Equal(1, CountOf(text, "RequestTune(slice, value, selectedTune: false, \"TXFreq\");"));
             Assert.Equal(1, CountOf(text, "RequestTune(outSlice, ValueOf(inSlice), selectedTune: false, \"CopyVFO\");"));
             // Integration fix: the queue's own answer is used, never MainLoop read apart.
-            Assert.Equal(1, CountOf(text, "if (q == null || !q.Enqueue((FunctionDel)(() => WriteTuneTo(slice, id, mhz, what)), what))"));
+            // Integration fix 2: with its drop callback, which concedes as a refusal does.
+            Assert.Equal(1, CountOf(text, "if (q == null || !q.Enqueue((FunctionDel)(() => WriteTuneTo(slice, id, mhz, what)), what,"));
+            Assert.Equal(1, CountOf(text, "if (EchoGuardFor(slice).Refused(id, \"the command loop ended before it ran\")) Reconcile(slice, value);"));
             Assert.True(text.Contains("bool accepted = EchoGuardFor(s).Accept(echoed);", StringComparison.Ordinal),
                 "the slice's guard is never consulted on a Freq report (#266).");
             Assert.False(text.Contains("slice.Freq = mhz", StringComparison.Ordinal),

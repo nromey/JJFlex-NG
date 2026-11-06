@@ -997,7 +997,7 @@ namespace Radios
                 // the last split announced is reset here, not by a new rig.
                 TransmitSliceNotice.ForgetFor(this);
                 // An import that never finished belongs to the old connection.
-                System.Threading.Volatile.Write(ref _profileImportInProgress, false);
+                System.Threading.Interlocked.Exchange(ref _importPowerOffPending, 0);
                 _connectionToken = ConnectionLifetime.Bind(report.Connection,
                     radio.Serial + " " + (radio.Nickname ?? ""), out var outcome);
                 var route = _commandRoute;
@@ -8649,7 +8649,11 @@ namespace Radios
                         Tracing.TraceLine("TransmitWork: " + what + " - our key never went out, so nothing was transmitted"
                             + " and no falling cue is owed for it", TraceLevel.Info);
                 }
-            }), "Mox");
+            }), "Mox", () =>
+            {
+                // Accepted, but the loop ended before it ran (integration fix 2).
+                if (key.NoteNeverWent()) RaiseOwnKeyChanged();
+            });
             // Settled never gone out only on the queue's own answer that it
             // dropped the item (round 12, Codex's #596 B18): one fact, so a key
             // the loop will still write can never be recorded as never gone out.
@@ -9793,7 +9797,9 @@ namespace Radios
                 return ModeRequestOutcome.RefusedNoSlice;
             }
             // The queue's own answer (integration fix): never MainLoop read apart.
-            if (q == null || !q.Enqueue((FunctionDel)(() => { s.DemodMode = value; }), "RXDemodMode"))
+            // Dropped at the loop's end, nothing is written (integration fix 2).
+            if (q == null || !q.Enqueue((FunctionDel)(() => { s.DemodMode = value; }), "RXDemodMode",
+                    () => Tracing.TraceLine("RequestMode: \"" + value + "\" was dropped when the command loop ended", TraceLevel.Info)))
             {
                 Tracing.TraceLine("RequestMode: the radio's command loop is not running, so \"" + value + "\" was NOT requested", TraceLevel.Warning);
                 return ModeRequestOutcome.RefusedNotRunning;
@@ -13744,8 +13750,10 @@ namespace Radios
 
             /// <summary>
             /// The main loop is ending: refuse every later item, and hand back
-            /// those still queued, which the loop's owner runs (integration fix).
-            /// An item <see cref="Enqueue"/> accepted therefore always runs.
+            /// those accepted and not yet run. They are NOT run (integration fix
+            /// 2, Codex's B1): an ordinary queued write carries no pin to its
+            /// connection, so running it at close could write onto a
+            /// replacement. Each one's caller is told through its drop callback.
             /// </summary>
             public List<QItem_t> CloseAndTakeRest()
             {
@@ -13764,6 +13772,8 @@ namespace Radios
             {
                 public string Name;
                 public object Item;
+                /// <summary>Told when the item was accepted but the loop ended before it ran (integration fix 2).</summary>
+                public Action OnDropped;
                 public QItem_t(string name, object item)
                 {
                     Name = (name == null) ? "unnamed" : name;
@@ -13772,14 +13782,18 @@ namespace Radios
             }
 
             /// <returns>
-            /// True when the item will run: queued while the loop accepts work
-            /// (the loop runs every accepted item, those left at its end
-            /// included, <see cref="CloseAndTakeRest"/>), or run at once before
-            /// the main loop. False when it was dropped (repair round 12, Codex's
-            /// #596 B18; integration fix). This is the ONE answer to "will it
-            /// run": a caller that must know never reads MainLoop itself.
+            /// True when the item was ACCEPTED: queued while the loop accepts
+            /// work, or run at once before the main loop. An accepted item either
+            /// runs on the live loop or, if the loop ends first, is dropped and
+            /// its <paramref name="onDropped"/> is called, the same path a
+            /// refusal takes (integration fix 2). False when it was refused now.
+            /// This is the ONE answer: a caller never reads MainLoop itself
+            /// (repair round 12, Codex's #596 B18).
             /// </returns>
-            public bool Enqueue(object o, string name = null, bool beforeMainLoop = false)
+            public bool Enqueue(object o, string name, Action onDropped) => EnqueueItem(o, name, false, onDropped);
+
+            public bool Enqueue(object o, string name = null, bool beforeMainLoop = false) => EnqueueItem(o, name, beforeMainLoop, null);
+            private bool EnqueueItem(object o, string name, bool beforeMainLoop, Action onDropped)
             {
                 // A write queued under an ambient QueuedWriteGate is asked
                 // again at its RUN whether it may still go out (Track G2,
@@ -13798,7 +13812,7 @@ namespace Radios
                         (n, why) => Tracing.TraceLine("q: refused '" + n + "' at its run — " + why, TraceLevel.Warning));
                     o = (FunctionDel)(() => wrapped());
                 }
-                QItem_t item = new QItem_t(name, o);
+                QItem_t item = new QItem_t(name, o) { OnDropped = onDropped };
 
                 lock (_admit)
                 {

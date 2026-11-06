@@ -223,18 +223,22 @@ namespace Radios
         /// as one step (<see cref="SendIfStillAdmitted"/>).
         /// </summary>
         /// <summary>
-        /// The main loop's end (integration fix): the queue stops accepting
-        /// work and the items it had already accepted run now, in order,
-        /// rather than being lost while their callers were told they would run.
+        /// The main loop's end (integration fixes 1 and 2): the queue stops
+        /// accepting work, and the items it accepted but did not run are
+        /// DROPPED, never run (Codex's B1: an ordinary queued write has no pin
+        /// to its connection, so nothing it would have written may go out after
+        /// close). Each one's caller is told, the way a refusal tells it.
         /// </summary>
         internal void CloseCommandQueue()
         {
             foreach (var el in q.CloseAndTakeRest())
             {
-                try { RunQueuedItem(el); }
+                Tracing.TraceLine("mainLoop (closing): '" + el.Name + "' was accepted but not run, and is dropped",
+                    TraceLevel.Info);
+                try { el.OnDropped?.Invoke(); }
                 catch (Exception ex)
                 {
-                    Tracing.TraceLine("mainLoop (closing) exception:" + ex.Message, TraceLevel.Error);
+                    Tracing.TraceLine("mainLoop (closing): the drop of '" + el.Name + "' threw: " + ex.Message, TraceLevel.Error);
                 }
             }
         }
@@ -880,21 +884,25 @@ namespace Radios
         private bool wasPCAudio;
 
         /// <summary>
-        /// A profile import is under way (integration fix, 2026-11-06): its
-        /// power-off notice is not a teardown, so the UI keeps the connection's
-        /// drop handling wired and does not run the teardown's key release.
-        /// Set before the import's power-off notice; cleared before its
-        /// power-on notice, and at every new command connection.
+        /// The power-off notice being raised right now is a profile import's,
+        /// not a teardown (integration fixes 1 and 2): the UI keeps the
+        /// connection's drop handling wired and does not run the teardown's
+        /// release for it. One-shot and scoped to that notice (Codex's F2): set
+        /// just before the import raises it, taken by the first reader, and
+        /// cleared when the raise returns, whether the import then succeeds,
+        /// fails or throws, and at every new command connection. A later power
+        /// event is never classified by it.
         /// </summary>
-        public bool ProfileImportInProgress => System.Threading.Volatile.Read(ref _profileImportInProgress);
-        private bool _profileImportInProgress;
+        public bool TakeImportPowerOff() => System.Threading.Interlocked.Exchange(ref _importPowerOffPending, 0) == 1;
+        private int _importPowerOffPending;
 
         internal void ImportProfile(string name)
         {
             // Save the import temp directory.
             importDir = name.Substring(0, name.LastIndexOf('\\'));
-            System.Threading.Volatile.Write(ref _profileImportInProgress, true);
-            raisePowerEvent(false);
+            System.Threading.Interlocked.Exchange(ref _importPowerOffPending, 1);
+            try { raisePowerEvent(false); }
+            finally { System.Threading.Interlocked.Exchange(ref _importPowerOffPending, 0); }
 
             // If remote audio was on, turn it off.
             wasPCAudio = PCAudio;
