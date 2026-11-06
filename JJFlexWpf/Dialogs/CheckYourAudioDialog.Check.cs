@@ -1613,14 +1613,17 @@ public partial class CheckYourAudioDialog
         /// <para>
         /// <b>A key that is not the check's</b> (the operator unlocked the
         /// check's key and locked again, between two of its watcher's ticks or
-        /// after one) is still let go, with "Still transmitting. Stop the check
-        /// first.": the press is the operator's own, their explicit choice, and
-        /// Escape here with no check running lets go of the app's key the same
-        /// way (<c>UnkeyOutsideACheck</c>). Kept as ruled for part 7j. Only a
-        /// press comes here; nothing automatic does: the reference's end and an
-        /// off-air capture's end call <see cref="StopOwnKey"/>, and a close or
-        /// a radio change <see cref="ForceEnd"/>, none of which ends a key that
-        /// is not the check's.
+        /// after one) is ended too, like Escape: the press is the operator's
+        /// own, their explicit choice, and Escape here with no check running
+        /// lets go of the app's key the same way (<c>UnkeyOutsideACheck</c>).
+        /// Nothing is said beyond the release's own "Receiving". Ruled by Noel
+        /// 2026-11-06 12:26 (night question C4, task 864): until then this path
+        /// added "Still transmitting. Stop the check first.", which was false
+        /// the moment it was said, because the press had just let the key go.
+        /// Only a press comes here; nothing automatic does: the reference's end
+        /// and an off-air capture's end call <see cref="StopOwnKey"/>, and a
+        /// close or a radio change <see cref="ForceEnd"/>, none of which ends a
+        /// key that is not the check's.
         /// </para>
         /// </remarks>
         public void StopCheck(bool escape = false)
@@ -1636,10 +1639,10 @@ public partial class CheckYourAudioDialog
             }
             if (_ptt.IsTransmitting)
             {
-                // Not the check's key: the operator's explicit choice (above).
+                // Not the check's key: the operator's explicit choice, ended as
+                // Escape ends it; the release's "Receiving" is all that is said
+                // (ruled 2026-11-06, C4; see remarks).
                 _ptt.EscapeUnlock();
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.still_transmitting"),
-                    VerbosityLevel.Critical, interrupt: true);
             }
             else if (escape && _owner.EscapeOurTune())
             {

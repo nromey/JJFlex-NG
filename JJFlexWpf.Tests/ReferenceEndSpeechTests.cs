@@ -673,12 +673,14 @@ public sealed class ReferenceEndSpeechTests : IDisposable
 
     /// <summary>
     /// B3, the stop: the same re-key, then Stop, before the watcher has seen it
-    /// and after. A press over a key that is not the check's still lets it go,
-    /// with "Still transmitting. Stop the check first.": the operator's explicit
-    /// choice, kept as ruled for part 7j. What changes is that the session's
-    /// own key is recognised as ended (its recorder stopped through the
-    /// external path, whatever the watcher's timing), and the operator's key's
-    /// "Receiving" is no longer swallowed by the check's narration.
+    /// and after. A press over a key that is not the check's lets it go, like
+    /// Escape: the operator's explicit choice. The session's own key is
+    /// recognised as ended (its recorder stopped through the external path,
+    /// whatever the watcher's timing), and the release's own "Receiving" is the
+    /// only thing heard: not swallowed by the check's narration (part 7j), and
+    /// no longer followed by "Still transmitting. Stop the check first.", which
+    /// was false the moment it was said (ruled by Noel 2026-11-06 12:26, C4;
+    /// part 7l).
     /// </summary>
     [Theory]
     [InlineData(false)]
@@ -703,7 +705,7 @@ public sealed class ReferenceEndSpeechTests : IDisposable
             Assert.True(Is(session, "AwaitPlayback"));
             Assert.True(RecordStopAsked(session), "the check's recorder was not stopped");
             var said = Said();
-            Assert.Contains(StillTransmitting, said);
+            Assert.DoesNotContain(StillTransmitting, said);   // red at 253f0576: said over a key the press had just let go
             Assert.Contains(Receiving, said);       // red at 6c8777f5: the check's narration swallowed it
         }
         finally { EndCheck(session); }
