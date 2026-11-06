@@ -1102,17 +1102,16 @@ public class NativeMenuBar : IDisposable
             for (int i = 0; i < presets.Count; i++)
             {
                 var preset = presets[i];
-                string label = $"{preset.Name} ({preset.FormatForDisplay()})";
+                string label = preset.FormatForDisplay();
                 if (i == activeIdx)
                     label = $"\u2713 {label}"; // Unicode checkmark prefix
                 AddWired(parent, label, () =>
                 {
                     if (Rig == null) { SpeakNoRadio(); return; }
                     string currentMode = Rig.Mode ?? "USB";
-                    var (mLow, mHigh) = FilterPresets.MirrorForMode(currentMode, preset.Low, preset.High);
-                    Rig.SetFilter(mLow, mHigh);
-                    // The preset's one announcement, as Alt with a bracket says it (#747 round four).
-                    SpeakAfterMenuClose(preset.Announcement(currentMode));
+                    // The preset's one announcement, as Alt with a bracket says
+                    // it, from what the filter became (#747 rounds four and five).
+                    Rig.ApplyFilterPreset(preset, currentMode, said => SpeakAfterMenuClose(said));
                 });
             }
         }

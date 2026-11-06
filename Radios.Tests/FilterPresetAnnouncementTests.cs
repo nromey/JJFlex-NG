@@ -47,7 +47,7 @@ namespace Radios.Tests
         [InlineData(VerbosityLevel.Chatty, "preset Example, filter 100 to 2850, width 2750 hertz")]
         [InlineData(VerbosityLevel.Terse, "preset Example, 2.75 k")]
         public void The_status_names_the_preset_once(VerbosityLevel level, string heard)
-            => Assert.Equal(heard, Example.StatusSentence("USB", level));
+            => Assert.Equal(heard, Example.StatusSentence(100, 2850, level));
 
         /// <summary>
         /// The class, not the instance: no shipped preset, in any mode, at
@@ -64,25 +64,22 @@ namespace Radios.Tests
                         string said = p.Announcement(mode, level);
                         int times = Regex.Matches(said, @"\b" + Regex.Escape(p.Name) + @"\b").Count;
                         Assert.True(times == 1, $"{mode} {level}: \"{said}\" says \"{p.Name}\" {times} times.");
-                        string status = p.StatusSentence(mode, level);
+                        var (low, high) = FilterPresets.MirrorForMode(mode, p.Low, p.High);
+                        string status = p.StatusSentence(low, high, level);
                         Assert.Equal(1, Regex.Matches(status, @"\b" + Regex.Escape(p.Name) + @"\b").Count);
                     }
         }
 
         /// <summary>
-        /// The three routes, pinned at the source because they are WPF and a
-        /// native menu: Alt with a bracket, the active-preset status, and the
-        /// Filter menu's preset items each speak the one announcement, for the
-        /// mode in force.
+        /// The routes are pinned in FilterPresetAppliedTests since round five,
+        /// where they speak what the filter BECAME; this keeps the check that
+        /// the old fragment and its two wrappers stay gone.
         /// </summary>
         [Fact]
         public void Every_route_that_announces_a_preset_uses_the_one_announcement()
         {
             string handlers = Src("JJFlexWpf", "FreqOutHandlers.cs");
-            Assert.Contains("preset.Announcement(mode)", handlers, StringComparison.Ordinal);
-            Assert.Contains("presets[idx].StatusSentence(mode)", handlers, StringComparison.Ordinal);
             string menu = Src("JJFlexWpf", "NativeMenuBar.cs");
-            Assert.Contains("SpeakAfterMenuClose(preset.Announcement(currentMode));", menu, StringComparison.Ordinal);
 
             // The old fragment and its two wrappers are gone.
             foreach (string src in new[] { handlers, menu, Src("Radios", "FilterPresets.cs") })

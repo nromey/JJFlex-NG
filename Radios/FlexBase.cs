@@ -9436,6 +9436,45 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// Set the receive filter and, once FlexLib's <c>Slice.UpdateFilter</c>
+        /// has run on the command loop, report what the slice holds then
+        /// (round five of the 2026-11-06 junk box, Codex B2). UpdateFilter
+        /// refuses FM and NFM and clamps every other mode, so the edges asked
+        /// for are not evidence; this reads FlexLib's own result rather than
+        /// copying its rules. <paramref name="applied"/> runs on the command
+        /// loop, and not at all if the write never runs.
+        /// </summary>
+        public void SetFilter(int low, int high, Action<FilterApplied> applied)
+        {
+            if (!HasActiveSlice) return;
+            NoteOperatorChangedRadioSetting("SetFilter");
+            q.Enqueue((FunctionDel)(() =>
+            {
+                var slice = theRadio?.ActiveSlice;
+                if (slice == null) return;
+                int beforeLow = slice.FilterLow, beforeHigh = slice.FilterHigh;
+                slice.UpdateFilter(low, high);
+                var result = new FilterApplied(slice.DemodMode ?? "", low, high, beforeLow, beforeHigh, slice.FilterLow, slice.FilterHigh);
+                try { applied?.Invoke(result); }
+                catch (Exception ex) { Tracing.TraceLine("SetFilter applied callback: " + ex.Message, TraceLevel.Error); }
+            }), "Filter");
+        }
+
+        /// <summary>
+        /// Put a filter preset on the radio for <paramref name="mode"/> and hand
+        /// <paramref name="say"/> the sentence for what the filter became
+        /// (<see cref="FilterPreset.SayApplied"/>), after the write has run.
+        /// Alt with a bracket and the Filter menu both come here, so the two
+        /// doors say the same thing.
+        /// </summary>
+        public void ApplyFilterPreset(FilterPreset preset, string mode, Action<string> say)
+        {
+            var (low, high) = FilterPresets.MirrorForMode(mode ?? "USB", preset.Low, preset.High);
+            SetFilter(low, high, applied =>
+                say?.Invoke(preset.SayApplied(applied, ScreenReaderOutput.CurrentVerbosity)));
+        }
+
 #if zero
         // TXAntenna must be set first.
         public bool RXAntenna

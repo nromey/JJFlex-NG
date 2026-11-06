@@ -3399,11 +3399,11 @@ public class FreqOutHandlers
         }
         else
         {
-            var (mirroredLow, mirroredHigh) = FilterPresets.MirrorForMode(mode, preset.Low, preset.High);
-            Rig.SetFilter(mirroredLow, mirroredHigh);
-            // The preset's one announcement: its name once, then the filter
-            // it set (#747 round four, J15).
-            Radios.ScreenReaderOutput.Speak(preset.Announcement(mode), VerbosityLevel.Terse, true);
+            // The preset's one announcement, made once the write has run, from
+            // what the filter BECAME (#747 rounds four and five): FM refuses a
+            // preset and other modes may hold it back, so the edges asked for
+            // are never what is said.
+            Rig.ApplyFilterPreset(preset, mode, said => Radios.ScreenReaderOutput.Speak(said, VerbosityLevel.Terse, true));
         }
         e.Handled = true;
     }
@@ -3539,10 +3539,11 @@ public class FreqOutHandlers
         {
             if (FilterPresets == null || Rig == null) return null;
             string mode = Rig.Mode ?? "USB";
-            int idx = FilterPresets.FindActivePreset(mode, Rig.FilterLow, Rig.FilterHigh);
-            if (idx < 0) return null;
-            var presets = FilterPresets.GetPresetsForMode(mode);
-            return presets[idx].StatusSentence(mode);
+            // One reading of the live filter, for recognising the preset AND
+            // for the numbers said: a preset within 20 Hz is named, but its
+            // saved edges are not said as current (#747 round five).
+            int low = Rig.FilterLow, high = Rig.FilterHigh;
+            return FilterPresets.ActiveStatus(mode, low, high, Radios.ScreenReaderOutput.CurrentVerbosity);
         }
     }
 

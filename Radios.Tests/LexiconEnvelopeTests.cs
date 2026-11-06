@@ -121,7 +121,8 @@ namespace Radios.Tests
             // Thirty-two: the filter layer's width readouts, Terse and Chatty
             // (#747, J13). DRAFT prose.
             // Thirty-three: the preset announcement (#747 round four).
-            Assert.Equal(33, ladders);
+            // Thirty-four: the preset left unchanged (#747 round five).
+            Assert.Equal(34, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -2212,6 +2213,9 @@ namespace Radios.Tests
                 // DRAFT prose.
                 "settings.filter.preset_said",
                 "settings.filter.active_preset_status",
+                // Round five (#747, Codex B2): a preset the mode would not
+                // take says the filter is unchanged. DRAFT prose.
+                "settings.filter.preset_unchanged",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
