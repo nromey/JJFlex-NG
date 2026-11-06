@@ -1858,6 +1858,101 @@ namespace Radios.Tests
             Assert.DoesNotContain("mic input MIC", rig.MicWrites);
         }
 
+        // ── Repair round 11 (Codex's #861 N1): the saved input and its history
+        //    are ONE snapshot, so a report while the start waits for the mic
+        //    lock settles the value it saved ──
+
+        /// <summary>
+        /// Start PC audio on another thread while this one holds the mic lock;
+        /// once the start is waiting for it, deliver <paramref name="reports"/>,
+        /// then let it finish.
+        /// </summary>
+        private static void StartBlockedOnTheMicLockWhile(PcAudioRig rig, bool deviceStarts, params string[] reports)
+        {
+            object micLock = SwitchLockField.GetValue(rig.Rig)!;
+            System.Threading.Thread start;
+            System.Threading.Monitor.Enter(micLock);
+            try
+            {
+                start = new System.Threading.Thread(() => rig.StartPcAudio(deviceStarts)) { IsBackground = true };
+                start.Start();
+                WaitFor(() => (start.ThreadState & System.Threading.ThreadState.WaitSleepJoin) != 0, "the start to wait for the mic lock");
+                foreach (var input in reports) rig.RadioReports(input);
+            }
+            finally { System.Threading.Monitor.Exit(micLock); }
+            Assert.True(start.Join(5000), "the start never finished");
+        }
+
+        [Fact]
+        public void Cell_saved_while_a_choice_is_reported_during_the_starts_wait_for_the_mic_lock_is_void()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            StartBlockedOnTheMicLockWhile(rig, true, "BAL");
+            rig.StopPcAudio();
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);   // round 10 wrote MIC over BAL here
+        }
+
+        [Fact]
+        public void Cell_saved_while_a_choice_then_PC_is_reported_during_the_starts_wait_is_void()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            StartBlockedOnTheMicLockWhile(rig, true, "BAL", "PC");
+            rig.StopPcAudio();
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+            Assert.Equal("PC", rig.MicInput);
+        }
+
+        [Fact]
+        public void Cell_saved_while_a_choice_is_reported_during_a_failed_starts_wait_is_void_at_its_cleanup()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            StartBlockedOnTheMicLockWhile(rig, false, "BAL", "PC");
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+        }
+
+        [Fact]
+        public void Cell_saved_with_nothing_reported_during_the_starts_wait_is_paid()
+        {
+            // The control: the same held lock, no report.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            StartBlockedOnTheMicLockWhile(rig, true);
+            rig.RadioReports("PC");
+            rig.StopPcAudio();
+            Assert.Equal(new[] { "mic input PC", "mic input MIC" }, rig.MicWrites);
+        }
+
+        [Fact]
+        public void Cell_saved_after_a_choice_reported_before_the_start_restores_that_choice()
+        {
+            // The other control: BAL before the start is the original.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.RadioReports("BAL");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            rig.StopPcAudio();
+            Assert.Equal(new[] { "mic input PC", "mic input BAL" }, rig.MicWrites);
+        }
+
+        [Fact]
+        public void Cell_saved_when_the_report_gate_cannot_be_had_is_never_put_back()
+        {
+            // The snapshot fails toward leaving the input alone: with the reader's
+            // gate held past the bound, no baseline matches and nothing is written.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            var holder = HoldDispatchFor(rig, 1400);
+            rig.StartPcAudio();
+            Assert.True(holder.Join(3000));
+            rig.RadioReports("PC");
+            rig.StopPcAudio();
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+        }
+
         [Fact]
         public void The_abandoned_line_says_only_what_is_known()
         {

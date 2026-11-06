@@ -1894,6 +1894,17 @@ namespace Radios
         private sealed class MicInputSwap
         {
             public MicInputSwap(string saved, Radio radio, long run, bool madeBySwitchBack = false)
+                : this(saved, radio, run, madeBySwitchBack,
+                       InterlockReports.MicChoicesReported(radio?.CurrentCommandConnection as CommandConnection))
+            {
+            }
+
+            /// <summary>
+            /// A saved input and the mic choices reported up to the moment it was
+            /// read, taken together (repair round 11, Codex's #861 N1): see
+            /// <see cref="FlexBase.MicSnapshot"/>.
+            /// </summary>
+            public MicInputSwap(string saved, Radio radio, long run, bool madeBySwitchBack, long choicesAtSave)
             {
                 Saved = saved;
                 Radio = radio;
@@ -1901,7 +1912,7 @@ namespace Radios
                 Run = run;
                 MadeBySwitchBack = madeBySwitchBack;
                 Connection = radio?.CurrentCommandConnection;
-                ChoicesAtPc = InterlockReports.MicChoicesReported(Connection as CommandConnection);
+                ChoicesAtPc = choicesAtSave;
             }
 
             /// <summary>
@@ -2047,6 +2058,44 @@ namespace Radios
             // runs it after the lock, and anything may have changed by then.
             return () => PutBackNow(radio, swap, when, run);
         }
+
+        /// <summary>
+        /// The radio's mic input and the mic choices it has reported on its
+        /// current connection, read as ONE snapshot (repair round 11, Codex's
+        /// #861 N1): under the transport's dispatch gate, which the reader holds
+        /// while it parses a report and counts it, so no report can fall between
+        /// the two reads. Reads only, no I/O, and never under
+        /// <see cref="_micSwitchLock"/> (the reader takes that lock inside this
+        /// gate, for a switch-back's reply). A gate not had within
+        /// <see cref="MicSnapshotBoundMs"/> gives a baseline that matches no
+        /// count, so the saved value is treated as already settled: nothing is
+        /// ever put back from an incoherent snapshot (fails toward leaving the
+        /// input alone).
+        /// </summary>
+        private static string MicSnapshot(Radio radio, out long choices)
+        {
+            var connection = radio?.CurrentCommandConnection as CommandConnection;
+            object gate = InterlockReports.ConnectionSyncOf(radio);
+            if (radio != null && gate != null && System.Threading.Monitor.TryEnter(gate, MicSnapshotBoundMs))
+            {
+                try
+                {
+                    choices = InterlockReports.MicChoicesReported(connection);
+                    return radio.MicInput;
+                }
+                finally { System.Threading.Monitor.Exit(gate); }
+            }
+            Tracing.TraceLine("MicSnapshot: the radio's report gate was not had in " + MicSnapshotBoundMs
+                + " ms; the saved mic input is treated as settled, and nothing will be put back from it", TraceLevel.Warning);
+            choices = UnmatchedChoices;
+            return radio?.MicInput;
+        }
+
+        /// <summary>How long <see cref="MicSnapshot"/> waits for the report gate.</summary>
+        internal const int MicSnapshotBoundMs = 1000;
+
+        /// <summary>A baseline no count ever equals: the saved value is treated as settled.</summary>
+        private const long UnmatchedChoices = -1;
 
         /// <summary>The swap was saved on <paramref name="radio"/>'s current command connection, and that connection is still up.</summary>
         private static bool OnItsOwnLiveConnection(Radio radio, MicInputSwap swap) =>
@@ -2195,7 +2244,8 @@ namespace Radios
         /// <summary>
         /// A mic debt that cannot be paid on its own run and connection,
         /// abandoned: logged only (ruled by Noel 2026-11-04), never spoken, and
-        /// never carried anywhere. The operator's radio stays on PC.
+        /// never carried anywhere. No write is made; the line names the last
+        /// mic input known for that radio, not a fresh reading (round 10, T1).
         /// </summary>
         private static void MicDebtAbandoned(MicInputSwap swap, string when, string why)
         {
@@ -2570,13 +2620,16 @@ namespace Radios
                     // Nothing is adopted from an earlier stop (repair round 9):
                     // a debt is paid in its own run or abandoned there. What the
                     // radio reports now is this run's original.
-                    string saved = theRadio.MicInput;
+                    // The input and its history as ONE snapshot, taken before the mic
+                    // lock (round 11, Codex's N1): a report that lands after it is
+                    // counted after the baseline, and settles the saved value.
+                    string saved = MicSnapshot(theRadio, out long choicesAtSave);
                     MicInputSwap leftover, swap;
                     lock (_micSwitchLock)
                     {
                         leftover = _micInputSwap;
                         StopOwedMicWatch();
-                        swap = new MicInputSwap(saved, theRadio, Interlocked.Read(ref _remoteAudioRun));
+                        swap = new MicInputSwap(saved, theRadio, Interlocked.Read(ref _remoteAudioRun), false, choicesAtSave);
                         _micInputSwap = swap;
                     }
                     if (leftover != null)
@@ -2802,6 +2855,9 @@ namespace Radios
             string before = null;
             long sessionNow;
             bool sessionOpenNow;
+            // The input and its history as ONE snapshot (round 11, Codex's N1,
+            // the switch-back sibling), before the mic lock.
+            string snapshot = MicSnapshot(radio, out long choicesAtSave);
             lock (_micSwitchLock)
             {
                 sessionNow = _micSessionId;
@@ -2815,13 +2871,13 @@ namespace Radios
                     outcome = MicSwitchBackOutcome.Held;
                 else
                 {
-                    before = radio.MicInput ?? "";
+                    before = snapshot ?? "";
                     if (string.Equals(before, "PC", StringComparison.OrdinalIgnoreCase))
                         outcome = MicSwitchBackOutcome.AlreadyPc;
                     else
                     {
                         var swap = new MicInputSwap(before, radio, Interlocked.Read(ref _remoteAudioRun),
-                            madeBySwitchBack: true);
+                            true, choicesAtSave);
                         attempt = new MicSwitchAttempt(radio, pressedInSession, swap, _micInputSwap, _pcMicExpected);
                         _micInputSwap = swap;
                         _pcMicExpected = true;     // intent, as MicSource marks it
