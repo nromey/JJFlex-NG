@@ -185,6 +185,16 @@ public sealed class DeleteKeyRemovesTests
     [InlineData(Key.LWin, Key.None, ModifierKeys.Windows)]
     [InlineData(Key.Insert, Key.None, ModifierKeys.None)]
     [InlineData(Key.CapsLock, Key.None, ModifierKeys.None)]
+    // Every remaining arm of the classification, one row each (Codex's fourth
+    // re-check: removing an arm no row named left the suite green), and the
+    // keys whose real identity WPF did not give us: Alt with no SystemKey and
+    // the two placeholders with nothing behind them.
+    [InlineData(Key.RWin, Key.None, ModifierKeys.Windows)]
+    [InlineData(Key.NumLock, Key.None, ModifierKeys.None)]
+    [InlineData(Key.Scroll, Key.None, ModifierKeys.None)]
+    [InlineData(Key.System, Key.None, ModifierKeys.Alt)]
+    [InlineData(Key.ImeProcessed, Key.None, ModifierKeys.None)]
+    [InlineData(Key.DeadCharProcessed, Key.None, ModifierKeys.None)]
     public void A_modifier_tapped_during_a_jaws_hold_does_not_make_its_next_pair_a_press(Key key, Key systemKey, ModifierKeys mods)
     {
         NoiseReductionPerChannelTests.AssertWindowless();

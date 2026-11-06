@@ -263,6 +263,13 @@ namespace Radios.Tests
         [InlineData(System.Windows.Forms.Keys.RWin, System.Windows.Forms.Keys.None)]
         [InlineData(System.Windows.Forms.Keys.Insert, System.Windows.Forms.Keys.None)]
         [InlineData(System.Windows.Forms.Keys.CapsLock, System.Windows.Forms.Keys.None)]
+        // Every remaining arm of the classification, one row each (Codex's
+        // fourth re-check: removing an arm no row named left the suite green).
+        [InlineData(System.Windows.Forms.Keys.RShiftKey, System.Windows.Forms.Keys.Shift)]
+        [InlineData(System.Windows.Forms.Keys.LControlKey, System.Windows.Forms.Keys.Control)]
+        [InlineData(System.Windows.Forms.Keys.RMenu, System.Windows.Forms.Keys.Alt)]
+        [InlineData(System.Windows.Forms.Keys.NumLock, System.Windows.Forms.Keys.None)]
+        [InlineData(System.Windows.Forms.Keys.Scroll, System.Windows.Forms.Keys.None)]
         public void A_modifier_tapped_during_a_jaws_hold_does_not_make_its_next_pair_a_press_on_a_WinForms_list(
             System.Windows.Forms.Keys modifierKey, System.Windows.Forms.Keys modifiers)
         {
