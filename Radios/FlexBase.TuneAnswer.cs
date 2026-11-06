@@ -93,8 +93,30 @@ namespace Radios
                         held?.Invoke();
                         return;
                     }
-                    if (!value && ownCarrierOnly && !OurCarrierToUnkey(owner, connection, "the " + what + " off"))
+                    if (!value && ownCarrierOnly)
+                    {
+                        if (!OurCarrierToUnkey(owner, connection, "the " + what + " off")) return;
+                        // The teardown's own tune release, pinned at the transport's
+                        // write with its ownership asked there too (repair round 7,
+                        // Codex's #596 B12). An unkey of ours: contention never
+                        // refuses it, only a positive "not ours".
+                        bool foreignAtWrite = false;
+                        string refusedAtWrite = WriteOnPinnedTarget(owner, connection, null, () => owner.TXTune = false,
+                            () =>
+                            {
+                                string foreign = ForeignCarrier(owner);
+                                if (foreign != null) foreignAtWrite = true;
+                                return foreign;
+                            }, unkeyOfOurs: true);
+                        if (refusedAtWrite != null)
+                        {
+                            if (foreignAtWrite) PutBackUnsentFlag(owner, "_txTune", "TXTune");
+                            JJTrace.Tracing.TraceLine("TuneWrite: the " + what + " off NOT sent at its write - " + refusedAtWrite,
+                                System.Diagnostics.TraceLevel.Info);
+                        }
+                        if (latest) _tuneOnQueued = false;
                         return;
+                    }
                     theRadio.TXTune = value;
                     if (latest) _tuneOnQueued = false;
                 }

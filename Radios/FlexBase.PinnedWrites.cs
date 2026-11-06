@@ -101,15 +101,18 @@ public partial class FlexBase
     /// <param name="atTheWrite">Asked again AT each transport write, under the
     /// transport's dispatch gate. It must only read state: no tracing, no I/O,
     /// no locks. Null means identity only.</param>
+    /// <param name="unkeyOfOurs">An unkey of our own carrier (repair round 7,
+    /// Codex's #596 B11): never refused by contention at the transport, only
+    /// by a positive "not ours" or a connection that is not the pinned one.</param>
     internal string? WriteOnPinnedTarget(Radio? radio, object? connection, Func<string?>? refused, Action write,
-        Func<string?>? atTheWrite = null) =>
+        Func<string?>? atTheWrite = null, bool unkeyOfOurs = false) =>
         StepOnPinnedTarget(radio, connection, () =>
         {
             string? why = refused?.Invoke();
             if (why != null) return why;
             write();
             return null;
-        }, atTheWrite);
+        }, atTheWrite, null, unkeyOfOurs);
 
     /// <summary>
     /// <see cref="WriteOnPinnedTarget"/> for a caller whose own question and
@@ -122,11 +125,11 @@ public partial class FlexBase
     /// <param name="onRefused">Told, on the writing thread, the moment the
     /// transport refuses a write (a queued item marks itself withheld).</param>
     internal string? StepOnPinnedTarget(Radio? radio, object? connection, Func<string?> step,
-        Func<string?>? atTheWrite = null, Action<string>? onRefused = null)
+        Func<string?>? atTheWrite = null, Action<string>? onRefused = null, bool unkeyOfOurs = false)
     {
         string? notTarget = PinnedTargetRefused(radio, connection);
         if (notTarget != null) return notTarget;
-        using var pin = CommandWritePin.Pin((CommandConnection)connection!, atTheWrite, onRefused);
+        using var pin = CommandWritePin.Pin((CommandConnection)connection!, atTheWrite, onRefused, unkeyOfOurs);
         string? stepWhy = step();
         return stepWhy ?? pin.Refusal;
     }
@@ -143,6 +146,34 @@ public partial class FlexBase
         // A key-on, a tune-on or CW queued for the old connection keys nothing
         // on this one (the tune-on had no identity of its own).
         RevokeAdmittedTransmitWork("a new command connection began on this radio");
+    }
+
+    /// <summary>
+    /// A vendor flag setter (Mox, TXTune) caches its new value BEFORE it sends.
+    /// When the transport refused that send, nothing reached the radio, so the
+    /// cache is put back to <c>true</c>: the setter only ever caches OFF here,
+    /// and the refusal was positive evidence the radio still transmits. Under
+    /// the transport's dispatch gate, so it does not race a report.
+    /// </summary>
+    private void PutBackUnsentFlag(Radio radio, string field, string what)
+    {
+        try
+        {
+            var flag = typeof(Radio).GetField(field, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            if (flag == null) return;
+            object? dispatch = InterlockReports.ConnectionSyncOf(radio);
+            if (dispatch == null) return;
+            // Bounded: a caller may hold a lock the reader's handlers take
+            // (the tune gate). Without the gate it is a best-effort put-back.
+            bool held = System.Threading.Monitor.TryEnter(dispatch, CommandWritePin.SerializeBound);
+            try { if (flag.GetValue(radio) is false) flag.SetValue(radio, true); }
+            finally { if (held) System.Threading.Monitor.Exit(dispatch); }
+            Tracing.TraceLine("PinnedWrites: " + what + " OFF was not sent; FlexLib's cache is put back to on", TraceLevel.Info);
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("PinnedWrites: could not put back FlexLib's " + what + " cache: " + ex.Message, TraceLevel.Warning);
+        }
     }
 
     /// <summary>
@@ -192,13 +223,22 @@ public partial class FlexBase
         {
             // Whose carrier it is, asked before AND at the transport write,
             // under the reader's dispatch gate (repair round 6, Codex's B10).
-            string? why = WriteOnPinnedTarget(owner, connection, () => ForeignCarrier(owner!), () =>
-            {
-                owner!.Mox = false;
-                _ownKeyRequested = false;
-            }, () => ForeignCarrier(owner!));
-            if (why != null)
-                Tracing.TraceLine("TransmitAdmission: " + what + " NOT sent at its write - " + why, TraceLevel.Warning);
+            // An unkey of ours: contention never refuses it (round 7, B11).
+            bool foreignAtWrite = false;
+            string? why = WriteOnPinnedTarget(owner, connection, () => ForeignCarrier(owner!), () => owner!.Mox = false,
+                () =>
+                {
+                    string? foreign = ForeignCarrier(owner!);
+                    if (foreign != null) foreignAtWrite = true;
+                    return foreign;
+                }, unkeyOfOurs: true);
+            if (why == null) { _ownKeyRequested = false; return; }
+            // Nothing went out. FlexLib's setter had already cached OFF; when
+            // the carrier is another client's, the radio still transmits, so
+            // the cache is put back and a later OFF (ours, or the emergency
+            // kill's) is not swallowed as an equal value (round 7, B11).
+            if (foreignAtWrite) PutBackUnsentFlag(owner!, "_mox", "Mox");
+            Tracing.TraceLine("TransmitAdmission: " + what + " NOT sent at its write - " + why, TraceLevel.Warning);
         }), "Mox (a send's own release)");
     }
 }

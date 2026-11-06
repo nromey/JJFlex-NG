@@ -398,13 +398,18 @@ public partial class FlexBase
         q.Enqueue((FunctionDel)(() =>
         {
             // Ownership checked with the write (repair round 5, rule 1).
+            bool foreignAtWrite = false;
             string refused = WriteOnPinnedTarget(owner, connection,
-                () => OurCarrierToUnkey(owner, connection, why) ? null : NotOurs, () =>
+                () => OurCarrierToUnkey(owner, connection, why) ? null : NotOurs, () => owner.Mox = false,
+                () =>
                 {
-                    owner.Mox = false;
-                    _ownKeyRequested = false;
-                }, () => ForeignCarrier(owner));
-            if (refused != null && refused != NotOurs)
+                    string foreign = ForeignCarrier(owner);
+                    if (foreign != null) foreignAtWrite = true;
+                    return foreign;
+                }, unkeyOfOurs: true);
+            if (refused == null) { _ownKeyRequested = false; return; }
+            if (foreignAtWrite) PutBackUnsentFlag(owner, "_mox", "Mox");
+            if (refused != NotOurs)
                 Tracing.TraceLine("Teardown unkey (" + why + "): not sent; " + refused, TraceLevel.Info);
         }), "Mox (own carrier only)");
     }
@@ -507,7 +512,7 @@ public partial class FlexBase
         {
             string refused = WriteOnPinnedTarget(owner, connection,
                 () => OurCarrierToUnkey(owner, connection, "the CW queue") ? null : NotOurs, () => cwx?.ClearBuffer(),
-                () => ForeignCarrier(owner));
+                () => ForeignCarrier(owner), unkeyOfOurs: true);
             if (refused != null && refused != NotOurs)
                 Tracing.TraceLine("Teardown unkey (the CW queue): not sent; " + refused, TraceLevel.Info);
         }), "CWX clear (own carrier only)");

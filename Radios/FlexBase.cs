@@ -8536,7 +8536,22 @@ namespace Radios
                 // send's own release is pinned (TransmitAdmitted).
                 q.Enqueue((FunctionDel)(() =>
                 {
-                    theRadio.Mox = false;
+                    var radio = theRadio;
+                    if (radio == null) return;
+                    // FlexLib's setter skips a value equal to its cache, and the
+                    // cache is optimistic (repair round 7, Codex's #596 B11): a
+                    // skipped or refused OFF could leave it reading OFF while the
+                    // radio still transmits. So when the cache already reads OFF
+                    // but this computer's key is outstanding or the radio reports
+                    // transmit, the OFF goes out raw. The emergency kill comes
+                    // here (TransmitKillSwitch.DropCarrier) and is never swallowed.
+                    if (!radio.Mox && (_ownKeyRequested || RadioInterlockReportsTransmit))
+                    {
+                        string notSent = SendRadioCommandWithReply(radio, "xmit 0", null);
+                        Tracing.TraceLine("Transmit: FlexLib's cache already read OFF, so xmit 0 went out raw"
+                            + (notSent == null ? "" : " - NOT sent: " + notSent), TraceLevel.Warning);
+                    }
+                    else radio.Mox = false;
                     _ownKeyRequested = false;
                 }), "Mox");
             }

@@ -656,6 +656,111 @@ namespace Radios.Tests
             Assert.DoesNotContain("C3|", written);
         }
 
+        // ── Round 7: an unkey of ours is never refused by contention, and an OFF is never swallowed by a stale cache ──
+
+        /// <summary>Hold the transport's dispatch gate on another thread for <paramref name="ms"/>, as a slow report handler would.</summary>
+        private Thread HoldDispatchFor(int ms)
+        {
+            using var held = new ManualResetEventSlim();
+            var holder = new Thread(() =>
+            {
+                lock (_f.Vendor.Transport.ConnectionSync) { held.Set(); Thread.Sleep(ms); }
+            }) { IsBackground = true };
+            holder.Start();
+            Assert.True(held.Wait(2000), "the dispatch gate was never held");
+            return holder;
+        }
+
+        [Fact]
+        public void A_sends_release_under_a_busy_report_reader_still_unkeys_and_the_kill_after_it_still_does()
+        {
+            // Codex's #596 B11 / #861 B2, exactly: our carrier, the reader busy
+            // 350 ms, the send's release. It used to be refused at 100 ms with
+            // FlexLib's cache already OFF, so a second release and the kill
+            // then sent nothing.
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            OurCarrierUp();
+            var holder = HoldDispatchFor(350);
+            send.Transmit = false;
+            Drained();
+            Assert.True(holder.Join(2000));
+            Assert.Single(Commands("xmit 0"));
+
+            // And the kill after it: the radio still reports our carrier (its
+            // report has not come), and FlexLib's cache reads OFF. It goes.
+            Interlock("TRANSMITTING");
+            TransmitKillSwitch.DropCarrier(_f.Rig, TransmitKillSwitch.Carrier.Mox);
+            Drained();
+            Assert.Equal(2, Commands("xmit 0").Length);
+        }
+
+        [Fact]
+        public void A_release_refused_for_another_clients_carrier_does_not_swallow_the_kill_after_it()
+        {
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            OurCarrierUp();
+            ReportAtTheWriteOf("xmit 0", () => Interlock("TRANSMITTING", Foreign));
+            send.Transmit = false;                                  // refused AT its write: the carrier passed to another client
+            Drained();
+            Assert.Empty(Commands("xmit"));
+            Assert.True(_f.Vendor.Radio.Mox, "FlexLib's cache was left reading OFF for an OFF that was never sent");
+            TransmitKillSwitch.DropCarrier(_f.Rig, TransmitKillSwitch.Carrier.Mox);   // the emergency route, unconditional
+            Drained();
+            Assert.Single(Commands("xmit 0"));
+        }
+
+        [Fact]
+        public void The_kill_sends_its_unkey_raw_when_FlexLibs_cache_already_reads_off_but_our_key_is_outstanding()
+        {
+            Interlock("TRANSMITTING");
+            Set(_f.Vendor.Radio, "_mox", false);                   // a skipped or refused setter left the cache OFF
+            Set(_f.Rig, "_ownKeyRequested", true);                 // our xmit 1 went out, no xmit 0 after it
+            TransmitKillSwitch.DropCarrier(_f.Rig, TransmitKillSwitch.Carrier.Mox);
+            Drained();
+            Assert.Single(Commands("xmit 0"));
+        }
+
+        private void TeardownTuneOff() =>
+            typeof(FlexBase).GetMethod("EnqueueTuneWrite", Private, null,
+                new[] { typeof(bool), typeof(string), typeof(Action), typeof(bool) }, null)!
+                .Invoke(_f.Rig, new object?[] { false, "teardown tune", null, true });
+
+        [Fact]
+        public void The_teardown_tune_off_whose_carrier_passes_to_another_client_after_its_check_is_not_written()
+        {
+            // Codex's #596 B12: the teardown's tune release was outside the pin.
+            OurCarrierUp();
+            Set(_f.Vendor.Radio, "_txTune", true);
+            ReportAtTheWriteOf("transmit tune 0", () => Interlock("TRANSMITTING", Foreign));
+            TeardownTuneOff();
+            Drained();
+            Assert.Empty(Commands("transmit tune"));
+            Assert.True(_f.Vendor.Radio.TXTune, "FlexLib's tune cache was left OFF for an OFF that was never sent");
+        }
+
+        [Fact]
+        public void The_same_teardown_tune_off_with_its_own_carrier_at_the_write_is_written()
+        {
+            OurCarrierUp();
+            Set(_f.Vendor.Radio, "_txTune", true);
+            ReportAtTheWriteOf("transmit tune 0", () => Interlock("TRANSMITTING"));
+            TeardownTuneOff();
+            Drained();
+            Assert.Single(Commands("transmit tune 0"));
+        }
+
+        [Fact]
+        public void The_teardown_tune_off_under_a_busy_report_reader_is_still_written()
+        {
+            OurCarrierUp();
+            Set(_f.Vendor.Radio, "_txTune", true);
+            var holder = HoldDispatchFor(350);
+            TeardownTuneOff();
+            Drained();
+            Assert.True(holder.Join(2000));
+            Assert.Single(Commands("transmit tune 0"));
+        }
+
         private static int Count(string text, string what)
         {
             int n = 0, at = 0;
