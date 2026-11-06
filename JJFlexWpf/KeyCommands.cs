@@ -5768,33 +5768,18 @@ public class KeyCommands
             // ones together in one closing sentence - ruled by Noel 2026-10-17
             // over marking each gated row in place. The keys stay bound,
             // pressable and self-explaining; only where they are named changes.
+            //
+            // ONE gating answer for both of H's surfaces (#741): the spoken
+            // form here, and the list window ListCommands opens below. The
+            // window used to be built from the ungated rows, so on this
+            // layer, which is always long enough to take the window, the
+            // lift was unreachable.
             DescribeLayerHelp = layer =>
             {
-                var closed = gatedSwitches.Where(g => rig.CapabilityIsClosedOnThisRadio(g.Capability)).ToList();
-                if (closed.Count == 0) return KeyLayerHelp.SpokenList(KeyInventory.NoiseLayerContext);
-
-                // Hardware and subscription are different sentences, and the
-                // honest one depends on why. If a radio somehow has both
-                // reasons across the three, hardware wins: it is the permanent
-                // fact, and telling somebody about a subscription for a feature
-                // their radio cannot run is the actively harmful error.
-                bool anyHardware = closed.Any(g =>
-                    rig.CapabilityClosedReason(g.Capability) == Radios.CapabilityBlock.Hardware);
-
-                string sentence = Radios.Lexicon.Get(
-                    anyHardware
-                        ? "audio.noise_layer.gated_keys_unavailable"
-                        : GatedKeysLicenceKeyPendingNoel(closed
-                            .Select(g => rig.CapabilityLicenceReasonCode(g.Capability))
-                            .Where(code => code != null)
-                            .Distinct(StringComparer.Ordinal)
-                            .ToList()),
-                    ("keys", KeyLayerHelp.SpeakKeyList(closed.Select(g => g.Key).ToList())));
-
-                return KeyLayerHelp.SpokenList(
-                    KeyInventory.NoiseLayerContext,
-                    closed.Select(g => g.Key).ToHashSet(StringComparer.OrdinalIgnoreCase),
-                    sentence);
+                var gating = NoiseGating();
+                return gating == null
+                    ? KeyLayerHelp.SpokenList(KeyInventory.NoiseLayerContext)
+                    : KeyLayerHelp.SpokenList(KeyInventory.NoiseLayerContext, gating.UnavailableKeys, gating.ClosingSentence);
             },
             DescribeClosed = () => Radios.Lexicon.Get("audio.noise_layer.closed"),
             // #536's rule, as the audio layer applies it: say that everything
@@ -5820,7 +5805,7 @@ public class KeyCommands
             // this is the fallback should that ever be null.
             DescribeUnknownKey = (key, why) => LayerUnknownKey(KeyInventory.NoiseLayerContext, key, why),
             DescribeFineStep = LayerFineStep,
-            ListCommands = () => TryShowLayerCommandList(KeyInventory.NoiseLayerContext),
+            ListCommands = () => TryShowLayerCommandList(KeyInventory.NoiseLayerContext, NoiseGating),
             OpenExplorer = () => TryOpenLayerExplorer(KeyInventory.NoiseLayerContext),
             Cues = new Radios.ValueLayerCues
             {
@@ -5833,6 +5818,44 @@ public class KeyCommands
                 Audible = () => EarconPlayer.IsOn(EarconPlayer.EarconCategory.CommandsAndConfirmations),
             },
         };
+
+        // H lists the keys this radio can actually use, and names the gated
+        // ones together in one closing sentence - ruled by Noel 2026-10-17
+        // over marking each gated row in place. The keys stay bound,
+        // pressable and self-explaining; only where they are named changes.
+        // Null when nothing is shut.
+        KeyLayerHelp.LayerGating? NoiseGating()
+        {
+            var gate = NoiseLayerGateOverride;
+            bool IsClosed(Radios.RadioCapability c) =>
+                gate != null ? gate(c) != Radios.CapabilityBlock.None : rig.CapabilityIsClosedOnThisRadio(c);
+            Radios.CapabilityBlock Why(Radios.RadioCapability c) =>
+                gate != null ? gate(c) : rig.CapabilityClosedReason(c);
+
+            var closed = gatedSwitches.Where(g => IsClosed(g.Capability)).ToList();
+            if (closed.Count == 0) return null;
+
+            // Hardware and subscription are different sentences, and the
+            // honest one depends on why. If a radio somehow has both
+            // reasons across the three, hardware wins: it is the permanent
+            // fact, and telling somebody about a subscription for a feature
+            // their radio cannot run is the actively harmful error.
+            bool anyHardware = closed.Any(g => Why(g.Capability) == Radios.CapabilityBlock.Hardware);
+
+            string sentence = Radios.Lexicon.Get(
+                anyHardware
+                    ? "audio.noise_layer.gated_keys_unavailable"
+                    : GatedKeysLicenceKeyPendingNoel(closed
+                        .Select(g => rig.CapabilityLicenceReasonCode(g.Capability))
+                        .Where(code => code != null)
+                        .Distinct(StringComparer.Ordinal)
+                        .ToList()),
+                ("keys", KeyLayerHelp.SpeakKeyList(closed.Select(g => g.Key).ToList())));
+
+            return new KeyLayerHelp.LayerGating(
+                closed.Select(g => g.Key).ToHashSet(StringComparer.OrdinalIgnoreCase),
+                sentence);
+        }
 
         // PLACEHOLDER #720/#752. One layer summary may cover several refused
         // features, hence the list. Every reason combination preserves today's
@@ -5904,12 +5927,24 @@ public class KeyCommands
     /// is still live when it closes; the engine has already played the help
     /// cue by the time this runs.
     /// </remarks>
-    private bool TryShowLayerCommandList(string context)
+    private bool TryShowLayerCommandList(string context, Func<KeyLayerHelp.LayerGating?>? gating = null)
     {
-        _context.Trace("Layer help list: " + context);
-        OnMainDispatcher(() => KeyLayerHelp.Present(context));
+        // The gating is read here, at the press, so the window and the
+        // spoken form answer from the same moment (#741). A layer with no
+        // gated keys passes none and gets exactly the list it always had.
+        var lifted = gating?.Invoke();
+        _context.Trace("Layer help list: " + context
+            + (lifted == null ? "" : " (" + lifted.UnavailableKeys.Count + " key(s) lifted as unavailable)"));
+        OnMainDispatcher(() => KeyLayerHelp.Present(context, lifted));
         return true;
     }
+
+    /// <summary>
+    /// For a windowless test of the noise layer's H road (#741): answers the
+    /// gate for the three gated switches in place of the radio, which a test
+    /// cannot connect. Null in the product.
+    /// </summary>
+    internal static Func<Radios.RadioCapability, Radios.CapabilityBlock>? NoiseLayerGateOverride { get; set; }
 
     /// <summary>
     /// Shift+slash inside a layer: the JJ key tree explorer, landed on this
