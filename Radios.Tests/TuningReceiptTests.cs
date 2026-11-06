@@ -1272,10 +1272,10 @@ namespace Radios.Tests
         {
             string src = System.IO.File.ReadAllText(System.IO.Path.Combine(FlexBasePartials.RepoRoot(), "FlexLib_API", "FlexLib", "Slice.cs"));
             Assert.Contains("public event Action<Slice, double, bool> FrequencyReported;", src);
-            Assert.Contains("// JJFlex patch: each subscriber in isolation", src);
+            Assert.Contains("// JJFlex patch (MIGRATION.md item 23): each subscriber in isolation", src);
             Assert.Contains("try { handler(this, mhz, changed); }", src);
-            Assert.Contains("// JJFlex patch: an equal report still arrived.", src);
-            Assert.Contains("// JJFlex patch: report every arrival, before the Freq notification, so a throwing Freq subscriber cannot hide it.", src);
+            Assert.Contains("// JJFlex patch (MIGRATION.md item 23): an equal report still arrived.", src);
+            Assert.Contains("// JJFlex patch (MIGRATION.md item 23): report every arrival, before the Freq notification, so a throwing Freq subscriber cannot hide it.", src);
             Assert.Contains("OnFrequencyReported(temp, false);", src);
             Assert.Contains("OnFrequencyReported(temp, true);", src);
             string migration = System.IO.File.ReadAllText(System.IO.Path.Combine(FlexBasePartials.RepoRoot(), "MIGRATION.md"));
