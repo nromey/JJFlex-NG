@@ -61,7 +61,6 @@ namespace Radios.Tests
         [Theory]
         [InlineData(HertzUnitStyle.Bare)]
         [InlineData(HertzUnitStyle.KiloLetter)]
-        [InlineData(HertzUnitStyle.Words)]
         [InlineData(HertzUnitStyle.Symbols)]
         public void Fifty_hertz_steps_never_show_the_same_width_twice(HertzUnitStyle style)
         {
@@ -95,6 +94,66 @@ namespace Radios.Tests
         {
             Assert.Equal(terse, HertzSpeech.Width(hz, HertzUnitStyle.Bare, VerbosityLevel.Terse));
             Assert.Equal(chatty, HertzSpeech.Width(hz, HertzUnitStyle.Bare, VerbosityLevel.Chatty));
+        }
+
+        // ------------------------------------------------------------------
+        // The J13 ruling (Noel, 2026-11-06 11:38 and 11:39): a filter READOUT
+        // says "Filter 100 to 2900, 2800 hertz wide" at Chatty, and keeps the
+        // never-rounding kilo form at Terse. Every expected string below is a
+        // hand-written literal, assembled as the operator hears it, and DRAFT.
+        // ------------------------------------------------------------------
+
+        [Theory]
+        [MemberData(nameof(EveryStyleAndLevel))]
+        public void A_readouts_width_never_says_the_same_width_twice(HertzUnitStyle style, VerbosityLevel level)
+        {
+            var said = FiftyHertzSteps().Select(hz => HertzSpeech.ReadoutWidth(hz, style, level)).ToList();
+            Assert.Equal(said.Count, said.Distinct().Count());
+        }
+
+        [Theory]
+        [InlineData(2750, "2.75 k", "2750 hertz wide")]
+        [InlineData(2800, "2.8 k", "2800 hertz wide")]
+        [InlineData(2850, "2.85 k", "2850 hertz wide")]
+        [InlineData(500, "500", "500 hertz wide")]
+        public void The_bracket_readouts_width_is_short_at_terse_and_labelled_at_chatty(int hz, string terse, string chatty)
+        {
+            Assert.Equal(terse, HertzSpeech.ReadoutWidth(hz, HertzUnitStyle.Bare, VerbosityLevel.Terse));
+            Assert.Equal(terse, HertzSpeech.ReadoutWidth(hz, HertzUnitStyle.Bare, VerbosityLevel.Critical));
+            Assert.Equal(chatty, HertzSpeech.ReadoutWidth(hz, HertzUnitStyle.Bare, VerbosityLevel.Chatty));
+            Assert.Equal(chatty, HertzSpeech.ReadoutWidth(hz, HertzUnitStyle.Bare, VerbosityLevel.Diagnostic));
+        }
+
+        [Theory]
+        [InlineData(100, 2850, VerbosityLevel.Terse, "Filter 100 to 2850, 2.75 k")]
+        [InlineData(100, 2900, VerbosityLevel.Terse, "Filter 100 to 2900, 2.8 k")]
+        [InlineData(100, 2950, VerbosityLevel.Terse, "Filter 100 to 2950, 2.85 k")]
+        [InlineData(100, 2850, VerbosityLevel.Chatty, "Filter 100 to 2850, 2750 hertz wide")]
+        [InlineData(100, 2900, VerbosityLevel.Chatty, "Filter 100 to 2900, 2800 hertz wide")]
+        [InlineData(100, 2950, VerbosityLevel.Chatty, "Filter 100 to 2950, 2850 hertz wide")]
+        [InlineData(100, 600, VerbosityLevel.Terse, "Filter 100 to 600, 500")]
+        [InlineData(100, 600, VerbosityLevel.Chatty, "Filter 100 to 600, 500 hertz wide")]
+        public void The_bracket_readout_assembled(int low, int high, VerbosityLevel level, string heard)
+        {
+            Assert.Equal(heard, Lexicon.Get("settings.filter.range", ("low", low), ("high", high),
+                ("width", HertzSpeech.ReadoutWidth(high - low, HertzUnitStyle.Bare, level)), ("limit", "")));
+        }
+
+        [Theory]
+        [InlineData(VerbosityLevel.Terse, "RX filter 100 to 2850, 2.75 k", "Width 2.75 k, 100 to 2850", "TX filter 100 to 2850, 2.75 k", "TX width 2.75 k, 100 to 2850")]
+        [InlineData(VerbosityLevel.Chatty, "RX filter 100 to 2850, 2750 hertz wide", "RX filter 100 to 2850, 2750 hertz wide", "TX filter 100 to 2850, 2750 hertz wide", "TX filter 100 to 2850, 2750 hertz wide")]
+        [InlineData(VerbosityLevel.Critical, "RX filter 100 to 2850, 2.75 k", "Width 2.75 k, 100 to 2850", "TX filter 100 to 2850, 2.75 k", "TX width 2.75 k, 100 to 2850")]
+        [InlineData(VerbosityLevel.Diagnostic, "RX filter 100 to 2850, 2750 hertz wide", "RX filter 100 to 2850, 2750 hertz wide", "TX filter 100 to 2850, 2750 hertz wide", "TX filter 100 to 2850, 2750 hertz wide")]
+        public void The_filter_layers_readouts_assembled(VerbosityLevel level, string rxReport, string rxWidth, string txReport, string txWidth)
+        {
+            string W(int hz) => HertzSpeech.ReadoutWidth(hz, HertzUnitStyle.KiloLetter, level);
+            Assert.Equal(rxReport, Lexicon.Get("audio.filter.rx_report", ("low", 100), ("high", 2850), ("width", W(2750))));
+            Assert.Equal(rxWidth, Lexicon.Get("audio.filter_layer.width", level, ("width", W(2750)), ("low", 100), ("high", 2850)));
+            Assert.Equal(txReport, Lexicon.Get("audio.filter.tx_report", ("low", 100), ("high", 2850), ("width", W(2750))));
+            Assert.Equal(txWidth, Lexicon.Get("audio.filter_layer.tx_width", level, ("width", W(2750)), ("low", 100), ("high", 2850)));
+            // Below 1 kHz the layer keeps its unit at Terse.
+            if (level == VerbosityLevel.Terse)
+                Assert.Equal("Width 500 hertz, 100 to 600", Lexicon.Get("audio.filter_layer.width", level, ("width", W(500)), ("low", 100), ("high", 600)));
         }
 
         [Fact]

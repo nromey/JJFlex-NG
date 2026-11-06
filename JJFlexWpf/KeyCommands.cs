@@ -5423,12 +5423,13 @@ public class KeyCommands
     /// <summary>
     /// The filter report — low, high and width — in the one wording both
     /// the layer and the Ctrl+J readouts use, so two doors into the same
-    /// fact say the same sentence. The width carries its own unit from the
-    /// shared formatter (#747): kilohertz at Terse, hertz at Chatty.
+    /// fact say the same sentence. The width is a filter readout's width
+    /// from the shared formatter (#747): "2.75 k" at Terse, "2750 hertz
+    /// wide" at Chatty (Noel, 2026-11-06, J13).
     /// </summary>
     private static string FilterReport(string key, int low, int high)
         => Radios.Lexicon.Get(key, ("low", low), ("high", high),
-            ("width", Radios.HertzSpeech.Width(high - low, Radios.HertzUnitStyle.Words)));
+            ("width", Radios.HertzSpeech.ReadoutWidth(high - low, Radios.HertzUnitStyle.KiloLetter)));
 
     /// <summary>
     /// Enter the filter layer on the active slice's receive filter. See the
@@ -5462,9 +5463,12 @@ public class KeyCommands
         rx.HighEdge = v => Radios.Lexicon.Get("audio.filter.high_edge", ("high", v));
         rx.Range = () => Radios.Lexicon.Get("audio.filter.range", ("low", rx.Bank.Low), ("high", rx.Bank.High));
         // The width through the shared formatter, as the layer's own report
-        // says it (#747, integration pass finding 10).
-        rx.Width = () => Radios.Lexicon.Get("audio.filter_layer.width",
-            ("width", Radios.HertzSpeech.Width(rx.Bank.Width, Radios.HertzUnitStyle.Words)), ("low", rx.Bank.Low), ("high", rx.Bank.High));
+        // says it (#747, integration pass finding 10). Terse leads with the
+        // width ("Width 2.75 k, 100 to 2850"); Chatty is the ruled readout,
+        // "RX filter 100 to 2850, 2750 hertz wide" (J13): "Width 2750 hertz
+        // wide" would say width twice.
+        rx.Width = () => Radios.Lexicon.Get("audio.filter_layer.width", Radios.ScreenReaderOutput.CurrentVerbosity,
+            ("width", Radios.HertzSpeech.ReadoutWidth(rx.Bank.Width, Radios.HertzUnitStyle.KiloLetter)), ("low", rx.Bank.Low), ("high", rx.Bank.High));
         rx.Report = () => FilterReport("audio.filter.rx_report", rx.Bank.Low, rx.Bank.High);
 
         var tx = new FilterSide
@@ -5486,8 +5490,8 @@ public class KeyCommands
         tx.LowEdge = v => Radios.Lexicon.Get("audio.tx.filter_low", ("value", v));
         tx.HighEdge = v => Radios.Lexicon.Get("audio.tx.filter_high", ("value", v));
         tx.Range = () => Radios.Lexicon.Get("audio.tx_filter.range", ("low", tx.Bank.Low), ("high", tx.Bank.High));
-        tx.Width = () => Radios.Lexicon.Get("audio.filter_layer.tx_width",
-            ("width", Radios.HertzSpeech.Width(tx.Bank.Width, Radios.HertzUnitStyle.Words)), ("low", tx.Bank.Low), ("high", tx.Bank.High));
+        tx.Width = () => Radios.Lexicon.Get("audio.filter_layer.tx_width", Radios.ScreenReaderOutput.CurrentVerbosity,
+            ("width", Radios.HertzSpeech.ReadoutWidth(tx.Bank.Width, Radios.HertzUnitStyle.KiloLetter)), ("low", tx.Bank.Low), ("high", tx.Bank.High));
         tx.Report = () => FilterReport("audio.filter.tx_report", tx.Bank.Low, tx.Bank.High);
 
         _filterRx = rx;

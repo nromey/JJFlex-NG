@@ -37,10 +37,31 @@ namespace Radios.Tests
         public void The_filter_layers_width_readout_speaks_through_the_shared_formatter()
         {
             string keys = Src("JJFlexWpf", "KeyCommands.cs");
-            Assert.Contains("Radios.HertzSpeech.Width(rx.Bank.Width, Radios.HertzUnitStyle.Words)",
-                Statement(keys, "rx.Width = () =>"), StringComparison.Ordinal);
-            Assert.Contains("Radios.HertzSpeech.Width(tx.Bank.Width, Radios.HertzUnitStyle.Words)",
-                Statement(keys, "tx.Width = () =>"), StringComparison.Ordinal);
+            // A filter readout's width since the J13 ruling (2026-11-06):
+            // "2.75 k" at Terse, "2750 hertz wide" at Chatty, with the
+            // sentence itself on the verbosity dial.
+            string rx = Statement(keys, "rx.Width = () =>");
+            Assert.Contains("Radios.HertzSpeech.ReadoutWidth(rx.Bank.Width, Radios.HertzUnitStyle.KiloLetter)", rx, StringComparison.Ordinal);
+            Assert.Contains("Radios.ScreenReaderOutput.CurrentVerbosity", rx, StringComparison.Ordinal);
+            string tx = Statement(keys, "tx.Width = () =>");
+            Assert.Contains("Radios.HertzSpeech.ReadoutWidth(tx.Bank.Width, Radios.HertzUnitStyle.KiloLetter)", tx, StringComparison.Ordinal);
+            Assert.Contains("Radios.ScreenReaderOutput.CurrentVerbosity", tx, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Every filter READOUT, the ones that say the edges and then the
+        /// width, takes its width from <see cref="HertzSpeech.ReadoutWidth(int, HertzUnitStyle)"/>:
+        /// the bracket keys, the layer's report and the Ctrl+J readouts
+        /// (J13, Noel 2026-11-06: "Filter 100 to 2900, 2800 hertz wide").
+        /// </summary>
+        [Fact]
+        public void Every_filter_readout_takes_the_readout_width()
+        {
+            string handlers = Src("JJFlexWpf", "FreqOutHandlers.cs");
+            Assert.Contains("string widthStr = Radios.HertzSpeech.ReadoutWidth(high - low, Radios.HertzUnitStyle.Bare);", handlers, StringComparison.Ordinal);
+            string keys = Src("JJFlexWpf", "KeyCommands.cs");
+            Assert.Contains("(\"width\", Radios.HertzSpeech.ReadoutWidth(high - low, Radios.HertzUnitStyle.KiloLetter)));",
+                Statement(keys, "private static string FilterReport(string key, int low, int high)"), StringComparison.Ordinal);
         }
 
         /// <summary>

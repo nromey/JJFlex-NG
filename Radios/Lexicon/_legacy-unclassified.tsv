@@ -622,9 +622,7 @@ audio.filter_layer.no_slice	eb386ccdc76997ac
 audio.filter_layer.no_verb	a08456b8f669d064
 audio.filter_layer.restored	ebf198959b99263b
 audio.filter_layer.restored_nothing	7206a02f2d7dd91b
-audio.filter_layer.tx_width	7b0b131d3f5b5e56
 audio.filter_layer.which_shift	6ab909cf6996c70a
-audio.filter_layer.width	db001d73f240586f
 audio.fixer.capture_started	25d742a4635d8d0e
 audio.fixer.capture_stopped	33886d8d8e6c56aa
 audio.fixer.copy_refused	7b2c94a83055454f

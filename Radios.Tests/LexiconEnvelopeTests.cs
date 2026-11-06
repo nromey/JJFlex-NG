@@ -118,7 +118,9 @@ namespace Radios.Tests
             // Thirty from the 2026-11-06 junk box rulings round (#748): filter
             // edge mode's entry, refusal and step sentences, each Terse plus a
             // Chatty form that says more (Noel's ruling J2). DRAFT prose.
-            Assert.Equal(30, ladders);
+            // Thirty-two: the filter layer's width readouts, Terse and Chatty
+            // (#747, J13). DRAFT prose.
+            Assert.Equal(32, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -2154,7 +2156,6 @@ namespace Radios.Tests
                 "audio.filter.rx_report",
                 "audio.filter.tx_report",
                 "settings.filter.width_hertz_words",
-                "settings.filter.width_kilohertz_words",
                 // Junk box 2026-11-06 (#889): RF gain offered as two settings is
                 // an RF preamp switch, named by Noel 2026-11-05. DRAFT prose.
                 "audio.fields.rf_preamp",
@@ -2189,6 +2190,15 @@ namespace Radios.Tests
                 // Junk box 2026-11-06 rulings round (#888): the one AGC field
                 // is labelled for what it is while AGC is off. DRAFT prose.
                 "audio.fields.agc_off_gain",
+                // Junk box 2026-11-06 rulings round (#747, Noel's ruling J13):
+                // a filter readout's width is "2.75 k" at Terse and "2750
+                // hertz wide" at Chatty; the layer's two width readouts became
+                // ladders so Chatty does not say "Width ... wide". The
+                // kilohertz-words unit went with the style nothing used.
+                // DRAFT prose.
+                "audio.filter_layer.width",
+                "audio.filter_layer.tx_width",
+                "settings.filter.width_hertz_wide",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
@@ -2199,7 +2209,9 @@ namespace Radios.Tests
             // Home's Hz/kHz width pair and classified the calculator's two
             // width strings (#747). 3085 since its rulings round removed the
             // four edge-mode strings the double-tap and "cancelled" used (#748).
-            Assert.Equal(3085, unclassified);
+            // 3083 since the same round classified the filter layer's two
+            // width readouts (#747, J13).
+            Assert.Equal(3083, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,
