@@ -2113,6 +2113,9 @@ namespace Radios.Tests
                 // The same round (#642, J4): a tune that ended elsewhere says the
                 // bare frequency it ended on, Noel's ruling; DRAFT until heard.
                 "connect.home.frequency_ended_on",
+                // Round two (#496, the bench's Fail 3): Settings with no radio
+                // says the PTT changes were not saved. DRAFT prose.
+                "settings.commit.ptt_not_saved",
                 // Junk box 2026-11-02 (#642): F names its slice by role when
                 // the transmit slice is not the selected one, and the setting
                 // that chooses which. DRAFT prose, awaiting Noel.

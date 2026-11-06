@@ -222,6 +222,30 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// This configuration as its saved XML, to tell whether the Settings
+        /// dialog changed it (the 8600 bench's Fail 3, #496).
+        /// </summary>
+        public string Snapshot()
+        {
+            try
+            {
+                using var sw = new StringWriter();
+                new XmlSerializer(typeof(PttConfig)).Serialize(sw, this);
+                return sw.ToString();
+            }
+            catch { return ""; }
+        }
+
+        /// <summary>
+        /// True when Settings changed the PTT tab with nowhere to save it: no
+        /// radio connected, so <paramref name="now"/> is a throwaway and its
+        /// changes are lost (the 8600 bench's Fail 3, #496). The dialog must
+        /// then say so rather than "Settings saved."
+        /// </summary>
+        public static bool ChangesNotKept(string atOpen, PttConfig now, bool hasHome) =>
+            !hasHome && now != null && !string.Equals(atOpen ?? "", now.Snapshot(), StringComparison.Ordinal);
+
         public void Save(string configDirectory, string operatorName)
         {
             Validate();

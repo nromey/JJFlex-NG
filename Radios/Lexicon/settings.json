@@ -121,6 +121,7 @@
   "settings.commit.applied_spoken": "Settings applied.",
   "settings.commit.done_right_away_lead": "Done right away: ",
   "settings.commit.saved_spoken": "Settings saved.",
+  "settings.commit.ptt_not_saved": {"text": "Push-to-talk settings need a connected radio, so those changes were not saved. Your other settings were saved.", "delivery": null},
   "settings.commit.some_items_wait_lead": "Everything you set was saved. These items cannot take effect yet:",
   "settings.commit.some_items_wait_title": "Saved — Some Items Wait",
   "settings.commit.waiting_lead": " Waiting: ",

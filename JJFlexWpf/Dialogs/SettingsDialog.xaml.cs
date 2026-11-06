@@ -128,6 +128,7 @@ namespace JJFlexWpf.Dialogs
             AudioOutputConfig? audioConfig = null)
         {
             _pttConfig = pttConfig;
+            _pttAtOpen = pttConfig?.Snapshot() ?? "";
             _licenseConfig = licenseConfig ?? new LicenseConfig();
             _audioConfig = audioConfig ?? new AudioOutputConfig();
             CoarseTuneStep = currentCoarseStep;
@@ -1637,9 +1638,22 @@ namespace JJFlexWpf.Dialogs
         /// tab status lines hold the re-readable detail and one summary is
         /// spoken.
         /// </summary>
+        /// <summary>
+        /// False when the PTT tab edits a throwaway because no radio is
+        /// connected (set by NativeMenuBar): its changes are not kept, and the
+        /// commit says so (the 8600 bench's Fail 3, #496).
+        /// </summary>
+        public bool PttSettingsHaveAHome { get; set; } = true;
+
+        /// <summary>The PTT tab's settings as the dialog opened on them.</summary>
+        private string _pttAtOpen;
+
         private bool ApplyAllSettings(bool closing)
         {
             if (!SaveSettings()) return false;
+            // DRAFT PROSE (#496, rulings round two): never "Settings saved." over
+            // a PTT change that had nowhere to go.
+            bool pttDropped = PttConfig.ChangesNotKept(_pttAtOpen, _pttConfig, PttSettingsHaveAHome);
 
             var queued = new List<string>();   // saved, but waits for a connection (or was declined)
             var applied = new List<string>();  // done now
@@ -1675,13 +1689,13 @@ namespace JJFlexWpf.Dialogs
                 }
                 else
                 {
-                    ScreenReaderOutput.Speak(Lexicon.Get("settings.commit.saved_spoken"),
+                    ScreenReaderOutput.Speak(Lexicon.Get(pttDropped ? "settings.commit.ptt_not_saved" : "settings.commit.saved_spoken"),
                         VerbosityLevel.Terse, interrupt: true);
                 }
             }
             else
             {
-                string summary = Lexicon.Get("settings.commit.applied_spoken");
+                string summary = pttDropped ? Lexicon.Get("settings.commit.ptt_not_saved") : Lexicon.Get("settings.commit.applied_spoken");
                 if (queued.Count > 0)
                     summary += Lexicon.Get("settings.commit.waiting_lead") + string.Join(" ", queued);
                 else if (applied.Count > 0)
