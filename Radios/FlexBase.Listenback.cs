@@ -853,7 +853,7 @@ public partial class FlexBase
                     Slice leaving = setting.ResourceKind == "slice"
                         && setting.RestoreCommand.StartsWith("slice remove ", StringComparison.Ordinal)
                         ? Current(setting) as Slice : null;
-                    if (leaving != null) NoteRemovingSlice(leaving);
+                    long leavingMark = leaving != null ? NoteRemovingSlice(leaving) : 0;
                     trace.Write("sending", new { setting.Name, Command = setting.RestoreCommand });
                     // #835, 2026-10-29 item 1: what FlexLib's cache held just
                     // before this restore, so the reply can tell whether anything
@@ -862,7 +862,7 @@ public partial class FlexBase
                     int sequence = radio.SendReplyCommand((sequence, code, text) =>
                     {
                         trace.Write("reply", new { setting.Name, Sequence = sequence, Code = code.ToString("X8"), Text = text });
-                        if (code != 0 && leaving != null) ClearRemovingSlice(leaving);
+                        if (code != 0 && leaving != null) ClearRemovingSlice(leaving, leavingMark);
                         if (code == 0 && setting.Name == "full-duplex")
                             AcceptFullDuplexReply(radio, connection, setting.Value == "1");
                         // The radio accepted it but may never echo it to us: put
@@ -874,7 +874,7 @@ public partial class FlexBase
                                 Note = FlexLibRestoreCache.Accept(radio, setting, cachedBefore) });
                         reply.TrySetResult(code == 0);
                     }, setting.RestoreCommand);
-                    if (sequence == 0 && leaving != null) ClearRemovingSlice(leaving);
+                    if (sequence == 0 && leaving != null) ClearRemovingSlice(leaving, leavingMark);
                     trace.Write("sent", new { setting.Name, Sequence = sequence, Command = setting.RestoreCommand });
                 }).ConfigureAwait(false);
                 using var timeout = new CancellationTokenSource(ListenbackConfirmationWait);

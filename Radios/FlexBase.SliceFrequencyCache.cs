@@ -140,7 +140,19 @@ namespace Radios
         private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Slice, FrequencyEchoGuard> _freqEcho = new();
 
         private FrequencyEchoGuard EchoGuardFor(Slice slice) =>
-            _freqEcho.GetValue(slice, s => new FrequencyEchoGuard("slice " + (s.Letter ?? s.Index.ToString())));
+            _freqEcho.GetValue(slice, s => new FrequencyEchoGuard("slice " + (s.Letter ?? s.Index.ToString()),
+                gaveUp: requested => q.Enqueue((FunctionDel)(() => Reconcile(s, requested)), "TuneReconcile")));
+
+        /// <summary>
+        /// FlexLib's report that this slice's frequency ARRIVED, changed or not
+        /// (repair round 9; a JJFlex patch, MIGRATION.md item 22). The guard
+        /// counts it as the radio's answer to a write; when it was the report
+        /// an answer was waiting for, what is derived follows the radio.
+        /// </summary>
+        private void SliceFrequencyReported(Slice slice, double mhz)
+        {
+            if (EchoGuardFor(slice).Reported(LibFreqtoLong(mhz), out ulong requested)) Reconcile(slice, requested);
+        }
 
         /// <summary>
         /// What a cache should hold for <paramref name="slice"/> when it is
@@ -273,10 +285,21 @@ namespace Radios
         }
 
         /// <summary>
-        /// Slices we have asked the radio to remove by a raw command, with the
-        /// time the mark was made (repair round 7; given a lifecycle in round 8).
+        /// Slices we have asked the radio to remove by a raw command (repair
+        /// round 7). Each mark is one removal attempt: its own id and the time
+        /// it was made (round 8 gave it a lifecycle, round 9 an identity), so
+        /// an older attempt's late answer cannot clear a newer attempt's mark.
         /// </summary>
-        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Slice, object> _removingByUs = new();
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Slice, RemovalMark> _removingByUs = new();
+
+        private sealed class RemovalMark
+        {
+            public RemovalMark(long id, long at) { Id = id; At = at; }
+            public long Id { get; }
+            public long At { get; }
+        }
+
+        private static long _removalMarkSeq;
 
         /// <summary>
         /// How long a removal mark refuses tunes when the removal is never
@@ -298,19 +321,32 @@ namespace Radios
         /// removal is rejected or not sent, and lapses after
         /// <see cref="RemovalMarkMs"/> if it is never answered (repair round 8).
         /// </summary>
-        internal void NoteRemovingSlice(Slice slice)
+        internal long NoteRemovingSlice(Slice slice)
         {
-            if (slice != null) _removingByUs.AddOrUpdate(slice, RemovalMarkClock());
+            if (slice == null) return 0;
+            long id = System.Threading.Interlocked.Increment(ref _removalMarkSeq);
+            lock (_removingByUs) _removingByUs.AddOrUpdate(slice, new RemovalMark(id, RemovalMarkClock()));
+            return id;
         }
 
-        /// <summary>The removal of <paramref name="slice"/> was rejected or never sent: it may be tuned again (repair round 8).</summary>
-        internal void ClearRemovingSlice(Slice slice)
+        /// <summary>
+        /// Removal attempt <paramref name="mark"/> of <paramref name="slice"/>
+        /// was rejected or never sent: if its mark is still the one standing,
+        /// the slice may be tuned again (repair round 8). A newer attempt's
+        /// mark is left alone (repair round 9).
+        /// </summary>
+        internal void ClearRemovingSlice(Slice slice, long mark)
         {
-            if (slice != null) _removingByUs.Remove(slice);
+            if (slice == null) return;
+            lock (_removingByUs)
+            {
+                if (_removingByUs.TryGetValue(slice, out RemovalMark current) && current.Id == mark)
+                    _removingByUs.Remove(slice);
+            }
         }
 
         private bool BeingRemovedByUs(Slice slice) =>
-            _removingByUs.TryGetValue(slice, out object at) && at is long t && RemovalMarkClock() - t < RemovalMarkMs;
+            _removingByUs.TryGetValue(slice, out RemovalMark m) && RemovalMarkClock() - m.At < RemovalMarkMs;
 
         /// <summary>
         /// The radio's reply to tune request <paramref name="id"/>, on the
@@ -344,6 +380,18 @@ namespace Radios
         private void Reconcile(Slice slice, ulong requestedHz)
         {
             if (LibFreqtoLong(slice.Freq) == requestedHz) return;
+            // Only a slice still ours (repair round 9): a late answer for a
+            // slice removed meanwhile must not run its handler, which would
+            // put a removed transmitter's number back into the caches.
+            var slices = mySlices;
+            bool ours = false;
+            if (slices != null) lock (slices) ours = slices.Contains(slice);
+            if (!ours)
+            {
+                Tracing.TraceLine("tune reconcile: slice " + slice.Letter + " is no longer ours; nothing follows",
+                    System.Diagnostics.TraceLevel.Info);
+                return;
+            }
             try { slicePropertyChangedHandler(slice, new System.ComponentModel.PropertyChangedEventArgs("Freq")); }
             catch (System.Exception ex)
             {

@@ -59,6 +59,15 @@ namespace Radios
     /// <c>FrequencyEchoGuardTests</c>.
     /// </para>
     /// <para>
+    /// <b>A report ARRIVING is an event of its own (repair round 9).</b>
+    /// "Has the radio reported since our write?" must count every frequency
+    /// report, including one equal to FlexLib's cached number, which FlexLib's
+    /// Freq notification skips. So arrivals come from FlexLib's
+    /// <c>Slice.FrequencyReported</c> (a JJFlex patch, MIGRATION.md item 22)
+    /// into <see cref="Reported"/>, and <see cref="Accept"/> only decides
+    /// whether a CHANGED value may enter the caches.
+    /// </para>
+    /// <para>
     /// <b>The premise.</b> That the radio sends a command's own status no
     /// later than its reply, on the one command connection, is not measured on
     /// a radio. If it were ever false, AwaitingReport keeps the reading on our
@@ -115,6 +124,7 @@ namespace Radios
         private readonly object _lock = new object();
         private readonly string _name;
         private readonly Func<long> _clock;
+        private readonly Action<ulong> _gaveUp;
 
         private State _state = State.Idle;
         private long _id;
@@ -128,10 +138,16 @@ namespace Radios
         /// Milliseconds from any fixed origin. Injectable so the give-up path can
         /// be tested without waiting for it.
         /// </param>
-        internal FrequencyEchoGuard(string name, Func<long> clock = null)
+        /// <param name="gaveUp">
+        /// Called (outside the lock) with the request's value when the window
+        /// ends by running out of time (repair round 9), so what is derived
+        /// from the frequency can follow the radio as it does after an answer.
+        /// </param>
+        internal FrequencyEchoGuard(string name, Func<long> clock = null, Action<ulong> gaveUp = null)
         {
             _name = name;
             _clock = clock ?? (() => Environment.TickCount64);
+            _gaveUp = gaveUp;
         }
 
         /// <summary>The state now, expiry applied. For tests and traces.</summary>
@@ -139,9 +155,9 @@ namespace Radios
         {
             get
             {
-                string gave; State st;
-                lock (_lock) { gave = ExpireLocked(_clock()); st = _state; }
-                Note(gave);
+                string gave; State st; ulong gaveUpOn = 0;
+                lock (_lock) { gave = ExpireLocked(_clock(), ref gaveUpOn); st = _state; }
+                Note(gave, gaveUpOn);
                 return st;
             }
         }
@@ -171,9 +187,10 @@ namespace Radios
         internal void Sending(long id)
         {
             string gave;
+            ulong gaveUpOn = 0;
             lock (_lock)
             {
-                gave = ExpireLocked(_clock());
+                gave = ExpireLocked(_clock(), ref gaveUpOn);
                 if (_state == State.Queued && id == _id)
                 {
                     _state = State.Sent;
@@ -181,7 +198,7 @@ namespace Radios
                     _reportSinceSend = false;
                 }
             }
-            Note(gave);
+            Note(gave, gaveUpOn);
         }
 
         /// <summary>
@@ -196,10 +213,11 @@ namespace Radios
         internal bool Acknowledged(long id, ulong reportedHz)
         {
             string line = null, gave;
+            ulong gaveUpOn = 0;
             bool closed = false;
             lock (_lock)
             {
-                gave = ExpireLocked(_clock());
+                gave = ExpireLocked(_clock(), ref gaveUpOn);
                 if (id == _id && (_state == State.Queued || _state == State.Sent))
                 {
                     if (reportedHz == _requested || _reportSinceSend)
@@ -217,7 +235,7 @@ namespace Radios
                     }
                 }
             }
-            Note(gave);
+            Note(gave, gaveUpOn);
             if (line != null) Tracing.TraceLine(line, TraceLevel.Verbose);
             return closed;
         }
@@ -245,30 +263,29 @@ namespace Radios
         }
 
         /// <summary>
-        /// Should the radio's report <paramref name="echoed"/> go into the
-        /// caches? Idle: yes. Queued or Sent: only when it is the latest
-        /// request's value (the report is recorded either way, so a later
-        /// answer knows one came). AwaitingReport: yes, and the window ends.
+        /// Should the radio's CHANGED report <paramref name="echoed"/> go into
+        /// the caches? Idle and AwaitingReport: yes. Queued or Sent: only when
+        /// it is the latest request's value. Changes no state: that the report
+        /// arrived is <see cref="Reported"/>'s, which FlexLib raises for every
+        /// report, changed or not, just before this (repair round 9).
         /// </summary>
         internal bool Accept(ulong echoed)
         {
             string line = null, gave;
+            ulong gaveUpOn = 0;
             bool accepted;
             lock (_lock)
             {
-                gave = ExpireLocked(_clock());
+                gave = ExpireLocked(_clock(), ref gaveUpOn);
                 switch (_state)
                 {
                     case State.Idle:
                         accepted = true;
                         break;
                     case State.AwaitingReport:
-                        _state = State.Idle;
                         accepted = true;
-                        line = "FrequencyEcho:" + _name + " the radio's report after its answer: " + echoed;
                         break;
                     default:
-                        if (_state == State.Sent) _reportSinceSend = true;
                         accepted = echoed == _requested;
                         if (!accepted)
                             line = "FrequencyEcho:" + _name + " kept " + echoed + " out of the reading until "
@@ -276,9 +293,38 @@ namespace Radios
                         break;
                 }
             }
-            Note(gave);
+            Note(gave, gaveUpOn);
             if (line != null) Tracing.TraceLine(line, TraceLevel.Info);
             return accepted;
+        }
+
+        /// <summary>
+        /// The radio reported this slice's frequency, <paramref name="reportedHz"/>,
+        /// changed or not (repair round 9). Sent: noted as a report since the
+        /// write. AwaitingReport: the awaited report; Idle, and true, with
+        /// <paramref name="requested"/> the request it answered. Idle and
+        /// Queued: no change (a report before the write is not an answer to it).
+        /// </summary>
+        internal bool Reported(ulong reportedHz, out ulong requested)
+        {
+            string line = null, gave;
+            ulong gaveUpOn = 0;
+            bool closed = false;
+            lock (_lock)
+            {
+                gave = ExpireLocked(_clock(), ref gaveUpOn);
+                requested = _requested;
+                if (_state == State.Sent) _reportSinceSend = true;
+                else if (_state == State.AwaitingReport)
+                {
+                    _state = State.Idle;
+                    closed = true;
+                    line = "FrequencyEcho:" + _name + " the radio's report after its answer: " + reportedHz;
+                }
+            }
+            Note(gave, gaveUpOn);
+            if (line != null) Tracing.TraceLine(line, TraceLevel.Info);
+            return closed;
         }
 
         /// <summary>
@@ -289,14 +335,15 @@ namespace Radios
         internal Reading Read(out ulong pending)
         {
             string gave;
+            ulong gaveUpOn = 0;
             Reading r;
             lock (_lock)
             {
-                gave = ExpireLocked(_clock());
+                gave = ExpireLocked(_clock(), ref gaveUpOn);
                 pending = _requested;
                 r = _state == State.Idle ? Reading.Idle : Reading.Pending;
             }
-            Note(gave);
+            Note(gave, gaveUpOn);
             return r;
         }
 
@@ -308,7 +355,7 @@ namespace Radios
         /// Sent or AwaitingReport <see cref="GiveUpMs"/> after the write.
         /// Call holding the lock.
         /// </summary>
-        private string ExpireLocked(long now)
+        private string ExpireLocked(long now, ref ulong gaveUpOn)
         {
             bool expired = _state switch
             {
@@ -321,12 +368,17 @@ namespace Radios
                 + (_state == State.Queued ? "never written" : "no answer") + " after "
                 + (now - (_state == State.Queued ? _requestedAt : _sentAt)) + " ms); reading the radio's own report";
             _state = State.Idle;
+            gaveUpOn = _requested;
             return line;
         }
 
-        private static void Note(string line)
+        /// <summary>Trace a give-up and tell the owner, both outside the lock.</summary>
+        private void Note(string line, ulong gaveUpOn)
         {
-            if (line != null) Tracing.TraceLine(line, TraceLevel.Warning);
+            if (line == null) return;
+            Tracing.TraceLine(line, TraceLevel.Warning);
+            try { _gaveUp?.Invoke(gaveUpOn); }
+            catch (Exception ex) { Tracing.TraceLine("FrequencyEcho:" + _name + " give-up handler: " + ex.Message, TraceLevel.Warning); }
         }
     }
 }

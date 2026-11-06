@@ -351,6 +351,12 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
+        // JJFlex patch: raised for EVERY rf_frequency the radio reports for
+        // this slice, including one equal to the cached value, which the
+        // "Freq" PropertyChanged skips. The app needs to know a report
+        // ARRIVED, not only that the number changed (#642).
+        public event Action<Slice, double> FrequencyReported;
+
         private double _freq; // the frequency in MHz
         /// <summary>
         /// The frequency of the Slice in MHz
@@ -2977,9 +2983,15 @@ namespace Flex.Smoothlake.FlexLib
                                 }
 
                                 if (_freq == temp)
+                                {
+                                    // JJFlex patch: an equal report still arrived.
+                                    FrequencyReported?.Invoke(this, temp);
                                     continue;
+                                }
 
                                 _freq = temp;
+                                // JJFlex patch: report every arrival, before the Freq notification, so a throwing Freq subscriber cannot hide it.
+                                FrequencyReported?.Invoke(this, temp);
                                 RaisePropertyChanged("Freq");
                             }
                             break;

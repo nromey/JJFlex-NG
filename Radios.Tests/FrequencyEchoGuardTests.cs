@@ -21,6 +21,14 @@ namespace Radios.Tests
     /// report is not our value and nothing has been reported since the write).
     /// </para>
     /// <para>
+    /// Repair round 9 split "a report" in two, because FlexLib raises its Freq
+    /// notification only for a CHANGED number: <c>Accept</c> (a changed value,
+    /// may it enter the caches?) changes no state, and <c>Reported</c> (a
+    /// report ARRIVED, changed or not, from FlexLib's patched
+    /// <c>Slice.FrequencyReported</c>) is the event the state machine moves on.
+    /// Running out of time now also calls the owner back.
+    /// </para>
+    /// <para>
     /// The events: a new request; the send of the latest request and of an
     /// older one; a success reply for the latest (the radio reporting our
     /// value; another value after a report since the write; another value
@@ -35,7 +43,9 @@ namespace Radios.Tests
     {
         private long _now;
 
-        private G Guard() => new G("test", () => _now);
+        private readonly System.Collections.Generic.List<ulong> _gaveUp = new();
+
+        private G Guard() => new G("test", () => _now, hz => _gaveUp.Add(hz));
 
         private const ulong Was = 14_200_000;
         private const ulong Asked = 14_200_100;
@@ -83,7 +93,9 @@ namespace Radios.Tests
             Reads(g, G.Reading.Idle);
             Assert.True(g.Accept(Was));
             Assert.True(g.Accept(Other));
+            Assert.False(g.Reported(Other, out _));
             Assert.Equal(G.State.Idle, g.Now);
+            Assert.Empty(_gaveUp);
         }
 
         [Fact]
@@ -147,6 +159,7 @@ namespace Radios.Tests
             Assert.True(g.Accept(Asked));
             Assert.False(g.Accept(Was));
             Assert.False(g.Accept(Other));
+            Assert.False(g.Reported(Other, out _));        // arrived, but before the write: no change
             Assert.Equal(G.State.Queued, g.Now);
             Reads(g, G.Reading.Pending);
         }
@@ -191,9 +204,11 @@ namespace Radios.Tests
             Assert.Equal(G.State.Queued, g.Now);
             _now = G.UnsentGiveUpMs - 1;
             Assert.Equal(G.State.Queued, g.Now);
+            Assert.Empty(_gaveUp);
             _now = G.UnsentGiveUpMs;
             Assert.Equal(G.State.Idle, g.Now);
             Reads(g, G.Reading.Idle);
+            Assert.Equal(new[] { Asked }, _gaveUp);       // the owner is told, once
         }
 
         // ── Sent ──
@@ -228,7 +243,8 @@ namespace Radios.Tests
             Assert.False(g.Accept(Was));                   // the number it replaced
             Assert.False(g.Accept(Other));                 // a clamp, the knob, another client
             Assert.True(g.Accept(Asked));                  // its own value
-            Assert.Equal(G.State.Sent, g.Now);             // but no report settles it: only the answer does
+            Assert.False(g.Reported(Asked, out _));        // arrived: noted, nothing ends
+            Assert.Equal(G.State.Sent, g.Now);             // no report settles it: only the answer does
             Reads(g, G.Reading.Pending);
         }
 
@@ -244,7 +260,8 @@ namespace Radios.Tests
         public void Sent_success_after_a_report_since_the_write_is_Idle_whatever_the_number()
         {
             var (g, id) = InSent();
-            Assert.False(g.Accept(Other));                 // kept out of the reading, but it came
+            Assert.False(g.Accept(Other));                 // kept out of the reading,
+            Assert.False(g.Reported(Other, out _));        // but it came
             Assert.True(g.Acknowledged(id, Other));
             Assert.Equal(G.State.Idle, g.Now);
             Reads(g, G.Reading.Idle);
@@ -264,6 +281,7 @@ namespace Radios.Tests
         {
             var (g, id) = InQueued();
             Assert.False(g.Accept(Other));                 // while still queued
+            Assert.False(g.Reported(Other, out _));
             g.Sending(id);
             Assert.False(g.Acknowledged(id, Other));
             Assert.Equal(G.State.AwaitingReport, g.Now);
@@ -303,6 +321,7 @@ namespace Radios.Tests
             _now = 1190 + G.GiveUpMs;
             Assert.Equal(G.State.Idle, g.Now);
             Assert.True(g.Accept(Was));                    // and the radio is believed
+            Assert.Equal(new[] { Asked }, _gaveUp);
         }
 
         // ── AwaitingReport ──
@@ -311,12 +330,16 @@ namespace Radios.Tests
         public void AwaitingReport_any_report_ends_it_and_is_believed()
         {
             var (g, _) = InAwaitingReport();
-            Assert.True(g.Accept(Other));
+            Assert.True(g.Accept(Other));                  // a changed value may enter the caches,
+            Assert.Equal(G.State.AwaitingReport, g.Now);   // but only its arrival ends the wait
+            Assert.True(g.Reported(Other, out ulong asked));
+            Assert.Equal(Asked, asked);
             Assert.Equal(G.State.Idle, g.Now);
 
             var (h, _) = InAwaitingReport();
-            Assert.True(h.Accept(Asked));
+            Assert.True(h.Reported(Was, out _));           // an UNCHANGED report: no Accept at all
             Assert.Equal(G.State.Idle, h.Now);
+            Assert.False(h.Reported(Was, out _));          // once
         }
 
         [Fact]
@@ -354,6 +377,7 @@ namespace Radios.Tests
             Assert.Equal(G.State.AwaitingReport, g.Now);
             _now += 1;
             Assert.Equal(G.State.Idle, g.Now);
+            Assert.Equal(new[] { Asked }, _gaveUp);
         }
 
         // ── Sequences the old guard got wrong, on the table ──
@@ -376,9 +400,35 @@ namespace Radios.Tests
             long id = g.Requested(Asked);
             g.Sending(id);
             Assert.True(g.Accept(Asked));                  // our own report
+            g.Reported(Asked, out _);
             Assert.False(g.Accept(Other));                 // a genuine move, kept out of the caches for now
+            g.Reported(Other, out _);
             Assert.True(g.Acknowledged(id, Other));        // the radio's report is Other
             Reads(g, G.Reading.Idle);                      // and the reader reads the radio
+        }
+
+        [Fact]
+        public void An_unchanged_report_after_the_write_counts_as_one()
+        {
+            // Codex's eighth re-check, blocker 1, on the table: the radio
+            // reports a number equal to FlexLib's cache, so no Accept happens,
+            // only Reported. The answer then closes the window.
+            var (g, id) = InSent();
+            Assert.False(g.Reported(Was, out _));
+            Assert.True(g.Acknowledged(id, Was));
+            Assert.Equal(G.State.Idle, g.Now);
+        }
+
+        [Fact]
+        public void Only_running_out_of_time_calls_the_owner_back()
+        {
+            var (g, id) = InSent();
+            g.Acknowledged(id, Asked);
+            var (h, hid) = InSent();
+            h.Refused(hid, "error");
+            var (k, _) = InAwaitingReport();
+            k.Reported(Was, out _);
+            Assert.Empty(_gaveUp);
         }
 
         /// <summary>
@@ -408,6 +458,11 @@ namespace Radios.Tests
             Assert.True(text.Contains("== FrequencyEchoGuard.Reading.Pending\r\n                ? pending : LibFreqtoLong(slice.Freq);", StringComparison.Ordinal)
                         || text.Contains("== FrequencyEchoGuard.Reading.Pending\n                ? pending : LibFreqtoLong(slice.Freq);", StringComparison.Ordinal),
                 "a slice's value is not the pending request or the radio's report (repair round 8).");
+            Assert.True(text.Contains("slc.FrequencyReported += SliceFrequencyReported;", StringComparison.Ordinal)
+                        && text.Contains("if (EchoGuardFor(slice).Reported(LibFreqtoLong(mhz), out ulong requested)) Reconcile(slice, requested);", StringComparison.Ordinal),
+                "every report's arrival no longer reaches the guard (repair round 9).");
+            Assert.True(text.Contains("gaveUp: requested => q.Enqueue((FunctionDel)(() => Reconcile(s, requested)), \"TuneReconcile\")", StringComparison.Ordinal),
+                "running out of time no longer brings what is derived with it (repair round 9).");
             Assert.True(CountOf(text, "ObservedOrPending(s, LibFreqtoLong(s.Freq))") >= 3,
                 "the ActiveSlice refresh and both found-slice refreshes ask the guard (repair round 3).");
         }

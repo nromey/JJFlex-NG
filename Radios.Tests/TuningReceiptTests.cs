@@ -752,13 +752,14 @@ namespace Radios.Tests
             Bench b = NewBench();
             Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
             b.Rig.RXFrequency = 14_100_100;
-            typeof(FlexBase).GetMethod("NoteRemovingSlice", Private)!.Invoke(b.Rig, new object[] { a });
+            _ = (long)typeof(FlexBase).GetMethod("NoteRemovingSlice", Private)!.Invoke(b.Rig, new object[] { a })!;
             Drain(b.Rig);
             Assert.Empty(Tunes(b));
             EveryReaderSays(b.Rig, 14_100_000);
 
             string lb = System.IO.File.ReadAllText(System.IO.Path.Combine(FlexBasePartials.RepoRoot(), "Radios", "FlexBase.Listenback.cs"));
-            Assert.Contains("NoteRemovingSlice(leaving);", lb);
+            Assert.Contains("long leavingMark = leaving != null ? NoteRemovingSlice(leaving) : 0;", lb);
+            Assert.Contains("ClearRemovingSlice(leaving, leavingMark);", lb);
         }
 
         /// <summary>
@@ -1018,12 +1019,12 @@ namespace Radios.Tests
             var note = typeof(FlexBase).GetMethod("NoteRemovingSlice", Private)!;
             var clear = typeof(FlexBase).GetMethod("ClearRemovingSlice", Private)!;
 
-            note.Invoke(b.Rig, new object[] { a });
+            long mark = (long)note.Invoke(b.Rig, new object[] { a })!;
             b.Rig.RXFrequency = 14_100_100;
             Drain(b.Rig);
             Assert.Empty(Tunes(b));                          // control: the mark refuses
 
-            clear.Invoke(b.Rig, new object[] { a });
+            clear.Invoke(b.Rig, new object[] { a, mark });
             b.Rig.RXFrequency = 14_100_200;
             Drain(b.Rig);
             Assert.Equal(14_100_200UL, LastTune(b, a));      // cleared: tuned again
@@ -1080,6 +1081,202 @@ namespace Radios.Tests
             Assert.Equal(14_100_100UL, (ulong)rxHz.GetValue(b.Rig)!);
             AckTune(b, 0);
             Assert.Equal(14_250_000UL, (ulong)rxHz.GetValue(b.Rig)!);
+        }
+        // ── Repair round 9 (Codex's eighth re-check) ──
+
+        /// <summary>
+        /// Codex's blocker 1, its exact schedule: a step is answered after the
+        /// radio reported a genuine 14.25 (control: every reader says 14.25).
+        /// The next step is sent and the radio reports 14.25 AGAIN, unchanged,
+        /// so FlexLib raises no Freq notification; then the answer. That report
+        /// arrived, so every reader says 14.25 and the next step starts there.
+        /// </summary>
+        [Fact]
+        public void An_unchanged_report_before_the_answer_still_counts_as_the_radios_answer()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            Reports(a, 14.250000);
+            AckTune(b, 0);
+            EveryReaderSays(b.Rig, 14_250_000);              // control
+
+            b.Rig.RXFrequency = 14_250_100;
+            Drain(b.Rig);
+            Reports(a, 14.250000);                           // the same number again: no Freq notification
+            AckTune(b, 1);
+            EveryReaderSays(b.Rig, 14_250_000);
+            b.Rig.RXFrequency = b.Rig.RXFrequency + 100;
+            Drain(b.Rig);
+            Assert.Equal(14_250_100UL, LastTune(b, a));
+        }
+
+        /// <summary>
+        /// Codex's sustained variant: a run of steps, each followed by the radio
+        /// reporting the same clamped number, then the last step's answer. Every
+        /// reader ends on the radio's number.
+        /// </summary>
+        [Fact]
+        public void A_run_of_steps_held_at_one_reported_number_ends_on_that_number()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+
+            for (int i = 0; i < 20; i++)
+            {
+                b.Rig.RXFrequency = b.Rig.RXFrequency + 100;
+                Drain(b.Rig);
+                Reports(a, 14.350000);                       // changed the first time, unchanged after
+            }
+            AckTune(b, 19);
+            EveryReaderSays(b.Rig, 14_350_000);
+        }
+
+        /// <summary>
+        /// Codex's blocker 3, its exact schedule: a tune is sent, the radio
+        /// reports a genuine 14.25, the slice is removed, THEN the tune is
+        /// answered. The removal cleared the transmit caches; the late answer
+        /// must not bring them back. Control: before the answer they are clear.
+        /// </summary>
+        [Fact]
+        public void A_late_answer_for_a_removed_slice_does_not_bring_its_numbers_back()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            Set(a, "_active", false);                        // as Codex did: no filter adapter in the fixture to stop the handler
+            var remove = typeof(FlexBase).GetMethod("sliceRemoved", Private)!;
+
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            Reports(a, 14.250000);
+            remove.Invoke(b.Rig, new object[] { a, new ObservationBinding(new object(), new ConnectionAttempt("test-serial")) });
+            Assert.Equal(0UL, b.Rig.TXFrequency);            // control: the removal cleared it
+            AckTune(b, 0);
+            Drain(b.Rig);
+            Assert.Equal(0UL, b.Rig.TXFrequency);
+            Assert.False(SliceRoles.Of(b.Rig).HasTransmit);
+        }
+
+        /// <summary>
+        /// Codex's blocker 2, its exact schedule, through the real listenback
+        /// restore: the first removal of the listening slice is never answered
+        /// (the restore times out), a retry sends a second removal, and only
+        /// THEN does the first removal's error arrive. The second removal is
+        /// still outstanding, so the slice must still not be tuned. Control: the
+        /// same with the old error withheld.
+        /// </summary>
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task An_old_removal_attempts_late_error_does_not_clear_a_newer_attempts_mark(bool lateError)
+        {
+            using var c = new ListenbackRoundTwoTests.RadioCase();
+            c.Snapshot();
+            int removals = 0, firstSeq = 0;
+            c.F.Vendor.Transport.CommandWritten = cmd =>
+            {
+                if (cmd != "slice remove 0") { c.Respond(cmd); return; }
+                removals++;
+                if (removals == 1) { firstSeq = c.F.Vendor.LastSequence; return; }   // never answered
+                if (lateError) c.F.Vendor.Reply(firstSeq, 0x50000015, "");           // the old error, now
+            };
+            Assert.False(await c.Pump(c.F.Rig.RestoreListenbackSnapshotAsync(c.F.Rig.PendingListenbackRecovery, true)));
+            Assert.False(await c.Pump(c.F.Rig.RestoreListenbackSnapshotAsync(c.F.Rig.PendingListenbackRecovery, true)));
+            Assert.Equal(2, removals);
+
+            var mine = (List<Slice>)typeof(FlexBase).GetField("mySlices", Private)!.GetValue(c.F.Rig)!;
+            lock (mine) Assert.Contains(c.Ears, mine);
+            typeof(FlexBase).GetField("_RXVFO", Private)!.SetValue(c.F.Rig, mine.IndexOf(c.Ears));
+            c.F.Vendor.Transport.Written.Clear();
+            c.F.Rig.RXFrequency = 14_200_100;
+            while (c.F.Rig.q.Count > 0) RunOne(c.F.Rig);
+            Assert.DoesNotContain(c.F.Vendor.Transport.Commands, x => x.StartsWith("slice tune 0 ", StringComparison.Ordinal));
+        }
+
+        /// <summary>
+        /// The follow-up: when the window ends by running out of time rather
+        /// than by an answer, what is derived from the frequency follows the
+        /// radio too. A genuine 14.25 is kept out while our tune is unanswered;
+        /// the answer is lost; at the give-up the receive cache and the
+        /// where-you-are record become 14.25.
+        /// </summary>
+        [Fact]
+        public void Running_out_of_time_brings_what_is_derived_with_it()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            long now = 0;
+            Clock(b.Rig, a, () => now);
+            var rxHz = typeof(FlexBase).GetProperty("_RXFrequency", Private)!;
+
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            Reports(a, 14.100100);
+            Reports(a, 14.250000);                           // genuine, kept out
+            Assert.Equal(14_100_100UL, (ulong)rxHz.GetValue(b.Rig)!);
+            now = FrequencyEchoGuard.GiveUpMs;               // the answer never comes
+            Assert.Equal(14_250_000UL, b.Rig.RXFrequency);   // the reading follows the radio
+            Drain(b.Rig);                                    // and the follow-up queued at the give-up runs
+            Assert.Equal(14_250_000UL, (ulong)rxHz.GetValue(b.Rig)!);
+        }
+        /// <summary>
+        /// Each removal mark is one attempt: clearing an older attempt's mark
+        /// leaves a newer attempt's standing; clearing the newer one clears it.
+        /// </summary>
+        [Fact]
+        public void Clearing_an_older_removal_attempt_leaves_a_newer_attempts_mark()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            var note = typeof(FlexBase).GetMethod("NoteRemovingSlice", Private)!;
+            var clear = typeof(FlexBase).GetMethod("ClearRemovingSlice", Private)!;
+
+            long first = (long)note.Invoke(b.Rig, new object[] { a })!;
+            long second = (long)note.Invoke(b.Rig, new object[] { a })!;
+            clear.Invoke(b.Rig, new object[] { a, first });
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            Assert.Empty(Tunes(b));
+            clear.Invoke(b.Rig, new object[] { a, second });
+            b.Rig.RXFrequency = 14_100_200;
+            Drain(b.Rig);
+            Assert.Equal(14_100_200UL, LastTune(b, a));
+        }
+
+        /// <summary>
+        /// The FlexLib patch (MIGRATION.md item 22): every rf_frequency status
+        /// raises FrequencyReported, an unchanged one included, and a changed
+        /// one raises it before the Freq notification. The control: an unchanged
+        /// status raises no Freq notification, which is the vendor behaviour
+        /// the patch exists to see past.
+        /// </summary>
+        [Fact]
+        public void FlexLib_reports_every_frequency_status_including_an_unchanged_one()
+        {
+            var v = new VendorRadioFixture("reported-" + Guid.NewGuid().ToString("N"));
+            Slice s = v.NewSlice(0, Handle, 14.100, "USB");
+            var events = new List<string>();
+            s.PropertyChanged += (_, e) => { if (e.PropertyName == "Freq") events.Add("Freq " + s.Freq.ToString("F6", CultureInfo.InvariantCulture)); };
+            s.FrequencyReported += (sl, mhz) => events.Add("Reported " + mhz.ToString("F6", CultureInfo.InvariantCulture));
+
+            s.StatusUpdate("rf_frequency=14.100000");
+            s.StatusUpdate("rf_frequency=14.250000");
+            Assert.Equal(new[] { "Reported 14.100000", "Reported 14.250000", "Freq 14.250000" }, events);
+        }
+
+        /// <summary>The FlexLib patch is comment-marked where it is raised, and the event is declared once.</summary>
+        [Fact]
+        public void The_FlexLib_frequency_report_patch_is_marked_and_in_place()
+        {
+            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(FlexBasePartials.RepoRoot(), "FlexLib_API", "FlexLib", "Slice.cs"));
+            Assert.Contains("public event Action<Slice, double> FrequencyReported;", src);
+            Assert.Contains("// JJFlex patch: an equal report still arrived.", src);
+            Assert.Contains("// JJFlex patch: report every arrival, before the Freq notification, so a throwing Freq subscriber cannot hide it.", src);
+            Assert.Equal(2, src.Split("FrequencyReported?.Invoke(this, temp);").Length - 1);
+            string migration = System.IO.File.ReadAllText(System.IO.Path.Combine(FlexBasePartials.RepoRoot(), "MIGRATION.md"));
+            Assert.Contains("Slice frequency report arrival", migration);
         }
     }
 }

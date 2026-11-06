@@ -6544,6 +6544,8 @@ namespace Radios
             {
                 mySliceAdded = true;
                 slc.PropertyChanged += new PropertyChangedEventHandler(slicePropertyChangedHandler);
+                // Every frequency report's ARRIVAL, equal ones included (#642, repair round 9).
+                slc.FrequencyReported += SliceFrequencyReported;
                 slc.PropertyChanged += new PropertyChangedEventHandler((s2, e2) =>
                 {
                     // One field per notification: a mode report never blesses
