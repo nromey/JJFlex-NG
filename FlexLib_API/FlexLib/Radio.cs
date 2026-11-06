@@ -9682,10 +9682,18 @@ namespace Flex.Smoothlake.FlexLib
         // admitted the write (a CommandWritePin can refuse it). True when it went out.
         private bool SendCommandForced(string command, Action applyCache)
         {
+            // A write counts as sent only once its writer returned without an
+            // exception (CommandWritePin.Written, reported by the adapter after the
+            // writer; Codex's #596 B15). An unpinned caller gets a pin of its own,
+            // on the current connection, so its outcome is known too.
             var pin = CommandWritePin.Current;
-            int before = pin?.Written ?? 0;
+            var current = _commandCommunication?.CurrentConnection;
+            using var own = pin == null && current != null ? CommandWritePin.Pin(current) : null;
+            var watched = pin ?? own;
+            if (watched == null) { SendCommand(command); return false; }
+            int before = watched.Written;
             int seq = SendCommand(command);
-            bool sent = seq != 0 && (pin == null || pin.Written > before);
+            bool sent = seq != 0 && watched.Written > before;
             if (sent) applyCache();
             return sent;
         }

@@ -102,7 +102,14 @@ public sealed class CommandWritePin : IDisposable
     /// <summary>The first refusal of a write under this pin, or null.</summary>
     public string? Refusal { get; private set; }
 
-    /// <summary>Writes admitted under this pin.</summary>
+    /// <summary>Writes admitted under this pin (the gate said yes; nothing is yet known about the bytes).</summary>
+    public int Admitted { get; private set; }
+
+    /// <summary>
+    /// JJFlex patch (MIGRATION.md item 22): writes whose writer RETURNED without an
+    /// exception, the bytes handed to the stream. Never counted at admission: a
+    /// writer that is missing or throws refuses the pin instead (Codex's #596 B15).
+    /// </summary>
     public int Written { get; private set; }
 
     internal void Refuse(string why)
@@ -111,7 +118,13 @@ public sealed class CommandWritePin : IDisposable
         try { OnRefused?.Invoke(why); } catch { }
     }
 
-    internal void Admit() => Written++;
+    internal void Admit() => Admitted++;
+
+    internal void Delivered(bool ok, string? why)
+    {
+        if (ok) Written++;
+        else Refuse(why ?? "the write failed");
+    }
 
     public void Dispose()
     {
@@ -135,6 +148,17 @@ public abstract class CommandCommunicationBase : ICommandCommunication
     public abstract bool Connect(System.Net.IPAddress radioIp, int radioPort, int srcPort, out CommandConnection? connection);
     public abstract void Disconnect();
     public abstract void Write(string msg);
+
+    /// <summary>
+    /// JJFlex patch (MIGRATION.md item 22): each adapter reports a pinned write's
+    /// outcome AFTER its writer, against the pin that was current when the write
+    /// began. <paramref name="ok"/> false (no writer, a writer that threw) refuses the
+    /// pin, so the caller knows the command did not go out.
+    /// </summary>
+    protected static void ReportWrite(CommandWritePin? pin, bool ok, string? why = null) => pin?.Delivered(ok, why);
+
+    /// <summary>JJFlex patch (MIGRATION.md item 22): the pin current on this thread, for an adapter to report its write against.</summary>
+    protected static CommandWritePin? CurrentPin => CommandWritePin.Current;
 
     /// <summary>
     /// JJFlex patch: write-time gate (MIGRATION.md item 21). Called by each

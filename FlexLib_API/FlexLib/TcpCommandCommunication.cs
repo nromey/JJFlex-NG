@@ -135,12 +135,19 @@ public class TcpCommandCommunication : CommandCommunicationBase
         // reader's dispatch gate while sending; retain only this attempt's writer.
         var attempt = Volatile.Read(ref _attempt);
         // JJFlex patch: write-time gate (MIGRATION.md item 21), against the attempt written.
+        var pin = CommandWritePin.Current;
         if (!AdmitWrite(attempt?.Connection)) return;
         var writer = attempt?.Writer;
-        if (attempt?.Connection.State != CommandConnectionState.Connected || writer == null) return;
-        try { writer.Write(msg); }
+        // JJFlex patch: the write's outcome, after the writer (MIGRATION.md item 22).
+        if (attempt?.Connection.State != CommandConnectionState.Connected || writer == null)
+        {
+            ReportWrite(pin, false, "the command connection had no writer");
+            return;
+        }
+        try { writer.Write(msg); ReportWrite(pin, true); }
         catch (Exception ex)
         {
+            ReportWrite(pin, false, "the write failed: " + ex.Message);
             Debug.WriteLine($"Error writing to radio TCP: {ex}");
             _ = Task.Run(() => FinishAttempt(attempt));
         }
@@ -150,12 +157,19 @@ public class TcpCommandCommunication : CommandCommunicationBase
     {
         var attempt = Volatile.Read(ref _attempt);
         // JJFlex patch: write-time gate (MIGRATION.md item 21), decided before the first await.
+        var pin = CommandWritePin.Current;
         if (!AdmitWrite(attempt?.Connection)) return;
         var writer = attempt?.Writer;
-        if (attempt?.Connection.State != CommandConnectionState.Connected || writer == null) return;
-        try { await writer.WriteAsync(msg).ConfigureAwait(false); }
+        // JJFlex patch: the write's outcome, after the writer, on the pin captured above (item 22).
+        if (attempt?.Connection.State != CommandConnectionState.Connected || writer == null)
+        {
+            ReportWrite(pin, false, "the command connection had no writer");
+            return;
+        }
+        try { await writer.WriteAsync(msg).ConfigureAwait(false); ReportWrite(pin, true); }
         catch (Exception ex)
         {
+            ReportWrite(pin, false, "the write failed: " + ex.Message);
             Debug.WriteLine($"Error writing to radio TCP: {ex}");
             _ = Task.Run(() => FinishAttempt(attempt));
         }

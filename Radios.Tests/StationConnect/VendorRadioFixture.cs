@@ -75,12 +75,25 @@ namespace Radios.Tests.StationConnect
         }
 
         public Action<string>? CommandWritten;
+
+        /// <summary>The next admitted write fails before its bytes, as a throwing writer does (repair round 9).</summary>
+        public volatile bool FailNextWrite;
         public override void Write(string msg)
         {
             // The write-time gate (MIGRATION.md item 21) as the real adapters
-            // apply it: this fake's one attempt is its current connection.
+            // apply it: this fake's one attempt is its current connection. And
+            // the outcome, after the "writer" (item 22): a write the test makes
+            // fail is not recorded and refuses its pin, as a throwing writer does.
+            var pin = CurrentPin;
             if (!AdmitWrite(CurrentConnection)) return;
+            if (FailNextWrite)
+            {
+                FailNextWrite = false;
+                ReportWrite(pin, false, "the write failed (test)");
+                return;
+            }
             lock (Written) Written.Add(msg ?? "");
+            ReportWrite(pin, true);
             CommandWritten?.Invoke(CommandText(msg ?? ""));
         }
 

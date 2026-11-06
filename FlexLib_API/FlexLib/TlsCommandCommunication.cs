@@ -89,7 +89,15 @@ public class TlsCommandCommunication : CommandCommunicationBase
         // JJFlex patch: no dispatch gate while a caller may own a vendor collection lock.
         var session = System.Threading.Volatile.Read(ref _session);
         // JJFlex patch: write-time gate (MIGRATION.md item 21), against the session written.
+        var pin = CommandWritePin.Current;
         if (!AdmitWrite(session?.Connection)) return;
-        if (session?.Connection.State == CommandConnectionState.Connected) session.Client.Write(msg);
+        // JJFlex patch: the write's outcome, after the writer (MIGRATION.md item 22).
+        if (session?.Connection.State != CommandConnectionState.Connected)
+        {
+            ReportWrite(pin, false, "the command connection is not connected");
+            return;
+        }
+        bool ok = session.Client.TryWrite(msg, out string? failure);
+        ReportWrite(pin, ok, failure);
     }
 }

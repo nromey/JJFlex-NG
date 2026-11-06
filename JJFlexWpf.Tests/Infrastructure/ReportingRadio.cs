@@ -114,7 +114,11 @@ internal sealed class ReportingRadio : IDisposable
         public override void Disconnect() { }
 
         // The write-time gate (MIGRATION.md item 21), as the real adapters apply it.
-        public override void Write(string msg) { AdmitWrite(CurrentConnection); }
+        public override void Write(string msg)
+        {
+            var pin = CurrentPin;
+            if (AdmitWrite(CurrentConnection)) ReportWrite(pin, true);
+        }
 
         public void Deliver(string line)
         {

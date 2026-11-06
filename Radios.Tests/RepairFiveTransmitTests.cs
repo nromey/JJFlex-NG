@@ -810,6 +810,18 @@ namespace Radios.Tests
             Assert.Contains("public bool SendTuneOff() => SendCommandForced(\"transmit tune 0\"", radio);
             Assert.Contains("public bool SendMicInput(string input) => SendCommandForced(\"mic input \"", radio);
             Assert.Contains("22. **Forced writes for our unkeys and restores", System.IO.File.ReadAllText(Repo("MIGRATION.md")));
+            // Round 9 (B15): a write counts only after its writer returned.
+            string connection = System.IO.File.ReadAllText(Repo("FlexLib_API/FlexLib/CommandConnection.cs"));
+            string tcp = System.IO.File.ReadAllText(Repo("FlexLib_API/FlexLib/TcpCommandCommunication.cs"));
+            string tls = System.IO.File.ReadAllText(Repo("FlexLib_API/FlexLib/TlsCommandCommunication.cs"));
+            string ssl = System.IO.File.ReadAllText(Repo("FlexLib_API/FlexLib/SslClientTls12.cs"));
+            Assert.Contains("protected static void ReportWrite(CommandWritePin? pin, bool ok, string? why = null)", connection);
+            Assert.Contains("internal void Admit() => Admitted++;", connection);
+            Assert.Equal(2, Count(tcp, "ReportWrite(pin, true);"));
+            Assert.Contains("bool ok = session.Client.TryWrite(msg, out string? failure);", tls);
+            Assert.Contains("public bool TryWrite(string message, out string? failure)", ssl);
+            Assert.Contains("using var own = pin == null && current != null ? CommandWritePin.Pin(current) : null;", radio);
+            Assert.Contains("A write counts only when its writer returned", System.IO.File.ReadAllText(Repo("MIGRATION.md")));
         }
 
         [Fact]
@@ -933,6 +945,115 @@ namespace Radios.Tests
             Assert.Empty(Commands("xmit"));
             Assert.True(_f.Vendor.Radio.Mox);                       // as the radio last said: a carrier is up
             Assert.DoesNotContain("PutBackUnsentFlag", System.IO.File.ReadAllText(Repo("Radios/FlexBase.PinnedWrites.cs")));
+        }
+
+        // ── Round 9: a write counts only when its writer returned (Codex's #596 B15) ──
+
+        /// <summary>A stream whose first write throws, as a socket dropping under a writer does; later writes go through.</summary>
+        private sealed class FailingOnceStream : System.IO.MemoryStream
+        {
+            private bool _failed;
+            public override void Write(byte[] buffer, int offset, int count)
+            {
+                if (!_failed) { _failed = true; throw new System.IO.IOException("the socket went (test)"); }
+                base.Write(buffer, offset, count);
+            }
+            public override void Write(ReadOnlySpan<byte> buffer)
+            {
+                if (!_failed) { _failed = true; throw new System.IO.IOException("the socket went (test)"); }
+                base.Write(buffer);
+            }
+        }
+
+        [Fact]
+        public void The_real_TCP_adapter_counts_a_write_only_when_its_writer_returned()
+        {
+            var (tcp, connection, _) = TcpOnMemory();
+            var attempt = typeof(TcpCommandCommunication).GetField("_attempt", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(tcp)!;
+            var writerField = attempt.GetType().GetField("Writer")!;
+
+            writerField.SetValue(attempt, new System.IO.StreamWriter(new FailingOnceStream()) { AutoFlush = true });
+            using (var pin = CommandWritePin.Pin(connection))
+            {
+                tcp.Write("C1|xmit 0");
+                Assert.Equal(1, pin.Admitted);
+                Assert.Equal(0, pin.Written);
+                Assert.NotNull(pin.Refusal);
+            }
+
+            var (tcp2, connection2, _) = TcpOnMemory();
+            var attempt2 = typeof(TcpCommandCommunication).GetField("_attempt", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(tcp2)!;
+            attempt2.GetType().GetField("Writer")!.SetValue(attempt2, null);   // no writer
+            using (var pin = CommandWritePin.Pin(connection2))
+            {
+                tcp2.Write("C1|xmit 0");
+                Assert.Equal(0, pin.Written);
+                Assert.NotNull(pin.Refusal);
+            }
+
+            var (tcp3, connection3, bytes3) = TcpOnMemory();
+            using (var pin = CommandWritePin.Pin(connection3))
+            {
+                tcp3.Write("C1|xmit 0");                          // the control: written and counted
+                Assert.Equal(1, pin.Written);
+                Assert.Null(pin.Refusal);
+            }
+            Assert.True(bytes3.Length > 0);
+        }
+
+        [Fact]
+        public void The_TLS_client_says_when_it_could_not_write()
+        {
+            var client = new SslClientTls12("127.0.0.1", "4992", 0, startPingThread: false, validateCert: false);
+            Assert.False(client.TryWrite("C1|xmit 0", out string? failure));     // no writer: never connected
+            Assert.NotNull(failure);
+        }
+
+        [Fact]
+        public void A_sends_release_whose_write_fails_keeps_our_key_owed_and_the_kill_after_it_unkeys()
+        {
+            // Codex's B15: the OFF admitted but dropped by its writer used to
+            // retire our key, so the kill found nothing to send.
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            OurKeyWentOutUnderAStaleReceiveReport(() => send.Transmit = true);
+            _f.Vendor.Transport.FailNextWrite = true;
+            send.Transmit = false;
+            Drained();
+            Assert.Empty(Commands("xmit 0"));
+            Assert.True((bool)Get(_f.Rig, "_ownKeyRequested")!, "a failed OFF retired our key");
+            TransmitKillSwitch.DropCarrier(_f.Rig, TransmitKillSwitch.Carrier.Mox);
+            Drained();
+            Assert.Single(Commands("xmit 0"));
+            Assert.False((bool)Get(_f.Rig, "_ownKeyRequested")!);
+        }
+
+        [Fact]
+        public void The_teardowns_tune_off_whose_write_fails_keeps_our_tune_owed_and_the_kill_after_it_sends_it()
+        {
+            OurTuneWentOutUnderAStaleTuneOffReport();
+            _f.Vendor.Transport.FailNextWrite = true;
+            TeardownTuneOff();
+            Drained();
+            Assert.Empty(Commands("transmit tune 0"));
+            Assert.True((bool)Get(_f.Rig, "_ownTuneRequested")!, "a failed tune OFF retired our tune");
+            TransmitKillSwitch.DropCarrier(_f.Rig, TransmitKillSwitch.Carrier.Tune);
+            Drained();
+            Assert.Single(Commands("transmit tune 0"));
+        }
+
+        [Fact]
+        public void An_ordinary_unkey_whose_write_fails_keeps_our_key_owed_and_the_next_one_sends()
+        {
+            var send = new FlexBaseVoiceMessageRig(_f.Rig);
+            OurKeyWentOutUnderAStaleReceiveReport(() => send.Transmit = true);
+            _f.Vendor.Transport.FailNextWrite = true;
+            _f.Rig.Transmit = false;
+            Drained();
+            Assert.Empty(Commands("xmit 0"));
+            Assert.True((bool)Get(_f.Rig, "_ownKeyRequested")!);
+            _f.Rig.Transmit = false;
+            Drained();
+            Assert.Single(Commands("xmit 0"));
         }
 
         private static int Count(string text, string what)

@@ -257,6 +257,17 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     - **Re-apply after an upgrade.** Merge, never blind-copy, `Radio.cs`. The
       members are additions; they use the private `_mox`, `_txTune`, `_micInput`
       and `SendCommand` and must be updated if those are renamed.
+    - **A write counts only when its writer returned (2026-11-06, Codex's #596
+      B15).** `CommandWritePin.Written` is counted by each adapter AFTER its writer,
+      through `CommandCommunicationBase.ReportWrite`; admission is `Admitted`. A
+      missing writer or a writer that throws refuses the pin. So keep, as JJFlex
+      patches marked "item 22": `ReportWrite` and `CommandWritePin.Delivered` and
+      `Admitted` in `CommandConnection.cs`; the outcome reporting in
+      `TcpCommandCommunication.Write`, `.WriteAsync` and `TlsCommandCommunication.Write`;
+      `SslClientTls12.TryWrite` (its `Write` now calls it); and
+      `SendCommandForced`'s own pin for an unpinned caller. Otherwise a dropped OFF
+      reads as sent, the app retires its outstanding key, and a later kill sends
+      nothing.
     - **When it could be removed.** If FlexLib's setters stop skipping equal values
       for commands, or offer an always-send variant.
 
