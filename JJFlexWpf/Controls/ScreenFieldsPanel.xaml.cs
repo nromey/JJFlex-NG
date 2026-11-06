@@ -282,6 +282,9 @@ public partial class ScreenFieldsPanel : UserControl
 
         // Subscribe to mode changes for immediate DSP refresh
         rig.ModeChanged += OnModeChanged;
+        // A refused AGC field write (the mode changed under it) refreshes
+        // the field at once rather than at the next poll (#888 round two).
+        rig.AgcFieldWentStale += OnAgcFieldWentStale;
 
         // Create PC-side audio processing pipeline (works on ALL radios)
         _audioPipeline?.Dispose();
@@ -296,6 +299,22 @@ public partial class ScreenFieldsPanel : UserControl
 
         // Force initial poll to populate values
         PollUpdate();
+    }
+
+    /// <summary>
+    /// An AGC field write was refused on the command loop because the AGC
+    /// mode no longer gave the field that meaning; FlexBase has said the
+    /// field's current label and value. Bring the field itself up to date.
+    /// </summary>
+    private void OnAgcFieldWentStale(string sentence)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_rig == null) return;
+            _polling = true;
+            try { RefreshAgcField(); }
+            finally { _polling = false; }
+        });
     }
 
     private void OnModeChanged(string newMode)
@@ -318,6 +337,7 @@ public partial class ScreenFieldsPanel : UserControl
         if (_rig != null)
         {
             _rig.ModeChanged -= OnModeChanged;
+            _rig.AgcFieldWentStale -= OnAgcFieldWentStale;
             _rig.AudioPostProcessor = null;
         }
         // Track I: unhook the TX conditioning chain alongside the RX pipeline.
@@ -1784,15 +1804,7 @@ public partial class ScreenFieldsPanel : UserControl
         };
         _agcModeControl.SelectedIndex = agcIndex;
 
-        // #888: one field whose meaning follows the mode the radio reports.
-        // The value first, then the label, so a rename carries the new value.
-        bool agcOffLevel = FlexBase.AgcFieldIsOffLevel(agcMode);
-        _agcThresholdControl.Value = _rig.AgcFieldValue(agcOffLevel);
-        if (agcOffLevel != _agcFieldIsOffLevel)
-        {
-            _agcFieldIsOffLevel = agcOffLevel;
-            _agcThresholdControl.Label = FlexBase.AgcFieldLabel(agcOffLevel);
-        }
+        RefreshAgcField();
 
         bool squelchOn = _rig.Squelch == FlexBase.OffOnValues.on;
         _squelchCheck.IsChecked = squelchOn;
@@ -1815,6 +1827,23 @@ public partial class ScreenFieldsPanel : UserControl
             ("filterHigh", filterHigh), ("filterWidth", Radios.HertzSpeech.DisplayedWidth(filterWidth)));
         _rxFilterWidthDisplay.Text = widthText;
         System.Windows.Automation.AutomationProperties.SetName(_rxFilterWidthDisplay, widthText);
+    }
+
+    /// <summary>
+    /// #888: one AGC field whose meaning follows the mode the radio reports.
+    /// The value first, then the label, so a rename carries the new value.
+    /// </summary>
+    private void RefreshAgcField()
+    {
+        if (_rig == null) return;
+        var agcMode = _rig.AGCSpeed;
+        bool agcOffLevel = FlexBase.AgcFieldIsOffLevel(agcMode);
+        _agcThresholdControl.Value = _rig.AgcFieldValue(agcOffLevel);
+        if (agcOffLevel != _agcFieldIsOffLevel)
+        {
+            _agcFieldIsOffLevel = agcOffLevel;
+            _agcThresholdControl.Label = FlexBase.AgcFieldLabel(agcOffLevel);
+        }
     }
 
     /// <summary>

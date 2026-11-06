@@ -2199,6 +2199,11 @@ namespace Radios.Tests
                 "audio.filter_layer.width",
                 "audio.filter_layer.tx_width",
                 "settings.filter.width_hertz_wide",
+                // Junk box 2026-11-06 rulings round two (#798, Codex B1-R): a
+                // connect whose planned account lost its session before the
+                // dial is refused, never dialled through another account.
+                // DRAFT prose.
+                "connect.failure.smartlink_planned_account_dropped",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
@@ -2211,7 +2216,9 @@ namespace Radios.Tests
             // four edge-mode strings the double-tap and "cancelled" used (#748).
             // 3083 since the same round classified the filter layer's two
             // width readouts (#747, J13).
-            Assert.Equal(3083, unclassified);
+            // 3082 since its round two removed the edge-mode timeout's
+            // "Filter edge mode ended" (#748; every exit says off).
+            Assert.Equal(3082, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

@@ -164,7 +164,9 @@ namespace Radios.Tests
 
             // And the dial resolves through the plan's account.
             string send = Body(src, "private bool sendRemoteConnect(Radio r)");
-            Assert.Contains("BrokeringSessionForConnect(r.Serial, out bool viaOwningAccount)", send, StringComparison.Ordinal);
+            Assert.Contains("BrokeringSessionForConnect(r.Serial, out bool viaOwningAccount, out string plannedAccount)", send, StringComparison.Ordinal);
+            // ... and refuses, rather than falling through, when that account's session is gone (B1-R).
+            Assert.Contains("if (session == null && plannedAccount != null)", send, StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -201,6 +203,109 @@ namespace Radios.Tests
             CurrentAccountField!.SetValue(rig, signedIn);
 
             Assert.Same(signedIn, rig.ResolveRegistrationAccount(Radio6300, Saved(Operator)));
+        }
+
+        // ------------------------------------------------------------------
+        // Round two (Codex's re-check of 671109bd)
+        // ------------------------------------------------------------------
+
+        private static readonly System.Reflection.MethodInfo SendRemoteConnect =
+            typeof(FlexBase).GetMethod("sendRemoteConnect", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+
+        /// <summary>
+        /// B1-R, Codex's disconnect probe as a test. The plan named the owner
+        /// and the preparation adopted it; then the owner's held session
+        /// dropped before the dial. The dial used to fall through to the bank
+        /// and go out through the CLUB, unannounced. A plan that named an
+        /// account dials through that account or not at all: here, not at
+        /// all, with a spoken reason, and no other account's session is asked
+        /// to dial.
+        /// </summary>
+        [Fact]
+        public void A_planned_account_that_drops_before_the_dial_is_refused_and_never_dialled_through_another()
+        {
+            Listed(Operator);
+            var (ownerSession, ownerWan) = Listed(Owner, Radio6300);
+            var (_, clubWan) = Listed(Club, Radio6300);
+            Prefer(Owner);
+            try
+            {
+                var rig = NewRig();
+                rig.ShowAccountSelector = _ => (false, null!, false);
+                Assert.True(rig.PrepareSmartLinkForSerial(Radio6300, allowInteractiveLogin: false, savedAccounts: Saved(Operator, Owner, Club)));
+                // The positive control: healthy, the dial goes through the owner.
+                Assert.Equal(Owner, rig.BrokeringSessionForConnect(Radio6300, out _)?.AccountId);
+
+                ownerSession.Disconnect();
+                WaitUntil(() => !ownerSession.IsConnected, "the owner's held session never went down");
+                // The bank still names the club, so a fall-through would reach it.
+                Assert.Equal(Club, FlexBase.WanAccountForSerial(Radio6300));
+
+                Assert.Null(rig.BrokeringSessionForConnect(Radio6300, out _));
+
+                int clubDials = clubWan.SendConnectMessageCallCount, ownerDials = ownerWan.SendConnectMessageCallCount;
+                bool dialled = (bool)SendRemoteConnect.Invoke(rig, new object[] { WanRadio(Radio6300) })!;
+                Assert.False(dialled);
+                Assert.Equal(clubDials, clubWan.SendConnectMessageCallCount);
+                Assert.Equal(ownerDials, ownerWan.SendConnectMessageCallCount);
+                Assert.NotNull(rig.LastConnectFailureReport);
+                Assert.Equal(ConnectFailureClass.SessionSetupFailed, rig.LastConnectFailureReport!.Class);
+                // DRAFT wording; the radio's name falls back to its serial here.
+                Assert.Equal(
+                    "SmartLink lost the connection for owner@example.com before 1111-2222-6300-4444 was reached, so the radio was not contacted through another account. Connect again to try.",
+                    rig.LastConnectFailureReport.SpokenSummary);
+            }
+            finally { PreferNobody(); }
+        }
+
+        /// <summary>
+        /// Codex's three-listing controls: the operator's active session, the
+        /// owner's and the club's all list the radio, the owner chosen, in
+        /// both orders. Everything says the owner.
+        /// </summary>
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Three_listing_accounts_agree_on_the_chosen_one_in_either_order(bool clubFirst)
+        {
+            Listed(Operator, Radio6300);
+            if (clubFirst) Listed(Club, Radio6300);
+            Listed(Owner, Radio6300);
+            if (!clubFirst) Listed(Club, Radio6300);
+            _coordinator.EnsureSessionForAccount(Operator);
+            Prefer(Owner);
+            try
+            {
+                AllAre(Owner, WalkTheConnect(NewRig(), Operator, Owner, Club));
+            }
+            finally { PreferNobody(); }
+        }
+
+        /// <summary>
+        /// F1-R. A held-session connect adopted an email-only account object
+        /// in place of this rig's own unsaved sign-in for the same account,
+        /// throwing away its tokens. The rig's own object is kept.
+        /// </summary>
+        [Fact]
+        public void Adopting_a_held_session_keeps_this_rigs_own_sign_in_for_that_account()
+        {
+            Listed(Owner, Radio6300);
+            Prefer(Owner);
+            try
+            {
+                var rig = NewRig();
+                var signedIn = new SmartLinkAccount { Email = Owner, FriendlyName = Owner, RefreshToken = "offline-token-marker" };
+                CurrentAccountField!.SetValue(rig, signedIn);
+                rig.ShowAccountSelector = _ => (false, null!, false);
+
+                Assert.True(rig.PrepareSmartLinkForSerial(Radio6300, allowInteractiveLogin: false, savedAccounts: Saved(Operator)));
+
+                Assert.Same(signedIn, CurrentAccountField.GetValue(rig));
+                var registering = rig.ResolveRegistrationAccount(Radio6300, Saved(Operator));
+                Assert.Same(signedIn, registering);
+                Assert.Equal("offline-token-marker", registering!.RefreshToken);
+            }
+            finally { PreferNobody(); }
         }
     }
 }

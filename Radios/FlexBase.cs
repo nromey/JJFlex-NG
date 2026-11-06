@@ -10646,19 +10646,58 @@ namespace Radios
         /// </summary>
         public static bool AgcFieldIsOffLevel(AGCMode mode) => mode == AGCMode.Off;
 
+        /// <summary>
+        /// Raised, with the sentence said, when an AGC field write is refused
+        /// because the field's meaning no longer matches the radio's AGC mode
+        /// (round two, Codex F2-R). Home refreshes the field on it.
+        /// </summary>
+        public event Action<string> AgcFieldWentStale;
+
         /// <summary>The AGC field's value: the off gain when <paramref name="offLevel"/>, else the threshold.</summary>
         public int AgcFieldValue(bool offLevel) => offLevel ? AGCOffLevel : AGCThreshold;
 
         /// <summary>
         /// Write the AGC field. <paramref name="offLevel"/> is what the field
-        /// SHOWED when the operator moved it, not a fresh read of the mode, so
-        /// a value is always written to the setting its label named.
+        /// SHOWED when the operator moved it. The write is checked again AT
+        /// THE WRITE, on the command loop (round two, Codex F2-R): if the
+        /// radio's AGC mode no longer gives the field that meaning, because
+        /// the mode changed before the field caught up or while the write
+        /// waited in the queue, nothing is written. A value chosen as an off
+        /// gain is not a threshold, and the other way round. The field's
+        /// current label and value are said instead, and
+        /// <see cref="AgcFieldWentStale"/> asks Home to refresh it.
         /// </summary>
         public void SetAgcFieldValue(bool offLevel, int value)
         {
-            if (offLevel) AGCOffLevel = value;
-            else AGCThreshold = value;
+            if (!HasActiveSlice) return;
+            NoteOperatorChangedRadioSetting(offLevel ? "AGCOffLevel" : "AGCThreshold");
+            q.Enqueue((FunctionDel)(() => WriteAgcField(offLevel, value)), "AgcField");
         }
+
+        /// <summary>The AGC field's write, on the command loop; see <see cref="SetAgcFieldValue"/>.</summary>
+        private void WriteAgcField(bool offLevel, int value)
+        {
+            var slice = theRadio?.ActiveSlice;
+            if (slice == null) return;
+            bool offNow = AgcFieldIsOffLevel(slice.AGCMode);
+            if (offNow != offLevel)
+            {
+                string sentence = AgcFieldSentence(offNow, offNow ? slice.AGCOffLevel : slice.AGCThreshold);
+                Tracing.TraceLine(
+                    $"WriteAgcField: refused {(offLevel ? "off gain" : "threshold")} {value}, AGC is now {slice.AGCMode}; said \"{sentence}\"",
+                    TraceLevel.Info);
+                ScreenReaderOutput.Speak(sentence, VerbosityLevel.Terse, true);
+                try { AgcFieldWentStale?.Invoke(sentence); }
+                catch (Exception ex) { Tracing.TraceLine("AgcFieldWentStale: " + ex.Message, TraceLevel.Error); }
+                return;
+            }
+            if (offLevel) slice.AGCOffLevel = value;
+            else slice.AGCThreshold = value;
+        }
+
+        /// <summary>The AGC field's current label and value, as the field itself says them: "AGC Threshold 65".</summary>
+        public static string AgcFieldSentence(bool offLevel, int value)
+            => Lexicon.Get("audio.field.spoken_value", ("label", AgcFieldLabel(offLevel)), ("value", value), ("unit", ""));
 
         /// <summary>The AGC field's label, naming what it currently is. "AGC Off Gain" is DRAFT wording.</summary>
         public static string AgcFieldLabel(bool offLevel)

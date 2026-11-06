@@ -2531,20 +2531,23 @@ namespace Radios
             viaOwningAccount = false;
             var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
 
-            // The account this connect's plan chose and named comes first
-            // (Codex B1 on the 2026-11-06 integration pass). The serial-keyed
-            // bank below is written by whichever held list was replayed LAST,
-            // so on a radio two held accounts list, the plan announced one
-            // account and the wire went through the other.
+            // The account this connect's plan chose and named, and ONLY that
+            // account (Codex B1 on the 2026-11-06 integration pass, and B1-R on
+            // the rulings round). The serial-keyed bank below is written by
+            // whichever held list was replayed LAST, so on a radio two held
+            // accounts list, the plan announced one account and the wire went
+            // through the other. And when the planned account's session has
+            // dropped by the dial, falling through to the bank or the active
+            // session dialled through another account, unannounced: a plan
+            // that named an account dials through it or not at all, so the
+            // answer is then null and the caller says why.
             if (!string.IsNullOrEmpty(plannedAccount))
             {
                 var planned = Radios.SmartLink.SmartLinkServices.Coordinator.GetSessionForAccount(plannedAccount);
-                if (planned != null && planned.IsConnected)
-                {
-                    viaOwningAccount = session == null
-                        || !string.Equals(session.AccountId, plannedAccount, StringComparison.OrdinalIgnoreCase);
-                    return planned;
-                }
+                if (planned == null || !planned.IsConnected) return null;
+                viaOwningAccount = session == null
+                    || !string.Equals(session.AccountId, plannedAccount, StringComparison.OrdinalIgnoreCase);
+                return planned;
             }
 
             string owningAccount = GetWanAccountForSerial(serial);
@@ -2648,13 +2651,31 @@ namespace Radios
         /// then the active one).
         /// </summary>
         internal Radios.SmartLink.IWanSessionOwner BrokeringSessionForConnect(string serial, out bool viaOwningAccount)
+            => BrokeringSessionForConnect(serial, out viaOwningAccount, out _);
+
+        /// <summary>
+        /// As above; <paramref name="plannedAccount"/> is the account this
+        /// rig's plan named for the serial, or null when it named none. A null
+        /// session with a planned account means that account's session is
+        /// gone, and the dial must not go out through any other (B1-R).
+        /// </summary>
+        internal Radios.SmartLink.IWanSessionOwner BrokeringSessionForConnect(string serial, out bool viaOwningAccount,
+            out string plannedAccount)
         {
             var planned = _connectPlanAccount;
-            string account = planned.Account != null
+            plannedAccount = !string.IsNullOrEmpty(planned.Account)
                 && string.Equals(planned.Serial, serial, StringComparison.OrdinalIgnoreCase)
                 ? planned.Account : null;
-            return ResolveBrokeringSession(serial, out viaOwningAccount, account);
+            return ResolveBrokeringSession(serial, out viaOwningAccount, plannedAccount);
         }
+
+        /// <summary>
+        /// The report filed when the dial refused because the planned
+        /// account's session dropped (B1-R), kept so the connect's general
+        /// failure report does not replace the true reason. Cleared at each
+        /// dial.
+        /// </summary>
+        private ConnectFailureReport _dialRefusedReport;
 
         /// <summary>What a SmartLink connect to one serial should do about signing in.</summary>
         internal enum SmartLinkSignInPlanKind
@@ -2960,8 +2981,13 @@ namespace Radios
                     // The account object comes from the same reading the plan
                     // was made from; a held account nobody saved is adopted
                     // for this session only.
+                    // This rig's own sign-in for the same account is kept, with its
+                    // tokens, before an email-only stand-in is made (round two,
+                    // Codex F1-R: a session-only sign-in lost its tokens here).
                     AdoptSignedInAccount(
                         savedNow.FirstOrDefault(a => string.Equals(a.Email, plan.Account, StringComparison.OrdinalIgnoreCase))
+                        ?? (_currentAccount != null && string.Equals(_currentAccount.Email, plan.Account, StringComparison.OrdinalIgnoreCase)
+                            ? _currentAccount : null)
                         ?? new SmartLinkAccount { Email = plan.Account, FriendlyName = plan.Account });
                     becomeThePresenceIntake();
                     int replayed = ReplayHeldListsIntoTheIntake(plan.Account, sessionWasAlreadyConnected: true, sw);
@@ -3040,7 +3066,28 @@ namespace Radios
                 { "serial", r.Serial }
             });
 
-            var session = BrokeringSessionForConnect(r.Serial, out bool viaOwningAccount);
+            _dialRefusedReport = null;
+            var session = BrokeringSessionForConnect(r.Serial, out bool viaOwningAccount, out string plannedAccount);
+            if (session == null && plannedAccount != null)
+            {
+                // B1-R: the account the plan named and announced has lost its
+                // session since the preparation. Dialling through another
+                // account would connect as someone the operator was not told
+                // about, so nothing is sent; the reason is filed the way the
+                // plan files every failed connect, and connecting again plans,
+                // and names the account, afresh.
+                Tracing.TraceLine(
+                    $"sendRemoteConnect: REFUSED, the planned account {plannedAccount}'s session is not connected; not dialling {r.Serial} through any other account",
+                    TraceLevel.Warning);
+                RecordConnectFailure(new ConnectFailureReport
+                {
+                    Class = ConnectFailureClass.SessionSetupFailed,
+                    SpokenSummary = Lexicon.Get("connect.failure.smartlink_planned_account_dropped",
+                        ("email", plannedAccount), ("radioName", RadioNameForSpeech(r.Serial))),
+                });
+                _dialRefusedReport = LastConnectFailureReport;
+                return false;
+            }
             if (viaOwningAccount)
             {
                 Tracing.TraceLine(

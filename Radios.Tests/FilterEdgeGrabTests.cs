@@ -263,5 +263,20 @@ namespace Radios.Tests
             Assert.DoesNotContain("\"[[ or ]]\"", inventory, StringComparison.Ordinal);
             Assert.Contains("new(\"Filter\", \"Anywhere in radio modes\", \"Alt+Shift+[ Alt+Shift+]\",", inventory, StringComparison.Ordinal);
         }
+
+        /// <summary>
+        /// Round two (Codex F3-R): the ten-second inactivity exit said
+        /// "Filter edge mode ended" while every other exit says "Filter edge
+        /// mode off". Every exit says off now.
+        /// </summary>
+        [Fact]
+        public void The_inactivity_exit_says_off_too()
+        {
+            string handlers = Src("JJFlexWpf", "FreqOutHandlers.cs");
+            string sticky = Body(handlers, "private StickyAnnouncedMode EnsureFilterEdgeStickyMode()");
+            Assert.Contains("Radios.FilterBracketKeys.OffSentence()", sticky, StringComparison.Ordinal);
+            Assert.DoesNotContain("settings.filter.edge_mode_ended", handlers, StringComparison.Ordinal);
+            Assert.DoesNotContain("settings.filter.edge_mode_ended", Src("Radios", "Lexicon", "settings.json"), StringComparison.Ordinal);
+        }
     }
 }

@@ -3429,8 +3429,10 @@ public class FreqOutHandlers
             OnTimeout = () =>
             {
                 _filterEdgeMode = Radios.FilterEdge.None;
+                // "Off", as every other way out says (round two, Codex F3-R):
+                // the edge that moved is kept here too.
                 Radios.ScreenReaderOutput.Speak(
-                    Lexicon.Get("settings.filter.edge_mode_ended"), VerbosityLevel.Terse);
+                    Radios.FilterBracketKeys.OffSentence(), VerbosityLevel.Terse);
             }
         };
         return _filterEdgeSticky;

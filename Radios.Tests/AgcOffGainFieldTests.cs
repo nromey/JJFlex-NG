@@ -140,7 +140,7 @@ namespace Radios.Tests
             string panel = Src("JJFlexWpf", "Controls", "ScreenFieldsPanel.xaml.cs");
             Assert.Contains("_rig.SetAgcFieldValue(_agcFieldIsOffLevel, v)", panel, StringComparison.Ordinal);
             Assert.DoesNotContain("_rig.AGCThreshold = v", panel, StringComparison.Ordinal);
-            string poll = Body(panel, "private void PollReceiver()");
+            string poll = Body(panel, "private void RefreshAgcField()");
             Assert.Contains("bool agcOffLevel = FlexBase.AgcFieldIsOffLevel(agcMode);", poll, StringComparison.Ordinal);
             Assert.Contains("_agcThresholdControl.Value = _rig.AgcFieldValue(agcOffLevel);", poll, StringComparison.Ordinal);
             Assert.Contains("_agcFieldIsOffLevel = agcOffLevel;", poll, StringComparison.Ordinal);
@@ -157,6 +157,69 @@ namespace Radios.Tests
             // The vendored Slice is not edited; the wrapper goes through it.
             string flexBase = FlexBasePartials.JoinedText();
             Assert.Contains("theRadio.ActiveSlice.AGCOffLevel = value;", flexBase, StringComparison.Ordinal);
+        }
+
+        // ------------------------------------------------------------------
+        // Round two, Codex F2-R: a write meant for one meaning of the field
+        // must not land on the other setting after the mode changed. Checked
+        // at the write, on the command loop; a mismatch writes nothing,
+        // says the field's current label and value, and asks Home to refresh.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Schedule one: the field still says AGC Off Gain, but the radio's
+        /// mode is already Medium. It used to send agc_off_level=60, a value
+        /// the radio does not use with AGC on.
+        /// </summary>
+        [Fact]
+        public void A_write_from_a_field_whose_meaning_went_stale_writes_nothing()
+        {
+            SetSliceField("_agc_mode", AGCMode.Medium);
+            SetSliceField("_agc_threshold", 65);
+            string? said = null;
+            _rig.AgcFieldWentStale += sentence => said = sentence;
+
+            _rig.SetAgcFieldValue(true, 60);
+            Drain();
+
+            Assert.Equal(0, Sent("agc_off_level"));
+            Assert.Equal(0, Sent("agc_threshold"));
+            Assert.Equal("AGC Threshold 65", said);
+        }
+
+        /// <summary>
+        /// Schedule two: a threshold write queued while AGC was Medium, and
+        /// the mode went Off before the loop ran it. It used to send
+        /// agc_threshold=40 with AGC off.
+        /// </summary>
+        [Fact]
+        public void A_queued_write_that_drains_after_the_mode_changed_writes_nothing()
+        {
+            SetSliceField("_agc_mode", AGCMode.Medium);
+            SetSliceField("_agc_off_level", 30);
+            string? said = null;
+            _rig.AgcFieldWentStale += sentence => said = sentence;
+
+            _rig.SetAgcFieldValue(false, 40);
+            SetSliceField("_agc_mode", AGCMode.Off);
+            Drain();
+
+            Assert.Equal(0, Sent("agc_threshold"));
+            Assert.Equal(0, Sent("agc_off_level"));
+            Assert.Equal("AGC Off Gain 30", said);
+        }
+
+        /// <summary>Home refreshes the field when a write is refused.</summary>
+        [Fact]
+        public void Home_refreshes_the_field_when_a_write_is_refused()
+        {
+            string panel = Src("JJFlexWpf", "Controls", "ScreenFieldsPanel.xaml.cs");
+            Assert.Contains("rig.AgcFieldWentStale += OnAgcFieldWentStale;", panel, StringComparison.Ordinal);
+            Assert.Contains("_rig.AgcFieldWentStale -= OnAgcFieldWentStale;", panel, StringComparison.Ordinal);
+            string handler = Body(panel, "private void OnAgcFieldWentStale(string sentence)");
+            Assert.Contains("RefreshAgcField();", handler, StringComparison.Ordinal);
+            string poll = Body(panel, "private void PollReceiver()");
+            Assert.Contains("RefreshAgcField();", poll, StringComparison.Ordinal);
         }
     }
 }

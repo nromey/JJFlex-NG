@@ -957,6 +957,11 @@ namespace Radios
         /// </summary>
         private ConnectFailureReport BuildRemoteConnectFailureReport(Radio r, bool remoteHandshakeFailed)
         {
+            // The dial refused before anything was sent, because the account
+            // the plan named lost its session (B1-R); that is the reason, not
+            // the network evidence below.
+            if (remoteHandshakeFailed && _dialRefusedReport != null) return _dialRefusedReport;
+
             var detail = new List<string>();
             bool punch = false;
             try { punch = r.RequiresHolePunch; } catch { }
