@@ -102,25 +102,46 @@ public sealed partial class HelperLifecycleTests
     }
 
     /// <summary>
-    /// The helper refusing JJ Flexible's first message (Error 257, then the
-    /// close and exit 6) is its answer to the handshake: a mismatch that names
-    /// what it said, never retried and never counted, even though the pipe
-    /// breaks a moment later.
+    /// A fatal Error before the HelloAck (Error 257, then the close and exit 6)
+    /// is a protocol error like any other: Contract 2's Fatal rule sends it down
+    /// the crash path, and only a HelloReject is a version mismatch. So it is
+    /// counted toward the cap, restarted, and named with its exit code and what
+    /// the helper said. (Until the 2026-11-06 repair it read as a mismatch,
+    /// never retried and never counted; Codex's check of the contract 2 round
+    /// found this test pinning that.)
     /// </summary>
     [Fact]
-    public void An_Error_before_the_handshake_is_the_helpers_refusal_named_and_never_retried()
+    public void An_Error_before_the_handshake_is_a_protocol_error_on_the_crash_path()
     {
-        using var rig = new HelperTestRig(_ => new[] { "--error-first" });
+        using var rig = new HelperTestRig(n => n == 1 ? new[] { "--error-first" } : Array.Empty<string>(),
+            SlowRestart(TimeSpan.FromSeconds(2)));
         var engine = rig.Engine("nnr");
+        HelperTestRig.Until(() => rig.Host.State == WdspHelperState.Restarting, "the helper to go down");
+        _out.WriteLine("engine: " + engine.UnavailabilityDetail);
+        _out.WriteLine("host: " + rig.Host.Detail);
         Assert.False(engine.IsAvailable);
-        Assert.Equal(Unavailability.HelperVersionMismatch, engine.Unavailability);
-        _out.WriteLine(engine.UnavailabilityDetail);
-        Assert.Contains("the helper refused JJ Flexible's handshake: Error 257 UnexpectedMessage on channel 0: refused by the test's command line",
+        Assert.Equal(Unavailability.HelperNotRunning, engine.Unavailability);
+        Assert.Equal(WdspCondition.FatalProtocolError, rig.Host.LastFailureCondition);
+        Assert.Equal(1, rig.Host.Failures);
+        Assert.Contains("the helper exited with code 6 (a protocol error", engine.UnavailabilityDetail);
+        Assert.Contains("before closing it said Error 257 UnexpectedMessage on channel 0: refused by the test's command line",
             engine.UnavailabilityDetail);
-        Assert.Equal(WdspHelperState.VersionMismatch, rig.Host.State);
-        Thread.Sleep(600);
-        Assert.Equal(0, rig.Host.Failures);
-        Assert.Single(rig.Host.LaunchedProcessIds);
+    }
+
+    /// <summary>
+    /// And the restart after it is a real one: with a short restart delay, the
+    /// next start (which the stub answers properly) brings a new engine up on
+    /// a second helper.
+    /// </summary>
+    [Fact]
+    public void An_Error_before_the_handshake_is_followed_by_a_restart_that_works()
+    {
+        using var rig = new HelperTestRig(n => n == 1 ? new[] { "--error-first" } : Array.Empty<string>(),
+            HelperTestRig.Fast with { ConstructionWait = TimeSpan.FromSeconds(10) });
+        var engine = rig.Engine("nr2");
+        Assert.True(engine.IsAvailable, engine.UnavailabilityDetail);
+        Assert.Equal(2, rig.Host.LaunchedProcessIds.Count);
+        Assert.Equal(WdspHelperState.Running, rig.Host.State);
     }
 
     // ------------------------------------------------------------------ closes

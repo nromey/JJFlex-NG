@@ -633,9 +633,11 @@ namespace JJFlexWpf
             var c = _conn;
             if (c != null)
             {
-                // A definite answer to the handshake, a reject or one that cannot
-                // be used, wins over the pipe closing behind it: the helper closes
-                // straight after an Error, and that break is not a crash.
+                // A definite answer to the handshake, a reject or a HelloAck that
+                // cannot be used, wins over a pipe break published behind it: the
+                // helper exits 7 once JJ Flexible closes after a reject, and that
+                // is not a crash. (A fatal Error before the handshake is not such
+                // an answer: it is a protocol error, the crash path, below.)
                 if (!c.HelloProcessed && c.HelloResult is { } early and not WdspHelloAck)
                 {
                     c.HelloProcessed = true;
@@ -1038,12 +1040,10 @@ namespace JJFlexWpf
             {
                 try { c.Control.Enqueue(WdspProtocol.Encode(new WdspError(0, ex.Code, ex.Message.Length > 200 ? ex.Message[..200] : ex.Message))); c.Wake.Set(); }
                 catch (ArgumentException) { }
-                if (c.HelloResult == null)
-                {
-                    c.HelloResult = "a protocol error before the handshake finished: " + ex.Message;
-                    _controlWake.Set();
-                }
-                else Break(c, WdspCondition.FatalProtocolError, ex.Message);
+                // Before the handshake as after it: Contract 2's Fatal rule is the
+                // crash path. (An unreadable HelloAck never reaches here; Dispatch
+                // reads it as an invalid HelloAck, which is a mismatch.)
+                Break(c, WdspCondition.FatalProtocolError, (c.HelloResult == null ? "before the handshake: " : "") + ex.Message);
             }
             catch (Exception ex)
             {
@@ -1086,7 +1086,16 @@ namespace JJFlexWpf
                 OnFrameOut(c, payload);
                 return;
             }
-            var message = WdspProtocol.Decode(type, payload, WdspRole.JJFlexible);
+            object message;
+            try { message = WdspProtocol.Decode(type, payload, WdspRole.JJFlexible); }
+            catch (WdspProtocolException ex) when (c.HelloResult == null && type == WdspMessageType.HelloAck)
+            {
+                // A HelloAck that cannot be read is an invalid HelloAck: Contract 2
+                // maps that to a mismatch, like one that reads but breaks a rule.
+                c.HelloResult = "an invalid HelloAck: " + ex.Message;
+                _controlWake.Set();
+                return;
+            }
             if (c.HelloResult == null)
             {
                 switch (message)
@@ -1100,18 +1109,17 @@ namespace JJFlexWpf
                         c.HelloResult = reject;
                         _controlWake.Set();
                         return;
-                    case WdspError refusal:
-                        // The helper refusing what JJ Flexible sent first (Error 257,
-                        // then the close and exit 6). Its answer to the handshake,
-                        // and a definite one: the same Hello would be refused again.
-                        // Not echoed: both ends are closing.
-                        string said = WdspProtocol.DescribeError(refusal);
-                        c.HelperSaid = said;
-                        Trace.WriteLine("WdspHost: the helper refused the handshake: " + said);
-                        c.HelloResult = "the helper refused JJ Flexible's handshake: " + said;
-                        _controlWake.Set();
+                    case WdspError fatal when WdspProtocol.IsFatal(fatal.Code):
+                        // A protocol error, the helper's side (Error 256 or 257, then
+                        // the close and exit 6). Contract 2's Fatal rule sends it down
+                        // the crash path; only a HelloReject is a mismatch. So it is
+                        // kept, as after the handshake, and the pipe ending names it.
+                        c.HelperSaid = WdspProtocol.DescribeError(fatal);
+                        Trace.WriteLine("WdspHost: the helper is ending the connection before the handshake: " + c.HelperSaid);
                         return;
                     default:
+                        // Out of handshake order, a non-fatal Error included: a protocol
+                        // error found on this side, which is the crash path too.
                         throw new WdspProtocolException(type + " before the handshake", WdspResult.UnexpectedMessage);
                 }
             }
