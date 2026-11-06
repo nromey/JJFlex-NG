@@ -8552,6 +8552,10 @@ namespace Radios
         {
             if (RefusedForCheckTeardown("transmit")) return;
             if (TxReferenceArmed) txFilePlayer.RestartOnNextBuffer();
+            // A new transmission, counted under the falling cue's gate before
+            // it is queued (repair round 6, #863 S1): a falling cue being
+            // handed over finishes first, and an older one still owed is void.
+            FallingCueGate.NewTransmissionAsked();
             // The radio's interlock reports so far: a receive report must belong
             // to this transmission to confirm its end (repair round 5, #863 N1).
             NoteTransmitEpisodeBegins();

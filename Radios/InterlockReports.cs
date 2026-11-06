@@ -126,6 +126,16 @@ namespace Radios
         /// </summary>
         internal static event Action<CommandConnection>? Reported;
 
+        /// <summary>
+        /// The command transport's dispatch gate for <paramref name="radio"/>:
+        /// the lock its reader holds while the vendor parses a line and this
+        /// record is written, and while a connection begins or ends (repair
+        /// round 6, #863 S1; see <see cref="FallingCueGate"/>). Null when the
+        /// transport cannot be reached.
+        /// </summary>
+        internal static object? ConnectionSyncOf(Radio? radio) =>
+            radio == null ? null : (TransportField?.GetValue(radio) as CommandCommunicationBase)?.ConnectionSync;
+
         /// <summary>The radio's last interlock report on <paramref name="connection"/>, or null when it has sent none.</summary>
         internal static Report? LastOn(CommandConnection? connection)
         {

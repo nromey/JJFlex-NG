@@ -90,14 +90,19 @@ namespace Radios
             WhenRadioReportsReceive((same, _) => then(same), stillWanted);
 
         /// <summary>
-        /// The same wait, handing <paramref name="then"/> the question again
-        /// (repair round 5, Codex's #863 N2): "is the radio STILL receiving,
-        /// for this transmission, on this connection, right now?", so the
-        /// caller can ask it at the moment it acts, under its own lock, rather
-        /// than trusting an answer that may be stale by then.
+        /// The same wait, handing <paramref name="then"/> a way to act only if
+        /// the radio is STILL receiving, for this transmission, on this
+        /// connection (repair rounds 5 and 6, Codex's #863 N2 and S1). The
+        /// function runs its action, and returns true, only when that holds,
+        /// with the check and the action as one step against every new key
+        /// this process asks for and every report or connection change the
+        /// transport publishes (<see cref="FallingCueGate"/>).
         /// </summary>
-        public bool WhenReallyReceiving(Action<bool, Func<bool>> then, Func<bool> stillWanted) =>
+        public bool WhenReallyReceiving(Action<bool, Func<Action, bool>> then, Func<bool> stillWanted) =>
             WhenRadioReportsReceive(then, stillWanted);
+
+        /// <summary>For tests: runs on the payment's thread just before its final check takes the transport's dispatch gate.</summary>
+        internal Action? BeforeFallingCueFinalCheckForTests;
 
         /// <summary>
         /// The interlock reports as they stood when this rig's latest
@@ -112,7 +117,7 @@ namespace Radios
         /// <summary>For tests: the fallback interval, in place of <see cref="ReceiveReportFallbackMs"/>; zero uses it.</summary>
         internal int ReceiveReportFallbackMsOverride;
 
-        private bool WhenRadioReportsReceive(Action<bool, Func<bool>> then, Func<bool>? stillWanted)
+        private bool WhenRadioReportsReceive(Action<bool, Func<Action, bool>> then, Func<bool>? stillWanted)
         {
             Radio? radio = theRadio;
             CommandConnection? connection = radio?.Connected == true ? radio.CurrentCommandConnection : null;
@@ -128,11 +133,29 @@ namespace Radios
                 && connection.State == CommandConnectionState.Connected;
             bool ReportsReceive() => !_Transmit && RadioInterlockConfirmsReceive
                 && InterlockReports.ConfirmsReceiveFor(connection, releaseMark, episodeMark);
-            bool StillReceiving() => SameConnection() && ReportsReceive();
+            // Repair round 6 (Codex's #863 S1 variant): a newer transmission this
+            // process asked for since the debt was made (another send, a check,
+            // a tune) voids it. Its own end owes its own cue; the first
+            // carrier's receive report says nothing about the newer one.
+            long transmissions = FallingCueGate.Transmissions;
+            bool Superseded() => FallingCueGate.Transmissions != transmissions;
+            bool StillReceiving() => SameConnection() && !Superseded() && ReportsReceive();
+            // The final check and the caller's action as ONE step (repair round
+            // 6, S1): under the transport's dispatch gate, which the vendor's
+            // parser, our interlock record and the connection's own changes
+            // are written under, and under the gate every new key is counted
+            // under. Lock order: dispatch gate, cue gate, then the caller's.
+            bool SubmitIfStillReceiving(Action act)
+            {
+                BeforeFallingCueFinalCheckForTests?.Invoke();
+                object? dispatch = InterlockReports.ConnectionSyncOf(radio);
+                if (dispatch == null) return false;
+                lock (dispatch) return FallingCueGate.RunIf(StillReceiving, act);
+            }
             int fallback = ReceiveReportFallbackMsOverride > 0 ? ReceiveReportFallbackMsOverride : ReceiveReportFallbackMs;
 
-            if (!SameConnection()) { then(false, StillReceiving); return false; }
-            if (ReportsReceive()) { then(true, StillReceiving); return false; }
+            if (!SameConnection()) { then(false, SubmitIfStillReceiving); return false; }
+            if (ReportsReceive()) { then(true, SubmitIfStillReceiving); return false; }
 
             var wake = new System.Threading.SemaphoreSlim(0);
             System.ComponentModel.PropertyChangedEventHandler onRadio = (_, e) =>
@@ -150,7 +173,7 @@ namespace Radios
                 bool same;
                 try
                 {
-                    while ((same = SameConnection()) && !ReportsReceive())
+                    while ((same = SameConnection()) && !ReportsReceive() && !Superseded())
                     {
                         if (stillWanted != null && !stillWanted()) return;
                         await wake.WaitAsync(fallback).ConfigureAwait(false);
@@ -161,7 +184,7 @@ namespace Radios
                     radio.PropertyChanged -= onRadio;
                     InterlockReports.Reported -= onReport;
                 }
-                then(same, StillReceiving);
+                then(same, SubmitIfStillReceiving);
             });
             return true;
         }

@@ -1249,10 +1249,10 @@ namespace JJFlexWpf
             }
             FlexBase? rig = null;
             try { rig = _getRigControl(); } catch { }
-            if (rig == null) { PayStopTone(gen, sameConnection: false, stillReceiving: null); return; }
+            if (rig == null) { PayStopTone(gen, sameConnection: false, submitIfStillReceiving: null); return; }
             // Given up quietly once a newer debt replaces this one, so a carrier
             // held for a long time does not collect waits behind it.
-            rig.WhenReallyReceiving((same, stillReceiving) => PayStopTone(gen, same, stillReceiving), () => StillOwed(gen));
+            rig.WhenReallyReceiving((same, submitIfStillReceiving) => PayStopTone(gen, same, submitIfStillReceiving), () => StillOwed(gen));
         }
 
         private bool StillOwed(long generation)
@@ -1266,52 +1266,67 @@ namespace JJFlexWpf
         /// family, unless something newer took it over. A connection that went
         /// first ends it silently, with a trace. Any thread.
         /// </summary>
-        /// <param name="stillReceiving">The wait's own question, asked again at
-        /// the submission (repair round 5): still receiving, for this
-        /// transmission, on this connection. Null when there is no rig.</param>
-        private void PayStopTone(long generation, bool sameConnection, Func<bool>? stillReceiving)
+        /// <param name="submitIfStillReceiving">The wait's final step (repair
+        /// rounds 5 and 6): it runs the hand-over only if the radio is still
+        /// receiving for this transmission, as one step against every new key
+        /// this process asks for and every report the transport publishes.
+        /// Null when there is no rig.</param>
+        private void PayStopTone(long generation, bool sameConnection, Func<Action, bool>? submitIfStillReceiving)
+        {
+            if (!sameConnection || submitIfStillReceiving == null)
+            {
+                NotPaid(generation, "the connection it was owed on ended before the radio reported receive");
+                return;
+            }
+            // The last check and the hand-over are ONE step (repair round 6,
+            // Codex's #863 S1): under the transport's dispatch gate (the radio's
+            // reports, our record of them, the connection's changes), the
+            // falling cue's gate (every key this process asks for: push to
+            // talk, the lock, sends, checks, tune), and this controller's own
+            // tone lock (a key-down's void, repair round 5's N2). A new
+            // transmission, visible to this process, therefore either fails
+            // that check or comes after the tone was handed to the player.
+            bool stood;
+            try { stood = submitIfStillReceiving(() => HandOverUnderLock(generation)); }
+            catch { stood = false; }
+            if (!stood)
+                NotPaid(generation, "between the radio's receive report and the tone, a new transmission was asked for,"
+                    + " the radio reported a carrier again, or its connection went");
+        }
+
+        /// <summary>Hand the owed tone to the player, if it is still this debt's, under the tone lock.</summary>
+        private void HandOverUnderLock(long generation)
+        {
+            lock (_edgeToneLock)
+            {
+                if (!_edgeStopOwed || generation != _edgeToneGeneration) return;
+                var family = _edgeStopFamily;
+                _edgeStopOwed = false;
+                if (family == FallingTone.Elsewhere) _edgeStopTonesPlayed++;
+                else _chirpStopTonesPlayed++;
+                var submitted = FallingTonesSubmitted;
+                if (submitted != null)
+                    lock (submitted)
+                        submitted.Add(family == FallingTone.Elsewhere ? nameof(EarconPlayer.TxElsewhereStopTone) : nameof(EarconPlayer.TxStopTone));
+                // Handing a tone to the player only queues it to the mixer;
+                // nothing it calls comes back to this controller or the radio.
+                if (family == FallingTone.Elsewhere) EarconPlayer.TxElsewhereStopTone();
+                else EarconPlayer.TxStopTone();
+            }
+        }
+
+        /// <summary>The owed tone, if it is still this debt's, ends unplayed, with a trace saying why.</summary>
+        private void NotPaid(long generation, string why)
         {
             FallingTone family;
-            string? notPlayed = null;
-            // The last check and the submission are ONE step under the lock a
-            // key-down's invalidation takes (repair round 5, Codex's #863 N2):
-            // a new key either voids this debt before it is paid, or waits
-            // until the tone has been handed to the player, so an old falling
-            // tone is never submitted during the new carrier. The wait's
-            // answer is asked again here too: a carrier that rose, or a
-            // connection that went, between the report and this call voids it.
             lock (_edgeToneLock)
             {
                 if (!_edgeStopOwed || generation != _edgeToneGeneration) return;
                 family = _edgeStopFamily;
                 _edgeStopOwed = false;
-                if (!sameConnection)
-                    notPlayed = "the connection it was owed on ended before the radio reported receive";
-                else
-                {
-                    bool still;
-                    try { still = stillReceiving?.Invoke() ?? false; }
-                    catch { still = false; }
-                    if (!still)
-                        notPlayed = "between the radio's receive report and the tone, the radio was keyed again or its connection went";
-                }
-                if (notPlayed == null)
-                {
-                    if (family == FallingTone.Elsewhere) _edgeStopTonesPlayed++;
-                    else _chirpStopTonesPlayed++;
-                    var submitted = FallingTonesSubmitted;
-                    if (submitted != null)
-                        lock (submitted)
-                            submitted.Add(family == FallingTone.Elsewhere ? nameof(EarconPlayer.TxElsewhereStopTone) : nameof(EarconPlayer.TxStopTone));
-                    // Handing a tone to the player only queues it to the mixer;
-                    // nothing it calls comes back to this controller.
-                    if (family == FallingTone.Elsewhere) EarconPlayer.TxElsewhereStopTone();
-                    else EarconPlayer.TxStopTone();
-                }
             }
-            if (notPlayed != null)
-                Tracing.TraceLine("PTT: the falling " + (family == FallingTone.Elsewhere ? "three-note tone" : "chirp")
-                    + " was NOT played: " + notPlayed, TraceLevel.Info);
+            Tracing.TraceLine("PTT: the falling " + (family == FallingTone.Elsewhere ? "three-note tone" : "chirp")
+                + " was NOT played: " + why, TraceLevel.Info);
         }
 
         /// <summary>

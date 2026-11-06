@@ -238,51 +238,172 @@ public sealed class FallingToneRepairFiveTests : IDisposable
         Assert.Single(Submitted());
     }
 
-    [Fact]
-    public void A_carrier_rising_between_the_receive_report_and_the_tone_voids_the_tone()
+    // ── T2 (repair round 6): the world changes after the worker has
+    //    ACKNOWLEDGED it reached the payment's final check, and before it ──
+
+    /// <summary>A released push-to-talk carrier whose falling chirp is owed, its receive report not yet delivered.</summary>
+    private void ChirpOwedAfterARelease()
     {
-        AssertTheDeskIsSafe();
         _r.Interlock(InterlockState.Ready);
         _controller.PttDown();
         _r.VendorMox(true);
         _r.Interlock(InterlockState.Transmitting);
         _controller.PttUp();
         _r.VendorMox(false);
+        Assert.True(_controller.ChirpStopOwed);
+    }
 
-        Monitor.Enter(EdgeToneLock());                         // the payment waits at its lock
+    /// <summary>
+    /// Deliver the radio's READY with the transport's dispatch gate held, so
+    /// the payment, which takes that gate for its final check, waits there;
+    /// return once the worker has signalled, from inside the payment, that it
+    /// is about to take it. <paramref name="change"/> then runs, on this
+    /// thread, AFTER the worker's last observation and BEFORE its final check.
+    /// </summary>
+    private void BetweenTheObservationAndTheFinalCheck(Action change)
+    {
+        using var entered = new ManualResetEventSlim();
+        var hook = typeof(FlexBase).GetField("BeforeFallingCueFinalCheckForTests", Any);
+        Assert.True(hook != null, "the payment's entry barrier is not where this test reaches it; the schedule below would be vacuous");
+        hook!.SetValue(_r.Rig, (Action)(() => entered.Set()));
+        object dispatch = _r.Transport.ConnectionSync;
+        Monitor.Enter(dispatch);
         try
         {
             _r.Interlock(InterlockState.Ready);               // the wait sees receive and calls the payment
-            Thread.Sleep(300);
+            Assert.True(entered.Wait(3000), "the worker never reached the payment's final check");
+            change();
+        }
+        finally { Monitor.Exit(dispatch); }
+        Thread.Sleep(300);
+    }
+
+    [Fact]
+    public void A_carrier_rising_between_the_receive_report_and_the_final_check_voids_the_tone()
+    {
+        AssertTheDeskIsSafe();
+        ChirpOwedAfterARelease();
+        BetweenTheObservationAndTheFinalCheck(() =>
+        {
             _r.VendorMox(true);                                // a carrier rises that the controller did not key
             _r.Interlock(InterlockState.Transmitting);
-        }
-        finally { Monitor.Exit(EdgeToneLock()); }
-        Thread.Sleep(300);
+        });
         Assert.Empty(Submitted());
     }
 
     [Fact]
-    public void A_connection_going_between_the_receive_report_and_the_tone_voids_the_tone()
+    public void A_connection_going_between_the_receive_report_and_the_final_check_voids_the_tone()
     {
         AssertTheDeskIsSafe();
-        _r.Interlock(InterlockState.Ready);
-        _controller.PttDown();
-        _r.VendorMox(true);
-        _r.Interlock(InterlockState.Transmitting);
-        _controller.PttUp();
-        _r.VendorMox(false);
+        ChirpOwedAfterARelease();
+        BetweenTheObservationAndTheFinalCheck(() => _r.Transport.Fall());
+        Assert.Empty(Submitted());
+    }
 
-        Monitor.Enter(EdgeToneLock());
+    [Fact]
+    public void The_same_pause_with_nothing_changed_still_pays_the_tone()
+    {
+        // The control for the two above: the barrier is reached and the
+        // payment then goes ahead, so their silence is the final check's.
+        AssertTheDeskIsSafe();
+        ChirpOwedAfterARelease();
+        BetweenTheObservationAndTheFinalCheck(() => { });
+        Assert.Single(Submitted());
+    }
+
+    // ── S1 (Codex's fifth re-check): a send's key or a reported carrier
+    //    AFTER the final check, while the tone is being handed over ──
+
+    /// <summary>
+    /// The vendor's parser, as it runs inside the transport's dispatch for a
+    /// hardware or VOX carrier: its interlock and Mox caches, and the app's
+    /// production bridge, after the app's own record (the watch, subscribed
+    /// first). The fixture's transport has no vendor parser on it.
+    /// </summary>
+    private void ParseCarrierReportsInsideTheDispatch()
+    {
+        _r.Transport.DataReceived += report =>
+        {
+            if (report.Text?.Contains("source=HW") != true) return;
+            typeof(Radio).GetProperty(nameof(Radio.InterlockState))!.GetSetMethod(nonPublic: true)!
+                .Invoke(_r.Radio, new object[] { InterlockState.Transmitting });
+            typeof(Radio).GetField("_mox", Any)!.SetValue(_r.Radio, true);
+            typeof(FlexBase).GetMethod("noteRadioMox", Any)!.Invoke(_r.Rig, new object[] { true });
+        };
+    }
+
+    /// <summary>
+    /// Pause the payment at its submission (the test-only list, inside the
+    /// payment), run <paramref name="producer"/> on another thread, and say
+    /// whether it finished while the payment was paused and how many tones had
+    /// been handed over when it did.
+    /// </summary>
+    private (bool FinishedWhilePaused, int SubmittedWhenItFinished) ProducerDuringTheSubmission(Action producer)
+    {
+        var list = _controller.FallingTonesSubmitted!;
+        int submittedWhenItFinished = -1;
+        bool finishedWhilePaused;
+        Thread worker;
+        Monitor.Enter(list);
         try
         {
             _r.Interlock(InterlockState.Ready);
-            Thread.Sleep(300);
-            _r.Transport.Fall();
+            Assert.True(Within(2000, () => !OwedUnlocked()), "the payment never began");
+            worker = new Thread(() => { producer(); submittedWhenItFinished = list.Count; }) { IsBackground = true };
+            worker.Start();
+            finishedWhilePaused = worker.Join(300);
         }
-        finally { Monitor.Exit(EdgeToneLock()); }
-        Thread.Sleep(300);
+        finally { Monitor.Exit(list); }
+        Assert.True(worker.Join(3000), "the producer never completed");
+        return (finishedWhilePaused, submittedWhenItFinished);
+    }
+
+    [Fact]
+    public void A_new_sends_key_after_the_final_check_never_lands_before_the_old_falling_tone()
+    {
+        AssertTheDeskIsSafe();
+        ChirpOwedAfterARelease();
+        var send = new FlexBaseVoiceMessageRig(_r.Rig);       // the ordinary send's own adapter
+        var (finishedWhilePaused, submittedWhenItFinished) = ProducerDuringTheSubmission(() =>
+        {
+            send.Transmit = true;                              // the send asks for its key
+            _r.VendorMox(true);                                // and it goes up
+        });
+        Assert.False(finishedWhilePaused, "a send keyed while an old falling tone was being handed over");
+        Assert.Equal(1, submittedWhenItFinished);
+        Assert.Single(Submitted());
+    }
+
+    [Fact]
+    public void A_hardware_carrier_reported_after_the_final_check_never_lands_before_the_old_falling_tone()
+    {
+        AssertTheDeskIsSafe();
+        ParseCarrierReportsInsideTheDispatch();
+        ChirpOwedAfterARelease();
+        var (finishedWhilePaused, submittedWhenItFinished) = ProducerDuringTheSubmission(() =>
+            _r.Transport.Deliver("S0|interlock state=TRANSMITTING source=HW tx_client_handle=0x00000000"));
+        Assert.False(finishedWhilePaused, "a reported carrier landed while an old falling tone was being handed over");
+        Assert.Equal(1, submittedWhenItFinished);
+        Assert.Single(Submitted());
+    }
+
+    [Fact]
+    public void A_new_send_keyed_and_unkeyed_before_the_old_tone_is_paid_voids_it()
+    {
+        // Codex's variant: the old wait's marks never met the newer episode,
+        // so once the optimistic cache fell again, the first carrier's
+        // receive paid it, while the new send's carrier may still be up.
+        AssertTheDeskIsSafe();
+        ChirpOwedAfterARelease();
+        var send = new FlexBaseVoiceMessageRig(_r.Rig);
+        send.Transmit = true;
+        _r.VendorMox(true);
+        send.Transmit = false;
+        _r.VendorMox(false);                                   // its reports have not come
+        _r.Interlock(InterlockState.Ready);
+        Thread.Sleep(400);
         Assert.Empty(Submitted());
+        Assert.True(Within(2000, () => !_controller.ChirpStopOwed), "the voided debt was left waiting instead of given up");
     }
 
     // ── Follow-up: a superseded wait gives itself up (Codex's standing control) ──
