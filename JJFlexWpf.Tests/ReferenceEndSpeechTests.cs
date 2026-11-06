@@ -227,13 +227,51 @@ public sealed class ReferenceEndSpeechTests : IDisposable
     /// something between the reference's end and the moment the tail acts,
     /// then run that continuation exactly as the dispatcher would have.
     /// </summary>
+    /// <remarks>
+    /// It also counts the asynchronous work begun under it (part 7k). An
+    /// <c>async void</c> method, which is what the tail is, tells the context
+    /// it captured when it starts (<c>OperationStarted</c>, inside the call
+    /// that starts it) and again when it finishes (<c>OperationCompleted</c>).
+    /// So whether the call under test planned a tail is known the moment that
+    /// call returns, and a planned tail can be waited on until it has really
+    /// run, however late its timer fires. A fixed sleep could only guess at
+    /// that, and a negative test that guesses short passes without having
+    /// seen the continuation at all (Codex, round five repair 3, follow-up).
+    /// </remarks>
     private sealed class HeldContinuations : SynchronizationContext
     {
         private readonly System.Collections.Concurrent.ConcurrentQueue<(SendOrPostCallback Callback, object? State)> _work = new();
+        private int _started, _finished;
         public override void Post(SendOrPostCallback d, object? state) => _work.Enqueue((d, state));
         public override void Send(SendOrPostCallback d, object? state) => d(state);
+        public override void OperationStarted() => Interlocked.Increment(ref _started);
+        public override void OperationCompleted() => Interlocked.Increment(ref _finished);
         public int Count => _work.Count;
+        /// <summary>Asynchronous operations begun under this context: a planned tail is one.</summary>
+        public int Started => Volatile.Read(ref _started);
+        /// <summary>Begun and not yet finished.</summary>
+        public int Outstanding => Started - Volatile.Read(ref _finished);
         public void RunAll() { while (_work.TryDequeue(out var w)) w.Callback(w.State); }
+    }
+
+    /// <summary>
+    /// Run what the call left until every operation it began has finished,
+    /// with no fixed wait (part 7k): a tail it planned is waited on until its
+    /// continuation has been posted and has run; with nothing planned, nothing
+    /// is waited for. A continuation that never comes fails here, instead of
+    /// the test passing without it.
+    /// </summary>
+    private static void EverythingItBeganHasRun(HeldContinuations held)
+    {
+        var until = DateTime.UtcNow.AddSeconds(10);
+        while (held.Outstanding > 0)
+        {
+            Assert.True(DateTime.UtcNow < until,
+                $"a planned tail's continuation never came: {held.Outstanding} of {held.Started} still outstanding");
+            if (held.Count == 0) Thread.Sleep(5);
+            held.RunAll();
+        }
+        held.RunAll();
     }
 
     /// <summary>The production tail, <c>EndTransmissionAfterReferenceTail</c>, started as the poll starts it, its continuation held.</summary>
@@ -706,19 +744,18 @@ public sealed class ReferenceEndSpeechTests : IDisposable
         return held;
     }
 
-    /// <summary>Wait out the tail and run whatever the poll left, which may be nothing.</summary>
-    private static void AnyTailComesDue(HeldContinuations held)
-    {
-        Thread.Sleep((int)CheckYourAudioDialog.ReferenceEndTail.TotalMilliseconds + 200);
-        held.RunAll();
-    }
-
     /// <summary>
     /// B4: the reference reaches its end, and before the 500 ms poll the
     /// operator unlocks the check's key and locks again. The poll must not
     /// plan the new key as the check's; with the watcher's tick first, nor as
     /// the app's. Either way it is left up.
     /// </summary>
+    /// <remarks>
+    /// Judged after anything the poll began has really run (part 7k), not
+    /// after a fixed sleep: a tail the poll wrongly planned is caught however
+    /// late its continuation comes. And "planned no tail" is asserted in its
+    /// own right, with the control below showing the count sees a real one.
+    /// </remarks>
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -731,9 +768,11 @@ public sealed class ReferenceEndSpeechTests : IDisposable
             ReferencePassAtItsEnd();
             TheOperatorRelocks();
             if (watcherSawItFirst) TheWatcherTicks(session);
-            AnyTailComesDue(ThePollSeesTheEnd());
+            var held = ThePollSeesTheEnd();
+            EverythingItBeganHasRun(held);
             Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);   // red at 6c8777f5 (without the tick: planned as the check's)
             Assert.Equal(2, _controller.Keyings);
+            Assert.Equal(0, held.Started);           // the poll planned no tail for the operator's key
         }
         finally { EndCheck(session); }
     }
@@ -747,7 +786,9 @@ public sealed class ReferenceEndSpeechTests : IDisposable
         try
         {
             ReferencePassAtItsEnd();
-            TheTailComesDue(ThePollSeesTheEnd());
+            var held = ThePollSeesTheEnd();
+            Assert.Equal(1, held.Started);           // positive control: the count sees the tail the poll plans
+            EverythingItBeganHasRun(held);
             Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
             Assert.Equal(1, _controller.Keyings);
             Assert.True(Is(session, "AwaitPlayback"), "the check did not stop");
@@ -982,6 +1023,7 @@ public sealed class ReferenceEndSpeechTests : IDisposable
         Assert.True(_rig.TxReferenceEndSilenceHeld, "the switch ended the silence with the radio still keyed");
         Assert.True(waits >= 1, "the departing radio was left no wait to end its silence");
         Assert.True(_controller.IsTransmitting, "nothing ends before the tail comes due");
+        Assert.Equal(1, held.Started);               // positive control (part 7k): the count sees the tail a switch plans
 
         TheTailComesDue(held);                       // red before 7h-2: no tail was ever planned
         Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
@@ -1025,9 +1067,9 @@ public sealed class ReferenceEndSpeechTests : IDisposable
             ReferencePassAtItsEnd();
             TheWindowSwitchesTo(arriving);
             var none = ReleaseAtSwitch(_rig);
-            Thread.Sleep((int)CheckYourAudioDialog.ReferenceEndTail.TotalMilliseconds + 200);
-            Assert.Equal(0, none.Count);             // the mutation: drop KeysRadio from the holder
+            EverythingItBeganHasRun(none);           // part 7k: anything it planned has run, not a fixed sleep
             Assert.Equal(PttSafetyController.PttState.Locked, main.State);
+            Assert.Equal(0, none.Started);           // the mutation: drop KeysRadio from the holder
         }
         finally
         {
