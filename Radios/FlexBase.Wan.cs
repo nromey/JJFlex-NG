@@ -127,6 +127,77 @@ namespace Radios
                && string.Equals(startSessionId ?? "", listSessionId ?? "", StringComparison.Ordinal)
                && listRevision > startRevision;
 
+        /// <summary>
+        /// Write <paramref name="lst"/> into every call waiting here that it
+        /// answers, by <see cref="ListAnswersTheCall"/>, and return what each
+        /// held before, so a list that stops being current while it is taken
+        /// can be put back (<see cref="PutBackWaitingCalls"/>). Caller holds
+        /// <c>_wanIntakeLock</c>.
+        /// </summary>
+        private List<(ConnectLatch latch, bool received, List<Radio> radios, SmartLinkRegistrationEvidence.AccountList? push)>
+            AnswerWaitingCalls(string accountId, IReadOnlyList<Radio> lst, bool serverPush, WanListProvenance provenance)
+        {
+            var before = new List<(ConnectLatch latch, bool received, List<Radio> radios, SmartLinkRegistrationEvidence.AccountList? push)>();
+            foreach (var open in _openLatches)
+            {
+                if (!string.Equals(open.Account, accountId, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!ListAnswersTheCall(serverPush,
+                        open.StartSessionId, open.StartRevision, provenance.SessionId, provenance.ListRevision)) continue;
+                before.Add((open, open.Received, open.Radios, open.ServerPush));
+                open.Received = true;
+                open.Radios = lst.ToList();
+                if (serverPush)
+                    open.ServerPush = new SmartLinkRegistrationEvidence.AccountList(
+                        accountId,
+                        lst.Select(r => r.Serial).Where(x => !string.IsNullOrEmpty(x)).ToList(),
+                        SmartLinkRegistrationEvidence.ListSource.ServerPushThisCall);
+            }
+            return before;
+        }
+
+        /// <summary>Undo <see cref="AnswerWaitingCalls"/>. Caller holds <c>_wanIntakeLock</c>.</summary>
+        private static void PutBackWaitingCalls(
+            List<(ConnectLatch latch, bool received, List<Radio> radios, SmartLinkRegistrationEvidence.AccountList? push)> before)
+        {
+            foreach (var (open, received, openRadios, push) in before)
+            {
+                open.Received = received;
+                open.Radios = openRadios;
+                open.ServerPush = push;
+            }
+        }
+
+        /// <summary>
+        /// A push, offered to the calls waiting on a rig that is NOT the
+        /// display intake (#798, repair round 5, Codex B4). The one intake
+        /// still does all the display work (rows, events, the ghost sweep);
+        /// this only answers waiting calls, by the same rule, with the same
+        /// check-write-recheck the intake uses. Without it a call on a rig
+        /// that lost the intake mid-call never heard its own session's push:
+        /// a connect that had always succeeded ended ConnectFailed after ten
+        /// seconds, and setupRemote answered that by cycling the session.
+        /// </summary>
+        private void OfferPushToWaitingCalls(Radios.SmartLink.SessionRadioListEventArgs e)
+        {
+            if (e?.Radios == null || e.Session == null) return;
+            var provenance = new WanListProvenance(e.Session, e.SessionId, e.ConnectionGeneration, e.ListRevision);
+            lock (_wanIntakeLock)
+            {
+                if (_openLatches.Count == 0) return;
+                if (!ListStillCurrent(provenance)) return;
+                var before = AnswerWaitingCalls(e.AccountId ?? "", e.Radios, serverPush: true, provenance);
+                if (before.Count == 0) return;
+                if (!ListStillCurrent(provenance))
+                {
+                    PutBackWaitingCalls(before);
+                    return;
+                }
+                Tracing.TraceLine(
+                    $"presence: {e.AccountId}'s list ({provenance}) answered {before.Count} waiting call(s) on a rig that is not the intake",
+                    TraceLevel.Info);
+            }
+        }
+
         /// <summary>The calls waiting now. Guarded by <c>_wanIntakeLock</c>.</summary>
         private readonly List<ConnectLatch> _openLatches = new List<ConnectLatch>();
 
@@ -326,6 +397,22 @@ namespace Radios
         private static void presenceIntakeDispatch(object sender, Radios.SmartLink.SessionRadioListEventArgs e)
         {
             FlexBase target = PresenceIntake;
+
+            // Calls wait on the rig that made them, and a rig can lose the
+            // intake while its call waits. Every engaged rig other than the
+            // intake has its waiting calls answered here; the intake answers
+            // its own in the full intake below (#798, repair round 5).
+            FlexBase[] others;
+            lock (_presenceIntakeGate)
+                others = _presenceEngaged.Where(r => !ReferenceEquals(r, target)).ToArray();
+            foreach (var rig in others)
+            {
+                try { rig.OfferPushToWaitingCalls(e); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"presenceIntakeDispatch: offering a list to a waiting call failed: {ex.Message}", TraceLevel.Warning);
+                }
+            }
 
             if (target == null)
             {
@@ -665,21 +752,7 @@ namespace Radios
                 // if the list stops being current while it is taken; and only
                 // if the list answers that call, by the one rule
                 // (ListAnswersTheCall, repair round 4).
-                var latchesBefore = new List<(ConnectLatch latch, bool received, List<Radio> radios, SmartLinkRegistrationEvidence.AccountList? push)>();
-                foreach (var open in _openLatches)
-                {
-                    if (!string.Equals(open.Account, accountId, StringComparison.OrdinalIgnoreCase)) continue;
-                    if (!ListAnswersTheCall(arrival == WanListArrival.ServerPush,
-                            open.StartSessionId, open.StartRevision, provenance.SessionId, provenance.ListRevision)) continue;
-                    latchesBefore.Add((open, open.Received, open.Radios, open.ServerPush));
-                    open.Received = true;
-                    open.Radios = lst.ToList();
-                    if (arrival == WanListArrival.ServerPush)
-                        open.ServerPush = new SmartLinkRegistrationEvidence.AccountList(
-                            accountId,
-                            lst.Select(r => r.Serial).Where(x => !string.IsNullOrEmpty(x)).ToList(),
-                            SmartLinkRegistrationEvidence.ListSource.ServerPushThisCall);
-                }
+                var latchesBefore = AnswerWaitingCalls(accountId, lst, arrival == WanListArrival.ServerPush, provenance);
                 if (latchIsOurs)
                 {
                     radios = lst.ToList();
@@ -702,12 +775,7 @@ namespace Radios
                     radios = radiosBefore;
                     wanListReceived = latchBefore;
                     _serverListThisCall = serverListBefore;
-                    foreach (var (open, received, openRadios, push) in latchesBefore)
-                    {
-                        open.Received = received;
-                        open.Radios = openRadios;
-                        open.ServerPush = push;
-                    }
+                    PutBackWaitingCalls(latchesBefore);
                     Tracing.TraceLine(
                         $"wanRadioListReceivedHandler: {arrival} list of {lst.Count} radio(s) for {accountId} from {provenance} stopped being that session's current knowledge while it was being taken — a dial, a disconnect or the transport's death landed between the check and the latch — so the latch is put back as it was and nothing else is written",
                         TraceLevel.Info);
