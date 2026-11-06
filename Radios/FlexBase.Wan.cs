@@ -2210,13 +2210,22 @@ namespace Radios
                         $"ConnectToSmartLink: session was already live — satisfied immediately from {fromRows.Count} cached WAN radio(s), no list wait ({sw.ElapsedMilliseconds}ms)",
                         TraceLevel.Info);
                 }
-                else if (!haveCachedList && TheLiveListAnsweredEmpty(session, sw))
+                else if (!haveCachedList && sessionWasAlreadyConnected && TheLiveListAnsweredEmpty(session, sw))
                 {
                     // #613: the session's one list for this connection has
                     // ARRIVED and holds no row for this account, so waiting ten
                     // seconds for another has no possible outcome. Answer from
                     // it: an empty list, which the count below turns into
                     // NoRadios. A push that lands meanwhile is not overwritten.
+                    //
+                    // ONLY for a session that was live before this call. A
+                    // session this call connected is pushed its list through
+                    // the intake, and the snapshot can show that list a moment
+                    // before the intake has taken it; answering from the
+                    // snapshot then lost the server's answer, so a fresh empty
+                    // list read as Unknown instead of a live absence (found in
+                    // repair round 1: SmartLinkRegistrationReplayTests'
+                    // fresh-push test failed one run in three).
                     lock (_wanIntakeLock)
                     {
                         if (!wanListReceived) radios = new List<Radio>();
