@@ -5512,9 +5512,45 @@ namespace Radios
                             // radio's own report, which FlexLib raises for any
                             // changed value.
                             bool accepted = EchoGuardFor(s).Accept(echoed);
-                            if (accepted && (s.Active || ReferenceEquals(_rxCache?.Slice, s)))
-                                SetRxCache(s, echoed);
-                            if (accepted && s.Active)
+                            // The caches are written only for a slice still in
+                            // the roster, checked and written under the roster's
+                            // lock, which sliceRemoved also takes (#642, repair
+                            // round 10). A removal therefore either clears the
+                            // caches after this commit, or this commit sees the
+                            // slice gone and writes nothing: a removed
+                            // transmitter's frequency, mode and XIT cannot come
+                            // back. Everything under the lock is in-memory (a
+                            // reference write, the guard's own short lock, the
+                            // XIT lock); the filter and the where-you-are record,
+                            // which may do more, run after it is released.
+                            bool ours = false;
+                            var roster = mySlices;
+                            if (roster != null)
+                            {
+                                lock (roster)
+                                {
+                                    ours = roster.Contains(s);
+                                    if (ours)
+                                    {
+                                        if (accepted && (s.Active || ReferenceEquals(_rxCache?.Slice, s)))
+                                            SetRxCache(s, echoed);
+                                        if (s.IsTransmitSlice)
+                                        {
+                                            if (!ReferenceEquals(s, _txCacheSlice))
+                                            {
+                                                // The caches move over whole, holding a
+                                                // tune still on its way rather than its
+                                                // stale predecessor.
+                                                ulong held = accepted ? echoed
+                                                    : EchoGuardFor(s).TryPending(out ulong pending) ? pending : echoed;
+                                                NoteTransmitSliceAsFound(s, held);
+                                            }
+                                            else if (accepted) SetTxCache(s, echoed);
+                                        }
+                                    }
+                                }
+                            }
+                            if (ours && accepted && s.Active)
                             {
                                 // The filter edges and the where-you-are memory
                                 // are both derived from this number, so a
@@ -5526,19 +5562,6 @@ namespace Radios
                                 // a tuning sweep costs one write, not one per
                                 // click.
                                 NoteOperatorPlace(s);
-                            }
-                            if (s.IsTransmitSlice)
-                            {
-                                if (!ReferenceEquals(s, _txCacheSlice))
-                                {
-                                    // The caches move over whole, holding a
-                                    // tune still on its way rather than its
-                                    // stale predecessor.
-                                    ulong held = accepted ? echoed
-                                        : EchoGuardFor(s).TryPending(out ulong pending) ? pending : echoed;
-                                    NoteTransmitSliceAsFound(s, held);
-                                }
-                                else if (accepted) SetTxCache(s, echoed);
                             }
                         }
                         break;

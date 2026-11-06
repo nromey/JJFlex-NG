@@ -354,8 +354,22 @@ namespace Flex.Smoothlake.FlexLib
         // JJFlex patch: raised for EVERY rf_frequency the radio reports for
         // this slice, including one equal to the cached value, which the
         // "Freq" PropertyChanged skips. The app needs to know a report
-        // ARRIVED, not only that the number changed (#642).
-        public event Action<Slice, double> FrequencyReported;
+        // ARRIVED, not only that the number changed (#642). The bool is true
+        // when the value changed, so the Freq notification follows.
+        public event Action<Slice, double, bool> FrequencyReported;
+
+        // JJFlex patch: each subscriber in isolation, so one that throws can
+        // neither stop the others nor, on a change, the Freq notification.
+        private void OnFrequencyReported(double mhz, bool changed)
+        {
+            var handlers = FrequencyReported;
+            if (handlers == null) return;
+            foreach (Action<Slice, double, bool> handler in handlers.GetInvocationList())
+            {
+                try { handler(this, mhz, changed); }
+                catch (Exception ex) { Debug.WriteLine("Slice::FrequencyReported subscriber threw: " + ex.Message); }
+            }
+        }
 
         private double _freq; // the frequency in MHz
         /// <summary>
@@ -2985,13 +2999,13 @@ namespace Flex.Smoothlake.FlexLib
                                 if (_freq == temp)
                                 {
                                     // JJFlex patch: an equal report still arrived.
-                                    FrequencyReported?.Invoke(this, temp);
+                                    OnFrequencyReported(temp, false);
                                     continue;
                                 }
 
                                 _freq = temp;
                                 // JJFlex patch: report every arrival, before the Freq notification, so a throwing Freq subscriber cannot hide it.
-                                FrequencyReported?.Invoke(this, temp);
+                                OnFrequencyReported(temp, true);
                                 RaisePropertyChanged("Freq");
                             }
                             break;

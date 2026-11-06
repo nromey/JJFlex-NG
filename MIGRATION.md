@@ -190,7 +190,10 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
 
 22. **Slice frequency report arrival (2026-11-06)**: keep the comment-marked
     JJFlex patch in `FlexLib_API/FlexLib/Slice.cs`: the public event
-    `FrequencyReported` (declared beside `_freq`) and its two raises in
+    `FrequencyReported(Slice, double, bool changed)` (declared beside `_freq`),
+    its raiser `OnFrequencyReported`, which calls each subscriber in its own
+    try/catch so a throwing subscriber cannot stop the others or the Freq
+    notification (added 2026-11-06, repair round 10), and its two raises in
     `StatusUpdate`'s `rf_frequency` case, one before the equal-value `continue`
     and one just before the changed value's `RaisePropertyChanged("Freq")`
     (after `_freq` holds it, so a throwing Freq subscriber cannot hide it). Stock

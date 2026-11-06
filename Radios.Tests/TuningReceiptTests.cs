@@ -1259,11 +1259,11 @@ namespace Radios.Tests
             Slice s = v.NewSlice(0, Handle, 14.100, "USB");
             var events = new List<string>();
             s.PropertyChanged += (_, e) => { if (e.PropertyName == "Freq") events.Add("Freq " + s.Freq.ToString("F6", CultureInfo.InvariantCulture)); };
-            s.FrequencyReported += (sl, mhz) => events.Add("Reported " + mhz.ToString("F6", CultureInfo.InvariantCulture));
+            s.FrequencyReported += (sl, mhz, changed) => events.Add("Reported " + mhz.ToString("F6", CultureInfo.InvariantCulture) + (changed ? " changed" : ""));
 
             s.StatusUpdate("rf_frequency=14.100000");
             s.StatusUpdate("rf_frequency=14.250000");
-            Assert.Equal(new[] { "Reported 14.100000", "Reported 14.250000", "Freq 14.250000" }, events);
+            Assert.Equal(new[] { "Reported 14.100000", "Reported 14.250000 changed", "Freq 14.250000" }, events);
         }
 
         /// <summary>The FlexLib patch is comment-marked where it is raised, and the event is declared once.</summary>
@@ -1271,12 +1271,165 @@ namespace Radios.Tests
         public void The_FlexLib_frequency_report_patch_is_marked_and_in_place()
         {
             string src = System.IO.File.ReadAllText(System.IO.Path.Combine(FlexBasePartials.RepoRoot(), "FlexLib_API", "FlexLib", "Slice.cs"));
-            Assert.Contains("public event Action<Slice, double> FrequencyReported;", src);
+            Assert.Contains("public event Action<Slice, double, bool> FrequencyReported;", src);
+            Assert.Contains("// JJFlex patch: each subscriber in isolation", src);
+            Assert.Contains("try { handler(this, mhz, changed); }", src);
             Assert.Contains("// JJFlex patch: an equal report still arrived.", src);
             Assert.Contains("// JJFlex patch: report every arrival, before the Freq notification, so a throwing Freq subscriber cannot hide it.", src);
-            Assert.Equal(2, src.Split("FrequencyReported?.Invoke(this, temp);").Length - 1);
+            Assert.Contains("OnFrequencyReported(temp, false);", src);
+            Assert.Contains("OnFrequencyReported(temp, true);", src);
             string migration = System.IO.File.ReadAllText(System.IO.Path.Combine(FlexBasePartials.RepoRoot(), "MIGRATION.md"));
             Assert.Contains("Slice frequency report arrival", migration);
+        }
+        // ── Repair round 10 (Codex's ninth re-check) ──
+
+        /// <summary>
+        /// Codex's blocker, its exact schedule, through the answer and through
+        /// running out of time: the reconcile has decided the slice is still
+        /// ours and the slice's Freq handler is running; at that moment (the
+        /// guard's clock, read inside the handler) the slice is removed on
+        /// ANOTHER thread, and the removal is let finish. The handler must not
+        /// then put the removed transmitter's frequency, mode or XIT back.
+        /// </summary>
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void A_removal_while_the_handler_commits_leaves_no_transmit_numbers_behind(bool byExpiry)
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            Set(a, "_active", false);                        // as Codex did: no filter adapter in the fixture
+            var remove = typeof(FlexBase).GetMethod("sliceRemoved", Private)!;
+            var binding = new ObservationBinding(new object(), new ConnectionAttempt("test-serial"));
+            long now = 0;
+            int armed = 0, fired = 0;
+            Task? removal = null;
+            Clock(b.Rig, a, () =>
+            {
+                if (Volatile.Read(ref armed) == 1
+                    && new System.Diagnostics.StackTrace().ToString().Contains("slicePropertyChangedHandler")
+                    && Interlocked.Exchange(ref fired, 1) == 0)
+                {
+                    removal = Task.Run(() => remove.Invoke(b.Rig, new object[] { a, binding }));
+                    removal.Wait(1000);                      // finishes now unless the commit holds it off
+                }
+                return now;
+            });
+
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            Reports(a, 14.250000);                           // genuine, kept out while our tune is unanswered
+            if (byExpiry)
+            {
+                now = FrequencyEchoGuard.GiveUpMs;
+                _ = b.Rig.RXFrequency;                       // a reader notices the give-up; the reconcile is queued
+                Volatile.Write(ref armed, 1);
+                Drain(b.Rig);
+            }
+            else
+            {
+                Volatile.Write(ref armed, 1);
+                AckTune(b, 0);
+            }
+            Assert.Equal(1, Volatile.Read(ref fired));       // the boundary was reached
+            Assert.True(removal!.Wait(5000));
+            Assert.Equal(0UL, b.Rig.TXFrequency);
+            Assert.Equal("", (string)typeof(FlexBase).GetField("_TXMode", Private)!.GetValue(b.Rig)!);
+            Assert.False(b.Rig.XIT.Active);
+            b.Rig.ShowingXmitFrequency = true;
+            Assert.Equal(0UL, b.Rig.VirtualRXFrequency);     // the field and title fallback's input
+        }
+        /// <summary>
+        /// The FlexLib patch isolates each subscriber (repair round 10): one
+        /// that throws stops neither a later subscriber nor, on a change, the
+        /// Freq notification.
+        /// </summary>
+        [Fact]
+        public void A_throwing_frequency_report_subscriber_stops_nothing_else()
+        {
+            var v = new VendorRadioFixture("isolated-" + Guid.NewGuid().ToString("N"));
+            Slice s = v.NewSlice(0, Handle, 14.100, "USB");
+            int later = 0, freq = 0;
+            s.FrequencyReported += (_, _, _) => throw new InvalidOperationException("a broken subscriber");
+            s.FrequencyReported += (_, _, _) => later++;
+            s.PropertyChanged += (_, e) => { if (e.PropertyName == "Freq") freq++; };
+
+            s.StatusUpdate("rf_frequency=14.100000");        // unchanged
+            s.StatusUpdate("rf_frequency=14.250000");        // changed
+            Assert.Equal(2, later);
+            Assert.Equal(1, freq);
+            Assert.Equal(14.25, s.Freq);
+        }
+
+        /// <summary>
+        /// Repair round 10: a changed report that ends an answered tune's wait
+        /// for its report is processed once, by the Freq notification that
+        /// follows, not also by a reconcile. An unchanged one has no Freq
+        /// notification, so the reconcile does it (control).
+        /// </summary>
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void A_report_ending_the_wait_for_it_is_processed_once(bool changed)
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            Set(a, "_active", false);
+
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            if (!changed) Reports(a, 14.250000);             // FlexLib holds 14.25 before the write is answered...
+            // ...but that was a report since the write, so to reach AwaitingReport the
+            // unchanged case starts a fresh request whose answer comes first.
+            if (!changed) { b.Rig.RXFrequency = 14_100_200; Drain(b.Rig); AckTune(b, 1); }
+            else AckTune(b, 0);
+            Assert.Equal(0, b.Rig.ReconcileRuns);
+            Reports(a, 14.250000);                           // changed, or the same again
+            EveryReaderSays(b.Rig, 14_250_000);
+            Assert.Equal(changed ? 0 : 1, b.Rig.ReconcileRuns);
+        }
+        /// <summary>
+        /// The commit itself, not only the check, is one step against removal
+        /// (repair round 10). Inside the handler's locked commit the guard is
+        /// asked for the pending value (a report other than our pending tune
+        /// arrives while the transmit caches are being moved over); at that
+        /// moment a removal starts on another thread. It must wait for the
+        /// commit and then clear it, so the removed transmitter has no number.
+        /// </summary>
+        [Fact]
+        public void A_removal_during_the_handlers_commit_waits_and_then_clears_it()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            Set(a, "_active", false);
+            var remove = typeof(FlexBase).GetMethod("sliceRemoved", Private)!;
+            var binding = new ObservationBinding(new object(), new ConnectionAttempt("test-serial"));
+            int armed = 0, fired = 0;
+            Task? removal = null;
+            Clock(b.Rig, a, () =>
+            {
+                if (Volatile.Read(ref armed) == 1)
+                {
+                    string stack = new System.Diagnostics.StackTrace().ToString();
+                    if (stack.Contains("slicePropertyChangedHandler") && stack.Contains("TryPending")
+                        && Interlocked.Exchange(ref fired, 1) == 0)
+                    {
+                        removal = Task.Run(() => remove.Invoke(b.Rig, new object[] { a, binding }));
+                        removal.Wait(1000);
+                    }
+                }
+                return 0;
+            });
+
+            b.Rig.RXFrequency = 14_100_100;                  // pending, sent
+            Drain(b.Rig);
+            typeof(FlexBase).GetMethod("ForgetTransmitCaches", Private)!.Invoke(b.Rig, new object[] { a });
+            Volatile.Write(ref armed, 1);
+            Reports(a, 14.250000);                           // not ours: the commit asks the guard for the pending value
+            Assert.Equal(1, Volatile.Read(ref fired));
+            Assert.True(removal!.Wait(5000));
+            Assert.Equal(0UL, b.Rig.TXFrequency);
+            Assert.Equal("", (string)typeof(FlexBase).GetField("_TXMode", Private)!.GetValue(b.Rig)!);
         }
     }
 }

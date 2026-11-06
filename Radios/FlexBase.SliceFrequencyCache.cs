@@ -149,10 +149,17 @@ namespace Radios
         /// counts it as the radio's answer to a write; when it was the report
         /// an answer was waiting for, what is derived follows the radio.
         /// </summary>
-        private void SliceFrequencyReported(Slice slice, double mhz)
+        private void SliceFrequencyReported(Slice slice, double mhz, bool changed)
         {
-            if (EchoGuardFor(slice).Reported(LibFreqtoLong(mhz), out ulong requested)) Reconcile(slice, requested);
+            // A changed value's Freq notification follows at once and does the
+            // derived work itself, the guard Idle by then; only an unchanged
+            // report needs the reconcile (repair round 10: it ran twice).
+            if (EchoGuardFor(slice).Reported(LibFreqtoLong(mhz), out ulong requested) && !changed)
+                Reconcile(slice, requested);
         }
+
+        /// <summary>How many times a reconcile has run the slice's handler. For tests.</summary>
+        internal int ReconcileRuns;
 
         /// <summary>
         /// What a cache should hold for <paramref name="slice"/> when it is
@@ -392,6 +399,9 @@ namespace Radios
                     System.Diagnostics.TraceLevel.Info);
                 return;
             }
+            System.Threading.Interlocked.Increment(ref ReconcileRuns);
+            // The handler re-checks the roster under its lock before it writes
+            // a cache (repair round 10); this check only saves the work.
             try { slicePropertyChangedHandler(slice, new System.ComponentModel.PropertyChangedEventArgs("Freq")); }
             catch (System.Exception ex)
             {

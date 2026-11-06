@@ -459,7 +459,7 @@ namespace Radios.Tests
                         || text.Contains("== FrequencyEchoGuard.Reading.Pending\n                ? pending : LibFreqtoLong(slice.Freq);", StringComparison.Ordinal),
                 "a slice's value is not the pending request or the radio's report (repair round 8).");
             Assert.True(text.Contains("slc.FrequencyReported += SliceFrequencyReported;", StringComparison.Ordinal)
-                        && text.Contains("if (EchoGuardFor(slice).Reported(LibFreqtoLong(mhz), out ulong requested)) Reconcile(slice, requested);", StringComparison.Ordinal),
+                        && text.Contains("if (EchoGuardFor(slice).Reported(LibFreqtoLong(mhz), out ulong requested) && !changed)", StringComparison.Ordinal),
                 "every report's arrival no longer reaches the guard (repair round 9).");
             Assert.True(text.Contains("gaveUp: requested => q.Enqueue((FunctionDel)(() => Reconcile(s, requested)), \"TuneReconcile\")", StringComparison.Ordinal),
                 "running out of time no longer brings what is derived with it (repair round 9).");
