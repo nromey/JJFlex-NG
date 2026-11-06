@@ -1,6 +1,7 @@
 ﻿#define CWMonitor
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -124,7 +125,13 @@ namespace Radios
                 return check;
             }
 
-            if (!TryLoadSavedAccount())
+            // The radio's OWN account (#713), resolved by the same routing
+            // resolver the connect uses (#798); the saved default only when
+            // nothing names one, which is the usual case for a radio being
+            // registered for the first time. The confirm step names whichever
+            // account this is before anything is sent, and that is the consent.
+            var account = ResolveRegistrationAccount(theRadio.Serial);
+            if (account == null)
             {
                 // Two different problems, two different fixes. With several
                 // accounts saved and none chosen, "sign in first" is false
@@ -139,7 +146,8 @@ namespace Radios
                 return check;
             }
 
-            check.AccountEmail = _currentAccount.Email;
+            _registrationAccount = account;
+            check.AccountEmail = account.Email;
 
             var others = OtherConnectedStations;
             if (others.Count > 0)
@@ -161,6 +169,56 @@ namespace Radios
 
             check.CanProceed = true;
             return check;
+        }
+
+        /// <summary>
+        /// The account the last <see cref="PreflightSmartLinkRegistration"/>
+        /// resolved, which its confirm step named and registration sends under.
+        /// </summary>
+        private SmartLinkAccount _registrationAccount;
+
+        /// <summary>
+        /// The saved SmartLink account registration on this radio goes
+        /// through (#713): the radio's own account by
+        /// <see cref="RadioAccountRouting.ForSerial"/> when that names a saved
+        /// account, otherwise the saved default as before.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Routing, not permission.</b> This answers which account to
+        /// register TO. The permission is the operator's yes at the confirm
+        /// step, which names the account before anything commits; an identity
+        /// answer is never reused as a permission answer (#405).</para>
+        /// <para><b>An empty route is the normal case</b> for a radio being
+        /// registered for the first time: no account lists it and nothing on
+        /// record names one. That falls back to the saved default, exactly as
+        /// before; it never refuses.</para>
+        /// <para>Does not change <c>_currentAccount</c>: the connection's own
+        /// account stays what the connect made it.</para>
+        /// </remarks>
+        /// <param name="savedAccounts">The saved accounts; null reads the
+        /// account manager, as production always does.</param>
+        internal SmartLinkAccount ResolveRegistrationAccount(string serial, IReadOnlyList<SmartLinkAccount> savedAccounts = null)
+        {
+            var route = RadioAccountRouting.ForSerial(serial);
+            var saved = savedAccounts ?? AccountManager.Accounts;
+            var own = AccountForRoute(route, saved);
+            if (own != null)
+            {
+                Tracing.TraceLine($"ResolveRegistrationAccount: {serial} goes through its own account '{own.Email}' ({route.Source})", TraceLevel.Info);
+                return own;
+            }
+            Tracing.TraceLine(
+                $"ResolveRegistrationAccount: {serial} names no saved account (route {route}); using the saved default, as before",
+                TraceLevel.Info);
+            return TryLoadSavedAccount() ? _currentAccount : null;
+        }
+
+        /// <summary>The saved account a route names, or null when it names none that is saved.</summary>
+        internal static SmartLinkAccount AccountForRoute(AccountRoute route, IReadOnlyList<SmartLinkAccount> saved)
+        {
+            if (route.IsEmpty || saved == null) return null;
+            return saved.FirstOrDefault(a => a != null
+                && string.Equals(a.Email, route.Account, StringComparison.OrdinalIgnoreCase));
         }
 
         /// <summary>
@@ -305,11 +363,11 @@ namespace Radios
                     serial, arrivedOverSmartLink: true, anySavedAccount: true,
                     anAccountIsInHand: true, listsInHand: null));
 
-            // A local connection never loads the account on its own — fall back
-            // to the saved one so the query can give a real answer instead of
-            // an Unknown that silences the advisory.
-            TryLoadSavedAccount();
-            var account = _currentAccount;
+            // A local connection never loads the account on its own. Ask the
+            // radio's own account first (#713, the resolver #798 built), and
+            // fall back to the saved default so the query can give a real
+            // answer instead of an Unknown that silences the advisory.
+            var account = ResolveRegistrationAccount(serial);
             if (account == null)
             {
                 bool anySaved = SmartLinkAccountManager.AnySavedAccounts();
@@ -393,7 +451,10 @@ namespace Radios
         internal SmartLinkRegistrationEvidence.Finding AskSmartLinkAboutSerial(
             string serial, string askedAccount, string jwt)
         {
-            var result = ConnectToSmartLink(jwt);
+            // The asked account's session, not whichever one _currentAccount
+            // names (#713): the query may be asking under the radio's own
+            // account while the connection's account is another.
+            var result = ConnectToSmartLink(jwt, askedAccount);
 
             var lists = new List<SmartLinkRegistrationEvidence.AccountList>(HeldAccountLists());
             SmartLinkRegistrationEvidence.AccountList? pushed;
@@ -469,7 +530,10 @@ namespace Radios
 
         private bool SendRegistrationCommand(bool register, Action<string, bool> onStateChange, int attempt = 1)
         {
-            if (theRadio == null || !IsConnected || _currentAccount == null) return false;
+            // The account the preflight resolved and the confirm step named
+            // (#713); the connection's account only if no preflight ran.
+            var account = _registrationAccount ?? _currentAccount;
+            if (theRadio == null || !IsConnected || account == null) return false;
             // Registration binds the radio to an ACCOUNT and persists in the
             // radio. Both directions — register and unregister — change what
             // the radio keeps, so both sit inside the hold (audit 2.9).
@@ -479,7 +543,7 @@ namespace Radios
             {
                 var r = theRadio;
 
-                string jwt = GetJwtFromSavedAccount(_currentAccount);
+                string jwt = GetJwtFromSavedAccount(account);
                 if (string.IsNullOrEmpty(jwt))
                 {
                     Tracing.TraceLine("SendRegistrationCommand: no JWT available", TraceLevel.Error);
@@ -537,7 +601,7 @@ namespace Radios
                 if (register) r.WanRegisterRadio(jwt);
                 else r.WanUnregisterRadio(jwt);
 
-                Tracing.TraceLine($"SendRegistrationCommand: sent {(register ? "register" : "unregister")} for account {_currentAccount.Email}", TraceLevel.Info);
+                Tracing.TraceLine($"SendRegistrationCommand: sent {(register ? "register" : "unregister")} for account {account.Email}", TraceLevel.Info);
                 return true;
             }
             catch (Exception ex)

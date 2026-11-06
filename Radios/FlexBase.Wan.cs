@@ -2114,7 +2114,11 @@ namespace Radios
         /// <c>session.AvailableRadios</c> for every account.
         /// </para>
         /// </summary>
-        private SmartLinkConnectResult ConnectToSmartLink(string jwt)
+        /// <param name="accountEmail">The account whose session to work
+        /// through; null keeps the connection's account, as every caller did
+        /// before the registration query learned to ask under the radio's own
+        /// account (#713).</param>
+        private SmartLinkConnectResult ConnectToSmartLink(string jwt, string accountEmail = null)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Tracing.TraceLine($"ConnectToSmartLink: BEGIN jwt length={jwt?.Length ?? 0}", TraceLevel.Info);
@@ -2124,7 +2128,8 @@ namespace Radios
             });
             try
             {
-                var accountEmail = _currentAccount?.Email ?? "default-account";
+                if (string.IsNullOrWhiteSpace(accountEmail))
+                    accountEmail = _currentAccount?.Email ?? "default-account";
                 var session = Radios.SmartLink.SmartLinkServices.Coordinator.EnsureSessionForAccount(accountEmail);
 
                 // Take the intake, so `radios` and `wanListReceived` get
