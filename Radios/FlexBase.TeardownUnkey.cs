@@ -127,15 +127,14 @@ public partial class FlexBase
         lock (_transmitWorkGate)
         {
             if (TransmitWorkRevoked(generation, what)) return false;
-            var radio = theRadio;
-            if (owner != null && (!ReferenceEquals(radio, owner) || !ReferenceEquals(radio?.CurrentCommandConnection, connection)))
-            {
-                Tracing.TraceLine("TransmitWork: " + what + " was admitted on another radio or connection, so it was dropped, not sent",
-                    TraceLevel.Warning);
-                return false;
-            }
-            send();
-            return true;
+            // The identity check is made with the write (repair round 5): a
+            // new connection waits for it, and work admitted with no radio is
+            // never upgraded into authority over one attached later (Codex's
+            // #596 re-check: the no-radio admission keyed a later radio).
+            string why = WriteOnPinnedTarget(owner, connection, null, send);
+            if (why == null) return true;
+            Tracing.TraceLine("TransmitWork: " + what + " was dropped, not sent - " + why, TraceLevel.Warning);
+            return false;
         }
     }
 
@@ -366,6 +365,9 @@ public partial class FlexBase
         return true;
     }
 
+    /// <summary>OurCarrierToUnkey said no, and traced why itself.</summary>
+    private const string NotOurs = "not ours (traced)";
+
     /// <summary>
     /// Unkey THIS client's carrier, and nothing else's (#596 N1, #861 B2;
     /// Codex's re-check). Queued like every transmit write, but the queued
@@ -383,9 +385,15 @@ public partial class FlexBase
         object connection = owner?.CurrentCommandConnection;
         q.Enqueue((FunctionDel)(() =>
         {
-            if (!OurCarrierToUnkey(owner, connection, why)) return;
-            owner.Mox = false;
-            _ownKeyRequested = false;
+            // Ownership checked with the write (repair round 5, rule 1).
+            string refused = WriteOnPinnedTarget(owner, connection,
+                () => OurCarrierToUnkey(owner, connection, why) ? null : NotOurs, () =>
+                {
+                    owner.Mox = false;
+                    _ownKeyRequested = false;
+                });
+            if (refused != null && refused != NotOurs)
+                Tracing.TraceLine("Teardown unkey (" + why + "): not sent; " + refused, TraceLevel.Info);
         }), "Mox (own carrier only)");
     }
 
@@ -485,8 +493,10 @@ public partial class FlexBase
         object connection = radio.CurrentCommandConnection;
         q.Enqueue((FunctionDel)(() =>
         {
-            if (!OurCarrierToUnkey(owner, connection, "the CW queue")) return;
-            cwx?.ClearBuffer();
+            string refused = WriteOnPinnedTarget(owner, connection,
+                () => OurCarrierToUnkey(owner, connection, "the CW queue") ? null : NotOurs, () => cwx?.ClearBuffer());
+            if (refused != null && refused != NotOurs)
+                Tracing.TraceLine("Teardown unkey (the CW queue): not sent; " + refused, TraceLevel.Info);
         }), "CWX clear (own carrier only)");
     }
 

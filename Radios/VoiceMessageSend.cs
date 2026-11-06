@@ -71,11 +71,10 @@ namespace Radios
         public bool Transmit
         {
             get => _rig.Transmit;
-            set
-            {
-                if (!_rig.TransmitAdmissionStands(_admission, value ? "a send's key" : "a send's unkey")) return;
-                _rig.Transmit = value;
-            }
+            // The admission travels to the write (repair round 5, #596 B7):
+            // the key-on is pinned to it, and the release is checked when it
+            // runs, not only when it is asked for.
+            set => _rig.TransmitAdmitted(_admission, value, value ? "a send's key" : "a send's unkey");
         }
         public bool FilePlaying => _rig.TxFilePlaying;
         public bool FileReachedEnd => _rig.TxFilePlayer.ReachedEnd;

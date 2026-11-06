@@ -1683,11 +1683,8 @@ internal static class VoiceMessageSender
         public bool Transmit
         {
             get => _rig.Transmit;
-            set
-            {
-                if (!_rig.TransmitAdmissionStands(_admission, value ? "a slice send's key" : "a slice send's unkey")) return;
-                _rig.Transmit = value;
-            }
+            // Carried to the write (repair round 5, #596 B7).
+            set => _rig.TransmitAdmitted(_admission, value, value ? "a slice send's key" : "a slice send's unkey");
         }
 
         // Playing only once asked and not failed: the recorder marks a slice

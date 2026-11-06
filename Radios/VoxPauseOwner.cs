@@ -32,6 +32,17 @@ namespace Radios
         private readonly Func<string?>? _restoreRefusal;
 
         /// <summary>
+        /// Runs one write's refusal and write as ONE step against the
+        /// replacement of the command connection they are pinned to (repair
+        /// round 5, Codex's #596 B8): the identity check is made with the
+        /// write, so a release whose last check passed cannot then write onto
+        /// a new connection. Returns why the pinned target refused (the write
+        /// did not run), or what the step returned. Null for an owner built
+        /// without it.
+        /// </summary>
+        private readonly Func<Func<string?>, string?>? _atTheWrite;
+
+        /// <summary>
         /// A restore that was owed and withheld at its write: VOX stays off for
         /// now, and the debt is KEPT here, not lost. The next pause of the same
         /// setting inherits it, the disconnect's flush tries it again at its own
@@ -53,11 +64,17 @@ namespace Radios
         public VoxPauseOwner(Func<FlexBase.VoxSetting, bool> isOn,
             Func<FlexBase.VoxSetting, bool, bool, bool> write, Func<Action, bool>? enqueue = null,
             Func<string?>? restoreRefusal = null)
+            : this(isOn, write, enqueue, restoreRefusal, null) { }
+
+        internal VoxPauseOwner(Func<FlexBase.VoxSetting, bool> isOn,
+            Func<FlexBase.VoxSetting, bool, bool, bool> write, Func<Action, bool>? enqueue,
+            Func<string?>? restoreRefusal, Func<Func<string?>, string?>? atTheWrite)
         {
             _isOn = isOn ?? throw new ArgumentNullException(nameof(isOn));
             _write = write ?? throw new ArgumentNullException(nameof(write));
             _enqueue = enqueue;
             _restoreRefusal = restoreRefusal;
+            _atTheWrite = atTheWrite;
         }
 
         /// <summary>For tests: a restore of <paramref name="which"/> was withheld and is still owed.</summary>
@@ -196,27 +213,43 @@ namespace Radios
 
         private bool WriteNow(FlexBase.VoxSetting which, bool on, bool immediate)
         {
-            if (on && _restoreRefusal != null)
+            // The refusal and the write are one step (repair round 5): asked
+            // and written inside the same pinned step, never asked and then
+            // written later through whatever connection is current by then.
+            string? refused = null;
+            bool written = false;
+            string? Step()
             {
-                string? why;
-                try { why = _restoreRefusal(); }
-                catch (Exception ex) { why = "the radio could not be read (" + ex.Message + ")"; }
-                if (why != null)
+                if (on && _restoreRefusal != null)
+                {
+                    try { refused = _restoreRefusal(); }
+                    catch (Exception ex) { refused = "the radio could not be read (" + ex.Message + ")"; }
+                    if (refused != null) return refused;
+                }
+                try { written = _write(which, on, immediate); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("VoxPauseOwner: write threw: " + ex.Message, TraceLevel.Error);
+                }
+                return null;
+            }
+            string? pinned;
+            try { pinned = _atTheWrite != null ? _atTheWrite(Step) : Step(); }
+            catch (Exception ex) { pinned = "the write could not be made (" + ex.Message + ")"; }
+            refused ??= pinned;
+            if (refused != null)
+            {
+                if (on)
                 {
                     _withheld.Add(which);
-                    Tracing.TraceLine("VoxPauseOwner: " + which + " NOT put back on - " + why
+                    Tracing.TraceLine("VoxPauseOwner: " + which + " NOT put back on - " + refused
                         + ". It stays off, and the restore is kept as still owed.", TraceLevel.Warning);
-                    return false;
                 }
+                else
+                    Tracing.TraceLine("VoxPauseOwner: " + which + "=off NOT written - " + refused, TraceLevel.Warning);
+                return false;
             }
-            try
-            {
-                if (_write(which, on, immediate)) return true;
-            }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine("VoxPauseOwner: write threw: " + ex.Message, TraceLevel.Error);
-            }
+            if (written) return true;
             Tracing.TraceLine("VoxPauseOwner: " + which + "=" + on + " was not issued", TraceLevel.Warning);
             return false;
         }

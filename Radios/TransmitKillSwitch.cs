@@ -391,7 +391,16 @@ namespace Radios
         /// </remarks>
         /// <returns>True when the carrier was asked for. False means nothing
         /// was written to the radio.</returns>
-        public static bool RaiseCarrier(FlexBase rig, Carrier carrier)
+        public static bool RaiseCarrier(FlexBase rig, Carrier carrier) => RaiseCarrier(rig, carrier, null);
+
+        /// <summary>
+        /// <see cref="RaiseCarrier(FlexBase, Carrier)"/> for a send that took an
+        /// admission at its press (<see cref="FlexBase.TransmitAdmissionNow"/>):
+        /// the key is pinned to that radio and command connection at its write
+        /// (repair round 5, #596 B7), not to whatever is current when it is
+        /// queued. Null is the ordinary key.
+        /// </summary>
+        public static bool RaiseCarrier(FlexBase rig, Carrier carrier, object admission)
         {
             if (rig == null) return false;
 
@@ -442,7 +451,8 @@ namespace Radios
 
             try
             {
-                if (carrier == Carrier.Mox) rig.Transmit = true;
+                if (carrier == Carrier.Mox && admission != null) rig.TransmitAdmitted(admission, true, "a send's key");
+                else if (carrier == Carrier.Mox) rig.Transmit = true;
                 else rig.TxTune = true;
                 return true;
             }

@@ -988,6 +988,10 @@ namespace Radios
             if (report.State == CommandConnectionState.Connecting)
             {
                 if (!ReferenceEquals(radio, theRadio)) return;
+                // Before the new attempt can carry a write: nothing admitted or
+                // checked on the old connection reaches this one (repair round
+                // 5, #596 B7/B8, #861 B1). See FlexBase.PinnedWrites.cs.
+                AwaitPinnedWritesBeforeNewConnection();
                 _connectionToken = ConnectionLifetime.Bind(report.Connection,
                     radio.Serial + " " + (radio.Nickname ?? ""), out var outcome);
                 var route = _commandRoute;
@@ -8513,35 +8517,50 @@ namespace Radios
                 // #835: a key-up is refused while an Audio Check teardown holds
                 // admission, here and again when the queued write runs; an
                 // unkey never is. See FlexBase.CheckRestore.cs for the boundary.
-                if (value && RefusedForCheckTeardown("transmit")) return;
-                if (!value) CancelSlicePlayback();
-                if (value && TxReferenceArmed) txFilePlayer.RestartOnNextBuffer();
-                // A key-on belongs to the connection it was asked on: a drop or
-                // a teardown revokes it while it waits in the queue (#596,
-                // repair round 2, N4), so it cannot key a reconnected radio.
-                long work = Volatile.Read(ref _transmitWorkGeneration);
-                // And to the radio and command connection it was asked on, with
-                // the final check and the write as ONE step that a revocation
-                // waits for (repair round 3): a key-on past its check cannot
-                // be overtaken by a drop and then key the reconnected radio.
-                Radio keyedOn = theRadio;
-                object keyedConnection = keyedOn?.CurrentCommandConnection;
+                if (value)
+                {
+                    Radio keyedOn = theRadio;
+                    EnqueueKeyOn(keyedOn, keyedOn?.CurrentCommandConnection, "a key-on");
+                    return;
+                }
+                CancelSlicePlayback();
+                // An ordinary unkey is unconditional, as the emergency kill's
+                // is (TransmitKillSwitch.DropCarrier comes here). Only a
+                // send's own release is pinned (TransmitAdmitted).
                 q.Enqueue((FunctionDel)(() =>
                 {
-                    if (value && TeardownHeldSilently("transmit")) return;
-                    if (value)
-                    {
-                        SendIfStillAdmitted(work, keyedOn, keyedConnection, "a key-on", () =>
-                        {
-                            theRadio.Mox = true;
-                            _ownKeyRequested = true;
-                        });
-                        return;
-                    }
                     theRadio.Mox = false;
                     _ownKeyRequested = false;
                 }), "Mox");
             }
+        }
+
+        /// <summary>
+        /// Queue a key-on admitted on <paramref name="keyedOn"/> and
+        /// <paramref name="keyedConnection"/>: the setter's (the radio and
+        /// connection at the call) and a send's (the ones at its press, repair
+        /// round 5).
+        /// </summary>
+        private void EnqueueKeyOn(Radio keyedOn, object keyedConnection, string what)
+        {
+            if (RefusedForCheckTeardown("transmit")) return;
+            if (TxReferenceArmed) txFilePlayer.RestartOnNextBuffer();
+            // A key-on belongs to the connection it was asked on: a drop, a
+            // teardown or a new connection revokes it while it waits in the
+            // queue (#596, repair rounds 2 and 5), so it cannot key a
+            // reconnected radio. The final check and the write are ONE step
+            // that a revocation waits for (repair round 3), and the identity
+            // check is made with the write (repair round 5).
+            long work = Volatile.Read(ref _transmitWorkGeneration);
+            q.Enqueue((FunctionDel)(() =>
+            {
+                if (TeardownHeldSilently("transmit")) return;
+                SendIfStillAdmitted(work, keyedOn, keyedConnection, what, () =>
+                {
+                    keyedOn.Mox = true;
+                    _ownKeyRequested = true;
+                });
+            }), "Mox");
         }
 
         /// <summary>

@@ -116,7 +116,9 @@ namespace Radios
                             which => Ours()
                                 ? (which == VoxSetting.CwBreakIn ? radio!.CWBreakIn : radio!.SimpleVOXEnable)
                                 : throw new InvalidOperationException("The radio or its command connection is no longer this one."),
-                            (which, on, immediate) => Ours() && WriteVoxSetting(which, on, immediate),
+                            // To THIS owner's radio, never whatever is current at
+                            // the write (repair round 5).
+                            (which, on, immediate) => Ours() && WriteVoxSettingTo(radio!, which, on, immediate),
                             action =>
                             {
                                 if (!q.MainLoop) return false;
@@ -127,7 +129,12 @@ namespace Radios
                             // (repair round 3), pinned to this owner's radio AND
                             // command connection (repair round 4).
                             () => radio == null ? "there is no radio"
-                                : RestoreRefusedAtWrite(radio, (object?)connection ?? NoConnection));
+                                : RestoreRefusedAtWrite(radio, (object?)connection ?? NoConnection),
+                            // ...and asked WITH the write, as one step that a new
+                            // command connection waits for (repair round 5,
+                            // Codex's B8): a release whose last check passed
+                            // cannot then go out on a replacement connection.
+                            step => StepOnPinnedTarget(radio, connection, step));
                         OperatorChangedRadioSetting -= NoteVoxPauseOperatorChange;
                         OperatorChangedRadioSetting += NoteVoxPauseOperatorChange;
                     }
@@ -236,10 +243,13 @@ namespace Radios
         /// there is no radio, or the queue is not running and the write was
         /// not immediate. Never "applied": nothing here reads the echo.
         /// </returns>
-        public bool WriteVoxSetting(VoxSetting which, bool on, bool immediate)
+        public bool WriteVoxSetting(VoxSetting which, bool on, bool immediate) =>
+            WriteVoxSettingTo(theRadio, which, on, immediate);
+
+        /// <summary><see cref="WriteVoxSetting"/> to a named radio: the VOX owner's own (repair round 5).</summary>
+        private bool WriteVoxSettingTo(Radio? radio, VoxSetting which, bool on, bool immediate)
         {
             if (which == VoxSetting.None) return false;
-            var radio = theRadio;
             if (radio == null)
             {
                 Tracing.TraceLine("WriteVoxSetting: no radio, so " + which + "=" + on + " was NOT issued", TraceLevel.Warning);
