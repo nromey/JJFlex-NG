@@ -12420,28 +12420,76 @@ namespace Radios
         /// </summary>
         public int[] RFGainMarkers = Array.Empty<int>();
 
+        /// <summary>One panadapter's RF gain report: its range, its step and its marked settings.</summary>
+        public readonly record struct RFGainReport(int Min, int Max, int Step, int[] Markers);
+
+        /// <summary>
+        /// The RF gain report Home and the Radio menu act on: the ACTIVE
+        /// panadapter's own, once it has reported (its markers are present),
+        /// because that is the panadapter RF gain reads and writes; otherwise
+        /// the last report stored. Repair round 1 of #889: the stored fields
+        /// are written by any owned panadapter's report, so with two
+        /// panadapters the last one to report won, whichever was active.
+        /// </summary>
+        public RFGainReport ActiveRFGainReport
+        {
+            get
+            {
+                RFGainReport? fromActive = null;
+                try
+                {
+                    var pan = activePan;
+                    var markers = pan?.RFGainMarkers;
+                    if (pan != null && markers != null && markers.Length > 0)
+                        fromActive = new RFGainReport(pan.RFGainLow, pan.RFGainHigh, pan.RFGainStep, markers.ToArray());
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("ActiveRFGainReport: " + ex.Message, TraceLevel.Warning);
+                }
+                return ChooseRFGainReport(fromActive,
+                    new RFGainReport(RFGainMin, RFGainMax, RFGainIncrement, RFGainMarkers ?? Array.Empty<int>()));
+            }
+        }
+
+        /// <summary>The active panadapter's report when it has one, else the stored one.</summary>
+        public static RFGainReport ChooseRFGainReport(RFGainReport? activePanadapters, RFGainReport stored)
+            => activePanadapters ?? stored;
+
         /// <summary>
         /// True when the radio offers RF gain as exactly two settings, one of
         /// them 0, which Home presents as an RF preamp switch rather than a
         /// number field (#889). <paramref name="onDb"/> is the other setting,
-        /// read from the radio's own markers and never assumed: the 6300
+        /// read from the radio's own report and never assumed: the 6300
         /// reports 0 and 20, but a model or band that reports another pair
         /// gets its own figure, and anything with a real range keeps the
         /// number field.
         /// </summary>
-        public bool RFGainIsPreampSwitch(out int onDb) => IsPreampSwitch(RFGainMarkers, out onDb);
+        public bool RFGainIsPreampSwitch(out int onDb) => IsPreampSwitch(ActiveRFGainReport, out onDb);
 
-        /// <summary>The rule behind <see cref="RFGainIsPreampSwitch"/>, on any marker list.</summary>
-        public static bool IsPreampSwitch(IReadOnlyList<int> markers, out int onDb)
+        /// <summary>
+        /// The rule behind <see cref="RFGainIsPreampSwitch"/>. The MARKERS
+        /// say which settings the radio labels; the RANGE says which settings
+        /// exist. Both must say "0 and one other" (repair round 1): markers of
+        /// 0 and 20 over a range of 0 to 20 in steps of 5 are a five-setting
+        /// field with two labels, and a switch would hide 5, 10 and 15.
+        /// </summary>
+        public static bool IsPreampSwitch(RFGainReport report, out int onDb)
         {
             onDb = 0;
-            if (markers == null || markers.Count != 2) return false;
+            var markers = report.Markers;
+            if (markers == null || markers.Length != 2) return false;
+            int other;
             // A preamp ADDS gain: the other setting must be above 0. A pair of
             // 0 and a negative number would be an attenuator, which this is
             // not, and it keeps the number field.
-            if (markers[0] == 0 && markers[1] > 0) { onDb = markers[1]; return true; }
-            if (markers[1] == 0 && markers[0] > 0) { onDb = markers[0]; return true; }
-            return false;
+            if (markers[0] == 0 && markers[1] > 0) other = markers[1];
+            else if (markers[1] == 0 && markers[0] > 0) other = markers[0];
+            else return false;
+            // Exactly two settings exist: 0 and that one, one step apart.
+            if (report.Min != 0 || report.Max != other || report.Step != other) return false;
+            onDb = other;
+            return true;
         }
         public int RFGain
         {

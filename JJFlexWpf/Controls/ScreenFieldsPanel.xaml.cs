@@ -1376,15 +1376,39 @@ public partial class ScreenFieldsPanel : UserControl
     /// </summary>
     private void ApplyRfGainShape(FlexBase rig)
     {
-        if (_rfGainControl.Min != rig.RFGainMin) _rfGainControl.Min = rig.RFGainMin;
-        if (_rfGainControl.Max != rig.RFGainMax) _rfGainControl.Max = rig.RFGainMax;
-        if (_rfGainControl.Step != rig.RFGainIncrement) _rfGainControl.Step = rig.RFGainIncrement;
+        // The ACTIVE panadapter's report (repair round 1): it is the one RF
+        // gain reads and writes.
+        var report = rig.ActiveRFGainReport;
+        if (_rfGainControl.Min != report.Min) _rfGainControl.Min = report.Min;
+        if (_rfGainControl.Max != report.Max) _rfGainControl.Max = report.Max;
+        if (_rfGainControl.Step != report.Step) _rfGainControl.Step = report.Step;
 
-        bool asSwitch = rig.RFGainIsPreampSwitch(out _);
+        bool asSwitch = FlexBase.IsPreampSwitch(report, out _);
         var fieldWanted = asSwitch ? Visibility.Collapsed : Visibility.Visible;
         var switchWanted = asSwitch ? Visibility.Visible : Visibility.Collapsed;
-        if (_rfGainControl.Visibility != fieldWanted) _rfGainControl.Visibility = fieldWanted;
-        if (_rfPreampCheck.Visibility != switchWanted) _rfPreampCheck.Visibility = switchWanted;
+        if (_rfGainControl.Visibility == fieldWanted && _rfPreampCheck.Visibility == switchWanted) return;
+
+        // The shape is changing. If the operator is on the outgoing control,
+        // hand focus to its replacement, so they stay at RF gain rather than
+        // wherever WPF puts focus when a focused control collapses.
+        bool fieldHadFocus = _rfGainControl.IsKeyboardFocusWithin;
+        bool switchHadFocus = _rfPreampCheck.IsKeyboardFocusWithin;
+        _rfGainControl.Visibility = fieldWanted;
+        _rfPreampCheck.Visibility = switchWanted;
+        if (asSwitch && fieldHadFocus) HandRfGainFocusTo(_rfPreampCheck);
+        else if (!asSwitch && switchHadFocus) HandRfGainFocusTo(_rfGainControl);
+    }
+
+    /// <summary>
+    /// Focus the RF gain control that just became visible, once layout has
+    /// made it focusable.
+    /// </summary>
+    private void HandRfGainFocusTo(UIElement incoming)
+    {
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, new Action(() =>
+        {
+            if (incoming.Visibility == Visibility.Visible) incoming.Focus();
+        }));
     }
 
     /// <summary>

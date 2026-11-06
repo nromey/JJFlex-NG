@@ -1899,8 +1899,10 @@ public class NativeMenuBar : IDisposable
                 : Radios.Lexicon.Get("audio.fields.rf_preamp_off"));
             return;
         }
+        // The active panadapter's range, the one RF gain writes (repair round 1).
+        var report = Rig.ActiveRFGainReport;
         AdjustValue("RF Gain", () => Rig.RFGain, v => Rig.RFGain = v,
-            up ? Rig.RFGainIncrement : -Rig.RFGainIncrement, Rig.RFGainMin, Rig.RFGainMax);
+            up ? report.Step : -report.Step, report.Min, report.Max);
     }
 
     /// <summary>
