@@ -2695,5 +2695,46 @@ namespace Radios.Tests
             rig.Vendor.Status("radio mute_local_audio_when_remote=1");
             Assert.NotNull(KeepAtStop(rig));
         }
+    
+
+        // ── Round four, Codex's re-check H1: a stop during the healer's PC write ──
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void A_stop_made_while_the_heals_PC_is_going_out_still_puts_the_overwritten_choice_back(bool stopDuringWrite)
+        {
+            // Codex's healer-stop probe: the stop completed inside the heal's
+            // write, before its PC reached the cache, and the radio was left on
+            // PC with nothing owed. The heal now switches under the receive
+            // channel's lock, as the start and the retry do, so the stop waits
+            // for it and then puts back what the heal overwrote. Control: the
+            // same stop made after the heal.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("BAL");                         // another station's choice
+            System.Threading.Thread? stop = null;
+            bool stopFinishedInsideWrite = false;
+            if (stopDuringWrite)
+                rig.Vendor.Transport.CommandWritten = c =>
+                {
+                    if (c != "mic input PC" || stop != null) return;
+                    stop = new System.Threading.Thread(() => rig.StopPcAudio()) { IsBackground = true };
+                    stop.Start();
+                    stopFinishedInsideWrite = stop.Join(600);
+                };
+            rig.Check();                                     // the heal
+            if (stopDuringWrite)
+            {
+                Assert.NotNull(stop);
+                Assert.True(stop!.Join(3000), "the stop never finished");
+                Assert.False(stopFinishedInsideWrite, "the stop ran through the heal's write");
+            }
+            else rig.StopPcAudio();
+            Assert.Equal(new[] { "mic input PC", "mic input PC", "mic input BAL" }, rig.MicWrites);
+            Assert.Equal("BAL", rig.MicInput);
+            Assert.Null(SwapField.GetValue(rig.Rig));
+        }
     }
 }

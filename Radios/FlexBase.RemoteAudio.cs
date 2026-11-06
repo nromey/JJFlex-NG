@@ -3917,6 +3917,23 @@ namespace Radios
                 // on its own radio, connection and run, and only while the radio
                 // still reads the PC written here with no choice reported since.
                 var heal = CaptureMicWithin(radio, HealCaptureBoundMs);
+                // The rest under the receive channel's lock (round four, Codex's
+                // re-check H1), as the start makes its switch and the J10 retry
+                // its own (f75f1466): a stop cannot run between this PC going
+                // out and FlexLib's reading of it, and so find nothing owed while
+                // the radio is on PC. A stop that came first has cleared PC
+                // expected, and the heal then writes nothing. The capture above
+                // stays outside: it can wait for the report gate.
+                // With no receive channel there is no stop to race (the stop
+                // locks that channel), so a private object stands in.
+                var channel = opusOutputChannel;
+                lock ((object)channel ?? new object())
+                {
+                if (!_pcMicExpected || !ReferenceEquals(opusOutputChannel, channel))
+                {
+                    Tracing.TraceLine("checkPcMicSelection: PC audio stopped before the heal; nothing written", TraceLevel.Info);
+                    return;
+                }
                 MicInputSwap healDebt = null, replaced = null;
                 if (heal.Recorded && !string.Equals(heal.Input ?? "", "PC", StringComparison.OrdinalIgnoreCase))
                 {
@@ -3961,6 +3978,7 @@ namespace Radios
                 }
                 else if (healDebt != null)
                     Tracing.TraceLine("checkPcMicSelection: '" + heal.Input + "' is owed back at the stop, as a start's input is", TraceLevel.Info);
+                }
             }
             catch (Exception ex)
             {
