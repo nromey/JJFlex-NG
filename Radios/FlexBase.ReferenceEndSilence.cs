@@ -74,8 +74,18 @@ namespace Radios
 
         /// <summary>
         /// True while a reference recording has run off its end and the
-        /// transmitter is carrying silence in place of the microphone.
+        /// transmitter is carrying silence in place of the microphone: from
+        /// the end itself, through the player's final fade, until the silence
+        /// is let go.
         /// </summary>
+        /// <remarks>
+        /// The player's <see cref="JJPortaudio.TxFilePlayer.HoldingEndSilence"/>,
+        /// the one definition (round four repair, part 6e). Everything in
+        /// FlexBase that decides whether a reference's end may give the
+        /// microphone back asks it through this name: the Mox-fall guard in
+        /// <c>noteRadioMox</c> and the receive wait below. The window's arm
+        /// refuses on it, so a re-arm is refused in the fade as well.
+        /// </remarks>
         public bool TxReferenceEndSilenceHeld => txFilePlayer.HoldingEndSilence;
 
         /// <summary>
@@ -93,7 +103,7 @@ namespace Radios
                 ReferenceSilenceEnd how;
                 lock (_voxPauseGate)
                 {
-                    if (generation != Volatile.Read(ref _referenceSilenceGeneration) || !txFilePlayer.HoldingEndSilence)
+                    if (generation != Volatile.Read(ref _referenceSilenceGeneration) || !TxReferenceEndSilenceHeld)
                         how = ReferenceSilenceEnd.AlreadyReleased;
                     else
                     {

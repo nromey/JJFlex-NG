@@ -199,7 +199,39 @@ namespace JJPortaudio
         /// the recording is over, so whatever polls for the end still sees it,
         /// but the microphone does not come back until <see cref="Stop"/>.
         /// </summary>
-        public bool HoldingEndSilence => _state == StEndSilence;
+        /// <remarks>
+        /// <para>
+        /// <b>THE one definition of "a reference pass whose end must stay
+        /// silent"</b> (Unified takes, round four repair, part 6e). True from
+        /// the moment the file runs off its end, THROUGH the final 10 ms fade,
+        /// until <see cref="Stop"/>. Every reader that decides whether the
+        /// microphone may come back after a reference asks this, and nothing
+        /// decides it separately: the stream-gap branch in <see cref="Process"/>,
+        /// a start's choice of ramp, <c>FlexBase.noteRadioMox</c>'s Mox-fall
+        /// guard, the receive wait, and the arm's refusal through
+        /// <c>FlexBase.TxReferenceEndSilenceHeld</c>.
+        /// </para>
+        /// <para>
+        /// It read only the final state until then, and the fade in front of it
+        /// was a ten-millisecond hole: there neither this nor
+        /// <see cref="Engaged"/> was true, so a stall in the audio thread
+        /// returned the microphone (Codex's round four check, B1), and a Mox
+        /// fall stopped the player and let the lease go, both with the radio
+        /// still transmitting. The fade is silence already: past the end there
+        /// is nothing left to ramp, so it ramps zero.
+        /// </para>
+        /// </remarks>
+        public bool HoldingEndSilence => HoldsReferenceEnd(_state);
+
+        /// <summary>
+        /// The definition behind <see cref="HoldingEndSilence"/>, for a state
+        /// the caller has already read (the audio thread reads its state once
+        /// per buffer). A pass that holds, past its end, in its final fade or
+        /// its final silence. A <see cref="Stop"/> clears the hold first, so a
+        /// fade that Stop asked for is never in it.
+        /// </summary>
+        private bool HoldsReferenceEnd(int state) =>
+            (state == StFileFadeOut || state == StEndSilence) && _reachedEnd && _holdSilenceAtEnd;
 
         /// <inheritdoc/>
         /// <remarks>
@@ -273,6 +305,8 @@ namespace JJPortaudio
         /// A stream gap does not release it, unlike every other state that
         /// is not engaged: a stall in the audio thread while the radio is
         /// still transmitting would otherwise put the microphone on the air.
+        /// That holds from the end itself, through the final fade; see
+        /// <see cref="HoldingEndSilence"/>.
         /// </para>
         /// </remarks>
         public void StartHoldingSilenceAtEnd() => StartPass(holdSilenceAtEnd: true);
@@ -282,14 +316,17 @@ namespace JJPortaudio
             if (_samples.Length == 0) return;
             int s = _state;
             if (s == StMicFadeOut || s == StFileFadeIn || s == StFile) return;
+            // From held silence, its final fade included, there is no
+            // microphone to fade out: it is already off the encoder, and
+            // ramping it would let it back in at full level. Asked before the
+            // hold below is overwritten.
+            bool fromHeldSilence = HoldsReferenceEnd(s);
             _holdSilenceAtEnd = holdSilenceAtEnd;
             _pos = 0.0;
             _reachedEnd = false;
             _playedFrames = 0;
             _fade = 0f;
-            // From held silence there is no microphone to fade out: it is
-            // already off the encoder, and ramping it would let it back in.
-            _state = s == StEndSilence ? StFileFadeIn : StMicFadeOut;
+            _state = fromHeldSilence ? StFileFadeIn : StMicFadeOut;
         }
 
         /// <summary>Keep an armed source engaged but begin its next keyed pass at the start.</summary>
@@ -388,10 +425,11 @@ namespace JJPortaudio
                     _playedFrames = 0;
                     _state = state;
                 }
-                else if (state == StEndSilence)
+                else if (HoldsReferenceEnd(state))
                 {
                     // Held silence is released by Stop, never by a gap: see
-                    // StartHoldingSilenceAtEnd.
+                    // StartHoldingSilenceAtEnd. Its final fade too, which goes
+                    // on ramping zero below and then into the silence itself.
                 }
                 else
                 {

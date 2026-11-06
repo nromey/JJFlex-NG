@@ -53,15 +53,71 @@ public sealed class ReferenceEndSilenceTests : IDisposable
         return c;
     }
 
-    /// <summary>Feed the player frames until its pass has run off the end. Returns the frames fed.</summary>
+    // The player's private states, read only as positive controls: a schedule
+    // that says "inside the final fade" proves it got there.
+    private const int StFileFadeOut = 4;
+    private const int StEndSilence = 6;
+
+    private static int State(TxFilePlayer player) =>
+        (int)typeof(TxFilePlayer).GetField("_state", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(player)!;
+
+    /// <summary>
+    /// Feed the player frames until its pass has run off the end, then on
+    /// through the final 10 ms fade: a reference is then in its final held
+    /// silence, anything else back on the microphone. Returns the frames fed.
+    /// </summary>
     private static int RunToTheEnd(TxFilePlayer player)
     {
         for (int i = 0; i < 400; i++)
         {
             player.Process(MicBuffer(), Floats, Rate);
-            if (player.ReachedEnd && !player.Engaged && (player.HoldingEndSilence || player.Idle)) return i;
+            if (player.ReachedEnd && !player.Engaged)
+            {
+                // One 10 ms frame is the whole fade; two leave no doubt.
+                player.Process(MicBuffer(), Floats, Rate);
+                player.Process(MicBuffer(), Floats, Rate);
+                return i;
+            }
         }
         throw new InvalidOperationException("the pass never ran off its end");
+    }
+
+    /// <summary>
+    /// The schedule Codex found (round four check, B1): feed 2.5 ms buffers
+    /// until the file runs off its end in one of them. The pass is then inside
+    /// its final 10 ms fade, not yet in its final held silence, because the
+    /// fade is four such buffers long.
+    /// </summary>
+    private static void RunIntoTheFinalFade(TxFilePlayer player)
+    {
+        for (int i = 0; i < 2000 && !player.ReachedEnd; i++)
+            player.Process(SmallMicBuffer(), SmallFloats, Rate);
+        Assert.True(player.ReachedEnd, "positive control: the pass ran off its end");
+        Assert.True(State(player) == StFileFadeOut, "positive control: the schedule is inside the final fade");
+    }
+
+    private const int SmallFloats = 240;     // 120 frames, 2.5 ms: a partial buffer
+
+    private static float[] SmallMicBuffer()
+    {
+        var buf = new float[SmallFloats];
+        Array.Fill(buf, Mic);
+        return buf;
+    }
+
+    /// <summary>The audio thread stalls past the player's 100 ms stream-gap threshold, then the next buffer.</summary>
+    private static float[] NextBufferAfterAStall(TxFilePlayer player)
+    {
+        System.Threading.Thread.Sleep(150);
+        var next = SmallMicBuffer();
+        player.Process(next, SmallFloats, Rate);
+        return next;
+    }
+
+    private static bool AllZero(float[] buf)
+    {
+        foreach (float s in buf) if (s != 0f) return false;
+        return true;
     }
 
     /// <summary>True when no sample of the microphone reached the encoder in <paramref name="frames"/> frames.</summary>
@@ -156,10 +212,95 @@ public sealed class ReferenceEndSilenceTests : IDisposable
             player.Process(buf, buf.Length, Rate);
         }
         Assert.True(player.ReachedEnd);
-        Assert.False(player.HoldingEndSilence);
+        Assert.True(State(player) == StFileFadeOut, "positive control: inside the final fade");
+        // Round four repair (6e-1): the final fade is part of the held end, so
+        // this read false until then. It is the one definition every reader asks.
+        Assert.True(player.HoldingEndSilence, "the final fade of a reference is held silence");
         player.Stop();
+        Assert.False(player.HoldingEndSilence);
         Assert.True(MicIsBack(player), "a disarm in the last ramp must not be lost to the hold");
         Assert.False(player.HoldingEndSilence);
+    }
+
+    // ── Round four repair (part 6e-1): the final fade is inside the silence ──
+
+    /// <summary>
+    /// B1, the cold-gap half: a reference runs off its end in a partial buffer,
+    /// the audio thread stalls 150 ms inside the final 10 ms fade, and the next
+    /// buffer comes. Until this repair the gap branch read the fade as "not
+    /// held" and handed the next buffer, the microphone, straight through.
+    /// </summary>
+    [Fact]
+    public void A_stream_gap_inside_the_final_fade_does_not_let_the_microphone_back()
+    {
+        var player = new TxFilePlayer();
+        player.Load(Content(Rate / 5), Rate, "reference");
+        player.StartHoldingSilenceAtEnd();
+        RunIntoTheFinalFade(player);
+
+        var next = NextBufferAfterAStall(player);
+        Assert.True(AllZero(next), "a stall in the final fade put the microphone on the air");
+        Assert.True(player.HoldingEndSilence, "the stall let the hold go");
+        Assert.False(player.Idle);
+        Assert.True(MicNeverReaches(player, 20));
+        Assert.True(State(player) == StEndSilence, "the fade finished into held silence");
+
+        player.Stop();
+        Assert.True(MicIsBack(player));
+    }
+
+    /// <summary>
+    /// The control for the definition's scope: a recorded send or Play from
+    /// computer (plain <c>Start</c>) still hands the microphone back through its
+    /// own final fade, and a stall there still lets it straight back; so does a
+    /// reference disarmed before its end. Only a reference's END is held.
+    /// </summary>
+    [Fact]
+    public void A_send_or_a_disarmed_reference_still_gives_the_microphone_back_through_its_own_fade()
+    {
+        var send = new TxFilePlayer();
+        send.Load(Content(Rate / 5), Rate, "send");
+        send.Start();
+        RunIntoTheFinalFade(send);
+        Assert.False(send.HoldingEndSilence, "a send's final fade is not a reference's held end");
+        var next = NextBufferAfterAStall(send);
+        Assert.True(send.Idle);
+        Assert.All(next, s => Assert.Equal(Mic, s, 5));
+
+        var disarmed = new TxFilePlayer();
+        disarmed.Load(Content(Rate / 5), Rate, "reference");
+        disarmed.StartHoldingSilenceAtEnd();
+        for (int i = 0; i < 10; i++) disarmed.Process(SmallMicBuffer(), SmallFloats, Rate);
+        Assert.True(disarmed.Engaged, "positive control: mid-pass");
+        disarmed.Stop();
+        Assert.True(State(disarmed) == StFileFadeOut, "positive control: in the disarm's own fade");
+        Assert.False(disarmed.HoldingEndSilence, "a disarm's fade is not the held end");
+        next = NextBufferAfterAStall(disarmed);
+        Assert.True(disarmed.Idle);
+        Assert.All(next, s => Assert.Equal(Mic, s, 5));
+    }
+
+    /// <summary>
+    /// Starting a pass again inside the final fade goes straight to the file,
+    /// as it does from held silence: the microphone is already off the encoder,
+    /// and ramping it out would put it back on for 10 ms. Until this repair the
+    /// start read the fade as the microphone's and began with it at full level.
+    /// </summary>
+    [Fact]
+    public void Starting_again_inside_the_final_fade_never_puts_the_microphone_on_the_encoder()
+    {
+        var player = new TxFilePlayer();
+        player.Load(Content(Rate / 5), Rate, "reference");
+        player.StartHoldingSilenceAtEnd();
+        RunIntoTheFinalFade(player);
+        player.Start();   // the Fixer's voice stage, which has no refusal of its own
+        var first = SmallMicBuffer();
+        player.Process(first, SmallFloats, Rate);
+        // The file fades in from zero and never passes its own 0.4; any
+        // microphone would start at 0.9.
+        Assert.All(first, s => Assert.InRange(s, 0f, 0.4f + 1e-5f));
+        Assert.True(player.Engaged);
+        player.Stop();
     }
 
     /// <summary>
@@ -231,8 +372,12 @@ public sealed class ReferenceEndSilenceTests : IDisposable
         typeof(Flex.Smoothlake.FlexLib.Radio).GetField("_commandCommunication", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(f.Vendor.Radio, new FakeCommandTransport());
 
-    /// <summary>A real arm through <c>TxReferenceStartAsync</c>, keyed, played to its end.</summary>
-    private static async Task<RigOnVendorRadio> ReferenceRunToItsEnd(string serial)
+    /// <summary>
+    /// A real arm through <c>TxReferenceStartAsync</c>, keyed, played to its
+    /// end: into its final held silence, or, with <paramref name="intoTheFade"/>,
+    /// only into the final fade (round four repair, B1).
+    /// </summary>
+    private static async Task<RigOnVendorRadio> ReferenceRunToItsEnd(string serial, bool intoTheFade = false)
     {
         var f = new RigOnVendorRadio(serial);
         f.AddOwnSlice(0, 14.25, "USB");
@@ -253,9 +398,65 @@ public sealed class ReferenceEndSilenceTests : IDisposable
         NoteRadioMox(f.Rig, true);
         f.Vendor.Status("interlock state=TRANSMITTING source=SW");
         Assert.True(f.Rig.RadioInterlockReportsTransmit, "positive control: the fixture's interlock reached the radio");
+        if (intoTheFade)
+        {
+            RunIntoTheFinalFade(f.Rig.TxFilePlayer);
+            return f;
+        }
         RunToTheEnd(f.Rig.TxFilePlayer);
         Assert.True(f.Rig.TxReferenceEndSilenceHeld, "a reference armed by TxReferenceStartAsync holds silence at its end");
         return f;
+    }
+
+    /// <summary>
+    /// B1, the Mox half, through the real <c>noteRadioMox</c>: our Mox cache
+    /// falls while the pass is inside its final fade. Until this repair the
+    /// guard there read the fade as "the pass is over", disarmed, let the
+    /// reference lease go and handed the microphone back with the radio's
+    /// interlock still transmitting.
+    /// </summary>
+    [Fact]
+    public async Task Our_Mox_falling_inside_the_final_fade_leaves_the_silence_held()
+    {
+        using var f = await ReferenceRunToItsEnd("ref-silence-fade-mox", intoTheFade: true);
+        NoteRadioMox(f.Rig, false);
+        Assert.True(f.Rig.RadioInterlockReportsTransmit, "positive control: the radio is still transmitting");
+        Assert.True(f.Rig.TxReferenceArmed, "the Mox-fall disarm let the reference lease go before the radio received");
+        Assert.True(f.Rig.TxReferenceEndSilenceHeld, "the Mox-fall disarm let the silence go before the radio received");
+        Assert.True(AllZero(NextBufferAfterAStall(f.Rig.TxFilePlayer)), "the microphone reached the encoder");
+        Assert.True(MicNeverReaches(f.Rig.TxFilePlayer, 30));
+
+        // The window's poll then asks for the wait, as it does for every end.
+        ReferenceSilenceEnd? how = null;
+        f.Rig.TxReferenceEndSilenceUntilReceive(h => how = h);
+        Assert.False(await Within(() => how != null, 200), "the radio is still transmitting");
+        f.Vendor.Status("interlock state=READY");
+        Assert.True(await Within(() => how == ReferenceSilenceEnd.Received, 2_000));
+        Assert.False(f.Rig.TxReferenceArmed);
+        Assert.True(MicIsBack(f.Rig.TxFilePlayer));
+    }
+
+    /// <summary>
+    /// The same definition, from the wait's side: the window sees the end while
+    /// the pass is still in its final fade and the radio is already receiving.
+    /// Until this repair the wait read the fade as "already let go", did
+    /// nothing, and the fade then finished into held silence that nothing was
+    /// left to end: the microphone stayed off the encoder and the reference
+    /// lease kept VOX paused until the window closed.
+    /// </summary>
+    [Fact]
+    public async Task The_radio_already_receiving_when_the_end_is_seen_in_the_fade_still_gets_the_microphone_back()
+    {
+        using var f = await ReferenceRunToItsEnd("ref-silence-fade-already", intoTheFade: true);
+        // Receive reached without our Mox edge (a hardware line let go at the end).
+        Set(f.Rig, "_Transmit", false);
+        f.Vendor.Status("interlock state=READY");
+        ReferenceSilenceEnd? how = null;
+        f.Rig.TxReferenceEndSilenceUntilReceive(h => how = h);
+        Assert.Equal(ReferenceSilenceEnd.Received, how);
+        Assert.False(f.Rig.TxReferenceEndSilenceHeld);
+        Assert.False(f.Rig.TxReferenceArmed, "the reference lease, and VOX's pause, were left held");
+        Assert.True(MicIsBack(f.Rig.TxFilePlayer), "the microphone never came back");
     }
 
     /// <summary>

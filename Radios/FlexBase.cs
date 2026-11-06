@@ -7710,7 +7710,9 @@ namespace Radios
                     // REALLY receives (round four): this is our Mox cache,
                     // which falls the moment we ask for an unkey and while a
                     // hand mic may still key the radio. Its own wait ends it.
-                    else if (!txFilePlayer.HoldingEndSilence) TxFileStop();
+                    // "Past its end" includes the final fade (round four
+                    // repair, B1): the one definition, asked here too.
+                    else if (!TxReferenceEndSilenceHeld) TxFileStop();
                 }
             }
             if (_Transmit != oldTransmit)
