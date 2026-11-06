@@ -78,6 +78,15 @@ namespace Radios
     /// request's report, stale like any other.
     /// </para>
     /// <para>
+    /// <b>Nothing obsolete can hold the latest waiting (repair round 7).</b>
+    /// The radio answers its commands in order, so the reply to any request
+    /// retires every older one still listed unanswered (<see cref="Replied"/>):
+    /// its reply was lost, or will turn up late and change nothing. The
+    /// latest's own reply therefore always settles it when the radio already
+    /// reports its number, whatever order older replies arrive in, and the
+    /// give-up window still bounds the case where no reply comes at all.
+    /// </para>
+    /// <para>
     /// <b>A refused tune concedes at once.</b> A locked slice, a slice gone,
     /// a fallen command connection or an error reply means nothing changed,
     /// so readers read the radio's last report straight away
@@ -230,17 +239,37 @@ namespace Radios
         /// </summary>
         internal bool Refused(long id, string why)
         {
+            string line = null;
+            bool latest;
             lock (_lock)
             {
                 Answered(id);
-                if (!_armed || id != _id || _refused) return false;
-                _refused = true;
-                _superseded.Clear();
-                Tracing.TraceLine(
-                    "FrequencyEcho:" + _name + " the tune to " + _requested + " was refused (" + why
-                    + "); reading the radio's own report", TraceLevel.Info);
-                return true;
+                latest = _armed && id == _id && !_refused;
+                if (latest)
+                {
+                    _refused = true;
+                    _superseded.Clear();
+                    _unanswered.Clear();
+                    line = "FrequencyEcho:" + _name + " the tune to " + _requested + " was refused (" + why
+                        + "); reading the radio's own report";
+                }
             }
+            if (line != null) Tracing.TraceLine(line, TraceLevel.Info);
+            return latest;
+        }
+
+        /// <summary>
+        /// The radio has replied to request <paramref name="id"/>, with success
+        /// or with an error (repair round 7). The radio answers its commands in
+        /// order, so a reply to this request means every OLDER request has been
+        /// answered too: any of those still listed as unanswered had its reply
+        /// lost or delayed past this one, and is retired now. Nothing can then
+        /// hold a later confirmation waiting on it, so no chain of obsolete
+        /// requests can keep the guard armed.
+        /// </summary>
+        internal void Replied(long id)
+        {
+            lock (_lock) Retire(id);
         }
 
         /// <summary>
@@ -250,7 +279,9 @@ namespace Radios
         /// change left for the radio to report, so this reply is the
         /// confirmation and the guard settles. Otherwise the radio's report of
         /// the change is still to come, and settles the guard when it arrives.
-        /// A reply to an older request settles nothing.
+        /// A reply to an older request settles nothing, and since repair round
+        /// 7 it no longer has anything to unblock either: the latest's reply
+        /// has already retired every older request (<see cref="Replied"/>).
         /// </summary>
         /// <remarks>
         /// This relies on the radio sending a command's own status no later
@@ -260,22 +291,29 @@ namespace Radios
         /// </remarks>
         internal void Acknowledged(long id, ulong reportedHz)
         {
+            string line = null;
             lock (_lock)
             {
-                Answered(id);
+                Retire(id);
                 if (!_armed || id != _id || _refused) return;
-                if (reportedHz != _requested || OlderUnansweredAsked(reportedHz)) return;
+                if (reportedHz != _requested) return;
                 _armed = false;
                 _superseded.Clear();
                 _unanswered.Clear();
-                Tracing.TraceLine(
-                    "FrequencyEcho:" + _name + " confirmed at " + reportedHz + " by the radio's reply after "
-                    + (_clock() - _armedAt) + " ms", TraceLevel.Verbose);
+                line = "FrequencyEcho:" + _name + " confirmed at " + reportedHz + " by the radio's reply after "
+                    + (_clock() - _armedAt) + " ms";
             }
+            Tracing.TraceLine(line, TraceLevel.Verbose);
         }
 
-        /// <summary>The radio has answered request <paramref name="id"/>, with success or not. Call holding the lock.</summary>
+        /// <summary>The radio has answered request <paramref name="id"/>. Call holding the lock.</summary>
         private void Answered(long id) => _unanswered.RemoveAll(r => r.Id == id);
+
+        /// <summary>
+        /// The radio has replied to request <paramref name="id"/>, so it has
+        /// answered every older one (repair round 7). Call holding the lock.
+        /// </summary>
+        private void Retire(long id) => _unanswered.RemoveAll(r => r.Id <= id);
 
         /// <summary>
         /// An older request of the chain, not yet answered, asked for
@@ -331,81 +369,95 @@ namespace Radios
         /// everything except a stale report of a value our pending chain
         /// replaced.
         /// </summary>
+        /// <remarks>
+        /// Every trace is written AFTER the guard's lock is released (repair
+        /// round 7): the UI reads this guard every 100 ms, and a trace can wait
+        /// on the trace file's gate, so nothing here holds the lock across it.
+        /// </remarks>
         internal bool Accept(ulong echoed)
         {
+            string line = null;
+            TraceLevel level = TraceLevel.Info;
+            bool accepted;
             lock (_lock)
             {
-                if (!_armed) return true;
+                accepted = Decide(echoed, ref line, ref level);
+            }
+            if (line != null) Tracing.TraceLine(line, level);
+            return accepted;
+        }
 
-                if (echoed == _requested && !_refused && OlderUnansweredAsked(echoed))
-                {
-                    // The latest request's number, but an older request still
-                    // unanswered asked for it too: this is that one's report
-                    // (repair round 6), and it settles nothing.
-                    Tracing.TraceLine(
-                        "FrequencyEcho:" + _name + " ignored a report of " + echoed
-                        + " from an older request still unanswered; the latest asks for the same number",
-                        TraceLevel.Info);
-                    return false;
-                }
+        /// <summary>The decision behind <see cref="Accept"/>. Call holding the lock; it only describes its trace.</summary>
+        private bool Decide(ulong echoed, ref string line, ref TraceLevel level)
+        {
+            if (!_armed) return true;
 
-                if (echoed == _requested && !_refused)
-                {
-                    // Settled. The radio has our value; there is nothing left to
-                    // protect.
-                    //
-                    // TRACED EVEN THOUGH NOTHING WENT WRONG, because the age is
-                    // the round trip, and the round trip is what decides whether
-                    // the race can happen at all. Without this line a log with no
-                    // rejections in it is ambiguous — it could mean the guard is
-                    // holding the line, or it could mean the path under test had
-                    // no latency to race against and proved nothing. Reading a
-                    // settle of 4 ms tells you the second; 180 ms tells you the
-                    // window was wide open and there was simply nothing to reject.
-                    _armed = false;
-                    _superseded.Clear();
-                    _unanswered.Clear();
-                    Tracing.TraceLine(
-                        "FrequencyEcho:" + _name + " settled at " + echoed + " after "
-                        + (_clock() - _armedAt) + " ms", TraceLevel.Verbose);
-                    return true;
-                }
+            if (echoed == _requested && !_refused && OlderUnansweredAsked(echoed))
+            {
+                // The latest request's number, but an older request still
+                // unanswered asked for it too: this is that one's report
+                // (repair round 6), and it settles nothing. The latest's own
+                // reply settles it (repair round 7), whatever order the older
+                // replies come back in, or the give-up window ends it.
+                line = "FrequencyEcho:" + _name + " ignored a report of " + echoed
+                    + " from an older request still unanswered; the latest asks for the same number";
+                return false;
+            }
 
-                long now = _clock();
-                if (ExpiredLocked(now))
-                {
-                    _armed = false;
-                    _superseded.Clear();
-                    _unanswered.Clear();
-                    if (_refused)
-                        Tracing.TraceLine(
-                            "FrequencyEcho:" + _name + " accepting " + echoed + " after our refused tune to "
-                            + _requested, TraceLevel.Info);
-                    else
-                        Tracing.TraceLine(
-                            "FrequencyEcho:" + _name + " gave up "
-                            + (_sentAt >= 0 ? (now - _sentAt) + " ms after sending " : (now - _armedAt) + " ms after asking for ")
-                            + _requested + " with nothing confirmed; accepting " + echoed
-                            + ". The write was probably dropped.", TraceLevel.Warning);
-                    return true;
-                }
-
-                if (echoed == _replaced || _superseded.Contains(echoed))
-                {
-                    Tracing.TraceLine(
-                        "FrequencyEcho:" + _name + " ignored a stale echo of " + echoed
-                        + " that would have rewound " + _requested + " (" + (now - _armedAt) + " ms in)",
-                        TraceLevel.Info);
-                    return false;
-                }
-
-                // Not ours and not stale: a band-edge clamp, another client, or
-                // the front-panel knob. The radio is the authority.
+            if (echoed == _requested && !_refused)
+            {
+                // Settled. The radio has our value; there is nothing left to
+                // protect.
+                //
+                // TRACED EVEN THOUGH NOTHING WENT WRONG, because the age is
+                // the round trip, and the round trip is what decides whether
+                // the race can happen at all. Without this line a log with no
+                // rejections in it is ambiguous — it could mean the guard is
+                // holding the line, or it could mean the path under test had
+                // no latency to race against and proved nothing. Reading a
+                // settle of 4 ms tells you the second; 180 ms tells you the
+                // window was wide open and there was simply nothing to reject.
                 _armed = false;
                 _superseded.Clear();
                 _unanswered.Clear();
+                line = "FrequencyEcho:" + _name + " settled at " + echoed + " after "
+                    + (_clock() - _armedAt) + " ms";
+                level = TraceLevel.Verbose;
                 return true;
             }
+
+            long now = _clock();
+            if (ExpiredLocked(now))
+            {
+                _armed = false;
+                _superseded.Clear();
+                _unanswered.Clear();
+                if (_refused)
+                    line = "FrequencyEcho:" + _name + " accepting " + echoed + " after our refused tune to " + _requested;
+                else
+                {
+                    line = "FrequencyEcho:" + _name + " gave up "
+                        + (_sentAt >= 0 ? (now - _sentAt) + " ms after sending " : (now - _armedAt) + " ms after asking for ")
+                        + _requested + " with nothing confirmed; accepting " + echoed
+                        + ". The write was probably dropped.";
+                    level = TraceLevel.Warning;
+                }
+                return true;
+            }
+
+            if (echoed == _replaced || _superseded.Contains(echoed))
+            {
+                line = "FrequencyEcho:" + _name + " ignored a stale echo of " + echoed
+                    + " that would have rewound " + _requested + " (" + (now - _armedAt) + " ms in)";
+                return false;
+            }
+
+            // Not ours and not stale: a band-edge clamp, another client, or
+            // the front-panel knob. The radio is the authority.
+            _armed = false;
+            _superseded.Clear();
+            _unanswered.Clear();
+            return true;
         }
     }
 }

@@ -217,65 +217,63 @@ namespace Radios
         /// </summary>
         /// <remarks>
         /// <para>
-        /// <b>The check is held across the write (repair round 6, rule 3).</b>
-        /// The roster's lock is the one <c>sliceRemoved</c> takes to remove a
-        /// slice, and it is held from the membership check through the socket
-        /// write, so a removal either happens first (and nothing is sent) or
-        /// waits until the write is done. Until round 6 the lock was released
-        /// after the check, and a removal on another thread in between let the
-        /// command go to the removed slice's reusable index.
+        /// <b>The roster's lock is held for the CHECK only, never across the
+        /// write (repair round 7).</b> Round 6 held it through the socket
+        /// write, so that a removal on another thread waited for the write.
+        /// That bought nothing the radio can see and cost availability: the
+        /// write is synchronous and unbounded (FlexLib's TCP and TLS writes
+        /// have no timeout), and the UI's 100 ms frequency poll, F and slice
+        /// removal all take this lock, so a stalled write stalled all three.
         /// </para>
         /// <para>
-        /// <b>Why this cannot deadlock, and what must stay true.</b> Under the
-        /// lock the write takes only FlexLib's reply table and trace lists, and
-        /// FlexLib's transports write without their connection lock (the
-        /// carried "no dispatch gate while a caller may own a vendor
-        /// collection lock" patch). The trace may synchronously raise
-        /// <c>Radio.PropertyChanged</c> for <c>TelnetTraceOutput</c>; none of
-        /// its subscribers takes the roster's lock or waits on another thread.
-        /// Keep it so: a subscriber that took the roster's lock on another
-        /// thread while FlexLib held its trace lists would deadlock against
-        /// this. FlexLib's own slice list is NOT taken here, because
-        /// <c>RemoveAllSlices</c> raises our removal while holding it.
+        /// <b>Why a client lock cannot close the radio's removal.</b> A
+        /// removal we learn of from the radio's status has already happened
+        /// at the radio before the status left it. Ordering our write against
+        /// our PROCESSING of that status changes only which side of our own
+        /// handler the write falls on; the radio receives the command after its
+        /// removal either way, and may already have reused the index. That
+        /// window is inherent and stays on the register.
         /// </para>
         /// <para>
-        /// <b>What is left is the radio's.</b> The radio removes a slice, and
-        /// may reuse its index, before its status reaches us; a command already
-        /// written, or written in the moment between FlexLib parsing that
-        /// status and our removal handler running, cannot be told from one sent
-        /// a millisecond before the radio's status left it. No client-side
-        /// lock closes that.
+        /// <b>The removals we start are ordered without a lock.</b> Our own
+        /// slice close (<c>RemoveSlice</c>, the loopback ears' release) runs
+        /// <c>Slice.Close</c> on this same command queue, and FlexLib removes
+        /// the slice and raises our removal inside that call, so a tune queued
+        /// after the close finds the slice gone and one queued before it is
+        /// written first. A removal we send as a raw command (the listenback's
+        /// restore of a slice it created) marks the slice first
+        /// (<see cref="NoteRemovingSlice"/>), on the same queue, and a later
+        /// tune of it is refused here.
         /// </para>
         /// </remarks>
         private void WriteTuneTo(Slice slice, long id, double mhz, string what)
         {
             var guard = EchoGuardFor(slice);
-            string refused = null, refusal = null;
+            string refused = null;
             var slices = mySlices;
             if (slices == null) refused = "the slice is gone";
             else
             {
-                lock (slices)
-                {
-                    if (!slices.Contains(slice)) refused = "the slice is gone";
-                    else if (slice.Lock) refused = "the slice is locked";
-                    else
-                    {
-                        string command = "slice tune " + slice.Index + " " + Flex.Util.StringHelper.DoubleToString(mhz, "f6");
-                        if (!slice.AutoPan) command += " autopan=0";
-                        // Marked before the write, so the reply cannot come back ahead of it.
-                        guard.Sending(id);
-                        refusal = SendRadioCommandWithReply(slice.Radio, command, reply => TuneReplied(slice, id, reply));
-                    }
-                }
+                bool ours;
+                lock (slices) ours = slices.Contains(slice);
+                if (!ours) refused = "the slice is gone";
+                else if (BeingRemovedByUs(slice)) refused = "the slice is being removed";
+                else if (slice.Lock) refused = "the slice is locked";
             }
             if (refused != null)
             {
                 Tracing.TraceLine(what + ": " + refused + " (slice " + slice.Letter + "), so its tune to " + mhz
                     + " was not sent to any slice", System.Diagnostics.TraceLevel.Info);
                 guard.Refused(id, refused);
+                return;
             }
-            else if (refusal != null)
+            string command = "slice tune " + slice.Index + " " + Flex.Util.StringHelper.DoubleToString(mhz, "f6");
+            if (!slice.AutoPan) command += " autopan=0";
+            // Marked before the write, so the reply cannot come back ahead of it.
+            guard.Sending(id);
+            // No lock of ours is held across this write (repair round 7).
+            string refusal = SendRadioCommandWithReply(slice.Radio, command, reply => TuneReplied(slice, id, reply));
+            if (refusal != null)
             {
                 Tracing.TraceLine(what + ": slice " + slice.Letter + "'s tune to " + mhz + " was not sent: " + refusal,
                     System.Diagnostics.TraceLevel.Info);
@@ -283,15 +281,34 @@ namespace Radios
             }
         }
 
+        /// <summary>Slices we have asked the radio to remove by a raw command (repair round 7).</summary>
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Slice, object> _removingByUs = new();
+
+        /// <summary>
+        /// We are about to send the radio a command that removes
+        /// <paramref name="slice"/> (repair round 7). Call on the command
+        /// queue, before the command goes out, so any tune queued after it is
+        /// refused rather than sent to an index the radio is about to free.
+        /// </summary>
+        internal void NoteRemovingSlice(Slice slice)
+        {
+            if (slice != null) _removingByUs.AddOrUpdate(slice, null);
+        }
+
+        private bool BeingRemovedByUs(Slice slice) => _removingByUs.TryGetValue(slice, out _);
+
         /// <summary>
         /// The radio's reply to tune request <paramref name="id"/>, on the
-        /// receive thread. Success confirms it when the radio's last report is
-        /// already the value asked for (there is no change left to report);
-        /// an error means nothing changed, and readers read the radio.
+        /// receive thread. Any reply first retires every older request (the
+        /// radio answers in order, repair round 7). Success confirms this one
+        /// when the radio's last report is already the value asked for (there
+        /// is no change left to report); an error means nothing changed, and
+        /// readers read the radio.
         /// </summary>
         private void TuneReplied(Slice slice, long id, CommandReply reply)
         {
             var guard = EchoGuardFor(slice);
+            guard.Replied(id);
             if (reply.Acknowledged) guard.Acknowledged(id, LibFreqtoLong(slice.Freq));
             else
             {

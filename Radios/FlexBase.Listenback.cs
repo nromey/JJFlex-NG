@@ -844,6 +844,12 @@ public partial class FlexBase
                         evidence.TrySetResult(true); reply.TrySetResult(true); return;
                     }
                     if (!stillSafe()) { trace.Write("no-command", new { setting.Name, Reason = "identity-or-dependency-changed" }); reply.TrySetResult(false); return; }
+                    // A slice we remove by raw command is marked first, on this
+                    // queue, so a tune of it queued after this is not sent to the
+                    // index the radio is about to free (#642, repair round 7).
+                    if (setting.ResourceKind == "slice" && setting.RestoreCommand.StartsWith("slice remove ", StringComparison.Ordinal)
+                        && Current(setting) is Slice leaving)
+                        NoteRemovingSlice(leaving);
                     trace.Write("sending", new { setting.Name, Command = setting.RestoreCommand });
                     // #835, 2026-10-29 item 1: what FlexLib's cache held just
                     // before this restore, so the reply can tell whether anything

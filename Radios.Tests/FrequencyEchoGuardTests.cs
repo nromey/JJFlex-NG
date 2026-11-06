@@ -385,15 +385,62 @@ namespace Radios.Tests
             Assert.True(g.Accept(Asked));
         }
 
+        /// <summary>
+        /// Replaced in repair round 7. Round 6's version of this test stopped
+        /// at "the latest reply, arriving before an older one, leaves it
+        /// pending", which pinned half a lifecycle: Codex's sixth re-check then
+        /// delivered the older replies too and found nothing ever settled it.
+        /// The radio answers in order, so the latest's reply retires every
+        /// older request and settles the latest; older replies arriving after
+        /// change nothing, and a genuine move afterwards is believed.
+        /// </summary>
         [Fact]
-        public void The_reply_does_not_settle_the_latest_while_an_older_request_for_its_number_is_unanswered()
+        public void The_latest_reply_arriving_first_retires_the_older_ones_and_settles()
         {
             var g = Guard();
-            g.Requested(Was, Asked);
-            g.Requested(Asked, 14_200_200);
+            long first = g.Requested(Was, Asked);
+            long second = g.Requested(Asked, 14_200_200);
             long third = g.Requested(14_200_200, Asked);
-            g.Acknowledged(third, Asked);                  // out of order: the older one is still unanswered
+            Assert.False(g.Accept(Asked));                 // a report of the number: could be the first's
+            g.Replied(third);
+            g.Acknowledged(third, Asked);
+            Assert.Equal(FrequencyEchoGuard.Reading.Idle, g.Read(out _));
+            g.Replied(second); g.Acknowledged(second, Asked);
+            g.Replied(first); g.Acknowledged(first, Asked);
+            Assert.Equal(FrequencyEchoGuard.Reading.Idle, g.Read(out _));
+            Assert.True(g.Accept(14_200_200));             // genuine, and believed
+        }
+
+        /// <summary>
+        /// Bounded: an older request whose reply never comes cannot hold a
+        /// later one. The next reply retires it, and the latest settles on its
+        /// own report.
+        /// </summary>
+        [Fact]
+        public void A_lost_older_reply_is_retired_by_the_next_reply()
+        {
+            var g = Guard();
+            g.Requested(Was, Asked);                       // its reply is lost
+            long second = g.Requested(Asked, 14_200_200);
+            long third = g.Requested(14_200_200, Asked);
+            g.Replied(second);
+            Assert.True(g.Accept(Asked));                  // nothing older can have asked for it now
+            Assert.Equal(FrequencyEchoGuard.Reading.Idle, g.Read(out _));
+            _ = third;
+        }
+
+        /// <summary>A reply to an older request settles nothing on its own (round 5's rule, kept).</summary>
+        [Fact]
+        public void An_older_reply_retires_only_what_is_older_than_it()
+        {
+            var g = Guard();
+            long first = g.Requested(Was, Asked);
+            g.Requested(Asked, 14_200_200);
+            g.Requested(14_200_200, Asked);
+            g.Replied(first);
+            g.Acknowledged(first, Asked);
             Assert.Equal(FrequencyEchoGuard.Reading.Pending, g.Read(out _));
+            Assert.False(g.Accept(14_200_200));            // the middle request is still in flight
         }
     }
 }

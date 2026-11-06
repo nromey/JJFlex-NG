@@ -647,50 +647,189 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// Codex's blocker 3: the slice is removed on another thread at the
-        /// moment WriteTuneTo has checked it and is about to write (the guard's
-        /// Sending boundary). The tune must not reach the transport for a slice
-        /// that is no longer ours: either the removal waits for the write, or
-        /// the write sees the removal. Here the removal is started on another
-        /// thread and given time to finish before the write goes on.
+        /// Codex's sixth re-check, blocker 1: a tune whose write is stalled
+        /// (a slow or stuck network) must not hold up anything else. While the
+        /// write is held open, the frequency getters, the roles F reads, and a
+        /// slice removal on another thread all finish. Until repair round 7
+        /// the roster's lock was held across the write and all three waited.
         /// </summary>
         [Fact]
-        public void A_slice_removed_between_the_check_and_the_write_gets_no_tune_after_its_removal()
+        public void A_stalled_tune_write_holds_up_no_reader_and_no_removal()
         {
             Bench b = NewBench();
             Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
-            var mine = (List<Slice>)typeof(FlexBase).GetField("mySlices", Private)!.GetValue(b.Rig)!;
+            Slice c = Add(b, 1, tx: false, active: false, mhz: 7.150);
             var remove = typeof(FlexBase).GetMethod("sliceRemoved", Private)!;
             var binding = new ObservationBinding(new object(), new ConnectionAttempt("test-serial"));
-
-            b.Rig.RXFrequency = 14_100_100;
-            int armed = 0, fired = 0;
-            Task? removal = null;
-            Clock(b.Rig, a, () =>
-            {
-                if (Volatile.Read(ref armed) == 1 && Interlocked.Exchange(ref fired, 1) == 0)
-                {
-                    removal = Task.Run(() => remove.Invoke(b.Rig, new object[] { a, binding }));
-                    removal.Wait(1000);                      // it finishes now unless the write holds it off
-                }
-                return 0;
-            });
-            bool? ownedAtWrite = null;
+            using var inWrite = new ManualResetEventSlim(false);
+            using var release = new ManualResetEventSlim(false);
             b.V.Transport.CommandWritten = cmd =>
             {
-                if (cmd.StartsWith("slice tune ", StringComparison.Ordinal))
-                    lock (mine) ownedAtWrite = mine.Contains(a);
+                if (!cmd.StartsWith("slice tune ", StringComparison.Ordinal)) return;
+                inWrite.Set();
+                release.Wait(10_000);                        // the network stalls here
             };
 
-            Volatile.Write(ref armed, 1);
+            b.Rig.RXFrequency = 14_100_100;
+            Task drain = Task.Run(() => Drain(b.Rig));
+            try
+            {
+                Assert.True(inWrite.Wait(5000), "the write was never reached");
+                Task<ulong> rx = Task.Run(() => b.Rig.RXFrequency);
+                Task<SliceRoles> roles = Task.Run(() => SliceRoles.Of(b.Rig));
+                Task removal = Task.Run(() => remove.Invoke(b.Rig, new object[] { c, binding }));
+                Assert.True(rx.Wait(2000), "the receive frequency waited for the stalled write");
+                Assert.True(roles.Wait(2000), "F's roles waited for the stalled write");
+                Assert.True(removal.Wait(2000), "a slice removal waited for the stalled write");
+                Assert.Equal(14_100_100UL, rx.Result);
+            }
+            finally
+            {
+                release.Set();
+                drain.Wait(10_000);
+            }
+            Assert.Equal(14_100_100UL, LastTune(b, a));
+        }
+
+        /// <summary>
+        /// The one removal a client-side check can order against a tune is one
+        /// WE start, and our own slice close runs on the same command queue as
+        /// the tune's send, so the queue orders them (round 7). A copy onto a
+        /// slice queued after we asked to close it is not sent; one queued
+        /// before it is sent before the slice's remove.
+        /// </summary>
+        [Fact]
+        public void Our_own_slice_close_and_a_tune_of_that_slice_go_out_in_the_order_they_were_pressed()
+        {
+            static (Bench, Slice) Setup(TuningReceiptTests t)
+            {
+                Bench b = t.NewBench();
+                Add(b, 0, tx: true, active: true, mhz: 14.100);
+                Slice c = Add(b, 1, tx: false, active: false, mhz: 7.150);
+                var remove = typeof(FlexBase).GetMethod("sliceRemoved", Private)!;
+                var binding = new ObservationBinding(new object(), new ConnectionAttempt("test-serial"));
+                // FlexLib raises SliceRemoved synchronously inside Slice.Close; wire
+                // it the way the station wiring does.
+                b.V.Radio.SliceRemoved += s => remove.Invoke(b.Rig, new object[] { s, binding });
+                b.V.Radio.SliceList.Add(c);                    // so Slice.Close finds it in FlexLib's list
+                return (b, c);
+            }
+            var removeSlice = typeof(FlexBase).GetMethod("RemoveSlice", Private, null, new[] { typeof(Slice) }, null)!;
+
+            var (first, c1) = Setup(this);
+            Assert.True((bool)removeSlice.Invoke(first.Rig, new object[] { c1 })!);
+            first.Rig.CopyVFO(0, 1);                          // pressed after the close
+            Drain(first.Rig);
+            Assert.Contains("slice remove 1", first.V.Transport.Commands);
+            Assert.Null(LastTune(first, c1));
+
+            var (second, c2) = Setup(this);
+            second.Rig.CopyVFO(0, 1);                         // pressed before the close
+            Assert.True((bool)removeSlice.Invoke(second.Rig, new object[] { c2 })!);
+            Drain(second.Rig);
+            List<string> cmds = second.V.Transport.Commands;
+            int tune = cmds.FindIndex(x => x.StartsWith("slice tune 1 ", StringComparison.Ordinal));
+            int gone = cmds.IndexOf("slice remove 1");
+            Assert.True(tune >= 0 && gone > tune, "the tune pressed first did not go out before the remove");
+        }
+
+        /// <summary>
+        /// A slice we are removing by a raw command (the listenback's restore
+        /// of a slice it created) is marked first, and a tune of it queued
+        /// after that is not sent.
+        /// </summary>
+        [Fact]
+        public void A_slice_we_are_removing_by_command_gets_no_later_tune()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.RXFrequency = 14_100_100;
+            typeof(FlexBase).GetMethod("NoteRemovingSlice", Private)!.Invoke(b.Rig, new object[] { a });
             Drain(b.Rig);
-            Assert.Equal(1, Volatile.Read(ref fired));       // the boundary was reached
-            Assert.True(removal!.Wait(5000));                // and the removal did happen
-            lock (mine) Assert.DoesNotContain(a, mine);
-            // The write went ahead while the slice was still ours, and only then
-            // did the removal finish: the removal waited for it.
-            Assert.True(ownedAtWrite.HasValue, "no tune was written at all");
-            Assert.True(ownedAtWrite!.Value, "a tune was written for a slice already removed");
+            Assert.Empty(Tunes(b));
+            EveryReaderSays(b.Rig, 14_100_000);
+
+            string lb = System.IO.File.ReadAllText(System.IO.Path.Combine(FlexBasePartials.RepoRoot(), "Radios", "FlexBase.Listenback.cs"));
+            Assert.Contains("NoteRemovingSlice(leaving);", lb);
+        }
+
+        /// <summary>
+        /// Codex's sixth re-check, blocker 2, its exact schedule: up, up and
+        /// back, all reported in order, and the replies arrive latest first
+        /// (2, 1, 0). The latest's reply settles it, the older replies change
+        /// nothing after that, and a genuine move to the middle number is then
+        /// believed by every reader; the next step goes on from it.
+        /// </summary>
+        [Fact]
+        public void Replies_arriving_latest_first_still_settle_and_a_later_genuine_move_is_believed()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+
+            b.Rig.RXFrequency = 14_100_100;
+            b.Rig.RXFrequency = 14_100_200;
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            Reports(a, 14.100100);
+            Reports(a, 14.100200);
+            Reports(a, 14.100100);
+            AckTune(b, 2); AckTune(b, 1); AckTune(b, 0);
+            EveryReaderSays(b.Rig, 14_100_100);
+
+            Reports(a, 14.100200);                           // somebody else moves it
+            EveryReaderSays(b.Rig, 14_100_200);
+            b.Rig.RXFrequency = b.Rig.RXFrequency + 100;
+            Drain(b.Rig);
+            Assert.Equal(14_100_300UL, LastTune(b, a));
+        }
+
+        /// <summary>
+        /// The lost-first-reply variant: the first request is never answered,
+        /// the middle and latest are. The latest is settled by its own reply,
+        /// and a genuine move afterwards is believed; the first request's
+        /// reply, arriving late after all, changes nothing.
+        /// </summary>
+        [Fact]
+        public void A_lost_older_reply_does_not_hold_the_latest_unconfirmed()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+
+            b.Rig.RXFrequency = 14_100_100;
+            b.Rig.RXFrequency = 14_100_200;
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            Reports(a, 14.100100);
+            Reports(a, 14.100200); AckTune(b, 1);            // the middle's reply retires the first
+            Reports(a, 14.100100);                           // so this can only be the latest's report
+            EveryReaderSays(b.Rig, 14_100_100);
+            Reports(a, 14.100200);                           // a genuine move, before the latest's reply
+            EveryReaderSays(b.Rig, 14_100_200);
+            AckTune(b, 2);
+            AckTune(b, 0);                                   // the lost reply turns up after all
+            EveryReaderSays(b.Rig, 14_100_200);
+        }
+
+        /// <summary>
+        /// An error reply retires the older requests as a success does: the
+        /// radio reports nothing for the first step (its reply is lost too),
+        /// rejects the middle one, then reports the latest. That report settles
+        /// it, so a genuine move before the latest's reply is believed.
+        /// </summary>
+        [Fact]
+        public void An_error_reply_retires_the_older_requests_too()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+
+            b.Rig.RXFrequency = 14_100_100;
+            b.Rig.RXFrequency = 14_100_200;
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            RejectTune(b, 1, "14.100000");
+            Reports(a, 14.100100);                           // the latest's report
+            Reports(a, 14.100200);                           // a genuine move, before the latest's reply
+            EveryReaderSays(b.Rig, 14_100_200);
         }
 
         /// <summary>Control for the above: removed before the queue runs, nothing is written at all.</summary>
