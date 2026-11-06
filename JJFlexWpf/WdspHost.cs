@@ -1052,7 +1052,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// The pipe ended under the reader. The helper exits a few milliseconds
+        /// The pipe ended under the reader or the writer, whichever saw it
+        /// first (both call this; the first to publish wins). The helper exits a few milliseconds
         /// after its pipe closes, so wait (bounded) for it and name the exit:
         /// 6 is the helper ending the connection for a protocol error, a flood
         /// included, and anything it said first goes with it. Still running
@@ -1331,7 +1332,8 @@ namespace JJFlexWpf
             }
             catch (Exception ex)
             {
-                if (!c.Stopping) Break(c, WdspCondition.BrokenPipe, "writing: " + ex.GetType().Name + ": " + ex.Message);
+                // The writer can see the pipe end first; it names the exit just as the reader does.
+                PipeEnded(c, "writing: " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 

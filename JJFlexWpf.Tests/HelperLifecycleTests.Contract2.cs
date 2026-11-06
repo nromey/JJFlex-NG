@@ -72,6 +72,36 @@ public sealed partial class HelperLifecycleTests
     }
 
     /// <summary>
+    /// The writer can be the first to find the pipe gone: it writes a frame
+    /// after the helper has closed. It names the exit as the reader does.
+    /// Deterministic: the reader is held, so only the writer can see the end.
+    /// Found on x86, where the writer won the race about one run in six and the
+    /// failure read "writing: IOException: Pipe is broken".
+    /// </summary>
+    [Fact]
+    public void An_exit_the_writer_finds_first_is_named_too()
+    {
+        using var rig = new HelperTestRig(n => n == 1 ? new[] { "--fatal-after", "5" } : Array.Empty<string>(), SlowRestart());
+        var engine = rig.Engine("nr2");
+        Assert.True(engine.IsAvailable);
+        using var gate = new ManualResetEventSlim(false);
+        rig.Host.DispatchHookForTest = _ => gate.Wait(15000);
+        try
+        {
+            using var feeder = new Feeder(engine);
+            HelperTestRig.Until(() => rig.Host.State == WdspHelperState.Restarting, "the helper to go down", 8000);
+        }
+        finally
+        {
+            rig.Host.DispatchHookForTest = null;
+            gate.Set();
+        }
+        _out.WriteLine(engine.UnavailabilityDetail);
+        Assert.Contains("the helper exited with code 6 (a protocol error", engine.UnavailabilityDetail);
+        Assert.Equal(WdspCondition.FatalProtocolError, rig.Host.LastFailureCondition);
+    }
+
+    /// <summary>
     /// The helper refusing JJ Flexible's first message (Error 257, then the
     /// close and exit 6) is its answer to the handshake: a mismatch that names
     /// what it said, never retried and never counted, even though the pipe
