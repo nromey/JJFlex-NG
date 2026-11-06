@@ -120,6 +120,14 @@
     "chatty": "JJ Flexible Access disconnected from radio",
     "diagnostic": "Disconnected"
   },
+  "connect.disconnect.mic_left_on": {
+    "text": {
+      "critical": "Mic input still set to {input}. If desired, change it when connecting to this radio.",
+      "terse": "Mic input still set to {input}. If desired, change it when connecting to this radio.",
+      "chatty": "You disconnected while transmitting. Your microphone input is still set to {input}. If you need to make a mic input change, set a new input once you connect to this radio."
+    },
+    "delivery": null
+  },
   "connect.disconnected_from": "Disconnected from {radioName}",
   "connect.disconnected_plain": "Disconnected from radio",
   "connect.discovery.searching": "Searching for radios.",

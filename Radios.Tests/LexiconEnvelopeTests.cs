@@ -115,7 +115,9 @@ namespace Radios.Tests
             // Chatty and Terse sentences (2026-10-06).
             // Twenty from the Check your audio Track B fix round (#835): the
             // near miss that names two chords, ruled 2026-10-28 21:25.
-            Assert.Equal(20, ladders);
+            // Twenty-one from the 2026-11-02 junk box rulings round (#861, J3):
+            // the mic input left on PC at a disconnect, Noel's Chatty and Terse.
+            Assert.Equal(21, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -2101,6 +2103,10 @@ namespace Radios.Tests
                 // Repair round 1 (#596, Codex B4): says only what is known; a lost
                 // connection cannot show that RF stopped. DRAFT prose, awaiting Noel.
                 "connect.drop.transmit_released",
+                // Junk box 2026-11-02 rulings round (#861, J3): a mic input left
+                // on PC at a disconnect. Noel's own wording (2026-11-06 11:02,
+                // 11:03), DRAFT until he hears it assembled.
+                "connect.disconnect.mic_left_on",
                 // Junk box 2026-11-02 (#642): F names its slice by role when
                 // the transmit slice is not the selected one, and the setting
                 // that chooses which. DRAFT prose, awaiting Noel.

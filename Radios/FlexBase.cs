@@ -4054,6 +4054,11 @@ namespace Radios
                 }
             }
 
+            // A put-back still OWED from earlier on this connection (withheld
+            // under a carrier, PC audio already stopped) is made now too, paid
+            // or withheld at its own write (#861, J3, 2026-11-06).
+            PayOwedMicPutBackForTeardown("Disconnect");
+
             // A put-back the switch-back left on the command queue runs NOW,
             // before the loop is stopped below; joining the audio thread only
             // proved it was queued (#861, Codex's check, blocker 2).
@@ -4251,6 +4256,11 @@ namespace Radios
             }
             else
                 Tracing.TraceLine("Disconnect: the radio still reports connected; its handlers stay until it lets go", TraceLevel.Info);
+
+            // A mic input put-back withheld because the radio was still
+            // transmitting is SAID, now the hang-up is done (#861, J3, ruled by
+            // Noel 2026-11-06), queued so nothing of ours cuts it.
+            SayMicLeftOnPcAfterTeardown("Disconnect");
 
             // Nothing the unkey withheld outlives this teardown.
             EndTeardownUnkey();

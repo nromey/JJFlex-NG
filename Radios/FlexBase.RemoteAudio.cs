@@ -2252,6 +2252,7 @@ namespace Radios
 
                 if (voided != null)
                 {
+                    MicLeftOnPcSettled(radio);
                     Tracing.TraceLine("PutBackSavedMicInput (" + when + "): NOT writing '" + swap.Saved
                         + "' - " + voided + "; nothing is owed", TraceLevel.Info);
                     return;
@@ -2259,6 +2260,7 @@ namespace Radios
                 if (refused == null && nothingToDo) return;
                 if (refused == null && written)
                 {
+                    MicLeftOnPcSettled(radio);
                     Tracing.TraceLine("PutBackSavedMicInput (" + when + "): mic input put-back to '"
                         + swap.Saved + "' sent; the radio has not acknowledged it", TraceLevel.Info);
                     return;
@@ -2554,6 +2556,7 @@ namespace Radios
                     });
                     if (rawNewer)
                     {
+                        MicLeftOnPcSettled(radio);
                         Tracing.TraceLine("PutBackSavedMicInput (" + when + "): NOT writing '" + swap.Saved
                             + "' - " + refused + "; nothing is owed", TraceLevel.Info);
                         return;
@@ -2566,6 +2569,7 @@ namespace Radios
                         KeepOwedOrAbandon(swap, when, refused ?? "the radio was not reporting receive");
                         return;
                     }
+                    if (notSent == null) MicLeftOnPcSettled(radio);
                     Tracing.TraceLine("PutBackSavedMicInput (" + when + "): the radio has not reported the"
                         + " switch-back's PC, so '" + swap.Saved + "' is sent back regardless"
                         + (notSent == null ? "" : " - NOT sent: " + notSent),

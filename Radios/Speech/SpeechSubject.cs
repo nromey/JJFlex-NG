@@ -692,5 +692,14 @@ namespace Radios.Speech
         /// cannot take it back. A newer notice covers an unheard older one.
         /// </summary>
         public const string TransmitSliceNotice = "transmit-slice-notice";
+
+        /// <summary>
+        /// A deliberate disconnect could not put the radio's mic input back,
+        /// because the radio was still transmitting, so it is left on PC (#861,
+        /// J3, ruled by Noel 2026-11-06). Said once, after the hang-up, queued;
+        /// true until the operator next connects to that radio and chooses an
+        /// input. Nothing else speaks to it.
+        /// </summary>
+        public const string MicInputLeftOnPc = "mic-input-left-on-pc";
     }
 }

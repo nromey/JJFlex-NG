@@ -448,6 +448,7 @@ public partial class FlexBase
     /// </remarks>
     internal bool UnkeyBeforePuttingBack(string why, TimeSpan drainBound, int receiveWaitMs)
     {
+        _teardownMicLeftOnPc = null;
         _teardownStillOnAir = null;
         _teardownRestoring = true;
         var radio = theRadio;
@@ -618,13 +619,158 @@ public partial class FlexBase
         // radio and connection the write will use (repair round 5, Codex's B1).
         string onAir = RestoreRefusedAtWrite(radio, connection);
         if (onAir == null) return false;
-        // Logged only, never spoken (ruled by Noel 2026-11-04 22:22). The line
-        // names the place; the caller's next line says whether the value is
-        // kept owed on its own run and connection or abandoned (round 9).
-        // Nothing replays it on another connection (that is #590).
+        // The line names the place; the caller's next line says whether the
+        // value is kept owed on its own run and connection or abandoned (round
+        // 9). Nothing replays it on another connection (that is #590). The line
+        // stays; since 2026-11-06 a withhold during a deliberate disconnect is
+        // also SPOKEN, once the hang-up is done (J3, below).
         Tracing.TraceLine("MicPutBackWithheld: radio " + (radio?.Serial ?? "(none)") + ", PutBackSavedMicInput ("
             + when + "): NOT writing '" + saved + "' - " + onAir + ". The mic input is not written.", TraceLevel.Warning);
+        // Withheld because the radio was still transmitting, during a deliberate
+        // disconnect: remembered for the sentence at its end. A refusal because
+        // the radio or its connection is no longer the one written to is not
+        // "while transmitting", and is not remembered.
+        if (_teardownRestoring && radio != null && PinnedTargetRefused(radio, connection) == null)
+            RememberMicLeftOnPc(radio, saved);
         return true;
+    }
+
+    // ── J3: a withheld mic put-back at disconnect is spoken ─────────────
+    //
+    // RULED by Noel 2026-11-06 10:57 (night question J3), replacing the
+    // 2026-11-04 "logged only": that ruling's premise, that the next connection
+    // finishes the put-back, was removed by repair round 5, so a disconnect
+    // while the radio is still transmitting leaves its mic input on PC for good.
+    // His wording, 11:02, with "while transmitting" at 11:03 (a lock, VOX or a
+    // hand mic as well as a held key). Carrying the put-back to the next
+    // connection stays with #590.
+    //
+    // HOW IT REACHES HIM. Speech at a disconnect is often cut off, so it takes
+    // the route the audio check's own disconnect sentence takes
+    // (CheckYourAudioDialog's teardown, SpeechSubject.CheckSettingsNotRestored):
+    // QUEUED, at Critical, under its own subject, and not gated by the rig's
+    // SuppressSpeech, which a menu disconnect or a radio switch sets so that the
+    // radio layer's own narration stays quiet. Queued and subject-keyed, the
+    // arbiter holds it in its pending ledger, so our own later interrupts cannot
+    // destroy it unsaid; Critical, so no verbosity drops it; and said AFTER the
+    // hang-up, so the rig's own "disconnected" interrupt cannot cut it. What can
+    // still lose it: the screen reader flushing its own queue on a window change
+    // (a radio switch opens the picker; an exit closes everything). The
+    // arbiter's outcome line in the trace says whether the reader finished it.
+
+    /// <summary>What a deliberate disconnect left on the radio's mic input, for <see cref="SayMicLeftOnPcAfterTeardown"/>.</summary>
+    private sealed class MicLeftBehind
+    {
+        public MicLeftBehind(Radio radio, string saved, string left, string cacheAtWithhold)
+        {
+            Radio = radio;
+            Saved = saved;
+            Left = left;
+            CacheAtWithhold = cacheAtWithhold;
+        }
+        public Radio Radio { get; }
+        /// <summary>The input that was not put back.</summary>
+        public string Saved { get; }
+        /// <summary>The input the radio is left on: the PC this app set, by the radio's own name for it.</summary>
+        public string Left { get; }
+        /// <summary>FlexLib's reading when it was withheld: a different reading later means a newer choice.</summary>
+        public string CacheAtWithhold { get; }
+    }
+
+    private MicLeftBehind _teardownMicLeftOnPc;
+
+    /// <summary>The last sentence handed to speech for a mic input left on PC at a disconnect, or null. For tests.</summary>
+    internal string LastMicLeftOnPcReport { get; private set; }
+
+    /// <summary>How many such sentences have been handed to speech. For tests.</summary>
+    internal int MicLeftOnPcReports { get; private set; }
+
+    /// <summary>Test seam: the route the sentence took (intent, level, subject). Null in production.</summary>
+    internal Action<Speech.SpeechIntent, VerbosityLevel, string> MicLeftOnPcRouteProbe { get; set; }
+
+    private static string MicInputNow(Radio radio)
+    {
+        try { return radio?.MicInput ?? ""; }
+        catch { return ""; }
+    }
+
+    /// <summary>A put-back of <paramref name="saved"/> was withheld during this teardown, the radio still transmitting.</summary>
+    private void RememberMicLeftOnPc(Radio radio, string saved)
+    {
+        string cache = MicInputNow(radio);
+        // The radio's own name for the input this app set, when its cache shows
+        // it; otherwise (a switch-back's raw write the radio has not reported
+        // yet) the input that write sent.
+        string left = string.Equals(cache, "PC", StringComparison.OrdinalIgnoreCase) ? cache : "PC";
+        System.Threading.Volatile.Write(ref _teardownMicLeftOnPc, new MicLeftBehind(radio, saved ?? "", left, cache));
+    }
+
+    /// <summary>
+    /// A later write of the put-back, or a newer mic choice, settled what the
+    /// withhold left: nothing is left on PC by this app any more.
+    /// </summary>
+    private void MicLeftOnPcSettled(Radio radio)
+    {
+        var left = System.Threading.Volatile.Read(ref _teardownMicLeftOnPc);
+        if (left != null && ReferenceEquals(left.Radio, radio))
+            System.Threading.Interlocked.CompareExchange(ref _teardownMicLeftOnPc, null, left);
+    }
+
+    /// <summary>
+    /// The mic input put-back still owed when a deliberate disconnect stops PC
+    /// audio (withheld earlier, under a carrier, and kept owed on this run and
+    /// connection) is made NOW, before the hang-up, through the same pinned
+    /// write as every put-back: paid if the radio reports receive, withheld
+    /// (and so said at the end) if it is still transmitting. Without this, a
+    /// debt owed while PC audio was already stopped waited for a receive report
+    /// the disconnect then cut off, and was dropped in silence.
+    /// </summary>
+    internal void PayOwedMicPutBackForTeardown(string why)
+    {
+        bool owed;
+        lock (_micSwitchLock) owed = _micInputSwap != null && !_micSessionOpen;
+        if (!owed) return;
+        Tracing.TraceLine("Teardown (" + why + "): a mic input put-back is still owed on this connection;"
+            + " making it now, before the hang-up", TraceLevel.Info);
+        PutBackSavedMicInput("teardown (" + why + "), a put-back still owed", sameRunOnly: true);
+    }
+
+    /// <summary>
+    /// At the end of a deliberate disconnect, after the hang-up: if a mic input
+    /// put-back was withheld during it because the radio was still
+    /// transmitting, and nothing has put it back or chosen another input since,
+    /// say so (J3, ruled by Noel 2026-11-06). Never throws.
+    /// </summary>
+    internal void SayMicLeftOnPcAfterTeardown(string why)
+    {
+        try
+        {
+            var left = System.Threading.Interlocked.Exchange(ref _teardownMicLeftOnPc, null);
+            if (left == null) return;
+            string now = MicInputNow(left.Radio);
+            if (!string.Equals(now, left.CacheAtWithhold, StringComparison.OrdinalIgnoreCase))
+            {
+                Tracing.TraceLine("Teardown (" + why + "): the withheld mic input put-back of '" + left.Saved
+                    + "' is not said: the mic input has read '" + now + "' since, not the '" + left.CacheAtWithhold
+                    + "' it read then", TraceLevel.Info);
+                return;
+            }
+            // DRAFT PROSE (J3): Noel's own wording, 2026-11-06 11:02 and 11:03.
+            string text = Lexicon.Get("connect.disconnect.mic_left_on", ScreenReaderOutput.CurrentVerbosity,
+                ("input", left.Left));
+            LastMicLeftOnPcReport = text;
+            MicLeftOnPcReports++;
+            Tracing.TraceLine("MicPutBackWithheld at disconnect (" + why + "): radio " + (left.Radio?.Serial ?? "(none)")
+                + " is left on '" + left.Left + "', not put back to '" + left.Saved + "'; said: " + text,
+                TraceLevel.Warning);
+            MicLeftOnPcRouteProbe?.Invoke(Speech.SpeechIntent.Queue, VerbosityLevel.Critical, Speech.SpeechSubject.MicInputLeftOnPc);
+            ScreenReaderOutput.Speak(text, Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
+                subject: Speech.SpeechSubject.MicInputLeftOnPc);
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("Teardown (" + why + "): saying the mic input was left on PC threw: " + ex.Message, TraceLevel.Error);
+        }
     }
 
     /// <summary>
@@ -661,6 +807,7 @@ public partial class FlexBase
     /// <summary>The teardown is over: nothing withheld outlives it.</summary>
     private void EndTeardownUnkey()
     {
+        _teardownMicLeftOnPc = null;
         _teardownStillOnAir = null;
         _teardownRestoring = false;
         _ownKeyRequested = false;
