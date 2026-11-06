@@ -2151,13 +2151,18 @@ namespace Radios
         private string PcUnderRecord(MicCapture record, Func<string> alsoAsk, Action write)
         {
             string StillOurs() => CaptureNoLongerCurrent(record) ?? alsoAsk?.Invoke();
+            // And once more AT THE BYTES, under the transport's write gate
+            // (rulings round two, Codex's R1; MIGRATION.md item 25): a new run
+            // that begins while this write waits for the gate takes the record
+            // with it, so the PC must not then go out with nothing owed. Every
+            // question here reads memory only.
             return StepOnPinnedTarget(record.Radio, record.Connection, () =>
             {
                 string now = StillOurs();
                 if (now != null) return now;
                 write();
                 return null;
-            }, StillOurs);
+            }, StillOurs, atTheBytes: StillOurs);
         }
 
         /// <summary>How long <see cref="CaptureMic"/> waits for the report gate.</summary>
@@ -3016,7 +3021,11 @@ namespace Radios
                         return EndPcSwitchRetry(retry, head + "the radio reports PC; nothing to switch, nothing to put back");
                     }
                     bool written = false;
-                    string refused = PcUnderRecord(capture, () => PcSwitchRetryOver(retry),
+                    // Its own record must still be the one installed at the bytes:
+                    // a new run's put-back takes it (R1).
+                    string refused = PcUnderRecord(capture,
+                        () => PcSwitchRetryOver(retry)
+                              ?? (ReferenceEquals(Volatile.Read(ref _micInputSwap), swap) ? null : "its record has been taken by a newer run's start"),
                         () => written = capture.Radio.SendMicInput("PC"));
                     if (refused == null && written)
                     {

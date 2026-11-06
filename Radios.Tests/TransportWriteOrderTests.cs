@@ -323,5 +323,72 @@ namespace Radios.Tests
             Assert.NotNull(dir);
             return Path.Combine(dir!.FullName, relative);
         }
+    
+
+        // ── Rulings round two, Codex's R1: J10's retry against a new run, at the bytes ──
+
+        /// <summary>
+        /// A live J10 retry for session 1, run 0 on the real TCP adapter, the
+        /// mic input at MIC, as a PC-audio start that could not record leaves it.
+        /// </summary>
+        private object ArmedRetryOnTheRealAdapter()
+        {
+            OnTheRealTcpAdapter(cw: false, pauseTheRestore: false);
+            _f.Vendor.Status("transmit mic_selection=MIC");
+            var rig = _f.Rig;
+            typeof(FlexBase).GetField("_micSessionOpen", Any)!.SetValue(rig, true);
+            typeof(FlexBase).GetField("_micSessionId", Any)!.SetValue(rig, 1L);
+            var retry = new FlexBase.PcSwitchRetry(_f.Vendor.Radio, (CommandConnection)_f.Vendor.Radio.CurrentCommandConnection!, 0, new object())
+                { Session = 1 };
+            typeof(FlexBase).GetField("_pcSwitchRetry", Any)!.SetValue(rig, retry);
+            return retry;
+        }
+
+        private string MicLines() => string.Join("; ", _writer.Commands.Where(x => x.StartsWith("mic input", StringComparison.Ordinal)));
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void A_retry_waiting_at_the_write_gate_when_a_new_run_begins_writes_no_PC(bool newRun)
+        {
+            // Codex's retry-run probe and its control: the retry records MIC,
+            // installs its swap and waits at the transport's write gate; a new
+            // remote-audio run begins (its run-start put-back and reset, the
+            // production sequence), then the gate frees.
+            var retry = (FlexBase.PcSwitchRetry)ArmedRetryOnTheRealAdapter();
+            var gate = WriteGate();
+            Assert.True(gate.Wait(0), "the write gate was not free");
+            Thread attempt;
+            FlexBase.PcSwitchAttempt result = default;
+            try
+            {
+                attempt = new Thread(() => result = _f.Rig.TryPcSwitchOnce(retry)) { IsBackground = true };
+                attempt.Start();
+                WaitFor(() => typeof(FlexBase).GetField("_micInputSwap", Any)!.GetValue(_f.Rig) != null
+                    && (attempt.ThreadState & ThreadState.WaitSleepJoin) != 0, "the retry recorded and waiting at the gate");
+                if (newRun)
+                {
+                    typeof(FlexBase).GetField("_remoteAudioRun", Any)!.SetValue(_f.Rig, 1L);
+                    typeof(FlexBase).GetMethod("BeginRemoteAudioRunMicState", Any)!.Invoke(_f.Rig, new object[] { 1L });
+                }
+            }
+            finally { gate.Release(); }
+            Assert.True(attempt.Join(3000));
+            object? swap = typeof(FlexBase).GetField("_micInputSwap", Any)!.GetValue(_f.Rig);
+            if (newRun)
+            {
+                // Either no PC at all, or a PC with its debt still owed: never a PC nobody will put back.
+                Assert.True(MicLines() == "" || swap != null, "PC written after the new run with nothing owed: " + MicLines());
+                Assert.Equal("", MicLines());
+                Assert.NotEqual(FlexBase.PcSwitchAttempt.OnPc, result);
+            }
+            else
+            {
+                Assert.Equal("mic input PC", MicLines());     // control: the retry does its job
+                Assert.NotNull(swap);
+                Assert.Equal(FlexBase.PcSwitchAttempt.OnPc, result);
+            }
+        }
+
     }
 }
