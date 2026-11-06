@@ -2927,6 +2927,16 @@ namespace Radios
                     // connect works through, exactly as a sign-in under that
                     // account would have made it; nothing signs in.
                     var held = coordinator.EnsureSessionForAccount(plan.Account);
+                    // The connection's own account is now the held one, as a
+                    // sign-in under it would have made it (integration pass,
+                    // finding 3): the Network tab's port preference, the
+                    // legacy hole-punch port and the session key read it.
+                    // The account object comes from the same reading the plan
+                    // was made from; a held account nobody saved is adopted
+                    // for this session only.
+                    AdoptSignedInAccount(
+                        savedNow.FirstOrDefault(a => string.Equals(a.Email, plan.Account, StringComparison.OrdinalIgnoreCase))
+                        ?? new SmartLinkAccount { Email = plan.Account, FriendlyName = plan.Account });
                     becomeThePresenceIntake();
                     int replayed = ReplayHeldListsIntoTheIntake(plan.Account, sessionWasAlreadyConnected: true, sw);
                     Tracing.TraceLine(

@@ -59,5 +59,26 @@ namespace Radios.Tests
             Assert.Same(ownerSession, _coordinator.ActiveSession);
             Assert.NotSame(operatorSession, _coordinator.ActiveSession);
         }
+
+        /// <summary>
+        /// Integration finding 3. A connect through the radio's own held
+        /// session used no sign-in, and so never changed the connection's own
+        /// account (_currentAccount). The Settings Network tab then saved a
+        /// port preference to, and named, the old account, and the legacy
+        /// hole-punch port was read from it. The held account is adopted.
+        /// </summary>
+        [Fact]
+        public void A_connect_through_a_held_session_adopts_that_account()
+        {
+            Listed(Operator);
+            Listed(Owner, Radio6300);
+            var rig = NewRig();
+            CurrentAccountField!.SetValue(rig, new SmartLinkAccount { Email = Operator, FriendlyName = Operator });
+            rig.ShowAccountSelector = _ => (false, null!, false);
+
+            Assert.True(rig.PrepareSmartLinkForSerial(Radio6300, allowInteractiveLogin: false, savedAccounts: Saved(Operator, Owner)));
+
+            Assert.Equal(Owner, rig.CurrentSmartLinkEmail);
+        }
     }
 }
