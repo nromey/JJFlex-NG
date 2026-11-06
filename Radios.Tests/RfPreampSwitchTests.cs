@@ -38,63 +38,11 @@ namespace Radios.Tests
             Assert.Equal(onDb, db);
         }
 
-        /// <summary>
-        /// Repair round 1: the report Home and the menu use is the ACTIVE
-        /// panadapter's own when it has one, not the last stored.
-        /// </summary>
-        [Fact]
-        public void The_active_panadapters_report_wins_over_the_last_stored()
-        {
-            var stored = new FlexBase.RFGainReport(-8, 32, 8, new[] { 0, 16, 32 });
-            var active = new FlexBase.RFGainReport(0, 20, 20, new[] { 0, 20 });
-            Assert.Equal(active, FlexBase.ChooseRFGainReport(active, stored));
-            Assert.Equal(stored, FlexBase.ChooseRFGainReport(null, stored));
-        }
-
-        /// <summary>
-        /// Repair round 1 (Codex follow-up): markers are labels, not the list
-        /// of settings. Markers of 0 and 20 over a range of 0 to 20 in steps of
-        /// 5 are five settings; a switch would hide 5, 10 and 15.
-        /// </summary>
-        [Fact]
-        public void Two_markers_over_a_finer_range_keep_the_number_field()
-        {
-            _rig.RFGainMin = 0;
-            _rig.RFGainMax = 20;
-            _rig.RFGainIncrement = 5;
-            _rig.RFGainMarkers = new[] { 0, 20 };
-            Assert.False(_rig.RFGainIsPreampSwitch(out _));
-
-            // The control: the same markers over the 6300's exact range are a switch.
-            _rig.RFGainIncrement = 20;
-            Assert.True(_rig.RFGainIsPreampSwitch(out int db));
-            Assert.Equal(20, db);
-        }
-
-        [Fact]
-        public void Before_the_radio_reports_its_settings_the_number_field_stays()
-        {
-            Assert.Empty(_rig.RFGainMarkers);
-            Assert.False(_rig.RFGainIsPreampSwitch(out _));
-        }
-
-        [Fact]
-        public void The_rig_answers_from_the_markers_the_radio_reported()
-        {
-            _rig.RFGainMin = 0;
-            _rig.RFGainMax = 20;
-            _rig.RFGainIncrement = 20;
-            _rig.RFGainMarkers = new[] { 0, 20 };
-            Assert.True(_rig.RFGainIsPreampSwitch(out int db));
-            Assert.Equal(20, db);
-
-            // And back, when a later report has a real range.
-            _rig.RFGainMin = -8;
-            _rig.RFGainMax = 32;
-            _rig.RFGainIncrement = 8;
-            _rig.RFGainMarkers = new[] { 0, 16, 32 };
-            Assert.False(_rig.RFGainIsPreampSwitch(out _));
-        }
+        // The through-the-rig cases (an active panadapter's own report, the
+        // finer range, before and after a report) moved to
+        // RfGainDestinationTests in repair round 2, where a real vendor
+        // panadapter is the active one: the rig no longer answers from
+        // rig-wide fields any panadapter writes.
 
         /// <summary>
         /// The wiring, pinned at the source because Home is WPF and nothing
@@ -108,6 +56,12 @@ namespace Radios.Tests
         {
             string flexBase = FlexBasePartials.JoinedText();
             Assert.Contains("RFGainMarkers = p.RFGainMarkers?.ToArray() ?? Array.Empty<int>();", flexBase, StringComparison.Ordinal);
+            // The completed report is recorded per panadapter at the vendor's
+            // last notification (repair round 2).
+            Assert.Contains("RecordRFGainReport(p);", flexBase, StringComparison.Ordinal);
+            string active = Body(flexBase, "internal RFGainReport ReportForPanadapter(Panadapter pan)");
+            Assert.DoesNotContain(".RFGainLow", active, StringComparison.Ordinal);
+            Assert.DoesNotContain(".RFGainMarkers", active, StringComparison.Ordinal);
 
             string panel = Read("JJFlexWpf", "Controls", "ScreenFieldsPanel.xaml.cs");
             string poll = Body(panel, "private void PollReceiver()");
@@ -124,8 +78,17 @@ namespace Radios.Tests
             Assert.Contains("var switchWanted = asSwitch ? Visibility.Visible : Visibility.Collapsed;", shape, StringComparison.Ordinal);
             Assert.Contains("_rfGainControl.Visibility = fieldWanted;", shape, StringComparison.Ordinal);
             Assert.Contains("_rfPreampCheck.Visibility = switchWanted;", shape, StringComparison.Ordinal);
-            Assert.Contains("if (asSwitch && fieldHadFocus) HandRfGainFocusTo(_rfPreampCheck);", shape, StringComparison.Ordinal);
-            Assert.Contains("else if (!asSwitch && switchHadFocus) HandRfGainFocusTo(_rfGainControl);", shape, StringComparison.Ordinal);
+            Assert.Contains("if (asSwitch && fieldHadFocus) HandRfGainFocusTo(_rfPreampCheck, _rfGainControl);", shape, StringComparison.Ordinal);
+            Assert.Contains("else if (!asSwitch && switchHadFocus) HandRfGainFocusTo(_rfGainControl, _rfPreampCheck);", shape, StringComparison.Ordinal);
+            Assert.Contains("_rfGainShownPan = report.Pan;", shape, StringComparison.Ordinal);
+            // The hand-off acts only if nothing has moved focus on, and only
+            // for the latest request (repair round 2).
+            string handOff = Body(panel, "private void HandRfGainFocusTo(UIElement incoming, UIElement outgoing)");
+            Assert.Contains("if (generation != _rfFocusGeneration || !ReferenceEquals(rig, _rig)) return;", handOff, StringComparison.Ordinal);
+            Assert.Contains("if (!RfGainFocusStillAt(System.Windows.Input.Keyboard.FocusedElement as DependencyObject, outgoing)) return;", handOff, StringComparison.Ordinal);
+            Assert.Contains("incoming.Focus();", handOff, StringComparison.Ordinal);
+            // The field writes to the panadapter whose report it shows.
+            Assert.Contains("_rig.SetRFGain(_rfGainShownPan, v)", panel, StringComparison.Ordinal);
 
             // The switch writes the radio's own "on" setting or 0, and only on
             // an operator press: both events wired, the poll guard first.
@@ -133,14 +96,16 @@ namespace Radios.Tests
             Assert.Contains("_rfPreampCheck.Unchecked += (s, e) => ToggleRfPreamp(false);", panel, StringComparison.Ordinal);
             string toggle = Body(panel, "private void ToggleRfPreamp(bool on)");
             Assert.Contains("if (_polling || _rig == null) return;", toggle, StringComparison.Ordinal);
-            Assert.Contains("_rig.RFGain = v == FlexBase.OffOnValues.on ? onDb : 0;", toggle, StringComparison.Ordinal);
+            Assert.Contains("var report = _rig.ActiveRFGainReport;", toggle, StringComparison.Ordinal);
+            Assert.Contains("_rig.SetRFGain(report.Pan, v == FlexBase.OffOnValues.on ? onDb : 0);", toggle, StringComparison.Ordinal);
             Assert.Contains("ApplyRfGainShape(rig);", Body(panel, "public void Initialize("), StringComparison.Ordinal);
 
             string menu = Read("JJFlexWpf", "NativeMenuBar.cs");
             string adjust = Body(menu, "private void AdjustRfGain(bool up)");
-            Assert.Contains("Rig.RFGainIsPreampSwitch(out int onDb)", adjust, StringComparison.Ordinal);
+            Assert.Contains("FlexBase.IsPreampSwitch(report, out int onDb)", adjust, StringComparison.Ordinal);
             Assert.Contains("int value = up ? onDb : 0;", adjust, StringComparison.Ordinal);
-            Assert.Contains("Rig.RFGain = value;", adjust, StringComparison.Ordinal);
+            Assert.Contains("Rig.SetRFGain(report.Pan, value);", adjust, StringComparison.Ordinal);
+            Assert.Contains("v => Rig.SetRFGain(report.Pan, v)", adjust, StringComparison.Ordinal);
             Assert.Contains("\"audio.fields.rf_preamp_off\"", adjust, StringComparison.Ordinal);
             Assert.Contains("var report = Rig.ActiveRFGainReport;", adjust, StringComparison.Ordinal);
             Assert.Contains("\"audio.fields.rf_preamp_on\"", adjust, StringComparison.Ordinal);

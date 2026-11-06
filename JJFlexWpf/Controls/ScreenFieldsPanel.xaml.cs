@@ -117,6 +117,11 @@ public partial class ScreenFieldsPanel : UserControl
     private ValueFieldControl _squelchLevelControl = null!;
     private ValueFieldControl _rfGainControl = null!;
     private CheckBox _rfPreampCheck = null!;
+    // The panadapter whose report the RF gain controls are showing, which is
+    // where the field writes (#889, repair round 2).
+    private Flex.Smoothlake.FlexLib.Panadapter? _rfGainShownPan;
+    // Bumped by every focus hand-off request, so a late one cannot act.
+    private int _rfFocusGeneration;
     private System.Windows.Controls.TextBlock _rxFilterWidthDisplay = null!;
 
     #endregion
@@ -984,7 +989,7 @@ public partial class ScreenFieldsPanel : UserControl
         // RF Gain bounds are instance fields (vary by radio), set defaults here, updated in Initialize()
         _rfGainControl = MakeValue(Lexicon.Get("audio.fields.rf_gain"), -10, 30, 10);
         // !_polling for the same reason as the AGC threshold handler above.
-        _rfGainControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.RFGain = v; };
+        _rfGainControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.SetRFGain(_rfGainShownPan, v); };
         ReceiverContent.Children.Add(_rfGainControl);
 
         // #889: where the radio offers RF gain as only two settings, 0 and one
@@ -1379,6 +1384,7 @@ public partial class ScreenFieldsPanel : UserControl
         // The ACTIVE panadapter's report (repair round 1): it is the one RF
         // gain reads and writes.
         var report = rig.ActiveRFGainReport;
+        _rfGainShownPan = report.Pan;
         if (_rfGainControl.Min != report.Min) _rfGainControl.Min = report.Min;
         if (_rfGainControl.Max != report.Max) _rfGainControl.Max = report.Max;
         if (_rfGainControl.Step != report.Step) _rfGainControl.Step = report.Step;
@@ -1395,21 +1401,36 @@ public partial class ScreenFieldsPanel : UserControl
         bool switchHadFocus = _rfPreampCheck.IsKeyboardFocusWithin;
         _rfGainControl.Visibility = fieldWanted;
         _rfPreampCheck.Visibility = switchWanted;
-        if (asSwitch && fieldHadFocus) HandRfGainFocusTo(_rfPreampCheck);
-        else if (!asSwitch && switchHadFocus) HandRfGainFocusTo(_rfGainControl);
+        if (asSwitch && fieldHadFocus) HandRfGainFocusTo(_rfPreampCheck, _rfGainControl);
+        else if (!asSwitch && switchHadFocus) HandRfGainFocusTo(_rfGainControl, _rfPreampCheck);
     }
 
     /// <summary>
     /// Focus the RF gain control that just became visible, once layout has
-    /// made it focusable.
+    /// made it focusable, and ONLY if the operator is still where the hand-off
+    /// began: keyboard focus still on the outgoing RF gain control, or on
+    /// nothing. A Tab, a dialog or another window in the meantime wins, and so
+    /// does any later hand-off request (repair round 2).
     /// </summary>
-    private void HandRfGainFocusTo(UIElement incoming)
+    private void HandRfGainFocusTo(UIElement incoming, UIElement outgoing)
     {
+        int generation = ++_rfFocusGeneration;
+        var rig = _rig;
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, new Action(() =>
         {
-            if (incoming.Visibility == Visibility.Visible) incoming.Focus();
+            if (generation != _rfFocusGeneration || !ReferenceEquals(rig, _rig)) return;
+            if (!incoming.IsVisible) return;
+            if (!RfGainFocusStillAt(System.Windows.Input.Keyboard.FocusedElement as DependencyObject, outgoing)) return;
+            incoming.Focus();
         }));
     }
+
+    /// <summary>
+    /// True when keyboard focus is nowhere, or still on (or inside) the RF
+    /// gain control the hand-off started from.
+    /// </summary>
+    internal static bool RfGainFocusStillAt(DependencyObject? focused, UIElement outgoing)
+        => focused == null || ReferenceEquals(focused, outgoing) || outgoing.IsAncestorOf(focused);
 
     /// <summary>
     /// The RF preamp switch, pressed: the radio's own "on" setting or 0, and
@@ -1418,12 +1439,15 @@ public partial class ScreenFieldsPanel : UserControl
     private void ToggleRfPreamp(bool on)
     {
         if (_polling || _rig == null) return;
-        if (!_rig.RFGainIsPreampSwitch(out int onDb)) return;
+        // One report for the decision and the write: its panadapter is where
+        // the value goes, whatever is active when the queue runs (repair 2).
+        var report = _rig.ActiveRFGainReport;
+        if (!FlexBase.IsPreampSwitch(report, out int onDb)) return;
         string sentence = on
             ? Lexicon.Get("audio.fields.rf_preamp_on", ("db", onDb))
             : Lexicon.Get("audio.fields.rf_preamp_off");
         ToggleRig(Lexicon.Get("audio.fields.rf_preamp"),
-            v => { if (_rig != null) _rig.RFGain = v == FlexBase.OffOnValues.on ? onDb : 0; },
+            v => { if (_rig != null) _rig.SetRFGain(report.Pan, v == FlexBase.OffOnValues.on ? onDb : 0); },
             on, sentence);
     }
 

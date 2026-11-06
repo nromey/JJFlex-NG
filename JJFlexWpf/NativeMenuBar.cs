@@ -1890,18 +1890,20 @@ public class NativeMenuBar : IDisposable
     private void AdjustRfGain(bool up)
     {
         if (Rig == null) { SpeakNoRadio(); return; }
-        if (Rig.RFGainIsPreampSwitch(out int onDb))
+        // One report, and the panadapter it belongs to, for both the decision
+        // and the write (repair round 2).
+        var report = Rig.ActiveRFGainReport;
+        if (FlexBase.IsPreampSwitch(report, out int onDb))
         {
             int value = up ? onDb : 0;
-            Rig.RFGain = value;
+            Rig.SetRFGain(report.Pan, value);
             SpeakAfterMenuClose(value != 0
                 ? Radios.Lexicon.Get("audio.fields.rf_preamp_on", ("db", onDb))
                 : Radios.Lexicon.Get("audio.fields.rf_preamp_off"));
             return;
         }
-        // The active panadapter's range, the one RF gain writes (repair round 1).
-        var report = Rig.ActiveRFGainReport;
-        AdjustValue("RF Gain", () => Rig.RFGain, v => Rig.RFGain = v,
+        // The active panadapter's range, and its own value and write (repair rounds 1 and 2).
+        AdjustValue("RF Gain", () => report.Pan?.RFGain ?? 0, v => Rig.SetRFGain(report.Pan, v),
             up ? report.Step : -report.Step, report.Min, report.Max);
     }
 

@@ -5610,6 +5610,10 @@ namespace Radios
                             // as one of them is the radio offering RF gain as
                             // a preamp switch, and Home presents it as one.
                             RFGainMarkers = p.RFGainMarkers?.ToArray() ?? Array.Empty<int>();
+                            // The vendor raises RFGainMarkers LAST, after its
+                            // reply has filled every field, so this is the one
+                            // moment the report is complete (#889, repair 2).
+                            RecordRFGainReport(p);
                         }
                         break;
                 }
@@ -12420,41 +12424,49 @@ namespace Radios
         /// </summary>
         public int[] RFGainMarkers = Array.Empty<int>();
 
-        /// <summary>One panadapter's RF gain report: its range, its step and its marked settings.</summary>
-        public readonly record struct RFGainReport(int Min, int Max, int Step, int[] Markers);
+        /// <summary>
+        /// One panadapter's RF gain report: its range, its step and its marked
+        /// settings, and the panadapter it belongs to, which is where a value
+        /// chosen from it is written (repair round 2).
+        /// </summary>
+        public readonly record struct RFGainReport(int Min, int Max, int Step, int[] Markers, Panadapter Pan = null);
+
+        /// <summary>The field Home shows before a panadapter has reported: today's defaults, no markers.</summary>
+        public static RFGainReport NotYetReported(Panadapter pan) => new RFGainReport(-10, 30, 10, Array.Empty<int>(), pan);
+
+        /// <summary>
+        /// Each panadapter's last COMPLETED report, taken when the vendor
+        /// raises RFGainMarkers, the last of its four notifications after one
+        /// reply has filled every field. Never the vendor fields read raw: its
+        /// parser publishes a new marker array before filling it, so a raw
+        /// read can see a half-made answer (Codex, repair round 2). Weak keys,
+        /// so a closed panadapter takes its report with it.
+        /// </summary>
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Panadapter, System.Runtime.CompilerServices.StrongBox<RFGainReport>> _rfGainReports = new();
+
+        /// <summary>Record a panadapter's completed RF gain report.</summary>
+        internal void RecordRFGainReport(Panadapter pan)
+        {
+            if (pan == null) return;
+            var report = new RFGainReport(pan.RFGainLow, pan.RFGainHigh, pan.RFGainStep,
+                pan.RFGainMarkers?.ToArray() ?? Array.Empty<int>(), pan);
+            _rfGainReports.AddOrUpdate(pan, new System.Runtime.CompilerServices.StrongBox<RFGainReport>(report));
+        }
 
         /// <summary>
         /// The RF gain report Home and the Radio menu act on: the ACTIVE
-        /// panadapter's own, once it has reported (its markers are present),
-        /// because that is the panadapter RF gain reads and writes; otherwise
-        /// the last report stored. Repair round 1 of #889: the stored fields
-        /// are written by any owned panadapter's report, so with two
-        /// panadapters the last one to report won, whichever was active.
+        /// panadapter's own completed report, or, until it has one, the plain
+        /// number field's defaults. Never another panadapter's report and never
+        /// the rig-wide fields any panadapter writes (repair rounds 1 and 2).
         /// </summary>
-        public RFGainReport ActiveRFGainReport
-        {
-            get
-            {
-                RFGainReport? fromActive = null;
-                try
-                {
-                    var pan = activePan;
-                    var markers = pan?.RFGainMarkers;
-                    if (pan != null && markers != null && markers.Length > 0)
-                        fromActive = new RFGainReport(pan.RFGainLow, pan.RFGainHigh, pan.RFGainStep, markers.ToArray());
-                }
-                catch (Exception ex)
-                {
-                    Tracing.TraceLine("ActiveRFGainReport: " + ex.Message, TraceLevel.Warning);
-                }
-                return ChooseRFGainReport(fromActive,
-                    new RFGainReport(RFGainMin, RFGainMax, RFGainIncrement, RFGainMarkers ?? Array.Empty<int>()));
-            }
-        }
+        public RFGainReport ActiveRFGainReport => ReportForPanadapter(activePan);
 
-        /// <summary>The active panadapter's report when it has one, else the stored one.</summary>
-        public static RFGainReport ChooseRFGainReport(RFGainReport? activePanadapters, RFGainReport stored)
-            => activePanadapters ?? stored;
+        /// <summary>One panadapter's completed report, or the defaults when it has none.</summary>
+        internal RFGainReport ReportForPanadapter(Panadapter pan)
+        {
+            if (pan != null && _rfGainReports.TryGetValue(pan, out var box)) return box.Value;
+            return NotYetReported(pan);
+        }
 
         /// <summary>
         /// True when the radio offers RF gain as exactly two settings, one of
@@ -12494,14 +12506,46 @@ namespace Radios
         public int RFGain
         {
             get { return (activePan != null) ? activePan.RFGain : 0; }
-            set
+            // The panadapter is captured HERE, at the decision, not looked up
+            // again when the queue runs (#889, repair round 2).
+            set { SetRFGain(activePan, value); }
+        }
+
+        /// <summary>
+        /// Write RF gain to the panadapter the value was chosen for. The queued
+        /// write carries that panadapter; it used to re-resolve the active
+        /// panadapter when the queue ran, so a value chosen from panadapter A's
+        /// report landed on B if the active panadapter changed in between. If
+        /// the chosen panadapter is gone by then, nothing is sent, and the
+        /// trace says so.
+        /// </summary>
+        public void SetRFGain(Panadapter pan, int value)
+        {
+            if (pan == null) return;
+            NoteOperatorChangedRadioSetting("RFGain");
+            q.Enqueue((FunctionDel)(() => WriteRFGainTo(pan, value)));
+        }
+
+        private void WriteRFGainTo(Panadapter pan, int value)
+        {
+            var radio = theRadio;
+            bool present = false;
+            try
             {
-                if (activePan != null)
-                {
-                    NoteOperatorChangedRadioSetting("RFGain");
-                    q.Enqueue((FunctionDel)(() => { activePan.RFGain = value; }));
-                }
+                var pans = radio?.PanadapterList;
+                if (pans != null)
+                    lock (pans) present = pans.Contains(pan);
             }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("WriteRFGainTo: panadapter list unreadable: " + ex.Message, TraceLevel.Warning);
+            }
+            if (!present)
+            {
+                Tracing.TraceLine($"WriteRFGainTo: RF gain {value} not sent; the panadapter it was chosen for is gone", TraceLevel.Info);
+                return;
+            }
+            pan.RFGain = value;
         }
 
 #if zero
