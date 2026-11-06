@@ -805,7 +805,7 @@ namespace Radios.Tests
         {
             string radio = System.IO.File.ReadAllText(Repo("FlexLib_API/FlexLib/Radio.cs"));
             Assert.Contains("// JJFlex patch: forced writes (MIGRATION.md item 22).", radio);
-            Assert.Contains("private bool SendCommandForced(string command, Action applyCache)", radio);
+            Assert.Contains("private bool SendCommandForced(string command, Func<long> reports, Func<bool> applyCache, string property)", radio);
             Assert.Contains("public bool SendMoxOff() => SendCommandForced(\"xmit 0\"", radio);
             Assert.Contains("public bool SendTuneOff() => SendCommandForced(\"transmit tune 0\"", radio);
             Assert.Contains("public bool SendMicInput(string input) => SendCommandForced(\"mic input \"", radio);
@@ -822,6 +822,77 @@ namespace Radios.Tests
             Assert.Contains("public bool TryWrite(string message, out string? failure)", ssl);
             Assert.Contains("using var own = pin == null && current != null ? CommandWritePin.Pin(current) : null;", radio);
             Assert.Contains("A write counts only when its writer returned", System.IO.File.ReadAllText(Repo("MIGRATION.md")));
+            // Round 9 (#861 B3): the cache after a forced write loses to a newer report.
+            Assert.Contains("if (reports() == reportsBefore) changed = applyCache();", radio);
+            Assert.Contains("if (reportsOurMox) lock (_reportedCacheSync) _moxReports++;", radio);
+            Assert.Contains("lock (_reportedCacheSync) { _micInput = value.ToUpper(); _micInputReports++; }", radio);
+            Assert.Contains("_txTuneReports++;", radio);
+            Assert.Contains("A forced write's cache update loses to a newer report", System.IO.File.ReadAllText(Repo("MIGRATION.md")));
+        }
+
+        // ── Round 9, Codex's #861 B3: the cache after a forced write keeps a newer report ──
+
+        /// <summary>Deliver <paramref name="report"/> once, after the transport captured <paramref name="command"/>.</summary>
+        private void ReportAfterTheWriteOf(string command, string report)
+        {
+            bool once = true;
+            _f.Vendor.Transport.CommandWritten = c =>
+            {
+                if (!once || c != command) return;
+                once = false;
+                _f.Vendor.Status(report);
+            };
+        }
+
+        [Fact]
+        public void A_forced_mic_write_keeps_a_choice_the_radio_reported_while_it_was_written()
+        {
+            _f.Vendor.Status("transmit mic_selection=PC");
+            ReportAfterTheWriteOf("mic input MIC", "transmit mic_selection=BAL");
+            Assert.True(_f.Vendor.Radio.SendMicInput("MIC"));
+            Assert.Equal("BAL", _f.Vendor.Radio.MicInput);
+        }
+
+        [Fact]
+        public void A_forced_mic_write_with_nothing_reported_meanwhile_is_cached()
+        {
+            _f.Vendor.Status("transmit mic_selection=PC");
+            Assert.True(_f.Vendor.Radio.SendMicInput("MIC"));
+            Assert.Equal("MIC", _f.Vendor.Radio.MicInput);
+        }
+
+        [Fact]
+        public void A_forced_unkey_keeps_a_carrier_the_radio_reported_while_it_was_written()
+        {
+            Interlock("TRANSMITTING", 0);
+            Assert.True(_f.Vendor.Radio.Mox);
+            ReportAfterTheWriteOf("xmit 0", "interlock state=UNKEY_REQUESTED source=SW tx_client_handle=0x00000000");
+            Assert.True(_f.Vendor.Radio.SendMoxOff());
+            Assert.True(_f.Vendor.Radio.Mox, "our OFF's cache update erased the radio's newer report of its carrier");
+            Interlock("READY", 0);
+            Assert.False(_f.Vendor.Radio.Mox);
+        }
+
+        [Fact]
+        public void A_forced_unkey_with_nothing_reported_meanwhile_clears_the_cache()
+        {
+            Interlock("TRANSMITTING", 0);
+            Assert.True(_f.Vendor.Radio.SendMoxOff());
+            Assert.False(_f.Vendor.Radio.Mox);
+        }
+
+        [Fact]
+        public void A_forced_tune_off_keeps_a_tune_the_radio_reported_while_it_was_written()
+        {
+            _f.Vendor.Status("transmit tune=1");
+            Assert.True(_f.Vendor.Radio.TXTune);
+            ReportAfterTheWriteOf("transmit tune 0", "transmit tune=1");
+            Assert.True(_f.Vendor.Radio.SendTuneOff());
+            Assert.True(_f.Vendor.Radio.TXTune);
+
+            _f.Vendor.Transport.CommandWritten = null;
+            Assert.True(_f.Vendor.Radio.SendTuneOff());       // the control: nothing reported meanwhile
+            Assert.False(_f.Vendor.Radio.TXTune);
         }
 
         [Fact]

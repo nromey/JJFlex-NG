@@ -268,6 +268,14 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
       `SendCommandForced`'s own pin for an unpinned caller. Otherwise a dropped OFF
       reads as sent, the app retires its outstanding key, and a later kill sends
       nothing.
+    - **A forced write's cache update loses to a newer report (2026-11-06, Codex's
+      #861 B3).** `SendCommandForced` notes how many reports of its property the
+      parser has made before it writes, and changes the cache after the write only
+      if none came meanwhile. Each count is taken with the cache write it belongs
+      to, under `_reportedCacheSync`: `_moxReports` in the `InterlockState` setter
+      (only a report that updates this client's Mox), `_txTuneReports` at the
+      transmit status's `tune`, `_micInputReports` at its `mic_selection`. Keep
+      those three parser edits with the helper, marked "item 22".
     - **When it could be removed.** If FlexLib's setters stop skipping equal values
       for commands, or offer an always-send variant.
 
