@@ -238,7 +238,9 @@ internal static class Program
     private static EngineSettingDescriptor[] NnrSettings() => new EngineSettingDescriptor[] {
         new("model", "audio.denoise.nnr.model", EngineSettingKind.Choice, new EngineSettingValue(0, "standard"),
             Options: new[] { new EngineSettingOption("standard", "audio.denoise.nnr.model.standard"),
-                             new EngineSettingOption("premium", "audio.denoise.nnr.model.premium") }, ChangesLatency: true),
+                             new EngineSettingOption("premium", "audio.denoise.nnr.model.premium"),
+                             new EngineSettingOption("standard_cw", "audio.denoise.nnr.model.standard_cw"),
+                             new EngineSettingOption("premium_cw", "audio.denoise.nnr.model.premium_cw") }, ChangesLatency: true),
         new("mask_floor_db", "audio.denoise.nnr.mask_floor_db", EngineSettingKind.Number, new EngineSettingValue(-25),
             -40, -10, 0, "audio.unit.decibels", new double[] { -40, -35, -30, -27, -25, -22, -20, -15, -10 }),
     };
@@ -255,9 +257,9 @@ internal static class Program
         ["nr2"] = Nr2Settings(),
     };
 
-    /// <summary>The channel's delay: the stub's base delay, one frame more for NNR's premium model.</summary>
+    /// <summary>The channel's delay: the stub's base delay, one frame more for NNR's two premium models.</summary>
     private static int LatencyFor(string engine, IReadOnlyDictionary<string, WdspValue> values) =>
-        _delay + (engine == "nnr" && values.TryGetValue("model", out var m) && m.Choice == "premium" ? 480 : 0);
+        _delay + (engine == "nnr" && values.TryGetValue("model", out var m) && m.Choice is "premium" or "premium_cw" ? 480 : 0);
 
     private static WdspHelloAck Offer()
     {
