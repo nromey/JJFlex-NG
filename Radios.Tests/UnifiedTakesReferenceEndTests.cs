@@ -160,6 +160,10 @@ public sealed class UnifiedTakesReferenceEndTests
             @"if \(rig\.TxReferenceArmed\)\s*\{\s*(Refuse|RefuseOrHold)\(info, Lexicon\.Get\(""audio\.check\.reference_already_armed""\)\);\s*return;").Count;
         Assert.Equal(3, sends);   // a voice message, Play from computer, and a paused send carrying on
         Assert.Equal(3, Regex.Matches(sender, @"if \(rig\.TxToneEngaged\)").Count);
+        // Round five (7d): during the silence after a reference's end the lease is
+        // still held, so each of the three asks for that silence FIRST, with its own sentence.
+        Assert.Equal(3, Regex.Matches(sender,
+            @"if \(rig\.TxReferenceEndSilenceHeld\)\s*\{\s*(Refuse|RefuseOrHold)\(info, Lexicon\.Get\(""audio\.check\.reference_end_silence_busy""\)\);\s*return;\s*\}\s*if \(rig\.TxReferenceArmed\)").Count);
         string arm = Body(Dialog("CheckYourAudioDialog.ReferenceAudio.cs"), "private void ReferenceArmChanged(bool armed)");
         int refusal = arm.IndexOf("if (rig.TxFilePlaying && !rig.TxReferenceArmed)", StringComparison.Ordinal);
         int load = arm.IndexOf("WithInjectionPath(rig,", StringComparison.Ordinal);

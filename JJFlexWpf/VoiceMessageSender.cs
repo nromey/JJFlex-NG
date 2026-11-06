@@ -371,6 +371,14 @@ internal static class VoiceMessageSender
         // The reference in Check your audio shares the transmit player, and its
         // end now ends the transmission (round three): a send would replace it.
         // DRAFT PROSE (#864, round three): awaiting Noel.
+        // The silence after a reference's end (round five, 7d): its lease is
+        // still held, so the refusal below would say it is armed, and it is not.
+        // DRAFT PROSE (#864, round five): awaiting Noel.
+        if (rig.TxReferenceEndSilenceHeld)
+        {
+            Refuse(info, Lexicon.Get("audio.check.reference_end_silence_busy"));
+            return;
+        }
         if (rig.TxReferenceArmed)
         {
             Refuse(info, Lexicon.Get("audio.check.reference_already_armed"));
@@ -535,6 +543,14 @@ internal static class VoiceMessageSender
         // The reference in Check your audio shares the transmit player, and its
         // end now ends the transmission (round three): a send would replace it.
         // DRAFT PROSE (#864, round three): awaiting Noel.
+        // The silence after a reference's end (round five, 7d): its lease is
+        // still held, so the refusal below would say it is armed, and it is not.
+        // DRAFT PROSE (#864, round five): awaiting Noel.
+        if (rig.TxReferenceEndSilenceHeld)
+        {
+            Refuse(info, Lexicon.Get("audio.check.reference_end_silence_busy"));
+            return;
+        }
         if (rig.TxReferenceArmed)
         {
             Refuse(info, Lexicon.Get("audio.check.reference_already_armed"));
@@ -1156,6 +1172,14 @@ internal static class VoiceMessageSender
             return;
         }
         // DRAFT PROSE (#864, round three): awaiting Noel.
+        // The silence after a reference's end (round five, 7d): its lease is
+        // still held, so the refusal below would say it is armed, and it is not.
+        // DRAFT PROSE (#864, round five): awaiting Noel.
+        if (rig.TxReferenceEndSilenceHeld)
+        {
+            RefuseOrHold(info, Lexicon.Get("audio.check.reference_end_silence_busy"));
+            return;
+        }
         if (rig.TxReferenceArmed)
         {
             RefuseOrHold(info, Lexicon.Get("audio.check.reference_already_armed"));

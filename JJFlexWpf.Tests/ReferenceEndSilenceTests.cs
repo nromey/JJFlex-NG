@@ -383,4 +383,60 @@ public sealed class ReferenceEndSilenceTests : IDisposable
         Assert.False(_rig.TxReferenceEndSilenceHeld);
         Assert.True(MicIsBack());
     }
+
+    // ── Round five (7d): a send during the silence is refused with a true sentence ──
+
+    /// <summary>
+    /// A voice message and Play from computer during the silence after a
+    /// reference's end are refused with their own sentence (DRAFT), never the
+    /// armed one: the arm was stood down at the end, so "turn the reference off
+    /// first" would send the operator to a box that is already off. Driven
+    /// through <c>VoiceMessageSender</c>'s two public doors on an unconnected
+    /// rig whose player is holding the silence; the zero-power door is stood
+    /// aside with its own test seam, and nothing is keyed or sent.
+    /// </summary>
+    [Fact]
+    public void A_send_during_the_silence_is_refused_with_its_own_sentence()
+    {
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+        var zeroBefore = ZeroPowerDoors.AtZeroOverride;
+        ZeroPowerDoors.AtZeroOverride = (_, _) => false;
+        try
+        {
+            ReferencePassAtItsEnd();
+            Assert.True(_rig.TxReferenceEndSilenceHeld);
+            string busy = Lexicon.Get("audio.check.reference_end_silence_busy");
+            Assert.Equal("A reference recording has just finished, and the radio has not yet gone back to receive. Try again once it has.", busy);
+
+            string message = SpokenAfter(() => VoiceMessageSender.Send(_rig, new CWMessageItem { Label = "CQ test", Audio = "cq-test" }));
+            Assert.Equal("CQ test not sent. " + busy, message);
+
+            string play = SpokenAfter(() => VoiceMessageSender.SendComputerRecording(_rig, "C:\\not-a-real-folder\\take.wav", SendRoute.AsBefore));
+            Assert.EndsWith(busy, play);
+            Assert.DoesNotContain("armed", play);
+            Assert.False(VoiceMessageSender.InFlight);
+
+            // The control: with the silence let go, the same send is not refused for it.
+            _rig.TxFileStop();
+            string after = SpokenAfter(() => VoiceMessageSender.Send(_rig, new CWMessageItem { Label = "CQ test", Audio = "cq-test" }));
+            Assert.DoesNotContain(busy, after);
+        }
+        finally
+        {
+            ZeroPowerDoors.AtZeroOverride = zeroBefore;
+            VoiceMessageSender.Stop();
+        }
+    }
+
+    private static string SpokenAfter(Action press)
+    {
+        string marker = "marker " + Guid.NewGuid().ToString("N");
+        ScreenReaderOutput.Speak(marker, VerbosityLevel.Critical, true);
+        Assert.Equal(marker, ScreenReaderOutput.RecentMessages.FirstOrDefault());
+        press();
+        var recent = ScreenReaderOutput.RecentMessages;
+        Assert.NotEqual(marker, recent.FirstOrDefault());
+        return recent.First();
+    }
 }

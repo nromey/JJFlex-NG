@@ -944,4 +944,34 @@ public sealed class ReferenceEndSilenceTests : IDisposable
             Assert.Equal(ReferenceSilenceEnd.AlreadyReleased, windows);
         }
     }
+
+    // ── Round five (7d): what a send meets during the silence ──
+
+    /// <summary>
+    /// Established for round five (7d), on the real arm: during the silence
+    /// after a reference's end the player is not playing (<c>TxFilePlaying</c>
+    /// is false, so a check of it alone would admit a send), but the
+    /// reference's lease is still held, so <c>TxReferenceArmed</c> is true and
+    /// every send door that asks it refuses. Until round five they refused
+    /// with the armed sentence, which is false here: the arm was stood down at
+    /// the end. Each now asks <c>TxReferenceEndSilenceHeld</c> first (pinned in
+    /// source by <c>UnifiedTakesReferenceEndTests</c>; the spoken sentence is
+    /// <c>JJFlexWpf.Tests.ReferenceEndSilenceTests</c>). At receive both go.
+    /// </summary>
+    [Fact]
+    public async Task During_the_silence_a_send_meets_a_held_lease_and_not_a_playing_file()
+    {
+        using var f = await ReferenceRunToItsEnd("ref-silence-send");
+        Assert.True(f.Rig.TxReferenceEndSilenceHeld);
+        Assert.False(f.Rig.TxFilePlaying, "a send door that asked only this would admit the send");
+        Assert.True(f.Rig.TxReferenceArmed, "the reference's lease is held through the silence");
+
+        ReferenceSilenceEnd? how = null;
+        f.Rig.TxReferenceEndSilenceUntilReceive(h => how = h);
+        NoteRadioMox(f.Rig, false);
+        f.Vendor.Status("interlock state=READY");
+        Assert.True(await Within(() => how == ReferenceSilenceEnd.Received, 2_000));
+        Assert.False(f.Rig.TxReferenceEndSilenceHeld);
+        Assert.False(f.Rig.TxReferenceArmed, "positive control: at receive the lease goes, and a send is admitted again");
+    }
 }
