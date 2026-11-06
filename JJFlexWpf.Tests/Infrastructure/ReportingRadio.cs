@@ -44,6 +44,23 @@ internal sealed class ReportingRadio : IDisposable
     public void MoxCache(bool on) => typeof(FlexBase).GetField("_Transmit", Any)!.SetValue(Rig, on);
 
     /// <summary>
+    /// FlexLib's Mox through the vendor's own setter (its cache, and its
+    /// command to a transport that writes nowhere), then the app's production
+    /// bridge from that notification, <c>noteRadioMox</c>, as a connected rig
+    /// receives it (repair round 5). Unlike <see cref="MoxCache"/>, a rising
+    /// edge here begins a transmit episode, as it does in production.
+    /// </summary>
+    public void VendorMox(bool on)
+    {
+        Radio.Mox = on;
+        typeof(FlexBase).GetMethod("noteRadioMox", Any)!.Invoke(Rig, new object[] { Radio.Mox });
+    }
+
+    /// <summary>For tests: the receive wait's fallback interval on this rig, in place of its 250 ms.</summary>
+    public void ReceiveFallbackMs(int ms) =>
+        typeof(FlexBase).GetField("ReceiveReportFallbackMsOverride", Any)!.SetValue(Rig, ms);
+
+    /// <summary>
     /// The radio reports its interlock: FlexLib's cache first (its own parser
     /// runs first on a real connection), then the line through the transport,
     /// where the app's record reads it.

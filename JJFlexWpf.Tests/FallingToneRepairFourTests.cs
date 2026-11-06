@@ -111,12 +111,16 @@ public sealed class FallingToneRepairFourTests : IDisposable
     [Fact]
     public void A_falling_tone_follows_the_receive_report_with_no_delay_of_our_own()
     {
-        // The wait is woken by the report itself; the fallback check is 250 ms,
-        // so a tone inside 200 ms of the report can only have been woken by it.
+        // The wait is woken by the report itself. Repair round 5 (Codex's T1):
+        // with the ordinary 250 ms fallback, a waiter checking at 250 and 500
+        // ms could meet a 200 ms bound after a report at 320 ms on the
+        // fallback alone. So this rig's fallback is ten seconds: a tone inside
+        // 200 ms of the report can only have been woken by it.
         // On a real connection FlexLib parses the line first and the app's
         // record is written just after; here FlexLib's cache moves first and
         // the line arrives later, so only the record's own notice can wake it.
         AssertTheDeskIsSafe();
+        _r.ReceiveFallbackMs(10_000);
         KeyedOnOwnSlice();
         _controller.PttUp();
         _r.MoxCache(false);

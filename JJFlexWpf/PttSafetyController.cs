@@ -964,6 +964,10 @@ namespace JJFlexWpf
             {
                 _pttDownTicks = Stopwatch.GetTimestamp();   // #216, see NotePttRelease
                 State = PttState.PttHold;
+                // Every owed falling tone is void BEFORE the key is asked for
+                // (repair round 5, Codex's #863 N2): a payment already under
+                // way finishes first, and none starts after.
+                ForgetEdgeTones();
                 SetTx(true);   // RF off to on: a new transmission, and every sentence about the last one's end is now history
                 StartFreshAudioSample();
                 KeyDownTone();
@@ -1209,12 +1213,23 @@ namespace JJFlexWpf
         /// <summary>Every owed edge tone is void: a key of ours, a drop or a teardown has them now.</summary>
         private void ForgetEdgeTones()
         {
+            bool unpaid;
+            FallingTone family;
             lock (_edgeToneLock)
             {
+                unpaid = _edgeStopOwed;
+                family = _edgeStopFamily;
                 _edgeToneGeneration++;
                 _edgeStopOwed = false;
                 _edgeStartOwed = false;
             }
+            // No report, no tone, and a line saying so (the design for Noel's
+            // review): the radio never reported receive for that transmission
+            // before a newer key, a drop or a teardown took the tones over.
+            if (unpaid)
+                Tracing.TraceLine("PTT: the falling " + (family == FallingTone.Elsewhere ? "three-note tone" : "chirp")
+                    + " was NOT played: the radio had not reported receive for that transmission before a newer key,"
+                    + " a drop or a teardown", TraceLevel.Info);
         }
 
         /// <summary>
@@ -1234,10 +1249,10 @@ namespace JJFlexWpf
             }
             FlexBase? rig = null;
             try { rig = _getRigControl(); } catch { }
-            if (rig == null) { PayStopTone(gen, sameConnection: false); return; }
+            if (rig == null) { PayStopTone(gen, sameConnection: false, stillReceiving: null); return; }
             // Given up quietly once a newer debt replaces this one, so a carrier
             // held for a long time does not collect waits behind it.
-            rig.WhenReallyReceiving(same => PayStopTone(gen, same), () => StillOwed(gen));
+            rig.WhenReallyReceiving((same, stillReceiving) => PayStopTone(gen, same, stillReceiving), () => StillOwed(gen));
         }
 
         private bool StillOwed(long generation)
@@ -1251,35 +1266,52 @@ namespace JJFlexWpf
         /// family, unless something newer took it over. A connection that went
         /// first ends it silently, with a trace. Any thread.
         /// </summary>
-        private void PayStopTone(long generation, bool sameConnection)
+        /// <param name="stillReceiving">The wait's own question, asked again at
+        /// the submission (repair round 5): still receiving, for this
+        /// transmission, on this connection. Null when there is no rig.</param>
+        private void PayStopTone(long generation, bool sameConnection, Func<bool>? stillReceiving)
         {
-            bool pay;
             FallingTone family;
+            string? notPlayed = null;
+            // The last check and the submission are ONE step under the lock a
+            // key-down's invalidation takes (repair round 5, Codex's #863 N2):
+            // a new key either voids this debt before it is paid, or waits
+            // until the tone has been handed to the player, so an old falling
+            // tone is never submitted during the new carrier. The wait's
+            // answer is asked again here too: a carrier that rose, or a
+            // connection that went, between the report and this call voids it.
             lock (_edgeToneLock)
             {
-                pay = _edgeStopOwed && generation == _edgeToneGeneration;
+                if (!_edgeStopOwed || generation != _edgeToneGeneration) return;
                 family = _edgeStopFamily;
-                if (pay) _edgeStopOwed = false;
-                if (pay && sameConnection)
+                _edgeStopOwed = false;
+                if (!sameConnection)
+                    notPlayed = "the connection it was owed on ended before the radio reported receive";
+                else
+                {
+                    bool still;
+                    try { still = stillReceiving?.Invoke() ?? false; }
+                    catch { still = false; }
+                    if (!still)
+                        notPlayed = "between the radio's receive report and the tone, the radio was keyed again or its connection went";
+                }
+                if (notPlayed == null)
                 {
                     if (family == FallingTone.Elsewhere) _edgeStopTonesPlayed++;
                     else _chirpStopTonesPlayed++;
+                    var submitted = FallingTonesSubmitted;
+                    if (submitted != null)
+                        lock (submitted)
+                            submitted.Add(family == FallingTone.Elsewhere ? nameof(EarconPlayer.TxElsewhereStopTone) : nameof(EarconPlayer.TxStopTone));
+                    // Handing a tone to the player only queues it to the mixer;
+                    // nothing it calls comes back to this controller.
+                    if (family == FallingTone.Elsewhere) EarconPlayer.TxElsewhereStopTone();
+                    else EarconPlayer.TxStopTone();
                 }
             }
-            if (!pay) return;
-            if (!sameConnection)
-            {
+            if (notPlayed != null)
                 Tracing.TraceLine("PTT: the falling " + (family == FallingTone.Elsewhere ? "three-note tone" : "chirp")
-                    + " was NOT played: the connection it was owed on ended before the radio reported receive",
-                    TraceLevel.Info);
-                return;
-            }
-            var submitted = FallingTonesSubmitted;
-            if (submitted != null)
-                lock (submitted)
-                    submitted.Add(family == FallingTone.Elsewhere ? nameof(EarconPlayer.TxElsewhereStopTone) : nameof(EarconPlayer.TxStopTone));
-            if (family == FallingTone.Elsewhere) EarconPlayer.TxElsewhereStopTone();
-            else EarconPlayer.TxStopTone();
+                    + " was NOT played: " + notPlayed, TraceLevel.Info);
         }
 
         /// <summary>
@@ -1495,6 +1527,8 @@ namespace JJFlexWpf
 
             bool fromIdle = State == PttState.Idle;
             State = PttState.Locked;
+            // As at PttDown: owed falling tones are void before the key (#863 N2).
+            if (fromIdle) ForgetEdgeTones();
             // From Idle this starts a transmission; from a held PTT it keeps
             // one on, and the episode must NOT change — a reflected-power
             // warning spoken during the hold is still about this RF. SetTx

@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Flex.Smoothlake.FlexLib;
 
@@ -77,7 +78,7 @@ namespace Radios
         /// slow fallback check catches a connection that ends quietly.
         /// </para>
         /// </remarks>
-        public bool WhenReallyReceiving(Action<bool> then) => WhenRadioReportsReceive(then, null);
+        public bool WhenReallyReceiving(Action<bool> then) => WhenRadioReportsReceive((same, _) => then(same), null);
 
         /// <summary>
         /// The same wait, given up quietly once <paramref name="stillWanted"/>
@@ -85,19 +86,53 @@ namespace Radios
         /// <paramref name="then"/> never runs, and nothing is left waiting
         /// behind a carrier that may hold for a long time.
         /// </summary>
-        public bool WhenReallyReceiving(Action<bool> then, Func<bool> stillWanted) => WhenRadioReportsReceive(then, stillWanted);
+        public bool WhenReallyReceiving(Action<bool> then, Func<bool> stillWanted) =>
+            WhenRadioReportsReceive((same, _) => then(same), stillWanted);
 
-        private bool WhenRadioReportsReceive(Action<bool> then, Func<bool>? stillWanted)
+        /// <summary>
+        /// The same wait, handing <paramref name="then"/> the question again
+        /// (repair round 5, Codex's #863 N2): "is the radio STILL receiving,
+        /// for this transmission, on this connection, right now?", so the
+        /// caller can ask it at the moment it acts, under its own lock, rather
+        /// than trusting an answer that may be stale by then.
+        /// </summary>
+        public bool WhenReallyReceiving(Action<bool, Func<bool>> then, Func<bool> stillWanted) =>
+            WhenRadioReportsReceive(then, stillWanted);
+
+        /// <summary>
+        /// The interlock reports as they stood when this rig's latest
+        /// transmission was asked for, or its cached Transmit last rose
+        /// (repair round 5, #863 N1). Zero before any.
+        /// </summary>
+        private long _txEpisodeMark;
+
+        /// <summary>A transmission begins: a report from before now says nothing about its end.</summary>
+        private void NoteTransmitEpisodeBegins() => Volatile.Write(ref _txEpisodeMark, InterlockReports.Sequence);
+
+        /// <summary>For tests: the fallback interval, in place of <see cref="ReceiveReportFallbackMs"/>; zero uses it.</summary>
+        internal int ReceiveReportFallbackMsOverride;
+
+        private bool WhenRadioReportsReceive(Action<bool, Func<bool>> then, Func<bool>? stillWanted)
         {
             Radio? radio = theRadio;
             CommandConnection? connection = radio?.Connected == true ? radio.CurrentCommandConnection : null;
+            // The episode this wait is about (repair round 5, Codex's #863 N1):
+            // the reports read before this release, and before this
+            // transmission began, cannot confirm its end. A READY delivered
+            // before the key was pressed is not the radio saying this key's
+            // carrier is down.
+            long releaseMark = InterlockReports.Sequence;
+            long episodeMark = Volatile.Read(ref _txEpisodeMark);
             bool SameConnection() => radio != null && connection != null && ReferenceEquals(theRadio, radio)
                 && radio.Connected && ReferenceEquals(connection, radio.CurrentCommandConnection)
                 && connection.State == CommandConnectionState.Connected;
-            bool ReportsReceive() => !_Transmit && RadioInterlockConfirmsReceive;
+            bool ReportsReceive() => !_Transmit && RadioInterlockConfirmsReceive
+                && InterlockReports.ConfirmsReceiveFor(connection, releaseMark, episodeMark);
+            bool StillReceiving() => SameConnection() && ReportsReceive();
+            int fallback = ReceiveReportFallbackMsOverride > 0 ? ReceiveReportFallbackMsOverride : ReceiveReportFallbackMs;
 
-            if (!SameConnection()) { then(false); return false; }
-            if (ReportsReceive()) { then(true); return false; }
+            if (!SameConnection()) { then(false, StillReceiving); return false; }
+            if (ReportsReceive()) { then(true, StillReceiving); return false; }
 
             var wake = new System.Threading.SemaphoreSlim(0);
             System.ComponentModel.PropertyChangedEventHandler onRadio = (_, e) =>
@@ -118,7 +153,7 @@ namespace Radios
                     while ((same = SameConnection()) && !ReportsReceive())
                     {
                         if (stillWanted != null && !stillWanted()) return;
-                        await wake.WaitAsync(ReceiveReportFallbackMs).ConfigureAwait(false);
+                        await wake.WaitAsync(fallback).ConfigureAwait(false);
                     }
                 }
                 finally
@@ -126,7 +161,7 @@ namespace Radios
                     radio.PropertyChanged -= onRadio;
                     InterlockReports.Reported -= onReport;
                 }
-                then(same);
+                then(same, StillReceiving);
             });
             return true;
         }

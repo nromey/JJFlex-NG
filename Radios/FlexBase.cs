@@ -8054,6 +8054,9 @@ namespace Radios
         private void noteRadioMox(bool mox)
         {
             bool oldTransmit = _Transmit;
+            // A carrier rising that we did not ask for through EnqueueKeyOn
+            // (VOX, a hand mic, another client) begins an episode too (#863 N1).
+            if (mox && !oldTransmit) NoteTransmitEpisodeBegins();
             if (mox && !oldTransmit && !_tuneCycleActive) beginTxLineWindow();
             if (mox && !oldTransmit) restartAudioSampleOnRadioKeyDown();
             if (mox && !oldTransmit && TxReferenceArmed)
@@ -8549,6 +8552,9 @@ namespace Radios
         {
             if (RefusedForCheckTeardown("transmit")) return;
             if (TxReferenceArmed) txFilePlayer.RestartOnNextBuffer();
+            // The radio's interlock reports so far: a receive report must belong
+            // to this transmission to confirm its end (repair round 5, #863 N1).
+            NoteTransmitEpisodeBegins();
             // A key-on belongs to the connection it was asked on: a drop, a
             // teardown or a new connection revokes it while it waits in the
             // queue (#596, repair rounds 2 and 5), so it cannot key a

@@ -106,6 +106,12 @@ public sealed class NoticeRepairThreeTests : IDisposable
         AssertTheDeskIsSafe();
         // Codex's second probe observation: a debt handed to an idle controller
         // with the radio already receiving waited for another notification.
+        // Repair round 5 (Codex's #863 N1): "already fallen" now means the
+        // carrier's own reports came and went, transmit then receive, so the
+        // receive belongs to that carrier. A READY with no carrier report at
+        // all is not evidence (FallingToneRepairFiveTests).
+        Interlock(InterlockState.Ready);
+        Interlock(InterlockState.Transmitting);
         Interlock(InterlockState.Ready);
         MoxCache(false);
         _controller.TakeOverElsewhereStopTone();

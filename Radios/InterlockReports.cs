@@ -3,6 +3,7 @@ using System;
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using Flex.Smoothlake.FlexLib;
 using JJTrace;
 
@@ -30,7 +31,7 @@ namespace Radios
     /// same event to parse it; this subscribes beside it and reads only
     /// <c>interlock</c> status lines that carry a <c>state=</c>. The transport
     /// is reached through the Radio's private field, the one reflection here;
-    /// <c>InterlockReportsTests</c> pins that it is found on the vendored
+    /// <c>TeardownMechanismTests</c> pins that it is found on the vendored
     /// Radio, so a FlexLib upgrade that moves it fails a test instead of
     /// silently withholding every put-back.
     /// </para>
@@ -49,7 +50,13 @@ namespace Radios
         /// <summary>The last interlock state the radio reported on one connection.</summary>
         internal sealed class Report
         {
-            public Report(string state, bool recognised) { State = state; Recognised = recognised; }
+            public Report(string state, bool recognised, long sequence = 0) { State = state; Recognised = recognised; Sequence = sequence; }
+            /// <summary>
+            /// Where this report falls among every interlock report this
+            /// process has read (repair round 5, #863 N1): later reports have
+            /// larger numbers, on any connection.
+            /// </summary>
+            public long Sequence { get; }
             /// <summary>The radio's own word, as sent.</summary>
             public string State { get; }
             /// <summary>One of the states FlexLib's parser knows.</summary>
@@ -64,7 +71,25 @@ namespace Radios
         }
 
         private static readonly ConditionalWeakTable<Radio, WatchState> Watches = new();
-        private static readonly ConditionalWeakTable<CommandConnection, Report> Reports = new();
+        /// <summary>One connection's record: its last report, and the sequence of its last report that was not receive.</summary>
+        private sealed class Record
+        {
+            public Record(Report last, long lastNotReceive) { Last = last; LastNotReceive = lastNotReceive; }
+            public Report Last { get; }
+            /// <summary>The <see cref="Report.Sequence"/> of the last report on this connection that was not a receive state; zero when none.</summary>
+            public long LastNotReceive { get; }
+        }
+
+        private static readonly ConditionalWeakTable<CommandConnection, Record> Reports = new();
+
+        /// <summary>The sequence of the last report read, on any connection; zero before the first.</summary>
+        private static long _sequence;
+
+        /// <summary>
+        /// Where the reports stand now (repair round 5, #863 N1): a report
+        /// read after this moment has a larger <see cref="Report.Sequence"/>.
+        /// </summary>
+        internal static long Sequence => Interlocked.Read(ref _sequence);
 
         private static readonly FieldInfo? TransportField =
             typeof(Radio).GetField("_commandCommunication", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -105,7 +130,24 @@ namespace Radios
         internal static Report? LastOn(CommandConnection? connection)
         {
             if (connection == null) return null;
-            return Reports.TryGetValue(connection, out var report) ? report : null;
+            return Reports.TryGetValue(connection, out var record) ? record.Last : null;
+        }
+
+        /// <summary>
+        /// True only when <paramref name="connection"/> is still up and the
+        /// radio's last report on it is a recognised receive state that belongs
+        /// to the transmission being ended (repair round 5, Codex's #863 N1):
+        /// either it arrived after the release (<paramref name="releaseMark"/>),
+        /// or a transmit-side report came on this connection after the
+        /// transmission began (<paramref name="episodeMark"/>), so this receive
+        /// follows that carrier's own report. A READY from before the key
+        /// satisfies neither, so it never confirms the end of this key.
+        /// </summary>
+        internal static bool ConfirmsReceiveFor(CommandConnection? connection, long releaseMark, long episodeMark)
+        {
+            if (connection == null || connection.State != CommandConnectionState.Connected) return false;
+            if (!Reports.TryGetValue(connection, out var record) || !record.Last.IsReceive) return false;
+            return record.Last.Sequence > releaseMark || record.LastNotReceive > episodeMark;
         }
 
         /// <summary>
@@ -139,7 +181,15 @@ namespace Radios
                 if (state == null) return;   // a configuration line: says nothing about the state
                 bool recognised = state is "RECEIVE" or "READY" or "NOT_READY" or "PTT_REQUESTED" or "TRANSMITTING"
                     or "TX_FAULT" or "TIMEOUT" or "STUCK_INPUT" or "UNKEY_REQUESTED";
-                Reports.AddOrUpdate(data!.Connection, new Report(state, recognised));
+                // Numbered, and the connection's last non-receive report kept
+                // (repair round 5, #863 N1). One reader per connection, so the
+                // read and the update below are not raced by another line.
+                long sequence = Interlocked.Increment(ref _sequence);
+                var report = new Report(state, recognised, sequence);
+                long lastNotReceive = report.IsReceive
+                    ? (Reports.TryGetValue(data!.Connection, out var previous) ? previous.LastNotReceive : 0)
+                    : sequence;
+                Reports.AddOrUpdate(data!.Connection, new Record(report, lastNotReceive));
                 // After the record is written, so a waiter woken here reads it.
                 try { Reported?.Invoke(data.Connection); } catch { }
             }
