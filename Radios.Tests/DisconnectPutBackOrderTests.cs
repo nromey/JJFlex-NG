@@ -70,14 +70,14 @@ public sealed class DisconnectPutBackOrderTests
         string text = FlexBasePartials.JoinedText();
 
         // The mic input: only while the radio still reports the PC we chose.
-        int putBack = text.IndexOf("private void PutBackNow(Radio radio, MicInputSwap swap, string when, long run)", StringComparison.Ordinal);
+        int putBack = text.IndexOf("private void PutBackNow(Radio radio, MicInputSwap swap, string when, long run, long choicesAtDecision)", StringComparison.Ordinal);
         Assert.True(putBack > 0, "PutBackNow moved");
         string mic = text.Substring(putBack, 2600);   // widened again: repair round 5 made it one pinned step
         // Repair round 4 (Codex's F3): the PC check comes first, so a newer
         // choice leaves no debt, and the write is gated on it. Repair round 5:
         // both inside the pinned step, before the write.
         int pc = mic.IndexOf("if (!string.Equals(nowInput, \"PC\", StringComparison.OrdinalIgnoreCase)) { leftAlone = nowInput; return null; }", StringComparison.Ordinal);
-        int micWrite = mic.IndexOf("radio.MicInput = swap.Saved;", StringComparison.Ordinal);
+        int micWrite = mic.IndexOf("written = radio.SendMicInput(swap.Saved);", StringComparison.Ordinal);
         Assert.True(pc > 0 && micWrite > pc, "the mic put-back writes without first finding the PC this app set");
 
         // The shack speaker: only while the radio still mutes it.
@@ -150,16 +150,16 @@ public sealed class DisconnectPutBackOrderTests
     public void Both_mic_put_backs_ask_the_interlock_at_their_write()
     {
         string text = FlexBasePartials.JoinedText();
-        int now = text.IndexOf("private void PutBackNow(Radio radio, MicInputSwap swap, string when, long run)", StringComparison.Ordinal);
+        int now = text.IndexOf("private void PutBackNow(Radio radio, MicInputSwap swap, string when, long run, long choicesAtDecision)", StringComparison.Ordinal);
         int queued = text.IndexOf("private void WriteSwitchBackPutBack(Radio radio, MicInputSwap swap, PutBackPin pin, string when)", StringComparison.Ordinal);
         Assert.True(now > 0 && queued > 0, "a put-back moved");
         // Repair round 5 (Codex's B1): asked of the write's own radio and
         // connection, inside the pinned step, before the write.
         string nowBody = text.Substring(now, 9500);   // rounds 6 and 7 added the at-the-write predicate, the debt hand-over and the report provenance
         int nowAsk = nowBody.IndexOf("if (MicPutBackWithheld(when, swap.Saved, radio, swap.Connection)) { withheld = true; return null; }", StringComparison.Ordinal);
-        int nowWrite = nowBody.IndexOf("radio.MicInput = swap.Saved;", StringComparison.Ordinal);
+        int nowWrite = nowBody.IndexOf("written = radio.SendMicInput(swap.Saved);", StringComparison.Ordinal);
         Assert.True(nowAsk > 0 && nowWrite > nowAsk, "the direct mic put-back writes without asking the interlock of its own target");
-        Assert.Contains("if (withheld) { KeepMicPutBackOwed(swap); return; }", nowBody, StringComparison.Ordinal);
+        Assert.Contains("KeepMicPutBackOwed(swap);", nowBody, StringComparison.Ordinal);   // round 8: owed on every same-connection refusal
         string queuedBody = text.Substring(queued, 6000);   // repair round 4 added the newer-choice check ahead
         int withhold = queuedBody.IndexOf("if (MicPutBackWithheld(when, swap.Saved, radio, pin.Connection)) { withheld = true; return null; }", StringComparison.Ordinal);
         int raw = queuedBody.IndexOf("SendRadioCommandWithReply(radio, command", StringComparison.Ordinal);

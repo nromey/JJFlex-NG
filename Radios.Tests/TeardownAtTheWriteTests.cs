@@ -78,7 +78,7 @@ namespace Radios.Tests
         private void PutBackMic(object swap)
         {
             _f.Vendor.Status("transmit mic_selection=PC");
-            PutBackNow.Invoke(_f.Rig, new object[] { _f.Vendor.Radio, swap, "test", 0L });
+            PutBackNow.Invoke(_f.Rig, new object[] { _f.Vendor.Radio, swap, "test", 0L, 0L });
         }
 
         private static void WaitFor(Func<bool> condition, string what)

@@ -1371,6 +1371,120 @@ namespace Radios.Tests
             Assert.DoesNotContain("mic input MIC", rig.MicWrites);
         }
 
+        // ── Repair round 8: the mic debt's state machine, cell by cell ──
+        //
+        // States: NONE; SAVED (this run set PC, the owner's input kept in
+        // _micInputSwap); IN FLIGHT (a put-back decided, its write pending);
+        // OWED (a refused put-back kept on this connection). Ends: PAID, VOID.
+        // The machine and every cell's test are listed in the round-8 report.
+
+        [Fact]
+        public void Cell_in_flight_refused_for_want_of_the_report_gate_becomes_owed_and_the_next_run_pays_it()
+        {
+            // Codex's #861 B2: the round-7 rollback could not take the gate, the
+            // cache kept the unsent MIC, and the next cleanup took MIC for the
+            // owner's own choice and dropped the debt.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            var holder = HoldDispatchFor(rig, 450);
+            rig.StopPcAudio();                               // refused: the gate was not had in time
+            Assert.True(holder.Join(2000));
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+            Assert.Equal("PC", rig.MicInput);                // nothing unsent was cached
+            Assert.NotNull(SwapField.GetValue(rig.Rig));     // OWED
+
+            rig.NextRunBegins();                             // the cleanup pays it
+            Assert.Equal("mic input MIC", rig.MicWrites.Last());
+            Assert.Null(SwapField.GetValue(rig.Rig));
+        }
+
+        [Fact]
+        public void Cell_in_flight_handed_over_after_a_choice_then_a_later_PC_is_void()
+        {
+            // Codex's #861 B3: BAL chosen and put back by a completed successor,
+            // then a later PC, all before the old Action resumes. The later PC
+            // does not make the old MIC obligation valid again.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            var old = DecideUnderTheLock(rig, "PC audio stopped (test)");
+            rig.RadioReports("BAL");
+            rig.NextRunBegins();
+            rig.PlantChannel(started: false);
+            rig.StartPcAudio();
+            rig.StopPcAudio();                               // BAL is put back: that run is done
+            rig.RadioReports("PC");                          // a later, independent PC
+            old();                                           // refused for its run: VOID, not handed over
+            Assert.Null(SwapField.GetValue(rig.Rig));
+            rig.NextRunBegins();
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+        }
+
+        [Fact]
+        public void Cell_in_flight_meeting_a_new_run_at_its_write_is_handed_to_that_run_and_never_written_into_it()
+        {
+            // Codex's #861 B4: the next run began inside the old write's vendor
+            // setter; the final decision did not ask the run, and MIC went into
+            // the new session.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            bool armed = true;
+            rig.Vendor.Radio.AddTelnetTraceTopic("mic");
+            ((System.ComponentModel.INotifyPropertyChanged)rig.Vendor.Radio).PropertyChanged += (_, e) =>
+            {
+                if (!armed || e.PropertyName != nameof(Flex.Smoothlake.FlexLib.Radio.TelnetTraceOutput)) return;
+                string? last;
+                var output = rig.Vendor.Radio.TelnetTraceOutput;
+                lock (output) last = output.LastOrDefault();
+                if (last != "mic input MIC") return;
+                armed = false;
+                rig.NextRunBegins();                         // the next run starts inside the old write
+                rig.PlantChannel(started: false);
+                rig.StartPcAudio();
+            };
+            rig.StopPcAudio();
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+            Assert.Equal("MIC", (string)SwapField.GetValue(rig.Rig)!.GetType().GetProperty("Saved")!.GetValue(SwapField.GetValue(rig.Rig))!);
+
+            rig.NextRunBegins();                             // the run that holds it pays the owner's MIC
+            Assert.Equal("mic input MIC", rig.MicWrites.Last());
+        }
+
+        [Fact]
+        public void Cell_owed_meeting_an_equal_PC_report_stays_owed_and_is_paid()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            rig.Vendor.Status("interlock state=TRANSMITTING source=RCA tx_client_handle=0x0BADF00D");
+            rig.StopPcAudio();                               // OWED: refused under a carrier
+            Assert.NotNull(SwapField.GetValue(rig.Rig));
+            rig.RadioReports("PC");                          // the radio repeats the PC we left
+            rig.Vendor.Status("interlock state=READY source= tx_client_handle=0x00000000");
+            rig.NextRunBegins();
+            Assert.Equal("mic input MIC", rig.MicWrites.Last());
+        }
+
+        [Fact]
+        public void Cell_in_flight_whose_radio_already_reports_the_saved_input_is_void()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            var write = DecideUnderTheLock(rig, "PC audio stopped (test)");
+            rig.RadioReports("MIC");                         // someone put it back already
+            write();
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+            Assert.Null(SwapField.GetValue(rig.Rig));
+        }
+
         [Fact]
         public void APutBackOwedToOneRadioIsNeverTakenOverOnAnother()
         {

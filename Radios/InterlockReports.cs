@@ -82,17 +82,18 @@ namespace Radios
 
         private static readonly ConditionalWeakTable<CommandConnection, Record> Reports = new();
 
-        /// <summary>How many <c>mic_selection</c> reports the radio has sent on each connection (repair round 7).</summary>
-        private static readonly ConditionalWeakTable<CommandConnection, StrongBox<long>> MicSelectionCounts = new();
+        /// <summary>How many mic inputs other than PC the radio has reported on each connection (repair round 8).</summary>
+        private static readonly ConditionalWeakTable<CommandConnection, StrongBox<long>> MicChoiceCounts = new();
 
         /// <summary>
-        /// How many times the radio has reported its mic input (<c>mic_selection=</c>)
-        /// on <paramref name="connection"/> (repair round 7, Codex's #861 B3/T1):
-        /// a count that moved across a write says FlexLib's cache now holds the
-        /// radio's word, not our own optimistic value. Zero for none.
+        /// How many times the radio has reported a mic input OTHER than PC
+        /// (<c>mic_selection=</c>) on <paramref name="connection"/> (repair round
+        /// 8, Codex's #861 B3): a choice made since a mic debt was decided, even
+        /// one followed later by PC again, settles that debt. A repeated PC is
+        /// the radio still holding the PC this app left, and is not counted.
         /// </summary>
-        internal static long MicSelectionReports(CommandConnection? connection) =>
-            connection != null && MicSelectionCounts.TryGetValue(connection, out var box) ? Interlocked.Read(ref box.Value) : 0;
+        internal static long MicChoicesReported(CommandConnection? connection) =>
+            connection != null && MicChoiceCounts.TryGetValue(connection, out var box) ? Interlocked.Read(ref box.Value) : 0;
 
         /// <summary>The sequence of the last report read, on any connection; zero before the first.</summary>
         private static long _sequence;
@@ -200,10 +201,14 @@ namespace Radios
                 if (bar < 0 || bar + 11 > text.Length) return;
                 // The radio's own mic input reports, counted per connection
                 // (repair round 7): a transmit status carrying mic_selection=.
-                if (string.CompareOrdinal(text, bar + 1, "transmit ", 0, 9) == 0
-                    && text.IndexOf("mic_selection=", bar, StringComparison.Ordinal) >= 0)
+                if (string.CompareOrdinal(text, bar + 1, "transmit ", 0, 9) == 0)
                 {
-                    var box = MicSelectionCounts.GetValue(data!.Connection, _ => new StrongBox<long>());
+                    int at = text.IndexOf("mic_selection=", bar, StringComparison.Ordinal);
+                    if (at < 0) return;
+                    int from = at + 14, end = text.IndexOf(' ', from);
+                    string value = (end < 0 ? text.Substring(from) : text.Substring(from, end - from)).TrimEnd('\r', '\n');
+                    if (string.Equals(value, "PC", StringComparison.OrdinalIgnoreCase)) return;
+                    var box = MicChoiceCounts.GetValue(data!.Connection, _ => new StrongBox<long>());
                     Interlocked.Increment(ref box.Value);
                     return;
                 }
