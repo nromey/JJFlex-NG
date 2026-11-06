@@ -555,7 +555,7 @@ public partial class FlexBase
     /// teardown or not. Switching the input from PC to the radio's own
     /// microphone under a live carrier puts the room on the air. The saved
     /// value is not written and is not reported as put back; the caller keeps
-    /// it (<see cref="KeepMicPutBackOwed"/>).
+    /// it owed or abandons it (<see cref="KeepOwedOrAbandon"/>, round 9).
     /// </summary>
     private bool MicPutBackWithheld(string when, string saved, Radio radio, object connection)
     {
@@ -564,27 +564,12 @@ public partial class FlexBase
         string onAir = RestoreRefusedAtWrite(radio, connection);
         if (onAir == null) return false;
         // Logged only, never spoken (ruled by Noel 2026-11-04 22:22). The line
-        // names the place. The value is kept for a later stop on this SAME
-        // connection; nothing replays it on another one (that is #590), so
-        // after a disconnect it is not put back by anything.
+        // names the place; the caller's next line says whether the value is
+        // kept owed on its own run and connection or abandoned (round 9).
+        // Nothing replays it on another connection (that is #590).
         Tracing.TraceLine("MicPutBackWithheld: radio " + (radio?.Serial ?? "(none)") + ", PutBackSavedMicInput ("
-            + when + "): NOT writing '" + saved + "' - " + onAir
-            + ". The mic input is not written, and the value is kept as still owed on this connection.", TraceLevel.Warning);
+            + when + "): NOT writing '" + saved + "' - " + onAir + ". The mic input is not written.", TraceLevel.Warning);
         return true;
-    }
-
-    /// <summary>
-    /// A withheld put-back's value stays owed: back where the next stop or
-    /// the next run's start looks for it, unless a newer value is already
-    /// there. Not replayed from here.
-    /// </summary>
-    private void KeepMicPutBackOwed(MicInputSwap swap)
-    {
-        if (swap == null) return;
-        lock (_micSwitchLock)
-        {
-            if (_micInputSwap == null) _micInputSwap = swap;
-        }
     }
 
     /// <summary>

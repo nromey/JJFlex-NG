@@ -72,7 +72,7 @@ namespace Radios.Tests
             _f.Vendor.Status("transmit mic_selection=PC");
             object swap = Activator.CreateInstance(SwapType, BindingFlags.Public | BindingFlags.Instance, null,
                 new object?[] { "MIC", _f.Vendor.Radio, 0L, false }, null)!;
-            PutBackNow.Invoke(_f.Rig, new object[] { _f.Vendor.Radio, swap, "test", 0L, 0L });
+            PutBackNow.Invoke(_f.Rig, new object[] { _f.Vendor.Radio, swap, "test", 0L });
         }
 
         [Fact]

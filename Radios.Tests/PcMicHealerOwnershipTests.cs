@@ -588,14 +588,16 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// Repair round 3 (#861 R2, Codex's second re-check): a put-back withheld
-        /// at its write (a carrier was up) is a debt the NEXT run keeps. Before
-        /// this, the run's start re-kept it and then its session reset cleared
-        /// it, and the new channel saved the PC we had left as "original", so
-        /// the owner's input was forgotten for good.
+        /// Repair round 9 (the coordinator's direction, the smaller machine): a
+        /// put-back withheld under a carrier is OWED only in its own run and
+        /// connection. A new run begun while the carrier is still up makes the
+        /// old run's last attempt, is refused again, and ABANDONS it: never
+        /// carried into the new run, whose start saves the PC it finds. What the
+        /// operator notices: the mic input stays on PC. (Until round 9 the new
+        /// run adopted the owner's MIC and its stop wrote it.)
         /// </summary>
         [Fact]
-        public void A_put_back_withheld_under_a_carrier_survives_the_next_run_and_is_paid_at_its_stop()
+        public void A_put_back_withheld_under_a_carrier_is_abandoned_at_the_next_run_and_never_carried_into_it()
         {
             Declare(RadioOwnership.Mine);
             using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
@@ -605,15 +607,68 @@ namespace Radios.Tests
 
             rig.StopPcAudio();                       // withheld: the room mic must not go on the air
             Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+            Assert.NotNull(SwapField.GetValue(rig.Rig));   // OWED, in its own run
 
-            rig.NextRunBegins();                     // still keyed: withheld again, and KEPT
-            rig.StartPcAudio();                      // adopts MIC as the owner's, not the PC we left
+            rig.NextRunBegins();                     // still keyed: the last attempt is refused, ABANDONED
+            Assert.Null(SwapField.GetValue(rig.Rig));
+            rig.StartPcAudio();                      // saves the PC it finds; adopts nothing
             Assert.Equal("PC", rig.MicInput);
 
             rig.Vendor.Status("interlock state=READY source= tx_client_handle=0x00000000");
             rig.StopPcAudio();
-            Assert.Equal("mic input MIC", rig.MicWrites.Last());
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+            Assert.Equal("PC", rig.MicInput);        // what the operator notices
+        }
+
+        /// <summary>
+        /// The other half of the same cell (round 9): owed in its own run and
+        /// connection, the put-back is written when the radio next reports
+        /// receive there, with no new run and no stop.
+        /// </summary>
+        [Fact]
+        public void A_put_back_withheld_under_a_carrier_is_written_when_its_own_connection_reports_receive()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            rig.Vendor.Status("interlock state=TRANSMITTING source=RCA tx_client_handle=0x0BADF00D");
+            rig.StopPcAudio();                       // OWED
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+
+            rig.Vendor.Status("interlock state=READY source= tx_client_handle=0x00000000");
+            WaitFor(() => rig.MicWrites.Contains("mic input MIC"), "the owed put-back to be retried on the receive report");
             Assert.Equal("MIC", rig.MicInput);
+            Assert.Null(SwapField.GetValue(rig.Rig));   // PAID
+        }
+
+        /// <summary>
+        /// And a report of something other than receive does not retry it: a
+        /// fault, or the carrier again, leaves it owed (round 9).
+        /// </summary>
+        [Fact]
+        public void An_owed_put_back_is_not_retried_by_a_report_that_is_not_receive()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            rig.Vendor.Status("interlock state=TRANSMITTING source=RCA tx_client_handle=0x0BADF00D");
+            rig.StopPcAudio();
+            rig.Vendor.Status("interlock state=TX_FAULT source=RCA tx_client_handle=0x0BADF00D");
+            System.Threading.Thread.Sleep(150);
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+            Assert.NotNull(SwapField.GetValue(rig.Rig));
+        }
+
+        private static void WaitFor(Func<bool> condition, string what)
+        {
+            var until = DateTime.UtcNow.AddSeconds(5);
+            while (!condition())
+            {
+                Assert.True(DateTime.UtcNow < until, "timed out waiting for " + what);
+                System.Threading.Thread.Sleep(10);
+            }
         }
 
         /// <summary>
@@ -812,12 +867,13 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void A_put_back_refused_because_a_newer_run_began_hands_its_debt_to_that_run()
+        public void A_put_back_refused_because_a_newer_run_began_is_abandoned_not_handed_to_that_run()
         {
-            // Codex's #861 N4 (repair round 6): the locked decision took the only
-            // copy of the owner's MIC into the returned Action; a newer run began
-            // and saved the PC we left; the old Action, refused for its run,
-            // dropped the debt, and the owner's radio stayed on PC.
+            // Round 9 (the smaller machine): the old Action, refused for its run,
+            // ABANDONS the owner's MIC with a MicPutBackWithheld line. The newer
+            // run saved the PC this app left and owes nothing. Until round 9 the
+            // debt was handed to that run (Codex's #861 N4 in round 6), which is
+            // the hand-over five rounds kept finding new cells in.
             Declare(RadioOwnership.SomeoneElses);
             using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
             rig.StartPcAudio();
@@ -827,11 +883,11 @@ namespace Radios.Tests
             rig.NextRunBegins();                       // the old stop is suspended; a new run starts
             rig.PlantChannel(started: false);          // remoteAudioProc's fresh channel
             rig.StartPcAudio();                        // saves the PC this app left as its original
-            old();                                     // refused for its run: the debt passes on
+            old();                                     // refused for its run: ABANDONED
             rig.StopPcAudio();
 
-            Assert.Equal("mic input MIC", rig.MicWrites.Last());
-            Assert.Equal("MIC", rig.MicInput);
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+            Assert.Equal("PC", rig.MicInput);
         }
 
         [Fact]
@@ -1260,14 +1316,13 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void ARestartTakesOverAPutBackStillWaitingSoTheOwnersInputComesBackOnce()
+        public void A_restart_does_not_take_over_a_put_back_still_waiting_which_is_abandoned()
         {
-            // Codex re-verify 5, the exact sequence. The first session starts
-            // on the owner's MIC; the owner moves it to MIC again and the
-            // operator switches back; the radio reports PC. The stop queues
-            // the MIC put-back, and computer audio restarts before it runs, so
-            // the cache already reads PC. The restart takes the debt over:
-            // the second session's stop puts the owner's MIC back, once.
+            // Codex re-verify 5's sequence, under round 9's smaller machine. The
+            // stop queues the owner's MIC; computer audio restarts before it
+            // runs. The restart no longer takes the debt over (the round-seven
+            // adoption is gone): it saves the PC it finds, the queued put-back
+            // finds a newer session and is ABANDONED, and the mic stays on PC.
             using var rig = GuestRadioMovedToMic();
             using var held = new HeldQueue(rig.Rig);
 
@@ -1277,17 +1332,16 @@ namespace Radios.Tests
             rig.Vendor.ReplyOk(SwitchSequence(rig));
             rig.StopPcAudio();                               // queues the owner's MIC
             Assert.Equal(1, held.Count);
-            rig.StartPcAudio();                              // restart before the queue runs
-            held.Drain();                                    // the old put-back: taken over, does nothing
-            Assert.Equal("PC", rig.MicInput);
             int micBefore = rig.MicWrites.Count(c => c == "mic input MIC");
+            rig.StartPcAudio();                              // restart before the queue runs
+            held.Drain();                                    // the old put-back: abandoned, writes nothing
+            Assert.Equal("PC", rig.MicInput);
 
             rig.StopPcAudio();
             held.Drain();
 
-            Assert.Equal("MIC", rig.MicInput);
-            Assert.Equal(micBefore + 1, rig.MicWrites.Count(c => c == "mic input MIC"));
-            Assert.Equal("mic input MIC", rig.MicWrites.Last());
+            Assert.Equal("PC", rig.MicInput);
+            Assert.Equal(micBefore, rig.MicWrites.Count(c => c == "mic input MIC"));
         }
 
         [Fact]
@@ -1327,24 +1381,29 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void A_switch_back_restore_refused_for_want_of_the_report_gate_keeps_its_debt_and_the_next_run_pays_it()
+        public void A_switch_back_restore_refused_for_want_of_the_report_gate_stays_owed_and_the_next_receive_pays_it()
         {
             // Codex's #861 B4 (repair round 7): the raw put-back after a
             // switch-back, refused because the reader held its gate past the
-            // bound, cleared its only debt. A restore fails closed; it is kept.
+            // bound, cleared its only debt. A restore fails closed; it is kept,
+            // in its own run (round 9), and the radio's next receive report on
+            // that connection writes it.
             using var rig = GuestRadioMovedToMic();
             using var held = new HeldQueue(rig.Rig);
             PressOnly(rig);
             held.Drain();                                    // the switch's PC, raw; the radio says nothing yet
+            int micBefore = rig.MicWrites.Count(c => c == "mic input MIC");
             rig.StopPcAudio();                               // queues the put-back behind it
             var holder = HoldDispatchFor(rig, 350);
             held.Drain();                                    // refused at its write: the gate was not had in time
             Assert.True(holder.Join(2000));
-            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
-            Assert.NotNull(SwapField.GetValue(rig.Rig));     // kept
+            Assert.Equal(micBefore, rig.MicWrites.Count(c => c == "mic input MIC"));
+            Assert.NotNull(SwapField.GetValue(rig.Rig));     // OWED
 
-            rig.NextRunBegins();                             // the next run's cleanup pays it
+            rig.Vendor.Status("interlock state=READY source= tx_client_handle=0x00000000");
+            WaitFor(() => held.Count > 0, "the owed switch-back put-back to be queued again on the receive report");
             held.Drain();
+            Assert.Equal(micBefore + 1, rig.MicWrites.Count(c => c == "mic input MIC"));
             Assert.Equal("mic input MIC", rig.MicWrites.Last());
         }
 
@@ -1424,7 +1483,7 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Cell_in_flight_meeting_a_new_run_at_its_write_is_handed_to_that_run_and_never_written_into_it()
+        public void Cell_in_flight_meeting_a_new_run_at_its_write_is_abandoned_and_never_written_into_it()
         {
             // Codex's #861 B4: the next run began inside the old write's vendor
             // setter; the final decision did not ask the run, and MIC went into
@@ -1449,10 +1508,12 @@ namespace Radios.Tests
             };
             rig.StopPcAudio();
             Assert.DoesNotContain("mic input MIC", rig.MicWrites);
-            Assert.Equal("MIC", (string)SwapField.GetValue(rig.Rig)!.GetType().GetProperty("Saved")!.GetValue(SwapField.GetValue(rig.Rig))!);
+            // Round 9: abandoned. The new run holds only the PC it saved.
+            Assert.Equal("PC", (string)SwapField.GetValue(rig.Rig)!.GetType().GetProperty("Saved")!.GetValue(SwapField.GetValue(rig.Rig))!);
 
-            rig.NextRunBegins();                             // the run that holds it pays the owner's MIC
-            Assert.Equal("mic input MIC", rig.MicWrites.Last());
+            rig.NextRunBegins();
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+            Assert.Equal("PC", rig.MicInput);
         }
 
         [Fact]
@@ -1469,6 +1530,230 @@ namespace Radios.Tests
             rig.Vendor.Status("interlock state=READY source= tx_client_handle=0x00000000");
             rig.NextRunBegins();
             Assert.Equal("mic input MIC", rig.MicWrites.Last());
+        }
+
+        // ── Repair round 9: the smaller machine's cells that Codex's eighth
+        //    re-check reached (#861 B2, B3, B4) ──
+
+        /// <summary>Run <paramref name="act"/> once, on the writing thread, just before FlexLib sends <paramref name="command"/>.</summary>
+        private static void BeforeTheSendOf(PcAudioRig rig, string command, Action act)
+        {
+            bool armed = true;
+            rig.Vendor.Radio.AddTelnetTraceTopic("mic");
+            ((System.ComponentModel.INotifyPropertyChanged)rig.Vendor.Radio).PropertyChanged += (_, e) =>
+            {
+                if (!armed || e.PropertyName != nameof(Flex.Smoothlake.FlexLib.Radio.TelnetTraceOutput)) return;
+                string? last;
+                var output = rig.Vendor.Radio.TelnetTraceOutput;
+                lock (output) last = output.LastOrDefault();
+                if (last != command) return;
+                armed = false;
+                act();
+            };
+        }
+
+        [Fact]
+        public void Cell_in_flight_after_a_choice_then_a_later_PC_in_the_same_run_is_void()
+        {
+            // Codex's #861 B2: the history check lived only in the hand-over, so
+            // the ordinary payment, deciding from the cache alone, wrote MIC over
+            // a BAL-then-PC history. Now every decision asks the choices reported
+            // since this app set PC.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            var old = DecideUnderTheLock(rig, "PC audio stopped (test)");
+            rig.RadioReports("BAL");
+            rig.RadioReports("PC");                          // a later, independent PC
+            old();
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+            Assert.Null(SwapField.GetValue(rig.Rig));        // VOID
+        }
+
+        [Fact]
+        public void Cell_in_flight_with_only_repeated_PC_reports_is_still_paid()
+        {
+            // The control: the same decision and the same later PC, with no
+            // choice between, pays the owner's MIC.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            var old = DecideUnderTheLock(rig, "PC audio stopped (test)");
+            rig.RadioReports("PC");
+            old();
+            Assert.Equal("mic input MIC", rig.MicWrites.Last());
+        }
+
+        [Fact]
+        public void Cell_in_flight_meeting_a_choice_then_PC_at_the_vendors_pre_send_point_is_not_written()
+        {
+            // Codex's #861 B2, delivered at FlexLib's own pre-send notification:
+            // both reports land before the write's final decision, which refuses.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            BeforeTheSendOf(rig, "mic input MIC", () => { rig.RadioReports("BAL"); rig.RadioReports("PC"); });
+            rig.StopPcAudio();
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+            Assert.Null(SwapField.GetValue(rig.Rig));
+        }
+
+        [Fact]
+        public void Cell_owed_after_a_choice_then_PC_is_void_at_the_receive_and_at_the_next_run()
+        {
+            // Codex's #861 B2, the OWED half: a put-back withheld under a carrier,
+            // then BAL and PC while it waits. The receive report's retry and the
+            // next run's start both find the choice, and write nothing.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            rig.Vendor.Status("interlock state=TRANSMITTING source=RCA tx_client_handle=0x0BADF00D");
+            rig.StopPcAudio();                               // OWED
+            rig.RadioReports("BAL");
+            rig.RadioReports("PC");
+            rig.Vendor.Status("interlock state=READY source= tx_client_handle=0x00000000");
+            WaitFor(() => SwapField.GetValue(rig.Rig) == null, "the retry to find the debt void");
+            rig.NextRunBegins();
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+        }
+
+        [Fact]
+        public void Cell_in_flight_after_the_saved_input_was_reported_then_PC_is_void()
+        {
+            // Codex's #861 B2: a real report of the saved MIC settled the debt; a
+            // later PC does not make it payable again.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            var old = DecideUnderTheLock(rig, "PC audio stopped (test)");
+            rig.RadioReports("MIC");
+            rig.RadioReports("PC");
+            old();
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+        }
+
+        [Fact]
+        public void Cell_paid_while_the_radio_reports_a_newer_choice_during_the_write_saves_that_choice_for_the_next_run()
+        {
+            // Codex's #861 B3: BAL reported after "mic input MIC" was captured,
+            // before SendMicInput returned. FlexLib's cache then followed the
+            // write and erased BAL, and the next run saved the false MIC and put
+            // MIC back. The cache now keeps the radio's newer word (MIGRATION.md
+            // item 22), so the next run saves BAL and puts BAL back.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            bool once = true;
+            rig.Vendor.Transport.CommandWritten = command =>
+            {
+                if (!once || command != "mic input MIC") return;
+                once = false;
+                rig.RadioReports("BAL");
+            };
+            rig.StopPcAudio();                               // PAID: MIC written
+            Assert.Equal("BAL", rig.MicInput);               // the radio's newer word stands
+
+            rig.NextRunBegins();
+            rig.PlantChannel(started: false);
+            rig.StartPcAudio();                              // saves BAL
+            rig.RadioReports("PC");
+            rig.StopPcAudio();
+            Assert.Equal(new[] { "mic input PC", "mic input MIC", "mic input PC", "mic input BAL" }, rig.MicWrites);
+        }
+
+        [Fact]
+        public void Cell_paid_with_nothing_reported_during_the_write_saves_the_written_input_for_the_next_run()
+        {
+            // The control: no report during the write, so the cache follows it.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            rig.StopPcAudio();
+            Assert.Equal("MIC", rig.MicInput);
+            rig.NextRunBegins();
+            rig.PlantChannel(started: false);
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            rig.StopPcAudio();
+            Assert.Equal(new[] { "mic input PC", "mic input MIC", "mic input PC", "mic input MIC" }, rig.MicWrites);
+        }
+
+        [Fact]
+        public void Cell_in_flight_refused_by_the_gate_after_a_new_run_began_is_abandoned_and_never_written()
+        {
+            // Codex's #861 B4: at MIC's pre-send point the dispatch gate is held
+            // past its bound and a new run begins. The final predicate never runs,
+            // so the round-8 run flag stayed false and the debt was lost to a
+            // keep that refused the successor's PC. Round 9 re-reads the run at
+            // the refusal: the debt's own run is over, so it is ABANDONED, on
+            // purpose and with its line, and nothing writes MIC later.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            System.Threading.Thread? holder = null;
+            BeforeTheSendOf(rig, "mic input MIC", () =>
+            {
+                holder = HoldDispatchFor(rig, 450);
+                var successor = new System.Threading.Thread(() =>
+                {
+                    rig.NextRunBegins();
+                    rig.PlantChannel(started: false);
+                    rig.StartPcAudio();
+                }) { IsBackground = true };
+                successor.Start();
+                Assert.True(successor.Join(2000), "the successor run never started");
+            });
+            rig.StopPcAudio();
+            Assert.True(holder != null && holder.Join(2000));
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+            Assert.Equal("PC", (string)SwapField.GetValue(rig.Rig)!.GetType().GetProperty("Saved")!.GetValue(SwapField.GetValue(rig.Rig))!);
+
+            rig.NextRunBegins();                             // the next run's cleanup: the successor saved PC, nothing owed
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+            Assert.Equal("PC", rig.MicInput);                // what the operator notices
+        }
+
+        [Fact]
+        public void Cell_in_flight_refused_by_the_gate_in_its_own_run_stays_owed_and_the_next_receive_pays_it()
+        {
+            // The same refusal with the run unchanged is OWED, not abandoned.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            var holder = HoldDispatchFor(rig, 450);
+            rig.StopPcAudio();
+            Assert.True(holder.Join(2000));
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+            Assert.NotNull(SwapField.GetValue(rig.Rig));     // OWED
+            rig.Vendor.Status("interlock state=READY source= tx_client_handle=0x00000000");
+            WaitFor(() => rig.MicWrites.Contains("mic input MIC"), "the owed put-back to be paid on the receive report");
+        }
+
+        [Fact]
+        public void Cell_owed_whose_connection_ends_is_abandoned_at_the_next_connect()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("PC");
+            rig.Vendor.Status("interlock state=TRANSMITTING source=RCA tx_client_handle=0x0BADF00D");
+            rig.StopPcAudio();                               // OWED
+            rig.Vendor.Transport.Fall();
+            rig.Rig.ResetPcMicSession("connect (test)");
+            Assert.Null(SwapField.GetValue(rig.Rig));        // ABANDONED
+            rig.Vendor.Transport.Reconnect();
+            rig.Vendor.Status("interlock state=READY source= tx_client_handle=0x00000000");
+            rig.NextRunBegins();
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
         }
 
         [Fact]

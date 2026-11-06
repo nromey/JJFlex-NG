@@ -387,7 +387,7 @@ namespace Radios.Tests
             var original = _f.Vendor.Radio.CurrentCommandConnection!;
             var reconnectedFirst = ReconnectAtTheWriteOf("mic input MIC", () => Interlock("READY", 0));
 
-            putBackNow.Invoke(_f.Rig, new object[] { _f.Vendor.Radio, swap, "repair five test", 0L, 0L });
+            putBackNow.Invoke(_f.Rig, new object[] { _f.Vendor.Radio, swap, "repair five test", 0L });
             WaitFor(() => !ReferenceEquals(_f.Vendor.Radio.CurrentCommandConnection, original)
                 && _f.Vendor.Radio.CurrentCommandConnection!.State == CommandConnectionState.Connected, "the reconnect");
             // Round 6 (Codex's B9/N1): the writer is held PAST the old one-second
@@ -476,7 +476,7 @@ namespace Radios.Tests
             object swap = Activator.CreateInstance(swapType, BindingFlags.Public | BindingFlags.Instance, null,
                 new object?[] { "MIC", _f.Vendor.Radio, 0L, false }, null)!;
             ReportAtTheWriteOf("mic input MIC", atTheWrite);
-            typeof(FlexBase).GetMethod("PutBackNow", Private)!.Invoke(_f.Rig, new object[] { _f.Vendor.Radio, swap, "repair six test", 0L, 0L });
+            typeof(FlexBase).GetMethod("PutBackNow", Private)!.Invoke(_f.Rig, new object[] { _f.Vendor.Radio, swap, "repair six test", 0L });
         }
 
         private object? SavedMic() => typeof(FlexBase).GetField("_micInputSwap", Private)!.GetValue(_f.Rig);
