@@ -701,5 +701,14 @@ namespace Radios.Speech
         /// input. Nothing else speaks to it.
         /// </summary>
         public const string MicInputLeftOnPc = "mic-input-left-on-pc";
+
+        /// <summary>
+        /// A tune ended somewhere other than the frequency spoken for it (J4,
+        /// ruled by Noel 2026-11-06): refused, clamped, given up, or another
+        /// client's move held back during it. The bare frequency it ended on,
+        /// queued after the step's own readback. A newer correction covers an
+        /// unheard older one.
+        /// </summary>
+        public const string TuneEndedElsewhere = "tune-ended-elsewhere";
     }
 }

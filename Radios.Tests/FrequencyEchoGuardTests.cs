@@ -462,7 +462,8 @@ namespace Radios.Tests
             // Integration fix: the queue's own answer is used, never MainLoop read apart.
             // Integration fix 2: with its drop callback, which concedes as a refusal does.
             Assert.Equal(1, CountOf(text, "if (q == null || !q.Enqueue((FunctionDel)(() => WriteTuneTo(slice, id, mhz, what)), what,"));
-            Assert.Equal(1, CountOf(text, "if (EchoGuardFor(slice).Refused(id, \"the command loop ended before it ran\")) Reconcile(slice, value);"));
+            Assert.Equal(1, CountOf(text, "if (EchoGuardFor(slice).Refused(id, \"the command loop ended before it ran\"))"));
+            Assert.Equal(1, CountOf(text, "Reconcile(slice, value, \"the command loop ended before it ran\");"));
             Assert.True(text.Contains("bool accepted = EchoGuardFor(s).Accept(echoed);", StringComparison.Ordinal),
                 "the slice's guard is never consulted on a Freq report (#266).");
             Assert.False(text.Contains("slice.Freq = mhz", StringComparison.Ordinal),
@@ -476,11 +477,12 @@ namespace Radios.Tests
                         || text.Contains("== FrequencyEchoGuard.Reading.Pending\n                ? pending : LibFreqtoLong(slice.Freq);", StringComparison.Ordinal),
                 "a slice's value is not the pending request or the radio's report (repair round 8).");
             Assert.True(text.Contains("slc.FrequencyReported += SliceFrequencyReported;", StringComparison.Ordinal)
-                        && text.Contains("if (EchoGuardFor(slice).Reported(LibFreqtoLong(mhz), out ulong requested) && !changed)", StringComparison.Ordinal),
+                        && text.Contains("if (guard.Reported(hz, out ulong requested))", StringComparison.Ordinal)
+                        && text.Contains("if (!changed) Reconcile(slice, requested, \"the radio's report after its answer\");", StringComparison.Ordinal),
                 "every report's arrival no longer reaches the guard (repair round 9).");
             Assert.True(text.Contains("gaveUp: (requested, line) => q.Enqueue((FunctionDel)(() =>", StringComparison.Ordinal)
-                        && text.Contains("Reconcile(s, requested);\r\n                }), \"TuneReconcile\")", StringComparison.Ordinal)
-                           | text.Contains("Reconcile(s, requested);\n                }), \"TuneReconcile\")", StringComparison.Ordinal),
+                        && text.Contains("if (Reconcile(s, requested, \"gave up waiting for the radio's answer\"))", StringComparison.Ordinal)
+                        && text.Contains("}), \"TuneReconcile\")", StringComparison.Ordinal),
                 "running out of time no longer brings what is derived with it (repair round 9).");
             Assert.True(CountOf(text, "ObservedOrPending(s, LibFreqtoLong(s.Freq))") >= 3,
                 "the ActiveSlice refresh and both found-slice refreshes ask the guard (repair round 3).");

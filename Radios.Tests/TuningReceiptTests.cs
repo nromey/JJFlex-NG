@@ -1811,5 +1811,219 @@ namespace Radios.Tests
                 JJTrace.Tracing.TheSwitch = savedSwitch;
             }
         }
+    
+        // ── The 2026-11-02 junk box rulings round, J4 (ruled by Noel 2026-11-06
+        //    11:06 to 11:12): when a tune ends somewhere other than the
+        //    frequency spoken, the frequency it ended on is said, the bare
+        //    number; a stream of outside moves is not said move by move ──
+
+        private static readonly PropertyInfo? CorrectionProperty = typeof(FlexBase).GetProperty("LastTuneCorrection", Private);
+        private static readonly FieldInfo? CorrectionCount = typeof(FlexBase).GetField("TuneCorrections", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+
+        /// <summary>A connected bench: a correction is never said for a connection that is not up.</summary>
+        private Bench Connected()
+        {
+            Bench b = NewBench();
+            typeof(FlexBase).GetField("_IsConnected", Private)!.SetValue(b.Rig, true);
+            return b;
+        }
+
+        private static string? Said(Bench b)
+        {
+            Assert.True(CorrectionProperty != null && CorrectionCount != null,
+                "a tune that ends elsewhere is never said (J4): there is nothing that says it");
+            return (string?)CorrectionProperty!.GetValue(b.Rig);
+        }
+
+        private static int Corrections(Bench b) => (int)CorrectionCount!.GetValue(b.Rig)!;
+
+        /// <summary>The bare number, as F says it (FormatFreq, here its fallback).</summary>
+        private static string Bare(ulong hz) => Lexicon.Get("connect.home.frequency_ended_on",
+            ("freqText", RadioStatusBuilder.FormatFreqDisplay(hz)));
+
+        [Fact]
+        public void A_tune_the_radio_refuses_says_where_the_slice_is()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.RXFrequency = 14_100_100;                  // spoken by the key as 14.100.100
+            Drain(b.Rig);
+            RejectTune(b, 0, "14.100000");
+            Assert.Equal(Bare(14_100_000), Said(b));
+            Assert.Equal("14.100.000", Said(b));             // the bare number, no label
+            Assert.Equal(1, Corrections(b));
+        }
+
+        [Fact]
+        public void An_ordinary_tune_says_nothing_more()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            Reports(a, 14.100100);
+            AckTune(b, 0);
+            Assert.Null(Said(b));
+        }
+
+        [Fact]
+        public void A_tune_the_radio_clamps_says_the_clamped_number()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            Reports(a, 14.100050);                           // where the radio put it
+            AckTune(b, 0);
+            Assert.Equal(Bare(14_100_050), Said(b));
+        }
+
+        [Fact]
+        public void A_clamp_reported_after_the_answer_is_said_once()
+        {
+            // The answer arrives first (AwaitingReport), the changed report ends the window.
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            AckTune(b, 0);
+            Assert.Null(Said(b));
+            Reports(a, 14.100050);
+            Assert.Equal(Bare(14_100_050), Said(b));
+            Assert.Equal(1, Corrections(b));
+        }
+
+        [Fact]
+        public void Another_clients_move_held_back_during_our_tune_is_said_when_it_ends()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            Reports(a, 14.100100);
+            Reports(a, 14.250000);                           // someone else, held back
+            Assert.Null(Said(b));
+            AckTune(b, 0);
+            Assert.Equal(Bare(14_250_000), Said(b));
+        }
+
+        [Fact]
+        public void A_slice_locked_between_the_press_and_the_send_says_where_it_is()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.RXFrequency = 14_100_100;
+            Set(a, "_lock", true);
+            Drain(b.Rig);
+            Assert.Equal(Bare(14_100_000), Said(b));
+        }
+
+        [Fact]
+        public void A_tune_refused_at_its_press_spoke_nothing_and_corrects_nothing()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            Set(a, "_lock", true);
+            b.Rig.RXFrequency = 14_100_100;
+            Assert.False(b.Rig.TuneAdmittedHere);
+            Drain(b.Rig);
+            Assert.Null(Said(b));
+            b.Rig.q.MainLoop = false;                        // the loop is not running: refused at the press
+            Set(a, "_lock", false);
+            b.Rig.RXFrequency = 14_100_200;
+            Assert.False(b.Rig.TuneAdmittedHere);
+            Assert.Null(Said(b));
+        }
+
+        [Fact]
+        public void A_tune_given_up_says_where_the_radio_last_was_and_then_its_late_answer()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            long now = 0;
+            Clock(b.Rig, a, () => now);
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            now = FrequencyEchoGuard.GiveUpMs;               // no answer in time
+            Assert.Equal(14_100_000UL, b.Rig.RXFrequency);
+            Drain(b.Rig);                                    // the give-up's follow-up
+            Assert.Equal(Bare(14_100_000), Said(b));
+            now += 300;
+            Reports(a, 14.100100);                           // the answer, late: it did go there
+            Assert.Equal(Bare(14_100_100), Said(b));
+            Assert.Equal(2, Corrections(b));
+            now += 300;
+            Reports(a, 14.100000);                           // a later move is not "the late answer"
+            Assert.Equal(2, Corrections(b));
+        }
+
+        [Fact]
+        public void A_stream_of_outside_moves_is_not_said_move_by_move()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            long now = 0;
+            Clock(b.Rig, a, () => now);
+            // Doppler tracking from another program, about once a second.
+            for (int i = 1; i <= 3; i++) { now += 1000; Reports(a, 14.100000 + i * 0.000010); }
+            Assert.Null(Said(b));                            // outside moves themselves are never said
+            ulong from = b.Rig.RXFrequency;
+            b.Rig.RXFrequency = from + 100;
+            Drain(b.Rig);
+            now += 200;
+            Reports(a, 14.100040);                           // the program moved it again during our tune
+            AckTune(b, 0);
+            Assert.Null(Said(b));                            // a stream: not said
+            Assert.Equal(14_100_040UL, b.Rig.RXFrequency);   // F still reads the truth
+            // Once the outside moves have been quiet long enough, a correction is said again.
+            now += FrequencyEchoGuard.OutsideStreamMs;
+            b.Rig.RXFrequency = 14_100_140;
+            Drain(b.Rig);
+            RejectTune(b, 1, "14.100040");
+            Assert.Equal(Bare(14_100_040), Said(b));
+        }
+
+        [Fact]
+        public void A_tune_that_ends_while_the_connection_is_down_says_nothing()
+        {
+            Bench b = NewBench();                            // never connected
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            RejectTune(b, 0, "14.100000");
+            Assert.Null(Said(b));
+        }
+
+        [Fact]
+        public void An_older_tunes_end_says_nothing_while_a_newer_one_is_on_its_way()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            b.Rig.RXFrequency = 14_100_200;
+            Drain(b.Rig);
+            RejectTune(b, 0, "14.100000");                   // the older one
+            Assert.Null(Said(b));
+            Reports(a, 14.100200);
+            AckTune(b, 1);
+            Assert.Null(Said(b));
+        }
+    
+        [Fact]
+        public void A_give_up_noticed_after_a_newer_press_says_nothing_the_newer_tune_speaks_for_itself()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            long now = 0;
+            Clock(b.Rig, a, () => now);
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            now = FrequencyEchoGuard.GiveUpMs;
+            Assert.Equal(14_100_000UL, b.Rig.RXFrequency);   // the give-up is noticed; its follow-up is queued
+            b.Rig.RXFrequency = 14_100_200;                  // a newer press, before the follow-up runs
+            Drain(b.Rig);
+            Assert.Null(Said(b));
+        }
     }
 }

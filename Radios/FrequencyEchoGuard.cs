@@ -133,6 +133,26 @@ namespace Radios
         private long _sentAt;
         private bool _reportSinceSend;
 
+        // J4 (ruled by Noel 2026-11-06 11:06 to 11:12): what the spoken
+        // correction needs from the guard. See <see cref="OutsideStreamMs"/>.
+        private long _lastOutsideAt = long.MinValue;
+        private ulong _lateAnswerFor;
+        private long _lateAnswerUntil = long.MinValue;
+
+        /// <summary>
+        /// How recently another source must have moved this slice for its moves
+        /// to count as a STREAM (J4): a correction is not spoken while the
+        /// slice's frequency is being moved from outside, such as a satellite
+        /// program's Doppler tracking (Noel 11:12: "I don't think each move
+        /// should be spoken on something like satellite"). An outside move is a
+        /// frequency report that CHANGED the slice's number while no tune of
+        /// ours was outstanding, and was not the late answer to one of ours. A
+        /// single correction (a clamp, a refusal, a move held back during our
+        /// own tune) is spoken; once outside moves keep arriving, the moves
+        /// stop being spoken until they have been quiet this long.
+        /// </summary>
+        internal const int OutsideStreamMs = 5000;
+
         /// <param name="name">Appears in traces, e.g. "slice A".</param>
         /// <param name="clock">
         /// Milliseconds from any fixed origin. Injectable so the give-up path can
@@ -180,8 +200,65 @@ namespace Radios
                 _requested = requested;
                 _requestedAt = _clock();
                 _reportSinceSend = false;
+                _lateAnswerUntil = long.MinValue;   // a new request: no older one's late answer is news
                 return ++_id;
             }
+        }
+
+        /// <summary>
+        /// The radio reported a CHANGED frequency, <paramref name="reportedHz"/>
+        /// (J4). Asked before <see cref="Reported"/>, which may end a window.
+        /// Returns true when it is the late answer to our latest request, after
+        /// that request was given up and a correction was spoken for it
+        /// (<see cref="LateAnswerPossible"/>): then the slice did end on what we
+        /// asked, and that is said too. Otherwise, while nothing of ours is
+        /// outstanding and it is not the value we last asked for, it is an
+        /// outside move, and dated for <see cref="OutsideStream"/>.
+        /// </summary>
+        internal bool ChangedReportArrived(ulong reportedHz)
+        {
+            string gave;
+            ulong gaveUpOn = 0;
+            bool late = false;
+            lock (_lock)
+            {
+                long now = _clock();
+                gave = ExpireLocked(now, ref gaveUpOn);
+                if (_state == State.Idle)
+                {
+                    if (now < _lateAnswerUntil && reportedHz == _lateAnswerFor)
+                    {
+                        late = true;
+                        _lateAnswerUntil = long.MinValue;
+                    }
+                    else if (reportedHz != _requested) _lastOutsideAt = now;
+                }
+            }
+            Note(gave, gaveUpOn);
+            return late;
+        }
+
+        /// <summary>
+        /// A correction was spoken for request <paramref name="requested"/>
+        /// after the guard gave up on it (J4): if the radio's answer then
+        /// arrives late, within <see cref="UnsentGiveUpMs"/>, it is the
+        /// frequency the slice really ended on, and is said too.
+        /// </summary>
+        internal void LateAnswerPossible(ulong requested)
+        {
+            lock (_lock)
+            {
+                if (_state != State.Idle || _requested != requested) return;
+                _lateAnswerFor = requested;
+                _lateAnswerUntil = _clock() + UnsentGiveUpMs;
+            }
+        }
+
+        /// <summary>Whether an outside move of this slice was reported within <paramref name="withinMs"/> (J4).</summary>
+        internal bool OutsideStream(int withinMs)
+        {
+            lock (_lock)
+                return _lastOutsideAt != long.MinValue && _clock() - _lastOutsideAt < withinMs;
         }
 
         /// <summary>

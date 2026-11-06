@@ -189,7 +189,10 @@ namespace Radios
                     // queue, never where it was noticed: that can be under the
                     // roster's lock (repair round 11).
                     Tracing.TraceLine(line, System.Diagnostics.TraceLevel.Warning);
-                    Reconcile(s, requested);
+                    // Spoken when it ends elsewhere (J4); and if so, the radio's
+                    // late answer, should it still come, is spoken too.
+                    if (Reconcile(s, requested, "gave up waiting for the radio's answer"))
+                        EchoGuardFor(s).LateAnswerPossible(requested);
                 }), "TuneReconcile")));
 
         /// <summary>
@@ -200,11 +203,23 @@ namespace Radios
         /// </summary>
         private void SliceFrequencyReported(Slice slice, double mhz, bool changed)
         {
+            ulong hz = LibFreqtoLong(mhz);
+            var guard = EchoGuardFor(slice);
+            // J4: a changed report is dated as an outside move, or recognised as
+            // the late answer to a tune we gave up on, BEFORE Reported, which
+            // may end a window and so change what "outside" means.
+            bool late = changed && guard.ChangedReportArrived(hz);
             // A changed value's Freq notification follows at once and does the
             // derived work itself, the guard Idle by then; only an unchanged
             // report needs the reconcile (repair round 10: it ran twice).
-            if (EchoGuardFor(slice).Reported(LibFreqtoLong(mhz), out ulong requested) && !changed)
-                Reconcile(slice, requested);
+            if (guard.Reported(hz, out ulong requested))
+            {
+                if (!changed) Reconcile(slice, requested, "the radio's report after its answer");
+                // The window ended on this changed report: the derived work is
+                // the Freq notification's, the spoken correction is ours (J4).
+                else TuneEndedElsewhere(slice, requested, hz, "the radio's report after its answer");
+            }
+            else if (late) TuneEndedElsewhere(slice, 0, hz, "the radio's late answer, after the guard gave up");
         }
 
         /// <summary>How many times a reconcile has run the slice's handler. For tests.</summary>
@@ -279,12 +294,15 @@ namespace Radios
                     {
                         // Accepted, but the loop ended before it ran (integration
                         // fix 2): conceded, as a refusal is.
-                        if (EchoGuardFor(slice).Refused(id, "the command loop ended before it ran")) Reconcile(slice, value);
+                        if (EchoGuardFor(slice).Refused(id, "the command loop ended before it ran"))
+                            Reconcile(slice, value, "the command loop ended before it ran");
                     }))
             {
                 Tracing.TraceLine(what + ": the command loop will not run the tune of slice " + slice.Letter
                     + " to " + value + ", so it was not sent", System.Diagnostics.TraceLevel.Info);
-                if (EchoGuardFor(slice).Refused(id, "the command loop is not running")) Reconcile(slice, value);
+                // Refused at the press: nothing was spoken for it, so nothing is
+                // corrected (J4); the caches still follow the radio.
+                if (EchoGuardFor(slice).Refused(id, "the command loop is not running")) Reconcile(slice, value, null);
                 return false;
             }
             return true;
@@ -356,7 +374,7 @@ namespace Radios
             {
                 Tracing.TraceLine(what + ": " + refused + " (slice " + slice.Letter + "), so its tune to " + mhz
                     + " was not sent to any slice", System.Diagnostics.TraceLevel.Info);
-                if (guard.Refused(id, refused) && refused != "the slice is gone") Reconcile(slice, LibFreqtoLong(mhz));
+                if (guard.Refused(id, refused) && refused != "the slice is gone") Reconcile(slice, LibFreqtoLong(mhz), refused);
                 return;
             }
             string command = "slice tune " + slice.Index + " " + Flex.Util.StringHelper.DoubleToString(mhz, "f6");
@@ -370,7 +388,7 @@ namespace Radios
             {
                 Tracing.TraceLine(what + ": slice " + slice.Letter + "'s tune to " + mhz + " was not sent: " + refusal,
                     System.Diagnostics.TraceLevel.Info);
-                if (guard.Refused(id, refusal)) Reconcile(slice, hz);
+                if (guard.Refused(id, refusal)) Reconcile(slice, hz, "not sent: " + refusal);
             }
         }
 
@@ -458,18 +476,21 @@ namespace Radios
                 Tracing.TraceLine("tune reply: slice " + slice.Letter + " " + reply, System.Diagnostics.TraceLevel.Info);
                 closed = guard.Refused(id, "the radio answered " + reply);
             }
-            if (closed) Reconcile(slice, requestedHz);
+            if (closed) Reconcile(slice, requestedHz, reply.Acknowledged ? "answered" : "refused: " + reply);
         }
 
         /// <summary>
         /// The window on <paramref name="slice"/> has just ended (repair round
         /// 8). If the radio's last report is not the number we asked for, run
         /// the slice's Freq handler again: the guard is Idle now, so the report
-        /// is let in, and everything derived from it follows.
+        /// is let in, and everything derived from it follows. Then (J4) the
+        /// frequency it really ended on is spoken, unless
+        /// <paramref name="ending"/> is null (a tune refused at its press, which
+        /// spoke nothing). Returns whether a correction was spoken.
         /// </summary>
-        private void Reconcile(Slice slice, ulong requestedHz)
+        private bool Reconcile(Slice slice, ulong requestedHz, string ending)
         {
-            if (LibFreqtoLong(slice.Freq) == requestedHz) return;
+            if (LibFreqtoLong(slice.Freq) == requestedHz) return false;
             // Only a slice still ours (repair round 9): a late answer for a
             // slice removed meanwhile must not run its handler, which would
             // put a removed transmitter's number back into the caches.
@@ -480,7 +501,7 @@ namespace Radios
             {
                 Tracing.TraceLine("tune reconcile: slice " + slice.Letter + " is no longer ours; nothing follows",
                     System.Diagnostics.TraceLevel.Info);
-                return;
+                return false;
             }
             System.Threading.Interlocked.Increment(ref ReconcileRuns);
             // The handler re-checks the roster under its lock before it writes
@@ -490,7 +511,87 @@ namespace Radios
             {
                 Tracing.TraceLine("tune reconcile: slice " + slice.Letter + ": " + ex.Message, System.Diagnostics.TraceLevel.Warning);
             }
+            return ending != null && TuneEndedElsewhere(slice, requestedHz, LibFreqtoLong(slice.Freq), ending);
         }
+
+        // ── J4: when a tune ends somewhere other than the frequency spoken ──
+        //
+        // RULED by Noel 2026-11-06 11:06 to 11:12 (night question J4): "If
+        // there's some error / a press is missed, then just speak the updated
+        // frequency rather than agonizing on how to handle reply reading." So
+        // when the window on our latest tune ends (answered, refused, given up,
+        // or another client's move held back during it) and the radio is NOT on
+        // the number we asked for, which is the number spoken, the number it is
+        // on is said: the bare frequency, as F says it, no "corrected" label
+        // ("I'd just speak the number personally rather than hearing
+        // 'corrected' every ten seconds on a say satellite"). A stream of
+        // outside moves is NOT spoken move by move (11:12); the rule is
+        // FrequencyEchoGuard.OutsideStreamMs. Coalescing queued tunes was
+        // rejected by Noel (11:08) and is not done. The 1.2 s give-up stands
+        // (J5) until the bench measures SmartLink.
+
+        /// <summary>The last correction handed to speech, or null. Set before the speech gate. For tests.</summary>
+        internal string LastTuneCorrection { get; private set; }
+
+        /// <summary>How many corrections have been handed to speech. For tests.</summary>
+        internal int TuneCorrections;
+
+        /// <summary>
+        /// The window on our latest tune of <paramref name="slice"/> ended with
+        /// the radio on <paramref name="endedHz"/>, not <paramref name="requestedHz"/>
+        /// (0 when the requested number is not known here: a late answer, which
+        /// is said whenever it is admitted). Says the bare number, unless a
+        /// newer tune of ours is already outstanding (it speaks for itself), the
+        /// slice is gone, the connection is ending or narrated by someone else,
+        /// or the slice is being moved by a stream from outside. Traced either
+        /// way. Returns whether it was handed to speech.
+        /// </summary>
+        private bool TuneEndedElsewhere(Slice slice, ulong requestedHz, ulong endedHz, string ending)
+        {
+            try
+            {
+                if (endedHz == 0 || endedHz == requestedHz) return false;
+                string letter = slice.Letter ?? slice.Index.ToString();
+                string head = "TuneEndedElsewhere: slice " + letter + " asked " + requestedHz + ", ended on " + endedHz
+                    + " (" + ending + "): ";
+                string not = null;
+                var guard = EchoGuardFor(slice);
+                if (guard.Read(out _) != FrequencyEchoGuard.Reading.Idle) not = "a newer tune of ours is outstanding, and speaks for itself";
+                else if (!IsConnected || Disconnecting) not = "the connection is ending";
+                else if (guard.OutsideStream(FrequencyEchoGuard.OutsideStreamMs))
+                    not = "the slice is being moved from outside (a stream, such as Doppler tracking); its moves are not spoken one by one";
+                else
+                {
+                    var slices = mySlices;
+                    bool ours = false;
+                    if (slices != null) lock (slices) ours = slices.Contains(slice);
+                    if (!ours) not = "the slice is no longer ours";
+                }
+                if (not != null)
+                {
+                    Tracing.TraceLine(head + "not spoken - " + not, System.Diagnostics.TraceLevel.Info);
+                    return false;
+                }
+                var format = FormatFreq;
+                string number = format != null ? format(endedHz) : RadioStatusBuilder.FormatFreqDisplay(endedHz);
+                // DRAFT (J4): the bare number, Noel's ruling; the key exists so the
+                // words can change without code.
+                string text = Lexicon.Get("connect.home.frequency_ended_on", ("freqText", number));
+                LastTuneCorrection = text;
+                System.Threading.Interlocked.Increment(ref TuneCorrections);
+                Tracing.TraceLine(head + "spoken: " + text, System.Diagnostics.TraceLevel.Info);
+                if (!SuppressSpeech)
+                    ScreenReaderOutput.Speak(text, Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
+                        subject: Speech.SpeechSubject.TuneEndedElsewhere);
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                Tracing.TraceLine("TuneEndedElsewhere: " + ex.Message, System.Diagnostics.TraceLevel.Warning);
+                return false;
+            }
+        }
+
 
         /// <summary>The slice at RXVFO, under the roster's lock; null when there is none.</summary>
         private Slice SelectedSliceNow()

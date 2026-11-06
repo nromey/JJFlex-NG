@@ -2107,6 +2107,9 @@ namespace Radios.Tests
                 // on PC at a disconnect. Noel's own wording (2026-11-06 11:02,
                 // 11:03), DRAFT until he hears it assembled.
                 "connect.disconnect.mic_left_on",
+                // The same round (#642, J4): a tune that ended elsewhere says the
+                // bare frequency it ended on, Noel's ruling; DRAFT until heard.
+                "connect.home.frequency_ended_on",
                 // Junk box 2026-11-02 (#642): F names its slice by role when
                 // the transmit slice is not the selected one, and the setting
                 // that chooses which. DRAFT prose, awaiting Noel.
