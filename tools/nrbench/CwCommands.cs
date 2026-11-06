@@ -111,6 +111,19 @@ partial class BenchApp
 
     sealed record CwStation(CwStationSpec Spec, CwMask Mask);
 
+    /// <summary>
+    /// The masks both commands measure with: the main station's, and one per named station. One
+    /// function, so the self-checks exercise exactly the path the commands take.
+    /// </summary>
+    static (CwMask Main, List<CwStation> Stations) CommandMasks(float[] capture, double pitch, IReadOnlyList<CwStationSpec> specs)
+    {
+        // Each mask is vetoed only by the others' contamination of its own band, each within its own span.
+        var main = MakeMask(capture, pitch, others: specs);
+        var whole = new CwStationSpec(pitch, 0, double.PositiveInfinity);
+        var stations = specs.Select(s => new CwStation(s, MakeMask(capture, s.Hz, s.From, s.To, new[] { whole }.Concat(specs.Where(o => o != s)).ToArray()))).ToList();
+        return (main, stations);
+    }
+
     /// <summary>One file's line for a second station, against the reference and against the main station's own change.</summary>
     /// <summary>A second station's figures, or null where too little of it can be classified to measure.</summary>
     static CwFigures? TryMeasure(float[] x, CwMask mask, double pitch, double lo, double hi, IReadOnlyList<double> others, int lag)
@@ -125,14 +138,14 @@ partial class BenchApp
             return $"  the station at {st.Spec.Words}: too little of it can be classified element by element to measure (see cwband for a long-average reading).";
         var s = Survival(file, reference, mainChangeDb);
         if (double.IsNaN(s.StationChangeDb)) return $"  the station at {st.Spec.Words}: too few of its elements seen to follow ({s.Measured}).";
-        return $"  the station at {st.Spec.Words}: {s.StationChangeDb - mainChangeDb:+0.0;-0.0;0.0} dB against the main station; elements kept {s.Kept} of {s.Measured}; " +
+        return $"  the station at {st.Spec.Words}: {100 * file.UnscoredShare:0} percent of the span unscorable for it (outside its span included); {s.StationChangeDb - mainChangeDb:+0.0;-0.0;0.0} dB against the main station; elements kept {s.Kept} of the {s.Measured} it could score; " +
                $"its weakest third of elements {s.WeakAgainstStrongDb:+0.0;-0.0;0.0} dB against its strongest half; " +
                $"key-down {file.Separation:0.0} dB above its gaps ({file.Separation - reference.Separation:+0.0;-0.0;0.0} dB against the capture).";
     }
 
     static string SegmentLine(CwFigures file, CwFigures reference) =>
         "  the station's level against the capture, by 20 s from the start: " +
-        string.Join(", ", Survival(file, reference).SegmentChangeDb.Select(v => double.IsNaN(v) ? "unseen" : v.ToString("+0.0;-0.0;0.0", CultureInfo.InvariantCulture))) + " dB.";
+        string.Join(", ", Survival(file, reference).SegmentChangeDb.Select(v => double.IsNaN(v) ? "unscorable" : v.ToString("+0.0;-0.0;0.0", CultureInfo.InvariantCulture))) + " dB.";
 
     static int Cw(string[] a)
     {
@@ -177,8 +190,9 @@ partial class BenchApp
         double pitch = pitchHz ?? found.Hz;
         var pass = FindPassband(capture, pitch);
         var others = specs.Select(s => s.Hz).ToArray();
-        var mask = MakeMask(capture, pitch, others: others);
-        var stations = specs.Select(s => new CwStation(s, MakeMask(capture, s.Hz, s.From, s.To, new[] { pitch }.Concat(others.Where(o => o != s.Hz)).ToArray()))).ToList();
+        var masks = CommandMasks(capture, pitch, specs);
+        var mask = masks.Main;
+        var stations = masks.Stations;
         int keyBlocks = mask.Key.Count(k => k == true), gapBlocks = mask.Key.Count(k => k == false);
         Console.WriteLine($"{name}: pitch {pitch:0.0} Hz{(pitchHz != null ? $" (given; the finder chose {found.Hz:0.0})" : "")}; passband {pass.Lo:0} to {pass.Hi:0} Hz.");
 
@@ -228,7 +242,7 @@ partial class BenchApp
             ? $"Station pitch {pitch:0.0} Hz, given (the finder chose {found.Hz:0.0} Hz). Receiver passband {pass.Lo:0} to {pass.Hi:0} Hz."
             : $"Station pitch {pitch:0.0} Hz, found from keying activity (next best {found.RunnerUpHz:0} Hz, {found.ScoreDb - found.RunnerUpScoreDb:0.0} dB less active). Receiver passband {pass.Lo:0} to {pass.Hi:0} Hz.");
         lines.AppendLine($"Key-down and gaps from the unprocessed capture, against a threshold that follows the station's level: {keyBlocks} key-down and {gapBlocks} gap blocks of 5 ms, " +
-                         $"{mask.Elements.Length} elements, {mask.ShortElements} too short to measure; {100.0 * mask.UncertainBlocks / mask.Key.Length:0} percent of the span too faint or too near an edge to classify.");
+                         $"{mask.Elements.Length} elements, {mask.ShortElements} too short to measure; {100.0 * mask.UncertainBlocks / mask.Key.Length:0} percent of the span unscorable (too faint, no strong keying either side of a quiet stretch, or contaminated by a named station).");
         foreach (var s in stations) lines.AppendLine($"Also followed: the station at {s.Spec.Words}, {s.Mask.Elements.Length} elements seen.");
         lines.AppendLine($"Level: every file scaled so the station's key-down, through a {width:0} Hz filter at its pitch, is {target:0.0} dBFS RMS.");
         lines.AppendLine($"Narrow filter: {width:0} Hz at the -6 dB points, centred on the pitch, applied after the engine: a linear-phase windowed sinc, 4,095 taps, 4-term Blackman-Harris, as WDSP builds its band-pass, delay removed.");
@@ -279,13 +293,14 @@ partial class BenchApp
         double pitch = pitchHz ?? found.Hz;
         var pass = FindPassband(capture, pitch);
         var others = specs.Select(s => s.Hz).ToArray();
-        var mask = MakeMask(capture, pitch, others: others);
-        var stations = specs.Select(s => new CwStation(s, MakeMask(capture, s.Hz, s.From, s.To, new[] { pitch }.Concat(others.Where(o => o != s.Hz)).ToArray()))).ToList();
+        var masks = CommandMasks(capture, pitch, specs);
+        var mask = masks.Main;
+        var stations = masks.Stations;
         int? lag = aligned ? 0 : null;
         Console.WriteLine($"Reference {reference} ({words}), {capture.Length / (double)Rate:0.0} s from {start:0.0} s.");
         Console.WriteLine($"Pitch {pitch:0.0} Hz{(pitchHz != null ? $" (given; the finder chose {found.Hz:0.0})" : $" (next best {found.RunnerUpHz:0} Hz, {found.ScoreDb - found.RunnerUpScoreDb:0.0} dB less active)")}; passband {pass.Lo:0} to {pass.Hi:0} Hz; " +
                           $"{mask.Key.Count(k => k == true)} key-down and {mask.Key.Count(k => k == false)} gap blocks, {mask.Elements.Length} elements, " +
-                          $"{100.0 * mask.UncertainBlocks / mask.Key.Length:0} percent too faint or too near an edge to classify.");
+                          $"{100.0 * mask.UncertainBlocks / mask.Key.Length:0} percent unscorable (too faint, no strong keying either side of a quiet stretch, or contaminated by a named station).");
         foreach (var s in stations) Console.WriteLine($"Also followed: the station at {s.Spec.Words}, {s.Mask.Elements.Length} elements seen.");
         CwFigures? StationFigures(float[] x, CwStation s, double lo, double hi) =>
             TryMeasure(x, s.Mask, s.Spec.Hz, lo, hi, new[] { pitch }.Concat(others.Where(o => o != s.Spec.Hz)).ToArray(), lag ?? 0);

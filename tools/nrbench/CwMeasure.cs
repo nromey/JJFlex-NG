@@ -57,6 +57,15 @@ partial class BenchApp
     {
         const int N = 4096, hop = 1024, perWindow = 94; // 85 ms frames, 21 ms apart; 2 s stretches
         double bin = (double)Rate / N;
+        // Only inside the receiver's passband, found from the capture itself: behind a narrow radio
+        // filter almost every bin is the floor outside it, and that floor can move with the keying.
+        bool wideBand = true;
+        if (Mutation != "cw-pitch-wholeband")
+        {
+            var (pLo, pHi) = FindPassbandAuto(x);
+            if (pHi - pLo >= 5 * bin) { lowHz = Math.Max(lowHz, pLo); highHz = Math.Min(highHz, pHi); }
+            wideBand = pHi - pLo >= CommonModeMinWidthHz;
+        }
         int lo = (int)Math.Ceiling(lowHz / bin), hi = (int)Math.Floor(highHz / bin);
         var window = Hann(N);
         int frames = Math.Max(0, (x.Length - N) / hop + 1);
@@ -79,9 +88,11 @@ partial class BenchApp
             }
         }
         // What moves the whole band at once is not keying: a fast AGC pumping on a strong signal,
-        // or a static crash. Take each frame's median level across the band out of every bin, so
-        // only what one pitch does on its own is scored.
-        if (Mutation != "cw-pitch-common-mode")
+        // or a static crash. Take each frame's median level across the passband out of every bin,
+        // so only what one pitch does on its own is scored. Only from a passband many stations
+        // wide: in a narrow one the median is largely the station itself, and taking it out would
+        // take out the keying.
+        if (Mutation != "cw-pitch-common-mode" && wideBand)
         {
             var column = new double[hi - lo + 1];
             for (int f = 0; f < frames; f++)
@@ -141,8 +152,54 @@ partial class BenchApp
         return new(ranked[0].Item1, score[best], ranked.Count > 1 ? ranked[1].Item1 : double.NaN, ranked.Count > 1 ? ranked[1].Item2 : double.NaN, ranked);
     }
 
+    /// <summary>The common movement is only estimated from a passband at least this wide (about ten CW signals).</summary>
+    const double CommonModeMinWidthHz = 600;
+
+    /// <summary>
+    /// The receiver's passband without a pitch: in each 5 s stretch, the widest run where that
+    /// stretch's floor stays within 8 dB of its plateau; then everything any stretch let through.
+    /// Per stretch, because an operator may widen the filter part way through, and then the
+    /// whole take's floor makes the new, louder band the plateau and hides the old one.
+    /// </summary>
+    static (double Lo, double Hi) FindPassbandAuto(float[] x)
+    {
+        int stretch = 5 * Rate;
+        // Under two stretches long: the whole span, once.
+        // cw-passband-whole: the control that the per-stretch reading is load-bearing; the whole span at once.
+        var parts = x.Length < 2 * stretch || Mutation == "cw-passband-whole" ? new List<float[]> { x }
+            : Enumerable.Range(0, x.Length / stretch).Select(i => x.AsSpan(i * stretch, stretch).ToArray()).ToList();
+        double lo = double.MaxValue, hi = double.MinValue;
+        foreach (var part in parts)
+        {
+            var (smooth, edge, bin, lowest) = LongTermFloor(part);
+            int bestLo = lowest, bestHi = lowest, k = lowest;
+            while (k < smooth.Length)
+            {
+                if (smooth[k] < edge) { k++; continue; }
+                int a = k;
+                while (k + 1 < smooth.Length && smooth[k + 1] >= edge) k++;
+                if (k - a > bestHi - bestLo) { bestLo = a; bestHi = k; }
+                k++;
+            }
+            lo = Math.Min(lo, bestLo * bin); hi = Math.Max(hi, bestHi * bin);
+        }
+        return (lo, hi);
+    }
+
     /// <summary>The receiver's passband around the pitch: where the long-term noise floor (20th percentile) stays within 8 dB of its plateau.</summary>
     static (double Lo, double Hi) FindPassband(float[] x, double pitch)
+    {
+        var (smooth, edge, bin, lowest) = LongTermFloor(x);
+        int maxBin = smooth.Length - 1;
+        int c = Math.Clamp((int)Math.Round(pitch / bin), lowest, maxBin);
+        int l = c, h = c;
+        while (l > lowest && smooth[l - 1] >= edge) l--;
+        while (h < maxBin && smooth[h + 1] >= edge) h++;
+        return (l * bin, h * bin);
+    }
+
+    /// <summary>The long-term noise floor by bin (20th percentile, smoothed over about 50 Hz) to 4 kHz, and the level 8 dB under its plateau.</summary>
+    static (double[] Smooth, double Edge, double Bin, int Lowest) LongTermFloor(float[] x)
     {
         const int N = 4096, hop = 4096;
         double bin = (double)Rate / N;
@@ -177,11 +234,7 @@ partial class BenchApp
         // receiver's own shaping can raise a hump of 15 dB around the pitch inside a flat passband.
         var near = Enumerable.Range(lowest, maxBin - lowest + 1).Where(k => smooth[k] >= top - 30).Select(k => smooth[k]).Order().ToArray();
         double edge = near[near.Length / 2] - 8;
-        int c = Math.Clamp((int)Math.Round(pitch / bin), lowest, maxBin);
-        int l = c, h = c;
-        while (l > lowest && smooth[l - 1] >= edge) l--;
-        while (h < maxBin && smooth[h + 1] >= edge) h++;
-        return (l * bin, h * bin);
+        return (smooth, edge, bin, lowest);
     }
 
     static double[] Hann(int n)
@@ -302,32 +355,78 @@ partial class BenchApp
         return noiseSpreadDb.Value;
     }
 
-    static CwMask MakeMask(float[] reference, double pitch, double spanStart = 0, double spanEnd = double.PositiveInfinity, IReadOnlyList<double>? others = null)
+    /// <summary>A gap counts only with the station clearly keyed within this long on BOTH sides of it.</summary>
+    const double GapAnchorSeconds = .75;
+
+    static double[]? toneResponse;
+    /// <summary>The tone band's response, in dB, at an offset from its centre (1 Hz steps to 400 Hz; beyond, its floor).</summary>
+    static double ToneBandResponseDb(double offsetHz)
+    {
+        if (toneResponse == null)
+        {
+            var h = NarrowKernel(1000, 2 * ToneHalfWidth);
+            var r = new double[401];
+            for (int d = 0; d <= 400; d++)
+            {
+                double re = 0, im = 0, f = 1000 + d;
+                for (int i = 0; i < h.Length; i++) { double a = 2 * Math.PI * f * i / Rate; re += h[i] * Math.Cos(a); im -= h[i] * Math.Sin(a); }
+                r[d] = 10 * Math.Log10(re * re + im * im + 1e-30);
+            }
+            toneResponse = r;
+        }
+        return toneResponse[Math.Clamp((int)Math.Round(Math.Abs(offsetHz)), 0, 400)];
+    }
+
+    /// <summary>A named station closer than this (the tone band less than 13 dB down at its pitch) cannot be told apart from the station measured.</summary>
+    const double InseparableResponseDb = -13;
+
+    static CwMask MakeMask(float[] reference, double pitch, double spanStart = 0, double spanEnd = double.PositiveInfinity, IReadOnlyList<CwStationSpec>? others = null)
     {
         var tone = ToneBlocks(reference, pitch);
         var smooth = Median3(tone);
         int n = smooth.Length;
         var raw = new bool?[n];
-        // The tone band is down only 25 dB 70 Hz away (and 33 dB at 75), so a strong neighbour keying
-        // while this station is silent shows in it as faint elements. Where a named neighbour is
-        // keyed and louder in its own band than this station is in its, the block belongs to neither.
-        var louder = new bool[n];
+        var (floor, peak) = LocalSpread(smooth);
+        double Seconds(int i) => (i * CwHop + CwWindow / 2) / (double)Rate;
+        // A named station contaminates this one only where its own level, through this station's tone
+        // band at their separation (taking the worst case within 10 Hz, for an imprecise pitch), comes
+        // within 10 dB of what this band measures and 3 dB clear of its floor. Only there, and only
+        // within the station's own span, is the block contaminated and left unscored. Closer than the
+        // band can separate, wherever the named station keys, this one cannot be scored at all.
+        // Simultaneous keying that is NOT contaminated is kept.
+        var contaminated = new bool[n];
         if (others != null && Mutation != "cw-no-station-veto")
         {
-            foreach (double o in others)
+            foreach (var o in others)
             {
-                // Only while the neighbour is KEYED (above its own local midpoint, where its keying
-                // can be seen at all): between its elements its band holds noise like ours.
-                var other = Median3(ToneBlocks(reference, o));
+                var other = Median3(ToneBlocks(reference, o.Hz));
+                double response = ToneBandResponseDb(Math.Max(0, Math.Abs(o.Hz - pitch) - 10));
+                bool inseparable = response >= InseparableResponseDb;
                 var (of, op) = LocalSpread(other);
                 for (int i = 0; i < n && i < other.Length; i++)
-                    louder[i] |= op[i] - of[i] >= NoiseSpreadDb() + CertainMarginDb && other[i] > of[i] + (op[i] - of[i]) / 2 && other[i] > smooth[i];
+                {
+                    double t = Seconds(i);
+                    if (t < o.From || t >= o.To) continue;
+                    if (Mutation == "cw-veto-any-louder")
+                    {
+                        // The control: d03deb33's rule, any keyed station louder in its own band.
+                        contaminated[i] |= op[i] - of[i] >= NoiseSpreadDb() + CertainMarginDb && other[i] > of[i] + (op[i] - of[i]) / 2 && other[i] > smooth[i];
+                        continue;
+                    }
+                    if (inseparable)
+                        contaminated[i] |= op[i] - of[i] >= NoiseSpreadDb() + CertainMarginDb && other[i] > of[i] + (op[i] - of[i]) / 2;
+                    else
+                    {
+                        double leak = other[i] + response;
+                        contaminated[i] |= leak >= smooth[i] - 10 && leak >= floor[i] + 3;
+                    }
+                }
             }
             // Widened by the edge guard, so the neighbour's element edges go with it.
             var wide = new bool[n];
             for (int i = 0; i < n; i++)
-                if (louder[i]) for (int j = Math.Max(0, i - EdgeGuardBlocks); j <= Math.Min(n - 1, i + EdgeGuardBlocks); j++) wide[j] = true;
-            louder = wide;
+                if (contaminated[i]) for (int j = Math.Max(0, i - EdgeGuardBlocks); j <= Math.Min(n - 1, i + EdgeGuardBlocks); j++) wide[j] = true;
+            contaminated = wide;
         }
         double minContrast = NoiseSpreadDb() + CertainMarginDb, reported;
         if (Mutation == "cw-global-threshold")
@@ -341,7 +440,6 @@ partial class BenchApp
             // The threshold follows the station: halfway, in dB, between the local floor and the
             // local key-down level, so a fade lowers it with the signal. Where the stretch spreads
             // no more than noise would, nothing is classified.
-            var (floor, peak) = LocalSpread(smooth);
             var quiet = new List<double>();
             for (int i = 0; i < n; i++)
             {
@@ -359,11 +457,35 @@ partial class BenchApp
                 raw[i] = smooth[i] > t ? true : smooth[i] <= Math.Min(t, floor[i] + ceiling) ? false : null;
             }
             reported = thresholds.Count > 0 ? Percentile(thresholds.Order().ToArray(), .5) : double.NaN;
+            // A gap is a gap only where the station is demonstrably strong on both sides of it, close
+            // by. In a fade, or a long pause, nothing proves the station is not still keying below the
+            // noise, so a quiet block there could be its faint key-down: it is left unscored, never
+            // called a gap. Otherwise deleting a faded station would make its "gaps" quieter.
+            if (Mutation != "cw-gap-unanchored")
+            {
+                int reach = (int)(GapAnchorSeconds * Rate / CwHop);
+                // Clearly keyed: three blocks running (15 ms) at least the certainty contrast over the
+                // local floor. One block can get there on a noise peak; three in a row is keying.
+                var strong = new bool[n];
+                for (int i = 0; i < n; i++) strong[i] = raw[i] == true && smooth[i] >= floor[i] + minContrast;
+                var anchored = new bool[n];
+                for (int i = 0; i + 2 < n; i++)
+                    if (strong[i] && strong[i + 1] && strong[i + 2]) anchored[i] = anchored[i + 1] = anchored[i + 2] = true;
+                strong = anchored;
+                int last = -1;
+                var before = new int[n];
+                for (int i = 0; i < n; i++) { if (strong[i]) last = i; before[i] = last; }
+                int next = -1;
+                var after = new int[n];
+                for (int i = n - 1; i >= 0; i--) { if (strong[i]) next = i; after[i] = next; }
+                for (int i = 0; i < n; i++)
+                    if (raw[i] == false && (before[i] < 0 || i - before[i] > reach || after[i] < 0 || after[i] - i > reach)) raw[i] = null;
+            }
         }
         for (int i = 0; i < n; i++)
         {
             double t = (i * CwHop + CwWindow / 2) / (double)Rate;
-            if (t < spanStart || t >= spanEnd || louder[i]) raw[i] = null;
+            if (t < spanStart || t >= spanEnd || contaminated[i]) raw[i] = null;
         }
         var key = new bool?[n];
         int g = EdgeGuardBlocks;
@@ -439,7 +561,7 @@ partial class BenchApp
     /// figures compare element by element (see Survival).
     /// </summary>
     sealed record CwFigures(double KeyDown, double Gap, double WeakKeyDown, double RestKey, double RestGap, int Lag, int KeyBlocks, int GapBlocks,
-        double[] ElementSignal, double[] ElementCentreSeconds)
+        double[] ElementSignal, double[] ElementCentreSeconds, double UnscoredShare)
     {
         public double Separation => KeyDown - Gap;
         public double WeakSeparation => WeakKeyDown - Gap;
@@ -498,7 +620,11 @@ partial class BenchApp
             signal[e] = s > 2 * scatter / Math.Sqrt(pc) ? s : 0;
         }
         return new(key.Average(), Median(gap), weak.Count > 0 ? Median(weak) : double.NaN,
-            Median(restKey), Median(restGap), lag, key.Count, gap.Count, signal, centres);
+            Median(restKey), Median(restGap), lag, key.Count, gap.Count, signal, centres,
+            // What the reference cannot classify (too faint, a gap with no strong keying either side,
+            // contaminated by a named station, or outside the span). Not the edge guard around every
+            // element, which is excluded by design and is not a hole in the judgement.
+            mask.UncertainBlocks / (double)Math.Max(1, mask.Key.Length));
     }
 
     /// <summary>
@@ -546,8 +672,8 @@ partial class BenchApp
             : $"the rest of the passband between elements {f.RestBelowStation:0.0} dB below the station ({(f.RestBelowStation - reference.RestBelowStation):+0.0;-0.0;0.0} dB against the capture)";
         var s = Survival(f, reference);
         string elements = double.IsNaN(s.StationChangeDb) ? "too few elements to follow one by one"
-            : $"elements kept {s.Kept} of {s.Measured}; the weakest third of elements {s.WeakAgainstStrongDb:+0.0;-0.0;0.0} dB against the strongest half";
-        return $"{name}: key-down {f.Separation:0.0} dB above the gaps at the pitch; the gaps at the pitch fell " +
+            : $"elements kept {s.Kept} of the {s.Measured} it could score; the weakest third of those {s.WeakAgainstStrongDb:+0.0;-0.0;0.0} dB against the strongest half";
+        return $"{name}: {100 * f.UnscoredShare:0} percent of the span unscorable, and no figure here covers it; key-down {f.Separation:0.0} dB above the gaps at the pitch; the gaps at the pitch fell " +
                $"{(f.Separation - reference.Separation):+0.0;-0.0;0.0} dB against the capture, relative to the station; " +
                $"weakest third of key-down {f.WeakSeparation:0.0} dB above the gaps; {elements}; {rest}; " +
                $"station level {(f.KeyDown - reference.KeyDown):+0.0;-0.0;0.0} dB against the capture" +

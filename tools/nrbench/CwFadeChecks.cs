@@ -32,9 +32,9 @@ namespace NrBench;
 partial class BenchApp
 {
     /// <summary>The faded-QSB scene: Codex's reproduction, noise 10 dB down, the tone's second half faded.</summary>
-    static (float[] Mix, float[] Erased, bool[] Keyed) FadeScene(double fadeDb)
+    static (float[] Mix, float[] Erased, bool[] Keyed) FadeScene(double fadeDb, int seed = 53)
     {
-        var s = MakeSynthCw(20, 700, 0, 53);
+        var s = MakeSynthCw(20, 700, 0, seed);
         double noiseGain = Math.Pow(10, -10 / 20.0), fade = Math.Pow(10, -fadeDb / 20);
         int half = s.Tone.Length / 2;
         var faded = s.Tone.Select((v, i) => (float)(i >= half ? v * fade : v)).ToArray();
@@ -115,7 +115,8 @@ partial class BenchApp
             var deepMask = MakeMask(deep, 700);
             var dr = Measure(deep, deepMask, 700, 200, 3000, knownLag: 0);
             var de = Measure(deepErased, deepMask, 700, 200, 3000, knownLag: 0);
-            Assert(de.Separation <= dr.Separation + .5 && de.WeakSeparation <= dr.WeakSeparation + .5,
+            // Tightened in round 2 from +0.5 dB, which let a deletion pass: no figure may improve.
+            Assert(de.Separation <= dr.Separation + .05 && de.WeakSeparation <= dr.WeakSeparation + .05,
                 $"At a 20 dB fade, deleting the faded half moved separation {dr.Separation:0.0} to {de.Separation:0.0} and the weakest third {dr.WeakSeparation:0.0} to {de.WeakSeparation:0.0} dB");
             Console.WriteLine($"INFO cw-fade: 15 dB fade, {asKey} of {truth} faded key-down blocks seen, {asGap} called gap; deletion: weakest third {r.WeakSeparation:0.0} to {e.WeakSeparation:0.0} dB, " +
                               $"elements {lost.Kept} of {lost.Measured} kept. 20 dB fade: {deepMask.UncertainBlocks} of {deepMask.Key.Length} blocks too faint to classify; " +
@@ -128,12 +129,14 @@ partial class BenchApp
             var pitch = FindPitch(mix);
             Assert(Math.Abs(pitch.Hz - 700) <= 6 && pitch.Candidates.Any(c => Math.Abs(c.Hz - weakHz) <= 12),
                 $"Pitch finder: {string.Join(", ", pitch.Candidates.Select(c => $"{c.Hz:0} Hz"))}; the stations are at 700 and {weakHz:0} Hz");
-            var mask = MakeMask(mix, 700);
+            // Through the commands' own mask path, the weaker station named as it would be.
+            var masks = CommandMasks(mix, 700, new[] { new CwStationSpec(weakHz, 0, double.PositiveInfinity) });
+            var mask = masks.Main;
             var r = Measure(mix, mask, 700, 200, 3000, new[] { weakHz }, 0);
             var e = Measure(erased, mask, 700, 200, 3000, new[] { weakHz }, 0);
             Assert(Math.Abs(e.RestBelowStation - r.RestBelowStation) <= .2 && e.Separation - r.Separation <= .5,
                 $"Deleting the weaker station moved the main station's rest of the passband by {e.RestBelowStation - r.RestBelowStation:+0.00;-0.00;0.00} dB and its separation by {e.Separation - r.Separation:+0.0;-0.0;0.0} dB: deletion must not read as improvement");
-            var weakMask = MakeMask(mix, weakHz);
+            var weakMask = masks.Stations[0].Mask;
             var wr = Measure(mix, weakMask, weakHz, 200, 3000, new[] { 700.0 }, 0);
             var we = Measure(erased, weakMask, weakHz, 200, 3000, new[] { 700.0 }, 0);
             var main = Survival(e, r); var weak = Survival(we, wr, main.StationChangeDb);
@@ -158,7 +161,7 @@ partial class BenchApp
             var near = MakeSynthCw(20, 765, 15, 73);
             int half = main.Tone.Length / 2;
             var mix = main.Noise.Select((v, i) => v + (i < half ? main.Tone[i] : 0) + (i >= half ? near.Tone[i] : 0)).ToArray();
-            var mask = MakeMask(mix, 700, others: new[] { 765.0 });
+            var mask = MakeMask(mix, 700, others: new[] { new CwStationSpec(765, 0, double.PositiveInfinity) });
             int late = mask.Elements.Count(e => (e.Start * CwHop + CwWindow / 2) > half + Rate / 2);
             Assert(late <= mask.Elements.Length * .05, $"With the neighbour named, {late} of the main station's {mask.Elements.Length} elements fell where only the neighbour was keying");
             Console.WriteLine($"INFO cw-neighbour: {late} of {mask.Elements.Length} main-station elements where only the neighbour keyed.");

@@ -114,6 +114,7 @@ partial class BenchApp
         }));
         AddCwChecks(tests,library);
         AddCwFadeChecks(tests);
+        AddCwRound2Checks(tests);
         foreach(var test in tests)
         {
             try{test.Test();Console.WriteLine("PASS "+test.Name);}
