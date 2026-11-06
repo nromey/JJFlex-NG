@@ -12,14 +12,19 @@ namespace JJFlexWpf.Tests;
 /// stops. Same class, same windowless rules.
 /// </summary>
 /// <remarks>
-/// <para>The helper counts everything waiting for its writer, each message's
-/// bytes plus 64. FrameOut and Heartbeat are dropped once 16 MB is waiting; a
-/// reply (an acknowledgement or an Error) that would take the total past 32 MB
-/// ends the connection with exit 6. So the limit is reached only by more than
-/// 16 MB of replies going unread, whatever the reader's speed.</para>
-/// <para>The stub's --reply-queue plays that accounting at a small scale (frames
-/// dropped from half the limit, the connection ended past it) and reports the
-/// most reply bytes it ever held. A reader slowed to 10 ms a message falls far
+/// <para>The helper keeps two counts of what waits for its writer: the messages'
+/// own bytes, and the same with 64 bytes of bookkeeping each. FrameOut and
+/// Heartbeat are dropped once the RAW bytes pass 16 MiB; a reply (an
+/// acknowledgement or an Error) that would take the CHARGED bytes past 32 MiB
+/// ends the connection with exit 6; a message leaves both counts when the
+/// writer takes it, before its write. So once audio fills its share, the room
+/// left for replies is a little UNDER 16 MiB of charged bytes, not over it:
+/// 16,223,384 with 1,944-byte FrameOuts, pinned below. (The 2026-11-06 repair
+/// round first said "more than 16 MB of replies"; Codex's re-check showed the
+/// arithmetic, and the stub's first model charged the drop point too.)</para>
+/// <para>The stub's --reply-queue plays exactly that accounting at a small scale
+/// (WriterQueueModel, compiled into these tests too, so they hold it to the
+/// helper's figures) and reports the most reply bytes it ever held. A reader slowed to 10 ms a message falls far
 /// behind two engines' audio, so frames pile up to half the limit and are
 /// dropped, and this is a reader the silence watchdog never fires on, because
 /// it keeps reading. What keeps the replies small is the settings bounds: one
@@ -114,5 +119,76 @@ public sealed partial class HelperLifecycleTests
         _out.WriteLine(nr2.UnavailabilityDetail);
         Assert.Equal(WdspCondition.FatalProtocolError, rig.Host.LastFailureCondition);
         HelperTestRig.Until(() => trace.Has(l => l.StartsWith($"WdspHost: helper pid {pid} standard error: reply limit: ")), "the stub to say which limit", 3000);
+    }
+
+    // ------------------------------------------------------------------ the model held to the helper's numbers
+
+    private static byte[] FrameOutBytes() => WdspProtocol.Encode(new WdspFrameOut(1, 0, 0, new float[WdspProtocol.FrameLength]));
+
+    private static byte[] SettingAckBytes() =>
+        WdspProtocol.Encode(new WdspSettingAck(1, WdspResult.Ok, "trained_t2", new WdspValue(WdspValue.NumberKind, 0.3, null)));
+
+    /// <summary>
+    /// The stub's queue drops audio exactly where the helper does: RAW bytes
+    /// strictly above half the limit, not charged bytes at it. With the tests'
+    /// 256 KiB and 1,944-byte FrameOuts, a queue nobody drains takes 68 before
+    /// the first drop. (The stub's first model charged the bookkeeping at the
+    /// drop point and used "at or above", and took 66: Codex's re-check.)
+    /// </summary>
+    [Fact]
+    public void The_stubs_queue_drops_audio_where_the_helper_does()
+    {
+        var frame = FrameOutBytes();
+        Assert.Equal(1944, frame.Length);
+        var q = new HelperStub.WriterQueueModel(ReplyLimitBytes);
+        int accepted = 0;
+        while (q.Enqueue(frame, HelperStub.WriterQueueModel.Kind.Droppable) == HelperStub.WriterQueueModel.Outcome.Queued) accepted++;
+        Assert.Equal(68, accepted);
+        Assert.Equal(68 * 1944, q.RawBytes);
+        Assert.Equal(68 * (1944 + 64), q.Charge);
+        Assert.Equal(1, q.Dropped);
+    }
+
+    /// <summary>
+    /// A message leaves both counts when the writer takes it, before its write
+    /// (as in the helper), so taking one frame from a full queue makes room for
+    /// the next at once, even while that write is still blocked on the pipe.
+    /// </summary>
+    [Fact]
+    public void A_message_leaves_the_stubs_counts_when_the_writer_takes_it()
+    {
+        var frame = FrameOutBytes();
+        var q = new HelperStub.WriterQueueModel(ReplyLimitBytes);
+        while (q.Enqueue(frame, HelperStub.WriterQueueModel.Kind.Droppable) == HelperStub.WriterQueueModel.Outcome.Queued) { }
+        long raw = q.RawBytes, charge = q.Charge;
+        Assert.NotNull(q.TakeNext()); // taken, its write not yet begun
+        Assert.Equal(raw - 1944, q.RawBytes);
+        Assert.Equal(charge - 1944 - 64, q.Charge);
+        Assert.Equal(HelperStub.WriterQueueModel.Outcome.Queued, q.Enqueue(frame, HelperStub.WriterQueueModel.Kind.Droppable));
+    }
+
+    /// <summary>
+    /// At the helper's own figures (16 MiB raw, 32 MiB charged), a queue full of
+    /// audio holds 8,631 FrameOuts, charged 17,331,048 bytes, which leaves
+    /// 16,223,384 charged bytes for replies: under 16 MiB, not over it. Filled
+    /// with SettingAcks after the audio, the reply that ends the connection
+    /// comes before 16 MiB of replies.
+    /// </summary>
+    [Fact]
+    public void At_the_helpers_figures_the_room_for_replies_after_full_audio_is_under_16_MiB()
+    {
+        var frame = FrameOutBytes();
+        var ack = SettingAckBytes();
+        var q = new HelperStub.WriterQueueModel(HelperStub.WriterQueueModel.HelperReplyLimit);
+        int frames = 0;
+        while (q.Enqueue(frame, HelperStub.WriterQueueModel.Kind.Droppable) == HelperStub.WriterQueueModel.Outcome.Queued) frames++;
+        Assert.Equal(8631, frames);
+        Assert.Equal(16_778_664, q.RawBytes);
+        Assert.Equal(17_331_048, q.Charge);
+        Assert.Equal(16_223_384, HelperStub.WriterQueueModel.HelperReplyLimit - q.Charge);
+        while (q.Enqueue(ack, HelperStub.WriterQueueModel.Kind.Reply) == HelperStub.WriterQueueModel.Outcome.Queued) { }
+        _out.WriteLine($"{frames} frames, replies charged {q.ReplyCharge} when the next would pass the limit");
+        Assert.True(q.ReplyCharge < 16L * 1024 * 1024, $"replies charged {q.ReplyCharge}");
+        Assert.InRange(q.ReplyCharge, 16_223_384 - ack.Length - 64 + 1, 16_223_384);
     }
 }

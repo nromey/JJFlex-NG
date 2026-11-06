@@ -37,13 +37,16 @@
 //   --stderr <text>          write that line to standard error at once (nothing, if the
 //                            host did not connect it)
 //   --stderr-lines <n>       write n numbered lines to standard error at once
-//   --reply-queue <bytes>    queue everything it sends for a writer thread, as the helper
-//                            does, counting each message's bytes plus 64: FrameOut and
-//                            Heartbeat are dropped once half the limit is waiting, and a
-//                            reply (anything else) that would take it past the limit ends
-//                            the connection with exit 6, saying so on standard error (the
-//                            helper's 16 MB and 32 MB, made small). Every 100 ms it writes
-//                            "reply bytes peak <n> frames dropped <m>" to standard error.
+//   --reply-queue <bytes>    queue everything it sends for a writer thread, with the
+//                            helper's accounting made small (WriterQueueModel): FrameOut
+//                            and Heartbeat dropped once the RAW bytes waiting pass half
+//                            the limit; a reply that would take the CHARGED bytes (raw
+//                            plus 64 a message) past the limit ends the connection with
+//                            exit 6, saying so on standard error; a message leaves both
+//                            counts when the writer takes it, before its write (the
+//                            helper's 16 MiB raw and 32 MiB charged, made small). Every
+//                            100 ms it writes "reply bytes peak <n> frames dropped <m>",
+//                            the peak being the replies' charged bytes, to standard error.
 //   --fatal-after <n>        after n frames, send Error 257 naming a limit, close, exit 6
 //                            (the helper's answer to a client that overflows a bound)
 //   --fail-build <n>:<ms>    hold the n-th OpenChannel ms, then answer ChannelBuildFailed;
@@ -108,9 +111,10 @@ internal static class Program
     private static long _framesProcessed;
     private static bool _answered;
     private static bool _errorFirst, _heartbeatFirst, _garbledHello;
-    private static long _replyLimit = -1, _queuedBytes, _replyBytes, _replyPeak, _framesDropped;
+    private static long _replyLimit = -1;
     private static readonly object OutboxGate = new();
-    private static readonly ConcurrentQueue<(byte[] Bytes, long Cost, bool Reply)> Outbox = new();
+    /// <summary>--reply-queue only; under OutboxGate.</summary>
+    private static WriterQueueModel? Outbox;
     private static readonly AutoResetEvent OutboxWake = new(false);
     private static int _fatalAfter = -1;
     private static int _failBuild = -1, _failBuildMs, _opens;
@@ -163,7 +167,7 @@ internal static class Program
                     case "--exit-early": Environment.Exit(int.Parse(Next(), CultureInfo.InvariantCulture)); break;
                     case "--error-first": _errorFirst = true; break;
                     case "--heartbeat-first": _heartbeatFirst = true; break;
-                    case "--reply-queue": _replyLimit = long.Parse(Next(), CultureInfo.InvariantCulture); break;
+                    case "--reply-queue": _replyLimit = long.Parse(Next(), CultureInfo.InvariantCulture); Outbox = new WriterQueueModel(_replyLimit); break;
                     case "--stderr": Console.Error.WriteLine(Next()); break;
                     case "--stderr-lines":
                     {
@@ -221,7 +225,7 @@ internal static class Program
                 {
                     Thread.Sleep(100);
                     long peak, dropped;
-                    lock (OutboxGate) { peak = _replyPeak; dropped = _framesDropped; }
+                    lock (OutboxGate) { peak = Outbox!.ReplyChargePeak; dropped = Outbox.Dropped; }
                     Console.Error.WriteLine($"reply bytes peak {peak} frames dropped {dropped}");
                 }
             }) { IsBackground = true }.Start();
@@ -264,23 +268,28 @@ internal static class Program
         }
     }
 
-    /// <summary>--reply-queue: the helper's own accounting of what waits for its writer, made small.</summary>
+    /// <summary>
+    /// --reply-queue: the helper's accounting of what waits for its writer, made
+    /// small (see WriterQueueModel: both its counters, its thresholds and its
+    /// dequeue point). The fatal Error is never dropped and never bounded.
+    /// </summary>
     private static void Queue(object message, byte[] bytes)
     {
-        bool reply = message is not (WdspFrameOut or WdspHeartbeat);
-        long cost = bytes.Length + 64;
+        var kind = message switch
+        {
+            WdspFrameOut or WdspHeartbeat => WriterQueueModel.Kind.Droppable,
+            WdspError e when WdspProtocol.IsFatal(e.Code) => WriterQueueModel.Kind.Final,
+            _ => WriterQueueModel.Kind.Reply,
+        };
         lock (OutboxGate)
         {
-            if (!reply && _queuedBytes >= _replyLimit / 2) { _framesDropped++; return; }
-            if (reply && _queuedBytes + cost > _replyLimit)
+            if (Outbox!.Enqueue(bytes, kind) == WriterQueueModel.Outcome.LimitReached)
             {
-                Console.Error.WriteLine($"reply limit: {_queuedBytes} bytes waiting, {_replyBytes} of them replies");
+                Console.Error.WriteLine($"reply limit: queuing {bytes.Length + WriterQueueModel.Overhead} more would pass {Outbox.Limit}; " +
+                    $"{Outbox.Charge} charged waiting, {Outbox.ReplyCharge} of it replies");
                 Console.Error.Flush();
                 Environment.Exit(ExitProtocol);
             }
-            _queuedBytes += cost;
-            if (reply) { _replyBytes += cost; if (_replyBytes > _replyPeak) _replyPeak = _replyBytes; }
-            Outbox.Enqueue((bytes, cost, reply));
         }
         OutboxWake.Set();
     }
@@ -289,14 +298,16 @@ internal static class Program
     {
         while (true)
         {
-            if (!Outbox.TryDequeue(out var item)) { OutboxWake.WaitOne(20); continue; }
+            byte[]? next;
+            // Off both counters as it is taken, before the blocking write, as in the helper.
+            lock (OutboxGate) next = Outbox!.TakeNext();
+            if (next == null) { OutboxWake.WaitOne(20); continue; }
             lock (WriteGate)
             {
-                try { _pipe.Write(item.Bytes); }
+                try { _pipe.Write(next); }
                 catch (IOException) { Environment.Exit(ExitClean); }
                 catch (ObjectDisposedException) { Environment.Exit(ExitClean); }
             }
-            lock (OutboxGate) { _queuedBytes -= item.Cost; if (item.Reply) _replyBytes -= item.Cost; }
         }
     }
 
