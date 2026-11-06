@@ -560,6 +560,10 @@ namespace Radios
         private bool SendRegistrationCommand(bool register, RegistrationCheck confirmed, Action<string, bool> onStateChange, int attempt = 1)
         {
             if (theRadio == null || !IsConnected) return false;
+            // Registration binds the radio to an ACCOUNT and persists in the
+            // radio. Both directions — register and unregister — change what
+            // the radio keeps, so both sit inside the hold (audit 2.9).
+            if (GuardRefuses("settings.guard.action.registration")) return false;
             // The account the operator confirmed, carried by the check itself
             // (#713, repair round 1). Asked again on the retry, so a radio
             // that changed in between is refused rather than registered.
@@ -571,10 +575,6 @@ namespace Radios
                     TraceLevel.Warning);
                 return false;
             }
-            // Registration binds the radio to an ACCOUNT and persists in the
-            // radio. Both directions — register and unregister — change what
-            // the radio keeps, so both sit inside the hold (audit 2.9).
-            if (GuardRefuses("settings.guard.action.registration")) return false;
 
             try
             {
