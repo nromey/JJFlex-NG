@@ -92,8 +92,11 @@ namespace Radios.Tests
         /// The race the connected check alone would leave: the command
         /// transport is up but the radio object does not read Connected yet.
         /// The setters would send then, because FlexLib's SendCommand asks the
-        /// transport, not the flag. The merge's update sends nothing at all,
-        /// and the picker's copy still takes the list's name.
+        /// transport, not the flag. The merge sends nothing at all, and since
+        /// repair round 2 it does not take the list's identity either: with the
+        /// transport up the radio can report for itself (this test said the
+        /// list's name was taken here until that round; the update now needs
+        /// a radio we are not talking to, below).
         /// </summary>
         [Fact]
         public void A_list_merge_updates_a_radio_not_yet_connected_without_sending()
@@ -106,8 +109,15 @@ namespace Radios.Tests
 
             Assert.False(CommandsIdentity(vendor),
                 "A SmartLink list merge sent a name or callsign: " + string.Join(" | ", vendor.Transport.Commands));
-            Assert.Equal("OldShack", vendor.Radio.Nickname);
-            Assert.Equal("W0OLD", vendor.Radio.Callsign);
+            Assert.Equal("NewShack", vendor.Radio.Nickname);
+            Assert.Equal("K0NEW", vendor.Radio.Callsign);
+
+            // A radio we are not talking to takes the list's identity.
+            var away = RadioThatSays("NewShack", "K0NEW", connected: false);
+            DropTransport(away);
+            MergeInto(away.Radio, StaleListCopy());
+            Assert.Equal("OldShack", away.Radio.Nickname);
+            Assert.Equal("W0OLD", away.Radio.Callsign);
         }
 
         /// <summary>
@@ -155,25 +165,39 @@ namespace Radios.Tests
             Assert.False(CommandsIdentity(vendor),
                 "FlexLib's LAN discovery refresh commanded a radio's name or callsign: "
                 + string.Join(" | ", vendor.Transport.Commands));
-            if (connected)
-            {
-                // The radio's own status is the authority while connected.
-                Assert.Equal("NewShack", vendor.Radio.Nickname);
-                Assert.Equal("K0NEW", vendor.Radio.Callsign);
-            }
-            else
-            {
-                Assert.Equal("OldShack", vendor.Radio.Nickname);
-                Assert.Equal("W0OLD", vendor.Radio.Callsign);
-            }
+            // The transport is up in both cases, so the radio's own word stands
+            // (repair round 2: the not-connected case took the packet's
+            // identity until then).
+            Assert.Equal("NewShack", vendor.Radio.Nickname);
+            Assert.Equal("K0NEW", vendor.Radio.Callsign);
+        }
+
+        /// <summary>
+        /// The LAN refresh's other side: a radio we are not talking to takes
+        /// the packet's identity, with nothing sent.
+        /// </summary>
+        [Fact]
+        public void A_lan_discovery_refresh_updates_a_radio_we_are_not_talking_to()
+        {
+            var vendor = RadioThatSays("NewShack", "K0NEW", connected: false);
+            typeof(Radio).GetField("_ip", BindingFlags.NonPublic | BindingFlags.Instance)!
+                .SetValue(vendor.Radio, System.Net.IPAddress.Loopback);
+            typeof(Radio).GetField("_model", BindingFlags.NonPublic | BindingFlags.Instance)!
+                .SetValue(vendor.Radio, "FLEX-6400");
+            DropTransport(vendor);
+
+            RefreshRadio!.Invoke(null, new object[] { vendor.Radio, StaleListCopy() });
+
+            Assert.Equal("OldShack", vendor.Radio.Nickname);
+            Assert.Equal("W0OLD", vendor.Radio.Callsign);
         }
 
         /// <summary>
         /// The class, pinned at the source: no discovery or list merge onto an
         /// existing radio object uses the sending setters. API.cs is the
         /// vendor's merge; FlexBase's is ours. (Discovery.cs and WanServer.cs
-        /// set identity only on a Radio they have just constructed, whose
-        /// transport does not exist yet, so nothing can be sent there.)
+        /// set identity only on a Radio they have just constructed, before the
+        /// new object is published or connected, so nothing can be sent there.)
         /// </summary>
         [Fact]
         public void No_list_or_discovery_merge_uses_the_sending_identity_setters()
@@ -184,6 +208,107 @@ namespace Radios.Tests
             Assert.DoesNotContain(".Callsign = ", refresh, StringComparison.Ordinal);
             Assert.Contains("UpdateIdentityFromList(", refresh, StringComparison.Ordinal);
             Assert.Contains("JJFlex patch", refresh, StringComparison.Ordinal);
+        }
+
+        /// <summary>Take the fake command transport down, as a radio we are not talking to has it.</summary>
+        private static void DropTransport(VendorRadioFixture vendor)
+        {
+            var current = typeof(CommandCommunicationBase).GetProperty("CurrentConnection")!.GetValue(vendor.Transport);
+            typeof(CommandCommunicationBase).GetMethod("PublishDisconnected", BindingFlags.NonPublic | BindingFlags.Instance)!
+                .Invoke(vendor.Transport, new[] { current });
+            Assert.False(vendor.Transport.IsConnected, "The harness meant a transport that is down.");
+        }
+
+        /// <summary>
+        /// Repair round 2, Codex B2. A list copy starts on a radio we are not
+        /// talking to; while it is part-way through, the radio connects and
+        /// reports its own name and callsign. The copy must not then finish
+        /// over the radio's report. Until this round the copy wrote the name,
+        /// raised its notification (here the connect and the report land), and
+        /// then wrote the stale callsign over the radio's own: a mixed,
+        /// poisoned identity that Radio Info could later send back.
+        /// </summary>
+        [Fact]
+        public void A_list_copy_cannot_finish_over_a_report_the_radio_made_meanwhile()
+        {
+            var vendor = RadioThatSays("NewShack", "K0NEW", connected: false);
+            DropTransport(vendor);
+            NicknameField.SetValue(vendor.Radio, "MidShack");
+            CallsignField.SetValue(vendor.Radio, "K0MID");
+
+            bool reported = false;
+            vendor.Radio.PropertyChanged += (_, e) =>
+            {
+                if (reported || e.PropertyName != nameof(Radio.Nickname)) return;
+                reported = true;
+                // The radio connects and says who it is, in the middle of the copy.
+                typeof(Radio).GetProperty(nameof(Radio.Connected))!.GetSetMethod(nonPublic: true)!
+                    .Invoke(vendor.Radio, new object[] { true });
+                vendor.Status("radio callsign=K0NEW nickname=NewShack");
+            };
+
+            vendor.Radio.UpdateIdentityFromList("OldShack", "W0OLD");
+
+            Assert.True(reported, "The schedule never ran: no notification came while the copy was in progress.");
+            Assert.Equal("NewShack", vendor.Radio.Nickname);
+            Assert.Equal("K0NEW", vendor.Radio.Callsign);
+        }
+
+        /// <summary>
+        /// And the copy itself refuses once the radio is talking to us: flagged
+        /// connected, or its command transport up (an administrative
+        /// connection parses the radio's reports while the flag reads false).
+        /// </summary>
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void A_list_copy_is_refused_while_the_radio_can_report_for_itself(bool flaggedConnected)
+        {
+            var vendor = RadioThatSays("NewShack", "K0NEW", connected: flaggedConnected);
+            Assert.True(vendor.Transport.IsConnected);
+
+            vendor.Radio.UpdateIdentityFromList("OldShack", "W0OLD");
+
+            Assert.Equal("NewShack", vendor.Radio.Nickname);
+            Assert.Equal("K0NEW", vendor.Radio.Callsign);
+            Assert.False(CommandsIdentity(vendor));
+        }
+
+        /// <summary>The control: a radio we are not talking to takes the list's identity, and nothing is sent.</summary>
+        [Fact]
+        public void A_list_copy_updates_a_radio_we_are_not_talking_to()
+        {
+            var vendor = RadioThatSays("NewShack", "K0NEW", connected: false);
+            DropTransport(vendor);
+
+            vendor.Radio.UpdateIdentityFromList("OldShack", "W0OLD");
+
+            Assert.Equal("OldShack", vendor.Radio.Nickname);
+            Assert.Equal("W0OLD", vendor.Radio.Callsign);
+            Assert.False(CommandsIdentity(vendor));
+        }
+
+        /// <summary>
+        /// Radio Info sends a callsign or a name ONLY when the operator changed
+        /// the field in that dialog (repair round 2, Codex B2's second half).
+        /// It compared the box with the LIVE value on focus loss, so a box
+        /// holding a value the radio has since corrected was sent back, with
+        /// nobody having typed anything.
+        /// </summary>
+        [Fact]
+        public void Radio_info_sends_identity_only_when_the_operator_edited_it()
+        {
+            string dialog = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "Dialogs", "RadioInfoDialog.xaml.cs"));
+            foreach (string handler in new[]
+            {
+                "private void CallBox_LostFocus(", "private void CallBox_KeyDown(",
+                "private void NameBox_LostFocus(", "private void NameBox_KeyDown(",
+            })
+            {
+                string body = Body(dialog, handler);
+                Assert.DoesNotContain("_callbacks.GetCallsign()", body, StringComparison.Ordinal);
+                Assert.DoesNotContain("_callbacks.GetNickname()", body, StringComparison.Ordinal);
+            }
         }
 
         /// <summary>The FlexLib patch that makes the update silent, pinned at its source (MIGRATION.md item 23).</summary>

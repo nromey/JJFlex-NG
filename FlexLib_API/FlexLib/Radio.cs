@@ -1254,9 +1254,17 @@ namespace Flex.Smoothlake.FlexLib
             get { return _connected; }
             internal set // not intended to be used externally -- for messaging
             {
-                if (_connected != value)
+                // JJFlex patch: the flag changes under the identity gate, so a
+                // list copy's connection check and its writes are one step
+                // against it (MIGRATION.md item 23).
+                bool changed;
+                lock (_identityGate)
                 {
+                    changed = _connected != value;
                     _connected = value;
+                }
+                if (changed)
+                {
                     RaisePropertyChanged("Connected");
                 }
             }
@@ -4200,7 +4208,8 @@ namespace Flex.Smoothlake.FlexLib
 
                         case "callsign":
                             {
-                                _callsign = value;
+                                // JJFlex patch: under the identity gate (MIGRATION.md item 23).
+                                lock (_identityGate) _callsign = value;
                                 RaisePropertyChanged("Callsign");
                             }
                             break;
@@ -4354,7 +4363,8 @@ namespace Flex.Smoothlake.FlexLib
 
                         case "nickname":
                             {
-                                _nickname = value;
+                                // JJFlex patch: under the identity gate (MIGRATION.md item 23).
+                                lock (_identityGate) _nickname = value;
                                 RaisePropertyChanged("Nickname");
                             }
                             break;
@@ -7515,7 +7525,8 @@ namespace Flex.Smoothlake.FlexLib
 
                     case "callsign":
                         {
-                            _callsign = value;
+                            // JJFlex patch: under the identity gate (MIGRATION.md item 23).
+                            lock (_identityGate) _callsign = value;
                             RaisePropertyChanged("Callsign");
                         }
                         break;
@@ -7528,7 +7539,8 @@ namespace Flex.Smoothlake.FlexLib
 
                     case "name":
                         {
-                            _nickname = value;
+                            // JJFlex patch: under the identity gate (MIGRATION.md item 23).
+                            lock (_identityGate) _nickname = value;
                             RaisePropertyChanged("Nickname");
                         }
                         break;
@@ -7724,26 +7736,47 @@ namespace Flex.Smoothlake.FlexLib
         /// </summary>
         public void UpdateIdentityFromList(string nickname, string callsign)
         {
-            if (nickname != null)
+            // Refused once the radio can report for itself: flagged connected, or
+            // its command transport up (an administrative connection parses the
+            // radio's reports while the flag reads false). The check and BOTH
+            // writes are one step under the identity gate, which the radio's own
+            // identity reports and the Connected flag also take, and the
+            // notifications go out only after it: a report that lands while a
+            // copy is in progress waits for the copy and then overwrites it,
+            // rather than being overwritten half-way (repair round 2, Codex B2).
+            bool nicknameChanged = false, callsignChanged = false;
+            lock (_identityGate)
             {
-                string new_nickname = StringHelper.Sanitize(nickname);
-                if (_nickname != new_nickname)
+                if (_connected || _commandCommunication?.IsConnected == true) return;
+
+                if (nickname != null)
                 {
-                    _nickname = new_nickname;
-                    RaisePropertyChanged(nameof(Nickname));
+                    string new_nickname = StringHelper.Sanitize(nickname);
+                    if (_nickname != new_nickname)
+                    {
+                        _nickname = new_nickname;
+                        nicknameChanged = true;
+                    }
+                }
+
+                if (callsign != null)
+                {
+                    string new_callsign = StringHelper.Sanitize(callsign.ToUpper());
+                    if (_callsign != new_callsign)
+                    {
+                        _callsign = new_callsign;
+                        callsignChanged = true;
+                    }
                 }
             }
 
-            if (callsign != null)
-            {
-                string new_callsign = StringHelper.Sanitize(callsign.ToUpper());
-                if (_callsign != new_callsign)
-                {
-                    _callsign = new_callsign;
-                    RaisePropertyChanged(nameof(Callsign));
-                }
-            }
+            if (nicknameChanged) RaisePropertyChanged(nameof(Nickname));
+            if (callsignChanged) RaisePropertyChanged(nameof(Callsign));
         }
+
+        // JJFlex patch: guards the radio's identity fields against a list copy
+        // racing the radio's own reports and the Connected flag (MIGRATION.md item 23).
+        private readonly object _identityGate = new object();
 
         private int _num_tx = 0;
         /// <summary>

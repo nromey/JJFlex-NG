@@ -205,8 +205,19 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     in both of its branches; both now leave a connected radio's identity to its
     status and otherwise call `UpdateIdentityFromList`, comment-marked
     `JJFlex patch`. `Discovery.cs` and `WanServer.cs` still use the setters, but
-    only on a `Radio` they have just constructed, whose transport does not
-    exist, so nothing can be sent there; re-check that when merging a new drop. Pinned by
+    only on a `Radio` they have just constructed, before the new object is
+    published or connected (it has its own disconnected adapter, which sends
+    nothing), so nothing can be sent there; re-check that when merging a new
+    drop. **Repair round 2 (2026-11-06) makes the copy atomic against the
+    radio's own word.** `UpdateIdentityFromList` refuses while the radio is
+    flagged connected or its command transport is up, and does its check and
+    both writes under a private `_identityGate`, raising its notifications only
+    after; the radio's identity reports (`ParseRadioStatus` callsign and
+    nickname, `UpdateInfo` callsign and name) and the `Connected` setter take
+    the same gate. Without it a copy could write the name, a connect and the
+    radio's own report could land during its notification, and the copy then
+    wrote the stale callsign over the report. Keep all six gated sites on a new
+    drop. Pinned by
     `Radios.Tests/DiscoveryMergeWritesTests`. Numbered 23 because items 21 and
     22 are taken on branches not yet merged (the 2026-11-02 junk box's write-time
     gate and forced writes, and the r5-tuning branch's own 22); renumber at merge

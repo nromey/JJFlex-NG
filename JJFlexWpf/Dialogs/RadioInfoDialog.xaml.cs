@@ -76,6 +76,38 @@ namespace JJFlexWpf.Dialogs
         private readonly RadioInfoCallbacks _callbacks;
         private bool _suppressDisplayChange;
 
+        // What each identity box showed when the dialog filled it, or last
+        // sent. The radio is told a callsign or a name ONLY when the box now
+        // differs from this, which is to say the operator edited it here; a
+        // value the radio has since corrected underneath is never sent back
+        // (#477, repair round 2).
+        private string _shownCallsign = "";
+        private string _shownNickname = "";
+
+        /// <summary>
+        /// The text to send for an identity box, or null when the operator has
+        /// not changed it since it was shown. Compared with what the dialog
+        /// SHOWED, never with the live value, which can move underneath.
+        /// </summary>
+        internal static string? EditedIdentity(string shown, string inBox)
+            => string.Equals(shown ?? "", inBox ?? "", StringComparison.Ordinal) ? null : inBox;
+
+        private void CommitCallsignIfEdited()
+        {
+            var edited = EditedIdentity(_shownCallsign, CallBox.Text);
+            if (edited == null) return;
+            _callbacks.SetCallsign(edited);
+            _shownCallsign = edited;
+        }
+
+        private void CommitNicknameIfEdited()
+        {
+            var edited = EditedIdentity(_shownNickname, NameBox.Text);
+            if (edited == null) return;
+            _callbacks.SetNickname(edited);
+            _shownNickname = edited;
+        }
+
         public RadioInfoDialog(RadioInfoCallbacks callbacks, RadioInfoTab initialTab = RadioInfoTab.General)
         {
             _callbacks = callbacks ?? throw new ArgumentNullException(nameof(callbacks));
@@ -92,8 +124,8 @@ namespace JJFlexWpf.Dialogs
             ModelBox.Text = _callbacks.GetModel();
             VersionBox.Text = _callbacks.GetVersion();
             SerialBox.Text = _callbacks.GetSerial();
-            CallBox.Text = _callbacks.GetCallsign();
-            NameBox.Text = _callbacks.GetNickname();
+            CallBox.Text = _shownCallsign = _callbacks.GetCallsign() ?? "";
+            NameBox.Text = _shownNickname = _callbacks.GetNickname() ?? "";
             IPBox.Text = _callbacks.GetIPAddress();
 
             // Populate display modes
@@ -122,38 +154,18 @@ namespace JJFlexWpf.Dialogs
             Close();
         }
 
-        private void CallBox_LostFocus(object sender, RoutedEventArgs e)
-        {
-            var currentCallsign = _callbacks.GetCallsign();
-            if (CallBox.Text != currentCallsign)
-                _callbacks.SetCallsign(CallBox.Text);
-        }
+        private void CallBox_LostFocus(object sender, RoutedEventArgs e) => CommitCallsignIfEdited();
 
         private void CallBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
         {
-            if (e.Key == Key.Return)
-            {
-                var currentCallsign = _callbacks.GetCallsign();
-                if (CallBox.Text != currentCallsign)
-                    _callbacks.SetCallsign(CallBox.Text);
-            }
+            if (e.Key == Key.Return) CommitCallsignIfEdited();
         }
 
-        private void NameBox_LostFocus(object sender, RoutedEventArgs e)
-        {
-            var currentNickname = _callbacks.GetNickname();
-            if (NameBox.Text != currentNickname)
-                _callbacks.SetNickname(NameBox.Text);
-        }
+        private void NameBox_LostFocus(object sender, RoutedEventArgs e) => CommitNicknameIfEdited();
 
         private void NameBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
         {
-            if (e.Key == Key.Return)
-            {
-                var currentNickname = _callbacks.GetNickname();
-                if (NameBox.Text != currentNickname)
-                    _callbacks.SetNickname(NameBox.Text);
-            }
+            if (e.Key == Key.Return) CommitNicknameIfEdited();
         }
 
         private void DisplayCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
