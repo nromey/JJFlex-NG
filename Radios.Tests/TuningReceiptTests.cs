@@ -2222,5 +2222,37 @@ namespace Radios.Tests
             b.Rig.RXVFO = 1;                                 // the selection moved
             Assert.Equal(2, (int)retired.GetValue(b.Rig)!);
         }
+    
+
+        // ── Round four: J24, ruled by Noel 2026-11-06 16:43 ──
+
+        [Fact]
+        public void A_correction_for_a_slice_you_are_not_on_names_the_slice()
+        {
+            // "Slice B, 14.205.000" (DRAFT); a bare number there reads as your own slice's.
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: false, active: true, mhz: 7.100);
+            Slice bb = Add(b, 1, tx: true, active: false, mhz: 14.205);
+            Set(b.Rig, "_RXVFO", 0);
+            Set(b.Rig, "_TXVFO", 1);
+            b.Rig.TXFrequency = 14_205_100;                  // the transmit slice, not the one you are on
+            Drain(b.Rig);
+            RejectTune(b, 0, "");
+            Assert.Equal(Lexicon.Get("connect.home.frequency_ended_on_slice", ("slice", "B"),
+                ("freqText", RadioStatusBuilder.FormatFreqDisplay(14_205_000))), Said(b));
+            Assert.Equal("Slice B, 14.205.000", Said(b));
+        }
+
+        [Fact]
+        public void A_correction_for_the_slice_you_are_on_stays_the_bare_number()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            Set(b.Rig, "_RXVFO", 0);
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            RejectTune(b, 0, "");
+            Assert.Equal("14.100.000", Said(b));
+        }
     }
 }

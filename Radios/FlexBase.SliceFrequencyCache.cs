@@ -686,8 +686,12 @@ namespace Radios
                 var format = FormatFreq;
                 string number = format != null ? format(endedHz) : RadioStatusBuilder.FormatFreqDisplay(endedHz);
                 // DRAFT (J4): the bare number, Noel's ruling; the key exists so the
-                // words can change without code.
-                string text = Lexicon.Get("connect.home.frequency_ended_on", ("freqText", number));
+                // words can change without code. For a slice OTHER than the one
+                // you are on, the slice is named (J24, ruled by Noel 2026-11-06
+                // 16:43): a bare number there reads as your own slice's.
+                string text = ReferenceEquals(slice, SelectedSliceNow())
+                    ? Lexicon.Get("connect.home.frequency_ended_on", ("freqText", number))
+                    : Lexicon.Get("connect.home.frequency_ended_on_slice", ("slice", letter), ("freqText", number));
                 LastTuneCorrection = text;
                 System.Threading.Interlocked.Increment(ref TuneCorrections);
                 System.Threading.Interlocked.Exchange(ref _liveCorrection, new SpokenCorrection(slice, endedHz));

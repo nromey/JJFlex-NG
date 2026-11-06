@@ -196,6 +196,7 @@
   "connect.home.fields_panel_missing": "The field panel is hidden. Press Alt N and choose Show Field Panel to bring it back.",
   "connect.home.frequency": "Frequency {freqText}, slice {slice}",
   "connect.home.frequency_ended_on": {"text": "{freqText}", "delivery": null},
+  "connect.home.frequency_ended_on_slice": {"text": "Slice {slice}, {freqText}", "delivery": null},
   "connect.home.frequency_both": {"text": "Frequency {transmitFreq}, slice {transmitSlice}, transmit. Frequency {selectedFreq}, slice {selectedSlice}, selected", "delivery": null},
   "connect.home.frequency_selected": {"text": "Frequency {freqText}, slice {slice}, selected", "delivery": null},
   "connect.home.frequency_steps": ", coarse {coarse}, fine {fine}",

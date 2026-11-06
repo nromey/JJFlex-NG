@@ -2113,6 +2113,8 @@ namespace Radios.Tests
                 // The same round (#642, J4): a tune that ended elsewhere says the
                 // bare frequency it ended on, Noel's ruling; DRAFT until heard.
                 "connect.home.frequency_ended_on",
+                // Round four (#642, J24): the slice named when it is not yours. DRAFT.
+                "connect.home.frequency_ended_on_slice",
                 // Round two (#496, the bench's Fail 3): Settings with no radio
                 // says the PTT changes were not saved. DRAFT prose.
                 "settings.commit.ptt_not_saved",
