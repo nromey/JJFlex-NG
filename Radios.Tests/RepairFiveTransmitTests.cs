@@ -828,6 +828,27 @@ namespace Radios.Tests
             Assert.Contains("lock (_reportedCacheSync) { _micInput = value.ToUpper(); _micInputReports++; }", radio);
             Assert.Contains("_txTuneReports++;", radio);
             Assert.Contains("A forced write's cache update loses to a newer report", System.IO.File.ReadAllText(Repo("MIGRATION.md")));
+            // Round 10 (#863 F2): the write's success point is reported to the app.
+            Assert.Contains("try { OnWritten?.Invoke(); } catch { }", connection);
+            Assert.Contains("public Action? OnWritten { get; set; }", connection);
+            Assert.Contains("A pinned write says when it was written", System.IO.File.ReadAllText(Repo("MIGRATION.md")));
+        }
+
+        [Fact]
+        public void A_pinned_write_reports_its_success_point_once_and_a_failed_one_never()
+        {
+            // Round 10 (#863 F2): the app dates its own unkey at this point.
+            int told = 0;
+            var connection = _f.Vendor.Radio.CurrentCommandConnection!;
+            using (var pin = CommandWritePin.Pin(connection))
+            {
+                pin.OnWritten = () => told++;
+                Assert.True(_f.Vendor.Radio.SendMoxOff());
+                Assert.Equal(1, told);
+                _f.Vendor.Transport.FailNextWrite = true;
+                Assert.False(_f.Vendor.Radio.SendMoxOff());
+                Assert.Equal(1, told);
+            }
         }
 
         // ── Round 9, Codex's #861 B3: the cache after a forced write keeps a newer report ──

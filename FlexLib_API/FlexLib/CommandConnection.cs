@@ -122,9 +122,22 @@ public sealed class CommandWritePin : IDisposable
 
     internal void Delivered(bool ok, string? why)
     {
-        if (ok) Written++;
+        if (ok)
+        {
+            Written++;
+            try { OnWritten?.Invoke(); } catch { }
+        }
         else Refuse(why ?? "the write failed");
     }
+
+    /// <summary>
+    /// JJFlex patch (MIGRATION.md item 22): called on the writing thread at the
+    /// moment a pinned write's writer has returned without an exception, before
+    /// the caller resumes (round 10, Codex's #863 F2). The app records what the
+    /// radio had reported by then, so a report parsed after this point counts as
+    /// after the write. It must only read state: no I/O, no locks.
+    /// </summary>
+    public Action? OnWritten { get; set; }
 
     public void Dispose()
     {

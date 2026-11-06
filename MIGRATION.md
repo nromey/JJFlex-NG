@@ -276,6 +276,12 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
       (only a report that updates this client's Mox), `_txTuneReports` at the
       transmit status's `tune`, `_micInputReports` at its `mic_selection`. Keep
       those three parser edits with the helper, marked "item 22".
+    - **A pinned write says when it was written (2026-11-06, Codex's #863 F2).**
+      `CommandWritePin.OnWritten` is called from `Delivered` the moment the writer
+      returned without an exception, on the writing thread, before the caller
+      resumes. The app marks its own unkey there, so the radio's first receive
+      report after the bytes left is never dated before them. Keep it with
+      `Delivered`, marked "item 22".
     - **When it could be removed.** If FlexLib's setters stop skipping equal values
       for commands, or offer an always-send variant.
 
