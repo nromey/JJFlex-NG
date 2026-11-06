@@ -41,6 +41,31 @@ internal sealed class ReportingRadio : IDisposable
     }
 
     /// <summary>Our cached Transmit, which follows FlexLib's Mox.</summary>
+    /// <summary>
+    /// The rig's command queue kept rather than dropped, and run only by
+    /// <see cref="RunQueued"/> (repair round 9): a falling cue for our own key
+    /// is anchored to its ON and OFF really being written, so a test decides
+    /// when the queue writes them. Undone at dispose.
+    /// </summary>
+    public void QueueByHand() => SetMainLoop(true);
+
+    /// <summary>Run every queued command now, on this thread, as the main loop runs them.</summary>
+    public void RunQueued()
+    {
+        object q = typeof(FlexBase).GetField("q", Any)!.GetValue(Rig)!;
+        var count = q.GetType().GetProperty("Count")!;
+        var dequeue = q.GetType().GetMethod("Dequeue")!;
+        var run = typeof(FlexBase).GetMethod("RunQueuedItem", Any)!;
+        while ((int)count.GetValue(q)! > 0)
+            run.Invoke(Rig, new[] { dequeue.Invoke(q, null)! });
+    }
+
+    private void SetMainLoop(bool on)
+    {
+        object q = typeof(FlexBase).GetField("q", Any)!.GetValue(Rig)!;
+        q.GetType().GetProperty("MainLoop")!.SetValue(q, on);
+    }
+
     public void MoxCache(bool on) => typeof(FlexBase).GetField("_Transmit", Any)!.SetValue(Rig, on);
 
     /// <summary>
@@ -90,6 +115,7 @@ internal sealed class ReportingRadio : IDisposable
 
     public void Dispose()
     {
+        try { SetMainLoop(false); } catch { }
         typeof(FlexBase).GetField("theRadio", Any)!.SetValue(Rig, null);   // never FlexBase's to disconnect
         try { Rig.Dispose(); } catch { }
     }

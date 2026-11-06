@@ -130,9 +130,21 @@ public partial class FlexBase
         string? notTarget = PinnedTargetRefused(radio, connection);
         if (notTarget != null) return notTarget;
         using var pin = CommandWritePin.Pin((CommandConnection)connection!, atTheWrite, onRefused, unkeyOfOurs);
-        string? stepWhy = step();
-        return stepWhy ?? pin.Refusal;
+        var outer = t_stepPin;
+        t_stepPin = pin;
+        try
+        {
+            string? stepWhy = step();
+            return stepWhy ?? pin.Refusal;
+        }
+        finally { t_stepPin = outer; }
     }
+
+    /// <summary>The pin of the pinned step running on this thread, if any (repair round 9).</summary>
+    [ThreadStatic] private static CommandWritePin? t_stepPin;
+
+    /// <summary>Writes the current pinned step has really written so far (CommandWritePin.Written, MIGRATION.md item 22).</summary>
+    private static int PinnedWritesSoFar => t_stepPin?.Written ?? 0;
 
     /// <summary>
     /// A new command connection is beginning on this rig's radio (the vendor's
@@ -181,6 +193,7 @@ public partial class FlexBase
     /// </remarks>
     public void TransmitAdmitted(object admission, bool value, string what)
     {
+        if (value) t_keyAskedHere = null;
         if (!TransmitAdmissionStands(admission, what)) return;
         var a = (TransmitAdmission)admission;
         if (value)
@@ -203,7 +216,7 @@ public partial class FlexBase
             bool off = false;
             string? why = WriteOnPinnedTarget(owner, connection, () => ForeignCarrier(owner!), () => off = owner!.SendMoxOff(),
                 () => ForeignCarrier(owner!), unkeyOfOurs: true);
-            if (why == null && off) { _ownKeyRequested = false; return; }
+            if (why == null && off) { _ownKeyRequested = false; NoteOwnOffWritten(); return; }
             Tracing.TraceLine("TransmitAdmission: " + what + " NOT sent at its write - " + (why ?? "the transport did not take it"),
                 TraceLevel.Warning);
         }), "Mox (a send's own release)");

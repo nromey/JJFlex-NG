@@ -410,7 +410,7 @@ public partial class FlexBase
             string refused = WriteOnPinnedTarget(owner, connection,
                 () => OurCarrierToUnkey(owner, connection, why) ? null : NotOurs, () => off = owner.SendMoxOff(),
                 () => ForeignCarrier(owner), unkeyOfOurs: true);
-            if (refused == null && off) { _ownKeyRequested = false; return; }
+            if (refused == null && off) { _ownKeyRequested = false; NoteOwnOffWritten(); return; }
             refused ??= "the transport did not take it";
             if (refused != NotOurs)
                 Tracing.TraceLine("Teardown unkey (" + why + "): not sent; " + refused, TraceLevel.Info);

@@ -1125,11 +1125,19 @@ namespace JJFlexWpf
         {
             bool elsewhere = _keyedElsewhere;
             _keyedElsewhere = false;
-            // Owed for THIS key's transmission, by the count taken at its key
-            // (repair round 7, Codex's #863 S2): a tune or a send asked for
-            // since makes it void, however late the debt is made.
-            if (elsewhere) OweStopToneAtRealReceive(FallingTone.Elsewhere, origin: _keyOrigin);
-            else if (_config.ChirpEnabled) OweStopToneAtRealReceive(FallingTone.Chirp, origin: _keyOrigin);
+            // Owed for THIS key (repair round 9): anchored to its own written ON
+            // and OFF, and void once a tune or a send is asked for since. A key
+            // that was never asked (refused) transmitted nothing and owes nothing.
+            var key = _key;
+            _key = null;
+            if (!elsewhere && !_config.ChirpEnabled) return;
+            if (key == null)
+            {
+                Tracing.TraceLine("PTT: no falling " + (elsewhere ? "three-note tone" : "chirp")
+                    + " is owed: this transmission's key was never asked for, so nothing was transmitted", TraceLevel.Info);
+                return;
+            }
+            OweStopToneAtRealReceive(elsewhere ? FallingTone.Elsewhere : FallingTone.Chirp, ownKey: key);
         }
 
         /// <summary>Which falling cue a debt plays: the three notes or the ordinary two.</summary>
@@ -1241,12 +1249,12 @@ namespace JJFlexWpf
         /// already really receives, it plays now, so a hand-off after the
         /// carrier fell waits for no further notification.
         /// </summary>
-        /// <summary>The transmissions asked for, counted when this controller's own key was asked (repair round 7).</summary>
-        private long _keyOrigin;
+        /// <summary>This controller's own key, read back from the rig right after it was asked (repair round 9); null when the ask was refused.</summary>
+        private Radios.FlexBase.OwnKey? _key;
 
         private void NoteKeyOrigin()
         {
-            try { _keyOrigin = _getRigControl()?.TransmissionsAsked ?? 0; } catch { }
+            try { _key = _getRigControl()?.KeyAskedOnThisThread; } catch { _key = null; }
         }
 
         /// <param name="origin">The count of transmissions asked for at the
@@ -1255,7 +1263,10 @@ namespace JJFlexWpf
         /// rig's latest reported carrier rise. Never the count when the debt
         /// happens to be made: a deferred notification can arrive after a
         /// newer tune or send was asked for, and must not adopt it.</param>
-        private void OweStopToneAtRealReceive(FallingTone family, long? generation = null, long? origin = null)
+        /// <param name="ownKey">A key WE asked for (repair round 9): the debt is
+        /// anchored to its written ON and OFF instead of to report numbers.</param>
+        private void OweStopToneAtRealReceive(FallingTone family, long? generation = null, long? origin = null,
+            Radios.FlexBase.OwnKey? ownKey = null)
         {
             long gen;
             lock (_edgeToneLock)
@@ -1270,6 +1281,12 @@ namespace JJFlexWpf
             if (rig == null) { PayStopTone(gen, sameConnection: false, submitIfStillReceiving: null); return; }
             // Given up quietly once a newer debt replaces this one, so a carrier
             // held for a long time does not collect waits behind it.
+            if (ownKey != null)
+            {
+                rig.WhenReallyReceiving((same, submitIfStillReceiving) => PayStopTone(gen, same, submitIfStillReceiving, ownKey),
+                    () => StillOwed(gen), ownKey);
+                return;
+            }
             long from = origin ?? rig.LastCarrierOrigin;
             rig.WhenReallyReceiving((same, submitIfStillReceiving) => PayStopTone(gen, same, submitIfStillReceiving), () => StillOwed(gen), from);
         }
@@ -1293,14 +1310,22 @@ namespace JJFlexWpf
         /// <summary>For tests: called when a payment has finished, paid or not, after its submission (repair round 8, Codex's T3).</summary>
         internal Action? AfterFallingTonePaymentForTests { get; set; }
 
-        private void PayStopTone(long generation, bool sameConnection, Func<Action, bool>? submitIfStillReceiving)
+        private void PayStopTone(long generation, bool sameConnection, Func<Action, bool>? submitIfStillReceiving,
+            Radios.FlexBase.OwnKey? ownKey = null)
         {
-            try { PayStopToneCore(generation, sameConnection, submitIfStillReceiving); }
+            try { PayStopToneCore(generation, sameConnection, submitIfStillReceiving, ownKey); }
             finally { AfterFallingTonePaymentForTests?.Invoke(); }
         }
 
-        private void PayStopToneCore(long generation, bool sameConnection, Func<Action, bool>? submitIfStillReceiving)
+        private void PayStopToneCore(long generation, bool sameConnection, Func<Action, bool>? submitIfStillReceiving,
+            Radios.FlexBase.OwnKey? ownKey)
         {
+            // Our ON never went out (round 9): nothing was transmitted, no cue is owed.
+            if (ownKey != null && ownKey.NeverWent)
+            {
+                NotPaid(generation, "our key for that transmission never went out, so nothing was transmitted");
+                return;
+            }
             if (!sameConnection || submitIfStillReceiving == null)
             {
                 NotPaid(generation, "the connection it was owed on ended before the radio reported receive");
@@ -1435,7 +1460,15 @@ namespace JJFlexWpf
         /// radio's report that it really receives, through this one owner, not
         /// played at the file's end. A key of this controller's takes it over.
         /// </summary>
-        public void OweElsewhereStopTone() => OweStopToneAtRealReceive(FallingTone.Elsewhere);
+        public void OweElsewhereStopTone()
+        {
+            // The send's own carrier is the latest key this rig asked for itself
+            // (round 9, Codex's #863 S4): its falling tone is anchored to that
+            // key, never to a report that a newer tune's count could relabel.
+            Radios.FlexBase.OwnKey? key = null;
+            try { key = _getRigControl()?.LatestOwnKey; } catch { }
+            OweStopToneAtRealReceive(FallingTone.Elsewhere, ownKey: key);
+        }
 
         /// <summary>
         /// "Play chirp tones on transmit and receive": the one switch both the

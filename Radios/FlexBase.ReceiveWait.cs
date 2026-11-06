@@ -110,6 +110,109 @@ namespace Radios
         public bool WhenReallyReceiving(Action<bool, Func<Action, bool>> then, Func<bool> stillWanted, long origin) =>
             WhenRadioReportsReceive(then, stillWanted, origin);
 
+        /// <summary>
+        /// The same wait, for a falling cue owed to a transmission WE keyed
+        /// (repair round 9, the coordinator's anchor): it is paid only on a
+        /// receive report numbered after our own OFF for that key was really
+        /// written, and only when our ON for it was really written before that.
+        /// If the ON never went out, nothing was transmitted: the wait ends at
+        /// once and <paramref name="then"/> runs, and the caller reads
+        /// <see cref="OwnKey.NeverWent"/> to know there is no cue owed.
+        /// </summary>
+        public bool WhenReallyReceiving(Action<bool, Func<Action, bool>> then, Func<bool> stillWanted, OwnKey key) =>
+            WhenRadioReportsReceive(then, stillWanted, key.Origin, key);
+
+        /// <summary>
+        /// One key this rig asked for itself (repair round 9, Codex's #863 S4
+        /// and S5): its count of transmissions asked, and where it stands on the
+        /// wire. ASKED (queued) becomes ON WRITTEN when its xmit 1 was really
+        /// written, or NEVER WENT when the queue refused, revoked or skipped it;
+        /// ON WRITTEN becomes OFF WRITTEN when our xmit 0 was really written,
+        /// marked with the interlock report sequence at that moment. A carrier
+        /// we keyed keeps this identity, whatever report about it comes later.
+        /// </summary>
+        public sealed class OwnKey
+        {
+            internal const int Asked = 0, OnWritten = 1, NeverWentState = 2, OffWritten = 3;
+            private int _state;
+            private long _offMark;
+            private CommandConnection? _connection;
+
+            internal OwnKey(long origin) { Origin = origin; }
+
+            /// <summary>The count of transmissions asked when this key was asked.</summary>
+            public long Origin { get; }
+
+            internal int State => Volatile.Read(ref _state);
+
+            /// <summary>The key never went out: nothing was transmitted, so no falling cue is owed for it.</summary>
+            public bool NeverWent => State == NeverWentState;
+
+            /// <summary>The command connection its ON was written on; null until then.</summary>
+            internal CommandConnection? Connection => Volatile.Read(ref _connection);
+
+            internal bool NoteOnWritten(CommandConnection? connection)
+            {
+                Volatile.Write(ref _connection, connection);
+                return Interlocked.CompareExchange(ref _state, OnWritten, Asked) == Asked;
+            }
+
+            internal bool NoteNeverWent() => Interlocked.CompareExchange(ref _state, NeverWentState, Asked) == Asked;
+
+            /// <summary>Our OFF was written, the reports standing at <paramref name="mark"/>: only from ON WRITTEN.</summary>
+            internal bool NoteOffWritten(long mark)
+            {
+                if (State != OnWritten) return false;
+                Interlocked.Exchange(ref _offMark, mark);
+                return Interlocked.CompareExchange(ref _state, OffWritten, OnWritten) == OnWritten;
+            }
+
+            /// <summary>
+            /// Our OFF for this key was written, and since then the radio has
+            /// reported a recognised receive state on the connection its ON went
+            /// out on, which is still up. Reads only.
+            /// </summary>
+            internal bool ReceiveReportedAfterOff()
+            {
+                if (State != OffWritten) return false;
+                var c = Connection;
+                if (c == null || c.State != CommandConnectionState.Connected) return false;
+                var last = InterlockReports.LastOn(c);
+                return last != null && last.IsReceive && last.Sequence > Interlocked.Read(ref _offMark);
+            }
+
+            /// <summary>Its carrier may still be up or still be reported: asked, on, or off with no receive reported since.</summary>
+            internal bool Live => State switch
+            {
+                Asked or OnWritten => true,
+                OffWritten => !ReceiveReportedAfterOff(),
+                _ => false,
+            };
+        }
+
+        /// <summary>The latest key this rig asked for itself; null before any.</summary>
+        public OwnKey? LatestOwnKey => Volatile.Read(ref _latestOwnKey);
+        private OwnKey? _latestOwnKey;
+
+        /// <summary>The key the calling thread's last <see cref="Transmit"/> or send key asked for; null when that ask was refused.</summary>
+        public OwnKey? KeyAskedOnThisThread => t_keyAskedHere;
+        [ThreadStatic] private static OwnKey? t_keyAskedHere;
+
+        /// <summary>One of our keys changed state: a wait for its end looks again.</summary>
+        private event Action? OwnKeyChanged;
+
+        private void RaiseOwnKeyChanged()
+        {
+            try { OwnKeyChanged?.Invoke(); } catch { }
+        }
+
+        /// <summary>Our xmit 0 was really written: the latest own key, if its ON went out, is now off.</summary>
+        private void NoteOwnOffWritten()
+        {
+            var key = LatestOwnKey;
+            if (key != null && key.NoteOffWritten(InterlockReports.Sequence)) RaiseOwnKeyChanged();
+        }
+
         /// <summary>Transmissions this rig has asked for: every key, send, check and tune (repair rounds 6 and 7).</summary>
         private long _transmissionsAsked;
 
@@ -138,20 +241,19 @@ namespace Radios
         }
 
         /// <summary>
-        /// Set, on the command thread, while one of OUR queued keys writes its
-        /// Mox: the count its request was born with (repair round 8, Codex's
-        /// #863 S3). FlexLib raises Mox from inside that setter, so the rise it
-        /// reports is our own key's echo, and takes our key's origin, never the
-        /// count of a newer tune or send asked while the key waited.
+        /// A carrier rose. While a key of ours is live (asked, on, or off with
+        /// no receive reported since), the rise is that key's: its echo, or a
+        /// delayed report of it such as an UNKEY_REQUESTED after our OFF, and it
+        /// keeps our key's origin (repair round 9, Codex's #863 S4; this
+        /// replaces round 8's thread-local echo token). A carrier we did not ask
+        /// for (a hand mic, a foot switch, VOX, another client) takes the count
+        /// when the radio reports it.
         /// </summary>
-        [ThreadStatic] private static long? t_ownKeyOrigin;
-
-        /// <summary>
-        /// A carrier rose. Our own key's echo keeps the origin its request was
-        /// born with; a carrier we did not ask for (a hand mic, a foot switch,
-        /// VOX, another client) takes the count when the radio reports it.
-        /// </summary>
-        private void NoteCarrierRose() => Interlocked.Exchange(ref _lastCarrierOrigin, t_ownKeyOrigin ?? TransmissionsAsked);
+        private void NoteCarrierRose()
+        {
+            var key = LatestOwnKey;
+            Interlocked.Exchange(ref _lastCarrierOrigin, key != null && key.Live ? key.Origin : TransmissionsAsked);
+        }
 
         /// <summary>For tests: runs on the payment's thread just before its final check takes the transport's dispatch gate.</summary>
         internal Action? BeforeFallingCueFinalCheckForTests;
@@ -169,7 +271,8 @@ namespace Radios
         /// <summary>For tests: the fallback interval, in place of <see cref="ReceiveReportFallbackMs"/>; zero uses it.</summary>
         internal int ReceiveReportFallbackMsOverride;
 
-        private bool WhenRadioReportsReceive(Action<bool, Func<Action, bool>> then, Func<bool>? stillWanted, long? origin = null)
+        private bool WhenRadioReportsReceive(Action<bool, Func<Action, bool>> then, Func<bool>? stillWanted, long? origin = null,
+            OwnKey? key = null)
         {
             Radio? radio = theRadio;
             CommandConnection? connection = radio?.Connected == true ? radio.CurrentCommandConnection : null;
@@ -183,8 +286,15 @@ namespace Radios
             bool SameConnection() => radio != null && connection != null && ReferenceEquals(theRadio, radio)
                 && radio.Connected && ReferenceEquals(connection, radio.CurrentCommandConnection)
                 && connection.State == CommandConnectionState.Connected;
+            // A key of ours (round 9): anchored to its written OFF, on the
+            // connection its ON went out on. A carrier we did not key keeps the
+            // report-anchored rule.
             bool ReportsReceive() => !_Transmit && RadioInterlockConfirmsReceive
-                && InterlockReports.ConfirmsReceiveFor(connection, releaseMark, episodeMark);
+                && (key != null
+                    ? ReferenceEquals(key.Connection, connection) && key.ReceiveReportedAfterOff()
+                    : InterlockReports.ConfirmsReceiveFor(connection, releaseMark, episodeMark));
+            // Our ON never went out: nothing to wait for.
+            bool KeyNeverWent() => key != null && key.NeverWent;
             // Repair round 6 (Codex's #863 S1 variant): a newer transmission this
             // process asked for since the debt was made (another send, a check,
             // a tune) voids it. Its own end owes its own cue; the first
@@ -208,7 +318,7 @@ namespace Radios
             int fallback = ReceiveReportFallbackMsOverride > 0 ? ReceiveReportFallbackMsOverride : ReceiveReportFallbackMs;
 
             if (!SameConnection()) { then(false, SubmitIfStillReceiving); return false; }
-            if (ReportsReceive()) { then(true, SubmitIfStillReceiving); return false; }
+            if (KeyNeverWent() || ReportsReceive()) { then(true, SubmitIfStillReceiving); return false; }
 
             var wake = new System.Threading.SemaphoreSlim(0);
             System.ComponentModel.PropertyChangedEventHandler onRadio = (_, e) =>
@@ -219,14 +329,16 @@ namespace Radios
             {
                 if (ReferenceEquals(c, connection)) { try { wake.Release(); } catch { } }
             };
+            Action onKey = () => { try { wake.Release(); } catch { } };
             radio!.PropertyChanged += onRadio;
             InterlockReports.Reported += onReport;
+            if (key != null) OwnKeyChanged += onKey;
             _ = Task.Run(async () =>
             {
                 bool same;
                 try
                 {
-                    while ((same = SameConnection()) && !ReportsReceive() && !Superseded())
+                    while ((same = SameConnection()) && !KeyNeverWent() && !ReportsReceive() && !Superseded())
                     {
                         if (stillWanted != null && !stillWanted()) return;
                         await wake.WaitAsync(fallback).ConfigureAwait(false);
@@ -236,6 +348,7 @@ namespace Radios
                 {
                     radio.PropertyChanged -= onRadio;
                     InterlockReports.Reported -= onReport;
+                    if (key != null) OwnKeyChanged -= onKey;
                 }
                 then(same, SubmitIfStillReceiving);
             });

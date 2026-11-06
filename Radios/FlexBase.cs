@@ -8531,6 +8531,7 @@ namespace Radios
                 if (value)
                 {
                     Radio keyedOn = theRadio;
+                    t_keyAskedHere = null;
                     EnqueueKeyOn(keyedOn, keyedOn?.CurrentCommandConnection, "a key-on");
                     return;
                 }
@@ -8548,7 +8549,7 @@ namespace Radios
                     // (TransmitKillSwitch.DropCarrier) and is never swallowed.
                     if (radio.Mox || _ownKeyRequested || RadioInterlockReportsTransmit)
                     {
-                        if (radio.SendMoxOff()) _ownKeyRequested = false;
+                        if (radio.SendMoxOff()) { _ownKeyRequested = false; NoteOwnOffWritten(); }
                         // A link that is down takes nothing: the setter then lets
                         // the cache fall as it always did, so our side's transmit
                         // state ends with the connection.
@@ -8566,12 +8567,18 @@ namespace Radios
         /// </summary>
         private void EnqueueKeyOn(Radio keyedOn, object keyedConnection, string what)
         {
+            t_keyAskedHere = null;
             if (RefusedForCheckTeardown("transmit")) return;
             if (TxReferenceArmed) txFilePlayer.RestartOnNextBuffer();
             // A new transmission, counted under the falling cue's gate before
             // it is queued (repair round 6, #863 S1): a falling cue being
             // handed over finishes first, and an older one still owed is void.
             long origin = NoteTransmissionAsked(carrier: true);
+            // And our own key, whose written ON and OFF anchor its falling cue
+            // (repair round 9). The asking thread can read it back.
+            var key = new OwnKey(origin);
+            Volatile.Write(ref _latestOwnKey, key);
+            t_keyAskedHere = key;
             // The radio's interlock reports so far: a receive report must belong
             // to this transmission to confirm its end (repair round 5, #863 N1).
             NoteTransmitEpisodeBegins();
@@ -8584,15 +8591,28 @@ namespace Radios
             long work = Volatile.Read(ref _transmitWorkGeneration);
             q.Enqueue((FunctionDel)(() =>
             {
-                if (TeardownHeldSilently("transmit")) return;
-                SendIfStillAdmitted(work, keyedOn, keyedConnection, what, () =>
+                bool on = false;
+                try
                 {
-                    // The echo of this key carries this request's origin (round 8, S3).
-                    t_ownKeyOrigin = origin;
-                    try { keyedOn.Mox = true; }
-                    finally { t_ownKeyOrigin = null; }
-                    _ownKeyRequested = true;
-                });
+                    if (TeardownHeldSilently("transmit")) return;
+                    SendIfStillAdmitted(work, keyedOn, keyedConnection, what, () =>
+                    {
+                        // Our ON counts only when it was really written (round 9):
+                        // the setter skips a value its cache already holds.
+                        int before = PinnedWritesSoFar;
+                        keyedOn.Mox = true;
+                        on = PinnedWritesSoFar > before;
+                        _ownKeyRequested = true;
+                    });
+                }
+                finally
+                {
+                    if (on ? key.NoteOnWritten(keyedConnection as CommandConnection) : key.NoteNeverWent())
+                        RaiseOwnKeyChanged();
+                    if (!on)
+                        Tracing.TraceLine("TransmitWork: " + what + " - our key never went out, so nothing was transmitted"
+                            + " and no falling cue is owed for it", TraceLevel.Info);
+                }
             }), "Mox");
         }
 

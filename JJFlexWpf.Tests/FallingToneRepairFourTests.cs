@@ -42,6 +42,8 @@ public sealed class FallingToneRepairFourTests : IDisposable
         {
             FallingTonesSubmitted = new(),
         };
+        // Our ON and OFF are written when the test runs the queue (round 9).
+        _r.QueueByHand();
     }
 
     public void Dispose()
@@ -81,6 +83,7 @@ public sealed class FallingToneRepairFourTests : IDisposable
         _r.Interlock(InterlockState.Ready);
         _r.MoxCache(false);
         _controller.PttDown();
+        _r.RunQueued();                                       // our ON, written
         Assert.True(_controller.IsTransmitting);
         _r.Interlock(InterlockState.Transmitting);
         _r.MoxCache(true);
@@ -91,7 +94,8 @@ public sealed class FallingToneRepairFourTests : IDisposable
     {
         AssertTheDeskIsSafe();
         KeyedOnOwnSlice();
-        _controller.PttUp();                                  // our release only asks the radio to unkey
+        _controller.PttUp();
+        _r.RunQueued();                                       // our OFF, written                                  // our release only asks the radio to unkey
         Assert.True(_controller.ChirpStopOwed);
         _r.MoxCache(false);                                   // FlexLib's Mox falls at our request
         _r.Interlock(InterlockState.UnkeyRequested);
@@ -123,6 +127,7 @@ public sealed class FallingToneRepairFourTests : IDisposable
         _r.ReceiveFallbackMs(10_000);
         KeyedOnOwnSlice();
         _controller.PttUp();
+        _r.RunQueued();                                       // our OFF, written
         _r.MoxCache(false);
         typeof(Radio).GetProperty(nameof(Radio.InterlockState))!.GetSetMethod(nonPublic: true)!
             .Invoke(_r.Radio, new object[] { InterlockState.Ready });
@@ -140,6 +145,7 @@ public sealed class FallingToneRepairFourTests : IDisposable
         AssertTheDeskIsSafe();
         KeyedOnOwnSlice();
         _controller.PttUp();
+        _r.RunQueued();                                       // our OFF, written
         _r.MoxCache(false);                                   // our software key is withdrawn...
         _r.Interlock(InterlockState.Transmitting);            // ...and the hand mic still keys the radio
         Thread.Sleep(300);
@@ -157,6 +163,7 @@ public sealed class FallingToneRepairFourTests : IDisposable
         _controller.TakeOverElsewhereStopTone();              // a push-to-talk takeover of a send elsewhere
         Assert.True(_controller.KeyedElsewhere);
         _controller.PttUp();
+        _r.RunQueued();                                       // our OFF, written
         _r.MoxCache(false);
         Thread.Sleep(150);
         Assert.Empty(Submitted());
@@ -186,12 +193,14 @@ public sealed class FallingToneRepairFourTests : IDisposable
         AssertTheDeskIsSafe();
         KeyedOnOwnSlice();
         _controller.PttUp();
+        _r.RunQueued();                                       // our OFF, written
         _r.MoxCache(false);
         _r.Interlock(InterlockState.Ready);                   // FlexLib's cache says Ready...
         Assert.True(Within(2000, () => Submitted().Length == 1));   // control: a real READY plays
 
         KeyedOnOwnSlice();
         _controller.PttUp();
+        _r.RunQueued();                                       // our OFF, written
         _r.MoxCache(false);
         typeof(Radio).GetProperty(nameof(Radio.InterlockState))!.GetSetMethod(nonPublic: true)!
             .Invoke(_r.Radio, new object[] { InterlockState.Ready });
@@ -209,6 +218,7 @@ public sealed class FallingToneRepairFourTests : IDisposable
         AssertTheDeskIsSafe();
         KeyedOnOwnSlice();
         _controller.PttUp();
+        _r.RunQueued();                                       // our OFF, written
         _r.MoxCache(false);
         Assert.True(_controller.ChirpStopOwed);
         _r.Transport.Fall();                                  // the link ends with the radio still reporting transmit
@@ -244,11 +254,13 @@ public sealed class FallingToneRepairFourTests : IDisposable
         AssertTheDeskIsSafe();
         KeyedOnOwnSlice();
         _controller.PttUp();
+        _r.RunQueued();                                       // our OFF, written
         _r.MoxCache(false);
         Assert.True(_controller.ChirpStopOwed);
         KeyedOnOwnSlice();                                    // keyed again before the radio ever said receive
         Assert.False(_controller.ChirpStopOwed);
         _controller.PttUp();
+        _r.RunQueued();                                       // our OFF, written
         _r.MoxCache(false);
         _r.Interlock(InterlockState.Ready);
         Assert.True(Within(2000, () => Submitted().Length == 1));

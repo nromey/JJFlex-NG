@@ -44,6 +44,8 @@ public sealed class FallingToneRepairFiveTests : IDisposable
         {
             FallingTonesSubmitted = new(),
         };
+        // Our ON and OFF are written when the test runs the queue (round 9).
+        _r.QueueByHand();
     }
 
     public void Dispose()
@@ -89,8 +91,10 @@ public sealed class FallingToneRepairFiveTests : IDisposable
     private void ShortPressWithNoReport()
     {
         _controller.PttDown();
+        _r.RunQueued();                                       // our ON, written
         _r.VendorMox(true);
         _controller.PttUp();
+        _r.RunQueued();                                       // our OFF, written
         _r.VendorMox(false);
     }
 
@@ -120,9 +124,11 @@ public sealed class FallingToneRepairFiveTests : IDisposable
         AssertTheDeskIsSafe();
         _r.Interlock(InterlockState.Ready);
         _controller.PttDown();
+        _r.RunQueued();                                       // our ON, written
         _r.VendorMox(true);
         _r.Interlock(InterlockState.Transmitting);
         _controller.PttUp();
+        _r.RunQueued();                                       // our OFF, written
         _r.VendorMox(false);
         _r.Interlock(InterlockState.Ready);
         Assert.True(Within(2000, () => Submitted().Length == 1), "control: the first press's chirp");
@@ -160,7 +166,10 @@ public sealed class FallingToneRepairFiveTests : IDisposable
         AssertTheDeskIsSafe();
         _r.Interlock(InterlockState.Ready);
         _r.Rig.Transmit = true;                                // the send's key, as its adapter asks
+        _r.RunQueued();
         _r.VendorMox(true);
+        _r.Rig.Transmit = false;                               // and its own unkey, written (round 9)
+        _r.RunQueued();
         _r.VendorMox(false);
         _controller.OweElsewhereStopTone();
         Thread.Sleep(400);
@@ -204,9 +213,11 @@ public sealed class FallingToneRepairFiveTests : IDisposable
         AssertTheDeskIsSafe();
         _r.Interlock(InterlockState.Ready);
         _controller.PttDown();
+        _r.RunQueued();                                       // our ON, written
         _r.VendorMox(true);
         _r.Interlock(InterlockState.Transmitting);
         _controller.PttUp();
+        _r.RunQueued();                                       // our OFF, written
         _r.VendorMox(false);
         Assert.True(_controller.ChirpStopOwed);
 
@@ -246,9 +257,11 @@ public sealed class FallingToneRepairFiveTests : IDisposable
     {
         _r.Interlock(InterlockState.Ready);
         _controller.PttDown();
+        _r.RunQueued();                                       // our ON, written
         _r.VendorMox(true);
         _r.Interlock(InterlockState.Transmitting);
         _controller.PttUp();
+        _r.RunQueued();                                       // our OFF, written
         _r.VendorMox(false);
         Assert.True(_controller.ChirpStopOwed);
     }
@@ -522,7 +535,8 @@ public sealed class FallingToneRepairFiveTests : IDisposable
             send.Transmit = true;
             RunNextQueued();
             _r.Interlock(InterlockState.Transmitting);
-            _r.VendorMox(false);
+            send.Transmit = false;                           // the send's own unkey, written (round 9)
+            RunNextQueued();
             _r.Interlock(InterlockState.Ready);
             _controller.OweElsewhereStopTone();
             Assert.True(Within(2000, () => Submitted().Length == 1));
