@@ -47,6 +47,32 @@ namespace Radios
     /// is still believed at once.
     /// </para>
     /// <para>
+    /// <b>What confirms a tune (repair round 5, #642).</b> Until this round
+    /// every tune went through FlexLib's <c>Slice.Freq</c> setter, which
+    /// writes the vendor's cache to our value BEFORE it sends, discards the
+    /// radio's success reply, and then skips the radio's report as "no
+    /// change" because the cache already holds it. So an ordinary successful
+    /// tune produced no confirmation at all, and a guard waiting for one
+    /// rejected the next genuine move back to a value it remembered. That
+    /// premise was wrong, not incomplete. Tunes now go out through the
+    /// reply-bearing command path instead (the one station connect already
+    /// uses; see <c>Radios.StationConnect.CommandReply</c>), so the vendor's
+    /// cache holds only what the radio reported. The radio's report of any
+    /// CHANGED value is then raised and settles the guard in
+    /// <see cref="Accept"/>; when there is no change left to report (we asked
+    /// for the number the radio already reports) the command's own reply is
+    /// the receipt (<see cref="Acknowledged"/>). Each request carries an id
+    /// into its send and its reply, so a reply or a refusal is only ever about
+    /// the request it answers.
+    /// </para>
+    /// <para>
+    /// <b>A refused tune concedes at once.</b> A locked slice, a slice gone,
+    /// a fallen command connection or an error reply means nothing changed,
+    /// so readers read the radio's last report straight away
+    /// (<see cref="Refused"/>) rather than holding our number until a timeout
+    /// that, for a locked slice, never came.
+    /// </para>
+    /// <para>
     /// <b>One guard per slice.</b> FlexBase keeps one for each slice (it was
     /// one for receive and one for transmit), because a write goes to a slice,
     /// and a guard shared across slices armed itself against one slice's
@@ -55,17 +81,21 @@ namespace Radios
     /// <para>
     /// <b>It always gives up.</b> If our write is dropped, the radio keeps
     /// reporting the old value truthfully and there is no confirmation coming.
-    /// After <see cref="GiveUpMs"/> the guard accepts whatever the radio says and
-    /// traces that it did. Holding a wrong cache forever — telling a blind
-    /// operator they are on a frequency they are not on — is not a trade worth
-    /// making for a race window.
+    /// <see cref="GiveUpMs"/> after the write was SENT (repair round 5: it
+    /// counted from the press, so a write that waited in our own queue had
+    /// almost no grace left once it went out), the guard accepts whatever the
+    /// radio says and traces that it did, and readers read the radio's last
+    /// report. A write still waiting in our own queue is our request on its
+    /// way and is held, up to <see cref="UnsentGiveUpMs"/>. Holding a wrong
+    /// cache forever — telling a blind operator they are on a frequency they
+    /// are not on — is not a trade worth making for a race window.
     /// </para>
     /// </remarks>
     internal sealed class FrequencyEchoGuard
     {
         /// <summary>
-        /// How long to wait for our own write to be confirmed before deciding it
-        /// never arrived and letting the radio win.
+        /// How long after our write was sent to wait for the radio to confirm
+        /// it before deciding it never arrived and letting the radio win.
         /// </summary>
         /// <remarks>
         /// Sized against the thing being defended: a slow SmartLink round trip is
@@ -76,15 +106,36 @@ namespace Radios
         /// </remarks>
         internal const int GiveUpMs = 1200;
 
+        /// <summary>
+        /// How long a write still waiting in our own command queue is held as
+        /// the slice's value (repair round 5). It waits on our queue, not on
+        /// the radio, so it is not the round trip's timeout; it only bounds a
+        /// queue that never runs it.
+        /// </summary>
+        internal const int UnsentGiveUpMs = 10_000;
+
+        /// <summary>What a reader should take as a slice's frequency.</summary>
+        internal enum Reading
+        {
+            /// <summary>Nothing of ours is outstanding: the caches, else the radio's report.</summary>
+            Idle,
+            /// <summary>Our request is on its way: its value.</summary>
+            Pending,
+            /// <summary>Our request was refused, or nothing confirmed it in time: the radio's last report.</summary>
+            Conceded,
+        }
+
         private readonly object _lock = new object();
         private readonly string _name;
         private readonly Func<long> _clock;
 
         private bool _armed;
-        private bool _sent;
+        private bool _refused;
+        private long _id;
         private ulong _replaced;
         private ulong _requested;
         private long _armedAt;
+        private long _sentAt = -1;
 
         /// <summary>
         /// Every value the current chain of our own writes superseded (repair
@@ -94,7 +145,7 @@ namespace Radios
         private readonly System.Collections.Generic.List<ulong> _superseded = new();
         internal const int ChainLimit = 64;
 
-        /// <param name="name">Appears in traces. "RX" or "TX".</param>
+        /// <param name="name">Appears in traces, e.g. "slice A".</param>
         /// <param name="clock">
         /// Milliseconds from any fixed origin. Injectable so the give-up path can
         /// be tested without waiting for it, which is the only way that path ever
@@ -107,54 +158,94 @@ namespace Radios
         }
 
         /// <summary>
-        /// Record that we have just written <paramref name="requested"/> over
-        /// <paramref name="replaced"/>. Call this only where the cache is updated
-        /// ahead of the radio; a path that lets the echo be the truth must not
-        /// arm, or it would reject its own answer.
+        /// Record that we have just asked for <paramref name="requested"/> over
+        /// <paramref name="replaced"/>, and return this request's id, which its
+        /// send (<see cref="Sending"/>) and its answer (<see cref="Acknowledged"/>,
+        /// <see cref="Refused"/>) carry. Call this only where the cache is
+        /// updated ahead of the radio; a path that lets the echo be the truth
+        /// must not arm, or it would reject its own answer.
         /// </summary>
-        internal void Requested(ulong replaced, ulong requested)
+        internal long Requested(ulong replaced, ulong requested)
         {
             lock (_lock)
             {
                 long now = _clock();
-                bool chain = _armed && now - _armedAt < GiveUpMs;
+                bool chain = _armed && !ExpiredLocked(now);
                 if (!chain) _superseded.Clear();
                 else Supersede(_requested);
                 Supersede(replaced);
                 _superseded.Remove(requested);
                 _armed = true;
-                _sent = false;
+                _refused = false;
                 _replaced = replaced;
                 _requested = requested;
                 _armedAt = now;
+                _sentAt = -1;
+                return ++_id;
             }
         }
 
         /// <summary>
-        /// Our own write of <paramref name="value"/> went out (repair round 4):
-        /// FlexLib's setter raised its own notification for it. Not a
-        /// confirmation; it only says the vendor's number is now ours.
+        /// Request <paramref name="id"/> is being written to the radio now
+        /// (repair round 5): its give-up window starts here, not at the press.
+        /// Marked before the write, so its reply can never arrive ahead of it.
         /// </summary>
-        internal void Sent(ulong value)
+        internal void Sending(long id)
         {
             lock (_lock)
             {
-                if (_armed && value == _requested) _sent = true;
+                if (_armed && id == _id && _sentAt < 0) _sentAt = _clock();
             }
         }
 
         /// <summary>
-        /// Our last write went out and the radio confirmed nothing within
-        /// <see cref="GiveUpMs"/> (repair round 4). The vendor's number is then
-        /// the truth: the radio's own last report if one came (a clamp to the
-        /// old value, say, which this guard rejected as stale), otherwise our
-        /// send. A reader should believe it rather than the optimistic cache.
+        /// Request <paramref name="id"/> changed nothing (repair round 5): the
+        /// slice was locked or gone, the command connection refused it, or the
+        /// radio answered with an error. If it is still the latest request,
+        /// readers read the radio's last report from now on, and true is
+        /// returned. A refusal of an older request says nothing about a newer
+        /// one, which stays pending.
         /// </summary>
-        internal bool SentAndGivenUp()
+        internal bool Refused(long id, string why)
         {
             lock (_lock)
             {
-                return _armed && _sent && _clock() - _armedAt >= GiveUpMs;
+                if (!_armed || id != _id || _refused) return false;
+                _refused = true;
+                _superseded.Clear();
+                Tracing.TraceLine(
+                    "FrequencyEcho:" + _name + " the tune to " + _requested + " was refused (" + why
+                    + "); reading the radio's own report", TraceLevel.Info);
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// The radio answered request <paramref name="id"/> with success, and
+        /// <paramref name="reportedHz"/> is what it last reported for the slice
+        /// (repair round 5). When that is the value asked for there is no
+        /// change left for the radio to report, so this reply is the
+        /// confirmation and the guard settles. Otherwise the radio's report of
+        /// the change is still to come, and settles the guard when it arrives.
+        /// A reply to an older request settles nothing.
+        /// </summary>
+        /// <remarks>
+        /// This relies on the radio sending a command's own status no later
+        /// than its reply, on the one command connection: the same ordering
+        /// #266's guard has always relied on among statuses. Not measured on a
+        /// radio; the trace line below is how a session would show it.
+        /// </remarks>
+        internal void Acknowledged(long id, ulong reportedHz)
+        {
+            lock (_lock)
+            {
+                if (!_armed || id != _id || _refused) return;
+                if (reportedHz != _requested) return;
+                _armed = false;
+                _superseded.Clear();
+                Tracing.TraceLine(
+                    "FrequencyEcho:" + _name + " confirmed at " + reportedHz + " by the radio's reply after "
+                    + (_clock() - _armedAt) + " ms", TraceLevel.Verbose);
             }
         }
 
@@ -166,22 +257,39 @@ namespace Radios
         }
 
         /// <summary>
-        /// The value our pending write asked for, while one is pending and not
-        /// given up on. A cache refreshed from the slice's own (still old)
-        /// number keeps this instead (repair round 3).
+        /// Refused, or out of time: <see cref="GiveUpMs"/> after the send, or
+        /// <see cref="UnsentGiveUpMs"/> after the request while it has not
+        /// been sent. Call holding the lock.
         /// </summary>
-        internal bool TryPending(out ulong requested)
+        private bool ExpiredLocked(long now) =>
+            _refused || (_sentAt >= 0 ? now - _sentAt >= GiveUpMs : now - _armedAt >= UnsentGiveUpMs);
+
+        /// <summary>
+        /// What a reader should take as this slice's frequency, read once
+        /// (repair round 5). <paramref name="pending"/> is the requested value
+        /// when the answer is <see cref="Reading.Pending"/>.
+        /// </summary>
+        internal Reading Read(out ulong pending)
         {
             lock (_lock)
             {
-                requested = _requested;
-                return _armed && _clock() - _armedAt < GiveUpMs;
+                pending = _requested;
+                if (!_armed) return Reading.Idle;
+                return ExpiredLocked(_clock()) ? Reading.Conceded : Reading.Pending;
             }
         }
 
         /// <summary>
+        /// The value our pending write asked for, while one is pending and not
+        /// given up on. A cache refreshed from the slice's own (still old)
+        /// number keeps this instead (repair round 3).
+        /// </summary>
+        internal bool TryPending(out ulong requested) => Read(out requested) == Reading.Pending;
+
+        /// <summary>
         /// Should <paramref name="echoed"/> be written into the cache? True for
-        /// everything except a stale report of the value we just replaced.
+        /// everything except a stale report of a value our pending chain
+        /// replaced.
         /// </summary>
         internal bool Accept(ulong echoed)
         {
@@ -189,7 +297,7 @@ namespace Radios
             {
                 if (!_armed) return true;
 
-                if (echoed == _requested)
+                if (echoed == _requested && !_refused)
                 {
                     // Settled. The radio has our value; there is nothing left to
                     // protect.
@@ -210,15 +318,21 @@ namespace Radios
                     return true;
                 }
 
-                long age = _clock() - _armedAt;
-                if (age >= GiveUpMs)
+                long now = _clock();
+                if (ExpiredLocked(now))
                 {
                     _armed = false;
                     _superseded.Clear();
-                    Tracing.TraceLine(
-                        "FrequencyEcho:" + _name + " gave up after " + age + " ms waiting for "
-                        + _requested + " to be confirmed; accepting " + echoed
-                        + ". The write was probably dropped.", TraceLevel.Warning);
+                    if (_refused)
+                        Tracing.TraceLine(
+                            "FrequencyEcho:" + _name + " accepting " + echoed + " after our refused tune to "
+                            + _requested, TraceLevel.Info);
+                    else
+                        Tracing.TraceLine(
+                            "FrequencyEcho:" + _name + " gave up "
+                            + (_sentAt >= 0 ? (now - _sentAt) + " ms after sending " : (now - _armedAt) + " ms after asking for ")
+                            + _requested + " with nothing confirmed; accepting " + echoed
+                            + ". The write was probably dropped.", TraceLevel.Warning);
                     return true;
                 }
 
@@ -226,7 +340,7 @@ namespace Radios
                 {
                     Tracing.TraceLine(
                         "FrequencyEcho:" + _name + " ignored a stale echo of " + echoed
-                        + " that would have rewound " + _requested + " (" + age + " ms in)",
+                        + " that would have rewound " + _requested + " (" + (now - _armedAt) + " ms in)",
                         TraceLevel.Info);
                     return false;
                 }

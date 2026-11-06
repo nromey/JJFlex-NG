@@ -1,5 +1,6 @@
 using Flex.Smoothlake.FlexLib;
 using JJTrace;
+using Radios.StationConnect;
 
 namespace Radios
 {
@@ -51,8 +52,9 @@ namespace Radios
         //   synchronously, after SENDING and before any reply. The guard took
         //   that as the radio's confirmation, disarmed as the queue drained,
         //   and the radio's first delayed report then rewound a fully sent run
-        //   of steps. WriteTuneTo now marks its own write (LocalTuneWrite), the
-        //   handler never settles the guard on it, and a refresh from the
+        //   of steps. WriteTuneTo marked its own write (a thread-static marker,
+        //   gone in round 5 with the setter itself), the handler never settled
+        //   the guard on it, and a refresh from the
         //   slice's own number (ObservedOrPending) only reads the pending
         //   value, never settles: the vendor's number is our own send by then.
         //   Only a report from the radio confirms.
@@ -64,6 +66,20 @@ namespace Radios
         //   setters and the same WriteTuneTo, so they are bound to the
         //   operator's selection at the press and checked for the slice's
         //   lifetime at the write.
+
+        // Repair round 5 (Codex's fourth re-check). Round 4's premise was that
+        // only the radio's own report settles the guard, and the vendor does
+        // not deliver that report in the commonest case: FlexLib's Freq setter
+        // puts our value in its cache before sending, so the radio's report of
+        // an ordinary success equals the cache and is skipped. The setter is
+        // no longer used to tune. RequestTune owns the whole request (the
+        // slice at the press, the lock, the guard's id, the one published
+        // value), WriteTuneTo sends it through the reply-bearing command path
+        // with that id, and the reply comes back to TuneReplied with it. So
+        // FlexLib's cache holds only what the radio reported, every changed
+        // value's report is raised and settles the guard, the reply is the
+        // receipt when nothing changed, and a refusal (locked, gone, transport
+        // down, error reply) concedes to the radio's report at once.
 
         private static long _cacheSeq;
 
@@ -105,26 +121,26 @@ namespace Radios
         private void SetTxCache(Slice slice, ulong hz) => _txCache = new SliceHz(slice, hz);
 
         /// <summary>
-        /// <paramref name="slice"/>'s one frequency: the newer of the two
-        /// caches that belong to it and hold a number, otherwise the slice's
-        /// own. Take each cache once and pass both, so a reading that names two
-        /// slices reads both from the same pair.
+        /// <paramref name="slice"/>'s one frequency. Our request on its way is
+        /// its value; a refused or unconfirmed request concedes to the radio's
+        /// last report (repair round 5); otherwise the newer of the two caches
+        /// that belong to it and hold a number, else the slice's own. The
+        /// guard is asked ONCE, so a reader on another thread never sees a
+        /// request half published. Take each cache once and pass both, so a
+        /// reading that names two slices reads both from the same pair.
         /// </summary>
         private ulong ValueOf(Slice slice, SliceHz rx, SliceHz tx)
         {
+            switch (EchoGuardFor(slice).Read(out ulong pending))
+            {
+                case FrequencyEchoGuard.Reading.Pending: return pending;
+                case FrequencyEchoGuard.Reading.Conceded: return LibFreqtoLong(slice.Freq);
+            }
             SliceHz best = null;
             if (rx != null && rx.Hz != 0UL && ReferenceEquals(rx.Slice, slice)) best = rx;
             if (tx != null && tx.Hz != 0UL && ReferenceEquals(tx.Slice, slice) && (best == null || tx.Seq > best.Seq))
                 best = tx;
-            var guard = EchoGuardFor(slice);
-            // Our last tune went out and nothing confirmed it in the give-up
-            // window (repair round 4): the vendor's number is the truth now,
-            // the radio's own last report or our send, not the cache.
-            if (guard.SentAndGivenUp()) return LibFreqtoLong(slice.Freq);
-            if (best != null) return best.Hz;
-            // Neither cache describes this slice (repair round 4): a step still
-            // on its way is its value, not the vendor's older number.
-            return guard.TryPending(out ulong pending) ? pending : LibFreqtoLong(slice.Freq);
+            return best != null ? best.Hz : LibFreqtoLong(slice.Freq);
         }
 
         /// <summary>Each slice's own echo guard (#266, made per slice in repair round 3).</summary>
@@ -137,37 +153,13 @@ namespace Radios
         /// What a cache should hold for <paramref name="slice"/> when it is
         /// refreshed from the slice's own number <paramref name="reported"/>:
         /// our own tune still on its way while one is pending, otherwise the
-        /// number. A refresh is not a report from the radio (repair round 4):
-        /// once the queue has sent our write, the vendor's number IS our
-        /// write, so a refresh never settles the guard. Only the radio's own
-        /// Freq report does, in the slice handler.
+        /// number. A refresh is not a report from the radio, so it never
+        /// settles the guard; only the radio's own Freq report, or the tune's
+        /// reply, does.
         /// </summary>
         private ulong ObservedOrPending(Slice slice, ulong reported)
         {
             return EchoGuardFor(slice).TryPending(out ulong pending) ? pending : reported;
-        }
-
-        /// <summary>
-        /// The slice our own queued tune is writing right now, on this thread
-        /// (repair round 4). FlexLib's Freq setter raises the slice's Freq
-        /// notification synchronously inside the write, so a notification for
-        /// this slice on this thread is our send, not the radio's report.
-        /// </summary>
-        [System.ThreadStatic] private static Slice t_localTuneWrite;
-
-        /// <summary>True while our own tune of <paramref name="slice"/> is raising its Freq notification.</summary>
-        private static bool LocalTuneWrite(Slice slice) => slice != null && ReferenceEquals(t_localTuneWrite, slice);
-
-        /// <summary>
-        /// Our own send's Freq notification, judged without settling anything:
-        /// it may be written into the caches only when it is the value now
-        /// pending (the last write of a run) or nothing is pending.
-        /// </summary>
-        private bool LocalTuneShows(Slice slice, ulong echoed)
-        {
-            var guard = EchoGuardFor(slice);
-            guard.Sent(echoed);
-            return !guard.TryPending(out ulong pending) || pending == echoed;
         }
 
         /// <summary>
@@ -188,12 +180,44 @@ namespace Radios
         }
 
         /// <summary>
-        /// The queued half of a tune, bound to the slice it was pressed on.
-        /// A slice no longer ours by the time it runs gets nothing, and no
-        /// other slice gets it either.
+        /// One tune request, whole (repair round 5). Every route that tunes a
+        /// slice comes here, so none of them can tune without the guard's
+        /// admission. <paramref name="slice"/> is taken by the caller at the
+        /// press. A locked slice is refused here and nothing is published. The
+        /// guard is armed FIRST, so a reader on another thread sees the
+        /// request as pending before any cache moves; then the value is
+        /// published; then the send is queued carrying this request's id.
         /// </summary>
-        private void WriteTuneTo(Slice slice, double mhz, string what)
+        private void RequestTune(Slice slice, ulong value, bool selectedTune, string what)
         {
+            if (slice.Lock)
+            {
+                Tracing.TraceLine(what + ": slice " + slice.Letter + " is locked, so its tune to " + value
+                    + " was not sent", System.Diagnostics.TraceLevel.Info);
+                return;
+            }
+            // What this write replaces is this slice's own value (repair
+            // round 3), read before anything is published.
+            ulong replaced = ValueOf(slice, _rxCache, _txCache);
+            long id = EchoGuardFor(slice).Requested(replaced, value);
+            // The optimistic value is held WITH the slice it is written to, in
+            // every cache that describes that slice.
+            PublishTuning(slice, value, selectedTune);
+            double mhz = LongFreqToLibFreq(value);
+            q.Enqueue((FunctionDel)(() => WriteTuneTo(slice, id, mhz, what)), what);
+        }
+
+        /// <summary>
+        /// The queued half of a tune, bound to the slice it was pressed on and
+        /// to the request it belongs to. A slice no longer ours, or locked, by
+        /// the time it runs gets nothing, and no other slice gets it either.
+        /// It goes out through the reply-bearing path, not FlexLib's Freq
+        /// setter (repair round 5): the command that setter would send,
+        /// through the slice's own radio.
+        /// </summary>
+        private void WriteTuneTo(Slice slice, long id, double mhz, string what)
+        {
+            var guard = EchoGuardFor(slice);
             bool ours;
             var slices = mySlices;
             if (slices == null) ours = false;
@@ -202,12 +226,44 @@ namespace Radios
             {
                 Tracing.TraceLine(what + ": slice " + slice.Letter + " is gone, so its tune to " + mhz
                     + " was not sent to any slice", System.Diagnostics.TraceLevel.Info);
+                guard.Refused(id, "the slice is gone");
                 return;
             }
-            Slice outer = t_localTuneWrite;
-            t_localTuneWrite = slice;
-            try { slice.Freq = mhz; }
-            finally { t_localTuneWrite = outer; }
+            if (slice.Lock)
+            {
+                Tracing.TraceLine(what + ": slice " + slice.Letter + " was locked before its tune to " + mhz
+                    + " could be sent", System.Diagnostics.TraceLevel.Info);
+                guard.Refused(id, "the slice is locked");
+                return;
+            }
+            string command = "slice tune " + slice.Index + " " + Flex.Util.StringHelper.DoubleToString(mhz, "f6");
+            if (!slice.AutoPan) command += " autopan=0";
+            // Marked before the write, so the reply cannot come back ahead of it.
+            guard.Sending(id);
+            string refusal = SendRadioCommandWithReply(slice.Radio, command, reply => TuneReplied(slice, id, reply));
+            if (refusal != null)
+            {
+                Tracing.TraceLine(what + ": slice " + slice.Letter + "'s tune to " + mhz + " was not sent: " + refusal,
+                    System.Diagnostics.TraceLevel.Info);
+                guard.Refused(id, refusal);
+            }
+        }
+
+        /// <summary>
+        /// The radio's reply to tune request <paramref name="id"/>, on the
+        /// receive thread. Success confirms it when the radio's last report is
+        /// already the value asked for (there is no change left to report);
+        /// an error means nothing changed, and readers read the radio.
+        /// </summary>
+        private void TuneReplied(Slice slice, long id, CommandReply reply)
+        {
+            var guard = EchoGuardFor(slice);
+            if (reply.Acknowledged) guard.Acknowledged(id, LibFreqtoLong(slice.Freq));
+            else
+            {
+                Tracing.TraceLine("tune reply: slice " + slice.Letter + " " + reply, System.Diagnostics.TraceLevel.Info);
+                guard.Refused(id, "the radio answered " + reply);
+            }
         }
 
         /// <summary>The slice at RXVFO, under the roster's lock; null when there is none.</summary>

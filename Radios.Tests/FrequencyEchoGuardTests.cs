@@ -84,11 +84,16 @@ namespace Radios.Tests
             Assert.True(g.Accept(asked2));
         }
 
+        // The give-up window counts from the SEND since repair round 5 (#642):
+        // the four tests below mark the send where they used to start the
+        // clock at the request, which is the same claim about the radio's
+        // window measured from the moment that window can actually open.
+
         [Fact]
         public void After_giving_up_the_radio_wins()
         {
             var g = Guard();
-            g.Requested(Was, Asked);
+            g.Sending(g.Requested(Was, Asked));
             Assert.False(g.Accept(Was));
 
             _now += FrequencyEchoGuard.GiveUpMs;
@@ -102,7 +107,7 @@ namespace Radios.Tests
         public void Giving_up_disarms_rather_than_expiring_once_per_echo()
         {
             var g = Guard();
-            g.Requested(Was, Asked);
+            g.Sending(g.Requested(Was, Asked));
             _now += FrequencyEchoGuard.GiveUpMs;
             Assert.True(g.Accept(Was));
 
@@ -119,7 +124,7 @@ namespace Radios.Tests
             // The boundary, so that a change to GiveUpMs cannot silently become a
             // change to whether the guard works at all.
             var g = Guard();
-            g.Requested(Was, Asked);
+            g.Sending(g.Requested(Was, Asked));
 
             _now += FrequencyEchoGuard.GiveUpMs - 1;
             Assert.False(g.Accept(Was));
@@ -143,23 +148,35 @@ namespace Radios.Tests
             // Every FlexBase partial, not FlexBase.cs alone.
             string text = FlexBasePartials.JoinedText();
 
-            // One guard per slice since repair round 3 (EchoGuardFor). Both
-            // tune setters arm it, and the Freq report and every refresh of a
-            // cache from a slice's own number consult it.
-            Assert.Equal(2, CountOf(text, "EchoGuardFor(slice).Requested(replaced, value);"));
-            // Repair round 4: the radio's Freq report asks it; our own send's
-            // notification (FlexLib raises it inside the write) never settles
-            // it, and a refresh only reads the pending value.
-            Assert.True(text.Contains("bool accepted = LocalTuneWrite(s) ? LocalTuneShows(s, echoed)", StringComparison.Ordinal)
-                        && text.Contains(": EchoGuardFor(s).Accept(echoed);", StringComparison.Ordinal),
+            // One guard per slice since repair round 3 (EchoGuardFor). Since
+            // repair round 5 ONE helper owns the whole request, and every
+            // route that tunes a slice goes through it: both setters and the
+            // slice copy (the copy bypassed it in round 4, Codex's finding 2).
+            Assert.Equal(1, CountOf(text, "long id = EchoGuardFor(slice).Requested(replaced, value);"));
+            Assert.Equal(1, CountOf(text, "RequestTune(slice, value, selectedTune: true, \"RXFreq\");"));
+            Assert.Equal(1, CountOf(text, "RequestTune(slice, value, selectedTune: false, \"TXFreq\");"));
+            Assert.Equal(1, CountOf(text, "RequestTune(outSlice, ValueOf(inSlice, _rxCache, _txCache), selectedTune: false, \"CopyVFO\");"));
+            Assert.Equal(1, CountOf(text, "q.Enqueue((FunctionDel)(() => WriteTuneTo(slice, id, mhz, what)), what);"));
+            // The radio's Freq report asks the guard, and nothing else
+            // decides whether it reaches the caches.
+            Assert.True(text.Contains("bool accepted = EchoGuardFor(s).Accept(echoed);", StringComparison.Ordinal),
                 "the slice's guard is never consulted on a Freq report, so every echo goes straight "
                 + "into the cache and the guard is decoration. See task #266.");
             Assert.True(text.Contains("return EchoGuardFor(slice).TryPending(out ulong pending) ? pending : reported;", StringComparison.Ordinal),
                 "a cache refreshed from a slice's own number does not ask its guard (repair round 3).");
             Assert.False(text.Contains("guard.Accept(reported)", StringComparison.Ordinal),
-                "a refresh from the vendor's number settles the guard, but by then that number is our own send (repair round 4).");
-            Assert.True(text.Contains("t_localTuneWrite = slice;", StringComparison.Ordinal),
-                "WriteTuneTo no longer marks its own write, so its notification reads as the radio confirming (repair round 4).");
+                "a refresh from the vendor's number settles the guard (repair round 4).");
+            // Repair round 5: the tune goes out through the reply-bearing path
+            // with its request's id, never through FlexLib's Freq setter, which
+            // would put our value in FlexLib's cache and so make the radio's
+            // report of an ordinary success invisible.
+            Assert.False(text.Contains("slice.Freq = mhz", StringComparison.Ordinal),
+                "a tune writes FlexLib's Freq setter again, so an ordinary success is never confirmed (repair round 5).");
+            Assert.True(text.Contains("SendRadioCommandWithReply(slice.Radio, command, reply => TuneReplied(slice, id, reply));", StringComparison.Ordinal),
+                "the tune no longer goes through the reply-bearing path with its id (repair round 5).");
+            Assert.True(text.Contains("guard.Acknowledged(id, LibFreqtoLong(slice.Freq));", StringComparison.Ordinal)
+                        && text.Contains("guard.Refused(id, \"the radio answered \" + reply);", StringComparison.Ordinal),
+                "the tune's reply does not reach its own request's guard (repair round 5).");
             Assert.True(CountOf(text, "ObservedOrPending(s, LibFreqtoLong(s.Freq))") >= 3,
                 "the ActiveSlice refresh and both found-slice refreshes ask the guard (repair round 3).");
         }
@@ -208,7 +225,7 @@ namespace Radios.Tests
         public void A_chain_started_after_giving_up_forgets_the_old_one()
         {
             var g = Guard();
-            g.Requested(Was, Asked);
+            g.Sending(g.Requested(Was, Asked));
             _now += FrequencyEchoGuard.GiveUpMs;
             g.Requested(14_300_000, 14_300_100);
             Assert.True(g.Accept(Was));
@@ -233,6 +250,110 @@ namespace Radios.Tests
             g.Requested(Was, Was);
 
             Assert.True(g.Accept(Was));
+        }
+        // ── Repair round 5 (#642): requests carry ids; replies and refusals ──
+
+        [Fact]
+        public void A_request_still_in_our_queue_is_held_past_the_radios_window()
+        {
+            var g = Guard();
+            g.Requested(Was, Asked);
+            _now += FrequencyEchoGuard.GiveUpMs * 3;
+            Assert.False(g.Accept(Was));
+            Assert.Equal(FrequencyEchoGuard.Reading.Pending, g.Read(out ulong p));
+            Assert.Equal(Asked, p);
+        }
+
+        [Fact]
+        public void A_request_never_sent_is_given_up_on_in_the_end()
+        {
+            var g = Guard();
+            g.Requested(Was, Asked);
+            _now += FrequencyEchoGuard.UnsentGiveUpMs;
+            Assert.Equal(FrequencyEchoGuard.Reading.Conceded, g.Read(out _));
+            Assert.True(g.Accept(Was));
+            Assert.Equal(FrequencyEchoGuard.Reading.Idle, g.Read(out _));
+        }
+
+        [Fact]
+        public void The_window_counts_from_the_send_not_the_request()
+        {
+            var g = Guard();
+            long id = g.Requested(Was, Asked);
+            _now += 1190;
+            g.Sending(id);
+            _now += 10;                                    // 1200 after the request, 10 after the send
+            Assert.Equal(FrequencyEchoGuard.Reading.Pending, g.Read(out _));
+            Assert.False(g.Accept(Was));
+            _now += FrequencyEchoGuard.GiveUpMs - 10;
+            Assert.Equal(FrequencyEchoGuard.Reading.Conceded, g.Read(out _));
+        }
+
+        [Fact]
+        public void A_refused_request_concedes_at_once_and_a_newer_one_arms_again()
+        {
+            var g = Guard();
+            long id = g.Requested(Was, Asked);
+            Assert.True(g.Refused(id, "locked"));
+            Assert.Equal(FrequencyEchoGuard.Reading.Conceded, g.Read(out _));
+            Assert.True(g.Accept(Was));                    // the radio's report is believed
+
+            long id2 = g.Requested(Was, 14_200_200);
+            Assert.Equal(FrequencyEchoGuard.Reading.Pending, g.Read(out ulong p));
+            Assert.Equal(14_200_200UL, p);
+            Assert.False(g.Refused(id, "late"));           // the old refusal says nothing about the new request
+            Assert.Equal(FrequencyEchoGuard.Reading.Pending, g.Read(out _));
+            Assert.True(g.Refused(id2, "gone"));
+        }
+
+        [Fact]
+        public void A_refused_request_does_not_settle_on_its_own_value()
+        {
+            var g = Guard();
+            long id = g.Requested(Was, Asked);
+            g.Refused(id, "the radio answered an error");
+            Assert.True(g.Accept(Asked));                  // believed, as any report is once conceded
+            Assert.Equal(FrequencyEchoGuard.Reading.Idle, g.Read(out _));
+        }
+
+        [Fact]
+        public void The_reply_confirms_only_when_there_is_nothing_left_to_report()
+        {
+            var g = Guard();
+            long id = g.Requested(Was, Asked);
+            g.Sending(id);
+            g.Acknowledged(id, Was);                       // the radio's report of the change is still to come
+            Assert.Equal(FrequencyEchoGuard.Reading.Pending, g.Read(out _));
+            Assert.False(g.Accept(Was));
+            g.Acknowledged(id, Asked);                     // the radio already reports what we asked for
+            Assert.Equal(FrequencyEchoGuard.Reading.Idle, g.Read(out _));
+            Assert.True(g.Accept(Was));                    // so an old number is news again
+        }
+
+        [Fact]
+        public void A_reply_to_an_older_request_settles_nothing()
+        {
+            var g = Guard();
+            long first = g.Requested(Was, Asked);
+            g.Sending(first);
+            long second = g.Requested(Asked, Was);         // back to where the radio still is
+            g.Acknowledged(first, Was);                    // equals the newer request, but answers the older one
+            Assert.Equal(FrequencyEchoGuard.Reading.Pending, g.Read(out _));
+            Assert.False(g.Accept(Asked));                 // the older one's report is still stale
+            g.Sending(second);
+            g.Acknowledged(second, Was);
+            Assert.Equal(FrequencyEchoGuard.Reading.Idle, g.Read(out _));
+        }
+
+        [Fact]
+        public void An_older_request_being_sent_does_not_start_the_newer_ones_window()
+        {
+            var g = Guard();
+            long first = g.Requested(Was, Asked);
+            g.Requested(Asked, 14_200_200);
+            g.Sending(first);
+            _now += FrequencyEchoGuard.GiveUpMs;           // well past the older send
+            Assert.Equal(FrequencyEchoGuard.Reading.Pending, g.Read(out _));
         }
     }
 }

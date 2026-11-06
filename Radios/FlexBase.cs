@@ -5507,11 +5507,11 @@ namespace Radios
                             ulong echoed = LibFreqtoLong(s.Freq);
                             // This slice's own guard, asked ONCE for both
                             // caches (repair round 3): one slice, one answer.
-                            // Our own send's notification (FlexLib raises it
-                            // inside the write) is not the radio confirming,
-                            // so it never settles the guard (repair round 4).
-                            bool accepted = LocalTuneWrite(s) ? LocalTuneShows(s, echoed)
-                                                              : EchoGuardFor(s).Accept(echoed);
+                            // Our tunes no longer go through FlexLib's setter
+                            // (repair round 5), so this notification is the
+                            // radio's own report, which FlexLib raises for any
+                            // changed value.
+                            bool accepted = EchoGuardFor(s).Accept(echoed);
                             if (accepted && (s.Active || ReferenceEquals(_rxCache?.Slice, s)))
                                 SetRxCache(s, echoed);
                             if (accepted && s.Active)
@@ -8728,7 +8728,10 @@ namespace Radios
             lock (mySlices)
             {
                 var slice = ValidVFO(vfo) ? mySlices[vfo] : null;
-                return slice?.Freq ?? 0.0;
+                // The slice's one value (repair round 5): FlexLib's own number
+                // is now only what the radio reported, so a tune on its way is
+                // read from the guard and the caches, as F and the title are.
+                return slice == null ? 0.0 : LongFreqToLibFreq(ValueOf(slice, _rxCache, _txCache));
             }
         }
 
@@ -9349,9 +9352,13 @@ namespace Radios
             Slice inSlice = VFOToSlice(inv);
             Slice outSlice = VFOToSlice(outv);
             q.Enqueue((FunctionDel)null, "slice copy start");
-            // The tune goes through WriteTuneTo (repair round 4), so a slice
-            // removed before the queue runs gets nothing on its reusable index.
-            q.Enqueue((FunctionDel)(() => WriteTuneTo(outSlice, inSlice.Freq, "CopyVFO")));
+            // The tune is a whole tune request (repair round 5): the source's
+            // one value at the press, published to the target and guarded like
+            // any step, so a step just taken on the target cannot refuse the
+            // copy's report, and the next step starts from the copy. Its send
+            // goes through WriteTuneTo (repair round 4), so a slice removed
+            // before the queue runs gets nothing on its reusable index.
+            RequestTune(outSlice, ValueOf(inSlice, _rxCache, _txCache), selectedTune: false, "CopyVFO");
             q.Enqueue((FunctionDel)(() => { outSlice.DemodMode = inSlice.DemodMode; }));
             q.Enqueue((FunctionDel)(() => { outSlice.AutoPan = inSlice.AutoPan; }));
             q.Enqueue((FunctionDel)(() => { outSlice.RTTYMark = inSlice.RTTYMark; }));
@@ -9431,20 +9438,15 @@ namespace Radios
                         TraceLevel.Warning);
                     return;
                 }
-                // What this write replaces is THIS slice's own value, not the
-                // raw cache, which during a selection can still hold the old
-                // slice's number (repair round 3).
-                ulong replaced = ValueOf(slice, _rxCache, _txCache);
-                // The optimistic value is held WITH the slice it is written
-                // to, in every cache that describes that slice.
-                PublishTuning(slice, value, selectedTune: true);
-                double freq = LongFreqToLibFreq(value);
-                // Arm HERE, not at the top of the setter: the early return
-                // above leaves without writing anything to the radio, and a
-                // guard armed for a write that never went out would reject the
-                // radio's perfectly truthful report of where it still is.
-                EchoGuardFor(slice).Requested(replaced, value);
-                q.Enqueue((FunctionDel)(() => WriteTuneTo(slice, freq, "RXFreq")), "RXFreq");
+                // The whole request, armed HERE rather than at the top of the
+                // setter: the early return above leaves without writing
+                // anything to the radio, and a guard armed for a write that
+                // never went out would reject the radio's perfectly truthful
+                // report of where it still is. What it replaces is THIS
+                // slice's own value, not the raw cache (repair round 3), and
+                // the one helper owns admission, publication and the guard
+                // (repair round 5).
+                RequestTune(slice, value, selectedTune: true, "RXFreq");
             }
         }
 
@@ -9539,9 +9541,6 @@ namespace Radios
                                       TraceLevel.Warning);
                     return;
                 }
-                // What this write replaces is this slice's own value (repair
-                // round 3), read before the optimistic value is published.
-                ulong replaced = ValueOf(slice, _rxCache, _txCache);
                 // The optimistic value belongs to this slice, so it goes when
                 // this slice does. Only a slice the radio has designated may
                 // stand in the transmit caches: TXVFO can be a position left
@@ -9556,13 +9555,12 @@ namespace Radios
                                       + "so the requested " + value + " is not held as a transmit fact",
                                       TraceLevel.Warning);
                 }
-                // The slice's one value, in every cache that describes it
-                // (PublishTuning holds it as a transmit fact only when the
-                // slice is designated).
-                PublishTuning(slice, value, selectedTune: false);
-                double freq = LongFreqToLibFreq(value);
-                EchoGuardFor(slice).Requested(replaced, value);
-                q.Enqueue((FunctionDel)(() => WriteTuneTo(slice, freq, "TXFreq")), "TXFreq");
+                // The whole request (repair round 5): what it replaces is this
+                // slice's own value (repair round 3), and the slice's one
+                // value goes in every cache that describes it (PublishTuning
+                // holds it as a transmit fact only when the slice is
+                // designated).
+                RequestTune(slice, value, selectedTune: false, "TXFreq");
             }
         }
 
