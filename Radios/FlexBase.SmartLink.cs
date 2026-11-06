@@ -61,32 +61,7 @@ namespace Radios
                 if (theRadio == null) return "No radio connected.";
                 try
                 {
-                    return theRadio.WanOwnerHandshakeStatus switch
-                    {
-                        Radio.WanRadioRegistrationState.Undefined =>
-                            "Not started. JJ Flexible Radio Access cannot tell from here whether this radio is already registered — if it shows up in your SmartLink radio list, it is.",
-                        Radio.WanRadioRegistrationState.WaitingOnSmartLinkConnection =>
-                            "The radio is contacting SmartLink.",
-                        Radio.WanRadioRegistrationState.WaitingForPTT =>
-                            "The radio is waiting for you to key the microphone or the CW key. Do that now, at the radio.",
-                        Radio.WanRadioRegistrationState.WaitingOnServerConfirmation =>
-                            "Keyed. Waiting for SmartLink to confirm.",
-                        Radio.WanRadioRegistrationState.RegisterSuccess =>
-                            "Registered. This radio is now tied to your SmartLink account, so you can connect to it when you're away from home.",
-                        Radio.WanRadioRegistrationState.UnregisterSuccess =>
-                            "Unregistered. This radio is no longer tied to a SmartLink account.",
-                        Radio.WanRadioRegistrationState.FailedPTT =>
-                            "Failed — the radio did not see the microphone or key pressed in time. Try again and key it as soon as you are asked.",
-                        Radio.WanRadioRegistrationState.FailedServerConnection =>
-                            "Failed — the radio could not reach SmartLink. Check that the radio has a working internet connection.",
-                        Radio.WanRadioRegistrationState.FailedServerConfirmation =>
-                            "Failed — SmartLink did not confirm the registration.",
-                        Radio.WanRadioRegistrationState.FailedNotLicensed =>
-                            "Failed — this radio is not licensed for SmartLink.",
-                        Radio.WanRadioRegistrationState.FailedUnknown =>
-                            "Failed, with no reason given. See the trace file.",
-                        _ => "Unknown.",
-                    };
+                    return RegistrationStateTextFor(theRadio.WanOwnerHandshakeStatus);
                 }
                 catch (Exception ex)
                 {
@@ -94,6 +69,42 @@ namespace Radios
                     return "Unknown.";
                 }
             }
+        }
+
+        /// <summary>
+        /// The sentence for one handshake state. A state queued for later
+        /// delivery is reported with ITS sentence, taken when it was raised,
+        /// not with whatever the radio says by the time it is delivered
+        /// (#713, repair round 5, Codex F1).
+        /// </summary>
+        internal static string RegistrationStateTextFor(Radio.WanRadioRegistrationState state)
+        {
+            return state switch
+            {
+                Radio.WanRadioRegistrationState.Undefined =>
+                    "Not started. JJ Flexible Radio Access cannot tell from here whether this radio is already registered — if it shows up in your SmartLink radio list, it is.",
+                Radio.WanRadioRegistrationState.WaitingOnSmartLinkConnection =>
+                    "The radio is contacting SmartLink.",
+                Radio.WanRadioRegistrationState.WaitingForPTT =>
+                    "The radio is waiting for you to key the microphone or the CW key. Do that now, at the radio.",
+                Radio.WanRadioRegistrationState.WaitingOnServerConfirmation =>
+                    "Keyed. Waiting for SmartLink to confirm.",
+                Radio.WanRadioRegistrationState.RegisterSuccess =>
+                    "Registered. This radio is now tied to your SmartLink account, so you can connect to it when you're away from home.",
+                Radio.WanRadioRegistrationState.UnregisterSuccess =>
+                    "Unregistered. This radio is no longer tied to a SmartLink account.",
+                Radio.WanRadioRegistrationState.FailedPTT =>
+                    "Failed — the radio did not see the microphone or key pressed in time. Try again and key it as soon as you are asked.",
+                Radio.WanRadioRegistrationState.FailedServerConnection =>
+                    "Failed — the radio could not reach SmartLink. Check that the radio has a working internet connection.",
+                Radio.WanRadioRegistrationState.FailedServerConfirmation =>
+                    "Failed — SmartLink did not confirm the registration.",
+                Radio.WanRadioRegistrationState.FailedNotLicensed =>
+                    "Failed — this radio is not licensed for SmartLink.",
+                Radio.WanRadioRegistrationState.FailedUnknown =>
+                    "Failed, with no reason given. See the trace file.",
+                _ => "Unknown.",
+            };
         }
 
         /// <summary>True once the handshake has reported success this session.</summary>
@@ -608,20 +619,26 @@ namespace Radios
                     return false;
                 }
 
-                // Progress is delivered in the order the radio reports it, and
-                // never while the hold's lock is held: Radio Setup's callback
-                // dispatches to the window synchronously, and the window is
-                // where the hold is armed (#713, repair round 4). States raised
-                // during the write (the vendor raises its waiting state inside
-                // the command call) are queued and delivered after it.
+                // Progress: each state the radio raises is queued WITH its own
+                // sentence, in order, and delivered by ONE drainer on a pool
+                // thread, with no lock of ours held while a callback runs
+                // (#713, repair round 5, Codex B5 and F1). Radio Setup's
+                // callback is a Dispatcher.Invoke: it waits on the window. The
+                // round-4 queue delivered under its ordering lock, so an
+                // earlier operation's status could hold that lock while
+                // waiting on the window, while the window, sending again, raised
+                // a status the earlier operation also hears and waited for the
+                // same lock. The raising thread now only enqueues. States raised
+                // during the write wait in the queue until it is done, so none
+                // is delivered while the hold's lock is held either.
                 var order = new object();
-                var pending = new Queue<Radio.WanRadioRegistrationState>();
+                var pending = new Queue<(Radio.WanRadioRegistrationState state, string text)>();
                 bool deferring = true;
+                bool draining = false;
                 bool finished = false;   // a terminal state (or the retry) ends this send's reports
                 System.ComponentModel.PropertyChangedEventHandler handler = null;
-                void Deliver(Radio.WanRadioRegistrationState state)
+                void Deliver(Radio.WanRadioRegistrationState state, string text)
                 {
-                    if (finished) return;
                     bool terminal =
                         state == Radio.WanRadioRegistrationState.RegisterSuccess
                         || state == Radio.WanRadioRegistrationState.UnregisterSuccess
@@ -643,7 +660,7 @@ namespace Radios
                         || state == Radio.WanRadioRegistrationState.FailedServerConfirmation;
                     if (terminal && serverSideFailure && attempt == 1)
                     {
-                        finished = true;
+                        lock (order) finished = true;
                         r.PropertyChanged -= handler;
                         Tracing.TraceLine($"SendRegistrationCommand: server-side failure ({state}), retrying once", TraceLevel.Warning);
                         onStateChange?.Invoke("The SmartLink server refused the first attempt. Trying again.", false);
@@ -658,13 +675,45 @@ namespace Radios
                         return;
                     }
 
-                    onStateChange?.Invoke(RegistrationStateText, terminal);
-
                     if (terminal)
                     {
-                        finished = true;
+                        lock (order) finished = true;
                         r.PropertyChanged -= handler;
                     }
+
+                    onStateChange?.Invoke(text, terminal);
+                }
+                void Drain()
+                {
+                    while (true)
+                    {
+                        (Radio.WanRadioRegistrationState state, string text) next;
+                        lock (order)
+                        {
+                            if (finished || pending.Count == 0)
+                            {
+                                draining = false;
+                                if (finished) pending.Clear();
+                                return;
+                            }
+                            next = pending.Dequeue();
+                        }
+                        try { Deliver(next.state, next.text); }
+                        catch (Exception ex)
+                        {
+                            Tracing.TraceLine($"SendRegistrationCommand: progress report failed: {ex.Message}", TraceLevel.Error);
+                        }
+                    }
+                }
+                void StartDrainIfIdle()
+                {
+                    bool start;
+                    lock (order)
+                    {
+                        start = !deferring && !draining && !finished && pending.Count > 0;
+                        if (start) draining = true;
+                    }
+                    if (start) Task.Run(Drain);
                 }
                 handler = (s, e) =>
                 {
@@ -672,9 +721,10 @@ namespace Radios
                     var state = r.WanOwnerHandshakeStatus;
                     lock (order)
                     {
-                        if (deferring) { pending.Enqueue(state); return; }
-                        Deliver(state);
+                        if (finished) return;
+                        pending.Enqueue((state, RegistrationStateTextFor(state)));
                     }
+                    StartDrainIfIdle();
                 };
 
                 // The token can take a sign-in; the connection, and the
@@ -682,9 +732,9 @@ namespace Radios
                 // again here, at the last moment, as ONE step with the command
                 // (#713, repair rounds 2 and 4): still the same radio object,
                 // still connected, and the hold not armed. The hold's lock is
-                // held across the check and the command's enqueue, so a hold
-                // armed from Settings either lands first and refuses the write,
-                // or waits until the command is already written.
+                // held across the check and the vendor's command write, so a
+                // hold armed from Settings either lands first and refuses the
+                // write, or waits until the command is already written.
                 bool stillTheTarget = true;
                 bool written = WriteUnlessHeld(() =>
                 {
@@ -708,11 +758,8 @@ namespace Radios
                     return false;
                 }
 
-                lock (order)
-                {
-                    deferring = false;
-                    while (pending.Count > 0) Deliver(pending.Dequeue());
-                }
+                lock (order) deferring = false;
+                StartDrainIfIdle();
 
                 Tracing.TraceLine($"SendRegistrationCommand: sent {(register ? "register" : "unregister")} for account {account.Email}", TraceLevel.Info);
                 return true;

@@ -1983,8 +1983,10 @@ namespace Radios
 
         /// <summary>
         /// Serializes the hold with the writes it forbids at their last
-        /// moment (#713, repair round 4, Codex B4). Held only for a field
-        /// read and the command's enqueue, never across speech or a wait.
+        /// moment (#713, repair round 4, Codex B4). Held across the last
+        /// check and the vendor's synchronous command write, which can wait
+        /// on the socket (Codex, round-5 re-check); never across speech, and
+        /// never across a registration progress callback (repair round 5).
         /// </summary>
         private readonly object _changeNothingGate = new object();
 

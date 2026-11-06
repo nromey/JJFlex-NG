@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -168,8 +169,137 @@ namespace Radios.Tests
                 lock (reports) reports.Add(text);
             }));
 
+            Assert.True(SpinWait.SpinUntil(() => { lock (reports) return reports.Count > 0; }, 5000),
+                "the waiting state, raised inside the vendor call, never arrived");
             Assert.False(underTheLock, "Progress was reported while the hold's lock was held.");
-            Assert.NotEmpty(reports);   // the waiting state, raised inside the vendor call, still arrives
+        }
+
+        // ------------------------------------------------------------------
+        // Repair round 5: progress is delivered with no lock of ours held
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// A stand-in for a window's dispatcher, with no window: one thread
+        /// runs posted work in order, and <see cref="Invoke"/> waits for it
+        /// exactly as Dispatcher.Invoke does. Radio Setup's progress callback
+        /// is a Dispatcher.Invoke.
+        /// </summary>
+        private sealed class UiThread : IDisposable
+        {
+            private readonly BlockingCollection<Action> _work = new();
+            private readonly Thread _thread;
+            public UiThread()
+            {
+                _thread = new Thread(() => { foreach (var a in _work.GetConsumingEnumerable()) a(); }) { IsBackground = true };
+                _thread.Start();
+            }
+            public void Invoke(Action a)
+            {
+                if (Thread.CurrentThread == _thread) { a(); return; }
+                var done = new ManualResetEventSlim();
+                _work.Add(() => { try { a(); } finally { done.Set(); } });
+                done.Wait();
+            }
+            public Task<T> Post<T>(Func<T> f)
+            {
+                var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _work.Add(() => { try { tcs.SetResult(f()); } catch (Exception ex) { tcs.SetException(ex); } });
+                return tcs.Task;
+            }
+            public void Dispose() => _work.CompleteAdding();
+        }
+
+        private static readonly MethodInfo HandshakeSetter =
+            typeof(Flex.Smoothlake.FlexLib.Radio).GetProperty(nameof(Flex.Smoothlake.FlexLib.Radio.WanOwnerHandshakeStatus))!
+                .GetSetMethod(nonPublic: true)!;
+
+        private static void RadioSays(RigOnVendorRadio rig, Flex.Smoothlake.FlexLib.Radio.WanRadioRegistrationState state) =>
+            HandshakeSetter.Invoke(rig.Vendor.Radio, new object[] { state });
+
+        /// <summary>
+        /// Codex B5, the exact schedule. An earlier registration is still in
+        /// progress. A second is sent from the window's thread and is
+        /// fetching its token when the earlier one's next status arrives,
+        /// and its progress callback waits on the window. The second send's
+        /// own command then raises a status the earlier operation also hears.
+        /// Until round 5 the earlier operation held its ordering lock across
+        /// the callback that waits on the window, the window's thread wanted
+        /// that lock, and neither ever moved.
+        /// </summary>
+        [Fact]
+        public void A_second_send_from_the_window_never_waits_on_the_firsts_progress()
+        {
+            var rig = ConnectedRig();
+            using var ui = new UiThread();
+            var inToken = new ManualResetEventSlim();
+            var releaseToken = new ManualResetEventSlim();
+            int sends = 0;
+            rig.Rig.RegistrationTokenForTest = _ =>
+            {
+                if (Interlocked.Increment(ref sends) == 2)
+                {
+                    inToken.Set();
+                    releaseToken.Wait(10000);
+                }
+                return "test-token";
+            };
+
+            var firstReports = new List<string>();
+            bool armed = false;
+            var statusAtTheWindow = new ManualResetEventSlim();
+            Action<string, bool> first = (text, _) =>
+            {
+                if (Volatile.Read(ref armed)) statusAtTheWindow.Set();
+                ui.Invoke(() => { lock (firstReports) firstReports.Add(text); });
+            };
+            Assert.True(Send(rig, register: true, first));
+            Assert.True(SpinWait.SpinUntil(() => { lock (firstReports) return firstReports.Count >= 1; }, 5000),
+                "the first registration's progress never arrived");
+
+            var second = ui.Post(() => Send(rig, register: true, (_, __) => ui.Invoke(() => { })));
+            Assert.True(inToken.Wait(5000), "the second send never reached its token");
+
+            Volatile.Write(ref armed, true);
+            var status = Task.Run(() => RadioSays(rig, Flex.Smoothlake.FlexLib.Radio.WanRadioRegistrationState.WaitingForPTT));
+            Assert.True(statusAtTheWindow.Wait(5000), "the earlier operation's status never reached its callback");
+            releaseToken.Set();
+
+            Assert.True(second.Wait(5000), "Deadlock: the second send never finished.");
+            Assert.True(status.Wait(5000), "Deadlock: the earlier operation's status never finished.");
+            Assert.True(second.Result);
+        }
+
+        /// <summary>
+        /// Codex F1. Three states raised while the command is being written
+        /// are delivered after it, in order, each with ITS OWN sentence. Until
+        /// round 5 each queued state was spoken with the radio's latest state,
+        /// so the microphone prompt arrived as the failure sentence.
+        /// </summary>
+        [Fact]
+        public void Each_queued_state_is_reported_with_its_own_sentence()
+        {
+            var rig = ConnectedRig();
+            rig.Rig.RegistrationTokenForTest = _ => "test-token";
+            rig.Vendor.Transport.CommandWritten = text =>
+            {
+                if (!text.StartsWith("wan register", StringComparison.Ordinal)) return;
+                RadioSays(rig, Flex.Smoothlake.FlexLib.Radio.WanRadioRegistrationState.WaitingForPTT);
+                RadioSays(rig, Flex.Smoothlake.FlexLib.Radio.WanRadioRegistrationState.FailedPTT);
+            };
+            var reports = new List<(string text, bool terminal)>();
+
+            Assert.True(Send(rig, register: true, (text, terminal) => { lock (reports) reports.Add((text, terminal)); }));
+            Assert.True(SpinWait.SpinUntil(() => { lock (reports) return reports.Count >= 3; }, 5000), "the three states were not all reported");
+            Thread.Sleep(100);   // and nothing after the terminal one
+
+            lock (reports)
+            {
+                Assert.Equal(3, reports.Count);
+                Assert.Contains("contacting SmartLink", reports[0].text, StringComparison.Ordinal);
+                Assert.Contains("key the microphone", reports[1].text, StringComparison.Ordinal);
+                Assert.Contains("did not see the microphone", reports[2].text, StringComparison.Ordinal);
+                Assert.Equal(new[] { false, false, true }, reports.Select(r => r.terminal).ToArray());
+            }
         }
     }
 }
