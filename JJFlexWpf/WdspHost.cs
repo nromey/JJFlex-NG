@@ -100,7 +100,14 @@ namespace JJFlexWpf
         /// <summary>How long the helper outlives its last channel, so arrowing past an engine and back does not restart it.</summary>
         public TimeSpan Linger { get; init; } = TimeSpan.FromMilliseconds(LingerMs);
         public TimeSpan HandshakeDeadline { get; init; } = TimeSpan.FromMilliseconds(HandshakeDeadlineMs);
-        /// <summary>Nothing at all from the helper for this long, once the handshake is done, is a stall.</summary>
+        /// <summary>
+        /// Nothing at all from the helper for this long, once the handshake is
+        /// done, is a stall. It measures the last message read, not how far
+        /// behind the reader is, so it bounds complete silence only: a reader
+        /// that keeps reading slowly is never a stall. The helper's reply limit
+        /// is kept away from such a reader by the settings bounds instead (see
+        /// <see cref="MaxInFlightPerSetting"/>), not by this.
+        /// </summary>
         public TimeSpan Stall { get; init; } = TimeSpan.FromMilliseconds(StallMs);
         public TimeSpan Heartbeat { get; init; } = TimeSpan.FromMilliseconds(HeartbeatMs);
         /// <summary>How long an engine's constructor waits for its first channel, on the build worker.</summary>

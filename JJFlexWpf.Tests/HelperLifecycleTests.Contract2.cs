@@ -496,13 +496,16 @@ public sealed partial class HelperLifecycleTests
     }
 
     /// <summary>
-    /// The helper's other limit, 32 MB of replies waiting to be written, is
-    /// reached only by a client that stops reading. The host's reader cannot
-    /// stop for long unnoticed: nothing read for the stall time is a stall, and
-    /// the helper is ended. At the most the helper can send in that time (about
-    /// 3 MB a second for sixteen channels of FrameOuts), a 500 ms stall leaves
-    /// under 2 MB queued, against a 16 MB point where it starts dropping
-    /// FrameOuts and 32 MB where it ends the connection.
+    /// A reader that stops reading altogether is a stall: nothing read for the
+    /// stall time, and the helper is ended (here the test policy's 1 s; the
+    /// app's is 500 ms). This bounds complete silence only. A reader that keeps
+    /// reading, however slowly, refreshes the liveness time and is never a
+    /// stall; what keeps such a reader from the helper's reply limit is the
+    /// settings bounds, which the reply-limit tests establish
+    /// (HelperLifecycleTests.ReplyLimit.cs). Until the 2026-11-06 repair this
+    /// comment claimed the stall kept every backlog under 2 MB; that was
+    /// arithmetic, not a bound, and Codex's check showed a slow reader the
+    /// stall never catches.
     /// </summary>
     [Fact]
     public void A_reader_that_stops_reading_is_a_stall_long_before_the_helpers_reply_limit()
