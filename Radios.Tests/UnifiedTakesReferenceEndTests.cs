@@ -103,6 +103,15 @@ public sealed class UnifiedTakesReferenceEndTests
         // key, and the plan is asked in one place, before either branch.
         Assert.Contains("if (stillTheReferences)", check);
         Assert.Equal(1, Regex.Matches(end, @"\.StillCurrent\(").Count);
+        // Round five repair 2 (7i-2): the session takes its own key's identity
+        // the moment it keys, and its watcher asks that, not "transmitting".
+        string start = Body(Dialog("CheckYourAudioDialog.Check.cs"), "public async Task<bool> StartAsync(");
+        int taken = start.IndexOf("_ownKeying = ReferenceKeying.Now(rig, _ptt);", StringComparison.Ordinal);
+        int keyed = start.IndexOf("_phase = Phase.Keyed;", StringComparison.Ordinal);
+        int lastAwait = start.LastIndexOf("await ", keyed, StringComparison.Ordinal);
+        Assert.True(taken > lastAwait && taken < keyed, "the check's identity is not taken between its last await and Keyed");
+        string tick = Body(Dialog("CheckYourAudioDialog.Check.cs"), "private void TickKeyed(FlexBase rig)");
+        Assert.Contains("if (!OwnKeyHeld)", tick);
         // Stop unkeys only while keyed; the check's later phases are not the reference's to end.
         Assert.Contains("internal bool Keyed => Active && _phase == Phase.Keyed;",
             Dialog("CheckYourAudioDialog.ReferenceEnd.cs"));

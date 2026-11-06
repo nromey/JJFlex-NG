@@ -211,6 +211,10 @@ public class Host
         private bool _loopback, _dummyEngaged, _powerTouched, _monitorTouched;
         private SliceRecorderTarget _recorderTarget = SliceRecorderTarget.ActiveSlice;
         private DateTime _keyedAt;
+        // Round five repair 2 (7i-2): StartAsync takes the check's own keying
+        // the moment it keys. Nothing here asks it.
+        private ReferenceKeying _ownKeying;
+        private sealed class ReferenceKeying { public static ReferenceKeying Now(FlexBase rig, PttSafetyController ptt) => new(); }
         private enum Phase { Keyed, Done }
         private Phase _phase;
         private Watcher _watcher = new();

@@ -373,20 +373,27 @@ public sealed class ReferenceEndSpeechTests : IDisposable
     private static bool SessionKeyed(object session) =>
         (bool)SessionType.GetProperty("Keyed", Any)!.GetValue(session)!;
 
-    /// <summary>A Monitor check, keyed as StartAsync keys it, as this window's session.</summary>
-    private object TheCheckKeys()
+    /// <summary>
+    /// A check keyed as StartAsync keys it, as this window's session: a Monitor
+    /// check unless told otherwise, keyed <paramref name="keyedSecondsAgo"/>
+    /// seconds ago, holding the identity StartAsync takes the moment it keys
+    /// (7i-2; that line is pinned in Radios.Tests.UnifiedTakesReferenceEndTests).
+    /// </summary>
+    private object TheCheckKeys(AudioCheckListenMethods method = AudioCheckListenMethods.Monitor, double keyedSecondsAgo = 0)
     {
         var session = RuntimeHelpers.GetUninitializedObject(SessionType);
         SessionField("_owner").SetValue(session, _dialog);
         SessionField("_ptt").SetValue(session, _controller);
         SessionField("_changedRig").SetValue(session, _rig);
-        SessionField("_method").SetValue(session, AudioCheckListenMethods.Monitor);
+        SessionField("_method").SetValue(session, method);
+        SessionField("_recorderTarget").SetValue(session, SliceRecorderTarget.TransmitSlice);
         SessionField("_restores").SetValue(session, Activator.CreateInstance(SessionField("_restores").FieldType));
-        SessionField("_keyedAt").SetValue(session, DateTime.UtcNow);
+        SessionField("_keyedAt").SetValue(session, DateTime.UtcNow.AddSeconds(-keyedSecondsAgo));
         Field("_checkStarts").SetValue(_dialog, new AudioCheckStartGate());
         _controller.AudioCheckNarration = true;
         _controller.KeyForCheck();
         Assert.True(_controller.IsTransmitting, "positive control: the check keyed");
+        SessionField("_ownKeying").SetValue(session, CheckYourAudioDialog.ReferenceKeying.Now(_rig, _controller));
         SessionField("_phase").SetValue(session, Enum.Parse(SessionField("_phase").FieldType, "Keyed"));
         SessionType.GetProperty("Active", Any)!.SetValue(session, true);
         Field("_session").SetValue(_dialog, session);
@@ -459,6 +466,84 @@ public sealed class ReferenceEndSpeechTests : IDisposable
             Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
             Assert.Equal(1, _controller.Keyings);
             Assert.False(SessionKeyed(session), "the check did not stop");
+        }
+        finally
+        {
+            _controller.AudioCheckNarration = false;
+            Field("_session").SetValue(_dialog, null);
+        }
+    }
+
+    // ── the check's own key, with no reference at all (round five repair 2, 7i-2) ──
+
+    /// <summary>The session's one-second watcher, its real tick handler.</summary>
+    private static void TheWatcherTicks(object session)
+    {
+        var tick = SessionType.GetMethod("Watcher_Tick", Any);
+        Assert.True(tick != null, "production entry AudioCheckSession.Watcher_Tick is missing");
+        tick!.Invoke(session, new object?[] { null, EventArgs.Empty });
+    }
+
+    /// <summary>
+    /// The same schedule as B2 without a reference, on the session's own
+    /// clock: a recording check has run to the radio's two-minute buffer, and
+    /// between two ticks the operator unlocked its key and locked again. The
+    /// next tick must not end the operator's key at the recorder's limit; the
+    /// check's own key ended when they unlocked it, and the session says so.
+    /// </summary>
+    [Fact]
+    public void A_key_made_between_two_ticks_is_not_ended_at_a_recording_checks_limit()
+    {
+        AssertTheDeskIsSafe();
+        try
+        {
+            var session = TheCheckKeys(AudioCheckListenMethods.RecordPlayback, FlexBase.SliceRecordBufferSeconds + 1);
+            TheLockKeyIsPressed();                   // the operator unlocks the check's key...
+            TheLockKeyIsPressed();                   // ...and locks again, inside one second
+            Assert.Equal(2, _controller.Keyings);
+            Assert.True(SessionKeyed(session), "positive control: the watcher has not seen the release");
+
+            TheWatcherTicks(session);
+            Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);   // red at dc355793: the recorder's limit ended it
+            Assert.False(SessionKeyed(session), "the session goes on believing the operator's key is its own");
+        }
+        finally
+        {
+            _controller.AudioCheckNarration = false;
+            Field("_session").SetValue(_dialog, null);
+        }
+    }
+
+    /// <summary>The control: the check's own key at the same limit, nothing pressed. The limit still ends it.</summary>
+    [Fact]
+    public void A_recording_checks_own_key_still_ends_at_its_limit()
+    {
+        AssertTheDeskIsSafe();
+        try
+        {
+            var session = TheCheckKeys(AudioCheckListenMethods.RecordPlayback, FlexBase.SliceRecordBufferSeconds + 1);
+            TheWatcherTicks(session);
+            Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
+            Assert.False(SessionKeyed(session), "the check did not move on from keyed");
+        }
+        finally
+        {
+            _controller.AudioCheckNarration = false;
+            Field("_session").SetValue(_dialog, null);
+        }
+    }
+
+    /// <summary>The other control: the check's own key, well inside the limit. A tick leaves it keyed.</summary>
+    [Fact]
+    public void A_tick_inside_the_limit_leaves_the_checks_own_key_alone()
+    {
+        AssertTheDeskIsSafe();
+        try
+        {
+            var session = TheCheckKeys(AudioCheckListenMethods.RecordPlayback, 5);
+            TheWatcherTicks(session);
+            Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);
+            Assert.True(SessionKeyed(session), "the watcher took the check's own key for someone else's");
         }
         finally
         {

@@ -383,6 +383,11 @@ public partial class CheckYourAudioDialog
     /// its count and the connection all survive a window closing, so the tail
     /// still lets go of the app's own key after a close.
     /// </para>
+    /// <para>
+    /// <b>A check holds one for its own key too</b> (round five repair 2,
+    /// 7i-2): its watcher asks it, so a key the operator made between two of
+    /// its ticks is not taken for the check's.
+    /// </para>
     /// </remarks>
     internal sealed record ReferenceKeying(PttSafetyController? Controller, int Keyings, RadioConnectionBinding? Connection)
     {

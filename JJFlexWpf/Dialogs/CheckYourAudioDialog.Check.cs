@@ -1264,6 +1264,30 @@ public partial class CheckYourAudioDialog
 
         private Phase _phase = Phase.Idle;
         private DateTime _keyedAt;
+
+        /// <summary>
+        /// The transmission this check keyed, taken the moment it keyed: the
+        /// controller, its count of keyings, the connection (round five repair
+        /// 2, 7i-2). The same identity a reference's tail plans with
+        /// (<see cref="ReferenceKeying"/>), asked the same way.
+        /// </summary>
+        private ReferenceKeying? _ownKeying;
+
+        /// <summary>
+        /// True while the controller still transmits the key this check made:
+        /// transmitting, the same controller, no keying since, on the same
+        /// connection.
+        /// </summary>
+        /// <remarks>
+        /// <b>"The controller is transmitting" is not the same question</b>
+        /// (round five repair 2, 7i-2). The watcher samples once a second, so
+        /// an operator who unlocks the check's key and locks again between two
+        /// ticks left it reading the new key as the check's own: the elapsed
+        /// minutes went on, and a recording check's two-minute limit then
+        /// ended the operator's transmission ("Check stopped at the
+        /// recorder's two-minute limit").
+        /// </remarks>
+        private bool OwnKeyHeld => _ptt.IsTransmitting && _ownKeying?.StillCurrent(_changedRig, _ptt) == true;
         private int _lastMinuteSpoken;
         private bool _noKeyWarned;
         private bool _hardwareWarned;
@@ -1553,6 +1577,9 @@ public partial class CheckYourAudioDialog
                 VerbosityLevel.Critical);
 
             _keyedAt = DateTime.UtcNow;
+            // Which transmission is the check's (7i-2): taken here, with no
+            // await since KeyForCheck, so nothing can have keyed in between.
+            _ownKeying = ReferenceKeying.Now(rig, _ptt);
             _phase = Phase.Keyed;
             Active = true;
             _watcher.Start();
@@ -1741,8 +1768,10 @@ public partial class CheckYourAudioDialog
         {
             // External unkey: timeout, hard kill, ALC auto-release, or a PTT
             // chord outside this dialog. The controller already spoke; we
-            // restore state and finish the flow.
-            if (!_ptt.IsTransmitting)
+            // restore state and finish the flow. Also a key the operator made
+            // since, between two ticks: the check's own key ended first, and
+            // the new one is not the check's to time or to stop (7i-2).
+            if (!OwnKeyHeld)
             {
                 KeyEndedElsewhere();
                 return;
