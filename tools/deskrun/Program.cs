@@ -53,6 +53,14 @@ internal static class Program
             return ExitUsage;
         }
 
+        string? projectProblem = DeskRunRules.ProjectSettingsProblem(
+            parsed.Project, p => File.Exists(p) ? File.ReadAllText(p) : null);
+        if (projectProblem != null)
+        {
+            Say("refused: " + projectProblem + " Nothing was started.");
+            return ExitUsage;
+        }
+
         string? station = Native.ObjectName(Native.GetProcessWindowStation());
         if (!string.Equals(station, "WinSta0", StringComparison.OrdinalIgnoreCase))
         {
@@ -105,7 +113,10 @@ internal static class Program
         if (DeskRunRules.CarriesDeskFree(parentEnv))
             Say("removed " + DeskRunRules.DeskFreeVariable + " from the child's environment: "
                 + "a run through deskrun is allowed by isolation or not at all.");
-        var childEnv = DeskRunRules.ChildEnvironment(parentEnv, qualified);
+        var childEnv = DeskRunRules.ChildEnvironment(parentEnv, qualified, out var removed);
+        if (removed.Count > 0)
+            Say("not passed to the child (they can choose testhost's settings or put code in it): "
+                + string.Join(", ", removed));
 
         var dotnetArgs = DeskRunRules.DotnetArguments(parsed);
         string commandLine = DeskRunRules.CommandLine(dotnet, dotnetArgs);
@@ -113,7 +124,7 @@ internal static class Program
         Say("timeout: " + parsed.TimeoutSeconds + " s");
 
         int result = Run(job, desktop, name, qualified, commandLine, childEnv, parsed.TimeoutSeconds,
-                         out bool finished);
+                         parsed.LifecycleBarrier, out bool finished);
         if (!finished)
         {
             // Nothing ran (or it was killed before running): still close what
@@ -127,7 +138,7 @@ internal static class Program
 
     private static int Run(IntPtr job, IntPtr desktop, string name, string qualified, string commandLine,
                            SortedDictionary<string, string> childEnv, int timeoutSeconds,
-                           out bool finished)
+                           string? barrier, out bool finished)
     {
         finished = false;
         var seen = new Dictionary<int, (string Name, DateTime Start)>();
@@ -136,6 +147,7 @@ internal static class Program
         Task relayOut = Task.CompletedTask, relayErr = Task.CompletedTask;
         var pi = default(Native.PROCESS_INFORMATION);
         IntPtr envBlock = IntPtr.Zero;
+        Native.AttributeList? attributes = null;
 
         using var stdout = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
         using var stderr = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
@@ -151,20 +163,49 @@ internal static class Program
         {
             envBlock = Marshal.StringToHGlobalUni(DeskRunRules.EnvironmentBlock(childEnv));
 
-            var si = new Native.STARTUPINFO
+            IntPtr stdinHandle = stdin.ClientSafePipeHandle.DangerousGetHandle();
+            IntPtr stdoutHandle = stdout.ClientSafePipeHandle.DangerousGetHandle();
+            IntPtr stderrHandle = stderr.ClientSafePipeHandle.DangerousGetHandle();
+
+            var si = new Native.STARTUPINFOEX
             {
-                cb = Marshal.SizeOf<Native.STARTUPINFO>(),
-                lpDesktop = qualified,
-                dwFlags = Native.STARTF_USESTDHANDLES,
-                hStdInput = stdin.ClientSafePipeHandle.DangerousGetHandle(),
-                hStdOutput = stdout.ClientSafePipeHandle.DangerousGetHandle(),
-                hStdError = stderr.ClientSafePipeHandle.DangerousGetHandle(),
+                StartupInfo = new Native.STARTUPINFO
+                {
+                    cb = Marshal.SizeOf<Native.STARTUPINFOEX>(),
+                    lpDesktop = qualified,
+                    dwFlags = Native.STARTF_USESTDHANDLES,
+                    hStdInput = stdinHandle,
+                    hStdOutput = stdoutHandle,
+                    hStdError = stderrHandle,
+                },
             };
+
+            // REPAIR ROUND 1, B2: the child is created ALREADY INSIDE the job,
+            // through PROC_THREAD_ATTRIBUTE_JOB_LIST. It used to be created
+            // suspended and assigned afterwards, and a launcher killed in that
+            // gap left a suspended child outside the job, alive, with nothing
+            // that would ever kill it (Codex reproduced it). There is no gap
+            // now: the job owns the process from the instant it exists. If the
+            // attribute cannot be set, the run is refused; there is no
+            // fallback to the old order.
+            //
+            // The same attribute list carries a HANDLE LIST, so the child
+            // inherits exactly its three pipe ends and nothing else the
+            // launcher happens to hold.
+            attributes = Native.AttributeList.Create(job, new[] { stdinHandle, stdoutHandle, stderrHandle },
+                                                     out string attributeError);
+            if (attributes == null)
+            {
+                Say("refused: " + attributeError + " Nothing was started.");
+                return ExitSetupFailed;
+            }
+            si.lpAttributeList = attributes.Pointer;
 
             char[] cmd = (commandLine + "\0").ToCharArray();
             bool created = Native.CreateProcess(
                 null, cmd, IntPtr.Zero, IntPtr.Zero, true,
-                Native.CREATE_SUSPENDED | Native.CREATE_UNICODE_ENVIRONMENT | Native.CREATE_NO_WINDOW,
+                Native.CREATE_SUSPENDED | Native.CREATE_UNICODE_ENVIRONMENT | Native.CREATE_NO_WINDOW
+                | Native.EXTENDED_STARTUPINFO_PRESENT,
                 envBlock, Environment.CurrentDirectory, ref si, out pi);
             int createError = Marshal.GetLastWin32Error();
 
@@ -181,21 +222,25 @@ internal static class Program
                 return ExitSetupFailed;
             }
 
-            if (!Native.AssignProcessToJobObject(job, pi.hProcess))
+            if (barrier == "after-create") WaitAtBarrier(barrier, pi.dwProcessId);
+
+            // Belt and braces: the job list should have done it, and this
+            // proves it did before the child runs one instruction.
+            if (!Native.IsProcessInJob(pi.hProcess, job, out bool inJob) || !inJob)
             {
-                int e = Marshal.GetLastWin32Error();
                 Native.TerminateProcess(pi.hProcess, 1);
                 Native.WaitForSingleObject(pi.hProcess, 10_000);
-                Say("refused: could not put the child in the cleanup job (Windows error " + e
-                    + "), so it was killed before it ran.");
+                Say("refused: the child was not in the cleanup job after creation, so it was killed before it ran.");
                 return ExitSetupFailed;
             }
 
             Native.ResumeThread(pi.hThread);
-            Say("child process " + pi.dwProcessId + " started on " + qualified);
+            Say("child process " + pi.dwProcessId + " started on " + qualified + ", inside the cleanup job");
 
             relayOut = Relay(stdout, Console.Out);
             relayErr = Relay(stderr, Console.Error);
+
+            if (barrier == "after-resume") WaitAtBarrier(barrier, pi.dwProcessId);
 
             var clock = Stopwatch.StartNew();
             while (true)
@@ -246,6 +291,7 @@ internal static class Program
         }
         finally
         {
+            attributes?.Dispose();
             if (envBlock != IntPtr.Zero) Marshal.FreeHGlobal(envBlock);
             if (pi.hThread != IntPtr.Zero) Native.CloseHandle(pi.hThread);
             if (pi.hProcess != IntPtr.Zero) Native.CloseHandle(pi.hProcess);
@@ -325,6 +371,33 @@ internal static class Program
         return childExit;
     }
 
+    /// <summary>
+    /// TEST-ONLY (repair round 1, B2). Stop here and wait to be killed, so a
+    /// lifecycle test can kill the launcher at exactly this point and check the
+    /// child died with it. Reached only through the launcher's own
+    /// --lifecycle-barrier option, never through anything forwarded to dotnet.
+    /// If nobody kills it within two minutes, it gives up and the run is torn
+    /// down rather than left waiting.
+    /// </summary>
+    private static void WaitAtBarrier(string barrier, int childPid)
+    {
+        string start = "unknown";
+        try
+        {
+            using var p = Process.GetProcessById(childPid);
+            start = p.StartTime.ToString("o", System.Globalization.CultureInfo.InvariantCulture);
+        }
+        catch (ArgumentException) { }
+        catch (InvalidOperationException) { }
+        catch (System.ComponentModel.Win32Exception) { }
+
+        Say("BARRIER " + barrier + " launcher " + Environment.ProcessId + " child " + childPid
+            + " child-start " + start);
+        var clock = Stopwatch.StartNew();
+        while (clock.Elapsed < TimeSpan.FromMinutes(2)) Thread.Sleep(100);
+        Say("BARRIER " + barrier + " expired with nobody killing the launcher; carrying on.");
+    }
+
     private static void Record(IntPtr job, Dictionary<int, (string Name, DateTime Start)> seen)
     {
         foreach (int pid in Native.ProcessIds(job))
@@ -397,15 +470,21 @@ internal static class Program
     }
 
     private const string Usage = """
-        usage: deskrun [--timeout SECONDS] [--] PROJECT [dotnet test arguments...]
+        usage: deskrun [--timeout SECONDS] [--] PROJECT [allowed dotnet test options...]
 
         Runs 'dotnet test PROJECT --no-build ...' on a newly created desktop that
         nobody can see, relays its output, and returns its exit code. Build the
         project first.
 
-        Exactly one project is required; a solution is refused. The child never
-        receives JJFLEX_TIER1_DESK_FREE. After SECONDS (default 600) the whole
-        process tree is killed. Exit codes: the child's own, or 64 usage,
+        Exactly one project is required; a solution is refused. Only these options
+        are forwarded: -c/--configuration, -p:Platform=, --filter, --logger (console
+        or trx), --results-directory, --blame-hang, --blame-hang-timeout, --no-build,
+        --no-restore, --list-tests, --nologo, -v/--verbosity. Anything else is
+        refused before a desktop is created, because it could set testhost's
+        environment or settings. The child never receives JJFLEX_TIER1_DESK_FREE.
+        After SECONDS (default 600) the whole process tree is killed.
+
+        Exit codes: the child's own, or 64 refused before anything was created,
         70 nothing started, 71 something was left behind, 124 timed out.
         """;
 }

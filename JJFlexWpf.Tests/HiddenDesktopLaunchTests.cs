@@ -64,6 +64,16 @@ public sealed class HiddenDesktopLaunchTests
         // reached its verdict without reading it.
         string? announced = Environment.GetEnvironmentVariable("JJFLEX_DESKRUN_DESKTOP");
         _output.WriteLine("launcher announced '" + announced + "'; Windows reports '" + hidden + "'");
+
+        // Repair round 1: a process can be isolated on a hidden desktop deskrun
+        // did not create (Codex's own sandbox starts every command on one, and
+        // the guard rightly accepts it). That is not this test's subject, which
+        // is the deskrun route, so say so plainly rather than failing on a bare
+        // comparison with null.
+        Assert.True(announced != null,
+            "This process is isolated on hidden desktop '" + hidden + "', but deskrun did not create it: "
+            + "there is no launcher announcement. The guard accepted that desktop correctly; this test "
+            + "checks the deskrun route specifically, so run it through tools/deskrun.");
         Assert.Equal(hidden, announced, ignoreCase: true);
 
         var built = UiThread.RunWithTimeout(() =>

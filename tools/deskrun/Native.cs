@@ -72,11 +72,105 @@ internal static class Native
         public int dwProcessId, dwThreadId;
     }
 
+    internal const uint EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
+    internal const int PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x00020002;
+    internal const int PROC_THREAD_ATTRIBUTE_JOB_LIST = 0x0002000D;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct STARTUPINFOEX
+    {
+        public STARTUPINFO StartupInfo;
+        public IntPtr lpAttributeList;
+    }
+
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern bool CreateProcess(
         string? lpApplicationName, char[] lpCommandLine, IntPtr lpProcessAttributes, IntPtr lpThreadAttributes,
         bool bInheritHandles, uint dwCreationFlags, IntPtr lpEnvironment, string? lpCurrentDirectory,
-        ref STARTUPINFO lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
+        ref STARTUPINFOEX lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool InitializeProcThreadAttributeList(
+        IntPtr lpAttributeList, int dwAttributeCount, int dwFlags, ref IntPtr lpSize);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool UpdateProcThreadAttribute(
+        IntPtr lpAttributeList, uint dwFlags, IntPtr attribute, IntPtr lpValue, IntPtr cbSize,
+        IntPtr lpPreviousValue, IntPtr lpReturnSize);
+
+    [DllImport("kernel32.dll")]
+    private static extern void DeleteProcThreadAttributeList(IntPtr lpAttributeList);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern bool IsProcessInJob(IntPtr processHandle, IntPtr jobHandle, out bool result);
+
+    /// <summary>
+    /// A process-creation attribute list holding the job the child is born
+    /// into and the only handles it may inherit. The memory behind both values
+    /// must outlive CreateProcess, so this owns it.
+    /// </summary>
+    internal sealed class AttributeList : IDisposable
+    {
+        public IntPtr Pointer { get; private set; }
+        private IntPtr _jobs;
+        private IntPtr _handles;
+
+        private AttributeList() { }
+
+        public static AttributeList? Create(IntPtr job, IntPtr[] inheritable, out string error)
+        {
+            error = "";
+            var list = new AttributeList();
+            IntPtr size = IntPtr.Zero;
+            InitializeProcThreadAttributeList(IntPtr.Zero, 2, 0, ref size);
+            list.Pointer = Marshal.AllocHGlobal(size);
+            if (!InitializeProcThreadAttributeList(list.Pointer, 2, 0, ref size))
+            {
+                error = "could not initialise the process attribute list (Windows error "
+                        + Marshal.GetLastWin32Error() + ").";
+                Marshal.FreeHGlobal(list.Pointer);
+                list.Pointer = IntPtr.Zero;
+                return null;
+            }
+
+            list._jobs = Marshal.AllocHGlobal(IntPtr.Size);
+            Marshal.WriteIntPtr(list._jobs, job);
+            if (!UpdateProcThreadAttribute(list.Pointer, 0, PROC_THREAD_ATTRIBUTE_JOB_LIST, list._jobs,
+                                           IntPtr.Size, IntPtr.Zero, IntPtr.Zero))
+            {
+                error = "could not ask Windows to create the child inside the cleanup job "
+                        + "(PROC_THREAD_ATTRIBUTE_JOB_LIST, Windows error " + Marshal.GetLastWin32Error() + ").";
+                list.Dispose();
+                return null;
+            }
+
+            list._handles = Marshal.AllocHGlobal(IntPtr.Size * inheritable.Length);
+            for (int i = 0; i < inheritable.Length; i++)
+                Marshal.WriteIntPtr(list._handles, i * IntPtr.Size, inheritable[i]);
+            if (!UpdateProcThreadAttribute(list.Pointer, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, list._handles,
+                                           IntPtr.Size * inheritable.Length, IntPtr.Zero, IntPtr.Zero))
+            {
+                error = "could not limit the child's inherited handles (PROC_THREAD_ATTRIBUTE_HANDLE_LIST, "
+                        + "Windows error " + Marshal.GetLastWin32Error() + ").";
+                list.Dispose();
+                return null;
+            }
+
+            return list;
+        }
+
+        public void Dispose()
+        {
+            if (Pointer != IntPtr.Zero)
+            {
+                DeleteProcThreadAttributeList(Pointer);
+                Marshal.FreeHGlobal(Pointer);
+                Pointer = IntPtr.Zero;
+            }
+            if (_jobs != IntPtr.Zero) { Marshal.FreeHGlobal(_jobs); _jobs = IntPtr.Zero; }
+            if (_handles != IntPtr.Zero) { Marshal.FreeHGlobal(_handles); _handles = IntPtr.Zero; }
+        }
+    }
 
     [DllImport("kernel32.dll", SetLastError = true)]
     internal static extern uint ResumeThread(IntPtr hThread);
@@ -145,9 +239,6 @@ internal static class Native
     [DllImport("kernel32.dll", SetLastError = true)]
     internal static extern bool SetInformationJobObject(
         IntPtr hJob, int infoClass, ref JOBOBJECT_EXTENDED_LIMIT_INFORMATION info, int cbInfo);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    internal static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     internal static extern bool TerminateJobObject(IntPtr hJob, uint uExitCode);
