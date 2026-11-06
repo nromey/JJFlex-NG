@@ -5228,8 +5228,9 @@ public class KeyCommands
     //  out loud because a control that silently refuses to move is
     //  indistinguishable from a broken one.
     //
-    //  Not removed: the bracket chords and the double-tap edge grab. Don
-    //  has learned them and they work; this is a second door. Not built:
+    //  Not removed: the bracket chords and the edge grab (Alt+Shift with a
+    //  bracket since #748, which retired the double-tap). Operators have
+    //  learned them and they work; this is a second door. Not built:
     //  transmit presets — FilterPresets is driven from the slice's receive
     //  filter and has nothing to offer the transmit side (reported, not
     //  invented).

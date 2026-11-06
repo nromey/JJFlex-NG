@@ -115,7 +115,10 @@ namespace Radios.Tests
             // Chatty and Terse sentences (2026-10-06).
             // Twenty from the Check your audio Track B fix round (#835): the
             // near miss that names two chords, ruled 2026-10-28 21:25.
-            Assert.Equal(20, ladders);
+            // Thirty from the 2026-11-06 junk box rulings round (#748): filter
+            // edge mode's entry, refusal and step sentences, each Terse plus a
+            // Chatty form that says more (Noel's ruling J2). DRAFT prose.
+            Assert.Equal(30, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -2166,6 +2169,23 @@ namespace Radios.Tests
                 "audio.fields.rx_filter_width",
                 "audio.filter.calculator.all_three",
                 "audio.filter.calculator.computed_width",
+                // Junk box 2026-11-06 rulings round (#748): Alt+Shift with a
+                // bracket grabs a filter edge, the double-tap is retired, and
+                // edge mode says which edge is held. "Filter edge mode off" is
+                // Noel's wording (it replaced "cancelled"). DRAFT prose.
+                "settings.filter.edge_held_high",
+                "settings.filter.edge_held_low",
+                "settings.filter.edge_mode_off",
+                "settings.filter.edge_mode_on_high",
+                "settings.filter.edge_mode_on_low",
+                "settings.filter.edge_refused_high_pull",
+                "settings.filter.edge_refused_high_slide",
+                "settings.filter.edge_refused_high_squeeze",
+                "settings.filter.edge_refused_low_pull",
+                "settings.filter.edge_refused_low_slide",
+                "settings.filter.edge_refused_low_squeeze",
+                "settings.filter.edge_step_high",
+                "settings.filter.edge_step_low",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
@@ -2174,8 +2194,9 @@ namespace Radios.Tests
             // 3093 since the 2026-11-06 junk box classified the two reworded
             // filter reports (#747). 3089 since its integration pass removed
             // Home's Hz/kHz width pair and classified the calculator's two
-            // width strings (#747).
-            Assert.Equal(3089, unclassified);
+            // width strings (#747). 3085 since its rulings round removed the
+            // four edge-mode strings the double-tap and "cancelled" used (#748).
+            Assert.Equal(3085, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,
