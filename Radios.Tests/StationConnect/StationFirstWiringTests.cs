@@ -467,8 +467,12 @@ namespace Radios.Tests.StationConnect
             // three guards above. A fourth would be the app re-asserting the
             // setting behind the operator's back, which is what would take
             // the opt-out away.
+            // Four since the junk box rulings round three: the fourth is the
+            // disconnect's put-back of the value a local connect FOUND (only
+            // while the radio still reads the app's own 0), not a re-assertion.
+            Assert.Contains("if (GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=true on disconnect, as found at connect\")) return;", Read("Radios/FlexBase.RemoteAudio.cs"), StringComparison.Ordinal);
             var writes = System.Text.RegularExpressions.Regex.Matches(text, @"IsMuteLocalAudioWhenRemoteOn = ");
-            Assert.Equal(3, writes.Count);
+            Assert.Equal(4, writes.Count);
             foreach (System.Text.RegularExpressions.Match m in writes)
             {
                 // The 200 characters before each write: the hold, and no

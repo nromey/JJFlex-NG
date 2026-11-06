@@ -3024,6 +3024,11 @@ namespace Radios
                     // not between operators, and a remote client cannot know
                     // who is in the room. The hold still applies, because it
                     // applied here before Track G3 too.
+                    // What was found is recorded FIRST (rulings round three, the
+                    // second bench's Fail 6): PC audio started later on this
+                    // connection, and the disconnect, put back the value found
+                    // here, not the 0 this line writes.
+                    NoteSpeakerFoundAtConnect(theRadio);
                     if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=false on local connect"))
                     {
                         theRadio.IsMuteLocalAudioWhenRemoteOn = false;
@@ -4060,6 +4065,10 @@ namespace Radios
             // under a carrier, PC audio already stopped) is made now too, paid
             // or withheld at its own write (#861, J3, 2026-11-06).
             PayOwedMicPutBackForTeardown("Disconnect");
+
+            // The shack speaker as found at a local connect, if the app unmuted
+            // it and nothing has changed it since (rulings round three).
+            PutBackSpeakerFoundAtConnect("Disconnect");
 
             // A put-back the switch-back left on the command queue runs NOW,
             // before the loop is stopped below; joining the audio thread only

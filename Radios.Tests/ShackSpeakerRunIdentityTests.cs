@@ -133,7 +133,7 @@ namespace Radios.Tests
         public void The_start_records_what_it_found_before_it_mutes_and_the_stop_asks_it()
         {
             string text = FlexBasePartials.JoinedText();
-            int found = text.IndexOf("bool speakerFoundMuted = theRadio.IsMuteLocalAudioWhenRemoteOn;", StringComparison.Ordinal);
+            int found = text.IndexOf("bool speakerFoundMuted = SpeakerFoundForRun(theRadio);", StringComparison.Ordinal);
             int mute = text.IndexOf("theRadio.IsMuteLocalAudioWhenRemoteOn = true;", StringComparison.Ordinal);
             int owed = text.IndexOf("if (!speakerFoundMuted) _speakerMutedBy = new SpeakerMute(run, theRadio);", StringComparison.Ordinal);
             Assert.True(found > 0 && mute > found && owed > mute, "the start no longer records the speaker it found before muting it");

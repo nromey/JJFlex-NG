@@ -497,6 +497,80 @@ namespace Radios
         /// <summary>What the current run's start changed on the shack speaker (rulings round two).</summary>
         private volatile SpeakerMute _speakerMutedBy;
 
+        /// <summary>The shack speaker as a local connect found it, before it unmuted it (rulings round three).</summary>
+        private sealed class SpeakerAtConnect
+        {
+            public SpeakerAtConnect(Radio radio, object connection, bool foundMuted)
+            { Radio = radio; Connection = connection; FoundMuted = foundMuted; }
+            public Radio Radio { get; }
+            public object Connection { get; }
+            public bool FoundMuted { get; }
+        }
+
+        private volatile SpeakerAtConnect _speakerAtConnect;
+
+        /// <summary>
+        /// A local connect is about to unmute the shack speaker (Noel's
+        /// 2026-09-22 rule): record what it found first. The second 8600 bench
+        /// found it at 1, and the app's own 0 was then taken for the found value.
+        /// </summary>
+        private void NoteSpeakerFoundAtConnect(Radio radio)
+        {
+            if (radio == null) return;
+            _speakerAtConnect = new SpeakerAtConnect(radio, radio.CurrentCommandConnection, radio.IsMuteLocalAudioWhenRemoteOn);
+        }
+
+        /// <summary>The connect's record, while it still describes this radio and connection.</summary>
+        private SpeakerAtConnect SpeakerConnectRecord(Radio radio)
+        {
+            var r = _speakerAtConnect;
+            return r != null && radio != null && ReferenceEquals(r.Radio, radio)
+                && ReferenceEquals(r.Connection, radio.CurrentCommandConnection) ? r : null;
+        }
+
+        /// <summary>
+        /// What a PC-audio start counts as found: the value the local connect
+        /// found on this connection, when it recorded one (it has since written 0
+        /// itself), otherwise what the radio reads now.
+        /// </summary>
+        private bool SpeakerFoundForRun(Radio radio) =>
+            SpeakerConnectRecord(radio)?.FoundMuted ?? radio.IsMuteLocalAudioWhenRemoteOn;
+
+        /// <summary>
+        /// At a deliberate disconnect, before the hang-up: a speaker the local
+        /// connect found muted and unmuted is muted again, only while the radio
+        /// still reads the 0 the app set (put back only what matches) and PC audio
+        /// is not running (its stop has its own put-back, which now starts from the
+        /// connect's found value). Never throws.
+        /// </summary>
+        private void PutBackSpeakerFoundAtConnect(string why)
+        {
+            try
+            {
+                var radio = theRadio;
+                var r = SpeakerConnectRecord(radio);
+                _speakerAtConnect = null;
+                if (r == null || !r.FoundMuted) return;
+                if (PCAudio)
+                {
+                    Tracing.TraceLine("Speaker (" + why + "): PC audio is running; its own stop puts the speaker back", TraceLevel.Info);
+                    return;
+                }
+                if (radio.IsMuteLocalAudioWhenRemoteOn)
+                {
+                    Tracing.TraceLine("Speaker (" + why + "): already muted as found; nothing to put back", TraceLevel.Info);
+                    return;
+                }
+                if (GuardSkips("IsMuteLocalAudioWhenRemoteOn=true on disconnect, as found at connect")) return;
+                radio.IsMuteLocalAudioWhenRemoteOn = true;
+                Tracing.TraceLine("Speaker (" + why + "): muted again, as it was found at the connect", TraceLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("Speaker (" + why + "): putting it back threw: " + ex.Message, TraceLevel.Error);
+            }
+        }
+
         /// <summary>
         /// Why a finishing run leaves the shack speaker as it is, or null to
         /// unmute it (rulings round two, the 8600 bench's Fail 6). Pure. Only
@@ -835,7 +909,7 @@ namespace Radios
             // bench's Fail 6): the stop puts back only what this run changed, so
             // a speaker found muted is left muted, under the same "put back only
             // what matches" ruling as the mic input (Noel, 2026-11-02).
-            bool speakerFoundMuted = theRadio.IsMuteLocalAudioWhenRemoteOn;
+            bool speakerFoundMuted = SpeakerFoundForRun(theRadio);
             _speakerMutedBy = null;
             if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=true on remote audio start"))
             {
