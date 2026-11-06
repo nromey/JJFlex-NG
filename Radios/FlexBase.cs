@@ -6747,19 +6747,15 @@ namespace Radios
                 Slice selected = (rx >= 0 && rx < mySlices.Count) ? mySlices[rx] : null;
                 Slice transmit = DesignatedTransmitSliceLocked();
 
-                // Each cache is read ONCE, number and slice together, and its
-                // number believed only for the slice it was written for (repair
-                // round 2: Active is raised before the cache follows a new
-                // selection, so Active proved nothing about whose number it was).
-                SliceHz rxCache = _rxCache, txCache = _txCache;
                 // One slice, one number (repair round 3): each role's slice
-                // reads the newer of the caches that belong to it, so a slice
-                // both selected and transmitting has one frequency.
+                // reads its ONE value (repair round 8: our request on its way,
+                // else the radio's last report), so a slice both selected and
+                // transmitting has one frequency.
                 string selectedLetter = selected?.Letter ?? "";
-                ulong selectedHz = selected != null ? ValueOf(selected, rxCache, txCache) : 0UL;
+                ulong selectedHz = selected != null ? ValueOf(selected) : 0UL;
 
                 string transmitLetter = transmit?.Letter ?? "";
-                ulong transmitHz = transmit != null ? ValueOf(transmit, rxCache, txCache) : 0UL;
+                ulong transmitHz = transmit != null ? ValueOf(transmit) : 0UL;
 
                 bool hasTransmit = transmit != null && transmitLetter.Length > 0;
                 roles = new SliceRoles(
@@ -8731,7 +8727,7 @@ namespace Radios
                 // The slice's one value (repair round 5): FlexLib's own number
                 // is now only what the radio reported, so a tune on its way is
                 // read from the guard and the caches, as F and the title are.
-                return slice == null ? 0.0 : LongFreqToLibFreq(ValueOf(slice, _rxCache, _txCache));
+                return slice == null ? 0.0 : LongFreqToLibFreq(ValueOf(slice));
             }
         }
 
@@ -9358,7 +9354,7 @@ namespace Radios
             // copy's report, and the next step starts from the copy. Its send
             // goes through WriteTuneTo (repair round 4), so a slice removed
             // before the queue runs gets nothing on its reusable index.
-            RequestTune(outSlice, ValueOf(inSlice, _rxCache, _txCache), selectedTune: false, "CopyVFO");
+            RequestTune(outSlice, ValueOf(inSlice), selectedTune: false, "CopyVFO");
             q.Enqueue((FunctionDel)(() => { outSlice.DemodMode = inSlice.DemodMode; }));
             q.Enqueue((FunctionDel)(() => { outSlice.AutoPan = inSlice.AutoPan; }));
             q.Enqueue((FunctionDel)(() => { outSlice.RTTYMark = inSlice.RTTYMark; }));
@@ -9423,7 +9419,7 @@ namespace Radios
                 SliceHz cache = _rxCache;
                 Slice selected = SelectedSliceNow();
                 if (selected == null) return cache?.Hz ?? 0UL;
-                return ValueOf(selected, cache, _txCache);
+                return ValueOf(selected);
             }
             set
             {
@@ -9504,11 +9500,10 @@ namespace Radios
                 // transmit slice designated some other way. The cache is read
                 // once, number and slice together, and believed only for the
                 // designated slice it was written for (repair round 2).
-                SliceHz rx = _rxCache, cache = _txCache;
+                SliceHz cache = _txCache;
                 Slice s = DesignatedTransmitSlice();
-                // The designated slice's ONE value (repair round 3): the newer
-                // of the caches that describe it, or the slice's own.
-                if (s != null) return ValueOf(s, rx, cache);
+                // The designated slice's ONE value (repair rounds 3 and 8).
+                if (s != null) return ValueOf(s);
                 if (cache != null && cache.Hz != 0UL && cache.Slice?.IsTransmitSlice == true)
                     return cache.Hz;
                 return 0UL;
@@ -12002,7 +11997,7 @@ namespace Radios
                     // repair round 6), a tune still on its way included.
                     Slice earsTransmit = SliceForTransmitSetting();
                     double earsMhz = earsTransmit == null ? 0.0
-                        : LongFreqToLibFreq(ValueOf(earsTransmit, _rxCache, _txCache));
+                        : LongFreqToLibFreq(ValueOf(earsTransmit));
                     if (
                         !resources.Configure(mySlices, arrangementRadio.PanadapterList,
                             earsTransmit, earsAntenna, earsMhz))

@@ -237,18 +237,29 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void A_report_nobody_asked_for_is_still_believed_while_a_step_is_pending()
+        public void A_report_nobody_asked_for_is_believed_once_the_step_is_answered()
         {
             // Control: another client, the knob or a band-edge clamp moves A to
             // a number neither the step nor its predecessor was. The radio is
-            // the authority.
+            // the authority: since repair round 8 it is believed once our step
+            // is answered (until then, at once), and never lost.
             FlexBase rig = Rig();
             Slice a = ReadySlice(0, tx: true, active: true, mhz: 14.100);
             SliceArrives(rig, a);
 
             rig.RXFrequency = 14_100_100;
+            Drain(rig);
             SliceReportsFreq(rig, a, 14.250);
+            Assert.Equal(14_100_100UL, rig.RXFrequency);
+            AnswerLastTune(a);
             Assert.Equal(14_250_000UL, rig.RXFrequency);
+        }
+
+        /// <summary>The radio answers the last command written to <paramref name="s"/>'s radio with success.</summary>
+        private static void AnswerLastTune(Slice s)
+        {
+            Assert.True(RadioOf.TryGetValue(s, out var radio));
+            radio.ReplyOk(radio.LastSequence);
         }
 
         // ── A fast run of steps ──
@@ -383,8 +394,9 @@ namespace Radios.Tests
             SliceReportsFreq(rig, a, 14.1002);
             SliceReportsFreq(rig, a, 14.1003);
             Assert.Equal(14_100_400UL, rig.RXFrequency);
-            SliceReportsFreq(rig, a, 14.1004);               // the radio confirms the last
+            SliceReportsFreq(rig, a, 14.1004);               // the radio reports the last
             Assert.Equal(14_100_400UL, rig.RXFrequency);
+            AnswerLastTune(a);                               // and answers it (repair round 8)
 
             // Control: the RADIO's report settled the guard, so a later report
             // of an old value is believed again (another client, the knob).

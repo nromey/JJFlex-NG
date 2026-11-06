@@ -208,14 +208,21 @@ namespace Radios.Tests
         /// is believed at once (a clamp, another client, the knob).
         /// </summary>
         [Fact]
-        public void A_report_nobody_asked_for_is_believed_at_once()
+        public void A_report_nobody_asked_for_is_believed_once_our_tune_is_answered()
         {
+            // Changed in repair round 8: until then a number outside the chain
+            // was believed at once. Now nothing but our own value gets in until
+            // the radio answers our latest request, and then the radio's report
+            // is read: a clamp, the knob or another client is believed one
+            // reply later, never lost.
             Bench b = NewBench();
             Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
 
             b.Rig.RXFrequency = 14_100_100;
             Drain(b.Rig);
             Reports(a, 14.250);
+            EveryReaderSays(b.Rig, 14_100_100);
+            AckTune(b, 0);
             EveryReaderSays(b.Rig, 14_250_000);
         }
 
@@ -240,7 +247,8 @@ namespace Radios.Tests
             Drain(b.Rig);
             Reports(a, 14.100300);
             Assert.Equal(14_100_400UL, b.Rig.RXFrequency);
-            Reports(a, 14.100400);                           // the last one, settled
+            Reports(a, 14.100400);                           // the last one's report
+            AckTune(b, 3);                                   // and its answer: settled (repair round 8)
             Reports(a, 14.100100);                           // and an old number is believed again
             EveryReaderSays(b.Rig, 14_100_100);
         }
@@ -800,24 +808,26 @@ namespace Radios.Tests
             b.Rig.RXFrequency = 14_100_100;
             Drain(b.Rig);
             Reports(a, 14.100100);
-            Reports(a, 14.100200); AckTune(b, 1);            // the middle's reply retires the first
-            Reports(a, 14.100100);                           // so this can only be the latest's report
+            Reports(a, 14.100200); AckTune(b, 1);
+            Reports(a, 14.100100);
             EveryReaderSays(b.Rig, 14_100_100);
             Reports(a, 14.100200);                           // a genuine move, before the latest's reply
-            EveryReaderSays(b.Rig, 14_100_200);
+            EveryReaderSays(b.Rig, 14_100_100);              // kept out until the latest is answered (round 8)
             AckTune(b, 2);
+            EveryReaderSays(b.Rig, 14_100_200);              // then read from the radio
             AckTune(b, 0);                                   // the lost reply turns up after all
             EveryReaderSays(b.Rig, 14_100_200);
         }
 
         /// <summary>
-        /// An error reply retires the older requests as a success does: the
-        /// radio reports nothing for the first step (its reply is lost too),
-        /// rejects the middle one, then reports the latest. That report settles
-        /// it, so a genuine move before the latest's reply is believed.
+        /// An older request's error, and a lost older reply, hold nothing up:
+        /// only the latest request's answer matters (repair round 8). The
+        /// radio reports nothing for the first step and its reply is lost,
+        /// rejects the middle one, reports the latest, then a genuine move; the
+        /// latest's answer then lets the radio's report in.
         /// </summary>
         [Fact]
-        public void An_error_reply_retires_the_older_requests_too()
+        public void An_older_requests_error_or_lost_reply_holds_nothing_up()
         {
             Bench b = NewBench();
             Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
@@ -829,6 +839,8 @@ namespace Radios.Tests
             RejectTune(b, 1, "14.100000");
             Reports(a, 14.100100);                           // the latest's report
             Reports(a, 14.100200);                           // a genuine move, before the latest's reply
+            EveryReaderSays(b.Rig, 14_100_100);
+            AckTune(b, 2);
             EveryReaderSays(b.Rig, 14_100_200);
         }
 
@@ -887,12 +899,187 @@ namespace Radios.Tests
             string dir = System.IO.Path.Combine(FlexBasePartials.RepoRoot(), "Radios");
             string xv = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "FlexBase.Transverter.cs"));
             Assert.DoesNotContain("SliceForTransmitSetting()?.Freq", xv);
-            Assert.Contains("LongFreqToLibFreq(ValueOf(txSlice, _rxCache, _txCache))", xv);
+            Assert.Contains("LongFreqToLibFreq(ValueOf(txSlice))", xv);
             string lb = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "FlexBase.Listenback.cs"));
             Assert.DoesNotContain("tx.Freq", lb);
-            Assert.Contains("double txMhz = LongFreqToLibFreq(ValueOf(tx, _rxCache, _txCache));", lb);
+            Assert.Contains("double txMhz = LongFreqToLibFreq(ValueOf(tx));", lb);
             string main = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "FlexBase.cs"));
             Assert.Contains("earsTransmit, earsAntenna, earsMhz))", main);
+        }
+        // ── Repair round 8 (Codex's seventh re-check) ──
+
+        /// <summary>
+        /// Codex's blocker 1, its exact schedule: up, up and back; the radio
+        /// reports all three in order; then somebody genuinely moves the slice
+        /// to the middle number BEFORE any reply; then the replies arrive
+        /// (in order here, reversed in the next test). Every reader must end
+        /// on the genuine number, and the next step must start from it.
+        /// </summary>
+        [Theory]
+        [InlineData(new[] { 0, 1, 2 })]
+        [InlineData(new[] { 2, 1, 0 })]
+        public void A_genuine_move_before_the_replies_is_believed_once_they_arrive(int[] replyOrder)
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+
+            b.Rig.RXFrequency = 14_100_100;
+            b.Rig.RXFrequency = 14_100_200;
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            Reports(a, 14.100100);
+            Reports(a, 14.100200);
+            Reports(a, 14.100100);
+            Reports(a, 14.100200);                           // the genuine move, before any reply
+            foreach (int n in replyOrder) AckTune(b, n);
+            EveryReaderSays(b.Rig, 14_100_200);
+            b.Rig.RXFrequency = b.Rig.RXFrequency + 100;
+            Drain(b.Rig);
+            Assert.Equal(14_100_300UL, LastTune(b, a));
+        }
+
+        /// <summary>
+        /// Codex's blocker 3, its exact schedule: seventy steps queued and
+        /// sent with nothing answered yet, then the radio's late report of the
+        /// FIRST step. Every reader stays on the last step, and the next step
+        /// goes on from it.
+        /// </summary>
+        [Theory]
+        [InlineData(70)]
+        [InlineData(10)]                                     // Codex's control: a short burst
+        [InlineData(500)]
+        public void A_long_unanswered_burst_is_not_rewound_by_its_first_steps_late_report(int steps)
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+
+            for (int i = 0; i < steps; i++) b.Rig.RXFrequency = b.Rig.RXFrequency + 100;
+            Drain(b.Rig);
+            ulong last = 14_100_000UL + 100UL * (ulong)steps;
+            EveryReaderSays(b.Rig, last);
+            Reports(a, 14.100100);                           // the first step's report, late
+            EveryReaderSays(b.Rig, last);
+            b.Rig.RXFrequency = b.Rig.RXFrequency + 100;
+            Drain(b.Rig);
+            Assert.Equal(last + 100, LastTune(b, a));
+        }
+
+        /// <summary>
+        /// Codex's blocker 2, its exact schedule, through the real listenback
+        /// restore: the radio REJECTS the removal of the listening slice it
+        /// created, so the slice survives. Selected, it can be tuned like any
+        /// other. The control: when the removal succeeds, the slice is gone
+        /// and nothing is tuned.
+        /// </summary>
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task A_slice_whose_removal_the_radio_rejected_can_still_be_tuned(bool rejected)
+        {
+            using var c = new ListenbackRoundTwoTests.RadioCase();
+            c.Snapshot();
+            // The radio's removal reaches our roster, as the station wiring delivers it.
+            var removed = typeof(FlexBase).GetMethod("sliceRemoved", Private)!;
+            c.F.Vendor.Radio.SliceRemoved += sl => removed.Invoke(c.F.Rig, new object[] { sl, c.F.Binding });
+            c.F.Vendor.Transport.CommandWritten = cmd =>
+            {
+                if (rejected && cmd == "slice remove 0") c.F.Vendor.Reply(c.F.Vendor.LastSequence, 0x50000015, "");
+                else c.Respond(cmd);
+            };
+            bool restored = await c.Pump(c.F.Rig.RestoreListenbackSnapshotAsync(c.F.Rig.PendingListenbackRecovery, true));
+            Assert.Equal(!rejected, restored);
+            var mine = (List<Slice>)typeof(FlexBase).GetField("mySlices", Private)!.GetValue(c.F.Rig)!;
+            bool survives;
+            lock (mine) survives = mine.Contains(c.Ears);
+            Assert.Equal(rejected, survives);
+            if (!survives) return;
+
+            typeof(FlexBase).GetField("_RXVFO", Private)!.SetValue(c.F.Rig, mine.IndexOf(c.Ears));
+            c.F.Vendor.Transport.Written.Clear();
+            c.F.Rig.RXFrequency = 14_200_100;
+            while (c.F.Rig.q.Count > 0) RunOne(c.F.Rig);
+            Assert.Contains("slice tune 0 14.200100", c.F.Vendor.Transport.Commands);
+            Assert.Equal(14_200_100UL, c.F.Rig.RXFrequency);
+        }
+        // ── Repair round 8: the rest of the table, through FlexBase ──
+
+        /// <summary>
+        /// A removal mark lasts only while the removal is outstanding: cleared
+        /// (a rejected or unsent removal) or lapsed (never answered), the
+        /// slice can be tuned again. The control: while it stands, nothing is sent.
+        /// </summary>
+        [Fact]
+        public void A_removal_mark_is_cleared_by_a_failed_removal_and_lapses_when_never_answered()
+        {
+            long now = 0;
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.RemovalMarkClock = () => now;
+            var note = typeof(FlexBase).GetMethod("NoteRemovingSlice", Private)!;
+            var clear = typeof(FlexBase).GetMethod("ClearRemovingSlice", Private)!;
+
+            note.Invoke(b.Rig, new object[] { a });
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            Assert.Empty(Tunes(b));                          // control: the mark refuses
+
+            clear.Invoke(b.Rig, new object[] { a });
+            b.Rig.RXFrequency = 14_100_200;
+            Drain(b.Rig);
+            Assert.Equal(14_100_200UL, LastTune(b, a));      // cleared: tuned again
+
+            note.Invoke(b.Rig, new object[] { a });
+            now = FlexBase.RemovalMarkMs - 1;
+            b.Rig.RXFrequency = 14_100_300;
+            Drain(b.Rig);
+            Assert.Equal(14_100_200UL, LastTune(b, a));      // still standing
+            now = FlexBase.RemovalMarkMs;
+            b.Rig.RXFrequency = 14_100_400;
+            Drain(b.Rig);
+            Assert.Equal(14_100_400UL, LastTune(b, a));      // lapsed: tuned again
+        }
+
+        /// <summary>
+        /// The answer overtakes the report (the one premise, broken): success
+        /// comes back while the radio has reported nothing since the write and
+        /// still reports the old number. The reading stays on our request until
+        /// the radio's report, and then follows it.
+        /// </summary>
+        [Fact]
+        public void An_answer_ahead_of_its_report_holds_our_value_until_the_report()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            AckTune(b, 0);
+            EveryReaderSays(b.Rig, 14_100_100);
+            Reports(a, 14.100100);
+            EveryReaderSays(b.Rig, 14_100_100);
+            Reports(a, 14.100300);                           // and the radio is the authority after that
+            EveryReaderSays(b.Rig, 14_100_300);
+        }
+
+        /// <summary>
+        /// When the window ends on a number other than ours, the slice's handler
+        /// runs again, so what is derived from the frequency follows the radio:
+        /// here the receive cache, which the handler writes.
+        /// </summary>
+        [Fact]
+        public void The_end_of_the_window_on_another_number_brings_the_caches_with_it()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            var rxHz = typeof(FlexBase).GetProperty("_RXFrequency", Private)!;
+
+            b.Rig.RXFrequency = 14_100_100;
+            Drain(b.Rig);
+            Reports(a, 14.100100);
+            Reports(a, 14.250000);                           // genuine, before the answer
+            Assert.Equal(14_100_100UL, (ulong)rxHz.GetValue(b.Rig)!);
+            AckTune(b, 0);
+            Assert.Equal(14_250_000UL, (ulong)rxHz.GetValue(b.Rig)!);
         }
     }
 }

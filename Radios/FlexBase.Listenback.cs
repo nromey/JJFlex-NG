@@ -220,7 +220,7 @@ public partial class FlexBase
             // on its way is where this take transmits, so the listener goes
             // there and the take records it. FlexLib's own number is only what
             // the radio last reported.
-            double txMhz = LongFreqToLibFreq(ValueOf(tx, _rxCache, _txCache));
+            double txMhz = LongFreqToLibFreq(ValueOf(tx));
             if (Transmit || LoopbackArranged) throw new InvalidOperationException("radio-busy");
             if (options.OffAir && DummyLoadMode) throw new InvalidOperationException("dummy-load-active");
             if (options.OffAir && OffAirListenbackRefusalReason is { Length: > 0 } refusal)
@@ -847,9 +847,13 @@ public partial class FlexBase
                     // A slice we remove by raw command is marked first, on this
                     // queue, so a tune of it queued after this is not sent to the
                     // index the radio is about to free (#642, repair round 7).
-                    if (setting.ResourceKind == "slice" && setting.RestoreCommand.StartsWith("slice remove ", StringComparison.Ordinal)
-                        && Current(setting) is Slice leaving)
-                        NoteRemovingSlice(leaving);
+                    // The mark lasts only while the removal is outstanding
+                    // (repair round 8): a rejected or unsent removal clears
+                    // it, so a slice that survives can be tuned again.
+                    Slice leaving = setting.ResourceKind == "slice"
+                        && setting.RestoreCommand.StartsWith("slice remove ", StringComparison.Ordinal)
+                        ? Current(setting) as Slice : null;
+                    if (leaving != null) NoteRemovingSlice(leaving);
                     trace.Write("sending", new { setting.Name, Command = setting.RestoreCommand });
                     // #835, 2026-10-29 item 1: what FlexLib's cache held just
                     // before this restore, so the reply can tell whether anything
@@ -858,6 +862,7 @@ public partial class FlexBase
                     int sequence = radio.SendReplyCommand((sequence, code, text) =>
                     {
                         trace.Write("reply", new { setting.Name, Sequence = sequence, Code = code.ToString("X8"), Text = text });
+                        if (code != 0 && leaving != null) ClearRemovingSlice(leaving);
                         if (code == 0 && setting.Name == "full-duplex")
                             AcceptFullDuplexReply(radio, connection, setting.Value == "1");
                         // The radio accepted it but may never echo it to us: put
@@ -869,6 +874,7 @@ public partial class FlexBase
                                 Note = FlexLibRestoreCache.Accept(radio, setting, cachedBefore) });
                         reply.TrySetResult(code == 0);
                     }, setting.RestoreCommand);
+                    if (sequence == 0 && leaving != null) ClearRemovingSlice(leaving);
                     trace.Write("sent", new { setting.Name, Sequence = sequence, Command = setting.RestoreCommand });
                 }).ConfigureAwait(false);
                 using var timeout = new CancellationTokenSource(ListenbackConfirmationWait);

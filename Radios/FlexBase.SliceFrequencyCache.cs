@@ -121,26 +121,19 @@ namespace Radios
         private void SetTxCache(Slice slice, ulong hz) => _txCache = new SliceHz(slice, hz);
 
         /// <summary>
-        /// <paramref name="slice"/>'s one frequency. Our request on its way is
-        /// its value; a refused or unconfirmed request concedes to the radio's
-        /// last report (repair round 5); otherwise the newer of the two caches
-        /// that belong to it and hold a number, else the slice's own. The
-        /// guard is asked ONCE, so a reader on another thread never sees a
-        /// request half published. Take each cache once and pass both, so a
-        /// reading that names two slices reads both from the same pair.
+        /// <paramref name="slice"/>'s one frequency (repair round 8): our
+        /// latest request's value while the radio has not answered it, else
+        /// the radio's last report, which is FlexLib's own number now that
+        /// tunes do not go through its setter. The guard is asked ONCE, so a
+        /// reader on another thread never sees a request half published. The
+        /// caches are not consulted for a slice: they hold only reports the
+        /// guard let in and our own publications, both older than or equal
+        /// to one of these two.
         /// </summary>
-        private ulong ValueOf(Slice slice, SliceHz rx, SliceHz tx)
+        private ulong ValueOf(Slice slice)
         {
-            switch (EchoGuardFor(slice).Read(out ulong pending))
-            {
-                case FrequencyEchoGuard.Reading.Pending: return pending;
-                case FrequencyEchoGuard.Reading.Conceded: return LibFreqtoLong(slice.Freq);
-            }
-            SliceHz best = null;
-            if (rx != null && rx.Hz != 0UL && ReferenceEquals(rx.Slice, slice)) best = rx;
-            if (tx != null && tx.Hz != 0UL && ReferenceEquals(tx.Slice, slice) && (best == null || tx.Seq > best.Seq))
-                best = tx;
-            return best != null ? best.Hz : LibFreqtoLong(slice.Freq);
+            return EchoGuardFor(slice).Read(out ulong pending) == FrequencyEchoGuard.Reading.Pending
+                ? pending : LibFreqtoLong(slice.Freq);
         }
 
         /// <summary>Each slice's own echo guard (#266, made per slice in repair round 3).</summary>
@@ -196,10 +189,7 @@ namespace Radios
                     + " was not sent", System.Diagnostics.TraceLevel.Info);
                 return;
             }
-            // What this write replaces is this slice's own value (repair
-            // round 3), read before anything is published.
-            ulong replaced = ValueOf(slice, _rxCache, _txCache);
-            long id = EchoGuardFor(slice).Requested(replaced, value);
+            long id = EchoGuardFor(slice).Requested(value);
             // The optimistic value is held WITH the slice it is written to, in
             // every cache that describes that slice.
             PublishTuning(slice, value, selectedTune);
@@ -264,7 +254,7 @@ namespace Radios
             {
                 Tracing.TraceLine(what + ": " + refused + " (slice " + slice.Letter + "), so its tune to " + mhz
                     + " was not sent to any slice", System.Diagnostics.TraceLevel.Info);
-                guard.Refused(id, refused);
+                if (guard.Refused(id, refused) && refused != "the slice is gone") Reconcile(slice, LibFreqtoLong(mhz));
                 return;
             }
             string command = "slice tune " + slice.Index + " " + Flex.Util.StringHelper.DoubleToString(mhz, "f6");
@@ -272,48 +262,92 @@ namespace Radios
             // Marked before the write, so the reply cannot come back ahead of it.
             guard.Sending(id);
             // No lock of ours is held across this write (repair round 7).
-            string refusal = SendRadioCommandWithReply(slice.Radio, command, reply => TuneReplied(slice, id, reply));
+            ulong hz = LibFreqtoLong(mhz);
+            string refusal = SendRadioCommandWithReply(slice.Radio, command, reply => TuneReplied(slice, id, hz, reply));
             if (refusal != null)
             {
                 Tracing.TraceLine(what + ": slice " + slice.Letter + "'s tune to " + mhz + " was not sent: " + refusal,
                     System.Diagnostics.TraceLevel.Info);
-                guard.Refused(id, refusal);
+                if (guard.Refused(id, refusal)) Reconcile(slice, hz);
             }
         }
 
-        /// <summary>Slices we have asked the radio to remove by a raw command (repair round 7).</summary>
+        /// <summary>
+        /// Slices we have asked the radio to remove by a raw command, with the
+        /// time the mark was made (repair round 7; given a lifecycle in round 8).
+        /// </summary>
         private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Slice, object> _removingByUs = new();
+
+        /// <summary>
+        /// How long a removal mark refuses tunes when the removal is never
+        /// answered (repair round 8). A removal that takes effect takes the
+        /// slice out of the roster long before this; one that never does is
+        /// not allowed to ban the slice for good.
+        /// </summary>
+        internal const int RemovalMarkMs = 10_000;
+
+        /// <summary>The removal marks' clock. Injectable for tests.</summary>
+        internal System.Func<long> RemovalMarkClock = () => System.Environment.TickCount64;
 
         /// <summary>
         /// We are about to send the radio a command that removes
         /// <paramref name="slice"/> (repair round 7). Call on the command
         /// queue, before the command goes out, so any tune queued after it is
         /// refused rather than sent to an index the radio is about to free.
+        /// The mark is cleared by <see cref="ClearRemovingSlice"/> when the
+        /// removal is rejected or not sent, and lapses after
+        /// <see cref="RemovalMarkMs"/> if it is never answered (repair round 8).
         /// </summary>
         internal void NoteRemovingSlice(Slice slice)
         {
-            if (slice != null) _removingByUs.AddOrUpdate(slice, null);
+            if (slice != null) _removingByUs.AddOrUpdate(slice, RemovalMarkClock());
         }
 
-        private bool BeingRemovedByUs(Slice slice) => _removingByUs.TryGetValue(slice, out _);
+        /// <summary>The removal of <paramref name="slice"/> was rejected or never sent: it may be tuned again (repair round 8).</summary>
+        internal void ClearRemovingSlice(Slice slice)
+        {
+            if (slice != null) _removingByUs.Remove(slice);
+        }
+
+        private bool BeingRemovedByUs(Slice slice) =>
+            _removingByUs.TryGetValue(slice, out object at) && at is long t && RemovalMarkClock() - t < RemovalMarkMs;
 
         /// <summary>
         /// The radio's reply to tune request <paramref name="id"/>, on the
-        /// receive thread. Any reply first retires every older request (the
-        /// radio answers in order, repair round 7). Success confirms this one
-        /// when the radio's last report is already the value asked for (there
-        /// is no change left to report); an error means nothing changed, and
-        /// readers read the radio.
+        /// receive thread (repair round 8). Success answers the request: the
+        /// window ends, and readers read the radio's report, unless the radio
+        /// has said nothing at all since the write and does not yet report our
+        /// value, in which case the guard waits for that report. An error
+        /// means nothing changed. When the window ends on a number other than
+        /// ours, the slice's handler is run again so the caches, the filter
+        /// edges and the where-you-are record follow the radio.
         /// </summary>
-        private void TuneReplied(Slice slice, long id, CommandReply reply)
+        private void TuneReplied(Slice slice, long id, ulong requestedHz, CommandReply reply)
         {
             var guard = EchoGuardFor(slice);
-            guard.Replied(id);
-            if (reply.Acknowledged) guard.Acknowledged(id, LibFreqtoLong(slice.Freq));
+            bool closed;
+            if (reply.Acknowledged) closed = guard.Acknowledged(id, LibFreqtoLong(slice.Freq));
             else
             {
                 Tracing.TraceLine("tune reply: slice " + slice.Letter + " " + reply, System.Diagnostics.TraceLevel.Info);
-                guard.Refused(id, "the radio answered " + reply);
+                closed = guard.Refused(id, "the radio answered " + reply);
+            }
+            if (closed) Reconcile(slice, requestedHz);
+        }
+
+        /// <summary>
+        /// The window on <paramref name="slice"/> has just ended (repair round
+        /// 8). If the radio's last report is not the number we asked for, run
+        /// the slice's Freq handler again: the guard is Idle now, so the report
+        /// is let in, and everything derived from it follows.
+        /// </summary>
+        private void Reconcile(Slice slice, ulong requestedHz)
+        {
+            if (LibFreqtoLong(slice.Freq) == requestedHz) return;
+            try { slicePropertyChangedHandler(slice, new System.ComponentModel.PropertyChangedEventArgs("Freq")); }
+            catch (System.Exception ex)
+            {
+                Tracing.TraceLine("tune reconcile: slice " + slice.Letter + ": " + ex.Message, System.Diagnostics.TraceLevel.Warning);
             }
         }
 

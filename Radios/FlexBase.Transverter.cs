@@ -73,7 +73,7 @@ namespace Radios
                 // old band, and drive set then went to the old band's
                 // definition. The drive's own queued write runs after the tune's.
                 Slice txSlice = SliceForTransmitSetting();
-                double freqMHz = txSlice == null ? 0.0 : LongFreqToLibFreq(ValueOf(txSlice, _rxCache, _txCache));
+                double freqMHz = txSlice == null ? 0.0 : LongFreqToLibFreq(ValueOf(txSlice));
                 lock (myXvtrs)
                 {
                     if (myXvtrs.Count == 0) return null;
