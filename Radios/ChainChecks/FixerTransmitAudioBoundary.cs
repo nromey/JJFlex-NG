@@ -763,6 +763,23 @@ namespace Radios.ChainChecks
         {
             FlexBase rig = FixerTransmitBoundary.Safely(_radio);
 
+            // The reference in Check your audio shares the transmit player with
+            // the computer microphone this stage measures (Unified takes, round
+            // five repair, 7h-5; the injected stage's refusal, 7e). Armed, it
+            // takes the microphone's place at this stage's own key, so the
+            // operator's voice would never be what reached the radio; in the
+            // silence after its end the encoder carries zeros instead. Refused
+            // first, in the same order and words, before the gate is asked:
+            // nothing is charged or keyed, and the stage reads as not run.
+            string inTheWay = ReferenceInTheWay(rig);
+            if (inTheWay.Length > 0)
+            {
+                Tracing.TraceLine("FixerTransmitAudioBoundary: spoken transmit not run — "
+                                  + inTheWay, TraceLevel.Warning);
+                facts.Detail = inTheWay;
+                return facts;
+            }
+
             FixerTransmitGate.Decision d = _gate.Request(
                 _gate.RunId, stageId, stageTransmits: true,
                 radioReachable: rig != null,

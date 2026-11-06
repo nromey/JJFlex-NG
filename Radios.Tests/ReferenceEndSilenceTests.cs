@@ -1051,6 +1051,58 @@ public sealed class ReferenceEndSilenceTests : IDisposable
         Assert.NotEqual("", facts.Detail);   // the gate's own answer on this unkeyable fixture, or the path's, exactly as before
     }
 
+    // ── Round five repair (7h-5): the Fixer's spoken stage refuses the same way ──
+
+    private static Radios.Fixer.SpokenTransmitFacts RunFixersSpokenStage(FlexBase rig, Radios.Fixer.FixerTransmitGate gate) =>
+        Radios.ChainChecks.FixerTransmitAudioBoundary.Create(gate, () => rig)
+            .SpokenTransmit(Radios.Fixer.TransmitStageSet.SpokenTransmit)();
+
+    /// <summary>
+    /// The spoken stage measures the operator's voice through the microphone.
+    /// An armed reference would take the microphone's place at its key, and the
+    /// silence after a reference's end would carry zeros. So it refuses as the
+    /// injected stage does (7e), in the same words (DRAFT), and reads as not
+    /// run: nothing charged or keyed, the reference left exactly as it was.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]   // armed, not yet played
+    [InlineData(true)]    // played to its end: the silence is held
+    public async Task The_Fixers_spoken_stage_refuses_while_a_reference_is_in_the_way(bool atItsEnd)
+    {
+        Lexicon.Load(Lexicon.Partitions);
+        using var f = atItsEnd ? await ReferenceRunToItsEnd("ref-spoken-held") : await ReferenceArmedOnly("ref-spoken-armed");
+        var gate = FixerGate();
+
+        var facts = RunFixersSpokenStage(f.Rig, gate);
+
+        string reason = Lexicon.Get(atItsEnd ? "audio.check.reference_end_silence_busy" : "audio.check.reference_already_armed");
+        Assert.Equal("Nothing was transmitted. " + reason, facts.Detail);
+        Assert.False(facts.Attempted);
+        Assert.False(facts.Keyed);
+        Assert.Equal(0, gate.TransmitCount);
+        Assert.True(f.Rig.TxReferenceArmed, "the stage disarmed the reference");
+        Assert.Equal(atItsEnd, f.Rig.TxReferenceEndSilenceHeld);
+
+        // Where the Fixer reports it: not run, with the refusal as its reason.
+        var outcome = Radios.Fixer.TransmitStages.Spoken(facts, micBaseline: null);
+        Assert.True(outcome.NothingMeasured);
+        Assert.EndsWith(" " + facts.Detail, outcome.Answer);
+    }
+
+    /// <summary>The control: with no reference, the spoken stage goes on to the gate as before, and nothing here is said.</summary>
+    [Fact]
+    public void With_no_reference_the_Fixers_spoken_stage_runs_as_before()
+    {
+        Lexicon.Load(Lexicon.Partitions);
+        var f = new RigOnVendorRadio("ref-spoken-none");
+        using var _ = f;
+        Assert.False(f.Rig.TxReferenceArmed);
+        var gate = FixerGate();
+        var facts = RunFixersSpokenStage(f.Rig, gate);
+        Assert.DoesNotContain("reference", facts.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEqual("", facts.Detail);   // the gate's own answer on this unkeyable fixture, or the path's, exactly as before
+    }
+
     /// <summary>A real arm through <c>TxReferenceStartAsync</c>, not keyed and not played.</summary>
     private static async Task<RigOnVendorRadio> ReferenceArmedOnly(string serial)
     {
