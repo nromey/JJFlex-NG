@@ -1893,18 +1893,8 @@ namespace Radios
         /// </summary>
         private sealed class MicInputSwap
         {
+            /// <summary>For tests that build a debt by hand: what is current now, read now.</summary>
             public MicInputSwap(string saved, Radio radio, long run, bool madeBySwitchBack = false)
-                : this(saved, radio, run, madeBySwitchBack,
-                       InterlockReports.MicChoicesReported(radio?.CurrentCommandConnection as CommandConnection))
-            {
-            }
-
-            /// <summary>
-            /// A saved input and the mic choices reported up to the moment it was
-            /// read, taken together (repair round 11, Codex's #861 N1): see
-            /// <see cref="FlexBase.MicSnapshot"/>.
-            /// </summary>
-            public MicInputSwap(string saved, Radio radio, long run, bool madeBySwitchBack, long choicesAtSave)
             {
                 Saved = saved;
                 Radio = radio;
@@ -1912,7 +1902,24 @@ namespace Radios
                 Run = run;
                 MadeBySwitchBack = madeBySwitchBack;
                 Connection = radio?.CurrentCommandConnection;
-                ChoicesAtPc = choicesAtSave;
+                ChoicesAtPc = InterlockReports.MicChoicesReported(Connection as CommandConnection);
+            }
+
+            /// <summary>
+            /// Built from a capture alone (repair round 12, Codex's #861 B1): the
+            /// radio, the command connection, the run, the input and the mic
+            /// choices, all as they stood in ONE step (<see cref="FlexBase.CaptureMic"/>).
+            /// Nothing is re-read from whatever is current at construction.
+            /// </summary>
+            public MicInputSwap(MicCapture capture, bool madeBySwitchBack)
+            {
+                Saved = capture.Input;
+                Radio = capture.Radio;
+                Serial = capture.Radio?.Serial ?? "";
+                Run = capture.Run;
+                MadeBySwitchBack = madeBySwitchBack;
+                Connection = capture.Connection;
+                ChoicesAtPc = capture.Choices;
             }
 
             /// <summary>
@@ -2060,42 +2067,73 @@ namespace Radios
         }
 
         /// <summary>
-        /// The radio's mic input and the mic choices it has reported on its
-        /// current connection, read as ONE snapshot (repair round 11, Codex's
-        /// #861 N1): under the transport's dispatch gate, which the reader holds
-        /// while it parses a report and counts it, so no report can fall between
-        /// the two reads. Reads only, no I/O, and never under
-        /// <see cref="_micSwitchLock"/> (the reader takes that lock inside this
-        /// gate, for a switch-back's reply). A gate not had within
-        /// <see cref="MicSnapshotBoundMs"/> gives a baseline that matches no
-        /// count, so the saved value is treated as already settled: nothing is
-        /// ever put back from an incoherent snapshot (fails toward leaving the
-        /// input alone).
+        /// What a start or a switch-back is about to change, recorded in ONE
+        /// step before it changes anything (repair rounds 11 and 12, Codex's
+        /// #861 N1, B1 and B2): the radio, its command connection, the run, the
+        /// mic input and the mic choices reported on that connection.
         /// </summary>
-        private static string MicSnapshot(Radio radio, out long choices)
+        internal sealed class MicCapture
         {
-            var connection = radio?.CurrentCommandConnection as CommandConnection;
+            public Radio Radio { get; init; }
+            public CommandConnection Connection { get; init; }
+            public long Run { get; init; }
+            public string Input { get; init; }
+            public long Choices { get; init; }
+
+            /// <summary>Read in one step under the report gate. When false, nothing may be changed on its strength.</summary>
+            public bool Recorded { get; init; }
+        }
+
+        /// <summary>
+        /// Capture <paramref name="radio"/>'s mic state in ONE step, under the
+        /// transport's dispatch gate, which the reader holds while it parses and
+        /// counts a report and the connection changes under: no report and no
+        /// connection change can fall between the reads. Reads only, no I/O, and
+        /// never under <see cref="_micSwitchLock"/> (the reader takes that lock
+        /// inside this gate, for a switch-back's reply). A gate not had within
+        /// <see cref="MicSnapshotBoundMs"/> gives a capture that is not
+        /// <see cref="MicCapture.Recorded"/>: then the caller changes NOTHING
+        /// (round 12, B2), because what it would change could not be recorded.
+        /// </summary>
+        private MicCapture CaptureMic(Radio radio)
+        {
             object gate = InterlockReports.ConnectionSyncOf(radio);
             if (radio != null && gate != null && System.Threading.Monitor.TryEnter(gate, MicSnapshotBoundMs))
             {
                 try
                 {
-                    choices = InterlockReports.MicChoicesReported(connection);
-                    return radio.MicInput;
+                    var connection = radio.CurrentCommandConnection as CommandConnection;
+                    return new MicCapture
+                    {
+                        Radio = radio,
+                        Connection = connection,
+                        Run = Interlocked.Read(ref _remoteAudioRun),
+                        Input = radio.MicInput,
+                        Choices = InterlockReports.MicChoicesReported(connection),
+                        Recorded = connection != null && connection.State == CommandConnectionState.Connected,
+                    };
                 }
                 finally { System.Threading.Monitor.Exit(gate); }
             }
-            Tracing.TraceLine("MicSnapshot: the radio's report gate was not had in " + MicSnapshotBoundMs
-                + " ms; the saved mic input is treated as settled, and nothing will be put back from it", TraceLevel.Warning);
-            choices = UnmatchedChoices;
-            return radio?.MicInput;
+            Tracing.TraceLine("CaptureMic: the radio's report gate was not had in " + MicSnapshotBoundMs
+                + " ms; the mic input could not be recorded, so it will not be changed", TraceLevel.Warning);
+            return new MicCapture { Radio = radio, Recorded = false };
         }
 
-        /// <summary>How long <see cref="MicSnapshot"/> waits for the report gate.</summary>
-        internal const int MicSnapshotBoundMs = 1000;
+        /// <summary>Why <paramref name="capture"/> no longer describes this radio, connection and run, or null. Call under <see cref="_micSwitchLock"/>.</summary>
+        private string CaptureNoLongerCurrent(MicCapture capture)
+        {
+            if (!capture.Recorded) return "the mic input could not be recorded";
+            if (!ReferenceEquals(theRadio, capture.Radio)) return "the radio changed while it was being recorded";
+            if (!ReferenceEquals(capture.Radio.CurrentCommandConnection, capture.Connection)
+                || capture.Connection.State != CommandConnectionState.Connected)
+                return "the radio's command connection changed while it was being recorded";
+            if (Interlocked.Read(ref _remoteAudioRun) != capture.Run) return "a newer remote-audio run began while it was being recorded";
+            return null;
+        }
 
-        /// <summary>A baseline no count ever equals: the saved value is treated as settled.</summary>
-        private const long UnmatchedChoices = -1;
+        /// <summary>How long <see cref="CaptureMic"/> waits for the report gate.</summary>
+        internal const int MicSnapshotBoundMs = 1000;
 
         /// <summary>The swap was saved on <paramref name="radio"/>'s current command connection, and that connection is still up.</summary>
         private static bool OnItsOwnLiveConnection(Radio radio, MicInputSwap swap) =>
@@ -2623,25 +2661,63 @@ namespace Radios
                     // The input and its history as ONE snapshot, taken before the mic
                     // lock (round 11, Codex's N1): a report that lands after it is
                     // counted after the baseline, and settles the saved value.
-                    string saved = MicSnapshot(theRadio, out long choicesAtSave);
-                    MicInputSwap leftover, swap;
+                    // And the swap is built from that capture alone, its radio,
+                    // connection and run included (round 12, Codex's B1); if the
+                    // capture failed, or no longer describes this radio,
+                    // connection and run, the mic is NOT switched (round 12, B2):
+                    // what could not be recorded is never changed.
+                    var capture = CaptureMic(theRadio);
+                    MicInputSwap leftover = null, swap = null;
+                    string notChanged;
                     lock (_micSwitchLock)
                     {
-                        leftover = _micInputSwap;
-                        StopOwedMicWatch();
-                        swap = new MicInputSwap(saved, theRadio, Interlocked.Read(ref _remoteAudioRun), false, choicesAtSave);
-                        _micInputSwap = swap;
+                        notChanged = CaptureNoLongerCurrent(capture);
+                        if (notChanged == null)
+                        {
+                            leftover = _micInputSwap;
+                            StopOwedMicWatch();
+                            swap = new MicInputSwap(capture, madeBySwitchBack: false);
+                            _micInputSwap = swap;
+                        }
                     }
                     if (leftover != null)
                         MicDebtAbandoned(leftover, "a new PC-audio start", "a new start in the same run saves its own original");
-                    // The choice baseline was taken when the swap was saved, before
-                    // this PC goes out (round 10, Codex's N1): a choice reported
-                    // while it is being written still settles the debt.
-                    theRadio.MicInput = "PC";
-                    // Remember that WE asked for PC, so the loop can tell a silent
-                    // revert from a deliberate operator choice. See
-                    // checkPcMicSelection.
-                    _pcMicExpected = true;
+                    if (notChanged != null)
+                    {
+                        Tracing.TraceLine("startOpusOutputChannel: NOT switching the mic input to PC - " + notChanged
+                            + "; computer audio runs with the radio's own mic input, and nothing is owed", TraceLevel.Warning);
+                    }
+                    else if (string.Equals(capture.Input ?? "", "PC", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _pcMicExpected = true;   // already PC: nothing to switch, nothing to put back
+                    }
+                    else
+                    {
+                        // The choice baseline was taken in the capture, before this
+                        // PC goes out (round 10, N1). The PC goes to the captured
+                        // radio and connection only (round 12, B1).
+                        bool written = false;
+                        string refused = StepOnPinnedTarget(capture.Radio, capture.Connection, () =>
+                        {
+                            written = capture.Radio.SendMicInput("PC");
+                            return null;
+                        });
+                        if (refused == null && written)
+                        {
+                            // Remember that WE asked for PC, so the loop can tell a
+                            // silent revert from a deliberate operator choice. See
+                            // checkPcMicSelection.
+                            _pcMicExpected = true;
+                        }
+                        else
+                        {
+                            // Nothing changed, so nothing is owed.
+                            lock (_micSwitchLock)
+                                if (ReferenceEquals(_micInputSwap, swap)) _micInputSwap = null;
+                            Tracing.TraceLine("startOpusOutputChannel: the switch to PC was NOT written - "
+                                + (refused ?? "the transport did not take it") + "; nothing is owed", TraceLevel.Warning);
+                        }
+                    }
                 }
                 // `RXGain = 50` stood here until Track B 2026-08-18 (#17)
                 // and was a no-op twice over: 50 is the property's default so
@@ -2715,6 +2791,13 @@ namespace Radios
             /// or the command could not be sent, and the operator was told
             /// once.</summary>
             RefusedByRadio,
+            /// <summary>
+            /// Only from the queued write: the mic input could not be recorded
+            /// in one step, or the radio or its connection changed while it was
+            /// being recorded, so nothing was switched (repair round 12, Codex's
+            /// #861 B2).
+            /// </summary>
+            NotRecorded,
         }
 
         /// <summary>The outcome and the sentence to speak for it. The
@@ -2855,15 +2938,20 @@ namespace Radios
             string before = null;
             long sessionNow;
             bool sessionOpenNow;
-            // The input and its history as ONE snapshot (round 11, Codex's N1,
-            // the switch-back sibling), before the mic lock.
-            string snapshot = MicSnapshot(radio, out long choicesAtSave);
+            // The input and its history, radio, connection and run as ONE
+            // capture (rounds 11 and 12, Codex's N1, B1 and B2), before the mic
+            // lock. Not recorded, or no longer this radio and connection: the
+            // switch is not made.
+            var capture = CaptureMic(radio);
+            string notRecorded = null;
             lock (_micSwitchLock)
             {
                 sessionNow = _micSessionId;
                 sessionOpenNow = _micSessionOpen;
                 if (!_micSessionOpen || _micSessionId != pressedInSession || !ReferenceEquals(theRadio, radio))
                     outcome = MicSwitchBackOutcome.SessionChanged;
+                else if ((notRecorded = CaptureNoLongerCurrent(capture)) != null)
+                    outcome = MicSwitchBackOutcome.NotRecorded;
                 // Asked again HERE, together with the bookkeeping: the hold
                 // can be armed while the switch waits in the queue (Codex
                 // re-verify 3, blocker 1). It is spoken below, once.
@@ -2871,13 +2959,12 @@ namespace Radios
                     outcome = MicSwitchBackOutcome.Held;
                 else
                 {
-                    before = snapshot ?? "";
+                    before = capture.Input ?? "";
                     if (string.Equals(before, "PC", StringComparison.OrdinalIgnoreCase))
                         outcome = MicSwitchBackOutcome.AlreadyPc;
                     else
                     {
-                        var swap = new MicInputSwap(before, radio, Interlocked.Read(ref _remoteAudioRun),
-                            true, choicesAtSave);
+                        var swap = new MicInputSwap(capture, madeBySwitchBack: true);
                         attempt = new MicSwitchAttempt(radio, pressedInSession, swap, _micInputSwap, _pcMicExpected);
                         _micInputSwap = swap;
                         _pcMicExpected = true;     // intent, as MicSource marks it
@@ -2918,6 +3005,13 @@ namespace Radios
                 case MicSwitchBackOutcome.AlreadyPc:
                     Tracing.TraceLine("SwitchMicInputBackToPc: already PC when the write ran - nothing written",
                         TraceLevel.Info);
+                    return;
+                case MicSwitchBackOutcome.NotRecorded:
+                    // Round 12 (Codex's B2): what could not be recorded is never
+                    // changed. The press said "switching", so the outcome is said.
+                    Tracing.TraceLine("SwitchMicInputBackToPc: NOT switching - " + notRecorded + "; nothing written",
+                        TraceLevel.Warning);
+                    SpeakMicSwitchBack(Lexicon.Get("audio.mic.switch_back_refused"));
                     return;
             }
 

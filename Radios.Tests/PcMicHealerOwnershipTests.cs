@@ -1938,19 +1938,103 @@ namespace Radios.Tests
             Assert.Equal(new[] { "mic input PC", "mic input BAL" }, rig.MicWrites);
         }
 
-        [Fact]
-        public void Cell_saved_when_the_report_gate_cannot_be_had_is_never_put_back()
+        // ── Repair round 12 (Codex's #861 B1 and B2): record first, act from
+        //    the record, never change what could not be recorded ──
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void A_start_whose_mic_input_cannot_be_recorded_does_not_switch_it(bool deviceStarts)
         {
-            // The snapshot fails toward leaving the input alone: with the reader's
-            // gate held past the bound, no baseline matches and nothing is written.
+            // Codex's B2: round 11 still wrote PC while it had disabled the
+            // put-back, a change with no way back. Now nothing is changed.
             Declare(RadioOwnership.Mine);
             using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
             var holder = HoldDispatchFor(rig, 1400);
-            rig.StartPcAudio();
+            rig.StartPcAudio(deviceStarts);
             Assert.True(holder.Join(3000));
-            rig.RadioReports("PC");
+            Assert.Empty(rig.MicWrites);                     // no PC: what could not be recorded is not changed
+            Assert.Null(SwapField.GetValue(rig.Rig));
+            Assert.False(rig.PcMicExpected);
             rig.StopPcAudio();
-            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+            Assert.Empty(rig.MicWrites);
+            Assert.Equal("MIC", rig.MicInput);
+        }
+
+        [Fact]
+        public void A_switch_back_whose_mic_input_cannot_be_recorded_does_not_switch_and_says_so()
+        {
+            using var rig = GuestRadioMovedToMic();
+            using var held = new HeldQueue(rig.Rig);
+            var speech = new SpeechLog(rig.Rig);
+            int pcBefore = rig.MicWrites.Count(c => c == "mic input PC");
+            PressOnly(rig);
+            var holder = HoldDispatchFor(rig, 1400);
+            held.Drain();                                    // the queued half cannot record the input
+            Assert.True(holder.Join(3000));
+            Assert.Equal(pcBefore, rig.MicWrites.Count(c => c == "mic input PC"));
+            Assert.Equal(FlexBase.MicSwitchBackOutcome.NotRecorded, rig.Rig.LastQueuedMicSwitchBack);
+            Assert.Contains(Lexicon.Get("audio.mic.switch_back_refused"), speech.Spoken);
+        }
+
+        /// <summary>Start PC audio on another thread while this one holds the mic lock; once it waits, run <paramref name="during"/>, then let it finish.</summary>
+        private static void StartBlockedOnTheMicLockDuring(PcAudioRig rig, bool deviceStarts, Action during)
+        {
+            object micLock = SwitchLockField.GetValue(rig.Rig)!;
+            System.Threading.Thread start;
+            System.Threading.Monitor.Enter(micLock);
+            try
+            {
+                start = new System.Threading.Thread(() => rig.StartPcAudio(deviceStarts)) { IsBackground = true };
+                start.Start();
+                WaitFor(() => (start.ThreadState & System.Threading.ThreadState.WaitSleepJoin) != 0, "the start to wait for the mic lock");
+                during();
+            }
+            finally { System.Threading.Monitor.Exit(micLock); }
+            Assert.True(start.Join(5000), "the start never finished");
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void A_start_whose_connection_is_replaced_after_its_capture_changes_nothing_on_the_new_one(bool deviceStarts)
+        {
+            // Codex's B1: the capture's input and count were bound to whatever
+            // connection was current at installation, and MIC from the old one was
+            // written over BAL on the new one.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            StartBlockedOnTheMicLockDuring(rig, deviceStarts, () =>
+            {
+                rig.Rig.ResetPcMicSession("reconnect (test)");
+                rig.Vendor.Transport.Reconnect();
+                rig.Vendor.Status("interlock state=READY");
+                rig.RadioReports("BAL");                     // the replacement's own original
+            });
+            rig.StopPcAudio();
+            Assert.Empty(rig.MicWrites);                     // neither the PC nor the old MIC
+            Assert.Equal("BAL", rig.MicInput);
+        }
+
+        [Fact]
+        public void A_start_whose_radio_is_replaced_after_its_capture_writes_nothing_to_either()
+        {
+            Declare(RadioOwnership.Mine);
+            Declare(RadioOwnership.Mine, SecondSerial);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            var first = rig.Vendor;
+            var second = new VendorRadioFixture(SecondSerial);
+            StartBlockedOnTheMicLockDuring(rig, true, () =>
+            {
+                TheRadioField.SetValue(rig.Rig, second.Radio);
+                Assert.True(Radios.InterlockReports.Watch(second.Radio));
+                second.Status("interlock state=READY");
+                second.Status("transmit mic_selection=BAL");
+            });
+            rig.StopPcAudio();
+            Assert.Empty(PcAudioRig.MicWritesOn(first));
+            Assert.Empty(PcAudioRig.MicWritesOn(second));
+            Assert.Equal("BAL", second.Radio.MicInput);
         }
 
         [Fact]
