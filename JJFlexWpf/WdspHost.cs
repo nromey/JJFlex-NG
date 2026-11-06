@@ -30,6 +30,19 @@ namespace JJFlexWpf
         Blocked,
         /// <summary>It is not the build this JJ Flexible shipped with. Never retried by itself.</summary>
         VersionMismatch,
+        /// <summary>
+        /// It exited in a way no restart can mend: a bad command line (exit 2),
+        /// or its pipe's server was not JJ Flexible (exit 5). Given up at once,
+        /// with no retries (ruled 2026-11-06); never retried by itself.
+        /// </summary>
+        GaveUp,
+        /// <summary>
+        /// It is installed but could not make its own folder its working
+        /// directory (exit 8), so it can never run there: reported as missing,
+        /// and reinstalling is the repair a later surface can offer from this
+        /// state (ruled 2026-11-06). Never retried by itself.
+        /// </summary>
+        FolderUnusable,
     }
 
     /// <summary>
@@ -425,7 +438,8 @@ namespace JJFlexWpf
                 _failures = 0;
                 _restartAt = 0;
                 if (_state is WdspHelperState.CapReached or WdspHelperState.Missing or WdspHelperState.Blocked
-                    or WdspHelperState.VersionMismatch or WdspHelperState.Restarting)
+                    or WdspHelperState.VersionMismatch or WdspHelperState.Restarting or WdspHelperState.GaveUp
+                    or WdspHelperState.FolderUnusable)
                     SetStateLocked(WdspHelperState.Idle, "retry");
                 foreach (var e in _wanted) e.ClearFinalLocked();
                 EnsureControlLocked();
@@ -444,7 +458,10 @@ namespace JJFlexWpf
                 switch (_state)
                 {
                     case WdspHelperState.CapReached: return Unavailability.HelperNotRunning;
+                    case WdspHelperState.GaveUp: return Unavailability.HelperNotRunning;
                     case WdspHelperState.Blocked: return Unavailability.HelperMissing;
+                    // Installed but unable to use its folder: missing to the operator, whatever the file.
+                    case WdspHelperState.FolderUnusable: return Unavailability.HelperMissing;
                     case WdspHelperState.Missing: return fileExists ? Unavailability.None : Unavailability.HelperMissing;
                     case WdspHelperState.VersionMismatch: return Unavailability.HelperVersionMismatch;
                 }
@@ -490,7 +507,7 @@ namespace JJFlexWpf
                 _lingerUntil = 0;
                 _failures = 0;
                 if (_state is WdspHelperState.CapReached or WdspHelperState.Missing or WdspHelperState.Blocked
-                    or WdspHelperState.VersionMismatch)
+                    or WdspHelperState.VersionMismatch or WdspHelperState.GaveUp or WdspHelperState.FolderUnusable)
                     SetStateLocked(WdspHelperState.Idle, "a new selection");
                 engine.SetUnavailableLocked(Unavailability.HelperNotRunning, "starting", final: false);
                 EnsureControlLocked();
@@ -851,6 +868,8 @@ namespace JJFlexWpf
             {
                 WdspCondition.FileMissing => WdspHelperState.Missing,
                 WdspCondition.StartBlocked => WdspHelperState.Blocked,
+                WdspCondition.UnrecoverableExit => WdspHelperState.GaveUp,
+                WdspCondition.NoWorkingDirectory => WdspHelperState.FolderUnusable,
                 _ => WdspHelperState.VersionMismatch,
             };
             SetStateLocked(state, detail);

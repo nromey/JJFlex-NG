@@ -113,6 +113,36 @@ internal sealed class HelperTestRig : IDisposable
         catch (InvalidOperationException) { }
     }
 
+    /// <summary>
+    /// Every trace line written while it is alive, from any thread. Other
+    /// tests running at the same time trace too, so a test looks for lines
+    /// that can only be its own (a pid, a stub's unique text).
+    /// </summary>
+    internal sealed class TraceCapture : TraceListener
+    {
+        private readonly ConcurrentQueue<string> _lines = new();
+        private readonly System.Text.StringBuilder _partial = new();
+
+        public TraceCapture() { Name = "helper-capture-" + Guid.NewGuid().ToString("N"); Trace.Listeners.Add(this); }
+
+        public IReadOnlyList<string> Lines => _lines.ToArray();
+
+        public bool Has(Func<string, bool> predicate) => _lines.Any(predicate);
+
+        public override void Write(string? message) { lock (_partial) _partial.Append(message); }
+
+        public override void WriteLine(string? message)
+        {
+            lock (_partial) { _partial.Append(message); _lines.Enqueue(_partial.ToString()); _partial.Clear(); }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) Trace.Listeners.Remove(this);
+            base.Dispose(disposing);
+        }
+    }
+
     public void Dispose()
     {
         lock (_engines) foreach (var e in _engines) e.Dispose();

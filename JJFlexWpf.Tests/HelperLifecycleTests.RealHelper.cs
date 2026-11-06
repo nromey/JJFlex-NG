@@ -86,18 +86,24 @@ public sealed partial class HelperLifecycleTests
         Assert.Equal(0, rig.Host.Failures);
     }
 
-    /// <summary>The real helper's own exit before it connects (2, a bad command line) is named, not left a bare number.</summary>
+    /// <summary>
+    /// The real helper's own exit before it connects (2, a bad command line) is
+    /// named, not left a bare number, and gives up at once (ruled 2026-11-06).
+    /// </summary>
     [Fact]
-    public void Real_helper_an_exit_before_connecting_is_named()
+    public void Real_helper_an_exit_before_connecting_is_named_and_gives_up()
     {
         if (NoRealHelper()) return;
         using var rig = new HelperTestRig(n => n == 1 ? new[] { "--no-such-argument" } : Array.Empty<string>(),
-            SlowRestart(TimeSpan.FromSeconds(3)), RealHelper());
+            HelperTestRig.Fast with { ConstructionWait = TimeSpan.FromSeconds(5) }, RealHelper());
         var engine = rig.Engine("nr2");
-        HelperTestRig.Until(() => rig.Host.State == WdspHelperState.Restarting, "the helper to exit");
+        HelperTestRig.Until(() => rig.Host.State == WdspHelperState.GaveUp, "the helper to exit");
         _out.WriteLine(engine.UnavailabilityDetail);
         Assert.Contains("the helper exited with code 2 (a bad command line)", engine.UnavailabilityDetail);
-        Assert.Equal(WdspCondition.ProcessExited, rig.Host.LastFailureCondition);
+        Assert.Equal(WdspCondition.UnrecoverableExit, rig.Host.LastFailureCondition);
+        Assert.Equal(0, rig.Host.Failures);
+        Thread.Sleep(600);
+        Assert.Single(rig.Host.LaunchedProcessIds);
     }
 
     /// <summary>

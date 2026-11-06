@@ -26,18 +26,16 @@ public sealed partial class HelperLifecycleTests
     /// <summary>
     /// Every way the helper exits is named, in the reason an engine gives and
     /// the host's detail (which the trace prints), never a bare number or a
-    /// pipe that merely closed. The stub exits as the helper does: 8 and 2
-    /// before it connects; 6 after an Error 257, which is how the helper ends
-    /// a client that overflowed one of its limits; 5 and 7, its own codes; 9,
-    /// a crash. Every one is still the crash path, counted, and the engine keeps
-    /// its delay while down, which is what the bank's delayed pass-through
-    /// lines up on.
+    /// pipe that merely closed. The stub exits as the helper does: 6 after an
+    /// Error 257, which is how the helper ends a client that overflowed one of
+    /// its limits; 7, its own code; 9, a crash. Each of these is the crash
+    /// path, counted, and the engine keeps its delay while down, which is what
+    /// the bank's delayed pass-through lines up on. (2, 5 and 8 give up at
+    /// once, ruled 2026-11-06: see the next test.)
     /// </summary>
     [Theory]
-    [InlineData("--exit-early", "8", 8u, "could not make its own folder its working directory", false, false)]
-    [InlineData("--exit-early", "2", 2u, "a bad command line", false, false)]
     [InlineData("--fatal-after", "5", 6u, "a protocol error", true, true)]
-    [InlineData("--crash-after", "5:5", 5u, "its pipe's server was not JJ Flexible's process", true, false)]
+    [InlineData("--exit-early", "4", 4u, "it could not connect to its pipe", false, false)]
     [InlineData("--crash-after", "5:7", 7u, "it had rejected the protocol version", true, false)]
     [InlineData("--crash-after", "5:9", 9u, "a crash", true, false)]
     public void Every_helper_exit_is_named_in_the_reason_the_engine_gives(string fault, string how, uint code, string meaning,
@@ -69,6 +67,61 @@ public sealed partial class HelperLifecycleTests
             Assert.Contains("before closing it said Error 257 UnexpectedMessage on channel 0: the client queued more than", detail);
         // No jump: the delay the bank lined up on stands while the helper is down.
         Assert.Equal(opensFirst ? 3408 : 0, engine.LatencySamples);
+    }
+
+    /// <summary>
+    /// Exits 2 (a bad command line), 5 (its pipe's server was not JJ Flexible)
+    /// and 8 (it could not make its own folder its working directory) give up
+    /// at once, with no retries, because a restart cannot mend any of them
+    /// (ruled 2026-11-06, S12). Exit 8 is the helper missing as far as the
+    /// operator is concerned, with its own state, so a later surface can offer
+    /// a reinstall from it; 2 and 5 are a helper that cannot run. Neither is
+    /// counted toward the cap, each is traced, the engine keeps its delay, and
+    /// a retry starts again. The fault is on the first start only, so a restart
+    /// (50 ms away under this policy) would have been seen.
+    /// </summary>
+    [Theory]
+    [InlineData("--exit-early", "8", 8u, "it could not make its own folder its working directory", false)]
+    [InlineData("--exit-early", "2", 2u, "a bad command line", false)]
+    [InlineData("--exit-early", "5", 5u, "its pipe's server was not JJ Flexible's process", false)]
+    [InlineData("--crash-after", "5:5", 5u, "its pipe's server was not JJ Flexible's process", true)]
+    public void Exits_2_5_and_8_give_up_at_once_and_8_reads_as_missing(string fault, string how, uint code, string meaning, bool opensFirst)
+    {
+        using var trace = new HelperTestRig.TraceCapture();
+        using var rig = new HelperTestRig(n => n == 1 ? new[] { fault, how } : Array.Empty<string>(),
+            HelperTestRig.Fast with { ConstructionWait = TimeSpan.FromSeconds(5) });
+        bool missing = code == 8;
+        var state = missing ? WdspHelperState.FolderUnusable : WdspHelperState.GaveUp;
+        var engine = rig.Engine("nnr");
+        if (opensFirst)
+        {
+            Assert.True(engine.IsAvailable, engine.UnavailabilityDetail);
+            using var feeder = new Feeder(engine);
+            HelperTestRig.Until(() => rig.Host.State == state, "the helper to give up");
+        }
+        else HelperTestRig.Until(() => rig.Host.State == state, "the helper to give up");
+        Thread.Sleep(600); // twelve restart delays: none may come
+        _out.WriteLine("engine: " + engine.UnavailabilityDetail);
+        _out.WriteLine("host: " + rig.Host.Detail);
+        Assert.Equal(state, rig.Host.State);
+        Assert.Single(rig.Host.LaunchedProcessIds);
+        Assert.Equal(0, rig.Host.Failures);
+        Assert.Equal(missing ? WdspCondition.NoWorkingDirectory : WdspCondition.UnrecoverableExit, rig.Host.LastFailureCondition);
+        var reason = missing ? Unavailability.HelperMissing : Unavailability.HelperNotRunning;
+        Assert.Equal(reason, engine.Unavailability);
+        Assert.Equal(reason, rig.Host.ProbeState("nnr", fileExists: true));
+        Assert.Contains($"exited with code {code} ({meaning})", engine.UnavailabilityDetail);
+        if (missing) Assert.StartsWith("the helper is missing: ", engine.UnavailabilityDetail);
+        Assert.Equal(opensFirst ? 3408 : 0, engine.LatencySamples);
+        int pid = rig.Host.LaunchedProcessIds[0];
+        Assert.True(trace.Has(l => l.Contains($"-> {state}") && l.Contains($"code {code}")),
+            "the give-up was not traced: " + string.Join(" | ", trace.Lines.Where(l => l.StartsWith("WdspHost"))));
+
+        rig.Host.Retry(); // the operator's retry starts again; the stub behaves this time
+        var again = rig.Engine("nr2");
+        Assert.True(again.IsAvailable, again.UnavailabilityDetail);
+        Assert.Equal(2, rig.Host.LaunchedProcessIds.Count);
+        Assert.NotEqual(pid, rig.Host.CurrentProcessId);
     }
 
     /// <summary>
@@ -392,9 +445,14 @@ public sealed partial class HelperLifecycleTests
         Assert.InRange(t.ElapsedMilliseconds, (long)rig.Host.Policy.Stall.TotalMilliseconds, (long)rig.Host.Policy.Stall.TotalMilliseconds + 1500);
     }
 
-    /// <summary>The words for each code, held to the helper's README so a renamed code cannot drift silently.</summary>
+    /// <summary>
+    /// The words for each code, held to the helper's README so a renamed code
+    /// cannot drift silently; and which condition each exit is: 6 a protocol
+    /// error, 2 and 5 a helper that cannot run, 8 a helper that cannot use its
+    /// folder (missing, to the operator), every other code the process exiting.
+    /// </summary>
     [Fact]
-    public void Each_exit_code_has_its_own_words_and_only_6_is_a_protocol_error()
+    public void Each_exit_code_has_its_own_words_and_its_own_condition()
     {
         var codes = new uint[] { 0, 2, 3, 4, 5, 6, 7, 8 };
         var words = codes.Select(WdspProtocol.DescribeExit).ToArray();
@@ -402,10 +460,18 @@ public sealed partial class HelperLifecycleTests
         Assert.All(words, w => Assert.DoesNotContain("a crash", w));
         Assert.Contains("a crash", WdspProtocol.DescribeExit(1));
         Assert.Contains("0xC0000005", WdspProtocol.DescribeExit(0xC0000005));
-        foreach (var c in codes)
-            Assert.Equal(c == 6 ? WdspCondition.FatalProtocolError : WdspCondition.ProcessExited, WdspProtocol.ConditionForExit(c));
-        // Both conditions are the crash path, as the appendix rules every exit to be.
+        foreach (var c in codes.Append(1u).Append(9u).Append(0xC0000005))
+            Assert.Equal(c switch
+            {
+                6 => WdspCondition.FatalProtocolError,
+                2 or 5 => WdspCondition.UnrecoverableExit,
+                8 => WdspCondition.NoWorkingDirectory,
+                _ => WdspCondition.ProcessExited,
+            }, WdspProtocol.ConditionForExit(c));
+        // The crash path for these two; 2, 5 and 8 give up at once (ruled 2026-11-06).
         Assert.True(WdspProtocol.CountsTowardCap(WdspCondition.FatalProtocolError));
         Assert.True(WdspProtocol.CountsTowardCap(WdspCondition.ProcessExited));
+        Assert.False(WdspProtocol.CountsTowardCap(WdspCondition.UnrecoverableExit));
+        Assert.False(WdspProtocol.CountsTowardCap(WdspCondition.NoWorkingDirectory));
     }
 }
