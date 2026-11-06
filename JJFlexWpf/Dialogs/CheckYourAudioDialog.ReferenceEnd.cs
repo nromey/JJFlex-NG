@@ -322,9 +322,13 @@ public partial class CheckYourAudioDialog
     private async void EndTransmissionAfterReferenceTail(FlexBase rig, ReferenceEndHolder holder)
     {
         object? session = _session;
+        // Which keying the reference rode (round five, 7c): an operator who
+        // lets go and keys again inside the tail has started a transmission of
+        // their own, and it is not the reference's to end, or to end quietly.
+        int? keying = PttControllerSource?.Invoke()?.Keyings;
         try { await Task.Delay(ReferenceEndTail); }
         catch (Exception) { return; }
-        EndTransmissionForReference(rig, holder, session);
+        EndTransmissionForReference(rig, holder, session, keying);
     }
 
     private sealed partial class AudioCheckSession
@@ -338,7 +342,8 @@ public partial class CheckYourAudioDialog
     /// route, rechecked now: the same radio, the same session, held the same
     /// way. Returns what it did.
     /// </summary>
-    internal ReferenceEndHolder EndTransmissionForReference(FlexBase rig, ReferenceEndHolder planned, object? plannedSession)
+    internal ReferenceEndHolder EndTransmissionForReference(FlexBase rig, ReferenceEndHolder planned, object? plannedSession,
+        int? plannedKeying = null)
     {
         if (!ReferenceEquals(rig, _rig)) return ReferenceEndHolder.Nobody;
         var now = ReferenceHolderNow(rig);
@@ -350,12 +355,17 @@ public partial class CheckYourAudioDialog
                 _session.StopCheck();
                 return ReferenceEndHolder.Check;
             case ReferenceEndHolder.App:
+                var ptt = PttControllerSource?.Invoke();
+                // A transmission begun since the end is the operator's own (7c).
+                if (plannedKeying is int keying && ptt != null && ptt.Keyings != keying)
+                    return ReferenceEndHolder.Nobody;
                 // Through the controller, never the radio's transmit flag: that
                 // would leave the controller believing it still holds the key.
                 // And through the key edges, which latch a hold the operator
-                // may still be pressing (round five, 7a).
+                // may still be pressing (round five, 7a). With no "Receiving":
+                // the finished sentence is the only thing said (7c).
                 if (EndAppKeyForReference is { } unkey) unkey();
-                else PttControllerSource?.Invoke()?.EscapeUnlock();
+                else ptt?.EndAfterReference();
                 return ReferenceEndHolder.App;
             default:
                 return ReferenceEndHolder.Nobody;

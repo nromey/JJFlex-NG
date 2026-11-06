@@ -99,10 +99,12 @@ public sealed class UnifiedTakesReferenceEndTests
     {
         string end = Body(Dialog("CheckYourAudioDialog.ReferenceEnd.cs"),
             "internal ReferenceEndHolder EndTransmissionForReference(");
-        string app = Case(end, "case ReferenceEndHolder.App");
+        // Up to its own return: round five (7c) put an early return for a new transmission inside it.
+        string app = end[end.IndexOf("case ReferenceEndHolder.App", StringComparison.Ordinal)..end.IndexOf("return ReferenceEndHolder.App;", StringComparison.Ordinal)];
         // Round five (7a): through MainWindow's key edges, which latch a held key.
         Assert.Contains("EndAppKeyForReference", app);
-        Assert.Contains(".EscapeUnlock()", app);
+        // Round five (7c): the quiet unkey, the controller's own.
+        Assert.Contains(".EndAfterReference()", app);
         Assert.DoesNotMatch(new Regex(@"\.Transmit\s*="), end);
     }
 

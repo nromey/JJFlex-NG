@@ -3072,7 +3072,9 @@ public partial class MainWindow : UserControl
     {
         if (_pttController == null || !_pttController.IsTransmitting) return false;
         bool held = _pttController.State == PttSafetyController.PttState.PttHold;
-        _pttController.EscapeUnlock();
+        // No "Receiving" (round five, 7c; Noel 2026-11-06 03:13): the
+        // reference's finished sentence is the only thing said.
+        _pttController.EndAfterReference();
         if (held) LatchAppEndedHold("a reference recording finished");
         else ResetPttInput();
         return true;

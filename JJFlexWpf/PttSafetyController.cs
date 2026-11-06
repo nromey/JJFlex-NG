@@ -930,6 +930,7 @@ namespace JJFlexWpf
             if (State == PttState.Idle)
             {
                 _pttDownTicks = Stopwatch.GetTimestamp();   // #216, see NotePttRelease
+                Keyings++;
                 State = PttState.PttHold;
                 SetTx(true);   // RF off to on: a new transmission, and every sentence about the last one's end is now history
                 StartFreshAudioSample();
@@ -1028,6 +1029,42 @@ namespace JJFlexWpf
         }
 
         /// <summary>
+        /// A reference recording this transmission carried has finished, and
+        /// the app lets go of its own key after the tail (Unified takes, round
+        /// three 5b). Everything <see cref="EscapeUnlock"/> does except the
+        /// spoken "Receiving": ruled by Noel 2026-11-06 03:13 (C1), the finished
+        /// sentence the window has just queued is the only thing said. Until
+        /// then "Receiving", at Interrupt, cut that sentence at its first word
+        /// and the speech arbiter replayed it whole 600 ms later.
+        /// </summary>
+        /// <remarks>
+        /// The same shape as the Audio Check's own unkey, which says nothing
+        /// either (<see cref="AudioCheckNarration"/>), and so the microphone
+        /// level advice goes too: what went out was the recording, not the
+        /// operator's voice. Held only for this one call, so it cannot quiet a
+        /// later transmission's "Receiving"; the window rechecks that this is
+        /// still the transmission the reference rode before calling
+        /// (<see cref="Keyings"/>). The stop chirp still sounds when chirps are on.
+        /// </remarks>
+        public void EndAfterReference()
+        {
+            if (State == PttState.Idle) return;
+            bool narrated = AudioCheckNarration;
+            AudioCheckNarration = true;
+            try { GoIdle(Lexicon.Get("audio.ptt.announce_receiving")); }
+            finally { AudioCheckNarration = narrated; }
+        }
+
+        /// <summary>
+        /// How many times this controller has keyed from idle: a push-to-talk
+        /// hold or a lock begun with nothing transmitting. A hold becoming a
+        /// lock is the same keying. Lets a caller that planned an unkey ask, at
+        /// the moment it acts, whether it is still the transmission it planned
+        /// for (round five, 7c).
+        /// </summary>
+        public int Keyings { get; private set; }
+
+        /// <summary>
         /// A recording's send began going out on the operator's transmission
         /// (#835; Noel, 2026-10-30 00:00: <i>"we have a ten minute for longer
         /// recordings, I'm thinking amateur radio news line or another
@@ -1119,6 +1156,7 @@ namespace JJFlexWpf
             }
 
             bool fromIdle = State == PttState.Idle;
+            if (fromIdle) Keyings++;
             State = PttState.Locked;
             // From Idle this starts a transmission; from a held PTT it keeps
             // one on, and the episode must NOT change — a reflected-power
