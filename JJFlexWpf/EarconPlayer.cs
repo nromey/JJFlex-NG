@@ -314,13 +314,34 @@ namespace JJFlexWpf
             [CallerMemberName] string earconName = "")
             => GateCore(category, earconName, detail);
 
-        private static bool GateCore(EarconCategory category, string earconName, string? detail)
+        /// <summary>
+        /// <see cref="Gate"/> for one method that is two sounds in the picker:
+        /// <see cref="FilterEdgeMoveTone(bool)"/> and
+        /// <see cref="FilterBoundaryHitTone(bool)"/> each take the edge, and
+        /// <see cref="EarconCatalog"/> gives the low and the high edge their
+        /// own trim under a dotted id ("FilterEdgeMoveTone.Low"). Gating on
+        /// the bare method name armed a trim nobody can set, so those four
+        /// trims were written and never read.
+        /// </summary>
+        /// <remarks>
+        /// The trace and the timing record keep the bare name, with the edge
+        /// as detail, for the reason <see cref="GateDetailed"/> gives: the
+        /// name is the sound, the detail says which one. The dotted id is the
+        /// one already saved in operators' configs, so it is kept as it is.
+        /// </remarks>
+        private static bool GateTrimmed(EarconCategory category, string trimId, string detail,
+            [CallerMemberName] string earconName = "")
+            => GateCore(category, earconName, detail, trimId);
+
+        private static bool GateCore(EarconCategory category, string earconName, string? detail,
+            string? trimId = null)
         {
             // Arm this sound's per-tier trim for the providers it is about to
             // build. Set here because Gate is the one thing every gated earcon
             // does first, and the same CallerMemberName the recorder already
-            // relies on is the earcon's stable id.
-            _currentTrimDb = GetLevelTrimDb(earconName);
+            // relies on is the earcon's stable id, unless the sound is one of
+            // a pair the picker trims separately (GateTrimmed).
+            _currentTrimDb = GetLevelTrimDb(trimId ?? earconName);
 
             bool on = On(category);
 
@@ -817,6 +838,10 @@ namespace JJFlexWpf
         public static void Beep(int frequencyHz = 800, int durationMs = 150)
         {
             BeginUngated(nameof(Beep), "hz=" + frequencyHz + " ms=" + durationMs);
+            // Arm its own trim. Ungated sounds never passed through Gate, so the
+            // picker's "Plain beep" trim was never read and the beep played at
+            // whatever trim the previous sound on this thread had left.
+            _currentTrimDb = GetLevelTrimDb(nameof(Beep));
             PlayTone(frequencyHz, durationMs, VolumeStrong);
         }
 
@@ -1736,7 +1761,11 @@ namespace JJFlexWpf
         /// that, and the field work's surviving band is 150 to 250.</param>
         public static void ConnectSeriesAtLength(int toneMs)
         {
-            NoTrim();
+            // The catalog offers a trim for the lengths it lists, under
+            // "ConnectSeriesAtLength.<ms>"; a length it does not list has none
+            // and plays untrimmed. Until 2026-11-07 this cleared the trim, so the
+            // picker's trim for these auditions was written and never read.
+            ArmTrim("ConnectSeriesAtLength." + toneMs);
             if (!EarconsEnabled) return;
 
             toneMs = Math.Clamp(toneMs, 20, 600);
@@ -1775,10 +1804,11 @@ namespace JJFlexWpf
         /// <param name="candidate">'A' through 'C'; anything else is ignored.</param>
         public static void ConnectSeriesCandidate(char candidate)
         {
-            // A parameterised audition, not a named earcon, so there is no id
-            // to look a trim up by — and it must not inherit the trim of
-            // whatever played before it on this thread.
-            NoTrim();
+            // A parameterised audition, not a named earcon, but the catalog
+            // gives each candidate its own entry and so its own trim, under
+            // "ConnectSeriesCandidate.<letter>". Arm that, which also keeps it
+            // from inheriting the trim of whatever played before it.
+            ArmTrim("ConnectSeriesCandidate." + candidate);
             if (!EarconsEnabled) return;
 
             // The ladder, so a candidate auditions the instrument and nothing
@@ -1884,12 +1914,17 @@ namespace JJFlexWpf
                 return;
             }
 
+            // The trim is thread-static and the figure plays on a pool thread,
+            // so carry the trim of the sound this figure belongs to across;
+            // otherwise it played at whatever that pool thread last held.
+            float trimDb = _currentTrimDb;
             _ = System.Threading.Tasks.Task.Run(async () =>
             {
                 try
                 {
                     await System.Threading.Tasks.Task.Delay(delayMs).ConfigureAwait(false);
                     BeginUngated(nameof(PlayLaterVoiced), "delayMs=" + delayMs);   // #855: its own sound
+                    _currentTrimDb = trimDb;
                     PlayVoicedSequence(voice, steps, volume);
                 }
                 catch (Exception ex)
@@ -1919,10 +1954,27 @@ namespace JJFlexWpf
             PlayLaterVoiced(EarconVoices.WarningCalm, new[] { (800, 150) }, VolumeSoft, 560);
         }
 
+        /// <summary>The picker's trim ids for the two directions of <see cref="Chirp"/>.</summary>
+        internal const string ChirpUpTrimId = "Chirp.Up";
+        internal const string ChirpDownTrimId = "Chirp.Down";
+
+        /// <summary>The picker's trim ids for the two edges of the filter edge sounds.</summary>
+        internal const string FilterEdgeMoveLowTrimId = "FilterEdgeMoveTone.Low";
+        internal const string FilterEdgeMoveHighTrimId = "FilterEdgeMoveTone.High";
+        internal const string FilterBoundaryHitLowTrimId = "FilterBoundaryHitTone.Low";
+        internal const string FilterBoundaryHitHighTrimId = "FilterBoundaryHitTone.High";
+
+        /// <summary>The picker's trim id for the transmit test-tone monitor.</summary>
+        internal const string TxToneMonitorTrimId = "TxToneMonitor";
+
         /// <summary>Play a frequency sweep (chirp) from startHz to endHz.</summary>
         public static void Chirp(int startHz, int endHz, int durationMs)
         {
             BeginUngated(nameof(Chirp), "from=" + startHz + " to=" + endHz + " ms=" + durationMs);
+            // The picker trims the rising and the falling sweep separately
+            // ("Chirp.Up", "Chirp.Down"), so the direction picks the trim. Same
+            // reason as Beep: without this it inherited the previous sound's.
+            _currentTrimDb = GetLevelTrimDb(endHz >= startHz ? ChirpUpTrimId : ChirpDownTrimId);
             PlayChirp(startHz, endHz, durationMs, 0.6f);
         }
 
@@ -1992,7 +2044,9 @@ namespace JJFlexWpf
         /// <param name="isLowEdge">True for low/left edge, false for high/right edge.</param>
         public static void FilterEdgeMoveTone(bool isLowEdge)
         {
-            if (!Gate(EarconCategory.TuningAndFilters)) return;
+            if (!GateTrimmed(EarconCategory.TuningAndFilters,
+                    isLowEdge ? FilterEdgeMoveLowTrimId : FilterEdgeMoveHighTrimId,
+                    isLowEdge ? "edge=low" : "edge=high")) return;
             float pan = isLowEdge ? -0.7f : 0.7f;
             if (_slideSound != null)
                 PlayCachedSoundPanned(_slideSound, pan);
@@ -2026,7 +2080,9 @@ namespace JJFlexWpf
         /// <param name="isLowEdge">True for low/left boundary, false for high/right boundary.</param>
         public static void FilterBoundaryHitTone(bool isLowEdge)
         {
-            if (!Gate(EarconCategory.TuningAndFilters)) return;
+            if (!GateTrimmed(EarconCategory.TuningAndFilters,
+                    isLowEdge ? FilterBoundaryHitLowTrimId : FilterBoundaryHitHighTrimId,
+                    isLowEdge ? "edge=low" : "edge=high")) return;
             float pan = isLowEdge ? -0.8f : 0.8f;
             if (_zipSound != null)
             {
@@ -2746,7 +2802,11 @@ namespace JJFlexWpf
                 {
                     Active = true
                 };
-                _txToneMonitorWrapper = new MonoToStereoSampleProvider(_txToneMonitorProvider);
+                // Through the trim like every other sound: the picker offers a
+                // trim for the monitor, and adding the bare provider skipped it.
+                // The wrapper kept here is the one added, so Stop removes it.
+                _currentTrimDb = GetLevelTrimDb(TxToneMonitorTrimId);
+                _txToneMonitorWrapper = ApplyPreviewGain(new MonoToStereoSampleProvider(_txToneMonitorProvider));
                 AlertMixer.AddMixerInput(_txToneMonitorWrapper);
                 return _txToneMonitorProvider;
             }
@@ -3591,6 +3651,17 @@ namespace JJFlexWpf
         private static void BeginUngated(string name, string? detail = null)
         {
             if (_captureMixer == null) SoundTiming.Begin(name, detail);
+        }
+
+        /// <summary>
+        /// Arm the trim the picker stores under <paramref name="trimId"/> for a
+        /// parameterised audition, whose method name alone is not its catalog
+        /// id. Timed under the method, like <see cref="NoTrim"/>.
+        /// </summary>
+        private static void ArmTrim(string trimId, [CallerMemberName] string caller = "")
+        {
+            _currentTrimDb = GetLevelTrimDb(trimId);
+            if (_captureMixer == null) SoundTiming.Begin(caller);
         }
 
         private static void NoTrim([CallerMemberName] string caller = "")

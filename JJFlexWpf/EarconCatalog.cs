@@ -417,7 +417,7 @@ namespace JJFlexWpf
 
             yield return new EarconEntry
             {
-                Id = "FilterEdgeMoveTone.Low",
+                Id = EarconPlayer.FilterEdgeMoveLowTrimId,
                 Label = "Filter edge move, low edge",
                 Description = "Each step while dragging the low filter edge. Panned left.",
                 Category = cat,
@@ -426,7 +426,7 @@ namespace JJFlexWpf
             };
             yield return new EarconEntry
             {
-                Id = "FilterEdgeMoveTone.High",
+                Id = EarconPlayer.FilterEdgeMoveHighTrimId,
                 Label = "Filter edge move, high edge",
                 Description = "Each step while dragging the high filter edge. Panned right.",
                 Category = cat,
@@ -435,7 +435,7 @@ namespace JJFlexWpf
             };
             yield return new EarconEntry
             {
-                Id = "FilterBoundaryHitTone.Low",
+                Id = EarconPlayer.FilterBoundaryHitLowTrimId,
                 Label = "Filter boundary hit, low edge",
                 Description = "The low filter edge has run out of room. Panned left, descending.",
                 Category = cat,
@@ -444,7 +444,7 @@ namespace JJFlexWpf
             };
             yield return new EarconEntry
             {
-                Id = "FilterBoundaryHitTone.High",
+                Id = EarconPlayer.FilterBoundaryHitHighTrimId,
                 Label = "Filter boundary hit, high edge",
                 Description = "The high filter edge has run out of room. Panned right, ascending.",
                 Category = cat,
@@ -464,7 +464,7 @@ namespace JJFlexWpf
             };
             yield return new EarconEntry
             {
-                Id = "Chirp.Up",
+                Id = EarconPlayer.ChirpUpTrimId,
                 Label = "Rising chirp",
                 Description = "The raw sweep primitive, 400 to 800 Hz over 200 ms.",
                 Category = null,
@@ -473,7 +473,7 @@ namespace JJFlexWpf
             };
             yield return new EarconEntry
             {
-                Id = "Chirp.Down",
+                Id = EarconPlayer.ChirpDownTrimId,
                 Label = "Falling chirp",
                 Description = "The raw sweep primitive, 800 to 400 Hz over 200 ms.",
                 Category = null,
@@ -482,7 +482,7 @@ namespace JJFlexWpf
             };
             yield return new EarconEntry
             {
-                Id = "TxToneMonitor",
+                Id = EarconPlayer.TxToneMonitorTrimId,
                 Label = "Transmit test-tone monitor",
                 Description = "The local monitor for the transmit test tone, 700 Hz, continuous. "
                             + "Local only — it does not key the radio.",

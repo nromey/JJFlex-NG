@@ -717,6 +717,15 @@ namespace JJFlexWpf
             rootConfig.CwPitchFollowsRadio = chosen.CwPitchFollowsRadio;
             rootConfig.CwWaveform = chosen.CwWaveform;
             rootConfig.EarconVoiceSet = chosen.EarconVoiceSet;
+            // The per-sound loudness trims and the receive duck, which the
+            // dialog captures back from the live engine before it commits. Both
+            // describe this operator's ears. Missing here, a trim set with no
+            // radio connected played at once and was gone at the next start.
+            rootConfig.EarconLevelTrims = (chosen.EarconLevelTrims ?? new List<EarconLevelTrim>())
+                .ConvertAll(t => new EarconLevelTrim { Id = t.Id, Db = t.Db });
+            rootConfig.RxDuckEnabled = chosen.RxDuckEnabled;
+            rootConfig.RxDuckDepthDb = chosen.RxDuckDepthDb;
+            rootConfig.RxDuckTiming = chosen.RxDuckTiming;
             // #855: the alert sound delay describes this computer's sound output,
             // not the radio. Missing from this list it applied live, then came
             // back as the default on reopening Settings, and the next OK put the
