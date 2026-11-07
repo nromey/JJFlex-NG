@@ -55,6 +55,60 @@ public sealed class ModeCycleSettingsTests
         });
     }
 
+    private static readonly string[] Radio8600 =
+        { "LSB", "USB", "AM", "CW", "DIGL", "DIGU", "SAM", "FM", "NFM", "DFM", "RTTY" };
+
+    /// <summary>
+    /// Found on the 8600 at the bench, 2026-11-07: it reports no DSB, and the
+    /// page offered DSB anyway. Once the radio has reported its list, the page
+    /// offers that list; a saved mode it does not hold stays in the cycle,
+    /// reads "not available on this radio", and is still in the file after OK.
+    /// </summary>
+    [Fact]
+    public void On_a_radio_without_DSB_the_page_offers_its_modes_and_keeps_a_saved_DSB()
+    {
+        WithOperatorConfig(new[] { "USB", "LSB", "CW", "SAM", "DSB" }, () =>
+        {
+            var (dialog, list, check, _, _) = Section();
+            Assert.Contains("DSB", Rows(list));   // before the radio's list: the full set
+
+            InvokeWith(dialog, "ApplyRadioModes", (IReadOnlyList<string>)Radio8600);
+
+            var rows = Rows(list);
+            Assert.Equal(new[] { "USB", "LSB", "CW", "SAM", "DSB" }, rows.Take(5));
+            Assert.Contains("not available on this radio", Text(list, 4));   // the saved DSB
+            Assert.DoesNotContain("not available", Text(list, 3));          // SAM, which it has
+            Assert.Equal(Radio8600.Length + 1, rows.Length);                // its eleven, plus the saved DSB
+            Assert.Contains("RTTY", rows);
+            string note = ((TextBlock)Field(dialog, "ModeCycleMenuNote")).Text;
+            Assert.DoesNotContain("DSB", note);     // not offered as a cycle-only route on this radio
+            Assert.Contains("RTTY", note);
+
+            // An unrelated change, then OK: DSB is still in the operator's file.
+            Select(list, "DIGU");
+            check.IsChecked = true;
+            Invoke(dialog, "CommitModeCycle");
+            Assert.Equal(new[] { "USB", "LSB", "CW", "SAM", "DSB", "DIGU" }, AccessibilityConfig.Current.ModeCycleModes);
+            Assert.Contains("<Mode>DSB</Mode>", File.ReadAllText(OperatorFile));
+        });
+    }
+
+    [Fact]
+    public void On_a_radio_without_DSB_a_cycle_without_it_does_not_offer_it()
+    {
+        WithOperatorConfig(null, () =>
+        {
+            var (dialog, list, _, _, _) = Section();
+            InvokeWith(dialog, "ApplyRadioModes", (IReadOnlyList<string>)Radio8600);
+            Assert.DoesNotContain("DSB", Rows(list));
+            Assert.All(Enumerable.Range(0, list.Items.Count), i => Assert.DoesNotContain("not available", Text(list, i)));
+        });
+    }
+
+    private static void InvokeWith(object target, string name, object arg) =>
+        (typeof(SettingsDialog).GetMethod(name, Private | BindingFlags.DeclaredOnly)
+            ?? throw new InvalidOperationException("SettingsDialog has no " + name)).Invoke(target, new[] { arg });
+
     [Fact]
     public void The_page_promises_only_the_routes_that_exist()
     {

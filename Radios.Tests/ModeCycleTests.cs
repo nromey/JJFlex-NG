@@ -293,10 +293,53 @@ namespace Radios.Tests
             Assert.DoesNotContain("CommonModes", main);
             int at = main.IndexOf("public void CycleMode(int direction)", StringComparison.Ordinal);
             Assert.True(at >= 0, "CycleMode is gone");
-            string body = main.Substring(at, Math.Min(2500, main.Length - at));
+            int end = main.IndexOf("public void SetMode(string mode)", at, StringComparison.Ordinal);
+            string body = main.Substring(at, end - at);
             Assert.Contains("ModeCycle.FromSaved(Radios.AccessibilityConfig.Current.ModeCycleModes)", body);
-            Assert.Contains("ModeCycle.KnownModes(RigControl.RadioModeList)", body);
-            Assert.Contains("ModeCycle.Next(", body);
+            Assert.Contains("var radioModes = RigControl.RadioModeList;", body);
+            Assert.Contains("var cycle = Radios.ModeCycle.OnRadio(saved, radioModes);", body);
+            Assert.Contains("ModeCycle.KnownModes(radioModes)", body);
+            Assert.Contains("ModeCycle.Next(cycle, allModes, currentMode, direction)", body);
+            // The mode written and the mode spoken are the one Next returned
+            // from the radio's own list, and nothing else.
+            Assert.Contains("RigControl.Mode = newMode;", body);
+            Assert.Contains("Radios.ScreenReaderOutput.Speak(newMode, VerbosityLevel.Terse, true);", body);
+        }
+
+        /// <summary>
+        /// Found on the 8600 at the bench, 2026-11-07: its mode list has no
+        /// DSB. With DSB in the cycle, Alt+M from SAM wrote DSB, the radio
+        /// answered DIGU, and the app said "DSB". On a radio that reported its
+        /// list, the cycle skips a mode it does not list, every mode the key
+        /// writes and says is one the radio listed, and the saved cycle keeps
+        /// the mode for a radio that has it.
+        /// </summary>
+        [Fact]
+        public void On_a_radio_without_DSB_the_cycle_skips_it_and_the_saved_cycle_keeps_it()
+        {
+            var radio8600 = new[] { "LSB", "USB", "AM", "CW", "DIGL", "DIGU", "SAM", "FM", "NFM", "DFM", "RTTY" };
+            var saved = ModeCycle.FromSaved(new[] { "USB", "LSB", "CW", "DIGU", "DIGL", "AM", "FM", "SAM", "DSB" });
+
+            var onRadio = ModeCycle.OnRadio(saved, radio8600);
+            Assert.Equal(new[] { "USB", "LSB", "CW", "DIGU", "DIGL", "AM", "FM", "SAM" }, onRadio);
+            Assert.Contains("DSB", saved);   // the saved cycle itself is untouched
+
+            var all = ModeCycle.KnownModes(radio8600);
+            Assert.Equal("USB", ModeCycle.Next(onRadio, all, "SAM", +1));   // the bench's press: not DSB
+            Assert.Equal("SAM", ModeCycle.Next(onRadio, all, "USB", -1));
+
+            // Every press, from every mode the radio has, in both directions,
+            // lands on a mode the radio listed.
+            foreach (string from in radio8600)
+                foreach (int dir in new[] { +1, -1 })
+                    Assert.Contains(ModeCycle.Next(onRadio, all, from, dir)!, radio8600);
+
+            // No list reported yet: the saved cycle unchanged, DSB and all.
+            Assert.Same(saved, ModeCycle.OnRadio(saved, Array.Empty<string>()));
+            Assert.Same(saved, ModeCycle.OnRadio(saved, null));
+
+            // A cycle of only modes the radio lacks has nowhere to go here.
+            Assert.Empty(ModeCycle.OnRadio(ModeCycle.FromSaved(new[] { "DSB" }), radio8600));
         }
 
         private static string RepoRoot()

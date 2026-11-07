@@ -77,6 +77,7 @@ namespace JJFlexWpf.Dialogs
             _modeCycleIn = ModeCycle.FromSaved(AccessibilityConfig.Current.ModeCycleModes).ToList();
             _modeCycleAtOpen = new List<string>(_modeCycleIn);
             _modeCycleKnown = ModeCycle.KnownModes(null).ToList();
+            _radioModes = new List<string>();   // none reported until a radio is handed in
             AddUnknownModes(_modeCycleIn);
             UpdateModeCycleMenuNote();
             RebuildModeCycleList(_modeCycleIn.Count > 0 ? _modeCycleIn[0] : _modeCycleKnown.FirstOrDefault());
@@ -97,15 +98,38 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>Add what this radio reports that the list does not yet hold.</summary>
-        private void MergeRadioModes()
+        private void MergeRadioModes() => ApplyRadioModes(_rig?.RadioModeList);
+
+        /// <summary>The modes the connected radio reported; empty when none has.</summary>
+        private List<string> _radioModes = new();
+
+        /// <summary>
+        /// Offer what the connected radio reports, once it has reported a list.
+        /// </summary>
+        /// <remarks>
+        /// Found on the 8600 at the bench, 2026-11-07: it reports no DSB, the
+        /// page offered DSB from FlexLib's list anyway, and a DSB in the cycle
+        /// was written, refused (the radio went to DIGU) and spoken as "DSB".
+        /// So with a list reported the page offers that list, and a saved mode
+        /// it does not hold stays in the cycle (the file is the operator's,
+        /// for any radio) but reads "not available on this radio"; the cycle
+        /// key skips it (<see cref="ModeCycle.OnRadio"/>). With no radio the
+        /// full list stays, so an offline choice still works.
+        /// </remarks>
+        private void ApplyRadioModes(IReadOnlyList<string>? radio)
         {
-            var radio = _rig?.RadioModeList;
             if (radio == null || radio.Count == 0) return;
             string? selected = SelectedCycleMode();
-            AddUnknownModes(ModeCycle.KnownModes(radio));
+            _radioModes = ModeCycle.KnownModes(radio).ToList();
+            _modeCycleKnown = new List<string>(_radioModes);
+            AddUnknownModes(_modeCycleIn);
             UpdateModeCycleMenuNote();
             RebuildModeCycleList(selected);
         }
+
+        /// <summary>True when a radio has reported its modes and this is not one of them.</summary>
+        private bool UnavailableOnRadio(string mode) =>
+            _radioModes.Count > 0 && !ModeCycle.Contains(_radioModes, mode);
 
         /// <summary>
         /// Say which of the modes on offer the Mode menu also reaches, and
@@ -123,14 +147,19 @@ namespace JJFlexWpf.Dialogs
         /// </remarks>
         private void UpdateModeCycleMenuNote()
         {
-            var notInMenu = ModeCyclesNotInMenu(_modeCycleKnown);
+            var notInMenu = ModeCyclesNotInMenu(_modeCycleKnown.Where(m => !UnavailableOnRadio(m)));
             ModeCycleMenuNote.Text = notInMenu.Count == 0
                 ? Lexicon.Get("settings.mode_cycle.menu_note_all")
                 : Lexicon.Get(notInMenu.Count == 1
                         ? "settings.mode_cycle.menu_note_except"
                         : "settings.mode_cycle.menu_note_except_many",
-                    ("modes", string.Join(", ", notInMenu)));
+                    ("modes", JoinModes(notInMenu)));
         }
+
+        /// <summary>"DSB", "DSB and RTTY", "A, B and C".</summary>
+        private static string JoinModes(IReadOnlyList<string> modes) =>
+            modes.Count <= 1 ? string.Join("", modes)
+            : string.Join(", ", modes.Take(modes.Count - 1)) + " and " + modes[modes.Count - 1];
 
         /// <summary>The modes on offer that the Mode menu does not list.</summary>
         internal static List<string> ModeCyclesNotInMenu(IEnumerable<string> offered) =>
@@ -155,11 +184,15 @@ namespace JJFlexWpf.Dialogs
                 var rows = ModeCycleRows();
                 foreach (string m in rows)
                 {
+                    bool inCycle = ModeCycle.Contains(_modeCycleIn, m);
+                    bool unavailable = UnavailableOnRadio(m);
                     ModeCycleList.Items.Add(new ListBoxItem
                     {
-                        Content = ModeCycle.Contains(_modeCycleIn, m)
-                            ? Lexicon.Get("settings.mode_cycle.row_in", ("mode", m))
-                            : Lexicon.Get("settings.mode_cycle.row_out", ("mode", m)),
+                        Content = Lexicon.Get(
+                            inCycle
+                                ? (unavailable ? "settings.mode_cycle.row_in_unavailable" : "settings.mode_cycle.row_in")
+                                : (unavailable ? "settings.mode_cycle.row_out_unavailable" : "settings.mode_cycle.row_out"),
+                            ("mode", m)),
                         Tag = m,
                     });
                 }

@@ -7230,15 +7230,23 @@ public partial class MainWindow : UserControl
     {
         if (RigControl == null || !_radioPowerOn) return;
 
-        var cycle = Radios.ModeCycle.FromSaved(Radios.AccessibilityConfig.Current.ModeCycleModes);
-        var allModes = Radios.ModeCycle.KnownModes(RigControl.RadioModeList);
+        var saved = Radios.ModeCycle.FromSaved(Radios.AccessibilityConfig.Current.ModeCycleModes);
+        var radioModes = RigControl.RadioModeList;
+        // Only the modes this radio lists, named as it names them, so the
+        // mode written and the mode spoken are one the radio has. The saved
+        // cycle itself is untouched (see ModeCycle.OnRadio).
+        var cycle = Radios.ModeCycle.OnRadio(saved, radioModes);
+        var allModes = Radios.ModeCycle.KnownModes(radioModes);
         string currentMode = RigControl.Mode ?? "";
         string? newMode = Radios.ModeCycle.Next(cycle, allModes, currentMode, direction);
 
         if (newMode == null)
         {
-            // DRAFT PROSE: an emptied cycle has nowhere to go.
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.mode_cycle.empty_press"),
+            // DRAFT PROSE: an emptied cycle has nowhere to go; a cycle whose
+            // modes this radio does not have says so instead.
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get(saved.Count > 0
+                    ? "settings.mode_cycle.none_on_radio_press"
+                    : "settings.mode_cycle.empty_press"),
                 Radios.Speech.SpeechIntent.Latest, VerbosityLevel.Terse,
                 subject: Radios.Speech.SpeechSubject.ValueField("Mode"));
             return;

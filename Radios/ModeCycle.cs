@@ -68,6 +68,32 @@ namespace Radios
         }
 
         /// <summary>
+        /// The cycle as it can run on the connected radio: the saved cycle,
+        /// in its order, without the modes the radio did not list, each named
+        /// the way the radio names it. With no list reported (no radio, or
+        /// not yet) it is the saved cycle unchanged.
+        /// </summary>
+        /// <remarks>
+        /// The saved cycle is never changed by this: a mode left out here is
+        /// still in the operator's file for a radio that has it. Found on the
+        /// 8600 at the bench, 2026-11-07: it reports no DSB, so a DSB in the
+        /// cycle was written, the radio answered DIGU, and the app said "DSB".
+        /// A mode the radio did not list is never written now.
+        /// </remarks>
+        public static IReadOnlyList<string> OnRadio(IReadOnlyList<string> saved, IEnumerable<string>? radioModes)
+        {
+            var reported = Clean(radioModes);
+            if (reported.Count == 0) return saved;
+            var result = new List<string>();
+            foreach (string m in saved)
+            {
+                int at = IndexOf(reported, m);
+                if (at >= 0 && !result.Contains(reported[at])) result.Add(reported[at]);
+            }
+            return result;
+        }
+
+        /// <summary>
         /// The operator's saved cycle made safe to use: null (never set) is
         /// <see cref="DefaultCycle"/>; blanks and repeats are dropped and case
         /// is folded. An empty saved cycle stays empty: it is a choice.
