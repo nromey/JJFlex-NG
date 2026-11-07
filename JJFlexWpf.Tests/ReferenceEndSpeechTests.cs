@@ -854,6 +854,211 @@ public sealed class ReferenceEndSpeechTests : IDisposable
         finally { EndCheck(session); }
     }
 
+    // ── After the app lets go, the radio's own word (part 7n-2, task 904) ──
+    //
+    // Ruled by Noel 2026-11-06 17:40 (C5): when the radio still reports
+    // transmit after the app lets go, say so at once, with no second press, in
+    // the audio check's form for the check's own key and the general form
+    // everywhere else, Chatty and Terse. A release waits for the radio's word
+    // up to PttSafetyController.RadioReleaseReportMs; on receive inside it,
+    // "Receiving" as before. These rows drive the radio's report and the
+    // wait's clock through the controller's two seams, and its real poll.
+
+    private const string OldDraft = "The radio is still transmitting after this app let go. A hardware P T T line or VOX may be holding it; release it, or check the radio.";
+
+    private static readonly string[] EveryStillTransmittingForm =
+    {
+        "An audio check indicates that its processes are complete, but the radio is still transmitting. Clear any transmission locks, stuck microphones, or other transmission PTT lines so transmission can stop.",
+        "Audio checks are complete but radio is still transmitting. Check radio and release PTT lines to stop transmitting.",
+        "JJ Flexible has stopped transmitting, but the radio is still transmitting. Clear any transmission locks, stuck microphones, or other PTT lines so transmission can stop.",
+        "Stopped, but radio is still transmitting. Check radio and release PTT lines to stop transmitting.",
+        OldDraft,
+    };
+
+    private long _clockMs;
+    private bool? _radioSays;
+
+    /// <summary>The radio's report and the wait's clock, as the test sets them.</summary>
+    private void TheRadioAnswersForItself(bool? transmitting)
+    {
+        _radioSays = transmitting;
+        _clockMs = 0;
+        _controller.RadioReportsTransmit = _ => _radioSays;
+        _controller.ReleaseClockMs = () => _clockMs;
+    }
+
+    /// <summary>The wait looks at the radio, <paramref name="ms"/> after the release.</summary>
+    private void AtMs(long ms)
+    {
+        _clockMs = ms;
+        _controller.PollRadioRelease();
+    }
+
+    private static int StillTransmittingSaid(List<string> said) =>
+        said.Count(s => EveryStillTransmittingForm.Contains(s));
+
+    /// <summary>
+    /// The radio's own lag: it still reports transmit at the release and for
+    /// a while after, then receive inside the bound. "Receiving" is said then,
+    /// once, and nothing about still transmitting; nothing before the answer.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_release_the_radio_confirms_inside_the_bound_says_Receiving_once(bool lockKey)
+    {
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+        TheRadioAnswersForItself(true);
+        if (lockKey) _controller.ToggleLock(); else _controller.PttDown();
+        Listen();
+        if (lockKey) _controller.ToggleLock(); else _controller.PttUp();
+        Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
+        Assert.True(_controller.AwaitingRadioReceive, "the release did not ask the radio");
+        AtMs(150);
+        Assert.True(_controller.AwaitingRadioReceive, "150 ms is the radio's own lag, not a stuck transmitter");
+        Assert.DoesNotContain(Receiving, Said());       // nothing said before the radio's word
+
+        _radioSays = false;
+        AtMs(213);
+        Assert.False(_controller.AwaitingRadioReceive);
+        var said = Said();
+        AssertReceivingOnce(said);
+        Assert.Equal(0, StillTransmittingSaid(said));
+        Assert.False(_controller.LastReleaseFoundRadioTransmitting);
+    }
+
+    /// <summary>
+    /// A hardware line or VOX holds the radio after the app's lock or push to
+    /// talk is let go: the general form, at the operator's verbosity, said once
+    /// the bound has passed and only once, with no "Receiving" and no second press.
+    /// </summary>
+    [Theory]
+    [InlineData(VerbosityLevel.Chatty, true, "JJ Flexible has stopped transmitting, but the radio is still transmitting. Clear any transmission locks, stuck microphones, or other PTT lines so transmission can stop.")]
+    [InlineData(VerbosityLevel.Terse, true, "Stopped, but radio is still transmitting. Check radio and release PTT lines to stop transmitting.")]
+    [InlineData(VerbosityLevel.Chatty, false, "JJ Flexible has stopped transmitting, but the radio is still transmitting. Clear any transmission locks, stuck microphones, or other PTT lines so transmission can stop.")]
+    [InlineData(VerbosityLevel.Terse, false, "Stopped, but radio is still transmitting. Check radio and release PTT lines to stop transmitting.")]
+    public void A_release_with_the_radio_still_transmitting_past_the_bound_says_so_once(VerbosityLevel level, bool lockKey, string expected)
+    {
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.CurrentVerbosity = level;
+        TheRadioAnswersForItself(true);
+        if (lockKey) _controller.ToggleLock(); else _controller.PttDown();
+        Listen();
+        if (lockKey) _controller.ToggleLock(); else _controller.PttUp();
+        AtMs(PttSafetyController.RadioReleaseReportMs - 1);
+        Assert.True(_controller.AwaitingRadioReceive, "said before the radio had its time");
+        AtMs(PttSafetyController.RadioReleaseReportMs);
+        Assert.False(_controller.AwaitingRadioReceive);
+        AtMs(PttSafetyController.RadioReleaseReportMs + 500);   // a later look says nothing more
+        var said = Said();
+        Assert.Equal(1, said.Count(s => s == expected));
+        Assert.Equal(1, StillTransmittingSaid(said));
+        Assert.DoesNotContain(Receiving, said);
+        Assert.True(_controller.LastReleaseFoundRadioTransmitting);
+    }
+
+    /// <summary>
+    /// The check's own key, stopped, with the radio still transmitting: the
+    /// audio check's form, once, with nothing from the check's quiet unkey.
+    /// </summary>
+    [Theory]
+    [InlineData(VerbosityLevel.Chatty, "An audio check indicates that its processes are complete, but the radio is still transmitting. Clear any transmission locks, stuck microphones, or other transmission PTT lines so transmission can stop.")]
+    [InlineData(VerbosityLevel.Terse, "Audio checks are complete but radio is still transmitting. Check radio and release PTT lines to stop transmitting.")]
+    public void A_checks_own_stop_with_the_radio_still_transmitting_says_the_audio_check_form(VerbosityLevel level, string expected)
+    {
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.CurrentVerbosity = level;
+        var session = TheCheckKeys(AudioCheckListenMethods.RecordPlayback, 5);
+        try
+        {
+            TheRadioAnswersForItself(true);
+            Listen();
+            StopIsPressed(session);
+            Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
+            Assert.True(_controller.AwaitingRadioReceive, "the check's stop did not ask the radio");
+            AtMs(PttSafetyController.RadioReleaseReportMs);
+            var said = Said();
+            Assert.Equal(1, said.Count(s => s == expected));
+            Assert.Equal(1, StillTransmittingSaid(said));
+            Assert.DoesNotContain(Receiving, said);
+        }
+        finally { EndCheck(session); }
+    }
+
+    /// <summary>
+    /// The second press: Stop again in Check your audio while a hardware line
+    /// still holds the radio. The audio check's ruled form, no longer the draft.
+    /// </summary>
+    [Fact]
+    public void A_second_stop_over_a_radio_still_transmitting_says_the_ruled_form_not_the_draft()
+    {
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;
+        var session = TheCheckKeys(AudioCheckListenMethods.RecordPlayback, 5);
+        try
+        {
+            TheRadioAnswersForItself(true);
+            StopIsPressed(session);
+            AtMs(PttSafetyController.RadioReleaseReportMs);
+            TheRadioReportsTransmit(true);           // the radio's own transmit report, as the second press reads it
+            Listen();
+            StopIsPressed(session);
+            var said = Said();
+            Assert.Equal(1, said.Count(s => s == "Audio checks are complete but radio is still transmitting. Check radio and release PTT lines to stop transmitting."));
+            Assert.DoesNotContain(OldDraft, said);
+            Assert.True(Active(session), "the second press closed the check over a radio still on the air");
+        }
+        finally { TheRadioReportsTransmit(false); EndCheck(session); }
+    }
+
+    /// <summary>
+    /// Escape in Check your audio with no check running and the radio held by
+    /// something else: the general form, no longer the draft.
+    /// </summary>
+    [Fact]
+    public void Escape_with_no_check_over_a_radio_still_transmitting_says_the_general_form_not_the_draft()
+    {
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+        TheRadioReportsTransmit(true);
+        try
+        {
+            var unkey = typeof(CheckYourAudioDialog).GetMethod("UnkeyOutsideACheck", Any);
+            Assert.True(unkey != null, "production entry CheckYourAudioDialog.UnkeyOutsideACheck is missing");
+            Listen();
+            unkey!.Invoke(_dialog, null);
+            var said = Said();
+            Assert.Equal(1, said.Count(s => s == "JJ Flexible has stopped transmitting, but the radio is still transmitting. Clear any transmission locks, stuck microphones, or other PTT lines so transmission can stop."));
+            Assert.DoesNotContain(OldDraft, said);
+        }
+        finally { TheRadioReportsTransmit(false); }
+    }
+
+    /// <summary>
+    /// A new transmission inside the wait: the old release's answer is
+    /// history. No late "Receiving" over the new key, and nothing about the
+    /// old one.
+    /// </summary>
+    [Fact]
+    public void Keying_again_inside_the_wait_drops_the_old_releases_sentence()
+    {
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+        TheRadioAnswersForItself(true);
+        _controller.ToggleLock();
+        _controller.ToggleLock();
+        Assert.True(_controller.AwaitingRadioReceive);
+        Listen();
+        _controller.ToggleLock();                    // locked again, 0 ms after
+        AtMs(PttSafetyController.RadioReleaseReportMs + 100);
+        Assert.False(_controller.AwaitingRadioReceive);
+        var said = Said();
+        Assert.DoesNotContain(Receiving, said);
+        Assert.Equal(0, StillTransmittingSaid(said));
+        Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);
+    }
+
     /// <summary>The window's real end poll, <c>FinishPassIfItEnded</c>, any tail it starts held.</summary>
     private HeldContinuations ThePollSeesTheEnd()
     {

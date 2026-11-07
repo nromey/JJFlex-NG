@@ -1007,7 +1007,7 @@ namespace JJFlexWpf
                 // means the screen reader is synthesising pairs (#216). The
                 // release still happens — detection only, no behaviour change.
                 NotePttRelease();
-                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"));
+                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"), confirmReceive: true);
             }
             // If locked/warning, key-up does nothing (still locked)
         }
@@ -1042,7 +1042,7 @@ namespace JJFlexWpf
             else
             {
                 // Any TX state — unlock
-                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"));
+                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"), confirmReceive: true);
             }
         }
 
@@ -1069,7 +1069,7 @@ namespace JJFlexWpf
         {
             if (State != PttState.Idle)
             {
-                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"));
+                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"), confirmReceive: true);
             }
         }
 
@@ -1095,7 +1095,7 @@ namespace JJFlexWpf
         {
             if (State == PttState.Idle) return;
             _endingAfterReference = true;
-            try { GoIdle(Lexicon.Get("audio.ptt.announce_receiving")); }
+            try { GoIdle(Lexicon.Get("audio.ptt.announce_receiving"), confirmReceive: true); }
             finally { _endingAfterReference = false; }
         }
 
@@ -1262,12 +1262,28 @@ namespace JJFlexWpf
         /// sentence is never binned by its length while the operator is still
         /// wondering why the transmission ended (#503, #571).
         /// </param>
-        private void GoIdle(string speechMessage, bool forceSpeech = false, string subject = null)
+        /// <param name="confirmReceive">
+        /// True for the releases whose sentence is "Receiving", or would be but
+        /// for the check's narration or a reference's end: the push to talk
+        /// release, the lock's unlock, Escape and the check's own stops, and
+        /// the unkey after a reference. Their sentence waits for the radio's
+        /// own word, and if the radio is still transmitting past
+        /// <see cref="RadioReleaseReportMs"/> the ruled "still transmitting"
+        /// sentence is said instead (task 904; see <see cref="BeginReleaseWatch"/>).
+        /// False for the cuts and the kill, which say their own sentence at
+        /// once, as before.
+        /// </param>
+        private void GoIdle(string speechMessage, bool forceSpeech = false, string subject = null, bool confirmReceive = false)
         {
             var wasState = State;
             // Asked before anything changes: the check's own keying, or the one
             // quiet unkey after a reference (part 7j).
             bool quiet = _endingAfterReference || CheckNarratesThisKeying;
+            // Which form a "still transmitting" takes: the check's own keying
+            // is an audio check ending; everything else is the app letting go.
+            bool checksOwn = CheckNarratesThisKeying;
+            EndReleaseWatch(null);
+            LastReleaseFoundRadioTransmitting = false;
             State = PttState.Idle;
             SetTx(false);
             ScreenReaderOutput.Supersede(KeyDownExtraSubject, "transmission ended");
@@ -1315,7 +1331,14 @@ namespace JJFlexWpf
             // answer. Captured AFTER SetTx(false) above, which is the ended
             // transmission's episode: the answer stays yes until RF next goes
             // on.
-            if ((forceSpeech || (_config.SpeechEnabled && !quiet)) && !string.IsNullOrEmpty(unkeyMessage))
+            bool speaks = (forceSpeech || (_config.SpeechEnabled && !quiet)) && !string.IsNullOrEmpty(unkeyMessage);
+            if (confirmReceive && BeginReleaseWatch(speaks ? unkeyMessage : null, checksOwn))
+            {
+                Tracing.TraceLine($"PTT: Idle (was {wasState}); the radio still reports transmit, waiting up to "
+                    + RadioReleaseReportMs + " ms for its receive", TraceLevel.Info);
+                return;
+            }
+            if (speaks)
                 ScreenReaderOutput.Speak(
                     unkeyMessage,
                     forceSpeech
@@ -1326,6 +1349,177 @@ namespace JJFlexWpf
                     stillValid: forceSpeech ? _transmitEpisode.NoTransmissionSince() : null);
 
             Tracing.TraceLine($"PTT: Idle (was {wasState})", TraceLevel.Info);
+        }
+
+        // -------------------------------------------------------------------
+        // The radio's own word after a release (task 904)
+        // -------------------------------------------------------------------
+        //
+        // Ruled by Noel 2026-11-06 17:40 (question C5): when the radio still
+        // reports transmit after the app lets go, say so AT ONCE, with no
+        // second Stop or Escape. Until then GoIdle said "Receiving" whenever
+        // the app released, without asking the radio, so a hardware push to
+        // talk line or VOX holding the radio heard "Receiving" while it was
+        // still on the air.
+        //
+        // The radio reports receive some time after the unkey. Measured from
+        // the traces on this machine, PTT idle to the interlock's receive:
+        // 2 to 55 ms on the LAN (14 releases, 2026-10-22), 126 to 172 ms over
+        // SmartLink (7 releases, 2026-11-01); and 100 to 213 ms from the
+        // unkey command on the LAN in a check (the bench, 2026-11-06). So a
+        // release that finds the radio still transmitting waits for its word:
+        // on receive, the release's own sentence is said then; past the bound,
+        // the ruled sentence. Nothing is said during the wait. A release that
+        // finds the radio already receiving, or no radio to ask, speaks at
+        // once, exactly as before.
+
+        /// <summary>
+        /// How long the radio gets to report receive after the app lets go of
+        /// its key before "still transmitting" is said: about five times the
+        /// slowest receive report measured (213 ms), so the radio's own lag on
+        /// a slow SmartLink link is not taken for a stuck transmitter. It is
+        /// felt only when the radio really is still transmitting; an ordinary
+        /// release waits only as long as the radio takes to answer.
+        /// </summary>
+        public const int RadioReleaseReportMs = 1000;
+
+        /// <summary>How often the wait asks the radio.</summary>
+        private const int RadioReleasePollMs = 25;
+
+        /// <summary>
+        /// The radio's own transmit report for a rig: true transmitting, false
+        /// receiving, null when there is no connected radio to ask
+        /// (<see cref="FlexBase.RadioReportsTransmitNow"/>). Replaced by tests,
+        /// which have no radio.
+        /// </summary>
+        internal Func<FlexBase?, bool?> RadioReportsTransmit { get; set; } = rig => rig?.RadioReportsTransmitNow;
+
+        /// <summary>The wait's clock, in milliseconds. Replaced by tests.</summary>
+        internal Func<long> ReleaseClockMs { get; set; } = () => Environment.TickCount64;
+
+        private sealed class ReleaseWatch
+        {
+            public FlexBase? Rig;
+            public long StartMs;
+            public int Keyings;
+            public string? Then;
+            public bool ChecksOwn;
+            public DispatcherTimer? Timer;
+        }
+
+        private ReleaseWatch? _releaseWatch;
+
+        /// <summary>True while a release waits for the radio to report receive.</summary>
+        public bool AwaitingRadioReceive => _releaseWatch != null;
+
+        /// <summary>
+        /// The last release found the radio still transmitting past
+        /// <see cref="RadioReleaseReportMs"/> and said so. Cleared by the next
+        /// release. Check your audio's watcher asks it, so its own hardware
+        /// warning is not said a second time over the same transmission.
+        /// </summary>
+        public bool LastReleaseFoundRadioTransmitting { get; private set; }
+
+        /// <summary>
+        /// The sentence for a radio still transmitting after the app let go, at
+        /// the operator's verbosity. Ruled by Noel 2026-11-06 17:40 (C5), both
+        /// forms: an audio check's own key, and everywhere else.
+        /// </summary>
+        public static string RadioStillTransmittingSentence(bool audioCheck, VerbosityLevel level) =>
+            Lexicon.Get(audioCheck ? "audio.check.radio_still_transmitting" : "audio.ptt.radio_still_transmitting", level);
+
+        /// <summary>
+        /// After a release, if the radio still reports transmit, hold the
+        /// release's sentence and watch the radio. False when there is nothing
+        /// to wait for, and the caller speaks at once.
+        /// </summary>
+        private bool BeginReleaseWatch(string? then, bool checksOwn)
+        {
+            FlexBase? rig = SafeRig();
+            if (RadioReportsTransmit(rig) != true) return false;
+            var watch = new ReleaseWatch
+            {
+                Rig = rig,
+                StartMs = ReleaseClockMs(),
+                Keyings = Keyings,
+                Then = then,
+                ChecksOwn = checksOwn,
+            };
+            try
+            {
+                watch.Timer = new DispatcherTimer(DispatcherPriority.Normal, _dispatcher)
+                {
+                    Interval = TimeSpan.FromMilliseconds(RadioReleasePollMs),
+                };
+                watch.Timer.Tick += (_, _) => PollRadioRelease();
+                watch.Timer.Start();
+            }
+            catch (Exception ex)
+            {
+                // Without a timer the answer would never come: speak as before.
+                Tracing.TraceLine("PTT: the release watch could not start (" + ex.Message + "); speaking at once", TraceLevel.Warning);
+                return false;
+            }
+            _releaseWatch = watch;
+            return true;
+        }
+
+        /// <summary>
+        /// One look at the radio for a waiting release: on receive, or with no
+        /// radio left to ask, the release's own sentence; past the bound with
+        /// the radio still transmitting, the ruled sentence, once. A new
+        /// transmission ends the wait silently: its own key-down has spoken,
+        /// and the old release's "Receiving" would be false. Driven by the
+        /// watch's timer, and by tests directly.
+        /// </summary>
+        internal void PollRadioRelease()
+        {
+            var w = _releaseWatch;
+            if (w == null) return;
+            if (State != PttState.Idle || Keyings != w.Keyings)
+            {
+                EndReleaseWatch("a new transmission began");
+                return;
+            }
+            FlexBase? rig = SafeRig();
+            bool? report = ReferenceEquals(rig, w.Rig) ? RadioReportsTransmit(rig) : null;
+            if (report == true)
+            {
+                if (ReleaseClockMs() - w.StartMs < RadioReleaseReportMs) return;
+                EndReleaseWatch("the radio still reports transmit");
+                LastReleaseFoundRadioTransmitting = true;
+                // Said whatever the operator's push to talk speech setting, as
+                // the cuts are: the operator believes the radio has stopped.
+                // Valid while that radio still says so, so an unheard copy is
+                // not replayed after it has let go.
+                FlexBase? stuck = w.Rig;
+                ScreenReaderOutput.Speak(
+                    RadioStillTransmittingSentence(w.ChecksOwn, ScreenReaderOutput.CurrentVerbosity),
+                    Radios.Speech.SpeechIntent.Urgent,
+                    VerbosityLevel.Critical,
+                    subject: Radios.Speech.SpeechSubject.RadioStillTransmitting,
+                    stillValid: () => ReferenceEquals(SafeRig(), stuck) && RadioReportsTransmit(stuck) == true);
+                return;
+            }
+            EndReleaseWatch(report == false ? "the radio reports receive" : "no radio to ask");
+            if (!string.IsNullOrEmpty(w.Then))
+                ScreenReaderOutput.Speak(w.Then, Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical);
+        }
+
+        private FlexBase? SafeRig()
+        {
+            try { return _getRigControl(); } catch { return null; }
+        }
+
+        private void EndReleaseWatch(string? why)
+        {
+            var w = _releaseWatch;
+            if (w == null) return;
+            _releaseWatch = null;
+            try { w.Timer?.Stop(); } catch { }
+            if (why != null)
+                Tracing.TraceLine("PTT: release watch ended after "
+                    + (ReleaseClockMs() - w.StartMs) + " ms: " + why, TraceLevel.Info);
         }
 
         // -------------------------------------------------------------------
@@ -1986,6 +2180,7 @@ namespace JJFlexWpf
         /// </summary>
         public void Dispose()
         {
+            EndReleaseWatch("the controller is going away");
             if (State != PttState.Idle)
             {
                 SetTx(false);

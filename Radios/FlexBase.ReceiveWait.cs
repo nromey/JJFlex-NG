@@ -13,6 +13,30 @@ namespace Radios
     public partial class FlexBase
     {
         /// <summary>
+        /// The radio's own word, now, on whether it is transmitting: true while
+        /// it reports transmit, false once it reports receive, null when there
+        /// is no connected radio to ask.
+        /// </summary>
+        /// <remarks>
+        /// The same pair <see cref="WhenRadioReallyReceives"/> waits on: our
+        /// cached <see cref="Transmit"/> AND the radio's interlock
+        /// (<see cref="RadioInterlockReportsTransmit"/>), because the cache
+        /// falls the moment we ask for an unkey while a hardware push to talk
+        /// line or VOX may still key the radio. Asked by the push to talk
+        /// controller after it lets go of its key, so "Receiving" is the
+        /// radio's claim and not only the app's (task 904).
+        /// </remarks>
+        public bool? RadioReportsTransmitNow
+        {
+            get
+            {
+                Radio? radio = theRadio;
+                if (radio == null || !radio.Connected) return null;
+                return _Transmit || RadioInterlockReportsTransmit;
+            }
+        }
+
+        /// <summary>
         /// Run <paramref name="then"/> once the radio is really receiving, or
         /// once the connection this call began on is gone.
         /// </summary>

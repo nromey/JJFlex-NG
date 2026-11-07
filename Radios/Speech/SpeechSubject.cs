@@ -607,6 +607,14 @@ namespace Radios.Speech
         /// </summary>
         public const string CheckPlayRefused = "check-play-refused";
         /// <summary>
+        /// The radio still reports transmit after the app let go of its key
+        /// (task 904): said once the radio has had its time to report receive,
+        /// and again by a second Stop or Escape in Check your audio. One fact,
+        /// one owner: the newer replaces an unheard older one, and it is
+        /// withdrawn rather than replayed once the radio lets go.
+        /// </summary>
+        public const string RadioStillTransmitting = "radio-still-transmitting";
+        /// <summary>
         /// The reference recording's own notices in Check your audio (Unified
         /// takes, round three): that it played to its end, which since Noel's
         /// 2026-11-04 ruling also ends the transmission, and that it was not

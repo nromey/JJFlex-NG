@@ -518,9 +518,12 @@ public partial class CheckYourAudioDialog : JJFlexDialog
         var ptt = PttControllerSource?.Invoke();
         if (ptt?.IsTransmitting == true) ptt.EscapeUnlock();
         else if (!ourTune && _rig?.Transmit == true)
-            // DRAFT PROSE (#835): awaiting Noel.
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.escape_radio_still_transmitting"),
-                VerbosityLevel.Critical, interrupt: true);
+            // No check is running, so the general form (Noel 2026-11-06 17:40,
+            // C5, task 904).
+            ScreenReaderOutput.Speak(
+                PttSafetyController.RadioStillTransmittingSentence(audioCheck: false, ScreenReaderOutput.CurrentVerbosity),
+                Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.RadioStillTransmitting);
     }
 
     /// <summary>

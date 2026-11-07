@@ -1690,10 +1690,14 @@ public partial class CheckYourAudioDialog
             else if (Rig?.Transmit == true)
             {
                 // The app has let go and the radio is still keyed: a hardware
-                // line or VOX. Software cannot release it; say so, plainly.
-                // DRAFT PROSE (#835): awaiting Noel.
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.escape_radio_still_transmitting"),
-                    VerbosityLevel.Critical, interrupt: true);
+                // line or VOX. Software cannot release it; say so, plainly, in
+                // the audio check's ruled words (Noel 2026-11-06 17:40, C5,
+                // task 904). The first release already said it once the radio
+                // had had its time to report receive; this press asks again.
+                ScreenReaderOutput.Speak(
+                    PttSafetyController.RadioStillTransmittingSentence(audioCheck: true, ScreenReaderOutput.CurrentVerbosity),
+                    Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical,
+                    subject: Radios.Speech.SpeechSubject.RadioStillTransmitting);
             }
             else ForceEnd(null);
         }
@@ -1923,14 +1927,22 @@ public partial class CheckYourAudioDialog
 
             // The radio may still be keyed after our unkey. PTTSource SW also
             // names VOX, so it cannot establish a hardware line by itself.
-            if (!_hardwareWarned && _postUnkeyTicks >= 2 && rig.Transmit && !_ptt.IsTransmitting)
+            // The controller asks the radio after every release and says the
+            // ruled sentence once the radio has had its time (task 904): while
+            // it is still asking, this waits; when it has said it, this does
+            // not say it again, but still watches for the release.
+            if (!_hardwareWarned && _postUnkeyTicks >= 2 && rig.Transmit && !_ptt.IsTransmitting
+                && !_ptt.AwaitingRadioReceive)
             {
                 _hardwareWarned = true;
-                ScreenReaderOutput.Speak(
-                    rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox
-                        ? "Warning: the radio is still transmitting. VOX is on and may be keying it. Check the radio before continuing."
-                        : "Warning: the radio is still transmitting after the app unkeyed. Check P T T and the radio before continuing.",
-                    VerbosityLevel.Critical, interrupt: true);
+                if (!_ptt.LastReleaseFoundRadioTransmitting)
+                {
+                    ScreenReaderOutput.Speak(
+                        rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox
+                            ? "Warning: the radio is still transmitting. VOX is on and may be keying it. Check the radio before continuing."
+                            : "Warning: the radio is still transmitting after the app unkeyed. Check P T T and the radio before continuing.",
+                        VerbosityLevel.Critical, interrupt: true);
+                }
                 return; // keep watching until the radio releases
             }
             if (_hardwareWarned && rig.Transmit)

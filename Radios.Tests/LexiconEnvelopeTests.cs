@@ -118,7 +118,10 @@ namespace Radios.Tests
             // Twenty-two from Unified takes round four: the reference's
             // finished sentence and its push to talk form, Noel's ruled
             // chatty and terse pairs (2026-11-05 01:39 to 01:41).
-            Assert.Equal(22, ladders);
+            // Twenty-four from Unified takes part 7n-2 (task 904): the radio still
+            // transmitting after the app let go, an audio check's form and the
+            // general one, Noel's ruled Chatty and Terse (2026-11-06 17:40, C5).
+            Assert.Equal(24, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -1896,9 +1899,6 @@ namespace Radios.Tests
                 "audio.tone.reference_already_armed",
                 "audio.diagnostics.bench_idle",
                 "audio.diagnostics.bench_smartlink",
-                // Track A fix round 2: the sentence for Escape when the radio
-                // is keyed by something other than this app.
-                "audio.check.escape_radio_still_transmitting",
                 // Track A fix round 2: a teardown that could not be confirmed
                 // before the radio went.
                 "audio.check.teardown_unconfirmed",
@@ -2322,6 +2322,11 @@ namespace Radios.Tests
                 // replacing the legacy audio.check.still_transmitting.
                 "audio.check.play_after_check",
                 "audio.check.play_after_transmit",
+                // Part 7n-2 (task 904, ruled C5): the radio still transmitting after
+                // the app let go, an audio check's form and the general one; they
+                // replace Track A fix round 2's draft, audio.check.escape_radio_still_transmitting.
+                "audio.check.radio_still_transmitting",
+                "audio.ptt.radio_still_transmitting",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

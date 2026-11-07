@@ -1478,7 +1478,24 @@
   "audio.tone.reference_already_armed": {"text": "The reference recording is armed, and only one thing can replace your microphone at a time. Turn the reference off first.", "delivery": null},
   "audio.diagnostics.bench_idle": {"text": "Ready for a receive-only diagnostic take.", "delivery": null},
   "audio.diagnostics.bench_smartlink": {"text": "The bench tools are not offered over SmartLink, because they use IQ and SmartLink does not carry it. Connect locally or over a VPN to use them.", "delivery": null},
-  "audio.check.escape_radio_still_transmitting": {"text": "The radio is still transmitting after this app let go. A hardware P T T line or VOX may be holding it; release it, or check the radio.", "delivery": null},
+  "audio.check.radio_still_transmitting": {
+    "text": {
+      "critical": "Audio checks are complete but radio is still transmitting. Check radio and release PTT lines to stop transmitting.",
+      "terse": "Audio checks are complete but radio is still transmitting. Check radio and release PTT lines to stop transmitting.",
+      "chatty": "An audio check indicates that its processes are complete, but the radio is still transmitting. Clear any transmission locks, stuck microphones, or other transmission PTT lines so transmission can stop.",
+      "diagnostic": "An audio check indicates that its processes are complete, but the radio is still transmitting. Clear any transmission locks, stuck microphones, or other transmission PTT lines so transmission can stop."
+    },
+    "delivery": null
+  },
+  "audio.ptt.radio_still_transmitting": {
+    "text": {
+      "critical": "Stopped, but radio is still transmitting. Check radio and release PTT lines to stop transmitting.",
+      "terse": "Stopped, but radio is still transmitting. Check radio and release PTT lines to stop transmitting.",
+      "chatty": "JJ Flexible has stopped transmitting, but the radio is still transmitting. Clear any transmission locks, stuck microphones, or other PTT lines so transmission can stop.",
+      "diagnostic": "JJ Flexible has stopped transmitting, but the radio is still transmitting. Clear any transmission locks, stuck microphones, or other PTT lines so transmission can stop."
+    },
+    "delivery": null
+  },
   "audio.check.teardown_unconfirmed": {"text": "The audio check could not confirm it put the radio back before disconnecting. When you reconnect, check transmit power, the transmit antenna, transverter drive, the monitor, full duplex and your slices.", "delivery": null},
   "audio.check.teardown_withheld": {"text": "The radio disconnected while you were transmitting. Settings will be restored when you connect.", "delivery": null},
   "audio.check.teardown_refuses": {"text": "Disconnecting from the radio. Nothing can start or transmit until that has finished.", "delivery": null},
