@@ -89,8 +89,10 @@ public sealed class SpeakerFoundAtConnectTests : IDisposable
 
     // ── Round four, Codex's re-check S1: a newer choice of the same value ──
     //
-    // The radio never sends a status back to the client that wrote it (the
-    // 8600 bench, LAN): so ANY mute_local_audio_when_remote report after the
+    // The radio does not send a status back to the client that wrote THIS
+    // property (measured on the 8600 over LAN with a raw client, 2026-11-06,
+    // muteechoprobe.log: reply only; a mic input write, by contrast, IS echoed,
+    // micechoprobe.log). So ANY mute_local_audio_when_remote report after the
     // connect recorded what it found is another station's choice, and it
     // retires the connect's obligation, even when it lands on the very value
     // the app had set.

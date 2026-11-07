@@ -148,6 +148,20 @@ public partial class FlexBase
         finally { t_stepPin = outer; }
     }
 
+    /// <summary>
+    /// A setter is about to write <c>mic input <paramref name="value"/></c> to
+    /// <paramref name="radio"/>: expect its echo (round five; the radio echoes a
+    /// mic write to its writer, measured 2026-11-06). FlexLib's setter writes
+    /// only when the value differs from its cache, so nothing is expected when
+    /// it will not write.
+    /// </summary>
+    private static void ExpectOwnMicEchoFor(Radio? radio, string? value)
+    {
+        if (radio == null || value == null) return;
+        if (string.Equals(radio.MicInput, value, StringComparison.Ordinal)) return;
+        InterlockReports.ExpectOwnMicEcho(radio.CurrentCommandConnection as CommandConnection, value);
+    }
+
     /// <summary>The pin of the pinned step running on this thread, if any (repair round 9).</summary>
     [ThreadStatic] private static CommandWritePin? t_stepPin;
 

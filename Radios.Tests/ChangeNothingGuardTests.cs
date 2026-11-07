@@ -361,7 +361,8 @@ namespace Radios.Tests
         [Theory]
         [InlineData("if (!GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on local connect\"))")]
         [InlineData("if (!GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=true on remote audio start\"))")]
-        [InlineData("if (!GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on remote audio stop\"))")]
+        // Round five: the stop's write is GiveShackSpeakerBack's, whose guard returns early.
+        [InlineData("if (GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on remote audio stop\")) return;")]
         // MicInput, VOX/CWBreakIn and TX1 are RunOwnerInitialization since
         // 2026-09-22 (Track G2); see TheOwnerInitialisationWritesLiveBehindTheOrchestratorsGate.
         public void TheConnectPathLiteralIsGuarded(string guardedForm)

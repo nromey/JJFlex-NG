@@ -76,6 +76,13 @@ namespace Radios.Tests.StationConnect
 
         public Action<string>? CommandWritten;
 
+        /// <summary>
+        /// What the radio sends back to THIS client for a write it took, before
+        /// the reply (round five). Set by <see cref="VendorRadioFixture"/>; see
+        /// its <c>EchoesMicInput</c> for what the 8600 was measured to echo.
+        /// </summary>
+        public Action<string>? EchoToWriter;
+
         /// <summary>The next admitted write fails before its bytes, as a throwing writer does (repair round 9).</summary>
         public volatile bool FailNextWrite;
 
@@ -110,6 +117,7 @@ namespace Radios.Tests.StationConnect
             if (refused != null) { ReportRefusal(pin, refused); return; }
             if (failed) { ReportWrite(pin, false, "the write failed (test)"); return; }
             ReportWrite(pin, true);
+            EchoToWriter?.Invoke(CommandText(msg ?? ""));
             CommandWritten?.Invoke(CommandText(msg ?? ""));
         }
 
@@ -168,7 +176,27 @@ namespace Radios.Tests.StationConnect
                 args: new object[] { false }, culture: null)!;
             typeof(Radio).GetProperty(nameof(Radio.Serial))!.GetSetMethod(nonPublic: true)!.Invoke(Radio, new object[] { serial });
             TransportField.SetValue(Radio, Transport);
+            Transport.EchoToWriter = EchoAsThe8600Does;
             typeof(Radio).GetProperty(nameof(Radio.Connected))!.GetSetMethod(nonPublic: true)!.Invoke(Radio, new object[] { true });
+        }
+
+        /// <summary>
+        /// The radio echoes a <c>mic input</c> write to the client that wrote it
+        /// (round five; measured on the 8600 over LAN with a raw client,
+        /// 2026-11-06, micechoprobe.log: the writer got its own
+        /// <c>transmit ... mic_selection=BAL</c> within 8 ms, before the reply).
+        /// It does NOT echo <c>radio set mute_local_audio_when_remote</c>
+        /// (muteechoprobe.log, reply only) or <c>slice tune</c> (bench 1), and
+        /// those get nothing here. Every other write is unmeasured and gets
+        /// nothing. A test that needs the echo late turns this off and delivers
+        /// the status itself.
+        /// </summary>
+        public bool EchoesMicInput = true;
+
+        private void EchoAsThe8600Does(string command)
+        {
+            if (!EchoesMicInput || !command.StartsWith("mic input ", StringComparison.Ordinal)) return;
+            Status("transmit mic_selection=" + command.Substring(10).Trim().ToUpperInvariant());
         }
 
         /// <summary>The radio answers command <paramref name="seq"/> with success.</summary>

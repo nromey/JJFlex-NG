@@ -11887,10 +11887,12 @@ namespace Radios
                     && string.Equals(value, "PC", StringComparison.OrdinalIgnoreCase);
                 _pcMicDiverged = false;
                 // Inside a check's restore the write carries its own reply (round 1030 repairs).
+                // The radio echoes a mic write to its writer (round five): the
+                // report that follows is this choice coming back, not another's.
                 if (value != null)
-                    EnqueueSettingWrite((FunctionDel)(() => { theRadio.MicInput = value; }),
+                    EnqueueSettingWrite((FunctionDel)(() => { ExpectOwnMicEchoFor(theRadio, value); theRadio.MicInput = value; }),
                         RadioWrite("mic-input", "mic input " + value.ToUpperInvariant(), "transmit", "mic_selection", value.ToUpperInvariant()), "MicInput");
-                else q.Enqueue((FunctionDel)(() => { theRadio.MicInput = value; }), "MicInput");
+                else q.Enqueue((FunctionDel)(() => { ExpectOwnMicEchoFor(theRadio, value); theRadio.MicInput = value; }), "MicInput");
             }
         }
 

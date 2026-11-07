@@ -498,8 +498,10 @@ namespace Radios
             public long ChoicesAtMute { get; }
             /// <summary>
             /// Another station has set the speaker since this run muted it (round
-            /// four, S1): the radio never echoes this app's own write, so any
-            /// report since is someone else's, and the mute is theirs now.
+            /// four, S1): the radio does not echo THIS property's write to its
+            /// writer (measured on the 8600 over LAN, 2026-11-06,
+            /// muteechoprobe.log; it does echo a mic input write), so any report
+            /// since is someone else's, and the mute is theirs now.
             /// </summary>
             public bool ChoiceReportedSince =>
                 InterlockReports.SpeakerChoicesReported(Connection as CommandConnection) != ChoicesAtMute;
@@ -523,7 +525,9 @@ namespace Radios
             public long ChoicesAtRecord { get; }
             /// <summary>
             /// Another station has set the speaker since (round four, Codex's
-            /// re-check S1). The radio never echoes this app's own write, so any
+            /// re-check S1). The radio does not echo a speaker write to its writer
+            /// (measured on the 8600 over LAN, 2026-11-06, muteechoprobe.log; a
+            /// mic input write IS echoed, micechoprobe.log), so any speaker
             /// report since is someone else's choice, even one that lands on the
             /// 0 the app set: "the radio still reads our 0" cannot tell the two
             /// apart, and this can. The obligation is then retired, for the
@@ -576,8 +580,9 @@ namespace Radios
         /// <summary>
         /// At a deliberate disconnect, before the hang-up: a speaker the local
         /// connect found muted and unmuted is muted again, only while no other
-        /// station has set the speaker since (round four, S1: the radio never
-        /// echoes our own write, so any report is theirs), the radio still reads
+        /// station has set the speaker since (round four, S1: the radio does not
+        /// echo a speaker write to its writer, measured 2026-11-06, so any
+        /// speaker report is theirs), the radio still reads
         /// the 0 the app set (put back only what matches), and PC audio
         /// is not running (its stop has its own put-back, which now starts from the
         /// connect's found value). Never throws.
@@ -2436,7 +2441,10 @@ namespace Radios
                     // Saved as PC: the radio was already on PC, nothing to put back.
                     if (string.Equals(swap.Saved ?? "", "PC", StringComparison.OrdinalIgnoreCase)) { nothingToDo = true; return null; }
                     if (MicPutBackWithheld(when, swap.Saved, radio, swap.Connection)) { withheld = true; return null; }
+                    // The radio echoes a mic write to its writer (round five): ours, not a choice.
+                    InterlockReports.ExpectOwnMicEcho(swap.Connection as CommandConnection, swap.Saved);
                     written = radio.SendMicInput(swap.Saved);
+                    if (!written) InterlockReports.CancelOwnMicEcho(swap.Connection as CommandConnection, swap.Saved);
                     return null;
                 },
                 // AT the transport's write, under the reader's dispatch gate. Reads only.
@@ -2459,6 +2467,8 @@ namespace Radios
                     if (v != null) voided = v;
                     return v;
                 });
+                // Refused at the write or at the bytes: no echo is coming (round five).
+                if (refused != null) InterlockReports.CancelOwnMicEcho(swap.Connection as CommandConnection, swap.Saved);
 
                 if (voided != null)
                 {
@@ -2730,6 +2740,8 @@ namespace Radios
                         if (Interlocked.Read(ref _remoteAudioRun) != pin.Run)
                             return "a newer remote-audio run has begun since it was queued";
                         if (MicPutBackWithheld(when, swap.Saved, radio, pin.Connection)) { withheld = true; return null; }
+                        // The radio echoes a mic write to its writer (round five): ours, not a choice.
+                        InterlockReports.ExpectOwnMicEcho(pin.Connection as CommandConnection, swap.Saved);
                         notSent = SendRadioCommandWithReply(radio, command, reply =>
                             Tracing.TraceLine("PutBackSavedMicInput (" + when + "): " + reply,
                                 reply.Acknowledged ? TraceLevel.Info : TraceLevel.Warning));
@@ -2764,6 +2776,8 @@ namespace Radios
                         rawNewer = true;
                         return "the mic input has changed since the check";
                     });
+                    // Not sent, or refused at the write or the bytes: no echo is coming (round five).
+                    if (notSent != null || refused != null) InterlockReports.CancelOwnMicEcho(pin.Connection as CommandConnection, swap.Saved);
                     if (rawNewer)
                     {
                         MicLeftOnPcSettled(radio);

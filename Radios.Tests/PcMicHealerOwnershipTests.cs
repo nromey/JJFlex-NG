@@ -1055,6 +1055,9 @@ namespace Radios.Tests
             // NOT written ahead of the radio: it still reads MIC until the
             // radio's own status says otherwise. Absence is traced, not spoken.
             using var rig = GuestRadioMovedToMic();
+            // The radio answers nothing (round five: the fake echoes a mic write
+            // as the 8600 does, so a test of the silent radio says so).
+            rig.Vendor.EchoesMicInput = false;
             var speech = new SpeechLog(rig.Rig);
 
             var result = Press(rig);
@@ -1105,6 +1108,10 @@ namespace Radios.Tests
         public void ARefusedSwitchIsSpokenOnceAndTheStopPutsNothingBack()
         {
             using var rig = GuestRadioMovedToMic();
+            // Whether a REFUSED mic write gets a status back is unmeasured; this
+            // test models none (round five: the fake otherwise echoes a mic
+            // write, as the 8600 was measured to).
+            rig.Vendor.EchoesMicInput = false;
             var speech = new SpeechLog(rig.Rig);
             using var held = new HeldQueue(rig.Rig);
             object swapBefore = SwapField.GetValue(rig.Rig)!;
@@ -1317,6 +1324,9 @@ namespace Radios.Tests
             // interval and then ends by itself: nothing waits on it, and the
             // healer reports what the radio last said.
             using var rig = GuestRadioMovedToMic();
+            // The radio answers nothing (round five: the fake echoes a mic write
+            // as the 8600 does, so a test of the silent radio says so).
+            rig.Vendor.EchoesMicInput = false;
 
             Press(rig);
             rig.Clock += 500;
@@ -2175,6 +2185,9 @@ namespace Radios.Tests
             // before it ends must not push the first real check nearly a
             // second later. The report comes as soon as the quiet ends.
             using var rig = GuestRadioMovedToMic();
+            // The radio answers nothing (round five: the fake echoes a mic write
+            // as the 8600 does, so a test of the silent radio says so).
+            rig.Vendor.EchoesMicInput = false;
 
             Press(rig);
             rig.Clock += FlexBase.PcMicSwitchQuietMs - 1;
@@ -2735,6 +2748,61 @@ namespace Radios.Tests
             Assert.Equal(new[] { "mic input PC", "mic input PC", "mic input BAL" }, rig.MicWrites);
             Assert.Equal("BAL", rig.MicInput);
             Assert.Null(SwapField.GetValue(rig.Rig));
+        }
+    
+
+        // ── Round five: the radio echoes a mic write to its writer (measured 2026-11-06) ──
+
+        [Fact]
+        public void The_fake_radio_echoes_a_mic_write_to_its_writer_and_not_a_speaker_write()
+        {
+            // As the 8600 was measured over LAN with a raw client: "mic input BAL"
+            // came back as the writer's own mic_selection=BAL status, before the
+            // reply; the speaker write got only its reply.
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            var lines = new System.Collections.Generic.List<string>();
+            rig.Vendor.Transport.DataReceived += d => { lock (lines) lines.Add(d.Text); };
+            rig.Vendor.Radio.MicInput = "BAL";
+            rig.Vendor.Radio.IsMuteLocalAudioWhenRemoteOn = !rig.Vendor.Radio.IsMuteLocalAudioWhenRemoteOn;
+            Assert.Equal(new[] { "S0|transmit mic_selection=BAL" }, lines);
+        }
+
+        [Fact]
+        public void Our_own_mic_write_coming_back_is_not_counted_as_another_stations_choice()
+        {
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            var connection = (Flex.Smoothlake.FlexLib.CommandConnection)rig.Vendor.Radio.CurrentCommandConnection!;
+            long before = InterlockReports.MicChoicesReported(connection);
+            using (var held = new HeldQueue(rig.Rig))
+            {
+                rig.Rig.MicSource = "BAL";
+                held.Drain();
+            }
+            Assert.Equal("BAL", rig.MicInput);
+            Assert.Equal(before, InterlockReports.MicChoicesReported(connection));   // ours, not a choice
+            rig.RadioReports("ACC");                                                  // control: another station's is
+            Assert.Equal(before + 1, InterlockReports.MicChoicesReported(connection));
+        }
+
+        [Fact]
+        public void A_put_backs_late_echo_does_not_settle_the_next_runs_debt()
+        {
+            // PC audio stops and starts again at once: the stop's MIC comes back
+            // to us only after the new start has recorded its debt (the radio
+            // answers in order: MIC echo, then the new PC's echo). Counted as a
+            // choice, it settled that debt and the next stop left the radio on PC.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.Vendor.EchoesMicInput = false;               // the echoes arrive late, by hand
+            rig.StopPcAudio();
+            Assert.Equal("mic input MIC", rig.MicWrites.Last());
+            rig.StartPcAudio();
+            Assert.Equal("mic input PC", rig.MicWrites.Last());
+            rig.RadioReports("MIC");                         // the stop's MIC, coming back late
+            rig.RadioReports("PC");                          // then the new start's PC
+            rig.StopPcAudio();
+            Assert.Equal("mic input MIC", rig.MicWrites.Last());   // the new run's debt is still owed, and paid
         }
     }
 }
