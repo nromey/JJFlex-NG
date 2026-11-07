@@ -69,9 +69,9 @@ document.addEventListener('keydown', function (e) {
             // Initialize WebView2
             try
             {
-                var userDataFolder = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "JJFlexRadio", "WebView2");
+                // The document views' shared folder, which follows the settings
+                // root when JJFLEX_CONFIG_DIR moves it (#909).
+                var userDataFolder = Radios.LocalDataRoot.DocumentViewsWebView2;
                 var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, null);
                 await ContentWebView.EnsureCoreWebView2Async(env);
 
