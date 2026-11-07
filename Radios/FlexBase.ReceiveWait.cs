@@ -37,6 +37,30 @@ namespace Radios
         }
 
         /// <summary>
+        /// The radio's command connection as it stands now, for comparing by
+        /// reference only: the same object while one transport attempt lasts,
+        /// a new one for every attempt, and null with no radio. Connected or
+        /// not, so a lost connection is still the same one; only a new attempt
+        /// or another radio changes it.
+        /// </summary>
+        /// <remarks>
+        /// The identity <see cref="WhenRadioReallyReceives"/> pins its wait to,
+        /// offered to the push to talk controller so its wait for the radio's
+        /// receive after a release is pinned the same way (task 904, repair 7o).
+        /// <see cref="CurrentConnectionBinding"/> is asked beside it: the
+        /// binding follows the transport's own report, this reads the
+        /// transport.
+        /// </remarks>
+        public object? CommandConnectionNow
+        {
+            get
+            {
+                try { return theRadio?.CurrentCommandConnection; }
+                catch { return null; }
+            }
+        }
+
+        /// <summary>
         /// Run <paramref name="then"/> once the radio is really receiving, or
         /// once the connection this call began on is gone.
         /// </summary>

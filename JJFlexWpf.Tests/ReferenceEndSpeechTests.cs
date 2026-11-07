@@ -1059,6 +1059,395 @@ public sealed class ReferenceEndSpeechTests : IDisposable
         Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);
     }
 
+    // ── A release's wait belongs to one release (repair 7o, Codex 7n B1 and F1) ──
+    //
+    // The wait for the radio's receive, and the "still transmitting" warning it
+    // may leave retained unheard, belong to one release: on one rig, on one
+    // command connection, inside one lifetime of the controller, ending one
+    // keying. On any mismatch the wait retires without a word; a mismatch is
+    // never translated into "Receiving" or the warning. Each row is Codex's
+    // schedule as a created state, driven through the controller's real poll.
+
+    private static bool SaidNothingAboutTheRelease(List<string> said) =>
+        !said.Contains(Receiving) && StillTransmittingSaid(said) == 0;
+
+    /// <summary>
+    /// The normal Disconnect: <c>UnwireRadioEvents</c> calls
+    /// <c>ReleaseRigForTeardown</c> and does not dispose the controller. A
+    /// release waiting for the radio's receive ends there, silently, and its
+    /// bound later says nothing.
+    /// </summary>
+    [Fact]
+    public void A_release_waiting_when_the_radio_is_torn_down_retires_without_a_word()
+    {
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+        TheRadioAnswersForItself(true);
+        _controller.ToggleLock();
+        _controller.ToggleLock();
+        Assert.True(_controller.AwaitingRadioReceive, "positive control: the release waits for the radio");
+        Listen();
+        _controller.ReleaseRigForTeardown("radio events unwired");
+        Assert.False(_controller.AwaitingRadioReceive);   // red at 08e9b375: the teardown hook left it waiting
+        AtMs(PttSafetyController.RadioReleaseReportMs);
+        AtMs(PttSafetyController.RadioReleaseReportMs + 500);
+        Assert.True(SaidNothingAboutTheRelease(Said()));
+        Assert.False(_controller.LastReleaseFoundRadioTransmitting);
+    }
+
+    /// <summary>
+    /// The teardown then ends the check (<c>EndCheckBeforeTeardown</c> calls
+    /// the session's <c>ForceEnd</c> after the hook). Its release starts no
+    /// new wait on the connection being torn down, and says what it said
+    /// before the wait existed: for the check's own key, nothing (its
+    /// narration owns it). The control, with no teardown first, shows the same
+    /// release would have waited.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_check_ended_by_the_teardown_starts_no_wait(bool teardownFirst)
+    {
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+        var session = TheCheckKeys(AudioCheckListenMethods.RecordPlayback, 5);
+        try
+        {
+            TheRadioAnswersForItself(true);
+            if (teardownFirst) _controller.ReleaseRigForTeardown("radio events unwired");
+            Listen();
+            SessionType.GetMethod("ForceEnd", Any)!.Invoke(session, new object?[] { "Radio disconnected, audio check ended" });
+            Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
+            if (!teardownFirst)
+            {
+                Assert.True(_controller.AwaitingRadioReceive, "control: without a teardown the same release waits");
+                return;
+            }
+            Assert.False(_controller.AwaitingRadioReceive);   // red at 08e9b375: a new wait began after the hook
+            AtMs(PttSafetyController.RadioReleaseReportMs);
+            Assert.True(SaidNothingAboutTheRelease(Said()));
+        }
+        finally { EndCheck(session); }
+    }
+
+    /// <summary>
+    /// After the teardown has begun, the operator's own lock is let go: no
+    /// wait, and "Receiving" at once, once, as before the wait existed.
+    /// </summary>
+    [Fact]
+    public void An_operators_release_after_the_teardown_began_says_Receiving_at_once()
+    {
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+        TheRadioAnswersForItself(true);
+        _controller.ToggleLock();
+        _controller.ReleaseRigForTeardown("radio events unwired");
+        Listen();
+        _controller.ToggleLock();
+        Assert.False(_controller.AwaitingRadioReceive);
+        var said = Said();
+        AssertReceivingOnce(said);
+        Assert.Equal(0, StillTransmittingSaid(said));
+    }
+
+    /// <summary>
+    /// A vendor <c>Radio</c> planted as the rig's radio, its transport holding
+    /// <paramref name="connection"/> as its current command connection, so
+    /// <see cref="FlexBase.CommandConnectionNow"/> reads it. Nothing is
+    /// connected and nothing is sent: the radio is built, not opened.
+    /// </summary>
+    private object PlantVendorRadio(FlexBase rig)
+    {
+        var radioField = typeof(FlexBase).GetField("theRadio", Any);
+        Assert.True(radioField != null, "production field FlexBase.theRadio is missing");
+        object radio = Activator.CreateInstance(radioField!.FieldType, Any, null, new object[] { false }, null)!;
+        radioField.SetValue(rig, radio);
+        return radio;
+    }
+
+    private static void UnplantVendorRadio(FlexBase rig) =>
+        typeof(FlexBase).GetField("theRadio", Any)!.SetValue(rig, null);
+
+    /// <summary>A new command connection on the planted radio's transport, as a new transport attempt makes one.</summary>
+    private static object NewCommandConnection(object radio)
+    {
+        var comm = radio.GetType().GetField("_commandCommunication", Any)!.GetValue(radio)!;
+        // Its setter is private to the declaring base class, so it is reached there.
+        System.Reflection.PropertyInfo? current = null;
+        for (var t = comm.GetType(); t != null && current == null; t = t.BaseType)
+            current = t.GetProperty("CurrentConnection", Any | BindingFlags.DeclaredOnly);
+        Assert.True(current?.SetMethod != null, "vendor property CommandCommunicationBase.CurrentConnection is missing");
+        var connection = RuntimeHelpers.GetUninitializedObject(current!.PropertyType);
+        current.SetValue(comm, connection);
+        return connection;
+    }
+
+    /// <summary>
+    /// The command connection is replaced during the wait, on the same rig:
+    /// seen by the rig's binding (a new transport attempt's
+    /// <c>CurrentConnectionBinding</c>), or by the transport itself (Codex's
+    /// schedule: the vendor radio's current command connection replaced). The
+    /// old release's wait retires without a word either way.
+    /// </summary>
+    [Theory]
+    [InlineData("binding")]
+    [InlineData("transport")]
+    public void A_connection_replaced_during_the_wait_retires_it_without_a_word(string seenBy)
+    {
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+        var binding = typeof(FlexBase).GetProperty(nameof(FlexBase.CurrentConnectionBinding));
+        Assert.True(binding?.SetMethod != null, "production property FlexBase.CurrentConnectionBinding has no setter");
+        var bindingBefore = binding!.GetValue(_rig);
+        object? radio = null;
+        try
+        {
+            TheRadioAnswersForItself(true);
+            _controller.ToggleLock();
+            if (seenBy == "transport")
+            {
+                radio = PlantVendorRadio(_rig);
+                var first = NewCommandConnection(radio);
+                Assert.Same(first, _rig.CommandConnectionNow);   // positive control: the rig reads its transport
+            }
+            _controller.ToggleLock();
+            Assert.True(_controller.AwaitingRadioReceive, "positive control: the release waits for the radio");
+            Listen();
+            if (seenBy == "binding")
+                binding.SetValue(_rig, RuntimeHelpers.GetUninitializedObject(typeof(RadioConnectionBinding)));
+            else
+                NewCommandConnection(radio!);
+            AtMs(PttSafetyController.RadioReleaseReportMs);   // red at 08e9b375: the old release's warning, said over the new connection
+            Assert.False(_controller.AwaitingRadioReceive);
+            AtMs(PttSafetyController.RadioReleaseReportMs + 500);
+            Assert.True(SaidNothingAboutTheRelease(Said()));
+            Assert.False(_controller.LastReleaseFoundRadioTransmitting);
+        }
+        finally
+        {
+            binding.SetValue(_rig, bindingBefore);
+            if (radio != null) UnplantVendorRadio(_rig);
+        }
+    }
+
+    /// <summary>
+    /// The controller's radio changes during the wait (Codex's schedule: its
+    /// rig provider now answers with a second radio that is transmitting). The
+    /// old release retires without a word: never "Receiving" about a radio it
+    /// never asked, and never the warning about one it never keyed.
+    /// </summary>
+    [Fact]
+    public void A_different_radio_during_the_wait_retires_it_never_Receiving()
+    {
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+        FlexBase current = _rig;
+        var other = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+        var ptt = new PttSafetyController(() => current, () => true,
+            new PttConfig { ChirpEnabled = false, SpeechEnabled = true });
+        try
+        {
+            long clock = 0;
+            ptt.RadioReportsTransmit = _ => true;          // both radios report transmit
+            ptt.ReleaseClockMs = () => clock;
+            ptt.ToggleLock();
+            ptt.ToggleLock();
+            Assert.True(ptt.AwaitingRadioReceive, "positive control: the release waits for the radio");
+            Listen();
+            current = other;
+            clock = 100;
+            ptt.PollRadioRelease();                        // red at 08e9b375: "Receiving", through the null branch
+            Assert.False(ptt.AwaitingRadioReceive);
+            clock = PttSafetyController.RadioReleaseReportMs;
+            ptt.PollRadioRelease();
+            Assert.True(SaidNothingAboutTheRelease(Said()));
+            Assert.False(ptt.LastReleaseFoundRadioTransmitting);
+        }
+        finally
+        {
+            current = _rig;
+            ptt.Dispose();
+            other.Dispose();
+        }
+    }
+
+    /// <summary>The control, unchanged by this repair: disposing the controller during the wait retires it without a word.</summary>
+    [Fact]
+    public void Disposing_the_controller_during_the_wait_retires_it_without_a_word()
+    {
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+        var ptt = new PttSafetyController(() => _rig, () => true,
+            new PttConfig { ChirpEnabled = false, SpeechEnabled = true });
+        long clock = 0;
+        ptt.RadioReportsTransmit = _ => true;
+        ptt.ReleaseClockMs = () => clock;
+        ptt.ToggleLock();
+        ptt.ToggleLock();
+        Assert.True(ptt.AwaitingRadioReceive, "positive control: the release waits for the radio");
+        Listen();
+        ptt.Dispose();
+        Assert.False(ptt.AwaitingRadioReceive);
+        clock = PttSafetyController.RadioReleaseReportMs;
+        ptt.PollRadioRelease();
+        Assert.True(SaidNothingAboutTheRelease(Said()));
+    }
+
+    /// <summary>
+    /// The real retained "still transmitting" warning's replay question, read
+    /// from the speech arbiter's own retained entry (Codex's method): the
+    /// delegate the speech layer will ask before any replay.
+    /// </summary>
+    private static Func<bool> TheRetainedWarningsValidity()
+    {
+        const BindingFlags all = BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public;
+        var arbiter = typeof(ScreenReaderOutput).GetField("_arbiter", all)?.GetValue(null);
+        Assert.True(arbiter != null, "production field ScreenReaderOutput._arbiter is missing");
+        Func<bool>? found = null;
+        foreach (var list in new[] { "_believedQueued", "_held" })
+        {
+            var items = arbiter!.GetType().GetField(list, all)?.GetValue(arbiter) as System.Collections.IEnumerable;
+            Assert.True(items != null, "production field SpeechArbiter." + list + " is missing");
+            foreach (var e in items!.Cast<object>().ToArray())
+            {
+                var t = e.GetType();
+                if ((string?)t.GetField("Subject", all)?.GetValue(e) == Radios.Speech.SpeechSubject.RadioStillTransmitting
+                    && t.GetField("StillValid", all)?.GetValue(e) is Func<bool> v)
+                    found = v;
+            }
+        }
+        Assert.True(found != null, "positive control: the warning is retained with a replay question");
+        return found!;
+    }
+
+    /// <summary>A release past the bound with the radio still transmitting: the warning said, and its replay question.</summary>
+    private Func<bool> AStuckReleaseIsWarnedAbout()
+    {
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+        TheRadioAnswersForItself(true);
+        _controller.ToggleLock();
+        _controller.ToggleLock();
+        Listen();
+        AtMs(PttSafetyController.RadioReleaseReportMs);
+        Assert.Equal(1, StillTransmittingSaid(Said()));
+        var valid = TheRetainedWarningsValidity();
+        Assert.True(valid(), "positive control: valid while that transmission goes on");
+        return valid;
+    }
+
+    /// <summary>
+    /// F1, Codex's schedule: the radio receives, then the operator keys
+    /// again on the same radio. The old warning is about a transmission that
+    /// ended; it is not valid over the new one, nor after that one ends.
+    /// </summary>
+    [Fact]
+    public void The_retained_warning_is_not_valid_over_a_new_keying()
+    {
+        AssertTheDeskIsSafe();
+        var valid = AStuckReleaseIsWarnedAbout();
+        _controller.ToggleLock();                            // the operator keys again
+        Assert.Equal(2, _controller.Keyings);
+        Assert.False(valid());                               // red at 08e9b375: "same rig and transmitting now"
+        _controller.ToggleLock();
+        Assert.False(valid());
+    }
+
+    /// <summary>
+    /// The radio lets go, then something keys it again with no keying of the
+    /// app's (a hand mic, VOX): a different transmission, so once the warning
+    /// has seen the radio receive it stays withdrawn.
+    /// </summary>
+    [Fact]
+    public void The_retained_warning_once_the_radio_received_stays_withdrawn()
+    {
+        AssertTheDeskIsSafe();
+        var valid = AStuckReleaseIsWarnedAbout();
+        _radioSays = false;
+        Assert.False(valid());
+        _radioSays = true;
+        Assert.False(valid());
+    }
+
+    /// <summary>The normal Disconnect's hook, and then the controller's end: the warning is not valid after either.</summary>
+    [Theory]
+    [InlineData("teardown")]
+    [InlineData("dispose")]
+    public void The_retained_warning_is_not_valid_after_the_controllers_lifetime(string end)
+    {
+        AssertTheDeskIsSafe();
+        var ptt = new PttSafetyController(() => _rig, () => true,
+            new PttConfig { ChirpEnabled = false, SpeechEnabled = true });
+        try
+        {
+            ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+            long clock = 0;
+            ptt.RadioReportsTransmit = _ => true;
+            ptt.ReleaseClockMs = () => clock;
+            ptt.ToggleLock();
+            ptt.ToggleLock();
+            Listen();
+            clock = PttSafetyController.RadioReleaseReportMs;
+            ptt.PollRadioRelease();
+            Assert.Equal(1, StillTransmittingSaid(Said()));
+            var valid = TheRetainedWarningsValidity();
+            Assert.True(valid(), "positive control: valid while that transmission goes on");
+            if (end == "teardown") ptt.ReleaseRigForTeardown("radio events unwired");
+            else ptt.Dispose();
+            Assert.False(valid());                           // red at 08e9b375 for both
+            Assert.False(ptt.LastReleaseFoundRadioTransmitting);
+        }
+        finally { ptt.Dispose(); }
+    }
+
+    /// <summary>
+    /// Task 903 within C6: the session is open and stopped, the controller is
+    /// idle and the app's transmit cache reads receive, but the radio's own
+    /// interlock still reports transmit (just after the unkey while a hardware
+    /// line holds it). Play waits for the radio. The control: the interlock
+    /// at receive, and Play plays.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Play_with_the_radio_interlock_still_transmitting_waits_for_the_radio(bool interlockTransmitting)
+    {
+        AssertTheDeskIsSafe();
+        var session = TheCheckKeys(AudioCheckListenMethods.RecordPlayback, 5);
+        object? radio = null;
+        try
+        {
+            StopIsPressed(session);
+            Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
+            Assert.True(Is(session, "AwaitPlayback"));
+            radio = PlantVendorRadio(_rig);
+            var radioType = radio.GetType();
+            radioType.GetField("_connected", Any)!.SetValue(radio, true);
+            var interlock = radioType.GetField("_interlockState", Any);
+            Assert.True(interlock != null, "vendor field Radio._interlockState is missing");
+            interlock!.SetValue(radio, Enum.Parse(interlock.FieldType, interlockTransmitting ? "Transmitting" : "Ready"));
+            Assert.False(_rig.Transmit);                                        // the app's cache reads receive
+            Assert.Equal(interlockTransmitting, _rig.RadioReportsTransmitNow);  // the radio's own word
+            var (refused, said) = PlayIsPressed();
+            if (interlockTransmitting)
+            {
+                Assert.True(refused);                                           // red at 08e9b375: Play played
+                Assert.Equal(1, said.Count(x => x == PlayAfterTransmit));
+                Assert.DoesNotContain(PlayAfterCheck, said);
+            }
+            else
+            {
+                Assert.False(refused);
+                Assert.Null(_dialog.PlayRefusalKey());
+                Assert.DoesNotContain(PlayAfterTransmit, said);
+            }
+        }
+        finally
+        {
+            if (radio != null) UnplantVendorRadio(_rig);
+            EndCheck(session);
+        }
+    }
+
     /// <summary>The window's real end poll, <c>FinishPassIfItEnded</c>, any tail it starts held.</summary>
     private HeldContinuations ThePollSeesTheEnd()
     {

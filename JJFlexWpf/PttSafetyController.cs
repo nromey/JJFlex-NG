@@ -515,8 +515,20 @@ namespace JJFlexWpf
         /// write rather than a queued one, because the command loop is about
         /// to stop and a queued write might never run (Astra B3). Idempotent.
         /// </summary>
+        /// <remarks>
+        /// Also the end of this controller's lifetime on that connection for a
+        /// release still waiting for the radio's receive (task 904, repair 7o):
+        /// the teardown generation advances, so a waiting release, and its
+        /// "still transmitting" warning if one is retained unheard, retire
+        /// silently; and no new wait starts on the connection being torn down,
+        /// so a release made while the teardown ends a check speaks at once,
+        /// as it did before the wait existed. Normal Disconnect comes through
+        /// here and does not dispose this controller, which is why
+        /// <see cref="Dispose"/> alone was not enough (Codex, 7n B1).
+        /// </remarks>
         public void ReleaseRigForTeardown(string why)
         {
+            EndReleaseLifetime(why);
             _cutHold.Abandon(why, Environment.TickCount64, immediate: true);
             lock (_cutHoldWiring) EndCutHoldWiringLocked();
         }
@@ -1283,7 +1295,7 @@ namespace JJFlexWpf
             // is an audio check ending; everything else is the app letting go.
             bool checksOwn = CheckNarratesThisKeying;
             EndReleaseWatch(null);
-            LastReleaseFoundRadioTransmitting = false;
+            _stuckRelease = null;
             State = PttState.Idle;
             SetTx(false);
             ScreenReaderOutput.Supersede(KeyDownExtraSubject, "transmission ended");
@@ -1397,9 +1409,53 @@ namespace JJFlexWpf
         /// <summary>The wait's clock, in milliseconds. Replaced by tests.</summary>
         internal Func<long> ReleaseClockMs { get; set; } = () => Environment.TickCount64;
 
+        // ── Whose release a wait belongs to (repair 7o, Codex 7n B1 and F1) ──
+        //
+        // A waiting release, and the "still transmitting" warning it may leave
+        // retained unheard, belong to ONE release: on one rig, on one command
+        // connection, inside one lifetime of this controller, ending one
+        // keying. 7n held only the rig and the keying count, so the normal
+        // Disconnect (which unwires and does not dispose this controller) left
+        // the wait running and its poll then spoke about a radio being torn
+        // down; a replaced connection on the same rig was the same wait; and a
+        // different rig read as "no radio to ask" and said "Receiving" about a
+        // radio nobody had asked. Now any mismatch retires the wait silently:
+        // a mismatch is stale work, never evidence about the radio there now.
+
+        /// <summary>
+        /// The rig and command connection a release was made on: the rig by
+        /// instance, the connection both by the rig's binding
+        /// (<see cref="FlexBase.CurrentConnectionBinding"/>, new for every
+        /// transport attempt) and by the transport's own current connection
+        /// (<see cref="FlexBase.CommandConnectionNow"/>), so a change seen by
+        /// either is a different connection.
+        /// </summary>
+        private sealed class ReleaseConnection
+        {
+            public readonly FlexBase? Rig;
+            public readonly RadioConnectionBinding? Binding;
+            public readonly object? Command;
+
+            public ReleaseConnection(FlexBase? rig)
+            {
+                Rig = rig;
+                if (rig == null) return;
+                try { Binding = rig.CurrentConnectionBinding; } catch { }
+                try { Command = rig.CommandConnectionNow; } catch { }
+            }
+
+            public bool SameRig(ReleaseConnection now) => ReferenceEquals(Rig, now.Rig);
+
+            public bool SameConnection(ReleaseConnection now) =>
+                ReferenceEquals(Binding, now.Binding) && ReferenceEquals(Command, now.Command);
+        }
+
+        private ReleaseConnection ConnectionNow() => new ReleaseConnection(SafeRig());
+
         private sealed class ReleaseWatch
         {
-            public FlexBase? Rig;
+            public required ReleaseConnection On;
+            public int Lifetime;
             public long StartMs;
             public int Keyings;
             public string? Then;
@@ -1409,16 +1465,64 @@ namespace JJFlexWpf
 
         private ReleaseWatch? _releaseWatch;
 
+        /// <summary>
+        /// This controller's teardown generation: advanced by
+        /// <see cref="ReleaseRigForTeardown"/>, which <see cref="Dispose"/>
+        /// also calls. A release made in an earlier generation is not current.
+        /// </summary>
+        private int _lifetime;
+
+        private bool _disposed;
+
+        /// <summary>
+        /// The rig and connection the last teardown began on. No new wait
+        /// starts on it: a release made while a teardown ends a check speaks at
+        /// once, as before the wait existed. A later connection may wait again.
+        /// </summary>
+        private ReleaseConnection? _tornDown;
+
+        /// <summary>The release that found the radio still transmitting and said so, until the next release.</summary>
+        private ReleaseWatch? _stuckRelease;
+
         /// <summary>True while a release waits for the radio to report receive.</summary>
         public bool AwaitingRadioReceive => _releaseWatch != null;
 
         /// <summary>
         /// The last release found the radio still transmitting past
-        /// <see cref="RadioReleaseReportMs"/> and said so. Cleared by the next
-        /// release. Check your audio's watcher asks it, so its own hardware
-        /// warning is not said a second time over the same transmission.
+        /// <see cref="RadioReleaseReportMs"/> and said so, and is still current:
+        /// the same rig, connection and controller lifetime, with no keying
+        /// since. Cleared by the next release. Check your audio's watcher asks
+        /// it, so its own hardware warning is not said a second time over the
+        /// same transmission, and is said over any other.
         /// </summary>
-        public bool LastReleaseFoundRadioTransmitting { get; private set; }
+        public bool LastReleaseFoundRadioTransmitting =>
+            _stuckRelease is { } stuck && WhyNotCurrent(stuck) == null;
+
+        /// <summary>
+        /// Why a release is no longer the one in force, or null while it is.
+        /// Asked by the wait's every look and by its retained warning before
+        /// any replay.
+        /// </summary>
+        private string? WhyNotCurrent(ReleaseWatch w)
+        {
+            if (_disposed || w.Lifetime != _lifetime) return "the radio was torn down or the controller is gone";
+            if (State != PttState.Idle || Keyings != w.Keyings) return "a new transmission began";
+            var now = ConnectionNow();
+            if (!w.On.SameRig(now)) return "a different radio";
+            if (!w.On.SameConnection(now)) return "a different connection";
+            return null;
+        }
+
+        /// <summary>
+        /// The teardown boundary: a new generation, the connection recorded so
+        /// nothing waits on it again, and any waiting release retired silently.
+        /// </summary>
+        private void EndReleaseLifetime(string why)
+        {
+            _lifetime++;
+            _tornDown = ConnectionNow();
+            EndReleaseWatch("the radio is being torn down (" + why + "); retired without a word");
+        }
 
         /// <summary>
         /// The sentence for a radio still transmitting after the app let go, at
@@ -1435,11 +1539,21 @@ namespace JJFlexWpf
         /// </summary>
         private bool BeginReleaseWatch(string? then, bool checksOwn)
         {
-            FlexBase? rig = SafeRig();
-            if (RadioReportsTransmit(rig) != true) return false;
+            if (_disposed) return false;
+            var on = ConnectionNow();
+            if (RadioReportsTransmit(on.Rig) != true) return false;
+            if (_tornDown is { } gone && gone.SameRig(on) && gone.SameConnection(on))
+            {
+                // The connection is ending: a wait would outlive it. Speak as
+                // before the wait existed (for the check's own key that is
+                // nothing; its narration owns it).
+                Tracing.TraceLine("PTT: the radio still reports transmit, but its connection is being torn down; no wait", TraceLevel.Info);
+                return false;
+            }
             var watch = new ReleaseWatch
             {
-                Rig = rig,
+                On = on,
+                Lifetime = _lifetime,
                 StartMs = ReleaseClockMs(),
                 Keyings = Keyings,
                 Then = then,
@@ -1466,39 +1580,51 @@ namespace JJFlexWpf
 
         /// <summary>
         /// One look at the radio for a waiting release: on receive, or with no
-        /// radio left to ask, the release's own sentence; past the bound with
-        /// the radio still transmitting, the ruled sentence, once. A new
-        /// transmission ends the wait silently: its own key-down has spoken,
-        /// and the old release's "Receiving" would be false. Driven by the
+        /// radio left to ask on the same connection, the release's own
+        /// sentence; past the bound with the radio still transmitting, the
+        /// ruled sentence, once. A release that is no longer current (a new
+        /// transmission, a teardown, another rig or connection) ends silently:
+        /// a new key-down has spoken for itself, and the old release's
+        /// "Receiving" or warning would be about something else. Driven by the
         /// watch's timer, and by tests directly.
         /// </summary>
         internal void PollRadioRelease()
         {
             var w = _releaseWatch;
             if (w == null) return;
-            if (State != PttState.Idle || Keyings != w.Keyings)
+            if (WhyNotCurrent(w) is { } stale)
             {
-                EndReleaseWatch("a new transmission began");
+                EndReleaseWatch(stale + "; retired without a word");
                 return;
             }
-            FlexBase? rig = SafeRig();
-            bool? report = ReferenceEquals(rig, w.Rig) ? RadioReportsTransmit(rig) : null;
+            FlexBase? rig = w.On.Rig;
+            bool? report = RadioReportsTransmit(rig);
             if (report == true)
             {
                 if (ReleaseClockMs() - w.StartMs < RadioReleaseReportMs) return;
                 EndReleaseWatch("the radio still reports transmit");
-                LastReleaseFoundRadioTransmitting = true;
+                _stuckRelease = w;
                 // Said whatever the operator's push to talk speech setting, as
                 // the cuts are: the operator believes the radio has stopped.
-                // Valid while that radio still says so, so an unheard copy is
-                // not replayed after it has let go.
-                FlexBase? stuck = w.Rig;
+                // Valid only for THIS release (repair 7o, F1): the same rig,
+                // connection and controller lifetime, no keying since, and the
+                // radio still transmitting without having let go in between.
+                // Once a look finds any of that false it stays false: a later
+                // transmission is a different one, so an unheard copy is never
+                // replayed over it.
+                bool over = false;
                 ScreenReaderOutput.Speak(
                     RadioStillTransmittingSentence(w.ChecksOwn, ScreenReaderOutput.CurrentVerbosity),
                     Radios.Speech.SpeechIntent.Urgent,
                     VerbosityLevel.Critical,
                     subject: Radios.Speech.SpeechSubject.RadioStillTransmitting,
-                    stillValid: () => ReferenceEquals(SafeRig(), stuck) && RadioReportsTransmit(stuck) == true);
+                    stillValid: () =>
+                    {
+                        if (over) return false;
+                        bool valid = WhyNotCurrent(w) == null && RadioReportsTransmit(rig) == true;
+                        if (!valid) over = true;
+                        return valid;
+                    });
                 return;
             }
             EndReleaseWatch(report == false ? "the radio reports receive" : "no radio to ask");
@@ -1516,7 +1642,17 @@ namespace JJFlexWpf
             var w = _releaseWatch;
             if (w == null) return;
             _releaseWatch = null;
-            try { w.Timer?.Stop(); } catch { }
+            // DispatcherTimer.Stop is thread-affine; stop it where it lives,
+            // or a teardown off that thread would leave it ticking.
+            try
+            {
+                if (w.Timer is { } t)
+                {
+                    if (_dispatcher.CheckAccess()) t.Stop();
+                    else _dispatcher.BeginInvoke(new Action(t.Stop));
+                }
+            }
+            catch { }
             if (why != null)
                 Tracing.TraceLine("PTT: release watch ended after "
                     + (ReleaseClockMs() - w.StartMs) + " ms: " + why, TraceLevel.Info);
@@ -2180,6 +2316,7 @@ namespace JJFlexWpf
         /// </summary>
         public void Dispose()
         {
+            _disposed = true;
             EndReleaseWatch("the controller is going away");
             if (State != PttState.Idle)
             {

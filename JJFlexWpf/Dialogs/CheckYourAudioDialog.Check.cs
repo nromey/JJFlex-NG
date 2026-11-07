@@ -1020,11 +1020,20 @@ public partial class CheckYourAudioDialog
     /// that question since part 7j) waits for the check to complete; any
     /// other transmission the session sees waits for the radio to stop.
     /// </summary>
+    /// <remarks>
+    /// The radio is asked as well as the app (repair 7o, task 903): just after
+    /// the app lets go, its cache and the controller read receive while a
+    /// hardware push to talk line or VOX still holds the radio's interlock in
+    /// transmit, and C6 names exactly those among the cases that wait for the
+    /// radio. Only while a session is open, the scope this gate always had.
+    /// </remarks>
     internal string? PlayRefusalKey()
     {
         var session = _session;
-        if (session == null || !session.EscapeStopsTransmit) return null;
-        return session.OwnKeyUp ? "audio.check.play_after_check" : "audio.check.play_after_transmit";
+        if (session == null) return null;
+        if (session.EscapeStopsTransmit)
+            return session.OwnKeyUp ? "audio.check.play_after_check" : "audio.check.play_after_transmit";
+        return session.RadioReportsTransmit ? "audio.check.play_after_transmit" : null;
     }
 
     private (AudioCheckListenMethods Method, TakePlaybackChoice Choice,
@@ -1372,6 +1381,15 @@ public partial class CheckYourAudioDialog
         /// </summary>
         public bool EscapeStopsTransmit =>
             Active && (_ptt.IsTransmitting || Rig?.Transmit == true);
+
+        /// <summary>
+        /// True while the session is open and its radio's own word is that it
+        /// is transmitting (<see cref="FlexBase.RadioReportsTransmitNow"/>):
+        /// the interlock, which a hardware push to talk line or VOX holds after
+        /// the app's cache has fallen. Play asks it (repair 7o, task 903).
+        /// </summary>
+        public bool RadioReportsTransmit =>
+            Active && Rig?.RadioReportsTransmitNow == true;
 
         /// <summary>
         /// The radio this check changed, held for the life of the session, so
