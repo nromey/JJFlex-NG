@@ -122,7 +122,8 @@ namespace Radios.Tests
             // (#747, J13). DRAFT prose.
             // Thirty-three: the preset announcement (#747 round four).
             // Thirty-four: the preset left unchanged (#747 round five).
-            Assert.Equal(34, ladders);
+            // Thirty-five: the audio preset announcement (#747 round ten, J29).
+            Assert.Equal(35, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -2227,6 +2228,10 @@ namespace Radios.Tests
                 "settings.filter.not_written",
                 "settings.filter.preset_not_written",
                 "audio.tx_filter.not_written",
+                // Round ten (#747, Noel's J29): a stored audio preset is said
+                // with "preset" after its name and the J15 filter form. DRAFT.
+                "audio.preset.announcement",
+                "audio.preset.announcement_tuned_for",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

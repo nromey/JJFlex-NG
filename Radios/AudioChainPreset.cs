@@ -299,12 +299,29 @@ public class AudioChainPreset
     }
 
     /// <summary>
-    /// Format for speech output.
+    /// Format for speech output, at the current verbosity.
     /// </summary>
-    public string FormatForSpeech()
-        // The shared width formatter (#747): "2.75 k" at Terse, "2750 hertz"
-        // at Chatty, never rounded.
-        => Describe(HertzSpeech.Width(TxFilterHigh - TxFilterLow, HertzUnitStyle.KiloLetter));
+    public string FormatForSpeech() => FormatForSpeech(ScreenReaderOutput.CurrentVerbosity);
+
+    /// <summary>
+    /// The stored preset as it is said (Noel, 2026-11-06 17:33, nap question
+    /// J29): its name with the word "preset" after it, so it is heard before
+    /// the numbers, then the filter in the J15 readout form. Chatty: "Example
+    /// preset, mic gain 50, filter 100 to 2850, width 2750 hertz". Terse, the
+    /// short form consistent with the filter presets: "Example preset, mic
+    /// gain 50, filter 2.75 k" (a bare number under 1 kHz, J30). The edges
+    /// are the STORED ones, because this describes the preset, not the filter
+    /// on the radio. DRAFT.
+    /// </summary>
+    public string FormatForSpeech(VerbosityLevel level)
+    {
+        string forInput = string.IsNullOrEmpty(RadioMicInput) ? ""
+            : Lexicon.Get("audio.preset.announcement_tuned_for", ("input", RadioMicInput));
+        return Lexicon.Get("audio.preset.announcement", level, ("name", Name), ("gain", MicGain),
+            ("low", TxFilterLow), ("high", TxFilterHigh),
+            ("width", HertzSpeech.ReadoutWidth(TxFilterHigh - TxFilterLow, HertzUnitStyle.KiloLetter, level)),
+            ("input", forInput));
+    }
 
     /// <summary>
     /// Format for text on a window (a dialog body, a label): the displayed

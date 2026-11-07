@@ -14,7 +14,7 @@ namespace Radios
         /// <summary>"2.75 k" above 1 kHz, a bare "500" below — the bracket readout's "Filter 100 to 2900, 2.8 k".</summary>
         Bare,
 
-        /// <summary>"2.75 k" above 1 kHz, "500 hertz" below — the filter and audio preset names, and the filter layer's readouts at Terse.</summary>
+        /// <summary>"2.75 k" above 1 kHz, "500 hertz" below. As a readout's Terse style (<see cref="HertzSpeech.ReadoutWidth(int, HertzUnitStyle)"/>) it gives "2.75 k" or, under 1 kHz, the bare "500" (J30).</summary>
         KiloLetter,
 
         /// <summary>"2.75 kHz" or "500 Hz" — text on a window, not speech.</summary>
@@ -101,10 +101,19 @@ namespace Radios
             => ReadoutWidth(hz, terseStyle, ScreenReaderOutput.CurrentVerbosity);
 
         /// <summary>A filter readout's width at the given verbosity; see <see cref="ReadoutWidth(int, HertzUnitStyle)"/>.</summary>
+        /// <remarks>
+        /// <b>J30 (Noel, 2026-11-06 17:34, "agreed"):</b> every Terse readout
+        /// under 1 kHz is the bare number ("500"), whatever the route's style,
+        /// as the bracket keys already were (J16). The units setting filed on
+        /// #747 adds units back for anyone who wants them.
+        /// </remarks>
         public static string ReadoutWidth(int hz, HertzUnitStyle terseStyle, VerbosityLevel level)
-            => SpeaksKiloForm(level)
-                ? Width(hz, terseStyle, level)
-                : Lexicon.Get("settings.filter.width_named_hertz", ("width", hz.ToString(CultureInfo.CurrentCulture)));
+        {
+            if (!SpeaksKiloForm(level))
+                return Lexicon.Get("settings.filter.width_named_hertz", ("width", hz.ToString(CultureInfo.CurrentCulture)));
+            if (Math.Abs(hz) < KiloThresholdHz) return hz.ToString(CultureInfo.CurrentCulture);
+            return Width(hz, terseStyle, level);
+        }
 
         /// <summary>
         /// A width to SHOW: the never-rounding kilo form at and above 1 kHz,

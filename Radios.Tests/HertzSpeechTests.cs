@@ -154,7 +154,29 @@ namespace Radios.Tests
             Assert.Equal(txWidth, Lexicon.Get("audio.filter_layer.tx_width", level, ("width", W(2750)), ("low", 100), ("high", 2850)));
             // Below 1 kHz the layer keeps its unit at Terse.
             if (level == VerbosityLevel.Terse)
-                Assert.Equal("Width 500 hertz, 100 to 600", Lexicon.Get("audio.filter_layer.width", level, ("width", W(500)), ("low", 100), ("high", 600)));
+                // J30 (Noel, 2026-11-06 17:34): every Terse filter readout under 1 kHz drops the unit.
+                Assert.Equal("Width 500, 100 to 600", Lexicon.Get("audio.filter_layer.width", level, ("width", W(500)), ("low", 100), ("high", 600)));
+            if (level == VerbosityLevel.Terse)
+                Assert.Equal("RX filter 100 to 600, 500", Lexicon.Get("audio.filter.rx_report", ("low", 100), ("high", 600), ("width", W(500))));
+            if (level == VerbosityLevel.Chatty)
+                Assert.Equal("RX filter 100 to 600, width 500 hertz", Lexicon.Get("audio.filter.rx_report", ("low", 100), ("high", 600), ("width", W(500))));
+        }
+
+        /// <summary>
+        /// J30 (Noel, 2026-11-06 17:34, "agreed"): every Terse readout under
+        /// 1 kHz is the bare number, whatever the route's style; at and above
+        /// 1 kHz Terse keeps "2.8 k", and Chatty is unchanged.
+        /// </summary>
+        [Theory]
+        [InlineData(HertzUnitStyle.Bare)]
+        [InlineData(HertzUnitStyle.KiloLetter)]
+        [InlineData(HertzUnitStyle.Symbols)]
+        public void At_terse_a_readout_under_1_kilohertz_is_the_bare_number(HertzUnitStyle style)
+        {
+            Assert.Equal("500", HertzSpeech.ReadoutWidth(500, style, VerbosityLevel.Terse));
+            Assert.Equal("250", HertzSpeech.ReadoutWidth(250, style, VerbosityLevel.Critical));
+            Assert.Equal("2.8 k", HertzSpeech.ReadoutWidth(2800, style == HertzUnitStyle.Symbols ? HertzUnitStyle.KiloLetter : style, VerbosityLevel.Terse));
+            Assert.Equal("width 500 hertz", HertzSpeech.ReadoutWidth(500, style, VerbosityLevel.Chatty));
         }
 
         [Fact]

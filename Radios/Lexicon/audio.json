@@ -632,6 +632,8 @@
   "audio.power.unit_label_dbm": "dBm",
   "audio.power.unit_label_watts": "watts",
   "audio.power.unit_watts": "Power, in watts.",
+  "audio.preset.announcement": {"text": {"critical": "{name} preset, mic gain {gain}, filter {width}{input}", "terse": "{name} preset, mic gain {gain}, filter {width}{input}", "chatty": "{name} preset, mic gain {gain}, filter {low} to {high}, {width}{input}"}, "delivery": null},
+  "audio.preset.announcement_tuned_for": {"text": ", tuned for {input}", "delivery": null},
   "audio.preset.delete_body": "This deletes {preset} from your saved presets. There is no undo — to get it back you would save or import it again. Nothing on the radio changes.",
   "audio.preset.delete_question": "Delete it?",
   "audio.preset.delete_title": "Delete Preset",
