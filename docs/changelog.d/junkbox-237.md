@@ -1,1 +1,0 @@
-The reflected power warning now speaks up at a standing wave ratio of 4 to 1, 36 percent of your power coming back, where it used to wait for 40 percent. The transmit checks judge your antenna on the same scale: suspect from 2.5 to 1, and a tune is stopped at 5 to 1.
