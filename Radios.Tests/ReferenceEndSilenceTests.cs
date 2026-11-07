@@ -578,7 +578,7 @@ public sealed class ReferenceEndSilenceTests : IDisposable
     {
         using var f = await ReferenceRunToItsEnd("ref-silence-disconnect");
         typeof(FlexBase).GetMethod("DisconnectVoxPauses", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(f.Rig, null);
+            .Invoke(f.Rig, new object[] { true });
         Assert.False(f.Rig.TxReferenceEndSilenceHeld);
         Assert.False(f.Rig.TxReferenceArmed);
         Assert.True(MicIsBack(f.Rig.TxFilePlayer));
@@ -834,7 +834,7 @@ public sealed class ReferenceEndSilenceTests : IDisposable
             {
                 PlantNewConnection(f);                         // the older wait will see its connection gone, and wait at the gate
                 typeof(FlexBase).GetMethod("DisconnectVoxPauses", BindingFlags.Instance | BindingFlags.NonPublic)!
-                    .Invoke(f.Rig, null);                      // what the disconnect does before the reconnect
+                    .Invoke(f.Rig, new object[] { true });                      // what the disconnect does before the reconnect
             }
             else
             {
@@ -932,7 +932,7 @@ public sealed class ReferenceEndSilenceTests : IDisposable
                 break;
             case "disconnect":
                 typeof(FlexBase).GetMethod("DisconnectVoxPauses", BindingFlags.Instance | BindingFlags.NonPublic)!
-                    .Invoke(f.Rig, null);
+                    .Invoke(f.Rig, new object[] { true });
                 Assert.False(f.Rig.TxReferenceEndSilenceHeld);
                 Assert.True(MicIsBack(f.Rig.TxFilePlayer));
                 break;

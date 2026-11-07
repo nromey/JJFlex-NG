@@ -624,7 +624,7 @@ public sealed class ReferenceEndSpeechTests : IDisposable
 
     /// <summary>The session's <c>ForceEnd</c>, as the window's Closed handler, SetRig and a teardown call it.</summary>
     private static void TheWindowCloses(object session) =>
-        SessionType.GetMethod("ForceEnd", Any)!.Invoke(session, new object?[] { null });
+        SessionType.GetMethod("ForceEnd", Any)!.Invoke(session, new object?[] { null, false });   // the window closing: Escape's ordinary unkey
 
     /// <summary>The session's <c>StopCheck</c>, as the Stop button, Ctrl+Enter and Escape call it.</summary>
     private static void StopIsPressed(object session) =>
@@ -1116,7 +1116,9 @@ public sealed class ReferenceEndSpeechTests : IDisposable
             TheRadioAnswersForItself(true);
             if (teardownFirst) _controller.ReleaseRigForTeardown("radio events unwired");
             Listen();
-            SessionType.GetMethod("ForceEnd", Any)!.Invoke(session, new object?[] { "Radio disconnected, audio check ended" });
+            // The teardown ends the check as the disconnect does, connectionEnding true (the junk box's #596);
+            // the control ends it as an ordinary unkey would.
+            SessionType.GetMethod("ForceEnd", Any)!.Invoke(session, new object?[] { "Radio disconnected, audio check ended", teardownFirst });
             Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
             if (!teardownFirst)
             {

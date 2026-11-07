@@ -442,7 +442,7 @@ namespace Radios.Tests
             // connectionEnding, and that branch releases through the scoped path.
             string check = Repo("JJFlexWpf/Dialogs/CheckYourAudioDialog.Check.cs");
             int force = check.IndexOf("public void ForceEnd(string? reason, bool connectionEnding = false)", StringComparison.Ordinal);
-            int keyed = check.IndexOf("if (_ptt.IsTransmitting)", force, StringComparison.Ordinal);
+            int keyed = check.IndexOf("if (OwnKeyHeld)", force, StringComparison.Ordinal);
             string release = check.Substring(keyed, 900);
             Assert.Contains("if (connectionEnding) _ptt.ReleaseForTeardown();", release);
             Assert.Contains("else _ptt.EscapeUnlock();", release);

@@ -69,7 +69,10 @@ public sealed class PttSliceWordsTests
         Assert.Contains("Radios.PttSliceWords.Receiving(CurrentSliceRoles(), _config.AnnounceTransmitSlice)", text);
         Assert.Contains("Radios.PttSliceWords.Locked(CurrentSliceRoles(), _config.AnnounceTransmitSlice)", text);
         Assert.Equal(1, Regex.Matches(text, @"SpeakKeyDownFirstLine\(TransmittingWords\(\)\)").Count);
-        Assert.Equal(4, Regex.Matches(text, @"GoIdle\(ReceivingWords\(\)\)").Count);   // four: the teardown release joined them (junk box repair round 2)
+        // Five: the teardown release joined them (junk box repair round 2), and the reference's quiet
+        // unkey (Unified takes). All but the teardown wait for the radio's own receive (task 904).
+        Assert.Equal(5, Regex.Matches(text, @"GoIdle\(ReceivingWords\(\)(, confirmReceive: true)?\)").Count);
+        Assert.Equal(4, Regex.Matches(text, @"GoIdle\(ReceivingWords\(\), confirmReceive: true\)").Count);
         Assert.Equal(2, Regex.Matches(text, @"LockedWords\(\)").Count - 1);   // two speak sites, plus the definition
     }
 }

@@ -118,7 +118,7 @@ public sealed class UnifiedTakesReferenceEndTests
         Assert.Contains("if (!OwnKeyHeld)", tick);
         // Part 7j: one owner for "is the check's key up". Each consumer asks it.
         Assert.Contains("if (!OwnKeyHeld)", Body(checkSource, "internal bool StopOwnKey()"));
-        Assert.Contains("if (OwnKeyHeld)", Body(checkSource, "public void ForceEnd(string? reason)"));
+        Assert.Contains("if (OwnKeyHeld)", Body(checkSource, "public void ForceEnd(string? reason, bool connectionEnding = false)"));
         Assert.Contains("!OwnKeyHeld && (!rig.Transmit || _ptt.IsTransmitting)", checkSource);
         string refEnd = Dialog("CheckYourAudioDialog.ReferenceEnd.cs");
         Assert.Contains("internal bool OwnKeyUp => Keyed && OwnKeyHeld;", refEnd);

@@ -379,7 +379,7 @@ public sealed class ReferenceEndSilenceTests : IDisposable
         _dialog.FinishReferencePass(_rig, Holder.Elsewhere, hardwareLine: true);
         CloseTheWindowsReference();
         Assert.True(_rig.TxReferenceEndSilenceHeld);
-        typeof(FlexBase).GetMethod("DisconnectVoxPauses", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(_rig, null);
+        typeof(FlexBase).GetMethod("DisconnectVoxPauses", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(_rig, new object[] { true });
         Assert.False(_rig.TxReferenceEndSilenceHeld);
         Assert.True(MicIsBack());
     }
