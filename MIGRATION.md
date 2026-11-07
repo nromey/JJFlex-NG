@@ -387,7 +387,12 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     - **Why.** Measured on a FLEX-8600 on 2026-11-06 (bench report
       `2026-11-06-junkbox-1102-bench-report.md`, Fail 1): the radio sends a slice's
       new `rf_frequency` to every OTHER client and none to the client that tuned
-      it, which gets only `R|0|`. The app tunes through the reply-bearing path
+      it, which gets only `R|0|`. **This is per property, not a rule of the
+      radio:** measured again on 2026-11-06 with a raw LAN client
+      (`bench-2026-11-06-xmit0/micechoprobe.log`, `muteechoprobe.log`), `radio set
+      mute_local_audio_when_remote` likewise gets only its reply, but `mic input`
+      IS echoed to its writer, as `transmit ... mic_selection=`, before the reply.
+      Never generalise one property's measurement to another. The app tunes through the reply-bearing path
       rather than the `Freq` setter (whose cache write before sending stood in for
       that status), so FlexLib's cache stayed on the OLD frequency until another
       client connected, and every reader that asks the slice (F, the title, the
