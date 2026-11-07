@@ -1,1 +1,0 @@
-With no radio connected, M, V, R, X, Q and the equals key on Home or on the welcome page now say "No radio connected", the same words every other Home key uses, instead of a different sentence of their own.
