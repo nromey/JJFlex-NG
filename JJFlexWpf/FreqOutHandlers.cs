@@ -1060,13 +1060,30 @@ public class FreqOutHandlers
         // typed 60 MHz and heard "Frequency set to 60.000 megahertz", then the
         // frequency the radio kept. The tune goes out exactly as before
         // (VirtualRXFrequency), and the answer is said on the window's thread.
+        // The answer comes with the typed tune it belongs to, and is said only
+        // if that tune is still what the radio is doing when the window gets to
+        // it (round five, Codex's re-check T1).
         var rig = Rig;
         if (rig == null)
-            SayTypedTuneAnswer(FlexBase.TuneAnswer.Refused, freqHz, display);
+            SayTypedTuneSpeech(TypedTuneSpeech(FlexBase.TuneAnswer.Refused, Radios.ScreenReaderOutput.CurrentVerbosity));
         else
-            rig.TuneAwaitingAnswer(freqHz, answer =>
-                _window.Dispatcher.BeginInvoke(new Action(() => SayTypedTuneAnswer(answer, freqHz, display))));
+            rig.TuneAwaitingAnswer(freqHz, (answer, tune) =>
+                _window.Dispatcher.BeginInvoke(new Action(() => SayTypedTuneAnswer(answer, tune, display))));
         CancelQuickType();
+    }
+
+    /// <summary>
+    /// Why an answer to <paramref name="tune"/> must not be said or acted on now,
+    /// or null (round five, Codex's re-check T1). The window's rig must still be
+    /// the one the frequency was typed on, and the tune must still be what that
+    /// rig's radio is doing: its radio, connection, slice and request, and for
+    /// an acceptance, its frequency. Pure but for the tune's own question.
+    /// </summary>
+    internal static string? TypedTuneAnswerStale(FlexBase? windowRig, FlexBase.TypedTune tune, FlexBase.TuneAnswer answer)
+    {
+        if (tune == null) return "it carries no typed tune";
+        if (!ReferenceEquals(windowRig, tune.Rig)) return "the window's radio is no longer the one the frequency was typed on";
+        return tune.WhyNoLongerCurrent(answer);
     }
 
     /// <summary>
@@ -1085,28 +1102,41 @@ public class FreqOutHandlers
             _ => (false, Lexicon.Get("settings.tuning.tune_no_answer"), false),
         };
 
+    /// <summary>The refusal sound and sentence, or the no-answer sentence. True when one was said.</summary>
+    private static bool SayTypedTuneSpeech((bool Beep, string? Sentence, bool Arrived) said)
+    {
+        // The refusal sound the app already uses for a key or command it cannot
+        // carry out (the JJ key's "not recognised"): there is no other error earcon.
+        if (said.Beep) EarconPlayer.LeaderInvalidTone();
+        if (said.Sentence == null) return false;
+        Radios.ScreenReaderOutput.Speak(said.Sentence, VerbosityLevel.Terse, true,
+            subject: Radios.Speech.SpeechSubject.TypedTuneAnswer);
+        return true;
+    }
+
     /// <summary>
     /// The radio's answer to a typed frequency, on the window's thread (J28).
     /// Only an accepted tune says where it landed, crosses a band boundary, or
     /// asks 60 m for its mode: a refused one changed nothing.
     /// </summary>
-    private void SayTypedTuneAnswer(FlexBase.TuneAnswer answer, ulong freqHz, string display)
+    private void SayTypedTuneAnswer(FlexBase.TuneAnswer answer, FlexBase.TypedTune tune, string display)
     {
-        var said = TypedTuneSpeech(answer, Radios.ScreenReaderOutput.CurrentVerbosity);
-        // The refusal sound the app already uses for a key or command it cannot
-        // carry out (the JJ key's "not recognised"): there is no other error earcon.
-        if (said.Beep) EarconPlayer.LeaderInvalidTone();
-        if (said.Sentence != null)
+        // Asked HERE, as the window runs it (round five, T1): a valid answer to
+        // an old request never describes or reconfigures the radio now.
+        string? stale = TypedTuneAnswerStale(Rig, tune, answer);
+        if (stale != null)
         {
-            Radios.ScreenReaderOutput.Speak(said.Sentence, VerbosityLevel.Terse, true,
-                subject: Radios.Speech.SpeechSubject.TypedTuneAnswer);
+            Tracing.TraceLine("CommitQuickType: the radio's " + answer + " is not said - " + stale, TraceLevel.Info);
             return;
         }
+        var said = TypedTuneSpeech(answer, Radios.ScreenReaderOutput.CurrentVerbosity);
+        if (SayTypedTuneSpeech(said)) return;
         if (!said.Arrived) return;
+        ulong freqHz = tune.Hz;
         CheckBandBoundary(freqHz);
-        // No rig, no mode to correct: the correction is only asked for with a
-        // rig, and with one only what is known is said (#312, repair round two).
-        var rig = Rig;
+        // The typed tune's own rig, never whatever the window holds by now
+        // (round five, T1); with no mode known, no correction (#312).
+        var rig = tune.Rig;
         var outcome = QuickTypeCommitOutcome(License?.Country ?? "US", freqHz, rig?.Mode, display);
         if (rig != null && outcome.Correction != null)
             SixtyMeterModeDelivery.Deliver(rig, outcome.Arrival, outcome.Correction,

@@ -2391,8 +2391,19 @@ namespace Radios.Tests
         private sealed class Answers
         {
             public readonly List<string> Got = new();
+            public readonly List<object> Tunes = new();
             public readonly List<(int Ms, TaskCompletionSource<bool> Gate)> Waits = new();
             public void Add<T>(T answer) { lock (Got) Got.Add(answer!.ToString()!); }
+            /// <summary>Round five (T1): the answer and the typed tune it is for.</summary>
+            public void Add2<TA, TT>(TA answer, TT tune) { lock (Got) { Got.Add(answer!.ToString()!); Tunes.Add(tune!); } }
+            /// <summary>Why the last answer's tune is no longer current, or null (asked as the window asks it).</summary>
+            public string? Stale(int i, string answerName)
+            {
+                object tune; lock (Got) tune = Tunes[i];
+                var why = tune.GetType().GetMethod("WhyNoLongerCurrent")!;
+                var answerType = why.GetParameters()[0].ParameterType;
+                return (string?)why.Invoke(tune, new[] { Enum.Parse(answerType, answerName) });
+            }
             public string[] Now { get { lock (Got) return Got.ToArray(); } }
             public void Park(FlexBase rig)
             {
@@ -2422,9 +2433,10 @@ namespace Radios.Tests
         {
             var tune = typeof(FlexBase).GetMethod("TuneAwaitingAnswer", BindingFlags.Instance | BindingFlags.Public);
             Assert.True(tune != null, "nothing hands a typed frequency the radio's answer");
-            Type answerType = tune!.GetParameters()[1].ParameterType.GetGenericArguments()[0];
+            Type[] args = tune!.GetParameters()[1].ParameterType.GetGenericArguments();
+            Assert.True(args.Length == 2, "the answer does not carry the typed tune it belongs to (round five, T1)");
             var cb = Delegate.CreateDelegate(tune.GetParameters()[1].ParameterType, answers,
-                typeof(Answers).GetMethod(nameof(Answers.Add))!.MakeGenericMethod(answerType));
+                typeof(Answers).GetMethod(nameof(Answers.Add2))!.MakeGenericMethod(args));
             tune.Invoke(b.Rig, new object[] { hz, cb });
         }
 
@@ -2503,6 +2515,110 @@ namespace Radios.Tests
             answers.Park(b.Rig);
             TypedTune(b, 14_200_000, answers);
             Assert.Equal(new[] { "Refused" }, answers.Now);
+        }
+    
+
+        // ── Round five, Codex's re-check T1: a typed tune's answer is bound to its request ──
+
+        private static void RemoveAndRecreateSliceA(Bench b, Slice a)
+        {
+            typeof(FlexBase).GetMethod("sliceRemoved", Private)!
+                .Invoke(b.Rig, new object[] { a, new ObservationBinding(new object(), new ConnectionAttempt("test-serial")) });
+            Add(b, 0, tx: true, active: true, mhz: 7.100);
+        }
+
+        [Fact]
+        public void A_typed_tunes_answer_is_not_handed_over_after_its_slice_is_removed_and_recreated()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            var answers = new Answers();
+            answers.Park(b.Rig);
+            TypedTune(b, 14_200_000, answers);
+            Drain(b.Rig);
+            RemoveAndRecreateSliceA(b, a);
+            AckTune(b, 0);                                  // A's delayed acceptance
+            Assert.Empty(answers.Got);
+        }
+
+        [Fact]
+        public void An_answer_already_handed_over_is_no_longer_current_once_its_slice_is_gone()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            var answers = new Answers();
+            answers.Park(b.Rig);
+            TypedTune(b, 14_200_000, answers);
+            Drain(b.Rig);
+            AckTune(b, 0);
+            Assert.Equal(new[] { "Accepted" }, answers.Got);
+            Assert.Null(answers.Stale(0, "Accepted"));              // control: still current
+            RemoveAndRecreateSliceA(b, a);                           // before the window runs it
+            Assert.NotNull(answers.Stale(0, "Accepted"));
+        }
+
+        [Fact]
+        public void An_answer_handed_over_is_no_longer_current_after_a_newer_tune()
+        {
+            // Codex's newer-UI schedule: accepted, the window's delivery parked,
+            // and a newer tune completes before it runs.
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            var answers = new Answers();
+            answers.Park(b.Rig);
+            TypedTune(b, 14_200_000, answers);
+            Drain(b.Rig);
+            AckTune(b, 0);
+            b.Rig.RXFrequency = 14_300_000;
+            Drain(b.Rig);
+            AckTune(b, 1);
+            Assert.NotNull(answers.Stale(0, "Accepted"));
+            Assert.NotNull(answers.Stale(0, "Refused"));     // a refusal of the old request is stale too
+        }
+
+        [Fact]
+        public void An_acceptance_is_no_longer_current_once_another_client_moves_the_slice()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            var answers = new Answers();
+            answers.Park(b.Rig);
+            TypedTune(b, 14_200_000, answers);
+            Drain(b.Rig);
+            AckTune(b, 0);
+            Assert.Null(answers.Stale(0, "Accepted"));
+            Reports(a, 14.250000);                           // another client, before the window runs it
+            Assert.NotNull(answers.Stale(0, "Accepted"));
+        }
+
+        [Fact]
+        public void A_typed_tunes_answer_is_not_handed_over_after_the_connection_falls()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            var answers = new Answers();
+            answers.Park(b.Rig);
+            TypedTune(b, 14_200_000, answers);
+            Drain(b.Rig);
+            typeof(FlexBase).GetMethod("dropTransmitWithConnection", Private)!
+                .Invoke(b.Rig, new object[] { (Action<string, System.Diagnostics.TraceLevel>)((_, _) => { }) });
+            AckTune(b, 0);
+            Assert.Empty(answers.Got);
+        }
+
+        [Fact]
+        public void An_answer_handed_over_is_no_longer_current_after_the_connection_falls()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            var answers = new Answers();
+            answers.Park(b.Rig);
+            TypedTune(b, 14_200_000, answers);
+            Drain(b.Rig);
+            AckTune(b, 0);
+            typeof(FlexBase).GetMethod("dropTransmitWithConnection", Private)!
+                .Invoke(b.Rig, new object[] { (Action<string, System.Diagnostics.TraceLevel>)((_, _) => { }) });
+            Assert.NotNull(answers.Stale(0, "Accepted"));
         }
     }
 }

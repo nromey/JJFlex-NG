@@ -200,9 +200,43 @@ public sealed class QuickTypeCommitTests
         int say = text.IndexOf("private void SayTypedTuneAnswer(", System.StringComparison.Ordinal);
         Assert.True(say > 0, "nothing says the radio's answer to a typed frequency");
         string sayBody = text.Substring(say, 2500);
-        Assert.Contains("EarconPlayer.LeaderInvalidTone();", sayBody, System.StringComparison.Ordinal);
+        int speech = text.IndexOf("private static bool SayTypedTuneSpeech(", System.StringComparison.Ordinal);
+        Assert.True(speech > 0);
+        Assert.Contains("EarconPlayer.LeaderInvalidTone();", text.Substring(speech, 800), System.StringComparison.Ordinal);
         Assert.True(sayBody.IndexOf("if (!said.Arrived) return;", System.StringComparison.Ordinal)
             < sayBody.IndexOf("QuickTypeCommitOutcome(", System.StringComparison.Ordinal),
             "the arrival is said before the radio accepted the tune");
+        // Round five (T1): asked first, as the window runs it; and only the typed tune's own rig is acted on.
+        int stale = sayBody.IndexOf("TypedTuneAnswerStale(Rig, tune, answer)", System.StringComparison.Ordinal);
+        Assert.True(stale > 0 && stale < sayBody.IndexOf("TypedTuneSpeech(answer", System.StringComparison.Ordinal),
+            "the answer is said before it is asked whether it is still about the radio");
+        Assert.Contains("var rig = tune.Rig;", sayBody, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("var rig = Rig;", sayBody, System.StringComparison.Ordinal);
+    }
+
+    // ---------------- Round five, Codex's re-check T1: the answer's authority ----------------
+
+    private static FlexBase.TypedTune RefusedTuneOn(FlexBase rig)
+    {
+        // A rig with no radio refuses at once, and hands back the tune it was for.
+        FlexBase.TypedTune? got = null;
+        rig.TuneAwaitingAnswer(14_200_000, (answer, tune) => got = tune);
+        Assert.NotNull(got);
+        return got!;
+    }
+
+    [Fact]
+    public void An_answer_for_a_rig_the_window_no_longer_holds_is_not_said_or_acted_on()
+    {
+        // Codex's rig-switch schedule: the answer reached the window after its
+        // rig had been replaced, and the 60 m correction switched the
+        // REPLACEMENT radio to CW.
+        var original = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" }) { SuppressSpeech = true };
+        var replacement = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" }) { SuppressSpeech = true };
+        var tune = RefusedTuneOn(original);
+        Assert.Same(original, tune.Rig);
+        Assert.Null(FreqOutHandlers.TypedTuneAnswerStale(original, tune, FlexBase.TuneAnswer.Refused));   // control
+        Assert.NotNull(FreqOutHandlers.TypedTuneAnswerStale(replacement, tune, FlexBase.TuneAnswer.Refused));
+        Assert.NotNull(FreqOutHandlers.TypedTuneAnswerStale(null, tune, FlexBase.TuneAnswer.Refused));
     }
 }

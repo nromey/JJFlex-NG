@@ -6557,6 +6557,7 @@ namespace Radios
             // A tuning correction is about this connection (round three, Codex's B1),
             // and so is Home's return status (round four, B3): its binding reads this.
             System.Threading.Interlocked.Increment(ref _connectionFalls);
+            RetireTuneWaiters(null, "the connection fell");   // round five, T1
             RetireTuneCorrection("the connection fell");
             bool wasKeyed = _Transmit;
             bool deliberate = Disconnecting || Volatile.Read(ref _selfDisconnects) > 0;
@@ -6860,6 +6861,7 @@ namespace Radios
             if (myClient(slc.ClientHandle))
             {
                 RetireCorrectionIfNoLongerTrue(slc, "the slice was removed");
+                RetireTuneWaiters(slc, "slice " + slc.Letter + " was removed");   // round five, T1
                 int ct;
                 if (mySlices != null)
                 {

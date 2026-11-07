@@ -259,6 +259,7 @@ namespace Radios
                 return false;
             }
             long id = EchoGuardFor(slice).Requested(value);
+            if (answered != null) answered.Hz = value;   // what the typed entry asked for (round five, T1)
             WaitForTuneAnswer(slice, id, answered);
             // The optimistic value is held WITH the slice it is written to, in
             // every cache that describes that slice, through the one commit
@@ -632,21 +633,109 @@ namespace Radios
             NoAnswerYet,
         }
 
+        /// <summary>
+        /// One typed tune, and everything its answer is about (round five,
+        /// Codex's re-check T1): this rig, its radio, the command connection and
+        /// the falls counted when it was typed, and, once requested, the slice,
+        /// the request and the frequency. An answer to an old request is never
+        /// permission to describe or reconfigure what is current now: whoever
+        /// delivers the answer asks <see cref="WhyNoLongerCurrent"/> first, at
+        /// the moment it delivers, and acts only on <see cref="Rig"/>.
+        /// </summary>
+        public sealed class TypedTune
+        {
+            internal TypedTune(FlexBase rig, System.Action<TuneAnswer, TypedTune> answered)
+            {
+                Rig = rig;
+                Answered = answered;
+                Radio = rig.theRadio;
+                Connection = Radio?.CurrentCommandConnection;
+                Falls = System.Threading.Interlocked.Read(ref rig._connectionFalls);
+            }
+            /// <summary>The rig the frequency was typed on. The only one an answer may act on.</summary>
+            public FlexBase Rig { get; }
+            internal System.Action<TuneAnswer, TypedTune> Answered { get; }
+            internal Radio Radio { get; }
+            internal CommandConnection Connection { get; }
+            internal long Falls { get; }
+            internal Slice Slice { get; set; }
+            internal long RequestId { get; set; }
+            /// <summary>The frequency typed, in hertz; 0 when the tune was refused before it was requested.</summary>
+            public ulong Hz { get; internal set; }
+            internal bool ToldNoAnswer;
+            /// <summary>Why <paramref name="answer"/> to this tune no longer describes the radio, or null. Never throws.</summary>
+            public string WhyNoLongerCurrent(TuneAnswer answer)
+            {
+                try { return Rig.TypedTuneNoLongerCurrent(this, answer); }
+                catch (System.Exception ex) { return "it could not be checked: " + ex.Message; }
+            }
+        }
+
+        /// <summary>
+        /// Why <paramref name="answer"/> to typed tune <paramref name="t"/> no
+        /// longer describes the radio (round five, T1): the radio, its
+        /// connection, a fall since, the slice gone, a newer tune of it asked
+        /// for since, or, for an acceptance, the slice no longer on the
+        /// frequency. Not for a lock-held caller: it takes the roster's lock.
+        /// </summary>
+        private string TypedTuneNoLongerCurrent(TypedTune t, TuneAnswer answer)
+        {
+            if (!ReferenceEquals(theRadio, t.Radio)) return "the radio it was typed for is no longer this one";
+            if (t.Radio != null)
+            {
+                var now = t.Radio.CurrentCommandConnection;
+                if (!ReferenceEquals(now, t.Connection) || now?.State != CommandConnectionState.Connected)
+                    return "the radio's command connection has changed or ended since";
+            }
+            if (System.Threading.Interlocked.Read(ref _connectionFalls) != t.Falls) return "the connection has fallen since";
+            var slice = t.Slice;
+            if (slice == null) return null;   // refused before any request: it is about the request alone
+            var slices = mySlices;
+            bool ours = false;
+            if (slices != null) lock (slices) ours = slices.Contains(slice);
+            if (!ours) return "the slice it was typed for is gone";
+            if (LatestTuneRequest(slice) != t.RequestId) return "a newer tune of the slice has been asked for since";
+            if (answer == TuneAnswer.Accepted && LibFreqtoLong(slice.Freq) != t.Hz) return "the slice is no longer on that frequency";
+            return null;
+        }
+
+        /// <summary>Each slice's newest tune request (round five, T1): any tune, typed or not.</summary>
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Slice, System.Runtime.CompilerServices.StrongBox<long>> _latestTuneRequest = new();
+
+        private long LatestTuneRequest(Slice slice) =>
+            _latestTuneRequest.TryGetValue(slice, out var box) ? System.Threading.Interlocked.Read(ref box.Value) : 0;
+
         /// <summary>The typed tune waiting on one slice: the request it waits on, and who is told.</summary>
         private sealed class TuneWaiter
         {
-            public TuneWaiter(long id, System.Action<TuneAnswer> answered) { Id = id; Answered = answered; }
+            public TuneWaiter(long id, TypedTune typed) { Id = id; Typed = typed; }
             public long Id { get; }
-            public System.Action<TuneAnswer> Answered { get; }
-            public bool ToldNoAnswer;
+            public TypedTune Typed { get; }
+        }
+
+        /// <summary>
+        /// A slice was removed, or the connection fell (round five, T1): a typed
+        /// tune waiting on it is answered no more. Null slice: every one.
+        /// </summary>
+        private void RetireTuneWaiters(Slice slice, string why)
+        {
+            int n;
+            lock (_tuneWaiters)
+            {
+                if (slice == null) { n = _tuneWaiters.Count; _tuneWaiters.Clear(); }
+                else n = _tuneWaiters.Remove(slice) ? 1 : 0;
+            }
+            if (n > 0)
+                Tracing.TraceLine("TuneAwaitingAnswer: " + why + "; " + n + " typed tune(s) will be answered no more",
+                    System.Diagnostics.TraceLevel.Info);
         }
 
         /// <summary>At most one waiter per slice: a newer tune of the slice supersedes it. Under its own lock.</summary>
         private readonly System.Collections.Generic.Dictionary<Slice, TuneWaiter> _tuneWaiters =
             new(System.Collections.Generic.ReferenceEqualityComparer.Instance);
 
-        /// <summary>The waiter the next RequestTune on this thread belongs to (set only by <see cref="TuneAwaitingAnswer"/>).</summary>
-        [System.ThreadStatic] private static System.Action<TuneAnswer> t_tuneAnswer;
+        /// <summary>The typed tune the next RequestTune on this thread belongs to (set only by <see cref="TuneAwaitingAnswer"/>).</summary>
+        [System.ThreadStatic] private static TypedTune t_tuneAnswer;
 
         /// <summary>The bounds' wait. Tests park it so they can let a bound run out by hand.</summary>
         internal System.Func<int, System.Threading.Tasks.Task> TuneAnswerDelay = ms => System.Threading.Tasks.Task.Delay(ms);
@@ -657,11 +746,14 @@ namespace Radios
         /// runs on whatever thread the answer arrives on, never under a lock of
         /// ours: marshal before touching a window. A tune refused before it is
         /// sent (transmitting, no slice, a locked slice) is answered at once.
+        /// The answer comes with its <see cref="TypedTune"/>: ask its
+        /// <see cref="TypedTune.WhyNoLongerCurrent"/> when it is delivered, and act
+        /// only on its <see cref="TypedTune.Rig"/> (round five, T1).
         /// </summary>
-        public void TuneAwaitingAnswer(ulong value, System.Action<TuneAnswer> answered)
+        public void TuneAwaitingAnswer(ulong value, System.Action<TuneAnswer, TypedTune> answered)
         {
             if (answered == null) throw new System.ArgumentNullException(nameof(answered));
-            t_tuneAnswer = answered;
+            t_tuneAnswer = new TypedTune(this, answered);
             try { VirtualRXFrequency = value; }
             finally
             {
@@ -677,8 +769,8 @@ namespace Radios
             }
         }
 
-        /// <summary>RequestTune takes the waiter this thread brought, if any: once.</summary>
-        private static System.Action<TuneAnswer> TakeTuneAnswer()
+        /// <summary>RequestTune takes the typed tune this thread brought, if any: once.</summary>
+        private static TypedTune TakeTuneAnswer()
         {
             var a = t_tuneAnswer;
             t_tuneAnswer = null;
@@ -691,8 +783,9 @@ namespace Radios
         /// not typed supersedes a typed one still waiting, which is then told
         /// nothing more). The unsent bound starts here.
         /// </summary>
-        private void WaitForTuneAnswer(Slice slice, long id, System.Action<TuneAnswer> answered)
+        private void WaitForTuneAnswer(Slice slice, long id, TypedTune answered)
         {
+            _latestTuneRequest.AddOrUpdate(slice, new System.Runtime.CompilerServices.StrongBox<long>(id));
             lock (_tuneWaiters)
             {
                 if (answered == null)
@@ -702,6 +795,8 @@ namespace Radios
                             + " supersedes the typed tune's answer", System.Diagnostics.TraceLevel.Info);
                     return;
                 }
+                answered.Slice = slice;
+                answered.RequestId = id;
                 _tuneWaiters[slice] = new TuneWaiter(id, answered);
             }
             NoAnswerAfter(slice, id, FrequencyEchoGuard.UnsentGiveUpMs);
@@ -728,17 +823,17 @@ namespace Radios
         /// </summary>
         private bool AnswerTune(Slice slice, long id, TuneAnswer answer)
         {
-            System.Action<TuneAnswer> tell;
+            TypedTune tell;
             lock (_tuneWaiters)
             {
                 if (!_tuneWaiters.TryGetValue(slice, out var w) || w.Id != id) return false;
                 if (answer == TuneAnswer.NoAnswerYet)
                 {
-                    if (w.ToldNoAnswer) return false;
-                    w.ToldNoAnswer = true;
+                    if (w.Typed.ToldNoAnswer) return false;
+                    w.Typed.ToldNoAnswer = true;
                 }
                 else _tuneWaiters.Remove(slice);
-                tell = w.Answered;
+                tell = w.Typed;
             }
             Tracing.TraceLine("TuneAwaitingAnswer: slice " + slice.Letter + ", request " + id + ": " + answer,
                 System.Diagnostics.TraceLevel.Info);
@@ -746,9 +841,9 @@ namespace Radios
             return answer != TuneAnswer.NoAnswerYet;
         }
 
-        private static void TellTuneAnswer(System.Action<TuneAnswer> tell, TuneAnswer answer)
+        private static void TellTuneAnswer(TypedTune tell, TuneAnswer answer)
         {
-            try { tell(answer); }
+            try { tell.Answered(answer, tell); }
             catch (System.Exception ex)
             {
                 Tracing.TraceLine("TuneAwaitingAnswer: the answer's handler threw: " + ex.Message, System.Diagnostics.TraceLevel.Warning);
