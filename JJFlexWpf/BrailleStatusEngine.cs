@@ -170,9 +170,11 @@ namespace JJFlexWpf
             // --- 40+ cells: add TX meters, DSP flags ---
             if (tx && EnabledFields.HasFlag(BrailleFields.SWR))
             {
-                float swr = _rig.SWRValue;
-                if (swr > 0)
-                    parts.Add(wide ? $"SWR {swr:F1}" : $"SW{swr:F1}");
+                // ComputedSWR, not the radio's raw SWRValue meter, which read
+                // 1.008 with 76 percent of the power coming back off an empty
+                // port. For a blind operator braille IS the display. When
+                // there is no reading the cell says so rather than vanishing.
+                parts.Add(SwrReadout.BrailleCell(_rig.ComputedSWR, wide));
             }
 
             if (tx && EnabledFields.HasFlag(BrailleFields.Power))

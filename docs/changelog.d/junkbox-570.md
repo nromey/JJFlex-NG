@@ -1,0 +1,1 @@
+- The SWR on your braille status line and in the Audio Workshop's meters now comes from the same calculation as the spoken SWR, so it can no longer read as a comfortable figure while power is coming back off a bad antenna. When there isn't enough power to measure, it says so instead of showing a number.

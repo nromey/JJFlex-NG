@@ -2137,6 +2137,11 @@ namespace Radios.Tests
                 "settings.radio.register.confirm_body",
                 "settings.radio.unregister.confirm_body",
                 "settings.radio.way_in.set",
+                // Junk box #570 (2026-11-07): the braille status line's short
+                // SWR cell when there is no reading, on displays under 80
+                // cells. A cell of the display, never spoken on the
+                // application's own account: TextOnly. DRAFT PROSE.
+                "connect.home.braille_swr_no_reading",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
