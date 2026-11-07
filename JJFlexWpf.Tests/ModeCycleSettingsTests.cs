@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -75,6 +76,11 @@ public sealed class ModeCycleSettingsTests
             Invoke(dialog, "CommitModeCycle");
             Assert.Equal(new[] { "USB", "LSB", "CW", "DIGU", "DIGL", "AM", "FM", "SAM" },
                 AccessibilityConfig.Current.ModeCycleModes);
+
+            // ...and into the operator file the application loads, not only
+            // the object in memory (Codex B1 on 908aa3da).
+            string onDisk = File.ReadAllText(OperatorFile);
+            Assert.Contains("<Mode>SAM</Mode>", onDisk);
         });
     }
 
@@ -144,14 +150,38 @@ public sealed class ModeCycleSettingsTests
     private static void Select(ListBox list, string mode) =>
         list.SelectedIndex = Array.IndexOf(Rows(list), mode);
 
+    [ThreadStatic] private static string? _operatorFile;
+    private static string OperatorFile => _operatorFile ?? throw new InvalidOperationException("no operator file");
+
+    /// <summary>
+    /// Give the run an operator file in a temporary folder, loaded through the
+    /// application's own load, so a commit writes where start-up reads.
+    /// </summary>
     private static void WithOperatorConfig(string[]? cycle, Action body)
     {
         var current = typeof(AccessibilityConfig).GetProperty(nameof(AccessibilityConfig.Current))!;
         var saved = current.GetValue(null);
-        current.SetValue(null, new AccessibilityConfig { ModeCycleModes = cycle });
-        try { Run(body); }
-        finally { current.SetValue(null, saved); }
+        string dir = Path.Combine(Path.GetTempPath(), "jjflex-modecycle-ui-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            ForgetHome();
+            new AccessibilityConfig { ModeCycleModes = cycle }.Save(dir, "op");
+            AccessibilityConfig.Load(dir, "op");
+            string file = Directory.GetFiles(dir).Single();
+            Run(() => { _operatorFile = file; body(); });
+        }
+        finally
+        {
+            ForgetHome();
+            current.SetValue(null, saved);
+            try { Directory.Delete(dir, true); } catch { }
+        }
     }
+
+    private static void ForgetHome() =>
+        typeof(AccessibilityConfig).GetMethod("ForgetHomeForTests", BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null, null);
 
     private static void Run(Action body)
     {

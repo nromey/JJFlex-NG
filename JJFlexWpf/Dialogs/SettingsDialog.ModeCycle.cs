@@ -36,9 +36,12 @@ namespace JJFlexWpf.Dialogs
     /// cycle.
     /// </para>
     /// <para>
-    /// Committed on OK or Apply into <see cref="AccessibilityConfig"/>, the
-    /// operator's own file, which a radio's config never replaces; Cancel
-    /// discards, like every other page. Nothing is applied live.
+    /// Committed on OK or Apply through
+    /// <see cref="AccessibilityConfig.ChooseModeCycle"/>, into the operator's
+    /// own file at the settings root, the one the application loads (the
+    /// dialog's own save goes to the per-radio folder, which nothing reads it
+    /// back from). A radio's config never replaces it. Cancel discards, like
+    /// every other page. Nothing is applied live.
     /// </para>
     /// </remarks>
     public partial class SettingsDialog
@@ -86,7 +89,9 @@ namespace JJFlexWpf.Dialogs
         private void CommitModeCycle()
         {
             if (_modeCycleIn.SequenceEqual(_modeCycleAtOpen, StringComparer.OrdinalIgnoreCase)) return;
-            AccessibilityConfig.Current.ModeCycleModes = _modeCycleIn.ToArray();
+            // Into the file start-up reads, not only the per-radio folder the
+            // dialog saves the rest of this object to (see ChooseModeCycle).
+            AccessibilityConfig.ChooseModeCycle(_modeCycleIn.ToArray());
             _modeCycleAtOpen = new List<string>(_modeCycleIn);
         }
 

@@ -11,6 +11,9 @@ namespace Radios.Tests
     /// in the operator's order, and from any mode a press goes to the nearest
     /// mode in the cycle (ruled 2026-08-26 and 2026-10-19).
     /// </summary>
+    // AccessibilityConfig.Load records where the operator file lives, so
+    // the classes that call it share this collection rather than racing.
+    [Collection(RadioConfigStaticsCollection.Name)]
     public class ModeCycleTests
     {
         private static readonly string[] All = ModeCycle.FlexLibModes.ToArray();
@@ -125,6 +128,87 @@ namespace Radios.Tests
                 typeof(AccessibilityConfig).GetProperty(nameof(AccessibilityConfig.Current))!
                     .SetValue(null, before);
                 try { Directory.Delete(dir, true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// Codex B1, 2026-11-07: the cycle has to reach the file the
+        /// application loads, not only the one the Settings dialog saves to.
+        /// The application loads <c>AccessibilityConfig</c> from the settings
+        /// root (<c>ApplicationEvents.vb</c>, with <c>BaseConfigDir</c>), while
+        /// the dialog saves it under <c>OpenParms.ConfigDirectory</c>, which is
+        /// the <c>Radios</c> folder beneath it. Both choices are read from the
+        /// source first, so this test runs the directories they really use.
+        /// </summary>
+        [Fact]
+        public void A_cycle_chosen_in_Settings_is_there_after_a_restart_through_the_real_folders()
+        {
+            string root = RepoRoot();
+            string events = File.ReadAllText(Path.Combine(root, "ApplicationEvents.vb"));
+            string globals = File.ReadAllText(Path.Combine(root, "globals.vb"));
+            string menu = File.ReadAllText(Path.Combine(root, "JJFlexWpf", "NativeMenuBar.cs"));
+            Assert.Contains("Radios.AccessibilityConfig.Load(BaseConfigDir, opName)", events);
+            Assert.Contains(@"OpenParms.ConfigDirectory = BaseConfigDir & ""\Radios""", globals);
+            Assert.Contains("dialog.ConfigDirectory = _window.OpenParms.ConfigDirectory;", menu);
+
+            string baseConfigDir = Path.Combine(Path.GetTempPath(), "jjflex-modecycle-path-" + Guid.NewGuid().ToString("N"));
+            string radiosDir = Path.Combine(baseConfigDir, "Radios");
+            Directory.CreateDirectory(radiosDir);
+            var before = AccessibilityConfig.Current;
+            try
+            {
+                // An earlier session left the other preferences in the root file.
+                new AccessibilityConfig { SliceArrowOrder = SliceArrowOrder.BottomToTop }.Save(baseConfigDir, "op");
+
+                // This session: the load at the first connect, then Settings OK,
+                // whose own save goes to the Radios folder under another name.
+                AccessibilityConfig.ForgetHomeForTests();
+                AccessibilityConfig.Load(baseConfigDir, "op");
+                AccessibilityConfig.ChooseModeCycle(new[] { "CW", "USB" });
+                AccessibilityConfig.Current.Save(radiosDir, "op_basename");
+
+                // Restart.
+                AccessibilityConfig.ForgetHomeForTests();
+                var next = AccessibilityConfig.Load(baseConfigDir, "op");
+                Assert.Equal(new[] { "CW", "USB" }, next.ModeCycleModes);
+                Assert.Equal(SliceArrowOrder.BottomToTop, next.SliceArrowOrder);   // the rest left as it was
+            }
+            finally
+            {
+                AccessibilityConfig.ForgetHomeForTests();
+                typeof(AccessibilityConfig).GetProperty(nameof(AccessibilityConfig.Current))!.SetValue(null, before);
+                try { Directory.Delete(baseConfigDir, true); } catch { }
+            }
+        }
+
+        [Fact]
+        public void A_cycle_chosen_before_the_first_connect_survives_that_connect_and_a_restart()
+        {
+            string baseConfigDir = Path.Combine(Path.GetTempPath(), "jjflex-modecycle-early-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(baseConfigDir);
+            var before = AccessibilityConfig.Current;
+            try
+            {
+                // A cycle already saved by an earlier session.
+                new AccessibilityConfig { ModeCycleModes = new[] { "LSB" } }.Save(baseConfigDir, "op");
+
+                // Settings OK before the file has been read this session.
+                AccessibilityConfig.ForgetHomeForTests();
+                AccessibilityConfig.ChooseModeCycle(new[] { "AM", "FM" });
+
+                // The first connect reads the file: the new choice wins.
+                Assert.Equal(new[] { "AM", "FM" }, AccessibilityConfig.Load(baseConfigDir, "op").ModeCycleModes);
+                Assert.Equal(new[] { "AM", "FM" }, AccessibilityConfig.Current.ModeCycleModes);
+
+                // And it was written, so a restart keeps it.
+                AccessibilityConfig.ForgetHomeForTests();
+                Assert.Equal(new[] { "AM", "FM" }, AccessibilityConfig.Load(baseConfigDir, "op").ModeCycleModes);
+            }
+            finally
+            {
+                AccessibilityConfig.ForgetHomeForTests();
+                typeof(AccessibilityConfig).GetProperty(nameof(AccessibilityConfig.Current))!.SetValue(null, before);
+                try { Directory.Delete(baseConfigDir, true); } catch { }
             }
         }
 
