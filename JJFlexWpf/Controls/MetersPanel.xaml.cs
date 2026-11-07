@@ -343,6 +343,12 @@ public partial class MetersPanel : UserControl
         // category rather than a category chosen for it earlier.
         if (id != _selectedSlotId) _categoryChosenForSlotId = null;
         _selectedSlotId = id;
+        // The source list keeps a meter the short list leaves out (or the
+        // radio no longer reports) only for the meter being edited, so it
+        // must be rebuilt for the meter now selected. Without this a saved
+        // +13.8B meter, picked with "Show every meter" off, showed no source
+        // at all.
+        RefreshSourceChoices();
         LoadSelectedSlot();
     }
 

@@ -231,6 +231,59 @@ public sealed class MeterCategoryPickerTests
         }
     }
 
+    /// <summary>
+    /// Codex, third recheck: a saved meter outside the short list (+13.8B)
+    /// showed no source when selected, because the list keeps such a meter
+    /// only for the meter being edited when it was built, and selecting
+    /// another meter did not rebuild it. Here A (LEVEL) is selected when the
+    /// list is built, then the saved +13.8B meter is selected, with "Show
+    /// every meter" off. With no radio the short list is the eight catalog
+    /// meters; the kept-meter rule is the same code for the live short list.
+    /// </summary>
+    [Fact]
+    public void Selecting_a_saved_meter_outside_the_short_list_shows_its_source()
+    {
+        var added = new List<MeterSlot>();
+        try
+        {
+            Run(panel =>
+            {
+                foreach (var key in new[] { "LEVEL", "+13.8B" })
+                {
+                    var slot = MeterToneEngine.AddSlot()!;
+                    added.Add(slot);
+                    slot.Retarget(key, key, new MeterRange(), MeterActivation.Always, -1);
+                }
+                var slots = Combo(panel, "SlotCombo");
+                var source = Combo(panel, "SourceCombo");
+                var every = (CheckBox)panel.FindName("AllMetersCheck");
+                Assert.NotEqual(true, every.IsChecked);   // the default short list
+
+                Invoke(panel, "RefreshSlotList");
+                slots.SelectedIndex = MeterToneEngine.Slots.IndexOf(added[0]);
+                Invoke(panel, "RefreshSourceChoices");   // the list built while A is edited
+                Assert.DoesNotContain(Items(source), x => x.Contains("+13.8B"));
+
+                slots.SelectedIndex = MeterToneEngine.Slots.IndexOf(added[1]);
+                Assert.True(source.SelectedIndex >= 0, "the saved +13.8B meter shows no source");
+                Assert.Contains("+13.8B", Items(source)[source.SelectedIndex]);
+                Assert.Equal("+13.8B", added[1].Definition.Source.Key);   // nothing retargeted
+
+                // And back: A's own source, still there.
+                slots.SelectedIndex = MeterToneEngine.Slots.IndexOf(added[0]);
+                Assert.Contains("LEVEL", Items(source)[source.SelectedIndex]);
+            });
+        }
+        finally
+        {
+            foreach (var slot in added)
+            {
+                EarconPlayer.UnregisterContinuousTone(slot.ToneProvider);
+                MeterToneEngine.Slots.Remove(slot);
+            }
+        }
+    }
+
     private const System.Reflection.BindingFlags Private =
         System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
 
