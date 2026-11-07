@@ -1,0 +1,1 @@
+- Radios on your own network now sit at the top of the radio list, above radios you can reach only over SmartLink. A radio that answers both ways counts as one of yours on the local network.

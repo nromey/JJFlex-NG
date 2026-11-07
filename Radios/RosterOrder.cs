@@ -17,16 +17,20 @@ namespace Radios
         bool IsLive { get; }
 
         /// <summary>
-        /// SmartLink can reach it RIGHT NOW.
+        /// Local discovery can see it RIGHT NOW. A radio that is on the local
+        /// network AND reachable over SmartLink is local.
         /// </summary>
         /// <remarks>
-        /// The tense is the whole of task #254. While this meant "some SmartLink
-        /// list mentioned it at some point this session" the third clause below
+        /// The tense is the whole of task #254, which happened to the SmartLink
+        /// flag this clause used to read. While that meant "some SmartLink list
+        /// mentioned it at some point this session" the third clause below
         /// sorted by which account had been refreshed most recently — a fact the
         /// operator never chose and cannot see, encoded in the one thing a
-        /// keyboard user navigates by.
+        /// keyboard user navigates by. The same holds for this flag: if it ever
+        /// comes to mean "was on the network once", a radio that has gone away
+        /// climbs over one that is really here.
         /// </remarks>
-        bool WanAvailable { get; }
+        bool LanAvailable { get; }
     }
 
     /// <summary>
@@ -36,10 +40,19 @@ namespace Radios
     /// <para>
     /// Favourites first, because that is what a favourites list means. Then live
     /// radios above roster rows, because a row you can dial beats a row that is
-    /// only history. Then remote-capable above local-only — pressing Remote
-    /// means "show me my remote radios", so they must not sit below locally
-    /// discovered ones the operator did not ask about (Noel, 2026-08-05).
-    /// Stable within each group.
+    /// only history. Then local radios above remote-only ones: the top row is
+    /// where focus lands and what Enter acts on, and the radio on the operator's
+    /// own network belongs there, not someone else's radio reachable only over
+    /// the internet. A radio reachable both ways counts as local. Ruled by Noel
+    /// 2026-10-10, "Local radios should be on top" (#711). Stable within each
+    /// group.
+    /// </para>
+    /// <para>
+    /// <b>Until 2026-11-07 the third clause put remote-capable radios first.</b>
+    /// It was written for a Remote button that opened a list of remote radios,
+    /// where remote-first was what the operator had asked for. That button and
+    /// its list are gone, and the clause had gone on applying to the one list
+    /// everybody sees.
     /// </para>
     /// <para>
     /// <b>The stability clause is not decoration.</b> A LAN radio re-announces
@@ -51,13 +64,14 @@ namespace Radios
     /// 8600.
     /// </para>
     /// <para>
-    /// <b>Do not drop the SmartLink clause to fix an ordering complaint.</b> It
-    /// was blamed for #254 and it was not the cause: the flag feeding it had
-    /// come to mean "was reachable once" instead of "is reachable now", so the
-    /// clause faithfully expressed a fact that had stopped being true. Fixing
-    /// the flag fixes the order. Deleting the clause would break the rule it
-    /// implements and leave the stale-flag defect intact everywhere else it
-    /// shows — the row text included.
+    /// <b>Fix the flag, not the clause, when an ordering complaint arrives.</b>
+    /// The SmartLink clause was blamed for #254 and it was not the cause: the
+    /// flag feeding it had come to mean "was reachable once" instead of "is
+    /// reachable now", so the clause faithfully expressed a fact that had
+    /// stopped being true. Fixing the flag fixed the order, and the same is true
+    /// of the local flag this clause reads now. Deleting the clause would leave
+    /// a stale-flag defect intact everywhere else it shows — the row text
+    /// included.
     /// </para>
     /// </remarks>
     public static class RosterOrder
@@ -73,7 +87,7 @@ namespace Radios
                 .Select((r, i) => (row: r, index: i))
                 .OrderByDescending(x => x.row.IsFavorite)
                 .ThenByDescending(x => x.row.IsLive)
-                .ThenByDescending(x => x.row.WanAvailable)
+                .ThenByDescending(x => x.row.LanAvailable)
                 .ThenBy(x => x.index)
                 .Select(x => x.row)
                 .ToList();

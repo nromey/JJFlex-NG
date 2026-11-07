@@ -32,7 +32,7 @@ namespace Radios.Tests
             public bool Lan { get; init; }
             public bool Wan { get; init; }
             public bool IsLive => Lan || Wan;
-            bool IRosterOrderKey.WanAvailable => Wan;
+            bool IRosterOrderKey.LanAvailable => Lan;
             public override string ToString() => Name;
         }
 
@@ -60,18 +60,35 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// Noel's 2026-08-05 rule. Pressing Remote means "show me my remote
-        /// radios", so they must not sit below locally discovered ones nobody
-        /// asked about.
+        /// Noel's ruling of 2026-10-10 (#711): "Local radios should be on top".
+        /// This test replaced Remote_capable_sorts_above_local_only, which pinned
+        /// the old remote-first order as desired behaviour; that order was written
+        /// for a Remote button's list that no longer exists.
         /// </summary>
         [Fact]
-        public void Remote_capable_sorts_above_local_only()
+        public void Local_sorts_above_remote_only()
         {
             var order = Order(
+                new Row { Name = "smartlink-only", Wan = true },
+                new Row { Name = "lan-only", Lan = true });
+
+            Assert.Equal(new[] { "lan-only", "smartlink-only" }, order);
+        }
+
+        /// <summary>
+        /// A radio on the local network that is ALSO reachable over SmartLink is
+        /// local: it sits with the local radios, above a SmartLink-only one, and
+        /// among the local radios it keeps its arrival order.
+        /// </summary>
+        [Fact]
+        public void A_radio_reachable_both_ways_counts_as_local()
+        {
+            var order = Order(
+                new Row { Name = "smartlink-only", Wan = true },
                 new Row { Name = "lan-only", Lan = true },
                 new Row { Name = "dual-homed", Lan = true, Wan = true });
 
-            Assert.Equal(new[] { "dual-homed", "lan-only" }, order);
+            Assert.Equal(new[] { "lan-only", "dual-homed", "smartlink-only" }, order);
         }
 
         /// <summary>
@@ -100,38 +117,50 @@ namespace Radios.Tests
 
         /// <summary>
         /// THE #254 REGRESSION. Two accounts, one radio each, both genuinely
-        /// reachable: the order must be the order they were met in, whichever
-        /// account was refreshed last. This is what the fix delivers — not by
-        /// changing the sort, but by the flag it reads meaning "reachable now",
-        /// which is true of both radios at once.
+        /// reachable over SmartLink: the order must be the order they were met
+        /// in, whichever account was refreshed last. This is what the fix
+        /// delivers — not by changing the sort, but by the flag meaning
+        /// "reachable now", which is true of both radios at once. (Rewritten
+        /// 2026-11-07: it used a local radio as one of the two, which local-first
+        /// now lifts on its own, so it had stopped testing arrival order.)
         /// </summary>
         [Fact]
         public void Two_reachable_accounts_do_not_reorder_each_other()
         {
-            var mine = new Row { Name = "my-8600", Lan = true, Wan = true };
-            var dons = new Row { Name = "dons-6300", Wan = true };
+            var first = new Row { Name = "account-one-radio", Wan = true };
+            var second = new Row { Name = "account-two-radio", Wan = true };
 
-            Assert.Equal(new[] { "my-8600", "dons-6300" }, Order(mine, dons));
+            Assert.Equal(new[] { "account-one-radio", "account-two-radio" }, Order(first, second));
+            Assert.Equal(new[] { "account-two-radio", "account-one-radio" }, Order(second, first));
         }
 
         /// <summary>
-        /// And the shape of the old defect, stated so it is recognisable: a
-        /// radio whose flag still claims SmartLink after nothing is vouching for
-        /// it climbs over one that is genuinely on the local network. The sort
-        /// is doing exactly what it was told; the input was a lie.
+        /// And the shape of the old defect, stated so it is recognisable. In
+        /// #254 it was the SmartLink flag; the sort now reads the local flag, so
+        /// the same lie would come from there: a radio whose flag still claims
+        /// the local network after it has gone climbs over one that is genuinely
+        /// reachable. The sort is doing exactly what it was told; the input was
+        /// a lie. (Rewritten 2026-11-07 for the local-first order; it asserted
+        /// the stale SmartLink flag winning, which local-first no longer allows.)
         /// </summary>
         [Fact]
-        public void A_stale_smartlink_flag_would_promote_an_unreachable_radio()
+        public void A_stale_local_flag_would_promote_an_unreachable_radio()
         {
-            var stale = new Row { Name = "stale-wan-flag", Wan = true };
-            var real = new Row { Name = "really-here", Lan = true };
+            var stale = new Row { Name = "stale-lan-flag", Lan = true };
+            var real = new Row { Name = "really-reachable", Wan = true };
 
-            Assert.Equal(new[] { "stale-wan-flag", "really-here" }, Order(real, stale));
+            Assert.Equal(new[] { "stale-lan-flag", "really-reachable" }, Order(real, stale));
 
-            // With the flag telling the truth, the order is the one the operator
-            // would expect: nothing moved, because nothing changed group.
-            var honest = new Row { Name = "stale-wan-flag" };
-            Assert.Equal(new[] { "really-here", "stale-wan-flag" }, Order(real, honest));
+            // With the flag telling the truth, the radio that has gone is a
+            // roster row, below the one that can be dialled.
+            var honest = new Row { Name = "stale-lan-flag" };
+            Assert.Equal(new[] { "really-reachable", "stale-lan-flag" }, Order(real, honest));
+
+            // The old shape still holds one clause up: a stale SmartLink flag
+            // makes a row live, so it climbs over a roster row.
+            var staleWan = new Row { Name = "stale-wan-flag", Wan = true };
+            var roster = new Row { Name = "roster-only" };
+            Assert.Equal(new[] { "stale-wan-flag", "roster-only" }, Order(roster, staleWan));
         }
 
         [Fact]
