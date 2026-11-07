@@ -2148,12 +2148,32 @@ namespace Radios.Tests
                 // FRAGMENT of that utterance, so TextOnly (the #777
                 // reasoning). DRAFT PROSE.
                 "audio.qso.coverage_gaps",
+                // Junk box #625 (2026-11-07): the drop window, reworded to
+                // Noel's approved text of 2026-09-29, so the nine reworded
+                // keys leave the freeze list and are classified (#629). The
+                // window's body prose, read when focus lands in it and never
+                // said on the application's own account: TextOnly, on the
+                // connect.ownership.reason reasoning. what_plain and the two
+                // not-recording endings are DRAFTS; the rest are approved.
+                // send_address is new: the one place the address lives.
+                "logging.capture.dropped.saved",
+                "logging.capture.dropped.saved_tail_uncertain",
+                "logging.capture.dropped.send_address",
+                "logging.capture.dropped.tail_uncertain",
+                "logging.capture.dropped.tail_uncertain_earlier",
+                "logging.capture.dropped.what_named",
+                "logging.capture.dropped.what_plain",
+                "logging.capture.dropped.what_to_do",
+                "logging.capture.dropped.what_to_do_not_recording",
+                "logging.capture.dropped.what_to_do_stopped_since",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
             // 3,133: main's junk box classified two (3,140 to 3,138) and Check
             // your audio five (3,140 to 3,135); the two sets are disjoint.
-            Assert.Equal(3095, unclassified);
+            // 3086: junk box 2026-11-07 (#625) reworded and classified nine
+            // logging.capture.dropped.* keys.
+            Assert.Equal(3086, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

@@ -303,23 +303,31 @@ namespace Radios
         public string PathLabel => Lexicon.Get("logging.capture.dropped.path_label");
 
         /// <summary>
-        /// What to do with it. The ordinary sentence says JJ Flexible has
-        /// already started recording again and what happens next is being
-        /// kept — said only when something is recording at the moment this
-        /// property is read, which is the moment the window installs its
-        /// text. Otherwise one
-        /// of two: nothing opened after the archive, or a fresh log did open and
-        /// has since stopped (the operator turned it off during the archive
-        /// wait, or its file failed); both say where to read why. DRAFTS for
-        /// the alternatives — Noel's to rule; in the recording-health wording
-        /// file.
+        /// What to do with it. The ordinary paragraph is Noel's approved
+        /// "Next steps" (#625, 2026-09-29), chosen only when something is
+        /// recording at the moment this property is read, which is the moment
+        /// the window installs its text; it no longer promises that what
+        /// happens next is being kept. Otherwise the same paragraph with one
+        /// of two endings: nothing opened after the archive, or a fresh log did
+        /// open and has since stopped (the operator turned it off during the
+        /// archive wait, or its file failed); both say where to read why.
+        /// DRAFTS for the two endings — Noel's to rule.
         /// </summary>
         public string WhatToDo =>
             RecordingNow
-                ? Lexicon.Get("logging.capture.dropped.what_to_do")
+                ? Lexicon.Get("logging.capture.dropped.what_to_do", ("address", SendAddress))
                 : SuccessorOpened
-                    ? Lexicon.Get("logging.capture.dropped.what_to_do_stopped_since")
-                    : Lexicon.Get("logging.capture.dropped.what_to_do_not_recording");
+                    ? Lexicon.Get("logging.capture.dropped.what_to_do_stopped_since", ("address", SendAddress))
+                    : Lexicon.Get("logging.capture.dropped.what_to_do_not_recording", ("address", SendAddress));
+
+        /// <summary>
+        /// Where the window asks the operator to email the capture. ONE
+        /// lexicon string, so it changes in one place (#625): the approved
+        /// wording names a personal address, and the moment the problem-report
+        /// send wiring lands this sentence should send the file there instead
+        /// (#646).
+        /// </summary>
+        public static string SendAddress => Lexicon.Get("logging.capture.dropped.send_address");
 
         /// <summary>
         /// The extra paragraph when <see cref="TailUncertain"/>: that the

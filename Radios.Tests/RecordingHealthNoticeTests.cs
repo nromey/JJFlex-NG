@@ -332,17 +332,16 @@ namespace Radios.Tests
                 {
                     Assert.DoesNotContain(word, text, StringComparison.OrdinalIgnoreCase);
                 }
-                Assert.Equal(!tail, text.Contains("It holds everything up to the moment", StringComparison.Ordinal));
-                Assert.Equal(tail, text.Contains("send it anyway", StringComparison.Ordinal));
+                Assert.Equal(!tail, text.Contains("It holds the complete set of data up to and including the moment", StringComparison.Ordinal));
                 // What happens next "is being kept" is promised only by the
                 // state NOW (Sol's review of H9, blocker 1); the archive's
                 // successor bit only tells the two not-recording paragraphs
                 // apart.
-                Assert.Equal(recordingNow, text.Contains("has already started recording again", StringComparison.Ordinal));
-                Assert.Equal(recordingNow, text.Contains("is being kept too", StringComparison.Ordinal));
+                Assert.Equal(!recordingNow, text.Contains("is not being kept", StringComparison.Ordinal));
+                Assert.Equal(recordingNow, n.WhatToDo == Lexicon.Get("logging.capture.dropped.what_to_do", ("address", CaptureArchiveNotice.SendAddress)));
                 Assert.Equal(!recordingNow, text.Contains("what happens next is not being kept", StringComparison.Ordinal));
                 Assert.Equal(!recordingNow && !successor, text.Contains("has not started recording again", StringComparison.Ordinal));
-                Assert.Equal(!recordingNow && successor, text.Contains("did start recording again after the connection went, but it is not recording now", StringComparison.Ordinal));
+                Assert.Equal(!recordingNow && successor, text.Contains("did start recording again after the connection was lost, but it is not recording now", StringComparison.Ordinal));
                 Assert.Equal(!recordingNow, text.Contains("Control J then Alt R", StringComparison.Ordinal));
                 // The caveat names the right cause, and only with an uncertain
                 // tail — and it claims neither that everything before the
@@ -358,7 +357,6 @@ namespace Radios.Tests
                 Assert.DoesNotContain("including the last readings the radio sent, is missing", text, StringComparison.Ordinal);
                 Assert.DoesNotContain("What was written before the failure is in the file", text, StringComparison.Ordinal);
                 Assert.Equal(tail, text.Contains("What did reach the disk is in the file above", StringComparison.Ordinal));
-                Assert.Equal(tail, text.Contains("One more thing.", StringComparison.Ordinal));
                 // Every paragraph is a sentence or more, and nothing leaks.
                 foreach (string paragraph in text.Split(new[] { Environment.NewLine + Environment.NewLine }, StringSplitOptions.None))
                 {
@@ -368,7 +366,7 @@ namespace Radios.Tests
                 }
                 Assert.Equal(tail ? 4 : 3, text.Split(new[] { Environment.NewLine + Environment.NewLine }, StringSplitOptions.None).Length);
                 // The errand is always there, and the path is never in the prose.
-                Assert.Contains("Send this file to Noel.", text, StringComparison.Ordinal);
+                Assert.Contains("Next steps:", text, StringComparison.Ordinal);
                 Assert.DoesNotContain(@"C:\Traces\one.zip", text, StringComparison.Ordinal);
                 Assert.Contains(@"C:\Traces\one.zip", n.AsText(), StringComparison.Ordinal);
             }
@@ -410,8 +408,8 @@ namespace Radios.Tests
             string before = n.Explanation;
             _out.WriteLine("--- composed while recording");
             _out.WriteLine(before);
-            Assert.Equal(Lexicon.Get("logging.capture.dropped.what_to_do"), n.WhatToDo);
-            Assert.Contains("so the next thing that happens is being kept too", before, StringComparison.Ordinal);
+            Assert.Equal(Lexicon.Get("logging.capture.dropped.what_to_do", ("address", CaptureArchiveNotice.SendAddress)), n.WhatToDo);
+            Assert.DoesNotContain("is not being kept", before, StringComparison.Ordinal);
             Assert.True(asked >= 1);
 
             // The world changes after the notice exists and before the text
@@ -424,9 +422,9 @@ namespace Radios.Tests
             Assert.NotEqual(before, after);
             Assert.False(n.RecordingNow);
             Assert.True(n.SuccessorOpened, "the archive's own fact does not move");
-            Assert.Equal(Lexicon.Get("logging.capture.dropped.what_to_do_stopped_since"), n.WhatToDo);
-            Assert.DoesNotContain("is being kept too", after, StringComparison.Ordinal);
-            Assert.Contains("did start recording again after the connection went, but it is not recording now", after, StringComparison.Ordinal);
+            Assert.Equal(Lexicon.Get("logging.capture.dropped.what_to_do_stopped_since", ("address", CaptureArchiveNotice.SendAddress)), n.WhatToDo);
+            Assert.Contains("is not being kept", after, StringComparison.Ordinal);
+            Assert.Contains("did start recording again after the connection was lost, but it is not recording now", after, StringComparison.Ordinal);
             Assert.Contains("Control J then Alt R", after, StringComparison.Ordinal);
             // Every other paragraph is the same text: only the promise moved.
             Assert.Equal(n.WhatHappened + Environment.NewLine + Environment.NewLine + n.WhatWasSaved,
@@ -442,7 +440,7 @@ namespace Radios.Tests
                                                  tailUncertain: false, sinkFailedBeforeDrop: false,
                                                  recordingNow: () => throw new InvalidOperationException("no"));
             Assert.False(throwing.RecordingNow);
-            Assert.DoesNotContain("is being kept too", throwing.Explanation, StringComparison.Ordinal);
+            Assert.Contains("is not being kept", throwing.Explanation, StringComparison.Ordinal);
             var none = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
                                              tailUncertain: false, sinkFailedBeforeDrop: false,
                                              recordingNow: (Func<bool>)null);
@@ -475,8 +473,8 @@ namespace Radios.Tests
             _out.WriteLine(text);
 
             Assert.Equal(Lexicon.Get("logging.capture.dropped.saved"), n.WhatWasSaved);
-            Assert.Contains("It holds everything up to the moment the connection went", text, StringComparison.Ordinal);
-            Assert.Contains("The file's first lines say how to read it", text, StringComparison.Ordinal);
+            Assert.Contains("It holds the complete set of data up to and including the moment the radio disconnected", text, StringComparison.Ordinal);
+            Assert.Contains("Each kind of measurement in the file is explained where it first appears", text, StringComparison.Ordinal);
             foreach (string word in CaptureArchiveNoticeTests.ContentWords)
             {
                 Assert.DoesNotContain(word, n.WhatWasSaved, StringComparison.OrdinalIgnoreCase);
@@ -503,7 +501,7 @@ namespace Radios.Tests
                 Assert.EndsWith(".", paragraph.TrimEnd(), StringComparison.Ordinal);
                 Assert.DoesNotContain("logging.capture", paragraph, StringComparison.Ordinal);
             }
-            Assert.Equal(Lexicon.Get("logging.capture.dropped.what_to_do"), n.WhatToDo);
+            Assert.Equal(Lexicon.Get("logging.capture.dropped.what_to_do", ("address", CaptureArchiveNotice.SendAddress)), n.WhatToDo);
         }
 
         /// <summary>
@@ -536,8 +534,8 @@ namespace Radios.Tests
                 _out.WriteLine("--- " + label);
                 _out.WriteLine(text);
                 _out.WriteLine(string.Empty);
-                Assert.Contains("One more thing.", text, StringComparison.Ordinal);
-                Assert.Contains("but it may stop short of the moment the connection went", text, StringComparison.Ordinal);
+                Assert.Contains("What did reach the disk is in the file above", text, StringComparison.Ordinal);
+                Assert.Contains("but it may be incomplete", text, StringComparison.Ordinal);
                 Assert.Contains(Reached, text, StringComparison.Ordinal);
                 foreach (string gone in new[] { Everything, Missing, Kept, WrittenBefore })
                 {
@@ -551,7 +549,7 @@ namespace Radios.Tests
                 Assert.DoesNotContain("logging.capture", text, StringComparison.Ordinal);
             }
             Assert.Contains("as the recording was being closed", atTheClose.TailCaveat, StringComparison.Ordinal);
-            Assert.Contains("lines written just before it may be missing as well", atTheClose.TailCaveat, StringComparison.Ordinal);
+            Assert.Contains("lines written just before that may be missing", atTheClose.TailCaveat, StringComparison.Ordinal);
             Assert.Contains("had already stopped taking new lines", earlier.TailCaveat, StringComparison.Ordinal);
             Assert.NotEqual(atTheClose.TailCaveat, earlier.TailCaveat);
             // The tail-certain window carries no caveat at all, so the

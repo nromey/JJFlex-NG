@@ -88,7 +88,7 @@ public sealed class CaptureArchivedDialogTests
             tailUncertain: false, sinkFailedBeforeDrop: false,
             recordingNow: () => recording);
         // The worker's moment: the ordinary promise. Positive control.
-        Assert.Contains("is being kept too", notice.Explanation, StringComparison.Ordinal);
+        Assert.DoesNotContain("is not being kept", notice.Explanation, StringComparison.Ordinal);
 
         // The queue: the log goes off before the dispatched action runs.
         recording = false;
@@ -103,8 +103,8 @@ public sealed class CaptureArchivedDialogTests
         }, TimeSpan.FromSeconds(30));
 
         Assert.True(outcome.LoadedFired, "Loaded never fired, so the tree was not realised and this proves nothing.");
-        Assert.DoesNotContain("is being kept too", outcome.Explanation, StringComparison.Ordinal);
-        Assert.Contains("did start recording again after the connection went, but it is not recording now",
+        Assert.Contains("is not being kept", outcome.Explanation, StringComparison.Ordinal);
+        Assert.Contains("did start recording again after the connection was lost, but it is not recording now",
                         outcome.Explanation, StringComparison.Ordinal);
         Assert.Equal(notice.Explanation, outcome.Explanation);
     }

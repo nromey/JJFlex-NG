@@ -107,7 +107,7 @@ namespace Radios.Tests
         public void What_happened_names_the_radio_when_we_know_it()
         {
             Assert.Equal(
-                "The connection to 6300inshack was lost while JJ Flexible was recording.",
+                "Connection to the radio named \"6300inshack\" was lost while JJ Flexible Access was recording a capture.",
                 Named().WhatHappened);
         }
 
@@ -117,37 +117,44 @@ namespace Radios.Tests
             // "the radio" is a hedge, and an operator may have more than one.
             // Used only where the nickname genuinely never arrived.
             Assert.Equal(
-                "The connection to the radio was lost while JJ Flexible was recording.",
+                "Connection to the radio was lost while JJ Flexible Access was recording a capture.",
                 Unnamed().WhatHappened);
         }
 
         /// <summary>
-        /// What was saved: that it was, how far it reaches, and that the
-        /// file's first lines say how to read it. NOT what it holds — see
+        /// What was saved: that it was, how far it reaches, and that each kind
+        /// of measurement explains itself in the file. NOT what it holds — see
         /// <see cref="No_form_of_the_notice_describes_what_the_file_contains"/>.
-        /// And not "how to find what it holds" either, which H16 said: the
-        /// guide it pointed at can find only the kinds of line that explain
-        /// themselves, so the window may promise no more than the guide
-        /// (H17). The sentence is a DRAFT for Noel (#625).
+        /// Noel's approved wording (#625, 2026-09-29), which he kept after
+        /// being shown H17's bounding of the guide.
         /// </summary>
         [Fact]
-        public void What_was_saved_says_the_recording_is_kept_and_that_its_first_lines_say_how_to_read_it()
+        public void What_was_saved_is_the_approved_sentence()
         {
             Assert.Equal(
-                "The recording has been closed and saved. It holds everything up to the moment the "
-                + "connection went. The file's first lines say how to read it.",
+                "The capture has been closed and saved. It holds the complete set of data up to and "
+                + "including the moment the radio disconnected. Each kind of measurement in the file is "
+                + "explained where it first appears, so you can read it without knowing the program.",
                 Named().WhatWasSaved);
         }
 
+        /// <summary>
+        /// The approved "Next steps" paragraph (#625, 2026-09-29), with the
+        /// address taken from its one lexicon string, so changing where
+        /// captures are sent is a one-line edit.
+        /// </summary>
         [Fact]
-        public void What_to_do_is_one_errand_and_says_the_log_is_already_running_again()
+        public void What_to_do_is_the_approved_next_steps_with_the_address_from_one_string()
         {
             Assert.Equal(
-                "Send this file to Noel. Copy the path with the button below, then attach "
-                + "the file to an email. There is nothing else to do here: JJ Flexible has "
-                + "already started recording again, so the next thing that happens is being "
-                + "kept too.",
+                "Next steps: because the file closed unexpectedly, it would help to send us the capture "
+                + "even if it is incomplete. You made it to describe a problem you were experiencing, and "
+                + "the fact that the capture itself failed part way through may also help us find a "
+                + "possible fault in the application. Use the button below to copy the path to this file, "
+                + "attach it to an email to " + CaptureArchiveNotice.SendAddress + ", and we will process it.",
                 Named().WhatToDo);
+            Assert.Contains("@", CaptureArchiveNotice.SendAddress, StringComparison.Ordinal);
+            Assert.DoesNotContain("{address}", Named().WhatToDo, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -219,8 +226,8 @@ namespace Radios.Tests
             string explanation = Named().Explanation;
             _out.WriteLine(explanation);
             Assert.DoesNotContain(Path0, explanation, StringComparison.Ordinal);
-            Assert.Contains("was lost while JJ Flexible was recording", explanation, StringComparison.Ordinal);
-            Assert.Contains("Send this file to Noel", explanation, StringComparison.Ordinal);
+            Assert.Contains("was lost while JJ Flexible Access was recording a capture", explanation, StringComparison.Ordinal);
+            Assert.Contains("Next steps:", explanation, StringComparison.Ordinal);
         }
 
         [Fact]

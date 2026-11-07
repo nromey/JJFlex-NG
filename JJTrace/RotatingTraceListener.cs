@@ -285,7 +285,7 @@ namespace JJTrace
             "PanFrameGaps",
             "lines that begin 'PanFrameGaps:' count the display frames the radio's spectrum stream skipped,"
             + " summarised at most once a second: n is how many, over how long, and the last skipped frame's"
-            + " own message is quoted at the end. They come from the radio library, not from JJ Flexible's own code.");
+            + " own message is quoted at the end. They come from the radio library, not from JJ Flexible Access's own code.");
 
         /// <summary>Caller holds <c>_sync</c>. Latch the first failure only.</summary>
         private void Fault(Exception ex)
@@ -696,6 +696,21 @@ namespace JJTrace
 
             int closedPart = _partNumber;
             bool moved = false;
+
+            // Why this part ends, for a reader of the part alone (#625): it
+            // reached its size limit. A problem report's snapshot is the other
+            // cause and writes its own sentence (TraceCoordinator). Written only
+            // here, at a real rotation, so a file with one part never mentions
+            // parts. Best effort: a failed write here is the same failure the
+            // close and move below meet and report.
+            try
+            {
+                string ending = Tracing.TracePrefix() + TraceSelfDescription.SizeLimitClosing() + Environment.NewLine;
+                _writer?.Write(ending);
+                _bytesInPart += ending.Length;
+            }
+            catch { }
+
             try
             {
                 CloseInternal();
