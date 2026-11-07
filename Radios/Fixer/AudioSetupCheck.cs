@@ -106,6 +106,12 @@ namespace Radios.Fixer
         /// "MME" today and nobody has promised it stays that way.</summary>
         public const string MmeApiName = "MME";
 
+        /// <summary>The word PortAudio's DirectSound host-API name carries
+        /// ("Windows DirectSound" today). Matched anywhere in the name,
+        /// case-insensitively, for the reason <see cref="MmeApiName"/> is
+        /// matched by prefix.</summary>
+        public const string DirectSoundApiWord = "DirectSound";
+
         // Finding ids, stable so the page's fix buttons and the fix records
         // refer to the same thing across renders.
         public const string MmeInUse = "mme-in-use";
@@ -183,12 +189,22 @@ namespace Radios.Fixer
             // different name. A microphone with DirectSound but no WASAPI
             // gets the same answer as an MME-only one — keep using it, read
             // the levels as approximate.
-            if (IsMme(facts.OpenHostApi))
+            //
+            // Until 2026-11-07 the gate below was IsMme alone, so the decision
+            // above was written down and not built: a DirectSound microphone
+            // raised no finding at all. The finding keeps its id, mme-in-use,
+            // because the fix buttons and records key on it; its text names
+            // the subsystem actually open, so a DirectSound operator is never
+            // told they have MME selected.
+            if (ConvertsSilently(facts.OpenHostApi))
             {
+                // DRAFT PROSE (#239): the subsystem is named from the open
+                // stream rather than written as "MME".
+                string subsystem = HostApiPhrase(facts.OpenHostApi);
                 if (facts.WasapiAvailable)
                 {
                     findings.Add(new FixerFinding(MmeInUse, FixOwner.Us,
-                        "You currently have the MME audio subsystem selected. It "
+                        "You currently have " + subsystem + " selected. It "
                         + "records perfectly well, but it will not tell you the "
                         + "truth about your hardware: Windows resamples behind it "
                         + "and reports its own converted format back, so the 44.1 "
@@ -201,9 +217,9 @@ namespace Radios.Fixer
                 else
                 {
                     findings.Add(new FixerFinding(MmeInUse, FixOwner.NobodyHere,
-                        "You currently have the MME audio subsystem selected, and "
+                        "You currently have " + subsystem + " selected, and "
                         + "this computer offers no WASAPI to move to. Recording "
-                        + "works normally; the format MME reports simply does not "
+                        + "works normally; the format it reports simply does not "
                         + "have to match what the hardware is really doing.",
                         "Nothing here can change that. Read every level in this run as "
                         + "approximate — they describe Windows' resampling as much as your "
@@ -418,6 +434,19 @@ namespace Radios.Fixer
         public static bool IsMme(string hostApi)
             => (hostApi ?? "").TrimStart().StartsWith(MmeApiName,
                                                       StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>Is this host API name DirectSound?</summary>
+        public static bool IsDirectSound(string hostApi)
+            => (hostApi ?? "").IndexOf(DirectSoundApiWord,
+                                       StringComparison.OrdinalIgnoreCase) >= 0;
+
+        /// <summary>
+        /// Does this host API hand over Windows' converted audio and report the
+        /// converted format? MME and DirectSound do; WASAPI and WDM-KS do not
+        /// (Devices.cs: "MME and DirectSound convert silently").
+        /// </summary>
+        public static bool ConvertsSilently(string hostApi)
+            => IsMme(hostApi) || IsDirectSound(hostApi);
 
         private static string DescribeMismatch(AudioSetupFacts f)
         {

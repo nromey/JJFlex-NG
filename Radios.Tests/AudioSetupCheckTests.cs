@@ -91,6 +91,66 @@ namespace Radios.Tests
             Assert.False(AudioSetupCheck.IsMme(null));
         }
 
+        // ---- DirectSound (#239 item 3) ----
+
+        [Fact]
+        public void DirectSound_converts_silently_like_mme_and_wasapi_does_not()
+        {
+            Assert.True(AudioSetupCheck.ConvertsSilently("Windows DirectSound"));
+            Assert.True(AudioSetupCheck.ConvertsSilently("directsound"));
+            Assert.True(AudioSetupCheck.ConvertsSilently("MME"));
+            Assert.False(AudioSetupCheck.ConvertsSilently("Windows WASAPI"));
+            Assert.False(AudioSetupCheck.ConvertsSilently("Windows WDM-KS"));
+            Assert.False(AudioSetupCheck.ConvertsSilently(""));
+            Assert.False(AudioSetupCheck.ConvertsSilently(null));
+            Assert.False(AudioSetupCheck.IsMme("Windows DirectSound"));
+        }
+
+        [Fact]
+        public void DirectSound_with_wasapi_available_gets_the_mme_answer_naming_directsound()
+        {
+            AudioSetupFacts facts = Healthy();
+            facts.OpenHostApi = "Windows DirectSound";
+            facts.ConfiguredHostApi = facts.OpenHostApi;
+
+            FixerFinding f = Assert.Single(AudioSetupCheck.Analyze(facts).Findings);
+            Assert.Equal(AudioSetupCheck.MmeInUse, f.Id);
+            Assert.Equal(FixOwner.Us, f.Owner);
+            Assert.Equal(AudioSetupCheck.FixSwitchToWasapi, f.FixActionId);
+            Assert.Contains("converted format", f.WhatIsWrong);
+            // The subsystem actually in use, never "MME".
+            Assert.Contains("the Windows DirectSound audio subsystem", f.WhatIsWrong);
+            Assert.DoesNotContain("MME", f.WhatIsWrong);
+        }
+
+        [Fact]
+        public void DirectSound_without_wasapi_is_stated_honestly_and_names_directsound()
+        {
+            AudioSetupFacts facts = Healthy();
+            facts.OpenHostApi = "Windows DirectSound";
+            facts.ConfiguredHostApi = facts.OpenHostApi;
+            facts.WasapiAvailable = false;
+
+            FixerFinding f = Assert.Single(AudioSetupCheck.Analyze(facts).Findings);
+            Assert.Equal(FixOwner.NobodyHere, f.Owner);
+            Assert.Empty(f.FixActionId);
+            Assert.Contains("the Windows DirectSound audio subsystem", f.WhatIsWrong);
+            Assert.DoesNotContain("MME", f.WhatIsWrong);
+        }
+
+        [Fact]
+        public void The_mme_finding_still_names_mme()
+        {
+            // Positive control for the two tests above: the same assertion
+            // shape finds MME when MME is what is open.
+            AudioSetupFacts facts = Healthy();
+            facts.OpenHostApi = AudioSetupCheck.MmeApiName;
+            facts.ConfiguredHostApi = facts.OpenHostApi;
+
+            FixerFinding f = Assert.Single(AudioSetupCheck.Analyze(facts).Findings);
+            Assert.Contains("the MME audio subsystem", f.WhatIsWrong);
+        }
+
         // ---- missing input ----
 
         [Fact]
