@@ -104,10 +104,15 @@ namespace Radios.Tests
         /// radio with no slice that its volume is at zero — a control that is
         /// not there, reported as a control set wrongly.
         /// <para>
-        /// And the LEVEL of the gate. A stage-level <c>needs:</c> on a flag
-        /// currently renders as "not part of your receive path, because a slice
-        /// is receiving is no" (#371), so the gate stays on the rules and the
-        /// stage says it properly in its own nothing-to-check line.
+        /// And the LEVEL of the gate, which is a choice about meaning. This pin
+        /// first existed because a stage-level <c>needs:</c> on a flag rendered
+        /// as "not part of your receive path, because a slice is receiving is
+        /// no" (#371). A flag now says its value in its own words, and stages 4
+        /// and 5 are gated at stage level (the test below). This stage stays
+        /// at rule level on purpose: with no slice the radio makes no sound,
+        /// which is a check that cannot be made yet rather than a stage outside
+        /// the operator's path, and at stage level it would read as a clean
+        /// bill of health for a silent radio.
         /// </para>
         /// </remarks>
         [Fact]
@@ -127,6 +132,40 @@ namespace Radios.Tests
                             "rule \"" + rule.Id + "\" reads the slice without checking that "
                             + "there is one");
             }
+        }
+
+        /// <summary>
+        /// A local operator listening on the radio itself, with nothing wrong,
+        /// gets a clean bill of health: the two stages about audio sent to this
+        /// computer are not in their path, and each says why in its own words.
+        /// </summary>
+        /// <remarks>
+        /// The cost #371 named. Gated at rule level, those two stages had
+        /// nothing to check and the verdict said "2 stages had nothing to check
+        /// yet, so this is not a clean bill of health" to a station with
+        /// nothing wrong. This changes the pin above on purpose: stages 4 and 5
+        /// now carry a stage-level <c>needs:</c>.
+        /// </remarks>
+        [Fact]
+        public void A_local_operator_with_nothing_wrong_gets_a_clean_bill_and_hears_why_two_stages_are_not_in_the_path()
+        {
+            RuleSetLoader.Forget();
+            DiagnosticRuleSet set = RuleSetLoader.RxChain();
+            Assert.Contains(set.Stages.Single(s => s.Number == 4).Needs,
+                c => string.Equals(c.FactName, "remote-radio", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(set.Stages.Single(s => s.Number == 5).Needs,
+                c => string.Equals(c.FactName, "pc-audio", StringComparison.OrdinalIgnoreCase));
+
+            ReceiveCheckResult rx = ReceiveAudioCheck.From(Connected(pcAudio: false, remote: false));
+
+            Assert.Equal(0, rx.Report.StagesPending);
+            Assert.Equal(2, rx.Report.StagesNotInPath);
+            Assert.DoesNotContain("not a clean bill of health", rx.Verdict);
+            Assert.Contains("not part of your receive path, because you are not connected remotely", rx.Walk);
+            Assert.Contains("not part of your receive path, because radio audio through this computer "
+                            + "is switched off", rx.Walk);
+            Assert.DoesNotContain(" is no", rx.Walk);
+            Assert.DoesNotContain(" is yes", rx.Walk);
         }
 
         /// <summary>

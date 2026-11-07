@@ -93,6 +93,38 @@ namespace Radios.ChainChecks
         /// state is current by definition, a meter reading is not.</summary>
         public DateTime? ObservedAtUtc { get; private set; }
 
+        /// <summary>True for a yes or no fact, built by <see cref="Flag"/>.</summary>
+        public bool IsFlag { get; private set; }
+
+        /// <summary>
+        /// What a yes means, as the end of a "because" sentence: "radio audio
+        /// through this computer is switched on". Empty when the flag has no
+        /// phrasing of its own. Flags only.
+        /// </summary>
+        public string WhenTrue { get; private set; } = "";
+
+        /// <summary>What a no means, the same way: "radio audio through this
+        /// computer is switched off". Flags only.</summary>
+        public string WhenFalse { get; private set; } = "";
+
+        /// <summary>
+        /// This flag's value said as the end of a sentence, from its own true
+        /// or false phrasing; empty when it is not a flag, was not observed, or
+        /// has no phrasing for the value it holds.
+        /// </summary>
+        /// <remarks>
+        /// A flag's value is "yes" or "no", which reads properly in a rule and
+        /// in the evidence block and wrongly in a sentence: pasted after its
+        /// label it gave "because radio audio through this computer is no".
+        /// A flag that knows its own true and false phrasing fixes every
+        /// sentence built from it at once, whichever rule file gates on it.
+        /// </remarks>
+        public string StatedValue()
+        {
+            if (!IsFlag || State != FactState.Observed) return "";
+            return Number == 1 ? WhenTrue : WhenFalse;
+        }
+
         /// <summary>Where this came from, in the operator's words: "the radio",
         /// "this computer", "the radio's SWR meter". Goes in the evidence block so
         /// a Flex support engineer knows which end reported it.</summary>
@@ -117,13 +149,23 @@ namespace Radios.ChainChecks
         // answer rather than a compile error.
 
         /// <summary>A yes or no. Compares as "yes" / "no" in a rule.</summary>
-        public static DiagnosticFact Flag(string name, string label, bool value, string source = "")
+        /// <param name="whenTrue">What a yes means as the end of a sentence;
+        /// null takes the shared phrasing for this fact's name from
+        /// <see cref="FlagPhrasing"/>, so every producer of one fact says it
+        /// the same way.</param>
+        /// <param name="whenFalse">What a no means, the same way.</param>
+        public static DiagnosticFact Flag(string name, string label, bool value, string source = "",
+                                          string whenTrue = null, string whenFalse = null)
         {
+            (string sharedTrue, string sharedFalse) = FlagPhrasing.For(name);
             return new DiagnosticFact(name, label, FactState.Observed)
             {
                 TextValue = value ? "yes" : "no",
                 Number = value ? 1 : 0,
                 Source = source ?? "",
+                IsFlag = true,
+                WhenTrue = whenTrue ?? sharedTrue,
+                WhenFalse = whenFalse ?? sharedFalse,
             };
         }
 
@@ -250,6 +292,52 @@ namespace Radios.ChainChecks
         }
 
         public override string ToString() => EvidenceLine();
+    }
+
+    /// <summary>
+    /// The one place a yes or no fact's true and false phrasing is written, by
+    /// fact name, so the receive facts, the transmit facts and a test that
+    /// builds the same fact all say it the same way.
+    /// </summary>
+    /// <remarks>
+    /// Each phrase finishes a sentence that begins "because": "Stage 5, audio
+    /// arriving from the radio: not part of your receive path, because radio
+    /// audio through this computer is switched off." Written in the words the
+    /// rule files already use for these states. A flag not listed here has no
+    /// phrasing, and its sentence falls back to its label and value. Every
+    /// phrase here is DRAFT wording, awaiting review.
+    /// </remarks>
+    public static class FlagPhrasing
+    {
+        public static (string WhenTrue, string WhenFalse) For(string name)
+        {
+            switch ((name ?? "").ToLowerInvariant())
+            {
+                // DRAFT
+                case "radio-connected": return ("a radio is connected", "no radio is connected");
+                // DRAFT
+                case "active-slice": return ("a slice is receiving", "no slice is receiving");
+                // DRAFT
+                case "slice-muted": return ("the slice you are listening to is muted",
+                                            "the slice you are listening to is not muted");
+                // DRAFT
+                case "headphone-muted": return ("the headphone output is muted",
+                                                "the headphone output is not muted");
+                // DRAFT
+                case "lineout-muted": return ("the line out output is muted",
+                                              "the line out output is not muted");
+                // DRAFT
+                case "front-speaker-muted": return ("the front speaker is muted",
+                                                    "the front speaker is not muted");
+                // DRAFT
+                case "pc-audio": return ("radio audio through this computer is switched on",
+                                         "radio audio through this computer is switched off");
+                // DRAFT
+                case "remote-radio": return ("you are connected remotely",
+                                             "you are not connected remotely");
+                default: return ("", "");
+            }
+        }
     }
 
     /// <summary>
