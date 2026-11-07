@@ -650,5 +650,81 @@ namespace Radios.Tests.Alarms
             Assert.Equal(2, _speaker.Warnings.Count);
             Assert.Null(first());
         }
+
+        // ── #593: simultaneous warnings coalesce into one utterance ──
+
+        /// <summary>A second alarm on the same meter, so one reading fires both.</summary>
+        private AlarmService UpWithTwo()
+        {
+            var s = Up();
+            Assert.True(s.Add(AlarmPresets.Build(AlarmPresets.PaTemperature, Pa, Serial, "pa2") with { Enabled = true }));
+            return s;
+        }
+
+        [Fact]
+        public void Two_alarms_on_one_reading_play_one_tone_and_speak_one_utterance()
+        {
+            UpWithTwo();
+            Deliver(63.5f);
+
+            Assert.Equal(new[] { "tone" }, _sounds);                     // one earcon
+            Assert.Empty(_speaker.Warnings);
+            _speechClock.Advance(AlarmDelivery.ToneLeadMs);               // the lone alarm's own timing, unchanged
+
+            var w = Assert.Single(_speaker.Warnings);                     // one utterance
+            string one = "Stay in receive. PA temperature is 63.5 degrees C. Let the radio cool.";
+            Assert.Equal(Lexicon.Get("alarms.coalesced", ("count", "2"), ("alarms", one + " " + one)), w.Text);
+            Assert.StartsWith("2 alarms at once. ", w.Text, StringComparison.Ordinal);
+            Assert.Equal(SpeechSubject.OperatorAlarm("pa"), w.Subject); // an alarm subject, so a cut still wins
+            Assert.Equal(w.Text, w.Refresh());
+
+            // Each member keeps its own state: the joiner is reported with no
+            // tone of its own, and silencing the utterance silences both.
+            Assert.Equal(2, _reports.Count);
+            Assert.True(_reports[0].SoundRequested);
+            Assert.False(_reports[1].SoundRequested);
+            _speaker.Silenced.Single()!.Invoke();
+            Assert.True(_service!.SnapshotOf("pa")!.SilencedUntilWorse);
+            Assert.True(_service.SnapshotOf("pa2")!.SilencedUntilWorse);
+        }
+
+        [Fact]
+        public void A_lone_alarm_is_not_held_for_company()
+        {
+            Up();
+            Deliver(63.5f);
+            _speechClock.Advance(AlarmDelivery.ToneLeadMs - 1);
+            Assert.Empty(_speaker.Warnings);
+            _speechClock.Advance(1);
+            Assert.Equal("Stay in receive. PA temperature is 63.5 degrees C. Let the radio cool.",
+                         Assert.Single(_speaker.Warnings).Text);
+        }
+
+        [Fact]
+        public void A_second_alarm_after_the_window_gets_its_own_tone_and_its_own_utterance()
+        {
+            var s = UpWithTwo();
+            s.SetEnabled("pa2", false);
+            Deliver(63.5f);                                               // only "pa" fires
+            _speechClock.Advance(AlarmDelivery.CoalesceWindowMs + 1);
+            s.SetEnabled("pa2", true);
+            Deliver(63.5f);                                               // "pa2" fires, outside the window
+            Assert.Equal(new[] { "tone", "tone" }, _sounds);
+            _speechClock.Advance(AlarmDelivery.ToneLeadMs);
+            Assert.Equal(2, _speaker.Warnings.Count);
+            Assert.DoesNotContain(_speaker.Warnings, x => x.Text.Contains("alarms at once", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void A_member_that_clears_during_the_tone_leaves_the_other_to_speak_alone()
+        {
+            var s = UpWithTwo();
+            Deliver(63.5f);
+            s.SetEnabled("pa2", false);                                   // withdrawn during the tone
+            Assert.True(_service!.DrainDispatch(2000));
+            _speechClock.Advance(AlarmDelivery.ToneLeadMs);
+            Assert.Equal("Stay in receive. PA temperature is 63.5 degrees C. Let the radio cool.",
+                         Assert.Single(_speaker.Warnings).Text);
+        }
     }
 }

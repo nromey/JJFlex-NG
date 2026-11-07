@@ -2166,6 +2166,11 @@ namespace Radios.Tests
                 "logging.capture.dropped.what_to_do",
                 "logging.capture.dropped.what_to_do_not_recording",
                 "logging.capture.dropped.what_to_do_stopped_since",
+                // Junk box #593 (2026-11-07): the frame that carries several
+                // alarm warnings in one utterance. A FRAGMENT around the
+                // member sentences, which keep their own keys and
+                // classification, so TextOnly (the #777 reasoning). DRAFT PROSE.
+                "alarms.coalesced",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

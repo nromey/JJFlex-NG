@@ -51,7 +51,8 @@
   "alarms.data_lost_tx": "{alarm}: no {meter} reading for {age} seconds. It cannot be watched. Stop the transmission.",
   "alarms.data_lost_rx": "{alarm}: no {meter} reading for {age} seconds. It cannot be watched.",
   "alarms.data_ambiguous": "{alarm}: more than one meter matches {meter} on this radio. It cannot be watched until you choose one.",
-  "alarms.delivery_unavailable": "An alarm is active and its warning could not be spoken. Read active alarms to hear it.",
+  "alarms.coalesced": {"text": "{count} alarms at once. {alarms}", "delivery": null},
+  "alarms.delivery_unavailable":"An alarm is active and its warning could not be spoken. Read active alarms to hear it.",
   "alarms.cleared": "{alarm} cleared. {meter} {value} {units}.",
 
   "_review_status": "Explicit Read status and Read active alarms, at every verbosity. Words, never colour.",

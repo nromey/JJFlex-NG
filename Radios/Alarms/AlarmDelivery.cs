@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using JJTrace;
 using Radios.Speech;
 
@@ -122,6 +123,18 @@ namespace Radios.Alarms
         /// <summary>The warning tone's length, which is also how long speech waits behind it.</summary>
         public const int ToneLeadMs = 750;
 
+        /// <summary>
+        /// How soon after a warning's tone starts a warning for ANOTHER alarm
+        /// joins it rather than starting its own (#593, ruled by Noel
+        /// 2026-09-22). Tens of milliseconds, about one meter tick: a failing
+        /// supply drags temperature and voltage over their lines on the same
+        /// reading. The joiner plays no second tone and is said in the same
+        /// utterance. It never delays a lone alarm: the first warning's
+        /// sentence waits out its own tone exactly as before, and joining
+        /// happens only inside that wait.
+        /// </summary>
+        public const int CoalesceWindowMs = 60;
+
         private readonly AlarmService _service;
         private readonly IAlarmSpeaker _speaker;
         private readonly Action? _sound;
@@ -163,8 +176,7 @@ namespace Radios.Alarms
         /// </summary>
         private sealed class PendingWarning
         {
-            public ISpeechTimer Timer = null!;
-            public int Generation;
+            public string AlarmId = "";
             public long Cohort;
             public string Sentence = "";
             public string Subject = "";
@@ -173,8 +185,29 @@ namespace Radios.Alarms
             public Action? Silenced;
         }
 
-        private readonly Dictionary<string, PendingWarning> _continuations =
-            new Dictionary<string, PendingWarning>(StringComparer.Ordinal);
+        /// <summary>
+        /// One tone and the warnings waiting behind it (#593). Usually one
+        /// member; more when other alarms fired inside
+        /// <see cref="CoalesceWindowMs"/> of the first. Each member keeps its
+        /// own words, cohort and callbacks, so its acknowledgement, silence
+        /// and reminder state stay its own: coalescing decides delivery, never
+        /// alarm state.
+        /// </summary>
+        private sealed class PendingGroup
+        {
+            public ISpeechTimer Timer = null!;
+            public int Generation;
+            public DateTime StartedUtc;
+            public bool Preview;
+            public readonly List<PendingWarning> Members = new List<PendingWarning>();
+        }
+
+        /// <summary>Each waiting alarm's group, by alarm id.</summary>
+        private readonly Dictionary<string, PendingGroup> _continuations =
+            new Dictionary<string, PendingGroup>(StringComparer.Ordinal);
+
+        /// <summary>The newest group, which others may still join inside the window.</summary>
+        private PendingGroup? _openGroup;
         private int _generation;
         private bool _disposed;
 
@@ -251,16 +284,9 @@ namespace Radios.Alarms
             string subject = SpeechSubject.OperatorAlarm(e.Definition.Id);
             string alarmId = e.Definition.Id;
 
+            bool joined = false;
             bool soundOn = _sound != null && _warningsSoundEnabled();
             int lead = soundOn ? ToneLeadMs : 0;
-            if (_sound != null)
-            {
-                // The earcon gates itself on its category; calling it when the
-                // category is off is a no-op, and calling it is what proves the
-                // path is wired.
-                try { _sound(); } catch (Exception ex)
-                { Tracing.TraceLine("AlarmDelivery: the warning tone threw — " + ex.Message, TraceLevel.Warning); }
-            }
 
             Func<string?> refresh = preview
                 ? () => sentence
@@ -274,6 +300,47 @@ namespace Radios.Alarms
             // — the alarm withholds its interval reminder until the reading
             // worsens (#617). A preview is a test and silences nothing.
             Action? silenced = preview ? null : () => _service.WarningSilenced(alarmId);
+
+            // Another alarm's tone started inside the window and its sentence
+            // is still waiting: join it, with no second tone (#593). Only
+            // while the tone path is in use, so a lone alarm is never held,
+            // and never for a preview, which is a test of one alarm.
+            if (lead > 0 && !preview)
+            {
+                lock (_gate)
+                {
+                    if (_disposed) return;
+                    PendingGroup? open = _openGroup;
+                    if (open != null && !open.Preview && open.Members.Count > 0
+                        && !_continuations.ContainsKey(alarmId)
+                        && (_clock.UtcNow - open.StartedUtc).TotalMilliseconds <= CoalesceWindowMs)
+                    {
+                        open.Members.Add(new PendingWarning
+                        {
+                            AlarmId = alarmId, Cohort = SafeQuietGeneration(), Sentence = sentence, Subject = subject,
+                            Refresh = refresh, NotDelivered = notDelivered, Silenced = silenced,
+                        });
+                        _continuations[alarmId] = open;
+                        Tracing.TraceLine("AlarmDelivery: '" + e.Definition.Name + "' joins the warning already sounding ("
+                            + open.Members.Count + " alarms, one tone) [" + alarmId + "]", TraceLevel.Info);
+                        joined = true;
+                    }
+                }
+                if (joined)
+                {
+                    Report(new AlarmDeliveryReport(e, sentence, false, true, lead, false));
+                    return;
+                }
+            }
+
+            if (_sound != null)
+            {
+                // The earcon gates itself on its category; calling it when the
+                // category is off is a no-op, and calling it is what proves the
+                // path is wired.
+                try { _sound(); } catch (Exception ex)
+                { Tracing.TraceLine("AlarmDelivery: the warning tone threw — " + ex.Message, TraceLevel.Warning); }
+            }
 
             bool speechRequested = true;
             lock (_gate)
@@ -306,7 +373,8 @@ namespace Radios.Alarms
                         _speaker.SpeakWarning(current, subject, refresh, notDelivered, silenced);
                     }
                 }
-                else if (_continuations.TryGetValue(alarmId, out PendingWarning? waiting))
+                else if (_continuations.TryGetValue(alarmId, out PendingGroup? waitingGroup)
+                         && waitingGroup.Members.Find(m => m.AlarmId == alarmId) is PendingWarning waiting)
                 {
                     // A fresher warning for the same alarm, inside the lead:
                     // the WORDS are replaced and the DEADLINE is kept. The
@@ -329,65 +397,118 @@ namespace Radios.Alarms
                     // "is the operator quiet now", which is a different and
                     // weaker question.
                     int generation = ++_generation;
-                    var pending = new PendingWarning
+                    var group = new PendingGroup { Generation = generation, StartedUtc = _clock.UtcNow, Preview = preview };
+                    group.Members.Add(new PendingWarning
                     {
-                        Generation = generation,
+                        AlarmId = alarmId,
                         Cohort = SafeQuietGeneration(),
                         Sentence = sentence,
                         Subject = subject,
                         Refresh = refresh,
                         NotDelivered = notDelivered,
                         Silenced = silenced,
-                    };
-                    pending.Timer = _clock.StartTimer(lead, () => Continue(alarmId, generation));
-                    _continuations[alarmId] = pending;
+                    });
+                    group.Timer = _clock.StartTimer(lead, () => Continue(group));
+                    _continuations[alarmId] = group;
+                    _openGroup = group;
                 }
             }
 
             Report(new AlarmDeliveryReport(e, sentence, soundOn, speechRequested, lead, preview));
         }
 
-        private void Continue(string alarmId, int generation)
+        private void Continue(PendingGroup group)
         {
-            PendingWarning pending;
+            List<PendingWarning> members;
             lock (_gate)
             {
-                if (_disposed) return;
-                if (!_continuations.TryGetValue(alarmId, out PendingWarning? found) || found.Generation != generation) return;
-                pending = found;
-                _continuations.Remove(alarmId);
-                try { pending.Timer.Dispose(); } catch { }
+                if (_disposed || group.Members.Count == 0) return;
+                members = new List<PendingWarning>(group.Members);
+                foreach (PendingWarning m in members)
+                    if (_continuations.TryGetValue(m.AlarmId, out PendingGroup? g) && ReferenceEquals(g, group))
+                        _continuations.Remove(m.AlarmId);
+                group.Members.Clear();
+                if (ReferenceEquals(_openGroup, group)) _openGroup = null;
+                try { group.Timer.Dispose(); } catch { }
             }
 
-            // The operator asked for quiet while the tone was still playing.
-            // Stand the automatic presentation down — the condition, its
-            // snapshot and its place in the alarms list are untouched, nothing
-            // is acknowledged, and an explicit read still says it (#182).
+            // Each member is judged on its own, exactly as a lone warning is.
             long now = SafeQuietGeneration();
-            if (now != pending.Cohort)
+            var speaking = new List<(PendingWarning Member, string Text)>();
+            foreach (PendingWarning pending in members)
             {
-                Tracing.TraceLine("AlarmDelivery: the operator silenced speech during the warning tone, so the "
-                    + "sentence behind it is not spoken automatically; the alarm is unchanged and still in the "
-                    + "alarms list, and withholds its interval reminder until the reading worsens [" + alarmId + "]",
-                    TraceLevel.Info);
-                // The alarm is told, so the silence lasts past this one
-                // presentation (#617): the next 30-second reminder of the same
-                // reading would otherwise speak as though nothing had happened.
-                try { pending.Silenced?.Invoke(); }
-                catch (Exception ex) { Tracing.TraceLine("AlarmDelivery: the silenced callback threw — " + ex.Message, TraceLevel.Warning); }
+                // The operator asked for quiet while the tone was still
+                // playing. Stand the automatic presentation down — the
+                // condition, its snapshot and its place in the alarms list are
+                // untouched, nothing is acknowledged, and an explicit read
+                // still says it (#182).
+                if (now != pending.Cohort)
+                {
+                    Tracing.TraceLine("AlarmDelivery: the operator silenced speech during the warning tone, so the "
+                        + "sentence behind it is not spoken automatically; the alarm is unchanged and still in the "
+                        + "alarms list, and withholds its interval reminder until the reading worsens [" + pending.AlarmId + "]",
+                        TraceLevel.Info);
+                    // The alarm is told, so the silence lasts past this one
+                    // presentation (#617): the next 30-second reminder of the
+                    // same reading would otherwise speak as though nothing had
+                    // happened.
+                    Invoke(pending.Silenced, "silenced");
+                    continue;
+                }
+
+                // Re-read once more at the moment of speaking: the episode may
+                // have cleared, or been acknowledged, during the tone.
+                string? current = pending.Refresh();
+                if (current == null)
+                {
+                    Tracing.TraceLine("AlarmDelivery: warning withdrawn during the tone, no longer current [" + pending.AlarmId + "]",
+                        TraceLevel.Info);
+                    continue;
+                }
+                speaking.Add((pending, current));
+            }
+
+            if (speaking.Count == 0) return;
+            if (speaking.Count == 1)
+            {
+                PendingWarning only = speaking[0].Member;
+                _speaker.SpeakWarning(speaking[0].Text, only.Subject, only.Refresh, only.NotDelivered, only.Silenced);
                 return;
             }
 
-            // Re-read once more at the moment of speaking: the episode may
-            // have cleared, or been acknowledged, during the tone.
-            string? current = pending.Refresh();
-            if (current == null)
-            {
-                Tracing.TraceLine("AlarmDelivery: warning withdrawn during the tone, no longer current [" + alarmId + "]",
-                    TraceLevel.Info);
-                return;
-            }
-            _speaker.SpeakWarning(current, pending.Subject, pending.Refresh, pending.NotDelivered, pending.Silenced);
+            // Two or more at once: ONE utterance, at the alarm's own Critical
+            // and Urgent delivery, under the first alarm's subject so a cut
+            // announcement still wins (#593). Its refresh re-reads every
+            // member, and its callbacks reach every member, so each keeps its
+            // own acknowledgement, silence and reminder state.
+            PendingWarning[] together = speaking.Select(x => x.Member).ToArray();
+            Func<string?> refresh = () => Combine(together.Select(m => m.Refresh()).Where(t => t != null).Select(t => t!).ToList());
+            Action notDelivered = () => { foreach (PendingWarning m in together) Invoke(m.NotDelivered, "not-delivered"); };
+            Action silenced = () => { foreach (PendingWarning m in together) Invoke(m.Silenced, "silenced"); };
+            string text = Combine(speaking.Select(x => x.Text).ToList())!;
+            Tracing.TraceLine("AlarmDelivery: " + speaking.Count + " warnings coalesced into one utterance ["
+                + string.Join(", ", together.Select(m => m.AlarmId)) + "]", TraceLevel.Info);
+            _speaker.SpeakWarning(text, together[0].Subject, refresh, notDelivered, silenced);
+        }
+
+        /// <summary>
+        /// The warnings still owed, as one utterance: the lone sentence when
+        /// only one remains, the coalesced frame when several do, nothing when
+        /// none does. DRAFT PROSE (#593): <c>alarms.coalesced</c>.
+        /// </summary>
+        internal static string? Combine(IReadOnlyList<string> sentences)
+        {
+            if (sentences.Count == 0) return null;
+            if (sentences.Count == 1) return sentences[0];
+            return Lexicon.Get("alarms.coalesced",
+                ("count", sentences.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                ("alarms", string.Join(" ", sentences)));
+        }
+
+        private static void Invoke(Action? callback, string what)
+        {
+            try { callback?.Invoke(); }
+            catch (Exception ex) { Tracing.TraceLine("AlarmDelivery: a " + what + " callback threw — " + ex.Message, TraceLevel.Warning); }
         }
 
         /// <summary>
@@ -512,10 +633,15 @@ namespace Radios.Alarms
 
         private void CancelLocked(string alarmId)
         {
-            if (_continuations.TryGetValue(alarmId, out var pending))
+            if (!_continuations.TryGetValue(alarmId, out PendingGroup? group)) return;
+            _continuations.Remove(alarmId);
+            group.Members.RemoveAll(m => m.AlarmId == alarmId);
+            // The other members of a coalesced group keep their tone's
+            // deadline; only an emptied group is stood down.
+            if (group.Members.Count == 0)
             {
-                try { pending.Timer.Dispose(); } catch { }
-                _continuations.Remove(alarmId);
+                try { group.Timer.Dispose(); } catch { }
+                if (ReferenceEquals(_openGroup, group)) _openGroup = null;
             }
         }
 
@@ -534,8 +660,9 @@ namespace Radios.Alarms
             {
                 if (_disposed) return;
                 _disposed = true;
-                foreach (var c in _continuations.Values) { try { c.Timer.Dispose(); } catch { } }
+                foreach (var c in _continuations.Values.Distinct()) { try { c.Timer.Dispose(); } catch { } }
                 _continuations.Clear();
+                _openGroup = null;
             }
             _service.EventDispatched -= OnEvent;
             _service.DeliveryUnavailable -= OnDeliveryUnavailable;
