@@ -100,40 +100,13 @@ namespace Radios
             => Lexicon.Get("audio.tx_filter.range", ("low", applied.Low), ("high", applied.High))
                + Lexicon.Get("settings.filter.suffix_at_limit");
 
-        /// <summary>
-        /// For a route that has ALREADY said the value it asked for (a value
-        /// field speaks its own number as it moves): null when FlexLib took it
-        /// as asked, else the sentence that corrects it.
-        /// </summary>
-        public static string? TxCorrectionIfAny(FilterApplied applied, VerbosityLevel level)
-            => applied.Exact ? null : Tx(applied, (_, _) => "", level);
 
         /// <summary>A receive filter write that never ran (round eight): nothing was changed. DRAFT.</summary>
         public static string NotWritten() => Lexicon.Get("settings.filter.not_written");
 
-        /// <summary>
-        /// The correction a self-announcing value FIELD needs after a transmit
-        /// filter write (round eight, Codex B3): none when FlexLib took the
-        /// field's number, else what it really set. Said on the FIELD'S OWN
-        /// Latest key (<paramref name="fieldKey"/>, the field's
-        /// <c>SpeechSubject.ValueField(label)</c>), so it replaces any of the
-        /// field's own numbers still waiting to be spoken. As a separate
-        /// interrupt it did not: "TX Filter Low 2700", then the correction, then
-        /// a pending "TX Filter Low 2800" that was false. <paramref name="latest"/>
-        /// is the speaking call, (text, key); null speaks through
-        /// <see cref="ScreenReaderOutput"/> exactly as the field itself does.
-        /// </summary>
-        public static void SayFieldCorrection(FilterApplied applied, string fieldKey, VerbosityLevel level,
-            Action<string, string>? latest = null)
-        {
-            string? correction = TxCorrectionIfAny(applied, level);
-            if (correction == null) return;
-            (latest ?? SpeakOnFieldKey)(correction, fieldKey);
-        }
-
-        private static void SpeakOnFieldKey(string text, string fieldKey)
-            => ScreenReaderOutput.Speak(text, Speech.SpeechIntent.Latest, VerbosityLevel.Terse,
-                coalesceKey: fieldKey, kind: Speech.SpeechCoalesceKind.Value);
+        // Round nine retired SayFieldCorrection and TxCorrectionIfAny: a value
+        // field no longer speaks the number it asked for, so there is nothing
+        // to correct; TxFilterFields says the applied result, once.
 
         /// <summary>"Filter -270 to 50, at limit": the whole filter, marked as the bracket keys mark a clamp.</summary>
         public static string RangeAtLimit(int low, int high)

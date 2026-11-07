@@ -228,6 +228,7 @@ public partial class ScreenFieldsPanel : UserControl
     /// </summary>
     public void Initialize(FlexBase rig)
     {
+        _homeTxFilter.Invalidate();   // nothing in flight answers the new rig (#747 round nine)
         _rig = rig;
 
         // Repopulate antenna combos from the connected radio's antenna lists
@@ -334,6 +335,7 @@ public partial class ScreenFieldsPanel : UserControl
     /// </summary>
     public void Detach()
     {
+        _homeTxFilter.Invalidate();
         if (_rig != null)
         {
             _rig.ModeChanged -= OnModeChanged;
@@ -1190,12 +1192,16 @@ public partial class ScreenFieldsPanel : UserControl
         _txFilterLowControl = MakeValue(Lexicon.Get("audio.fields.tx_filter_low"), 0, 9950, 50);
         // #747 round seven: written through the applied route; the field says
         // its own number as it moves, so only a correction is spoken after.
-        _txFilterLowControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) WriteHomeTxFilter(_txFilterLowControl, v, null); };
+        // #747 round nine: the field never says the number it asked for; its
+        // write is said from what FlexLib set, by _homeTxFilter, the one speaker.
+        _txFilterLowControl.SpeaksOnlyTheAppliedResult = true;
+        _txFilterLowControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _homeTxFilter.Write(lowField: true, v); };
         TxContent.Children.Add(_txFilterLowControl);
 
         // TX Filter High
         _txFilterHighControl = MakeValue(Lexicon.Get("audio.fields.tx_filter_high"), 50, 10000, 50);
-        _txFilterHighControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) WriteHomeTxFilter(_txFilterHighControl, null, v); };
+        _txFilterHighControl.SpeaksOnlyTheAppliedResult = true;
+        _txFilterHighControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _homeTxFilter.Write(lowField: false, v); };
         TxContent.Children.Add(_txFilterHighControl);
 
         // TX Monitor
@@ -1831,40 +1837,21 @@ public partial class ScreenFieldsPanel : UserControl
         System.Windows.Automation.AutomationProperties.SetName(_rxFilterWidthDisplay, widthText);
     }
 
-    /// <summary>The newest Home transmit filter request; a completion for an older one says nothing (round eight).</summary>
-    private long _homeTxFilterRequest;
+    private TxFilterFields? _homeTxFilterOwner;
 
     /// <summary>
-    /// Write a transmit filter edge from one of Home's two fields (#747 rounds
-    /// seven and eight). The request is numbered and tied to this rig and to
-    /// the field's own speech key, so its completion can tell whether it is
-    /// still the answer, and can correct the field on the field's own key.
+    /// Home's two transmit filter fields and their one speaker (#747 round
+    /// nine; <see cref="TxFilterFields"/>): one Latest key for both, each
+    /// result for that field's newest request on the same connection, and
+    /// the fields put on the applied values after.
     /// </summary>
-    private void WriteHomeTxFilter(ValueFieldControl field, int? low, int? high)
-    {
-        var rig = _rig;
-        if (rig == null) return;
-        long request = System.Threading.Interlocked.Increment(ref _homeTxFilterRequest);
-        string fieldKey = Radios.Speech.SpeechSubject.ValueField(field.Label);
-        rig.SetTXFilter(low, high, applied => OnHomeTxFilterApplied(applied, rig, request, fieldKey));
-    }
-
-    /// <summary>
-    /// A transmit filter write from Home has run (#747 rounds seven and
-    /// eight). The field already said the number it asked for. If FlexLib
-    /// held the write back, changed nothing, or the write could not run, the
-    /// correction is said on the FIELD'S OWN Latest key, so it replaces any of
-    /// the field's numbers still waiting to be said rather than being followed
-    /// by one (Codex B3). Then both fields take the radio's values. All of it
-    /// only for the same rig and the newest request (Codex F3).
-    /// </summary>
-    private void OnHomeTxFilterApplied(FilterApplied applied, FlexBase rig, long request, string fieldKey)
-    {
-        if (!ReferenceEquals(rig, _rig) || request != System.Threading.Interlocked.Read(ref _homeTxFilterRequest)) return;
-        FilterReadouts.SayFieldCorrection(applied, fieldKey, ScreenReaderOutput.CurrentVerbosity);
-        Dispatcher.BeginInvoke(() =>
+    private TxFilterFields _homeTxFilter => _homeTxFilterOwner ??= new TxFilterFields(
+        Radios.Speech.SpeechSubject.ValueField("TX filter, Home"),
+        Lexicon.Get("audio.fields.tx_filter_low"), Lexicon.Get("audio.fields.tx_filter_high"),
+        () => _rig, () => true,
+        refresh: applied => Dispatcher.BeginInvoke(() =>
         {
-            if (!ReferenceEquals(rig, _rig) || request != System.Threading.Interlocked.Read(ref _homeTxFilterRequest)) return;
+            if (_rig == null) return;
             _polling = true;
             try
             {
@@ -1872,8 +1859,7 @@ public partial class ScreenFieldsPanel : UserControl
                 _txFilterHighControl.Value = applied.High;
             }
             finally { _polling = false; }
-        });
-    }
+        }));
 
     /// <summary>
     /// #888: one AGC field whose meaning follows the mode the radio reports.

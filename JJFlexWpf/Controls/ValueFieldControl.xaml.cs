@@ -152,6 +152,18 @@ public partial class ValueFieldControl : UserControl
     public Func<int, string?>? TypedValueRefusal { get; set; }
 
     /// <summary>
+    /// For a field whose write goes through an applied write and is said from
+    /// what the radio set (#747, round nine of the 2026-11-06 junk box: the
+    /// transmit filter fields on Home and in the Audio Workshop). The field
+    /// still moves its display at once, but never announces the number it
+    /// asked for: not on a step, not on a held key, not on typed entry. Its
+    /// host says the applied result instead, so there is one speaker and the
+    /// last word cannot be a number the radio did not take. Arriving against
+    /// an end still speaks, because nothing is written then.
+    /// </summary>
+    public bool SpeaksOnlyTheAppliedResult { get; set; }
+
+    /// <summary>
     /// Set to true during poll updates to suppress ValueChanged events and speech.
     /// </summary>
     public bool SuppressEvents
@@ -521,7 +533,10 @@ public partial class ValueFieldControl : UserControl
                 break;
             default:
                 _value = value;
-                UpdateDisplay();
+                // A field whose host speaks the applied result is not renamed
+                // here: renaming a focused control is itself announced.
+                if (SpeaksOnlyTheAppliedResult) UpdateVisual();
+                else UpdateDisplay();
 
                 if (!_suppressEvents)
                 {
@@ -532,11 +547,12 @@ public partial class ValueFieldControl : UserControl
                     string spoken = Lexicon.Get("audio.field.spoken_value",
                         ("label", _label), ("value", FormatValue(_value)), ("unit", UnitSuffix));
                     EndEntryEchoes("the entry ending as '" + spoken + "'");
-                    ScreenReaderOutput.Speak(
-                        spoken,
-                        Radios.Speech.SpeechIntent.Queue,
-                        VerbosityLevel.Terse,
-                        subject: ValueSubject);
+                    if (!SpeaksOnlyTheAppliedResult)
+                        ScreenReaderOutput.Speak(
+                            spoken,
+                            Radios.Speech.SpeechIntent.Queue,
+                            VerbosityLevel.Terse,
+                            subject: ValueSubject);
                     EarconPlayer.ConfirmTone();
                 }
                 break;
@@ -582,7 +598,7 @@ public partial class ValueFieldControl : UserControl
         if (!_suppressEvents)
         {
             ValueChanged?.Invoke(this, _value);
-            AnnounceValue(atLimit: false);
+            if (!SpeaksOnlyTheAppliedResult) AnnounceValue(atLimit: false);
         }
     }
 
@@ -601,7 +617,7 @@ public partial class ValueFieldControl : UserControl
         if (!_suppressEvents)
         {
             ValueChanged?.Invoke(this, _value);
-            AnnounceValue(atLimit: false);
+            if (!SpeaksOnlyTheAppliedResult) AnnounceValue(atLimit: false);
         }
     }
 

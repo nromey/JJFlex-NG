@@ -175,17 +175,16 @@ namespace Radios.Tests
         public void Every_transmit_filter_write_that_speaks_goes_through_the_applied_route()
         {
             string panel = Src("JJFlexWpf", "Controls", "ScreenFieldsPanel.xaml.cs");
-            // Round eight: through WriteHomeTxFilter, numbered and keyed to the field.
-            Assert.Contains("WriteHomeTxFilter(_txFilterLowControl, v, null)", panel, StringComparison.Ordinal);
-            Assert.Contains("WriteHomeTxFilter(_txFilterHighControl, null, v)", panel, StringComparison.Ordinal);
-            Assert.Contains("rig.SetTXFilter(low, high, applied => OnHomeTxFilterApplied(applied, rig, request, fieldKey));", panel, StringComparison.Ordinal);
+            // Round nine: through the surface's one speaker, which writes via SetTXFilter.
+            Assert.Contains("_homeTxFilter.Write(lowField: true, v)", panel, StringComparison.Ordinal);
+            Assert.Contains("_homeTxFilter.Write(lowField: false, v)", panel, StringComparison.Ordinal);
+            Assert.Contains("rig.SetTXFilter(lowField ? value : (int?)null, lowField ? (int?)null : value, applied =>", Src("Radios", "TxFilterFields.cs"), StringComparison.Ordinal);
             Assert.DoesNotContain("_rig.TXFilterLow = v", panel, StringComparison.Ordinal);
             Assert.DoesNotContain("_rig.TXFilterHigh = v", panel, StringComparison.Ordinal);
 
             string workshop = Src("JJFlexWpf", "Dialogs", "AudioWorkshopDialog.TxAudio.cs");
-            Assert.Contains("WriteWorkshopTxFilter(_txFilterLowControl, v, null);", workshop, StringComparison.Ordinal);
-            Assert.Contains("WriteWorkshopTxFilter(_txFilterHighControl, null, v);", workshop, StringComparison.Ordinal);
-            Assert.Contains("rig.SetTXFilter(low, high, applied => OnWorkshopTxFilterApplied(applied, rig, request, fieldKey));", workshop, StringComparison.Ordinal);
+            Assert.Contains("_workshopTxFilter.Write(lowField: true, v);", workshop, StringComparison.Ordinal);
+            Assert.Contains("_workshopTxFilter.Write(lowField: false, v);", workshop, StringComparison.Ordinal);
             Assert.DoesNotContain("_rig.TXFilterLow = v", workshop, StringComparison.Ordinal);
             Assert.DoesNotContain("_rig.TXFilterHigh = v", workshop, StringComparison.Ordinal);
 

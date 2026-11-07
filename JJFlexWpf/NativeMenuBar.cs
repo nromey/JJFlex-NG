@@ -3475,16 +3475,18 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
-    /// For <see cref="SpeakAfterMenuClose"/>: whether the receive filter is
-    /// still what a write's sentence says it is. A write that did not run says
-    /// nothing changed, which stays true.
+    /// For <see cref="SpeakAfterMenuClose"/>: whether a receive filter write's
+    /// sentence is still true after the wait, checked against the rig and
+    /// connection the write was made on, not whatever rig the window holds by
+    /// then; a refusal is retired by a later write that ran (#747 round nine,
+    /// <see cref="Radios.FilterWriteFreshness"/>).
     /// </summary>
     private Func<bool>? FilterStillIs(Radios.FilterApplied applied)
-        => applied.NotWritten ? null : () => Rig != null && Rig.FilterLow == applied.Low && Rig.FilterHigh == applied.High;
+        => Rig == null ? null : Radios.FilterWriteFreshness.StillTrue(Rig, applied, transmit: false);
 
     /// <summary>As <see cref="FilterStillIs"/>, for the transmit filter.</summary>
     private Func<bool>? TxFilterStillIs(Radios.FilterApplied applied)
-        => applied.NotWritten ? null : () => Rig != null && Rig.TXFilterLow == applied.Low && Rig.TXFilterHigh == applied.High;
+        => Rig == null ? null : Radios.FilterWriteFreshness.StillTrue(Rig, applied, transmit: true);
 
     /// <summary>
     /// Radio ▸ Radio Rescue — Noel's name, and his reason: the rescue page

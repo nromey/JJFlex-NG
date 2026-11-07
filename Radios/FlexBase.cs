@@ -9466,11 +9466,24 @@ namespace Radios
                 }
                 int beforeLow = slice.FilterLow, beforeHigh = slice.FilterHigh;
                 slice.UpdateFilter(low, high);
+                System.Threading.Interlocked.Increment(ref _rxFilterWritesRun);
                 var result = new FilterApplied(slice.DemodMode ?? "", low, high, beforeLow, beforeHigh, slice.FilterLow, slice.FilterHigh);
                 try { applied?.Invoke(result); }
                 catch (Exception ex) { Tracing.TraceLine("SetFilter applied callback: " + ex.Message, TraceLevel.Error); }
             }), "Filter");
         }
+
+        private long _rxFilterWritesRun, _txFilterWritesRun;
+
+        /// <summary>
+        /// How many receive / transmit filter writes have RUN on the command
+        /// loop through the applied route. A delayed "not changed" sentence is
+        /// retired when this moves (round nine; <see cref="FilterWriteFreshness"/>).
+        /// </summary>
+        public long RxFilterWritesRun => System.Threading.Interlocked.Read(ref _rxFilterWritesRun);
+
+        /// <inheritdoc cref="RxFilterWritesRun"/>
+        public long TxFilterWritesRun => System.Threading.Interlocked.Read(ref _txFilterWritesRun);
 
         /// <summary>A filter write that did not run: traced, and handed to the caller to say.</summary>
         private static void Refuse(Action<FilterApplied> applied, FilterApplied refused, string where)
@@ -11118,6 +11131,7 @@ namespace Radios
                     if (highMoves) r.TXFilterHigh = wantHigh;
                     if (lowMoves) r.TXFilterLow = wantLow;
                 }
+                System.Threading.Interlocked.Increment(ref _txFilterWritesRun);
                 var result = new FilterApplied("TX", wantLow, wantHigh, beforeLow, beforeHigh, r.TXFilterLow, r.TXFilterHigh);
                 try { applied?.Invoke(result); }
                 catch (Exception ex) { Tracing.TraceLine("SetTXFilter applied callback: " + ex.Message, TraceLevel.Error); }

@@ -266,11 +266,12 @@ public partial class AudioWorkshopDialog
         {
             if (_rig != null && !_polling)
             {
-                // #747 rounds seven and eight: the field says its own number; a
-                // correction follows only when FlexLib set something else.
-                WriteWorkshopTxFilter(_txFilterLowControl, v, null);
+                // #747 round nine: the field says nothing of its own; the
+                // applied result is said by _workshopTxFilter, the one speaker.
+                _workshopTxFilter.Write(lowField: true, v);
             }
         };
+        _txFilterLowControl.SpeaksOnlyTheAppliedResult = true;
         JJFlexHelp.SetText(_txFilterLowControl,
             "Where your transmitted audio starts, in hertz. One hundred to "
             + "three hundred is the usual range for voice: lower sounds "
@@ -284,9 +285,10 @@ public partial class AudioWorkshopDialog
         {
             if (_rig != null && !_polling)
             {
-                WriteWorkshopTxFilter(_txFilterHighControl, null, v);
+                _workshopTxFilter.Write(lowField: false, v);
             }
         };
+        _txFilterHighControl.SpeaksOnlyTheAppliedResult = true;
         JJFlexHelp.SetText(_txFilterHighControl,
             "Where your transmitted audio stops, in hertz. Around twenty-nine "
             + "hundred is the usual voice ceiling: higher sounds airier but "
@@ -512,39 +514,23 @@ public partial class AudioWorkshopDialog
         }
     }
 
+    private TxFilterFields? _workshopTxFilterOwner;
 
-    /// <summary>The newest Workshop transmit filter request; a completion for an older one says nothing (round eight).</summary>
-    private long _workshopTxFilterRequest;
-
-    /// <summary>
-    /// Write a transmit filter edge from one of the Workshop's two fields
-    /// (#747 rounds seven and eight), numbered and tied to this rig and the
-    /// field's own speech key, as Home does.
-    /// </summary>
-    private void WriteWorkshopTxFilter(ValueFieldControl? field, int? low, int? high)
-    {
-        var rig = _rig;
-        if (rig == null || field == null) return;
-        long request = System.Threading.Interlocked.Increment(ref _workshopTxFilterRequest);
-        string fieldKey = Radios.Speech.SpeechSubject.ValueField(field.Label);
-        rig.SetTXFilter(low, high, applied => OnWorkshopTxFilterApplied(applied, rig, request, fieldKey));
-    }
+    /// <summary>Set false when the Workshop closes; read on the command loop, so volatile.</summary>
+    private volatile bool _workshopOpenForTxFilter = true;
 
     /// <summary>
-    /// A transmit filter write from the Workshop has run (#747 rounds seven
-    /// and eight). The field already said its number, so nothing more is said
-    /// when FlexLib took it (the Workshop used to say it a second time); a
-    /// correction is said on the field's own Latest key (Codex B3). Then the
-    /// fields and the width label take the radio's values. Only for the same
-    /// rig, the newest request, and a Workshop still open (Codex F3).
+    /// The Workshop's two transmit filter fields and their one speaker (#747
+    /// round nine; <see cref="TxFilterFields"/>), with its own key, and
+    /// nothing said or refreshed once the Workshop has closed.
     /// </summary>
-    private void OnWorkshopTxFilterApplied(FilterApplied applied, FlexBase rig, long request, string fieldKey)
-    {
-        if (!ReferenceEquals(rig, _rig) || request != System.Threading.Interlocked.Read(ref _workshopTxFilterRequest)) return;
-        FilterReadouts.SayFieldCorrection(applied, fieldKey, ScreenReaderOutput.CurrentVerbosity);
-        Dispatcher.BeginInvoke(() =>
+    private TxFilterFields _workshopTxFilter => _workshopTxFilterOwner ??= new TxFilterFields(
+        Radios.Speech.SpeechSubject.ValueField("TX filter, Audio Workshop"),
+        "TX Filter Low", "TX Filter High",
+        () => _rig, () => _workshopOpenForTxFilter,
+        refresh: applied => Dispatcher.BeginInvoke(() =>
         {
-            if (!IsLoaded || !ReferenceEquals(rig, _rig) || request != System.Threading.Interlocked.Read(ref _workshopTxFilterRequest)) return;
+            if (!_workshopOpenForTxFilter || _rig == null) return;
             _polling = true;
             try
             {
@@ -553,8 +539,7 @@ public partial class AudioWorkshopDialog
                 UpdateFilterWidth();
             }
             finally { _polling = false; }
-        });
-    }
+        }));
 
     private void UpdateFilterWidth()
     {

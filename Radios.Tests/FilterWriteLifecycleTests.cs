@@ -100,63 +100,9 @@ namespace Radios.Tests
             return (arbiter, clock, heard);
         }
 
-        /// <summary>
-        /// Codex's schedule: the field has said 2700 and has 2800 waiting on its
-        /// own key when FlexLib holds the 2800 back to 2750. The last thing said
-        /// is the correction, never the waiting 2800.
-        /// </summary>
-        [Fact]
-        public void A_field_correction_replaces_the_fields_waiting_number_and_is_said_last()
-        {
-            var (arbiter, clock, heard) = Arbiter();
-            string fieldKey = SpeechSubject.ValueField("TX Filter Low");
-            // The field's own announcements, exactly as ValueFieldControl.AnnounceValue makes them.
-            arbiter.Latest(fieldKey, "TX Filter Low 2700", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "field");
-            clock.Advance(50);
-            arbiter.Latest(fieldKey, "TX Filter Low 2800", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "field");
-
-            Tx(2700, 2800);
-            _rig.SetTXFilter(2800, null, applied => FilterReadouts.SayFieldCorrection(applied, fieldKey, VerbosityLevel.Chatty,
-                (text, key) => arbiter.Latest(key, text, VerbosityLevel.Terse, SpeechCoalesceKind.Value, "correction")));
-            Drain();
-            clock.Advance(3000);
-
-            Assert.Equal("TX filter 2750 to 2800, at limit", heard.Last());
-            Assert.DoesNotContain("TX Filter Low 2800", heard);
-            Assert.Equal((2750, 2800), (_vendor.Radio.TXFilterLow, _vendor.Radio.TXFilterHigh));
-        }
-
-        /// <summary>Taken as asked, nothing is added: the field's own number is the last word, once.</summary>
-        [Fact]
-        public void Taken_as_asked_the_field_says_its_number_once_and_nothing_follows()
-        {
-            var (arbiter, clock, heard) = Arbiter();
-            string fieldKey = SpeechSubject.ValueField("TX Filter Low");
-            arbiter.Latest(fieldKey, "TX Filter Low 300", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "field");
-            Tx(100, 2800);
-            _rig.SetTXFilter(300, null, applied => FilterReadouts.SayFieldCorrection(applied, fieldKey, VerbosityLevel.Chatty,
-                (text, key) => arbiter.Latest(key, text, VerbosityLevel.Terse, SpeechCoalesceKind.Value, "correction")));
-            Drain();
-            clock.Advance(3000);
-            Assert.Equal(new[] { "TX Filter Low 300" }, heard);
-        }
-
-        [Fact]
-        public void Home_and_the_workshop_correct_on_the_fields_own_key_and_the_workshop_says_nothing_extra()
-        {
-            string readouts = Src("Radios", "FilterReadouts.cs");
-            Assert.Contains("ScreenReaderOutput.Speak(text, Speech.SpeechIntent.Latest, VerbosityLevel.Terse,", readouts, StringComparison.Ordinal);
-            Assert.Contains("coalesceKey: fieldKey, kind: Speech.SpeechCoalesceKind.Value);", readouts, StringComparison.Ordinal);
-
-            foreach (var (file, owner) in new[] { (Src("JJFlexWpf", "Controls", "ScreenFieldsPanel.xaml.cs"), "Home"), (Src("JJFlexWpf", "Dialogs", "AudioWorkshopDialog.TxAudio.cs"), "Workshop") })
-            {
-                Assert.Contains("string fieldKey = Radios.Speech.SpeechSubject.ValueField(field.Label);", file, StringComparison.Ordinal);
-                Assert.Contains("FilterReadouts.SayFieldCorrection(applied, fieldKey, ScreenReaderOutput.CurrentVerbosity);", file, StringComparison.Ordinal);
-                Assert.DoesNotContain("FilterReadouts.TxCorrectionIfAny(", file, StringComparison.Ordinal);
-            }
-            string workshop = Src("JJFlexWpf", "Dialogs", "AudioWorkshopDialog.TxAudio.cs");
-            Assert.DoesNotContain("FilterReadouts.Tx(", workshop, StringComparison.Ordinal);   // no second sentence on success
-        }
+        // The round-eight field-correction schedules moved to TxFilterFieldsTests
+        // in round nine, where the field no longer speaks and the applied result
+        // is the one speaker (Codex's fifth re-verify).
 
         // ------------------------------------------------------------------
         // F2: a completion never rolls a newer request back
@@ -300,12 +246,11 @@ namespace Radios.Tests
         [Fact]
         public void Home_and_the_workshop_answer_only_their_own_rig_and_newest_request()
         {
+            // Round nine: the request identity (field, connection, epoch, open)
+            // lives in Radios.TxFilterFields and is tested there behaviourally.
             foreach (string file in new[] { Src("JJFlexWpf", "Controls", "ScreenFieldsPanel.xaml.cs"), Src("JJFlexWpf", "Dialogs", "AudioWorkshopDialog.TxAudio.cs") })
-            {
-                Assert.True(CountOf(file, "if (!ReferenceEquals(rig, _rig) || request != System.Threading.Interlocked.Read(") >= 1);
-                Assert.True(CountOf(file, "ReferenceEquals(rig, _rig) || request != System.Threading.Interlocked.Read(") >= 2,
-                    "both the completion and its window refresh check the rig and the request");
-            }
+                Assert.Contains("new TxFilterFields(", file, StringComparison.Ordinal);
+            Assert.Contains("ReferenceEquals(radio?.CurrentCommandConnection, connection)", Src("Radios", "TxFilterFields.cs"), StringComparison.Ordinal);
         }
 
         [Fact]
