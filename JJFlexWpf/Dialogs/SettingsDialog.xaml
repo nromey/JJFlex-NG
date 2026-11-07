@@ -1766,6 +1766,34 @@
 
                     <Separator Margin="0,4,0,8"/>
 
+                    <!-- The mode cycle: which modes Alt+M and Alt+Shift+M step
+                         through, in the operator's order (ruled 2026-08-26). A
+                         filter on the cycle, never a capability gate: the copy
+                         says "in the cycle", never "enabled". Master and
+                         detail like the tracking notch dialog: the list picks
+                         a mode, the checkbox and the two buttons act on it.
+                         Every word is set from Radios/Lexicon/settings.json
+                         under settings.mode_cycle, and is DRAFT. Code in
+                         SettingsDialog.ModeCycle.cs. -->
+                    <GroupBox x:Name="ModeCycleGroup" Margin="0,4,0,8">
+                        <StackPanel Margin="4">
+                            <TextBlock x:Name="ModeCycleIntro" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                            <ListBox x:Name="ModeCycleList" Height="140" Margin="0,0,0,6"
+                                     SelectionChanged="ModeCycleList_SelectionChanged"/>
+                            <CheckBox x:Name="ModeCycleIncludeCheck" Margin="0,0,0,6"
+                                      Checked="ModeCycleIncludeCheck_Changed"
+                                      Unchecked="ModeCycleIncludeCheck_Changed"/>
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="ModeCycleMoveUpButton" MinWidth="80" Margin="0,0,8,0"
+                                        Click="ModeCycleMoveUpButton_Click"/>
+                                <Button x:Name="ModeCycleMoveDownButton" MinWidth="80"
+                                        Click="ModeCycleMoveDownButton_Click"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <Separator Margin="0,4,0,8"/>
+
                     <!-- Display elements -->
                     <GroupBox Header="Display" Margin="0,4,0,8"
                               AutomationProperties.Name="Display">

@@ -1006,6 +1006,25 @@ namespace Radios.Tests
                 "audio.value_layer.ptt_not_here",
                 "audio.value_layer.lock_not_here",
                 "audio.value_layer.bracket_not_here",
+                // Junkbox #263, 2026-11-07: the mode cycle setting's section
+                // of the Notifications tab, and the two sentences Alt+M says
+                // when the cycle is empty or holds only the slice's own mode.
+                // Window text, or spoken only in answer to a press, so
+                // delivery null. Every one a DRAFT awaiting Noel.
+                "settings.mode_cycle.header",
+                "settings.mode_cycle.intro",
+                "settings.mode_cycle.list_name",
+                "settings.mode_cycle.list_help",
+                "settings.mode_cycle.include",
+                "settings.mode_cycle.move_up",
+                "settings.mode_cycle.move_up_name",
+                "settings.mode_cycle.move_down",
+                "settings.mode_cycle.move_down_name",
+                "settings.mode_cycle.row_in",
+                "settings.mode_cycle.row_out",
+                "settings.mode_cycle.moved",
+                "settings.mode_cycle.empty_press",
+                "settings.mode_cycle.only_one_press",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note

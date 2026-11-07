@@ -7214,30 +7214,46 @@ public partial class MainWindow : UserControl
     #endregion
 
     /// <summary>
-    /// Common mode cycle list for F10/F11 hotkeys.
-    /// Subset of RigCaps.ModeTable — just the frequently used modes.
+    /// Step the active slice to the next (+1) or previous (-1) mode in the
+    /// operator's mode cycle. Alt+M and Alt+Shift+M, the Home Mode field and
+    /// the Mode menu's Next and Previous Mode all come here.
     /// </summary>
-    private static readonly string[] CommonModes = { "USB", "LSB", "CW", "DIGU", "DIGL", "AM", "FM" };
-
-    /// <summary>
-    /// Cycle to the next (+1) or previous (-1) mode in the common mode list.
-    /// Called from KeyCommands mode handlers (F10/F11).
-    /// </summary>
+    /// <remarks>
+    /// The cycle is a setting (Settings, Notifications, Mode Cycle), read from
+    /// <see cref="Radios.AccessibilityConfig"/>; which mode comes next is
+    /// <see cref="Radios.ModeCycle.Next"/>. A filter on the cycle only: every
+    /// mode stays reachable from the Mode menu and its own key. From a mode the
+    /// cycle leaves out (a slice in SAM, say), a press moves to the nearest
+    /// mode that is in it; this used to jump to an end of a fixed seven-mode
+    /// list.
+    /// </remarks>
     public void CycleMode(int direction)
     {
         if (RigControl == null || !_radioPowerOn) return;
 
-        string currentMode = RigControl.Mode ?? "USB";
-        int idx = Array.IndexOf(CommonModes, currentMode);
+        var cycle = Radios.ModeCycle.FromSaved(Radios.AccessibilityConfig.Current.ModeCycleModes);
+        var allModes = Radios.ModeCycle.KnownModes(RigControl.RadioModeList);
+        string currentMode = RigControl.Mode ?? "";
+        string? newMode = Radios.ModeCycle.Next(cycle, allModes, currentMode, direction);
 
-        if (idx < 0)
+        if (newMode == null)
         {
-            // Current mode not in common list — jump to first or last
-            idx = direction > 0 ? CommonModes.Length - 1 : 0;
+            // DRAFT PROSE: an emptied cycle has nowhere to go.
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.mode_cycle.empty_press"),
+                Radios.Speech.SpeechIntent.Latest, VerbosityLevel.Terse,
+                subject: Radios.Speech.SpeechSubject.ValueField("Mode"));
+            return;
+        }
+        if (string.Equals(newMode, currentMode, StringComparison.OrdinalIgnoreCase))
+        {
+            // DRAFT PROSE: one mode in the cycle, and the slice is already in it.
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("settings.mode_cycle.only_one_press", ("mode", newMode)),
+                Radios.Speech.SpeechIntent.Latest, VerbosityLevel.Terse,
+                subject: Radios.Speech.SpeechSubject.ValueField("Mode"));
+            return;
         }
 
-        int next = (idx + direction + CommonModes.Length) % CommonModes.Length;
-        string newMode = CommonModes[next];
         RigControl.Mode = newMode;
         Radios.ScreenReaderOutput.Speak(newMode, VerbosityLevel.Terse, true);
     }

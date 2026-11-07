@@ -165,6 +165,24 @@ namespace Radios
         public bool ReclaimStolenForeground { get; set; } = true;
 
         /// <summary>
+        /// The modes the mode cycle visits, in the operator's order (see
+        /// <see cref="ModeCycle"/>). Null means never set, which is the cycle
+        /// as shipped (<see cref="ModeCycle.DefaultCycle"/>); an empty array is
+        /// a cycle the operator emptied.
+        /// </summary>
+        /// <remarks>
+        /// Here rather than in the per-radio audio config because it describes
+        /// the operator's keys, like <see cref="SliceArrowOrder"/>: this file
+        /// is loaded once at start-up and is not replaced by a radio's copy on
+        /// connect, so a cycle set with no radio connected is still the cycle
+        /// after connecting to any radio. An array, not a list: the XML reader
+        /// appends to a list that already holds the defaults.
+        /// </remarks>
+        [System.Xml.Serialization.XmlArray("ModeCycle")]
+        [System.Xml.Serialization.XmlArrayItem("Mode")]
+        public string[]? ModeCycleModes { get; set; }
+
+        /// <summary>
         /// The active (most recently loaded or saved) accessibility config. UI-layer
         /// consumers that don't take an AccessibilityConfig parameter (e.g., double-tap
         /// detectors in FreqOutHandlers or ScreenFieldsPanel) read this. Updated by
