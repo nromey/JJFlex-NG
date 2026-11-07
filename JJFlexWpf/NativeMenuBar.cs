@@ -877,6 +877,16 @@ public class NativeMenuBar : IDisposable
             ToggleDSP("Legacy Auto-Notch", () => Rig.AutoNotchLegacy, v => Rig.AutoNotchLegacy = v),
             () => Rig?.AutoNotchLegacy == FlexBase.OffOnValues.on, radio);
 
+        // === Tracking notch filters: the menu door ===
+        // Ruled by Noel 2026-10-19, "available on the expanders and in a menu
+        // (threes)". The JJ key chord and the Home DSP expander's button were
+        // the first two doors; this is the third, beside the auto-notch
+        // switches, and it opens the same launcher so it cannot grow its own
+        // idea of what Add does. Marked and greyed with no radio like the
+        // other radio rows; the launcher keeps its own no-radio sentence.
+        AddWired(parent, R("Tracking Notch Filters...\tCtrl+J, Alt+N"),
+            () => Dialogs.TNFLauncher.Show(Rig), radio);
+
         // === Audio Peak Filter (CW only) ===
         AddChecked(parent, R("Audio Peak Filter (APF)\tCtrl+J, N, P"), () =>
         {
