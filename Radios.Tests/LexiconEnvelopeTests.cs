@@ -1025,6 +1025,24 @@ namespace Radios.Tests
                 "settings.mode_cycle.moved",
                 "settings.mode_cycle.empty_press",
                 "settings.mode_cycle.only_one_press",
+                // Junkbox #124, 2026-11-07: the meter picker's category combo,
+                // its entries and the category names. Window text, so delivery
+                // null. Every one a DRAFT awaiting Noel.
+                "settings.meter_category.label",
+                "settings.meter_category.combo_name",
+                "settings.meter_category.help",
+                "settings.meter_category.every",
+                "settings.meter_category.every_one",
+                "settings.meter_category.item",
+                "settings.meter_category.item_one",
+                "settings.meter_category.source_display",
+                "settings.meter_category.transmit",
+                "settings.meter_category.receive",
+                "settings.meter_category.power_and_swr",
+                "settings.meter_category.temperature_and_voltage",
+                "settings.meter_category.amplifier",
+                "settings.meter_category.audio",
+                "settings.meter_category.other",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note

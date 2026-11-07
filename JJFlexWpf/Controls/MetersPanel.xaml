@@ -44,6 +44,15 @@
                           PreviewKeyDown="SlotCombo_PreviewKeyDown" />
 
                 <!-- ── What it measures ── -->
+                <!-- The category narrows the source list below it, and "every
+                     category" is always its first entry, so nothing is out of
+                     reach. Its words are set from Lexicon in code and are
+                     DRAFT. See RefreshCategoryChoices. -->
+                <TextBlock x:Name="CategoryLabel" Margin="0,2,0,2" />
+                <ComboBox x:Name="CategoryCombo" Width="320"
+                          HorizontalAlignment="Left" Margin="0,0,0,6"
+                          SelectionChanged="CategoryCombo_SelectionChanged" />
+
                 <TextBlock Text="Source:" Margin="0,2,0,2" />
                 <ComboBox x:Name="SourceCombo" Width="420"
                           HorizontalAlignment="Left" Margin="0,0,0,2"

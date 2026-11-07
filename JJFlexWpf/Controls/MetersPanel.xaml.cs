@@ -99,6 +99,11 @@ public partial class MetersPanel : UserControl
         foreach (string name in MeterVoiceLibrary.AllNames) VoiceCombo.Items.Add(name);
         foreach (var choice in ActivationChoices) ActivationCombo.Items.Add(Lexicon.Get(choice.Key));
 
+        // The meter category picker's words (DRAFT PROSE, awaiting Noel).
+        CategoryLabel.Text = Lexicon.Get("settings.meter_category.label");
+        AutomationProperties.SetName(CategoryCombo, Lexicon.Get("settings.meter_category.combo_name"));
+        JJFlexHelp.SetText(CategoryCombo, Lexicon.Get("settings.meter_category.help"));
+
         LoadGlobalsFromEngine();
 
         SubscribeToEngine();
@@ -303,6 +308,7 @@ public partial class MetersPanel : UserControl
 
     private void SetSlotControlsEnabled(bool on)
     {
+        CategoryCombo.IsEnabled = on;
         SourceCombo.IsEnabled = on;
         AllMetersCheck.IsEnabled = on;
         VoiceCombo.IsEnabled = on;
@@ -359,6 +365,17 @@ public partial class MetersPanel : UserControl
         public string Key { get; init; } = "";
         public string Display { get; init; } = "";
 
+        /// <summary>What the meter is about, for the category picker.</summary>
+        public MeterCategory Category { get; init; } = MeterCategory.Other;
+
+        /// <summary>
+        /// How the entry reads in the source list right now: <see cref="Display"/>
+        /// inside one category, and the category's name in front of it when
+        /// every category is listed together, so the list is grouped and the
+        /// first letters jump between groups.
+        /// </summary>
+        public string ListDisplay { get; set; } = "";
+
         /// <summary>
         /// What to CALL the meter once it is chosen, as opposed to how to list
         /// it. The list entry carries the radio's description so you can tell
@@ -372,10 +389,20 @@ public partial class MetersPanel : UserControl
         public MeterRange Range { get; init; } = new();
         public MeterActivation Activation { get; init; } = MeterActivation.Always;
         public string Detail { get; init; } = "";
-        public override string ToString() => Display;
+        public override string ToString() => ListDisplay.Length != 0 ? ListDisplay : Display;
     }
 
+    /// <summary>Every meter on offer after the common-versus-every fold.</summary>
+    private readonly List<SourceChoice> _allChoices = new();
+
+    /// <summary>The meters in the chosen category: what the source list shows.</summary>
     private readonly List<SourceChoice> _sourceChoices = new();
+
+    /// <summary>The category the source list is showing; null is every category.</summary>
+    private MeterCategory? _category;
+
+    /// <summary>The categories the category picker offers, by index after "every category".</summary>
+    private readonly List<MeterCategory> _categoryChoices = new();
 
     /// <summary>
     /// Rebuild the source list from the radio's own meter inventory, honouring
@@ -393,7 +420,7 @@ public partial class MetersPanel : UserControl
         _loading = true;
         try
         {
-            _sourceChoices.Clear();
+            _allChoices.Clear();
             bool all = AllMetersCheck.IsChecked == true;
             MeterInventory? inv = MeterToneEngine.Inventory;
 
@@ -418,8 +445,8 @@ public partial class MetersPanel : UserControl
                     foreach (MeterReading r in group.Meters)
                     {
                         if (!all && !IsCommon(r.Name)) continue;
-                        if (isSlice && firstSliceChoice < 0) firstSliceChoice = _sourceChoices.Count;
-                        _sourceChoices.Add(FromReading(group, r, isSlice));
+                        if (isSlice && firstSliceChoice < 0) firstSliceChoice = _allChoices.Count;
+                        _allChoices.Add(FromReading(group, r, isSlice));
                         if (isSlice && seenSliceMeters.Add(r.Name))
                             activeSliceChoices.Add(FromActiveSliceReading(r));
                     }
@@ -429,12 +456,12 @@ public partial class MetersPanel : UserControl
                 // slice is what an operator who does not think in slice numbers
                 // wants, and the first matching entry is the one they land on.
                 if (activeSliceChoices.Count > 0 && firstSliceChoice >= 0)
-                    _sourceChoices.InsertRange(firstSliceChoice, activeSliceChoices);
+                    _allChoices.InsertRange(firstSliceChoice, activeSliceChoices);
             }
             else
             {
                 foreach (var entry in LegacyMeterCatalog.Entries)
-                    _sourceChoices.Add(FromCatalog(entry));
+                    _allChoices.Add(FromCatalog(entry));
             }
 
             // A saved meter this radio does not report must still be visible and
@@ -443,7 +470,7 @@ public partial class MetersPanel : UserControl
             MeterDefinition? def = SelectedSlot?.Definition;
             if (def != null && def.Source.Kind == MeterSourceKind.RadioReported &&
                 !string.IsNullOrWhiteSpace(def.Source.Key) &&
-                !_sourceChoices.Any(c => Matches(c, def.Source)))
+                !_allChoices.Any(c => Matches(c, def.Source)))
             {
                 // Say WHICH thing is missing. A meter the radio has never heard
                 // of and a meter on a slice that is not running are different
@@ -463,9 +490,11 @@ public partial class MetersPanel : UserControl
                         ("key", def.Source.Key), ("slice", sliceNumber))
                     : Lexicon.Get("audio.meters.panel.missing_meter_detail");
 
-                _sourceChoices.Add(new SourceChoice
+                _allChoices.Add(new SourceChoice
                 {
                     Key = def.Source.Key,
+                    Category = MeterCategories.Of(
+                        def.Source.SliceIndex >= 0 ? "SLC" : "", def.Source.Key, def.Range.UnitsLabel),
                     SliceIndex = def.Source.SliceIndex,
                     Display = display,
                     ShortName = def.Source.Key,
@@ -475,10 +504,126 @@ public partial class MetersPanel : UserControl
                 });
             }
 
-            SourceCombo.Items.Clear();
-            foreach (SourceChoice choice in _sourceChoices) SourceCombo.Items.Add(choice);
-            AutomationProperties.SetName(SourceCombo,
-                Lexicon.Get("audio.meters.panel.source_combo_name", ("count", _sourceChoices.Count)));
+            RefreshCategoryChoices();
+            ShowCategory();
+        }
+        finally
+        {
+            _loading = wasLoading;
+        }
+    }
+
+    /// <summary>
+    /// Offer every category that has a meter in it, each with its count, after
+    /// "every category". Rebuilt with the source list, so a category appears
+    /// when its first meter does and goes when its last one does.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Choosing a category narrows the list, and "every category" is always
+    /// first, so nothing is ever out of reach: the same fold, not filter, rule
+    /// as "Show every meter this radio reports" beside it (#62). The grouping
+    /// is for the ear and the keyboard: arrowing a hundred meters one at a
+    /// time is a different problem with a screen reader than with eyes, and
+    /// inside one category a first letter lands somewhere useful.
+    /// </para>
+    /// <para>
+    /// A category that empties (the amplifier goes away, or the fold is turned
+    /// back to the short list) is dropped and the list goes back to every
+    /// category, rather than showing a category with nothing in it.
+    /// </para>
+    /// </remarks>
+    private void RefreshCategoryChoices()
+    {
+        _categoryChoices.Clear();
+        foreach (MeterCategory c in MeterCategories.InOrder)
+            if (_allChoices.Any(x => x.Category == c)) _categoryChoices.Add(c);
+        if (_category is { } chosen && !_categoryChoices.Contains(chosen)) _category = null;
+
+        CategoryCombo.Items.Clear();
+        CategoryCombo.Items.Add(CountedLabel(
+            "settings.meter_category.every", "settings.meter_category.every_one", null, _allChoices.Count));
+        foreach (MeterCategory c in _categoryChoices)
+        {
+            CategoryCombo.Items.Add(CountedLabel(
+                "settings.meter_category.item", "settings.meter_category.item_one",
+                CategoryName(c), _allChoices.Count(x => x.Category == c)));
+        }
+        CategoryCombo.SelectedIndex = _category is { } shown ? _categoryChoices.IndexOf(shown) + 1 : 0;
+    }
+
+    private static string CountedLabel(string key, string oneKey, string? category, int count) =>
+        count == 1
+            ? Lexicon.Get(oneKey, ("category", category ?? ""))
+            : Lexicon.Get(key, ("category", category ?? ""), ("count", count));
+
+    /// <summary>The operator's name for a category. DRAFT, every one.</summary>
+    internal static string CategoryName(MeterCategory c) => Lexicon.Get(c switch
+    {
+        MeterCategory.Transmit => "settings.meter_category.transmit",
+        MeterCategory.Receive => "settings.meter_category.receive",
+        MeterCategory.PowerAndSwr => "settings.meter_category.power_and_swr",
+        MeterCategory.TemperatureAndVoltage => "settings.meter_category.temperature_and_voltage",
+        MeterCategory.Amplifier => "settings.meter_category.amplifier",
+        MeterCategory.Audio => "settings.meter_category.audio",
+        _ => "settings.meter_category.other",
+    });
+
+    /// <summary>
+    /// Fill the source list from the chosen category: its meters in the
+    /// radio's order, or with every category, all of them grouped by category
+    /// with the category's name in front.
+    /// </summary>
+    private void ShowCategory()
+    {
+        _sourceChoices.Clear();
+        if (_category is { } only)
+        {
+            foreach (SourceChoice c in _allChoices.Where(x => x.Category == only))
+            {
+                c.ListDisplay = c.Display;
+                _sourceChoices.Add(c);
+            }
+        }
+        else
+        {
+            foreach (MeterCategory cat in MeterCategories.InOrder)
+            {
+                foreach (SourceChoice c in _allChoices.Where(x => x.Category == cat))
+                {
+                    c.ListDisplay = Lexicon.Get("settings.meter_category.source_display",
+                        ("category", CategoryName(cat)), ("display", c.Display));
+                    _sourceChoices.Add(c);
+                }
+            }
+        }
+
+        SourceCombo.Items.Clear();
+        foreach (SourceChoice choice in _sourceChoices) SourceCombo.Items.Add(choice);
+        AutomationProperties.SetName(SourceCombo,
+            Lexicon.Get("audio.meters.panel.source_combo_name", ("count", _sourceChoices.Count)));
+    }
+
+    /// <summary>
+    /// The operator chose a category: show its meters, and keep the meter
+    /// being edited selected if it is among them. Changes nothing about the
+    /// meter.
+    /// </summary>
+    private void CategoryCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        int i = CategoryCombo.SelectedIndex;
+        _category = i >= 1 && i - 1 < _categoryChoices.Count ? _categoryChoices[i - 1] : null;
+
+        bool wasLoading = _loading;
+        _loading = true;
+        try
+        {
+            ShowCategory();
+            MeterDefinition? def = SelectedSlot?.Definition;
+            int at = def == null ? -1 : _sourceChoices.FindIndex(c => Matches(c, def.Source));
+            SourceCombo.SelectedIndex = at;
+            UpdateSourceDetail(at >= 0 ? _sourceChoices[at] : null);
         }
         finally
         {
@@ -508,6 +653,7 @@ public partial class MetersPanel : UserControl
         return new SourceChoice
         {
             Key = r.Name,
+            Category = MeterCategories.Of(group.Source, r.Name, units),
             SliceIndex = isSlice ? r.SourceIndex : -1,
             Display = Lexicon.Get("audio.meters.panel.source_display",
                 ("group", group.Label), ("label", label)),
@@ -562,6 +708,7 @@ public partial class MetersPanel : UserControl
         return new SourceChoice
         {
             Key = r.Name,
+            Category = MeterCategories.Of("SLC", r.Name, units),
             SliceIndex = -1,
             Display = Lexicon.Get("audio.meters.panel.active_slice_display", ("label", label)),
             ShortName = Lexicon.Get("audio.meters.panel.short_name_active_slice", ("name", r.Name)),
@@ -589,6 +736,8 @@ public partial class MetersPanel : UserControl
         return new SourceChoice
         {
             Key = key,
+            Category = MeterCategories.Of(
+                LegacyMeterCatalog.IsSliceSource(entry.Key) ? "SLC" : "", key, entry.UnitsLabel),
             SliceIndex = -1,
             Display = Lexicon.Get("audio.meters.panel.catalog_display",
                 ("displayName", entry.DisplayName), ("key", key)),
@@ -629,7 +778,7 @@ public partial class MetersPanel : UserControl
         if (!IsLoaded) return;
         RefreshSourceChoices();
         LoadSelectedSlot();
-        int n = _sourceChoices.Count;
+        int n = _allChoices.Count;
         // #128: tone before the sentence — the checkbox is operator-facing
         // and the tone confirms the flip landed even if the count that
         // follows gets talked over.
@@ -689,6 +838,15 @@ public partial class MetersPanel : UserControl
             MeterDefinition def = slot.Definition;
 
             int sourceIndex = _sourceChoices.FindIndex(c => Matches(c, def.Source));
+            if (sourceIndex < 0 && _allChoices.FirstOrDefault(c => Matches(c, def.Source)) is { } elsewhere)
+            {
+                // The meter being edited is in another category: show that
+                // one, so its source is on screen rather than a blank list.
+                _category = elsewhere.Category;
+                CategoryCombo.SelectedIndex = _categoryChoices.IndexOf(elsewhere.Category) + 1;
+                ShowCategory();
+                sourceIndex = _sourceChoices.FindIndex(c => Matches(c, def.Source));
+            }
             SourceCombo.SelectedIndex = sourceIndex;
             UpdateSourceDetail(sourceIndex >= 0 ? _sourceChoices[sourceIndex] : null);
 

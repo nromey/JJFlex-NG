@@ -1,0 +1,1 @@
+The meter picker in the meters panel now has a Category choice ahead of the source list: Transmit, Receive, Power and SWR, Temperature and voltage, Amplifier and tuner, and Audio. Pick one and you arrow through just those meters; Every category is always first and lists them all, grouped.
