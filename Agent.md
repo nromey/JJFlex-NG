@@ -9,6 +9,48 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-11-07 (COVERS 2026-11-06 08:39 TO 2026-11-07 07:20, MEASURED FROM `1bc44703`) — THE SECOND NIGHT MODE: FOUR JUNK BOX BATCHES CLEAN UNDER NOEL'S NEW BAR, JJPROBE PRESSES AGAIN, BENCHES STOP CONNECTING AS NOEL
+
+*Covers nap mode 2 (19:01 to 23:07), the second night mode (23:08 to 05:59; Noel said good morning at 05:59 in the junk box window, which woke the other windows; all wrapped up by 06:00), and the morning question session (06:05 to 07:09). No build was published.*
+
+**Main:** nothing since `1bc44703` but this entry. All work is on branches, none merged, none pushed.
+
+**Noel's bar, 2026-11-06 23:24 and 23:26.** Repair rounds stop once a thing works in everyday use: a finding blocks only if it is unsafe, untrue in ordinary use, or likely in everyday use; rare races, transmit-path ones included, are filed as "fix only if seen in use" and never picked by the junk box on its own. 23:44: every Codex finding states its trigger and timing window; frequency is the working window's call, Noel's word final. 2026-11-07 05:53: those entries are now listed apart from the work in the generated views (521 open to work, 14 noted).
+
+**Junk box 2026-11-02 (`junkbox/2026-11-02-batch`, 44 commits, to `b18065c0`).** Round six Codex check (re-run after a memory-guard kill) closed E1, M2, T2; its other findings filed (#921 to #925). Merge prep (#774 Delete key in the Command Finder and Ctrl+F1; changelog fragments; `8a0d9811` narrowed one overpromise). Benches 3 and 4 on the 8600 over LAN: the speaker put-back, J28's refused typed frequency, and round seven (a refused send no longer says where it would have transmitted; a notice NVDA cut before its first word is handed again once; a local connect without PC audio puts the shack speaker back). NVDA's 8 s stall on the long-recording question is NVDA's (#933); a plain split send's sentence is cut by Home (#934). **Ready for Noel's word after its help lines.**
+
+**Junk box 2026-11-06 (`junkbox/2026-11-06-batch`, 20 commits, `60d2043f`).** Round thirteen Codex MERGE AFTER CHECKS; round fourteen withdrawn under the bar (#916 filed); merge prep (Settings double-tap sentence, the edge-grab inventory row, the FM preset line) checked clean. **Ready after its help lines; merges after 11-02.**
+
+**Junk box 2026-11-07 (`junkbox/2026-11-07-batch`, 21 commits, `3255cc5b`).** Thirteen picked, eleven built: #875 (FlexLib `dax_clients` break), #570, #711, #239, #909 (`Radios/LocalDataRoot`), #634, #452, #625, #632 (comments and a pin), #593, #914. Ten per-fix Codex checks: seven clean, three repaired (#452 capture edges, #625 a false note, #593 a lost grouped alarm); an integration read found the drop window spoke of a capture during the standing log and promised every measurement explained (repaired, J39); harness benches over LAN passed. #325 not built (FrontPanelMacAddress is the M front panel's), #181 not built (too big; J36). **Waits on Noel's wording sheet** (`for-noel/2026-11-07-reading-junkbox-2026-11-07-report.md`) and J37's address removal.
+
+**Junk box 2026-11-07 second (`junkbox/2026-11-07-batch-2`, 20 commits, `16b31e3d`).** Eight picked (only eight qualified with eight branches unmerged), seven built: #935, #773, #483, #371, #621 (IScreenReader.Silence reports acceptance), #263 (mode cycle setting, saved at launch, filtered to the radio's own list after the 8600 bench caught DSB spoken while the radio went to DIGU), #124 (meters by category). Codex clean after six small repair rounds; benched on the 8600. #694 stopped as briefed (no radio identity when disconnected; J40 answered). Needs its reading and wording sheet.
+
+**Harness.** jjprobe's press delivered nothing for weeks: `INPUT` was 32 bytes on x64 where `SendInput` needs 40, and the return was ignored (`0821acfe`); verified on the real app (Ctrl+/ opened the Command Finder 3 of 3, the old probe 0). Every bench settings tree carried Noel's own 8600 GUI client id, so benches connected as him (found by Check your audio, #931); all now use `BE887730-77C3-4B5A-A7EF-E6465AF6BB28` (C19). The 8600 holds transmit settings per GUI client (memory `project_flex_transmit_settings_are_per_gui_client.md`). Benches will build into `C:\dev\jjflex-bench`, allowed once (J34).
+
+**Sound processing (#737, Sprint 49).** S19 and S10 answered; the 6300 has none of the radio's NR; NVIDIA NR researched (licence needs Noel's sign-in, #768); the CW bench reached round 6 and Noel chose a guided redesign (S22, 06:16). New learning project #948. Track E's 18 design questions wait until after this seal.
+
+**Check your audio and takes (#864).** #915 measured and filed; merge prep done; merged-build benches on the 8600 passed twice; waits on Noel's review of its help and changelog drafts. C13 to C19 answered.
+
+**Rulings this morning (queued, not built):** J31 thunk is right; J32 the Enter ding means entry taken; J33 typed entry waits 3 s; J34 one bench folder; J35 count heard at the next hand-over; J36 unanswered crash reports kept, configurable; J37 no address (k5ner if one is ever needed); J38 Ctrl is momentary, not remembered across a reconnect (revises 2026-09-26); J39 the standing-log drop-window wording approved; J40 per-radio settings while disconnected through the Radios tab's picker; J41 Digital lower / Digital upper, plus a clear spoken form for SAM, NFM and DFM and Ctrl+F1 explaining every mode; C13 to C19 as recommended; S22 (b); "spoken transcript" one name everywhere (#944); "Transmission problems" (#943).
+
+**Seal checks:**
+- No dependency advisories (every project "no vulnerable packages").
+- Memory drift: one new candidate (`project_flex_transmit_settings_are_per_gui_client.md`, a raw API command, not a code symbol).
+- Codex instruction tests 5 of 5; sandbox healthy.
+- NVDA logs archived as `2026-11-07-*` (the live log at speech level, 6,911 Speaking lines).
+- Backups: memory, Claude state (951 MB), the dev mirror, AppData; private docs after the AAR.
+- MEMORY.md 17.9 KB, still over the 12 KB seal threshold; Current State rewritten. Banner sweep found nothing new to archive. A dedicated trim pass is owed.
+
+**Junk box intake (3c-ter):** 52 entries opened 2026-11-06 and 07 (through #948), all targeted and every JUNKBOX one prioritized. A slip found and fixed: seventeen of the junk box's own entries carried TARGET in a bullet the summary cannot read (memory `feedback_register_target_must_be_a_quoted_line.md`).
+
+**Cross-surface:** Codex wrote 54 reports dated 2026-11-07 and more on 2026-11-06, all logged in `codex-evaluation.md`. Branch work since the last seal: junk box 11-02 44 commits (+7,134/-1,135), 11-06 20 (+6,334/-1,019), 11-07 21 (+2,861/-532), 11-07 second 20 (+3,650/-153), takes 5 (+1,331/-89), Sprint 49 bench-cw 7 (+2,157/-329), harness/process-desktop 13 (+5,589/-504). Freight Fate holds 16 unpushed commits on `feat/career-1.9` (Noel's call); Civ VI Access has none.
+
+**Waiting on Noel:** the merges (11-02 then 11-06 after their help lines; 11-07 after its wording sheet; the second 11-07 batch after its reading; takes after its drafts); the Track E design questions; the NVIDIA sign-in; the WDSP helper README edit; allowing `C:\dev\jjflex-bench` at its first launch.
+
+### Rigmeter snapshot — end of 2026-11-07
+
+Main only: 1 commit since 2026-11-06 (the last seal), +38 lines of markdown. Every line of the night's code is on unmerged branches (totals above), which rigmeter's main-branch view does not count.
+
 ## END-OF-DAY SEAL — 2026-11-06 (COVERS 2026-11-04 23:45 TO 2026-11-06 08:39, MEASURED FROM `f5a6fa10`) — THE FIRST NIGHT MODE: BOTH JUNK BOX BATCHES CODEX-CLEAN, UNIFIED TAKES ROUND FIVE CLEAN, SPRINT 49 FOLLOW-UPS CHECKED, WW1USA RECORDED
 
 *Covers Noel's surgery day (2026-11-05, light until the evening) and the first night mode, 01:33 to 08:26 on 2026-11-06, run under `JJFlex-private/planning/NIGHT-MODE.md` (approved 00:53). Noel said "morning" at 08:26 in the sound processing window, which messaged the junk box and Check your audio windows; both replied "received" and then "wrapped up" (08:28 and 08:39). The orchestrator and Maestro windows were offline all night. The recap is at the top of `for-noel/2026-11-06-night-status.md`.*
