@@ -329,4 +329,31 @@ public sealed class DeleteKeyRemovesTests
             Assert.True(wiring.Contains(f) || NotWired.ContainsKey(f),
                 f + " has a Remove, Delete or Forget button and neither wires Delete to it nor says why not (#774)");
     }
+
+    // ---------------- Merge prep: Ctrl+F1 and the Command Finder name the key ----------------
+
+    [Theory]
+    [InlineData("_Delete", "Delete removes the selected item, the same as the Delete button.")]
+    [InlineData("_Delete...", "Delete removes the selected item, the same as the Delete button.")]
+    [InlineData("_Delete Group", "Delete removes the selected item, the same as the Delete Group button.")]
+    [InlineData("Remove", "Delete removes the selected item, the same as the Remove button.")]
+    public void Ctrl_F1_on_the_list_says_Delete_presses_its_button(string content, string sentence)
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Assert.Equal(sentence, DeleteKeyRemoves.HelpSentence(content));
+    }
+
+    [Fact]
+    public void Wiring_a_list_registers_the_sentence_as_its_Ctrl_F1_note_and_the_Command_Finder_lists_the_key()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var dir = new System.IO.DirectoryInfo(System.AppContext.BaseDirectory);
+        while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+        string text = System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, "JJFlexWpf", "DeleteKeyRemoves.cs"));
+        int wire = text.IndexOf("private static void OnButtonChanged(", System.StringComparison.Ordinal);
+        Assert.True(wire > 0);
+        Assert.Contains("JJFlexHelp.SetNoteFor(", text.Substring(wire, 1500), System.StringComparison.Ordinal);
+        Assert.Contains(KeyInventory.All(), e => e.KeyDisplay == "Delete" && e.Context == "Lists");
+    }
 }

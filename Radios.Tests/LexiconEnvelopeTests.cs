@@ -2119,6 +2119,9 @@ namespace Radios.Tests
                 "connect.home.frequency_ended_on_slice",
                 // Round four (#861, J20): Noel's own wording, 2026-11-06 16:34.
                 "audio.mic.still_switching_to_pc",
+                // Merge prep (#774): Ctrl+F1 on a list names its Delete key. DRAFT.
+                "settings.lists.delete_button_default",
+                "settings.lists.delete_removes_help",
                 // Round four (#642, J28): Noel's own wording at Terse and Chatty
                 // (2026-11-06 16:52); Chatty's slot DRAFT for the keyboard audit.
                 // And what is said when the radio has not answered: DRAFT prose.

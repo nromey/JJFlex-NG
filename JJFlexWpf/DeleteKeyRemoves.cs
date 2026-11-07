@@ -39,6 +39,18 @@ namespace JJFlexWpf;
 /// </remarks>
 public static class DeleteKeyRemoves
 {
+    /// <summary>
+    /// What Ctrl+F1 on a wired list adds (merge prep): "Delete removes the
+    /// selected item, the same as the Delete button." The button's own label,
+    /// without its access-key underscore or trailing dots. DRAFT wording.
+    /// </summary>
+    internal static string HelpSentence(string? buttonContent)
+    {
+        string label = (buttonContent ?? "").Replace("_", "").TrimEnd('.', ' ').Trim();
+        if (label.Length == 0) label = Radios.Lexicon.Get("settings.lists.delete_button_default");
+        return Radios.Lexicon.Get("settings.lists.delete_removes_help", ("button", label));
+    }
+
     /// <summary>The button Delete presses for a list. Set it in code once the button exists.</summary>
     public static readonly DependencyProperty ButtonProperty = DependencyProperty.RegisterAttached(
         "Button", typeof(ButtonBase), typeof(DeleteKeyRemoves),
@@ -52,6 +64,10 @@ public static class DeleteKeyRemoves
     private static void OnButtonChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         if (d is not Selector list) return;
+        // Ctrl+F1 on the list says so (merge prep): a note, read after the
+        // list's own help and never on focus.
+        if (e.NewValue is ButtonBase named)
+            JJFlexHelp.SetNoteFor(new TextBlock { Text = HelpSentence(named.Content as string) }, list);
         list.PreviewKeyDown -= OnPreviewKeyDown;
         list.PreviewKeyUp -= OnPreviewKeyUp;
         list.PreviewMouseDown -= OnPreviewMouseDown;

@@ -1304,6 +1304,13 @@ public static class KeyInventory
             new[] { "tune", "step", "size", "logging" }, "Logging", "Logging"),
         new("LoggingPane", "Logging radio pane", "Ctrl+F", "Enter a frequency",
             new[] { "frequency", "enter", "logging" }, "Logging", "Logging"),
+        // #774 (2026-11-02 junk box): Delete on a list presses that list's own
+        // Remove or Delete button. Registered at merge prep so the Command
+        // Finder and the key list can find it.
+        new("Lists", "Lists with a Remove or Delete button", "Delete",
+            "Remove the selected item, the same as the list's Remove or Delete button (it asks first where the button asks)",
+            new[] { "delete", "remove", "list", "item", "memory", "memories", "notch", "preset", "message",
+                    "operator", "group", "profile", "capture", "run" }, "Global", "General"),
     };
 
     // ────────────────────────────────────────────────────────────────
