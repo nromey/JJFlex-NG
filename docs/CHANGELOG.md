@@ -47,6 +47,12 @@ This release is about the space where you actually spend your time in the app â€
 
 ### Foundation Phase Headlines {#unreleased-headlines}
 
+- **Heads-up: the DSP menu has moved to Audio, DSP.** Noise reduction, the noise blankers, PC noise reduction, auto notch and the audio peak filter are no longer on the Slice menu; they still work on your active slice, and the menu is there before you connect, saying which items need a radio. Meter Tones has its own row on the Audio menu, right below DSP.
+- **Save Station Setup to Radio has moved to the Radio menu**, right after Profiles on This Radio, from where it was tucked away under Slice, Selection.
+- **Menu items that need a radio say "connect a radio"** when you're not connected, rather than "needs a radio", so the row tells you what to do.
+- **The Slice menu tells you how many slices are in use out of how many your radio holds**, and the About dialog's radio details say the same.
+- **FFT auto-notch tells you when your radio's licence doesn't include it**, from the noise layer, the menu or the DSP controls, instead of announcing "on" while the radio does nothing. Legacy NR and Legacy Auto-Notch work on every radio, and Feature Availability no longer calls them unsubscribed.
+- **You can arrow through every line of the Feature Availability tab in Radio Information**, instead of hearing the first line over and over.
 - **The Delete key removes the selected item in every list that has a Remove or Delete button**: memories, notches, filter presets, CW messages, operators, memory groups, screen fields, profiles, past Fix tool runs and saved signal captures. It asks first where the button asks, you land on the next item, and one press removes one item even if you hold the key down.
 - **Every window plays a rising pair of tones when it opens and a falling pair when it closes**, so you can tell when one has gone away, even a small window inside another. Settings, Notifications has a switch for it, Dialog open and close tones.
 - **In the Hotkey Editor, Tab and Shift+Tab move you on while it's waiting for a new key**, Enter says plainly that it can't be assigned, and from the list of commands Tab goes straight to Change Key.
