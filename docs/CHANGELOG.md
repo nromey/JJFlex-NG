@@ -47,6 +47,15 @@ This release is about the space where you actually spend your time in the app â€
 
 ### Foundation Phase Headlines {#unreleased-headlines}
 
+- **The Delete key removes the selected item in every list that has a Remove or Delete button**: memories, notches, filter presets, CW messages, operators, memory groups, screen fields, profiles, past Fix tool runs and saved signal captures. It asks first where the button asks, you land on the next item, and one press removes one item even if you hold the key down.
+- **Every window plays a rising pair of tones when it opens and a falling pair when it closes**, so you can tell when one has gone away, even a small window inside another. Settings, Notifications has a switch for it, Dialog open and close tones.
+- **In the Hotkey Editor, Tab and Shift+Tab move you on while it's waiting for a new key**, Enter says plainly that it can't be assigned, and from the list of commands Tab goes straight to Change Key.
+- **Manage Messages says so when you have no messages yet.** Its way out is a Close button, because every add, update and delete is saved the moment you make it; deleting your last message leaves you on the empty list, ready to add another; and the list no longer reads you its instructions on every landing, since Ctrl+F1 has them.
+- **Buttons that change their label partway through are announced by the label they show**: the connection tester's Start says Stop while a test runs, and the LoTW merge's Cancel says Done once the merge finishes.
+- **The offer to save your setup to the radio when you disconnect has a "Don't ask me this again when I disconnect" box**; the setting on the Notifications tab brings it back.
+- **The app calls itself by its name.** Settings, dialogs and spoken messages that said "JJ Flex" now say JJ Flexible Radio Access.
+- **NVDA says contractions like can't as one word.**
+- **Settings is in proper groups now**: your screen reader names each section as you enter it, and F6 and Shift+F6 jump between sections, as they do in the Audio Workshop.
 - **Logging mode's keys work, and it knows where you are.** Ctrl+Shift+L returns you to the tuning view you left and Ctrl+Alt+L opens the full log entry form; the first time you enter Logging mode in a session, focus lands in the Call Sign field; and leaving it tells you which tuning mode you're back in. With no log file set up, Logging mode says so and offers to open a log you already have or create a new one, instead of opening Log Characteristics on every field jump.
 - **Your meters panel comes back after a reconnect if you left it open**, honouring any change you made with Ctrl+M while the radio was gone.
 
