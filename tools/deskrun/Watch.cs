@@ -31,7 +31,7 @@ namespace JJFlex.DeskRun;
 /// enumeration and the owner filter can see a test window at all.
 /// </para>
 /// <para>
-/// <b>Sound.</b> About every 5 ms, every audio session on every active render
+/// <b>Sound.</b> About every 6 ms (measured about 150 passes a second), every audio session on every active render
 /// endpoint has its peak meter read; sessions are re-listed every 200 ms. Any
 /// session owned by a process that was ever in the job, whose peak ever left
 /// zero, kills the job and the run exits 73. A meter reports the peak of one
@@ -485,6 +485,16 @@ internal sealed class Watch : IDisposable
                           + (others.Count == 0 ? "n/a" : Peak(others.Max(s => s.MaxPeak))
                                                          + " (" + others.OrderByDescending(s => s.MaxPeak).First().Process + ")")
                           + " (the meter reading a non-zero value here shows it can).");
+                // Each other process's loudest moment, because sound the job
+                // CAUSES can be rendered by somebody else (a screen reader
+                // speaking about a window, for one). That cannot be attributed
+                // from here, but a reader can see whether it happened at all.
+                if (others.Count > 0)
+                    lines.Add("audio watch: other sessions by process: "
+                              + string.Join("; ", others.GroupBy(o => o.Process + " " + o.Pid)
+                                                        .Select(g => g.Key + " max peak " + Peak(g.Max(x => x.MaxPeak))
+                                                                     + (g.Any(x => x.EverActive) ? " (active)" : "")))
+                              + ".");
             }
 
             return lines;
