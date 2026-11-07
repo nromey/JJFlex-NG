@@ -185,6 +185,52 @@ public sealed class MeterCategoryPickerTests
         }
     }
 
+    /// <summary>
+    /// Codex, recheck of f05fc1f2's repair: the category chosen while editing
+    /// meter A must not outlive leaving A. Select A (LEVEL), browse Audio,
+    /// select B (FWDPWR), select A again: A's own source must be shown, in
+    /// its own category. It came back on Power and SWR with no source shown.
+    /// </summary>
+    [Fact]
+    public void Returning_to_a_meter_shows_its_own_source_not_a_category_chosen_before_leaving_it()
+    {
+        var added = new List<MeterSlot>();
+        try
+        {
+            Run(panel =>
+            {
+                foreach (var key in new[] { "LEVEL", "FWDPWR" })
+                {
+                    var slot = MeterToneEngine.AddSlot()!;
+                    added.Add(slot);
+                    slot.Retarget(key, key, new MeterRange(), MeterActivation.Always, -1);
+                }
+                Invoke(panel, "RefreshSlotList");
+                var slots = Combo(panel, "SlotCombo");
+                var category = Combo(panel, "CategoryCombo");
+                var source = Combo(panel, "SourceCombo");
+
+                slots.SelectedIndex = MeterToneEngine.Slots.IndexOf(added[0]);
+                category.SelectedIndex = Items(category).ToList().FindIndex(x => x.StartsWith("Audio"));
+                slots.SelectedIndex = MeterToneEngine.Slots.IndexOf(added[1]);
+                Assert.StartsWith("Power and SWR", (string)category.SelectedItem);
+
+                slots.SelectedIndex = MeterToneEngine.Slots.IndexOf(added[0]);
+                Assert.StartsWith("Receive", (string)category.SelectedItem);
+                Assert.True(source.SelectedIndex >= 0, "meter A's own source is not shown");
+                Assert.Contains("LEVEL", Items(source)[source.SelectedIndex]);
+            });
+        }
+        finally
+        {
+            foreach (var slot in added)
+            {
+                EarconPlayer.UnregisterContinuousTone(slot.ToneProvider);
+                MeterToneEngine.Slots.Remove(slot);
+            }
+        }
+    }
+
     private const System.Reflection.BindingFlags Private =
         System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
 

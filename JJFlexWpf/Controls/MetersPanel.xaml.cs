@@ -336,7 +336,13 @@ public partial class MetersPanel : UserControl
     {
         if (_loading) return;
         MeterSlot? slot = SelectedSlot;
-        _selectedSlotId = slot?.Definition.Id ?? "";
+        string id = slot?.Definition.Id ?? "";
+        // A category the operator chose belongs to the meter they were
+        // editing then. Moving to another meter forgets it, so coming back
+        // to the first one shows that meter's own source in its own
+        // category rather than a category chosen for it earlier.
+        if (id != _selectedSlotId) _categoryChosenForSlotId = null;
+        _selectedSlotId = id;
         LoadSelectedSlot();
     }
 
