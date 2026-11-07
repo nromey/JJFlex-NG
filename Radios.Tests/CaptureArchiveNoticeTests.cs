@@ -122,19 +122,22 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// What was saved: that it was, how far it reaches, and that each kind
-        /// of measurement explains itself in the file. NOT what it holds — see
+        /// What was saved: that it was, how far it reaches, and where the
+        /// file's own notes are. NOT what it holds — see
         /// <see cref="No_form_of_the_notice_describes_what_the_file_contains"/>.
-        /// Noel's approved wording (#625, 2026-09-29), which he kept after
-        /// being shown H17's bounding of the guide.
+        /// The approved draft's third sentence, "Each kind of measurement in
+        /// the file is explained where it first appears", was approved on the
+        /// premise that a test enforced it; none does, and tuneResult and the
+        /// reflected-power warning's lines introduce nothing. Repair round two
+        /// replaced it (DRAFT).
         /// </summary>
         [Fact]
-        public void What_was_saved_is_the_approved_sentence()
+        public void What_was_saved_claims_only_what_the_file_can_show()
         {
             Assert.Equal(
                 "The capture has been closed and saved. It holds the complete set of data up to and "
-                + "including the moment the radio disconnected. Each kind of measurement in the file is "
-                + "explained where it first appears, so you can read it without knowing the program.",
+                + "including the moment the radio disconnected. Lines that explain themselves do so where "
+                + "they first appear; search the file for \"Capture Note\" to find those notes.",
                 Named().WhatWasSaved);
         }
 

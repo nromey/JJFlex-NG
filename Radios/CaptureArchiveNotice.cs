@@ -289,10 +289,14 @@ namespace Radios
         /// the application always has about a committed archive: with a
         /// certain tail it runs up to the moment the connection went; with an
         /// uncertain one it may stop short, and the caveat paragraph says why.
-        /// Both point the operator at the file, which describes itself. Neither
-        /// names a reading, a meter, or a kind of line: the window used to,
-        /// and was wrong three ways in three review rounds. DRAFTS — Noel's to
-        /// rule; listed in the H16 report.
+        /// Both point the operator at the file and its notes. Neither names a
+        /// reading, a meter, or a kind of line, and neither claims that every
+        /// kind of line explains itself: the approved draft said "Each kind of
+        /// measurement in the file is explained where it first appears", which
+        /// is false (tuneResult lines and the reflected-power warning's line
+        /// introduce nothing), and repair round two took it out, as round one
+        /// took the same claim out of the file's opening. DRAFTS, Noel's to
+        /// rule.
         /// </summary>
         public string WhatWasSaved =>
             TailUncertain
