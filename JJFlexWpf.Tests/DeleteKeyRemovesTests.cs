@@ -292,6 +292,7 @@ public sealed class DeleteKeyRemovesTests
     {
         "CWMessageUpdateDialog", "FilterPresetEditorDialog", "ListerDialog", "ManageGroupsDialog",
         "MemoriesDialog", "ProfileDialog", "TNFDialog", "FixerPastRunsDialog", "SignalCapturesDialog",
+        "PlayTakesDialog", // #927, at the merge of Unified takes onto main
     };
 
     /// <summary>Remove-style buttons that are not "remove the item I am on", or already answer Delete.</summary>

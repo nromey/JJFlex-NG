@@ -2044,9 +2044,6 @@ public class KeyCommands
         // Check your audio Track B (#835). Home's Transmission group and
         // Settings, PTT, carry the box too; the Command Finder runs this
         // command and the Hotkey Editor can bind it a flat key.
-        [CommandValues.OpenPlayTakes] = new(UnboundReason.LeaderLayer,
-            "Ctrl+J, Alt+T opens Play takes; T for takes. Check your audio has a Play takes button too. "
-            + "Its flat key is not chosen yet."),
         [CommandValues.ToggleVoxSendBox] = new(UnboundReason.LeaderLayer,
             "Ctrl+J, Ctrl+K turns on or off whether sends key the radio when VOX is on; K for key. "
             + "The same box is in Home's Transmission group, after VOX gain and delay, and in Settings, PTT."),
@@ -2307,8 +2304,9 @@ public class KeyCommands
         // one F11 form still free (Noel, 2026-10-24 15:49: "I'd make the hotkey
         // for the dialog ctrl+alt+shift+f11"). Shift+F11 alone stays NVDA's.
         new(Keys.F11 | Keys.Control | Keys.Alt | Keys.Shift, CommandValues.OpenRecordedQsos, KeyScope.Global),
-        // Unified takes (#864): Play takes' default flat key goes HERE once
-        // Noel picks one. Deliberately none yet; Ctrl+J, Alt+T opens it.
+        // Unified takes (#864): Play takes' flat key, ruled by Noel 2026-11-07
+        // (C17): Alt+Shift+T, beside the chord Ctrl+J, Alt+T. T for takes.
+        new(Keys.T | Keys.Alt | Keys.Shift, CommandValues.OpenPlayTakes, KeyScope.Global),
     };
 
     // ────────────────────────────────────────────────────────────────
@@ -4561,8 +4559,8 @@ public class KeyCommands
                 OpenCheckYourAudioHandler();
                 break;
 
-            // Unified takes (#864): T for takes, Play takes. PROPOSED by the
-            // orchestrator 2026-11-02, not yet ruled. Opening a window is an
+            // Unified takes (#864): T for takes, Play takes. Ruled by Noel
+            // 2026-11-07 (C17), with Alt+Shift+T as its flat key. Opening a window is an
             // action, so the Alt tier, beside Alt+C and Alt+F. It opens the
             // window and never starts a check or keys. Works with no radio.
             case Keys.T | Keys.Alt:

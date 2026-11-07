@@ -132,9 +132,11 @@ public sealed class PlayTakesDialog : JJFlexDialog
         _list.SelectionChanged += (_, _) => { if (!_quiet) RefreshControls(); };
         _list.PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == Key.Delete && Keyboard.Modifiers == ModifierKeys.None) { e.Handled = true; Delete(); }
-            else if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None) { e.Handled = true; _ = PlayAsync(); }
+            if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None) { e.Handled = true; _ = PlayAsync(); }
         };
+        // Delete on the list presses the Delete button (#927), as on every other
+        // list: its held-key gate, its Ctrl+F1 note, and landing on the next take.
+        DeleteKeyRemoves.SetButton(_list, _delete);
         root.Children.Add(_list);
         Content = root;
         Populate(keepSelection: false);
@@ -399,6 +401,9 @@ public sealed class PlayTakesDialog : JJFlexDialog
         finally { _busy = false; }
     }
 
+    /// <summary>Takes in the list, not counting the "no takes" placeholder.</summary>
+    private int ShownTakes => _list.Items.OfType<ListBoxItem>().Count(i => i.Tag is TakeRow);
+
     /// <summary>The Delete key and the Delete button share this one path and its confirmation.</summary>
     private void Delete()
     {
@@ -414,11 +419,19 @@ public sealed class PlayTakesDialog : JJFlexDialog
         if (!confirmed) return;
         if (RecordingPlayer.IsPlaying) RecordingPlayer.StopWithoutSpeaking();
         var recorder = ComputerRecorder.Current as ComputerFlacRecorder;
+        int removedAt = _list.SelectedIndex;
+        int before = ShownTakes;
         var verdict = TakeDeletionGuard.Delete(Root, row.Directory,
             Path.Combine(RadioConfig.AppDataRoot, "listenback-recovery"), new CheckRestoreReminderStore(RadioConfig.AppDataRoot),
             busy: folder => recorder?.IsCapturing(folder) == true || TakeObligations.IsOwed(folder));
         if (_chosen?.Directory == row.Directory && verdict.Allowed) _chosen = null;
         Populate(keepSelection: !verdict.Allowed);
+        // The next take, else the previous one (#927), not the top of the list.
+        if (verdict.Allowed)
+        {
+            int landing = DeleteKeyRemoves.LandingIndex(removedAt, before, ShownTakes);
+            if (landing >= 0) _list.SelectedIndex = landing;
+        }
         string key = verdict.Reason switch
         {
             "" => "audio.takes.deleted",

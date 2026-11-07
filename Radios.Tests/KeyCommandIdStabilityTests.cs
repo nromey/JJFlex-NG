@@ -145,7 +145,7 @@ namespace Radios.Tests
 
             // 134 as of 2026-11-02 (Unified takes, #864), which appended
             // OpenPlayTakes = 132, the Play takes window, on Ctrl+J, Alt+T and
-            // with no flat key until Noel picks one.
+            // with no flat key until Noel picked Alt+Shift+T (2026-11-07, C17).
             // Was 133 as of 2026-10-27 (#835, Check your audio Track B), which
             // appended ToggleVoxSendBox = 131 — the VOX send box, unbound by default.
             // Was 132 as of 2026-10-24 (#787, Tape Deck track 4), which appended
