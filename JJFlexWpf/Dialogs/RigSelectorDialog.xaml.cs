@@ -1982,14 +1982,16 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         /// <remarks>
         /// Favorites first (that is what a favorites list means), then live
-        /// radios above roster rows, then remote-capable above local-only —
-        /// pressing Remote means "show me my remote radios", so they must not
-        /// sit below locally discovered ones the user did not ask about (Noel,
-        /// 2026-08-05). Stable within each group.
+        /// radios above roster rows, then radios on the local network above
+        /// SmartLink-only ones; a radio reachable both ways counts as local
+        /// (Noel, 2026-10-10, "Local radios should be on top"; #711). Stable
+        /// within each group. Until 2026-11-07 the third group put
+        /// remote-capable radios first, a rule written for a Remote button's
+        /// list that no longer exists; see <see cref="Radios.RosterOrder"/>.
         ///
         /// <para><b>Task #254, and read this before moving the call sites.</b>
-        /// That 2026-08-05 rule is about THE ORDER OF THE LIST WHEN YOU PRESS
-        /// REMOTE. It used to be applied as a continuous re-sort, recomputed
+        /// The order is recomputed only at the moments the operator causes. It
+        /// used to be applied as a continuous re-sort, recomputed
         /// inside every RefreshRadiosList — including the ones a background
         /// discovery callback triggers. So a row could be inserted ABOVE the
         /// selection while a keyboard user was standing in the list reading it.
