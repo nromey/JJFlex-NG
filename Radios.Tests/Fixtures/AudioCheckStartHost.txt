@@ -61,7 +61,9 @@ public class Host
     private bool StillTheAnnouncedPlace(out string? refusal) { refusal = PlaceStands ? null : "changed"; return PlaceStands; }
     private void TransmitSliceNoticeKeyed() { }
     private static void TransmitSliceNotHeard() { RecorderControls.Spoken++; }
-    private static void RefuseTransmit(string? sentence) { RecorderControls.Spoken++; }
+    // Round seven: the refusal takes the refused attempt's notice, to retire it first.
+    private Radios.TransmitSliceNotice.Notice? _transmitSliceNotice = null;
+    private static void RefuseTransmit(string? sentence, Radios.TransmitSliceNotice.Notice? notice) { RecorderControls.Spoken++; }
     /*StartLoopbackCheckAsync*/
     /*StartAudioCheckSessionAsync*/
     public static async Task<int[]> Run(string scenario)

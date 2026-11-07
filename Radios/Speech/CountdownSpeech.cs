@@ -151,6 +151,19 @@ namespace Radios.Speech
             if (words is Words w) w.Owner._arbiter.Withdraw(w.Piece, by, "CountdownSpeech.WithdrawItsOwn");
         }
 
+        /// <summary>
+        /// Say <paramref name="text"/> whole again through the speech layer that
+        /// handed out <paramref name="words"/>, after taking the old piece back
+        /// (round seven): a notice the reader cut before its first word. Null
+        /// when <paramref name="words"/> is not one of ours.
+        /// </summary>
+        internal static Radios.ICountdownWords SayWholeAgain(Radios.ICountdownWords words, string text, string subject, string why)
+        {
+            if (words is not Words w) return null;
+            w.Owner._arbiter.Withdraw(w.Piece, why, "CountdownSpeech.SayWholeAgain");
+            return w.Owner.SayWhole(text, subject, ahead: true);
+        }
+
         private sealed class Words : Radios.ICountdownWords
         {
             private readonly CountdownSpeech _owner;
@@ -186,6 +199,15 @@ namespace Radios.Speech
 
             public System.Threading.Tasks.Task NextNews =>
                 _owner._nextProgress?.Invoke() ?? Radios.CountdownWords.NoNews;
+
+            public bool CutBeforeItsFirstWord
+            {
+                get
+                {
+                    var v = View;
+                    return !v.Superseded && v.InLedger && v.State == SpeechArbiter.Owed.NeverStarted;
+                }
+            }
 
             public bool Started
             {

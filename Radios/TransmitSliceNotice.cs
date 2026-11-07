@@ -167,8 +167,9 @@ namespace Radios
         public sealed class Notice
         {
             internal Notice(FlexBase rig, string door, SliceRoles announced, bool mandatory, bool spoke,
-                ICountdownWords words)
+                ICountdownWords words, string sentence = null)
             {
+                Sentence = sentence;
                 Rig = rig;
                 Door = door ?? "";
                 Announced = announced;
@@ -185,8 +186,12 @@ namespace Radios
             public bool Mandatory { get; }
             /// <summary>True when the sentence was said and must be heard before the key.</summary>
             public bool Spoke { get; }
-            /// <summary>The words to wait on, or null when nothing was said.</summary>
-            public ICountdownWords Words { get; }
+            /// <summary>The words to wait on, or null when nothing was said. Replaced when it is handed again (round seven).</summary>
+            public ICountdownWords Words { get; internal set; }
+            /// <summary>The sentence it said, so it can be handed again once (round seven).</summary>
+            internal string Sentence { get; }
+            /// <summary>It has been handed again once already.</summary>
+            internal bool HandedAgain;
         }
 
         /// <summary>
@@ -235,7 +240,7 @@ namespace Radios
                 Tracing.TraceLine("TransmitSliceNotice (" + door + "): could not be said: " + ex.Message, TraceLevel.Warning);
                 words = CountdownWords.Undelivered;
             }
-            return new Notice(rig, door, roles, mandatory, true, words);
+            return new Notice(rig, door, roles, mandatory, true, words, sentence);
         }
 
         /// <summary>
@@ -244,9 +249,41 @@ namespace Radios
         /// part-way, past the ceiling, or <paramref name="stillWanted"/> went
         /// false; do not key.
         /// </summary>
-        public static Task<bool> HeardAsync(Notice notice, Func<bool> stillWanted,
-            Func<int, Task> delay = null, int ceilingMs = CeilingMs) =>
-            HeardAsync(notice?.Words, stillWanted, delay, ceilingMs);
+        public static async Task<bool> HeardAsync(Notice notice, Func<bool> stillWanted,
+            Func<int, Task> delay = null, int ceilingMs = CeilingMs)
+        {
+            if (notice?.Words == null) return true;
+            try { return await HeardCoreAsync(notice.Words, stillWanted, delay, ceilingMs, QueuedCeilingMs, notice).ConfigureAwait(true); }
+            finally { ClearDue(); }
+        }
+
+        /// <summary>
+        /// The reader cut this notice before its first word (round seven, the
+        /// third bench): hand it again, ONCE, inside the same ten-second cap, so
+        /// a send is not refused for a cut nobody heard. The place is read again
+        /// at the key whatever happens here. Null when it cannot be handed again.
+        /// </summary>
+        private static ICountdownWords HandAgainOnce(Notice notice)
+        {
+            if (notice == null || notice.HandedAgain || string.IsNullOrEmpty(notice.Sentence)) return null;
+            notice.HandedAgain = true;
+            ICountdownWords again;
+            try
+            {
+                again = Speech.CountdownSpeech.SayWholeAgain(notice.Words, notice.Sentence, Speech.SpeechSubject.TransmitSliceNotice,
+                    "the reader cut it before its first word; handed again once");
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TransmitSliceNotice (" + notice.Door + "): could not hand it again: " + ex.Message, TraceLevel.Warning);
+                return null;
+            }
+            if (again == null) return null;
+            notice.Words = again;
+            Tracing.TraceLine("TransmitSliceNotice (" + notice.Door + "): the reader cut \"" + notice.Sentence
+                + "\" before its first word; handed again, once", TraceLevel.Info);
+            return again;
+        }
 
         /// <summary>
         /// Wait until the reader has finished <paramref name="words"/>. True:
@@ -284,7 +321,7 @@ namespace Radios
         internal static void ClearDue() => System.Threading.Interlocked.Exchange(ref _dueUntil, 0);
 
         private static async Task<bool> HeardCoreAsync(ICountdownWords words, Func<bool> stillWanted,
-            Func<int, Task> delay, int ceilingMs, int queuedCeilingMs)
+            Func<int, Task> delay, int ceilingMs, int queuedCeilingMs, Notice notice = null)
         {
             delay ??= Task.Delay;
             int waited = 0, queued = 0;
@@ -292,6 +329,10 @@ namespace Radios
             {
                 if (stillWanted != null && !stillWanted()) return false;
                 if (words.Failed) return false;
+                // Cut before its first word by the reader itself: once, again,
+                // within the same cap (the counters carry on) (round seven).
+                if (notice != null && words.CutBeforeItsFirstWord && HandAgainOnce(notice) is ICountdownWords again)
+                    words = again;
                 Task news = words.NextNews;
                 if (words.Finished) return true;
                 // The ceiling bounds the reader's own time with the sentence. Time

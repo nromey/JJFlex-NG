@@ -586,4 +586,50 @@ public sealed class TransmitSliceNoticeTests
         Assert.Equal(1, Count(sender, "Dialogs.CheckYourAudioDialog.TransmitSliceNotHeard(notice);"));
         Assert.Equal(1, Count(sender, "Dialogs.CheckYourAudioDialog.TransmitSliceNotHeard(sliceNotice);"));
     }
+
+    // ── Round seven, the third bench's Fail 2: a notice the reader cut before its first word ──
+    //
+    // NVDA's own focus speech, as the long-recording question closed, cut the
+    // notice at word 0. Nothing re-handed it, so the send rode out the ten-second
+    // cap and was refused. It is now handed again, once, inside the same cap.
+
+    [Theory]
+    [InlineData(true)]     // the second hand-over is heard: the send keys
+    [InlineData(false)]    // cut again before its first word: never a third time, the cap ends it
+    public async Task A_notice_the_reader_cut_before_its_first_word_is_handed_again_once(bool secondIsHeard)
+    {
+        var r = new Reader();
+        const string Where = "Transmitting on slice A, 21.195.000";
+        ICountdownWords words = r.Speech.SayWhole(Where, SpeechSubject.TransmitSliceNotice, ahead: true);
+        var notice = new TransmitSliceNotice.Notice(null!, "a send", default, mandatory: false, spoke: true, words, Where);
+        r.Arbiter.OnOutcome(r.LastTicket, r.LastText, SpeechOutcome.Cancelled(0, 5, false, 58));   // NVDA's focus speech
+        long first = r.LastTicket;
+        bool answered = false;
+        bool heard = await TransmitSliceNotice.HeardAsync(notice, () => true, delay: _ =>
+        {
+            if (r.LastTicket != first && !answered)
+            {
+                answered = true;
+                r.Arbiter.OnOutcome(r.LastTicket, r.LastText, secondIsHeard
+                    ? SpeechOutcome.Completed(5, 5, 900)
+                    : SpeechOutcome.Cancelled(0, 5, false, 40));
+            }
+            return Task.CompletedTask;
+        });
+        Assert.Equal(first + 1, r.LastTicket);          // handed again exactly once
+        Assert.Equal(Where, r.LastText);
+        Assert.Equal(secondIsHeard, heard);
+    }
+
+    [Fact]
+    public void A_notice_cut_part_way_is_not_handed_again()
+    {
+        // The re-hand is for a cut that left nothing heard. Cut after a word,
+        // the whole-only notice is failed, as before.
+        var r = new Reader();
+        ICountdownWords words = r.Speech.SayWhole("Transmitting on slice B, 14.100", SpeechSubject.TransmitSliceNotice);
+        r.Arbiter.OnOutcome(r.LastTicket, r.LastText, SpeechOutcome.Cancelled(1, 4, false, 200));
+        Assert.False(words.CutBeforeItsFirstWord);
+        Assert.True(words.Failed);
+    }
 }
