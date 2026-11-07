@@ -581,7 +581,8 @@ public sealed class TransmitSliceNoticeTests
         int retire = body.IndexOf("TransmitSliceNotice.Retire(notice,", StringComparison.Ordinal);
         int speak = body.IndexOf("ScreenReaderOutput.Speak(", StringComparison.Ordinal);
         Assert.True(retire > 0 && speak > retire, "the refusal is spoken before its notice is retired");
-        Assert.Contains("RefuseTransmit(Lexicon.Get(\"audio.ptt.transmit_slice_not_heard\"), notice);", countdown);
+        // Split so the lexicon key scan does not read this literal as a key.
+        Assert.Contains("RefuseTransmit(Lexicon" + ".Get(\"audio.ptt.transmit_slice_not_heard\"), notice);", countdown);
         string sender = Source("JJFlexWpf/VoiceMessageSender.cs");
         Assert.Equal(1, Count(sender, "Dialogs.CheckYourAudioDialog.TransmitSliceNotHeard(notice);"));
         Assert.Equal(1, Count(sender, "Dialogs.CheckYourAudioDialog.TransmitSliceNotHeard(sliceNotice);"));
