@@ -134,7 +134,10 @@ partial class BenchApp
             var mask = masks.Main;
             var r = Measure(mix, mask, 700, 200, 3000, new[] { weakHz }, 0);
             var e = Measure(erased, mask, 700, 200, 3000, new[] { weakHz }, 0);
-            Assert(Math.Abs(e.RestBelowStation - r.RestBelowStation) <= .2 && e.Separation - r.Separation <= .5,
+            // Round 3: tightened from 0.2 dB. With the other station cut out of the rest of the passband
+            // its deletion moves the rest by 0.00 dB; with it left in (cw-rest-includes-stations) the
+            // move had shrunk to +0.19 dB on round 3's smaller gap set, inside the old tolerance.
+            Assert(Math.Abs(e.RestBelowStation - r.RestBelowStation) <= .05 && e.Separation - r.Separation <= .5,
                 $"Deleting the weaker station moved the main station's rest of the passband by {e.RestBelowStation - r.RestBelowStation:+0.00;-0.00;0.00} dB and its separation by {e.Separation - r.Separation:+0.0;-0.0;0.0} dB: deletion must not read as improvement");
             var weakMask = masks.Stations[0].Mask;
             var wr = Measure(mix, weakMask, weakHz, 200, 3000, new[] { 700.0 }, 0);

@@ -43,6 +43,8 @@ partial class BenchApp
         var result=new float[input.Length+delay];input.CopyTo(result,delay);return result;
     }
     static Stage Fake(int delay,int? report=null)=>new() {Settings=new(){EngineId="fake-delay",Direction=Radios.DenoiseDirection.Receive,Strength=1},TestFactory=()=>new DelayEngine(delay,report)};
+    /// <summary>selftest --only a,b: run only these checks (a working subset, never the gate the cw command uses).</summary>
+    static string[]? SelfTestOnly;
     static void Assert(bool condition,string message){if(!condition)throw new InvalidOperationException(message);}
     static void MustRefuse(Action action,string message)
     {
@@ -115,12 +117,16 @@ partial class BenchApp
         AddCwChecks(tests,library);
         AddCwFadeChecks(tests);
         AddCwRound2Checks(tests);
+        AddCwRound3Checks(tests);
+        // --only: a named subset, for working on a few checks; the summary says so, so it is never read as the full selftest.
+        int skipped=0;
+        if(SelfTestOnly!=null){skipped=tests.Count(t=>!SelfTestOnly.Contains(t.Name));tests=tests.Where(t=>SelfTestOnly.Contains(t.Name)).ToList();}
         foreach(var test in tests)
         {
             try{test.Test();Console.WriteLine("PASS "+test.Name);}
             catch(Exception ex){failures++;Console.WriteLine("FAIL "+test.Name+": "+ex.Message);}
         }
-        Console.WriteLine($"Selftest: {tests.Count-failures} passed; {failures} failed."+(mutation==null?"":" Mutation: "+mutation+"."));
+        Console.WriteLine($"Selftest: {tests.Count-failures} passed; {failures} failed."+(mutation==null?"":" Mutation: "+mutation+".")+(SelfTestOnly==null?"":$" ONLY {tests.Count} named checks run; {skipped} not run, so this is not the full selftest."));
         Mutation=null;return failures==0?0:1;
     }
 }

@@ -15,9 +15,10 @@
 // suite uses another input, then tries C:\dev\nr-test-audio read-only.
 // --deepfilter names the directory holding the native library and model; by
 // default use the bundled copy, then the repository's pinned native library.
-// nrbench selftest [--recording <audio.wav>] [--mutation <control-name>]
+// nrbench selftest [--recording <audio.wav>] [--mutation <control-name>] [--only check,check]
 // --recording supplies the real delay-finder control; default is bin/input.
 // --mutation deliberately disables one check and must return failure.
+// --only runs just the named checks, a working subset; its summary says it is not the full selftest.
 // Every suite runs selftest first and refuses to render if any control fails.
 // --helper names the WDSP helper (jjflex-wdsp-helper.exe) for NNR and NR2; by
 // default runtimes\win-x64\native beside the bench, then Track A's local build.

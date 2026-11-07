@@ -19,7 +19,7 @@ partial class BenchApp
             if(args[0]=="selftest")
             {
                 string? recording=null,mutation=null;
-                for(int i=1;i<args.Length;i++)switch(args[i]) {case "--recording":recording=args[++i];break;case "--mutation":mutation=args[++i];break;case "--helper":HelperPath=Path.GetFullPath(args[++i]);break;default:throw new ArgumentException("Unknown selftest argument "+args[i]);}
+                for(int i=1;i<args.Length;i++)switch(args[i]) {case "--recording":recording=args[++i];break;case "--mutation":mutation=args[++i];break;case "--helper":HelperPath=Path.GetFullPath(args[++i]);break;case "--only":SelfTestOnly=args[++i].Split(',');break;default:throw new ArgumentException("Unknown selftest argument "+args[i]);}
                 return SelfTest(recording,mutation);
             }
             bool suite=args[0]=="suite";

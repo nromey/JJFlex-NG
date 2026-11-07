@@ -12,7 +12,7 @@ namespace NrBench;
 //                    key-down (as on 2026-11-04 takes 4 and 5): the pitch finder must choose the
 //                    station, not the passband's edge.
 // Their mutations (selftest --mutation <name>), each of which must turn its check red:
-//   cw-gap-unanchored    gaps need no strong keying either side: "cw-deep-fade" fails
+//   cw-gap-unanchored    gaps need no strong keying either side (round 3: and no cap on the quiet stretch either): "cw-deep-fade" fails
 //   cw-veto-any-louder   d03deb33's veto (any keyed, louder named station): "cw-coexist" fails
 //   cw-pitch-wholeband   the pitch searched over 200 to 3000 Hz with the band-wide median: "cw-pitch-narrow" fails
 //   cw-passband-whole    the passband read from the whole span at once: "cw-pitch-step" fails
@@ -70,8 +70,12 @@ partial class BenchApp
                     // deleting the station rightly leaves it.
                     var mixTone = ToneBlocks(mix, 700); var erasedTone = ToneBlocks(erased, 700);
                     double Power(double[] t, CwElement el) => Enumerable.Range(el.Start, el.End - el.Start).Average(b => Math.Pow(10, t[b] / 10));
-                    int scorableFaded = mask.Elements.Count(el => el.Start * CwHop + CwWindow / 2 >= half + Rate / 4 &&
-                        Power(erasedTone, el) <= .5 * Power(mixTone, el));
+                    // Round 3: only elements Survival scores (detected in the reference, ElementSignal > 0).
+                    // A faded element in the mask that the reference cannot detect against its certain
+                    // gaps is not scored, so nothing is claimed for it, which is this check's own rule.
+                    int scorableFaded = Enumerable.Range(0, mask.Elements.Length).Count(i => r.ElementSignal[i] > 0 &&
+                        mask.Elements[i].Start * CwHop + CwWindow / 2 >= half + Rate / 4 &&
+                        Power(erasedTone, mask.Elements[i]) <= .5 * Power(mixTone, mask.Elements[i]));
                     string where = $"seed {seed}, {fadeDb:0} dB";
                     if (dSep > .05 || dWeak > .05 || dRest > .05)
                         failures.Add($"{where}: deleting the faded half improved separation {dSep:+0.00;-0.00;0.00}, weakest third {dWeak:+0.00;-0.00;0.00}, rest {dRest:+0.00;-0.00;0.00} dB");

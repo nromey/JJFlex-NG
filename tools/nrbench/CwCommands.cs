@@ -124,7 +124,42 @@ partial class BenchApp
         return (main, stations);
     }
 
-    /// <summary>One file's line for a second station, against the reference and against the main station's own change.</summary>
+    /// <summary>The station's pitch and the receiver's passband around it, as both commands decide them.</summary>
+    sealed record CwPitchChoice(double Pitch, CwPitch? Found, string FinderWords, double Lo, double Hi);
+
+    /// <summary>
+    /// The pitch both commands measure at, and the passband around it. One function, so the
+    /// self-checks exercise exactly the decision the commands take. Without a given pitch, the
+    /// found one must be clearly the most keyed, or this refuses. Either way, a pitch the
+    /// receiver's passband does not hold is refused (round 3: a wrong pitch was measured in a
+    /// passband of no width, "844 to 844 Hz", and nothing said so).
+    /// </summary>
+    static CwPitchChoice ChoosePitch(float[] capture, double? given)
+    {
+        CwPitch? found = null;
+        string finder;
+        try
+        {
+            found = FindPitch(capture);
+            finder = $"the finder chose {found.Hz:0.0}";
+        }
+        catch (InvalidOperationException ex) when (given != null) { finder = "the finder refused: " + ex.Message; }
+        // The confidence gate: a found pitch must be clearly the most keyed. A filter change, a
+        // pileup or a second station can otherwise win, and every level and figure follows it.
+        if (given == null && found!.ScoreDb - found.RunnerUpScoreDb < 1)
+            throw new InvalidOperationException($"The pitch finder's choice, {found.Hz:0.0} Hz, is not clearly ahead of {found.RunnerUpHz:0} Hz " +
+                $"({found.ScoreDb - found.RunnerUpScoreDb:0.0} dB). Listen, then give the station's pitch with --pitch.");
+        double pitch = given ?? found!.Hz;
+        var (lo, hi, inside) = PassbandAt(capture, pitch);
+        if (Mutation != "cw-passband-degenerate-accepted" && (!inside || hi - lo < MinPassbandHz))
+            throw new InvalidOperationException($"{pitch:0.0} Hz is not inside the receiver's passband as this capture shows it (read there as {lo:0} to {hi:0} Hz)" +
+                (given == null ? ", so the finder's choice is not the station" : "") + ". Listen, then give the station's pitch with --pitch.");
+        return new(pitch, found, finder, lo, hi);
+    }
+
+    /// <summary>Narrower than this, the passband around a pitch is not a receiver filter but the pitch sitting outside one.</summary>
+    const double MinPassbandHz = 40;
+
     /// <summary>A second station's figures, or null where too little of it can be classified to measure.</summary>
     static CwFigures? TryMeasure(float[] x, CwMask mask, double pitch, double lo, double hi, IReadOnlyList<double> others, int lag)
     {
@@ -138,9 +173,10 @@ partial class BenchApp
             return $"  the station at {st.Spec.Words}: too little of it can be classified element by element to measure (see cwband for a long-average reading).";
         var s = Survival(file, reference, mainChangeDb);
         if (double.IsNaN(s.StationChangeDb)) return $"  the station at {st.Spec.Words}: too few of its elements seen to follow ({s.Measured}).";
-        return $"  the station at {st.Spec.Words}: {100 * file.UnscoredShare:0} percent of the span unscorable for it (outside its span included); {s.StationChangeDb - mainChangeDb:+0.0;-0.0;0.0} dB against the main station; elements kept {s.Kept} of the {s.Measured} it could score; " +
+        string missing = file.UncoveredShare > 0 ? $"{100 * file.UncoveredShare:0.#} percent of the span not in this file, and its {file.UncoveredElements} elements there counted lost; " : "";
+        return $"  the station at {st.Spec.Words}: {100 * file.UnscoredShare:0} percent of the span unscorable for it (outside its span included); {missing}{s.StationChangeDb - mainChangeDb:+0.0;-0.0;0.0} dB against the main station; elements kept {s.Kept} of the {s.Measured} it could score; " +
                $"its weakest third of elements {s.WeakAgainstStrongDb:+0.0;-0.0;0.0} dB against its strongest half; " +
-               $"key-down {file.Separation:0.0} dB above its gaps ({file.Separation - reference.Separation:+0.0;-0.0;0.0} dB against the capture).";
+               $"key-down {file.Separation:0.0} dB above its short gaps ({file.Separation - reference.Separation:+0.0;-0.0;0.0} dB against the capture).";
     }
 
     static string SegmentLine(CwFigures file, CwFigures reference) =>
@@ -181,20 +217,16 @@ partial class BenchApp
 
         var all = LoadWav(capturePath, out int channels, out string format);
         var capture = CwSpan(LeftChannel(all, channels, out string channelWords), start, seconds);
-        var found = FindPitch(capture);
-        // The confidence gate: a found pitch must be clearly the most keyed. A filter change, a
-        // pileup or a second station can otherwise win, and every level and figure follows it.
-        if (pitchHz == null && found.ScoreDb - found.RunnerUpScoreDb < 1)
-            throw new InvalidOperationException($"The pitch finder's choice, {found.Hz:0.0} Hz, is not clearly ahead of {found.RunnerUpHz:0} Hz " +
-                $"({found.ScoreDb - found.RunnerUpScoreDb:0.0} dB). Listen, then give the station's pitch with --pitch.");
-        double pitch = pitchHz ?? found.Hz;
-        var pass = FindPassband(capture, pitch);
+        var choice = ChoosePitch(capture, pitchHz);
+        var found = choice.Found;
+        double pitch = choice.Pitch;
+        var pass = (choice.Lo, choice.Hi);
         var others = specs.Select(s => s.Hz).ToArray();
         var masks = CommandMasks(capture, pitch, specs);
         var mask = masks.Main;
         var stations = masks.Stations;
         int keyBlocks = mask.Key.Count(k => k == true), gapBlocks = mask.Key.Count(k => k == false);
-        Console.WriteLine($"{name}: pitch {pitch:0.0} Hz{(pitchHz != null ? $" (given; the finder chose {found.Hz:0.0})" : "")}; passband {pass.Lo:0} to {pass.Hi:0} Hz.");
+        Console.WriteLine($"{name}: pitch {pitch:0.0} Hz{(pitchHz != null ? $" (given; {choice.FinderWords})" : "")}; passband {pass.Lo:0} to {pass.Hi:0} Hz.");
 
         Directory.CreateDirectory(outDir);
         var renders = new List<(int Number, CwEngine Engine, string Kind, float[] Audio, CwFigures Figures, double KeyDb, List<CwFigures?> Stations)>();
@@ -239,10 +271,10 @@ partial class BenchApp
         var lines = new StringBuilder();
         lines.AppendLine($"{name}: {capture.Length / (double)Rate:0.0} s from {start:0.0} s of {Path.GetFileName(Path.GetDirectoryName(capturePath))}{Path.DirectorySeparatorChar}{Path.GetFileName(capturePath)} ({format}, {channelWords}).");
         lines.AppendLine(pitchHz != null
-            ? $"Station pitch {pitch:0.0} Hz, given (the finder chose {found.Hz:0.0} Hz). Receiver passband {pass.Lo:0} to {pass.Hi:0} Hz."
-            : $"Station pitch {pitch:0.0} Hz, found from keying activity (next best {found.RunnerUpHz:0} Hz, {found.ScoreDb - found.RunnerUpScoreDb:0.0} dB less active). Receiver passband {pass.Lo:0} to {pass.Hi:0} Hz.");
+            ? $"Station pitch {pitch:0.0} Hz, given ({choice.FinderWords}). Receiver passband {pass.Lo:0} to {pass.Hi:0} Hz."
+            : $"Station pitch {pitch:0.0} Hz, found from keying activity (next best {found!.RunnerUpHz:0} Hz, {found.ScoreDb - found.RunnerUpScoreDb:0.0} dB less active). Receiver passband {pass.Lo:0} to {pass.Hi:0} Hz.");
         lines.AppendLine($"Key-down and gaps from the unprocessed capture, against a threshold that follows the station's level: {keyBlocks} key-down and {gapBlocks} gap blocks of 5 ms, " +
-                         $"{mask.Elements.Length} elements, {mask.ShortElements} too short to measure; {100.0 * mask.UncertainBlocks / mask.Key.Length:0} percent of the span unscorable (too faint, no strong keying either side of a quiet stretch, or contaminated by a named station).");
+                         $"{mask.Elements.Length} elements, {mask.ShortElements} too short to measure; {100.0 * mask.UncertainBlocks / mask.Key.Length:0} percent of the span unscorable (too faint; a quiet stretch with no strong keying near it, or longer than the station's own spacing between elements, so a faded element could hide in it; or contaminated by a named station).");
         foreach (var s in stations) lines.AppendLine($"Also followed: the station at {s.Spec.Words}, {s.Mask.Elements.Length} elements seen.");
         lines.AppendLine($"Level: every file scaled so the station's key-down, through a {width:0} Hz filter at its pitch, is {target:0.0} dBFS RMS.");
         lines.AppendLine($"Narrow filter: {width:0} Hz at the -6 dB points, centred on the pitch, applied after the engine: a linear-phase windowed sinc, 4,095 taps, 4-term Blackman-Harris, as WDSP builds its band-pass, delay removed.");
@@ -289,18 +321,20 @@ partial class BenchApp
             }
         var raw = LoadWav(reference, out int ch, out _);
         var capture = CwSpan(LeftChannel(raw, ch, out string words), start, seconds);
-        var found = FindPitch(capture);
-        double pitch = pitchHz ?? found.Hz;
-        var pass = FindPassband(capture, pitch);
+        // The same decision as cw: refused when the finder is not clearly sure, or the pitch is not in the passband.
+        var choice = ChoosePitch(capture, pitchHz);
+        var found = choice.Found;
+        double pitch = choice.Pitch;
+        var pass = (choice.Lo, choice.Hi);
         var others = specs.Select(s => s.Hz).ToArray();
         var masks = CommandMasks(capture, pitch, specs);
         var mask = masks.Main;
         var stations = masks.Stations;
         int? lag = aligned ? 0 : null;
         Console.WriteLine($"Reference {reference} ({words}), {capture.Length / (double)Rate:0.0} s from {start:0.0} s.");
-        Console.WriteLine($"Pitch {pitch:0.0} Hz{(pitchHz != null ? $" (given; the finder chose {found.Hz:0.0})" : $" (next best {found.RunnerUpHz:0} Hz, {found.ScoreDb - found.RunnerUpScoreDb:0.0} dB less active)")}; passband {pass.Lo:0} to {pass.Hi:0} Hz; " +
+        Console.WriteLine($"Pitch {pitch:0.0} Hz{(pitchHz != null ? $" (given; {choice.FinderWords})" : $" (next best {found!.RunnerUpHz:0} Hz, {found.ScoreDb - found.RunnerUpScoreDb:0.0} dB less active)")}; passband {pass.Lo:0} to {pass.Hi:0} Hz; " +
                           $"{mask.Key.Count(k => k == true)} key-down and {mask.Key.Count(k => k == false)} gap blocks, {mask.Elements.Length} elements, " +
-                          $"{100.0 * mask.UncertainBlocks / mask.Key.Length:0} percent unscorable (too faint, no strong keying either side of a quiet stretch, or contaminated by a named station).");
+                          $"{100.0 * mask.UncertainBlocks / mask.Key.Length:0} percent unscorable (too faint; a quiet stretch with no strong keying near it, or longer than the station's own spacing between elements, so a faded element could hide in it; or contaminated by a named station).");
         foreach (var s in stations) Console.WriteLine($"Also followed: the station at {s.Spec.Words}, {s.Mask.Elements.Length} elements seen.");
         CwFigures? StationFigures(float[] x, CwStation s, double lo, double hi) =>
             TryMeasure(x, s.Mask, s.Spec.Hz, lo, hi, new[] { pitch }.Concat(others.Where(o => o != s.Spec.Hz)).ToArray(), lag ?? 0);
@@ -310,10 +344,21 @@ partial class BenchApp
         var narrowRef = Measure(narrowCapture, mask, pitch, pitch - width / 2, pitch + width / 2, others, 0);
         Console.WriteLine(CwLine("reference", wideRef, wideRef));
         if (narrow) Console.WriteLine(CwLine("reference then the narrow filter", narrowRef, narrowRef));
+        int refusedFiles = 0;
         foreach (string path in files)
         {
             var audio = LoadWav(path, out int fc, out _);
             var x = CwSpan(LeftChannel(audio, fc, out _), start, seconds);
+            // Round 3: a file shorter than the reference's span is refused. Its missing elements
+            // would otherwise have left the count (a 4 s prefix of a 20 s take kept "9 of 10").
+            // Within one block, the measure itself counts what the file does not reach as lost.
+            if (Mutation != "cw-length-unchecked" && x.Length < capture.Length - CwHop)
+            {
+                Console.WriteLine($"{Path.GetFileName(path)}: REFUSED, it holds {x.Length / (double)Rate:0.00} s of the {capture.Length / (double)Rate:0.00} s measured from the reference. " +
+                                  "A file that ends early has no figures for the elements it lacks; measure it against a reference of the same length.");
+                refusedFiles++;
+                continue;
+            }
             var f = Measure(x, mask, pitch, pass.Lo, pass.Hi, others, lag);
             Console.WriteLine(CwLine(Path.GetFileName(path), f, wideRef));
             double mainChange = Survival(f, wideRef).StationChangeDb;
@@ -321,7 +366,7 @@ partial class BenchApp
             if (segments) Console.WriteLine(SegmentLine(f, wideRef));
             if (narrow) Console.WriteLine(CwLine(Path.GetFileName(path) + " then the narrow filter", Measure(NarrowBand(x, pitch, width), mask, pitch, pitch - width / 2, pitch + width / 2, others, lag), narrowRef));
         }
-        return 0;
+        return refusedFiles == 0 ? 0 : 1;
     }
 
     /// <summary>

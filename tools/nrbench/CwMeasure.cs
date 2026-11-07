@@ -57,21 +57,36 @@ partial class BenchApp
     {
         const int N = 4096, hop = 1024, perWindow = 94; // 85 ms frames, 21 ms apart; 2 s stretches
         double bin = (double)Rate / N;
-        // Only inside the receiver's passband, found from the capture itself: behind a narrow radio
-        // filter almost every bin is the floor outside it, and that floor can move with the keying.
-        bool wideBand = true;
-        if (Mutation != "cw-pitch-wholeband")
-        {
-            var (pLo, pHi) = FindPassbandAuto(x);
-            if (pHi - pLo >= 5 * bin) { lowHz = Math.Max(lowHz, pLo); highHz = Math.Min(highHz, pHi); }
-            wideBand = pHi - pLo >= CommonModeMinWidthHz;
-        }
-        int lo = (int)Math.Ceiling(lowHz / bin), hi = (int)Math.Floor(highHz / bin);
-        var window = Hann(N);
         int frames = Math.Max(0, (x.Length - N) / hop + 1);
         if (frames < 40) throw new InvalidOperationException("Too little audio to find a pitch");
-        var levels = new float[hi - lo + 1][];
-        for (int k = 0; k <= hi - lo; k++) levels[k] = new float[frames];
+        // Only inside the receiver's passband, found from the capture itself: behind a narrow radio
+        // filter almost every bin is the floor outside it, and that floor can move with the keying.
+        // Round 3: per 5 s stretch, because an operator may change the filter part way through. Each
+        // stretch decides for itself whether its band is wide enough to take the common movement out.
+        // In a narrow stretch, where it is not taken out, a pitch outside that stretch's passband is
+        // the floor beyond the filter, which moves with the AGC: it counts as no keying there. One
+        // hull for the whole take (cw-pitch-hull, f5ad7e4d's rule) let a wide stretch switch
+        // common-mode removal on for the narrow ones, where it removes the station's own keying, and
+        // scored that moving floor in the narrow stretches as keying.
+        // A wide stretch scores every pitch: its common-mode removal is what deals with the floor
+        // there, and its passband reading follows its loudest plateau, so a noise band switching on
+        // can read as the passband (cw-pitch-step) and must not exclude the station.
+        List<(int Start, int End, double Lo, double Hi)> parts;
+        if (Mutation == "cw-pitch-wholeband") parts = new() { (0, x.Length, lowHz, highHz) };
+        else if (Mutation == "cw-pitch-hull") { var (hLo, hHi) = FindPassbandAuto(x); parts = new() { (0, x.Length, hLo, hHi) }; }
+        else parts = PassbandStretches(x);
+        // A stretch whose passband reads under five bins says nothing about where the station is: all
+        // of the search counts as inside it.
+        bool Told((int Start, int End, double Lo, double Hi) p) => p.Hi - p.Lo >= 5 * bin;
+        var told = parts.Where(Told).ToList();
+        double vLo = lowHz, vHi = highHz;
+        if (told.Count > 0) { vLo = Math.Max(lowHz, told.Min(p => p.Lo)); vHi = Math.Min(highHz, told.Max(p => p.Hi)); }
+        // Searched over everything some stretch let through.
+        int v0 = (int)Math.Ceiling(vLo / bin), v1 = (int)Math.Floor(vHi / bin);
+        int lo = v0, hi = v1;
+        var window = Hann(N);
+        var all = new float[v1 - v0 + 1][];
+        for (int k = 0; k <= v1 - v0; k++) all[k] = new float[frames];
         var buf = new Complex[N];
         var power = new double[N / 2 + 1];
         for (int f = 0; f < frames; f++)
@@ -80,32 +95,57 @@ partial class BenchApp
             Fft(buf, false);
             for (int k = 0; k <= N / 2; k++) power[k] = buf[k].Real * buf[k].Real + buf[k].Imaginary * buf[k].Imaginary;
             // Five bins (about 59 Hz) together: a keyed note's own spread, and a steadier noise estimate.
-            for (int k = lo; k <= hi; k++)
+            for (int k = v0; k <= v1; k++)
             {
                 double s = 0;
                 for (int j = -2; j <= 2; j++) s += power[k + j];
-                levels[k - lo][f] = (float)(10 * Math.Log10(s + 1e-30));
+                all[k - v0][f] = (float)(10 * Math.Log10(s + 1e-30));
             }
         }
         // What moves the whole band at once is not keying: a fast AGC pumping on a strong signal,
-        // or a static crash. Take each frame's median level across the passband out of every bin,
-        // so only what one pitch does on its own is scored. Only from a passband many stations
-        // wide: in a narrow one the median is largely the station itself, and taking it out would
-        // take out the keying.
-        if (Mutation != "cw-pitch-common-mode" && wideBand)
+        // or a static crash. Take each frame's median level across its stretch's passband out of
+        // every bin, so only what one pitch does on its own is scored. Only where that passband is
+        // many stations wide: in a narrow one the median is largely the station itself, and taking
+        // it out would take out the keying.
+        var removed = new bool[frames];
+        if (Mutation != "cw-pitch-common-mode")
         {
-            var column = new double[hi - lo + 1];
+            var column = new List<double>();
             for (int f = 0; f < frames; f++)
             {
-                for (int k = 0; k < column.Length; k++) column[k] = levels[k][f];
-                Array.Sort(column);
-                float m = (float)column[column.Length / 2];
-                for (int k = 0; k < column.Length; k++) levels[k][f] -= m;
+                int centre = f * hop + N / 2;
+                var part = parts.FirstOrDefault(p => centre >= p.Start && centre < p.End, parts[^1]);
+                if (part.Hi - part.Lo < CommonModeMinWidthHz) continue;
+                column.Clear();
+                for (int k = v0; k <= v1; k++) if (k * bin >= part.Lo && k * bin <= part.Hi) column.Add(all[k - v0][f]);
+                if (column.Count == 0) continue;
+                column.Sort();
+                float m = (float)column[column.Count / 2];
+                for (int k = 0; k < all.Length; k++) all[k][f] -= m;
+                removed[f] = true;
             }
         }
+        var levels = all;
         var score = new double[hi - lo + 1];
         int stretches = Math.Max(1, frames / perWindow);
-        var range = new double[stretches];
+        // Each 2 s window is scored from the frames that were treated alike: where it straddles a
+        // change in the common-mode decision, from the larger share only, so the step between the
+        // two treatments is not read as keying.
+        var windowFrames = new int[stretches][];
+        var windowBand = new (double Lo, double Hi)[stretches];
+        for (int w = 0; w < stretches; w++)
+        {
+            int a = w * perWindow, b = w == stretches - 1 ? frames : a + perWindow;
+            int taken = Enumerable.Range(a, b - a).Count(f => removed[f]);
+            bool majority = 2 * taken >= b - a;
+            windowFrames[w] = Enumerable.Range(a, b - a).Where(f => removed[f] == majority).ToArray();
+            // The window's passband, where it matters: its middle frame's stretch's, if that stretch is
+            // narrow (no common-mode removal) and its passband was read.
+            int centre = (a + b) / 2 * hop + N / 2;
+            var part = parts.FirstOrDefault(p => centre >= p.Start && centre < p.End, parts[^1]);
+            windowBand[w] = Told(part) && part.Hi - part.Lo < CommonModeMinWidthHz && !majority ? (part.Lo, part.Hi) : (double.MinValue, double.MaxValue);
+        }
+        var range = new List<double>();
         for (int k = 0; k < score.Length; k++)
         {
             if (Mutation == "cw-pitch") { score[k] = levels[k].Average(v => (double)v); continue; }
@@ -118,13 +158,17 @@ partial class BenchApp
             // Keying alternates within seconds; a carrier does not move, and a filter change
             // moves once. So: the level's spread (90th less 20th percentile) within each 2 s
             // stretch, and the score is the spread reached in a quarter of the stretches.
+            range.Clear();
+            double hz = (lo + k) * bin;
             for (int w = 0; w < stretches; w++)
             {
-                int a = w * perWindow, b = w == stretches - 1 ? frames : a + perWindow;
-                var s = levels[k][a..b].Order().ToArray();
-                range[w] = s[(int)(s.Length * .9)] - s[(int)(s.Length * .2)];
+                var wf = windowFrames[w];
+                if (wf.Length < 10) continue;
+                if (hz < windowBand[w].Lo || hz > windowBand[w].Hi) { range.Add(0); continue; }
+                var s = wf.Select(f => levels[k][f]).Order().ToArray();
+                range.Add(s[(int)(s.Length * .9)] - s[(int)(s.Length * .2)]);
             }
-            score[k] = range.Order().ElementAt((int)(stretches * .75));
+            score[k] = range.Order().ElementAt((int)(range.Count * .75));
         }
         // Candidates: best first, each more than 60 Hz from every better one.
         var candidates = new List<int>();
@@ -152,12 +196,42 @@ partial class BenchApp
         return new(ranked[0].Item1, score[best], ranked.Count > 1 ? ranked[1].Item1 : double.NaN, ranked.Count > 1 ? ranked[1].Item2 : double.NaN, ranked);
     }
 
+    /// <summary>
+    /// The receiver's passband in each 5 s stretch (the last one takes the remainder), read as
+    /// FindPassbandAuto reads one stretch: the widest run where its floor stays within 8 dB of its
+    /// plateau. Under two stretches long, the whole span once.
+    /// </summary>
+    static List<(int Start, int End, double Lo, double Hi)> PassbandStretches(float[] x)
+    {
+        int stretch = 5 * Rate, count = x.Length / stretch;
+        var spans = x.Length < 2 * stretch || Mutation == "cw-passband-whole" ? new List<(int Start, int End)> { (0, x.Length) }
+            : Enumerable.Range(0, count).Select(i => (Start: i * stretch, End: i == count - 1 ? x.Length : (i + 1) * stretch)).ToList();
+        var result = new List<(int Start, int End, double Lo, double Hi)>();
+        foreach (var (start, end) in spans)
+        {
+            var (smooth, edge, bin, lowest) = LongTermFloor(x.AsSpan(start, end - start).ToArray());
+            int bestLo = lowest, bestHi = lowest, k = lowest;
+            while (k < smooth.Length)
+            {
+                if (smooth[k] < edge) { k++; continue; }
+                int a = k;
+                while (k + 1 < smooth.Length && smooth[k + 1] >= edge) k++;
+                if (k - a > bestHi - bestLo) { bestLo = a; bestHi = k; }
+                k++;
+            }
+            result.Add((start, end, bestLo * bin, bestHi * bin));
+        }
+        return result;
+    }
+
     /// <summary>The common movement is only estimated from a passband at least this wide (about ten CW signals).</summary>
     const double CommonModeMinWidthHz = 600;
 
     /// <summary>
-    /// The receiver's passband without a pitch: in each 5 s stretch, the widest run where that
-    /// stretch's floor stays within 8 dB of its plateau; then everything any stretch let through.
+    /// The receiver's passband without a pitch, as one band for the whole span (f5ad7e4d's rule,
+    /// kept as the cw-pitch-hull control; FindPitch now reads each stretch on its own): in each 5 s
+    /// stretch, the widest run where that stretch's floor stays within 8 dB of its plateau; then
+    /// everything any stretch let through.
     /// Per stretch, because an operator may widen the filter part way through, and then the
     /// whole take's floor makes the new, louder band the plateau and hides the old one.
     /// </summary>
@@ -189,13 +263,20 @@ partial class BenchApp
     /// <summary>The receiver's passband around the pitch: where the long-term noise floor (20th percentile) stays within 8 dB of its plateau.</summary>
     static (double Lo, double Hi) FindPassband(float[] x, double pitch)
     {
+        var (lo, hi, _) = PassbandAt(x, pitch);
+        return (lo, hi);
+    }
+
+    /// <summary>FindPassband, and whether the pitch's own bin is in the passband at all (if not, the run around it is no passband).</summary>
+    static (double Lo, double Hi, bool Inside) PassbandAt(float[] x, double pitch)
+    {
         var (smooth, edge, bin, lowest) = LongTermFloor(x);
         int maxBin = smooth.Length - 1;
         int c = Math.Clamp((int)Math.Round(pitch / bin), lowest, maxBin);
         int l = c, h = c;
         while (l > lowest && smooth[l - 1] >= edge) l--;
         while (h < maxBin && smooth[h + 1] >= edge) h++;
-        return (l * bin, h * bin);
+        return (l * bin, h * bin, smooth[c] >= edge);
     }
 
     /// <summary>The long-term noise floor by bin (20th percentile, smoothed over about 50 Hz) to 4 kHz, and the level 8 dB under its plateau.</summary>
@@ -386,6 +467,14 @@ partial class BenchApp
         var smooth = Median3(tone);
         int n = smooth.Length;
         var raw = new bool?[n];
+        // Gaps the round 3 cap leaves unscored (a quiet stretch too long to prove itself a gap) are
+        // still quiet for the edge guard, exactly as they were when they were scored, so the cap
+        // changes only which gaps count and never which elements are measured or which of their
+        // blocks: a key-down block beside one keeps its guard. (Treating every unscored block that
+        // way, the 0.75 s rule's too, also guarded the long pauses f5ad7e4d did not, and the faint
+        // short elements there stopped being measured: on take 2's weak callers 274 elements fell to
+        // 252, taking most of the erased ones with them.)
+        var quietUnscored = new bool[n];
         var (floor, peak) = LocalSpread(smooth);
         double Seconds(int i) => (i * CwHop + CwWindow / 2) / (double)Rate;
         // A named station contaminates this one only where its own level, through this station's tone
@@ -480,12 +569,13 @@ partial class BenchApp
                 for (int i = n - 1; i >= 0; i--) { if (strong[i]) next = i; after[i] = next; }
                 for (int i = 0; i < n; i++)
                     if (raw[i] == false && (before[i] < 0 || i - before[i] > reach || after[i] < 0 || after[i] - i > reach)) raw[i] = null;
+                if (Mutation != "cw-gap-run-uncapped") CapGapRuns(raw, quietUnscored);
             }
         }
         for (int i = 0; i < n; i++)
         {
             double t = (i * CwHop + CwWindow / 2) / (double)Rate;
-            if (t < spanStart || t >= spanEnd || contaminated[i]) raw[i] = null;
+            if (t < spanStart || t >= spanEnd || contaminated[i]) { raw[i] = null; quietUnscored[i] = false; }
         }
         var key = new bool?[n];
         int g = EdgeGuardBlocks;
@@ -494,7 +584,11 @@ partial class BenchApp
             if (raw[i] == null) continue;
             // Dropped only near the OPPOSITE class: a block beside an unclassified one is still what it is.
             bool clear = true;
-            for (int j = Math.Max(0, i - g); j <= Math.Min(n - 1, i + g); j++) clear &= raw[j] == null || raw[j] == raw[i];
+            for (int j = Math.Max(0, i - g); j <= Math.Min(n - 1, i + g); j++)
+            {
+                bool? seenAs = raw[j] ?? (quietUnscored[j] ? false : null);
+                clear &= seenAs == null || seenAs == raw[i];
+            }
             key[i] = clear ? raw[i] : null;
         }
         var elements = new List<CwElement>();
@@ -509,6 +603,68 @@ partial class BenchApp
             if (measured) elements.Add(new(s, i)); else shortOnes++;
         }
         return new(key, reported, smooth, elements.ToArray(), raw.Count(r => r == null), shortOnes, minContrast);
+    }
+
+    /// <summary>
+    /// A scored gap's quiet stretch, between two elements the reference sees, may be at most this
+    /// many times the station's own shortest common one. See CapGapRuns.
+    /// </summary>
+    const double GapRunShare = 1.6;
+
+    /// <summary>
+    /// Round 3: strong keying on both sides within 0.75 s does not prove what lies between is a gap.
+    /// A fade shorter than that, a quarter of a second or a second of QSB, can hide whole elements
+    /// between two seen ones, and the reference alone cannot see them. What it can see is the
+    /// station's own spacing. Between two elements a Morse hand leaves one unit (inside a
+    /// character); a hidden element needs at least three (gap, element, gap). So the quiet stretches
+    /// between elements the reference sees (key-down long enough to be measured) are taken, the
+    /// station's shortest common one is read as its one-unit gap (q, their 20th percentile), and
+    /// only stretches up to GapRunShare times q keep their gap blocks. Key-down as the reference
+    /// reads it is wider than the element for a strong station (the band's rise and fall) and can
+    /// be narrower for a faint one, by d either side in all, so a one-unit gap reads u - d and a
+    /// stretch that hides an element at least 3u - d. Their ratio is 3 or more for any d at or above
+    /// zero, and stays above 1.6 down to d of -2.3 units, so 1.6 q never reaches a stretch that
+    /// could hide an element, and takes in the one-unit gaps inside a character. Everything longer,
+    /// character and word spaces included, is unscored: nothing here can say whether a faded
+    /// element sits in it. On fast keying that leaves few gap blocks, since a one-unit gap there is
+    /// little wider than the edge guard; the lines say how much is unscorable. A quiet stretch
+    /// holding faint key-down (seen, but too short to measure) counts as one stretch, so a part-faded
+    /// element lengthens it rather than splitting it. Stretches too short to hold a gap block clear
+    /// of the edge guard are dips inside an element, not spacing, and do not set q. With fewer than
+    /// five spacings to read, no gap is scored at all.
+    /// </summary>
+    static void CapGapRuns(bool?[] raw, bool[] quietUnscored)
+    {
+        int n = raw.Length, minElement = 2 * EdgeGuardBlocks + 1;
+        // The elements the reference sees: key-down runs long enough to be measured.
+        var seen = new bool[n];
+        for (int i = 0; i < n;)
+        {
+            if (raw[i] != true) { i++; continue; }
+            int a = i;
+            while (i < n && raw[i] == true) i++;
+            if (i - a >= minElement) for (int j = a; j < i; j++) seen[j] = true;
+        }
+        var runs = new List<(int A, int B)>();
+        int prev = -1;
+        for (int i = 0; i < n; i++)
+        {
+            if (!seen[i]) continue;
+            if (prev >= 0 && i - prev > 1)
+            {
+                bool gap = false;
+                for (int j = prev + 1; j < i && !gap; j++) gap = raw[j] == false;
+                if (gap) runs.Add((prev + 1, i));
+            }
+            prev = i;
+        }
+        var spacings = runs.Where(r => r.B - r.A >= minElement).Select(r => (double)(r.B - r.A)).Order().ToArray();
+        double cap = spacings.Length >= 5 ? GapRunShare * Percentile(spacings, .2) : 0;
+        var keep = new bool[n];
+        foreach (var (a, b) in runs)
+            if (b - a <= cap) for (int j = a; j < b; j++) keep[j] = true;
+        for (int i = 0; i < n; i++)
+            if (raw[i] == false && !keep[i]) { raw[i] = null; quietUnscored[i] = true; }
     }
 
     static double Otsu(double[] v)
@@ -563,6 +719,10 @@ partial class BenchApp
     sealed record CwFigures(double KeyDown, double Gap, double WeakKeyDown, double RestKey, double RestGap, int Lag, int KeyBlocks, int GapBlocks,
         double[] ElementSignal, double[] ElementCentreSeconds, double UnscoredShare)
     {
+        /// <summary>The share of the reference's span this file does not reach (it ends early, or its lag runs it past an end).</summary>
+        public double UncoveredShare { get; init; }
+        /// <summary>The reference's elements this file does not reach in full: each counts as lost (signal 0), never left out.</summary>
+        public int UncoveredElements { get; init; }
         public double Separation => KeyDown - Gap;
         public double WeakSeparation => WeakKeyDown - Gap;
         public double RestBelowStation => KeyDown - RestGap;
@@ -574,10 +734,12 @@ partial class BenchApp
         int lag = knownLag ?? BlockLag(mask.ReferenceTone, blocks.Tone);
         var key = new List<double>(); var gap = new List<double>(); var restKey = new List<double>(); var restGap = new List<double>();
         var keyRef = new List<(double Ref, double File)>();
+        int outside = 0;
         for (int i = 0; i < mask.Key.Length; i++)
         {
             int j = i + lag;
-            if (j < 0 || j >= blocks.Tone.Length || mask.Key[i] == null) continue;
+            if (j < 0 || j >= blocks.Tone.Length) { outside++; continue; }
+            if (mask.Key[i] == null) continue;
             // cw-separation: the control that the key-down/gap split is load-bearing; every block in both.
             if (Mutation == "cw-separation") { key.Add(blocks.Tone[j]); gap.Add(blocks.Tone[j]); continue; }
             if (mask.Key[i] == true) { key.Add(blocks.Tone[j]); restKey.Add(blocks.Rest[j]); keyRef.Add((mask.ReferenceTone[i], blocks.Tone[j])); }
@@ -595,16 +757,23 @@ partial class BenchApp
         double fallbackGap = Lin(Median(gap));
         var signal = new double[mask.Elements.Length];
         var centres = new double[mask.Elements.Length];
+        int uncovered = 0;
         for (int e = 0; e < mask.Elements.Length; e++)
         {
             var el = mask.Elements[e];
             centres[e] = ((el.Start + el.End) / 2 * CwHop + CwWindow / 2) / (double)Rate;
-            double p = 0; int pc = 0;
+            double p = 0; int pc = 0; bool beyond = false;
             for (int i = el.Start; i < el.End; i++)
             {
+                if (mask.Key[i] != true) continue;
                 int j = i + lag;
-                if (mask.Key[i] == true && j >= 0 && j < blocks.Tone.Length) { p += Lin(blocks.Tone[j]); pc++; }
+                if (j >= 0 && j < blocks.Tone.Length) { p += Lin(blocks.Tone[j]); pc++; }
+                else beyond = true;
             }
+            // Round 3: an element the file does not reach is LOST, not left out. Leaving it out
+            // (NaN, cw-uncovered-dropped) took it out of the count, so a file that ended early kept
+            // "9 of 10" of a reference that had 58.
+            if (beyond && Mutation != "cw-uncovered-dropped") { signal[e] = 0; uncovered++; continue; }
             if (pc == 0) { signal[e] = double.NaN; continue; }
             double g = 0, g2 = 0; int gc = 0;
             for (int i = Math.Max(0, el.Start - near); i < Math.Min(mask.Key.Length, el.End + near); i++)
@@ -621,10 +790,12 @@ partial class BenchApp
         }
         return new(key.Average(), Median(gap), weak.Count > 0 ? Median(weak) : double.NaN,
             Median(restKey), Median(restGap), lag, key.Count, gap.Count, signal, centres,
-            // What the reference cannot classify (too faint, a gap with no strong keying either side,
-            // contaminated by a named station, or outside the span). Not the edge guard around every
+            // What the reference cannot classify (too faint; a gap with no strong keying either side, or,
+            // since round 3, in a quiet stretch longer than the station's own spacing; contaminated by
+            // a named station; or outside the span). Not the edge guard around every
             // element, which is excluded by design and is not a hole in the judgement.
-            mask.UncertainBlocks / (double)Math.Max(1, mask.Key.Length));
+            mask.UncertainBlocks / (double)Math.Max(1, mask.Key.Length))
+        { UncoveredShare = outside / (double)Math.Max(1, mask.Key.Length), UncoveredElements = uncovered };
     }
 
     /// <summary>
@@ -673,9 +844,10 @@ partial class BenchApp
         var s = Survival(f, reference);
         string elements = double.IsNaN(s.StationChangeDb) ? "too few elements to follow one by one"
             : $"elements kept {s.Kept} of the {s.Measured} it could score; the weakest third of those {s.WeakAgainstStrongDb:+0.0;-0.0;0.0} dB against the strongest half";
-        return $"{name}: {100 * f.UnscoredShare:0} percent of the span unscorable, and no figure here covers it; key-down {f.Separation:0.0} dB above the gaps at the pitch; the gaps at the pitch fell " +
+        string missing = f.UncoveredShare > 0 ? $"{100 * f.UncoveredShare:0.#} percent of the span not in this file, and its {f.UncoveredElements} elements there counted lost; " : "";
+        return $"{name}: {100 * f.UnscoredShare:0} percent of the span unscorable, and no figure here covers it; {missing}key-down {f.Separation:0.0} dB above the short gaps at the pitch (the one-unit spaces it can prove empty; not the background between characters); those gaps fell " +
                $"{(f.Separation - reference.Separation):+0.0;-0.0;0.0} dB against the capture, relative to the station; " +
-               $"weakest third of key-down {f.WeakSeparation:0.0} dB above the gaps; {elements}; {rest}; " +
+               $"weakest third of key-down {f.WeakSeparation:0.0} dB above those gaps; {elements}; {rest}; " +
                $"station level {(f.KeyDown - reference.KeyDown):+0.0;-0.0;0.0} dB against the capture" +
                (f.Lag != 0 ? $"; aligned {LagMs(f.Lag)} ms late" : "") + ".";
     }
