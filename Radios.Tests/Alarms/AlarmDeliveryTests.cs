@@ -675,7 +675,8 @@ namespace Radios.Tests.Alarms
             string one = "Stay in receive. PA temperature is 63.5 degrees C. Let the radio cool.";
             Assert.Equal(Lexicon.Get("alarms.coalesced", ("count", "2"), ("alarms", one + " " + one)), w.Text);
             Assert.StartsWith("2 alarms at once. ", w.Text, StringComparison.Ordinal);
-            Assert.Equal(SpeechSubject.OperatorAlarm("pa"), w.Subject); // an alarm subject, so a cut still wins
+            // A subject of the group's own, still an operator-alarm subject so a cut still wins.
+            Assert.Equal(SpeechSubject.OperatorAlarm(AlarmDelivery.GroupSubjectPrefix + "pa+pa2"), w.Subject);
             Assert.Equal(w.Text, w.Refresh());
 
             // Each member keeps its own state: the joiner is reported with no

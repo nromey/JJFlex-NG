@@ -370,7 +370,7 @@ namespace Radios.Alarms
                     }
                     else
                     {
-                        _speaker.SpeakWarning(current, subject, refresh, notDelivered, silenced);
+                        HandOver(alarmId, current, subject, refresh, notDelivered, silenced);
                     }
                 }
                 else if (_continuations.TryGetValue(alarmId, out PendingGroup? waitingGroup)
@@ -472,23 +472,69 @@ namespace Radios.Alarms
             if (speaking.Count == 1)
             {
                 PendingWarning only = speaking[0].Member;
-                _speaker.SpeakWarning(speaking[0].Text, only.Subject, only.Refresh, only.NotDelivered, only.Silenced);
+                HandOver(only.AlarmId, speaking[0].Text, only.Subject, only.Refresh, only.NotDelivered, only.Silenced);
                 return;
             }
 
             // Two or more at once: ONE utterance, at the alarm's own Critical
-            // and Urgent delivery, under the first alarm's subject so a cut
-            // announcement still wins (#593). Its refresh re-reads every
-            // member, and its callbacks reach every member, so each keeps its
-            // own acknowledgement, silence and reminder state.
+            // and Urgent delivery (#593). Its refresh re-reads every member,
+            // and its callbacks reach every member, so each keeps its own
+            // acknowledgement, silence and reminder state.
+            //
+            // UNDER A SUBJECT OF ITS OWN, not the first member's (repair round
+            // one, Codex's blocker). The speech arbiter keeps one pending
+            // sentence per subject and a newer one replaces it, callbacks and
+            // all. Under the first member's subject, that member's next
+            // warning (a worsening, while the group waited behind a cut)
+            // replaced the whole group, and the other members vanished with no
+            // not-delivered call to arrange a retry. The group's own subject
+            // is still an operator-alarm subject, so a cut still wins and
+            // alarms still take turns.
+            //
+            // And a member that has since been handed over ON ITS OWN is left
+            // out of the group's re-read and its callbacks: its own newer
+            // request says it, so the group neither repeats it nor answers
+            // for it.
             PendingWarning[] together = speaking.Select(x => x.Member).ToArray();
-            Func<string?> refresh = () => Combine(together.Select(m => m.Refresh()).Where(t => t != null).Select(t => t!).ToList());
-            Action notDelivered = () => { foreach (PendingWarning m in together) Invoke(m.NotDelivered, "not-delivered"); };
-            Action silenced = () => { foreach (PendingWarning m in together) Invoke(m.Silenced, "silenced"); };
+            var asOf = new Dictionary<string, long>(StringComparer.Ordinal);
+            lock (_gate)
+                foreach (PendingWarning m in together) asOf[m.AlarmId] = HandOverSerialLocked(m.AlarmId) + 1;
+            Func<PendingWarning, bool> stillOurs = m =>
+            {
+                lock (_gate) return HandOverSerialLocked(m.AlarmId) == asOf[m.AlarmId];
+            };
+            Func<string?> refresh = () => Combine(together.Where(stillOurs).Select(m => m.Refresh())
+                .Where(t => t != null).Select(t => t!).ToList());
+            Action notDelivered = () => { foreach (PendingWarning m in together.Where(stillOurs)) Invoke(m.NotDelivered, "not-delivered"); };
+            Action silenced = () => { foreach (PendingWarning m in together.Where(stillOurs)) Invoke(m.Silenced, "silenced"); };
             string text = Combine(speaking.Select(x => x.Text).ToList())!;
+            string groupSubject = SpeechSubject.OperatorAlarm(GroupSubjectPrefix + string.Join("+", together.Select(m => m.AlarmId)));
             Tracing.TraceLine("AlarmDelivery: " + speaking.Count + " warnings coalesced into one utterance ["
                 + string.Join(", ", together.Select(m => m.AlarmId)) + "]", TraceLevel.Info);
-            _speaker.SpeakWarning(text, together[0].Subject, refresh, notDelivered, silenced);
+            lock (_gate)
+                foreach (PendingWarning m in together) _handOverSerial[m.AlarmId] = asOf[m.AlarmId];
+            _speaker.SpeakWarning(text, groupSubject, refresh, notDelivered, silenced);
+        }
+
+        /// <summary>The alarm-id prefix that marks a coalesced group's own speech subject.</summary>
+        internal const string GroupSubjectPrefix = "together:";
+
+        /// <summary>
+        /// How many times each alarm has been handed to speech, on its own or
+        /// in a group. A group re-reads, and answers for, only the members
+        /// whose latest hand-over is still the group's.
+        /// </summary>
+        private readonly Dictionary<string, long> _handOverSerial = new Dictionary<string, long>(StringComparer.Ordinal);
+
+        private long HandOverSerialLocked(string alarmId) =>
+            _handOverSerial.TryGetValue(alarmId, out long n) ? n : 0;
+
+        /// <summary>Hand one alarm's warning to speech on its own, and count it.</summary>
+        private void HandOver(string alarmId, string text, string subject, Func<string?> refresh,
+            Action? notDelivered, Action? silenced)
+        {
+            lock (_gate) _handOverSerial[alarmId] = HandOverSerialLocked(alarmId) + 1;
+            _speaker.SpeakWarning(text, subject, refresh, notDelivered, silenced);
         }
 
         /// <summary>
