@@ -11876,6 +11876,9 @@ namespace Radios
             get { return theRadio?.MicInput ?? ""; }
             set
             {
+                // A deliberate choice ends any PC retry still armed, at once and
+                // at its bytes (round five, Codex's re-check M1).
+                NoteOperatorMicChoice(value);
                 // An operator choosing a source through JJ Flex is intent, not
                 // drift, so move what checkPcMicSelection expects along with
                 // them: a deliberate switch to the analog mic is then honoured

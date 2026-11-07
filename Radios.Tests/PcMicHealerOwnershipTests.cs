@@ -2804,5 +2804,89 @@ namespace Radios.Tests
             rig.StopPcAudio();
             Assert.Equal("mic input MIC", rig.MicWrites.Last());   // the new run's debt is still owed, and paid
         }
+    
+
+        // ── Round five, Codex's re-check M1: a newer explicit mic choice ends any retry ──
+
+        /// <summary>The operator picks <paramref name="input"/> through JJ Flexible, and its write runs.</summary>
+        private static void OperatorChooses(PcAudioRig rig, string input)
+        {
+            using var held = new HeldQueue(rig.Rig);
+            rig.Rig.MicSource = input;
+            held.Drain();
+        }
+
+        [Fact]
+        public void A_switch_back_retry_does_not_override_the_operators_newer_mic_choice()
+        {
+            // Codex's sequence: the switch back could not record the input in
+            // time and armed its retry; before it ran, the operator chose ACC.
+            // Wire was PC, ACC, PC.
+            using var rig = GuestRadioMovedToMic();
+            using (var held = new HeldQueue(rig.Rig))
+            {
+                PressOnly(rig);
+                var holder = HoldDispatchFor(rig, 1400);
+                held.Drain();
+                Assert.True(holder.Join(3000));
+            }
+            object retry = ArmedRetry(rig);
+            OperatorChooses(rig, "ACC");
+            Assert.Equal("mic input ACC", rig.MicWrites.Last());
+            Assert.Equal("Stopped", Attempt(rig, retry));
+            Assert.Equal("mic input ACC", rig.MicWrites.Last());     // no PC after the choice
+            Assert.Equal("ACC", rig.MicInput);
+        }
+
+        [Fact]
+        public void A_start_retry_does_not_override_the_operators_newer_mic_choice()
+        {
+            using var rig = StartedWithoutARecord();
+            object retry = ArmedRetry(rig);
+            OperatorChooses(rig, "ACC");
+            Assert.Null(RetryField!.GetValue(rig.Rig));                 // dropped at the choice
+            Assert.Equal("Stopped", Attempt(rig, retry));
+            Assert.Equal(new[] { "mic input ACC" }, rig.MicWrites);
+        }
+
+        [Fact]
+        public void A_retry_armed_after_the_operators_choice_is_still_over()
+        {
+            // A start in progress arms its retry when its session opens, which
+            // can be after the choice was made: the count it carries ends it.
+            using var rig = StartedWithoutARecord();
+            object retry = ArmedRetry(rig);
+            OperatorChooses(rig, "ACC");
+            RetryField!.SetValue(rig.Rig, retry);                      // armed after the choice
+            Assert.Equal("Stopped", Attempt(rig, retry));
+            Assert.Equal(new[] { "mic input ACC" }, rig.MicWrites);
+        }
+
+        [Fact]
+        public void A_retry_waiting_at_the_write_gate_when_the_operator_chooses_writes_no_PC()
+        {
+            // The at-the-bytes half: the attempt recorded and is waiting for the
+            // transport's write gate when the operator's choice is made.
+            using var rig = StartedWithoutARecord();
+            object retry = ArmedRetry(rig);
+            var gate = (Flex.Smoothlake.FlexLib.CommandWriteGate)typeof(Flex.Smoothlake.FlexLib.CommandCommunicationBase)
+                .GetField("_writeGate", Private)!.GetValue(rig.Vendor.Transport)!;
+            Assert.True(gate.TryEnter(), "the write gate was not free");
+            string? result = null;
+            System.Threading.Thread attempt;
+            try
+            {
+                attempt = new System.Threading.Thread(() => result = Attempt(rig, retry)) { IsBackground = true };
+                attempt.Start();
+                var until = DateTime.UtcNow.AddSeconds(3);
+                while ((attempt.ThreadState & System.Threading.ThreadState.WaitSleepJoin) == 0 && DateTime.UtcNow < until)
+                    System.Threading.Thread.Sleep(2);
+                rig.Rig.MicSource = "ACC";                       // the choice; its own write is queued behind
+            }
+            finally { gate.Exit(); }
+            Assert.True(attempt.Join(3000));
+            Assert.NotEqual("OnPc", result);
+            Assert.DoesNotContain("mic input PC", rig.MicWrites);
+        }
     }
 }

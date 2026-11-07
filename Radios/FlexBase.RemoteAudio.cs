@@ -2952,7 +2952,8 @@ namespace Radios
                     // handing it to the replacement.
                     // Until PC is established below, it is left to try again (J10).
                     _startPcRetry = theRadio == null ? null : new PcSwitchRetry(theRadio,
-                        theRadio.CurrentCommandConnection, Interlocked.Read(ref _remoteAudioRun), opusOutputChannel);
+                        theRadio.CurrentCommandConnection, Interlocked.Read(ref _remoteAudioRun), opusOutputChannel)
+                    { ChoicesAtArming = Interlocked.Read(ref _micChoicesMade) };
                     var capture = CaptureMic(theRadio);
                     MicInputSwap leftover = null, swap = null;
                     string notChanged;
@@ -3119,6 +3120,12 @@ namespace Radios
             public object Channel { get; }
             /// <summary>Attempts made so far, the start's own not counted.</summary>
             public int Attempts;
+            /// <summary>
+            /// The operator's deliberate mic choices (<see cref="MicSource"/>) when
+            /// it was made (round five, Codex's re-check M1): a choice since ends
+            /// it, at any attempt, at the write and at the bytes.
+            /// </summary>
+            public long ChoicesAtArming { get; set; }
             /// <summary>When it was armed, on the healer's clock (J20's five seconds count from here).</summary>
             public long StartedAt { get; set; }
             /// <summary>J20's sentence has been said for this retry.</summary>
@@ -3161,6 +3168,31 @@ namespace Radios
                     subject: Speech.SpeechSubject.PcMicStillSwitching);
         }
 
+        /// <summary>
+        /// The operator's deliberate mic choices through JJ Flexible
+        /// (<see cref="MicSource"/>), counted (round five, Codex's re-check M1).
+        /// A retry carries an older intent and never overrides a newer choice.
+        /// </summary>
+        private long _micChoicesMade;
+
+        /// <summary>
+        /// The operator chose a mic input: any retry armed, or about to be,
+        /// is over (round five, M1). Called before the choice's own write is queued.
+        /// </summary>
+        private void NoteOperatorMicChoice(string value)
+        {
+            Interlocked.Increment(ref _micChoicesMade);
+            PcSwitchRetry ended;
+            lock (_micSwitchLock)
+            {
+                ended = _pcSwitchRetry;
+                _pcSwitchRetry = null;
+            }
+            if (ended != null)
+                Tracing.TraceLine("PcSwitchRetry: ended - the operator chose mic input '" + value + "'; nothing more is written for it",
+                    TraceLevel.Info);
+        }
+
         /// <summary>The retry in force, or null. Written under <see cref="_micSwitchLock"/>.</summary>
         private PcSwitchRetry _pcSwitchRetry;
 
@@ -3198,6 +3230,7 @@ namespace Radios
                 retry = new PcSwitchRetry(radio, radio.CurrentCommandConnection, Interlocked.Read(ref _remoteAudioRun),
                     (object)opusOutputChannel ?? new object())
                 {
+                    ChoicesAtArming = Interlocked.Read(ref _micChoicesMade),
                     Session = pressedInSession,
                     FromSwitchBack = true,
                     StartedAt = _pcMicCheckClock(),
@@ -3233,7 +3266,8 @@ namespace Radios
         /// <summary>Why <paramref name="retry"/> is over, or null. Reads only; no lock.</summary>
         private string PcSwitchRetryOver(PcSwitchRetry retry)
         {
-            if (!ReferenceEquals(Volatile.Read(ref _pcSwitchRetry), retry)) return "PC audio has stopped, or a newer start replaced it";
+            if (!ReferenceEquals(Volatile.Read(ref _pcSwitchRetry), retry)) return "PC audio has stopped, a newer start replaced it, or the operator chose a mic input";
+            if (Interlocked.Read(ref _micChoicesMade) != retry.ChoicesAtArming) return "the operator has chosen a mic input since it was armed";
             if (!_micSessionOpen || Interlocked.Read(ref _micSessionId) != retry.Session) return "the PC-audio session it was started for has ended";
             if (Interlocked.Read(ref _remoteAudioRun) != retry.Run) return "a newer remote-audio run has begun";
             if (!ReferenceEquals(theRadio, retry.Radio)) return "the radio has changed";
