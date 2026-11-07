@@ -1,1 +1,0 @@
-- Ctrl+Enter in Check your audio starts the check on the first press after a take has played to its end. Before, that press quietly did nothing. And a number you are still typing is now used, rather than the check running at the old one.

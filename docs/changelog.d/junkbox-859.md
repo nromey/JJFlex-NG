@@ -1,2 +1,0 @@
-- On a rig that goes silent at 0 watts, recording yourself no longer plays back nothing. Check your audio now runs at Low power there, starting from 1 watt, and your own power comes back when the check ends. Test your microphone still runs at zero, because it records nothing and promises nothing goes on the air.
-- That rig can't be set to 0 watts anywhere now. The arrows stop at 1, a typed 0 tells you so, and Dummy Load mode stays in the menu but says why it isn't available.
