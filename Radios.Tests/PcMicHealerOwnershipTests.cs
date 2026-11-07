@@ -2772,16 +2772,16 @@ namespace Radios.Tests
         {
             using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
             var connection = (Flex.Smoothlake.FlexLib.CommandConnection)rig.Vendor.Radio.CurrentCommandConnection!;
-            long before = InterlockReports.MicChoicesReported(connection);
+            long before = MicReports.ChoicesReported(connection);
             using (var held = new HeldQueue(rig.Rig))
             {
                 rig.Rig.MicSource = "BAL";
                 held.Drain();
             }
             Assert.Equal("BAL", rig.MicInput);
-            Assert.Equal(before, InterlockReports.MicChoicesReported(connection));   // ours, not a choice
+            Assert.Equal(before, MicReports.ChoicesReported(connection));   // ours, not a choice
             rig.RadioReports("ACC");                                                  // control: another station's is
-            Assert.Equal(before + 1, InterlockReports.MicChoicesReported(connection));
+            Assert.Equal(before + 1, MicReports.ChoicesReported(connection));
         }
 
         [Fact]
@@ -2887,6 +2887,139 @@ namespace Radios.Tests
             Assert.True(attempt.Join(3000));
             Assert.NotEqual("OnPc", result);
             Assert.DoesNotContain("mic input PC", rig.MicWrites);
+        }
+    
+
+        // ── Round six, Codex's re-check E1: an expected echo belongs to bytes that went out ──
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void A_failed_mic_write_does_not_hide_another_stations_choice(bool ourWriteFails)
+        {
+            // Codex's echo-failed schedule: our BAL never left; another
+            // station's BAL then arrived within the five seconds and was taken
+            // as our echo, so the stop wrote ACC over the newer choices.
+            // Control: the same without the failed write.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            if (ourWriteFails)
+            {
+                rig.Vendor.Transport.FailNextWrite = true;
+                OperatorChooses(rig, "BAL");
+                Assert.DoesNotContain("mic input BAL", rig.MicWrites);    // nothing went out
+            }
+            rig.RadioReports("ACC");
+            rig.StartPcAudio();                                         // records ACC, writes PC
+            rig.RadioReports("BAL");                                    // another station
+            rig.RadioReports("PC");
+            rig.StopPcAudio();
+            Assert.Equal("mic input PC", rig.MicWrites.Last());        // no ACC over the newer choices
+            Assert.Equal("PC", rig.MicInput);
+        }
+
+        // ── Round six, Codex's re-check M2: the press is the authority ──
+
+        [Fact]
+        public void A_choice_made_while_the_switch_back_waits_to_record_ends_it()
+        {
+            // Codex's j21-prearm-choice: the operator chose ACC while the
+            // switch back's queued half waited for the report gate; it then
+            // armed its retry with the NEW count and wrote PC over ACC.
+            using var rig = GuestRadioMovedToMic();
+            using (var held = new HeldQueue(rig.Rig))
+            {
+                PressOnly(rig);
+                var holder = HoldDispatchFor(rig, 1400);
+                var drain = new System.Threading.Thread(() => held.Drain()) { IsBackground = true };
+                drain.Start();
+                System.Threading.Thread.Sleep(200);                     // the queued half is waiting to record
+                rig.Rig.MicSource = "ACC";                              // the operator, during the wait
+                Assert.True(drain.Join(5000));
+                Assert.True(holder.Join(3000));
+                held.Drain();                                           // ACC's own write
+            }
+            object? retry = RetryField!.GetValue(rig.Rig);
+            if (retry != null) Assert.Equal("Stopped", Attempt(rig, retry));
+            Assert.Equal("mic input ACC", rig.MicWrites.Last());
+            Assert.Equal("ACC", rig.MicInput);
+        }
+    
+
+        [Fact]
+        public void A_switch_back_retry_is_armed_with_the_presss_authority_not_a_later_one()
+        {
+            // The arming itself: a choice made before it is armed, with the
+            // press's older count, ends it at its first attempt.
+            using var rig = GuestRadioMovedToMic();
+            long atPress = (long)typeof(FlexBase).GetField("_micChoicesMade", Private)!.GetValue(rig.Rig)!;
+            OperatorChooses(rig, "ACC");
+            var arm = typeof(FlexBase).GetMethod("ArmSwitchBackRetry", Private)!;
+            long session = (long)typeof(FlexBase).GetField("_micSessionId", Private)!.GetValue(rig.Rig)!;
+            Assert.True((bool)arm.Invoke(rig.Rig, new object[] { rig.Vendor.Radio, session, atPress })!);
+            object retry = ArmedRetry(rig);
+            Assert.Equal("Stopped", Attempt(rig, retry));
+            Assert.Equal("mic input ACC", rig.MicWrites.Last());
+        }
+
+        [Fact]
+        public void A_switch_backs_PC_waiting_at_the_write_gate_when_the_operator_chooses_is_not_written()
+        {
+            // The switch back recorded and is waiting for the transport's write
+            // gate with its PC when the operator chooses ACC: refused at the bytes.
+            using var rig = GuestRadioMovedToMic();
+            int pcBefore = rig.MicWrites.Count(c => c == "mic input PC");
+            var gate = (Flex.Smoothlake.FlexLib.CommandWriteGate)typeof(Flex.Smoothlake.FlexLib.CommandCommunicationBase)
+                .GetField("_writeGate", Private)!.GetValue(rig.Vendor.Transport)!;
+            using var held = new HeldQueue(rig.Rig);
+            PressOnly(rig);
+            Assert.True(gate.TryEnter(), "the write gate was not free");
+            System.Threading.Thread drain;
+            try
+            {
+                drain = new System.Threading.Thread(() => held.RunOne()) { IsBackground = true };
+                drain.Start();
+                var until = DateTime.UtcNow.AddSeconds(3);
+                while ((drain.ThreadState & System.Threading.ThreadState.WaitSleepJoin) == 0 && DateTime.UtcNow < until)
+                    System.Threading.Thread.Sleep(2);
+                rig.Rig.MicSource = "ACC";                       // the choice; its write queued behind
+            }
+            finally { gate.Exit(); }
+            Assert.True(drain.Join(3000));
+            Assert.Equal(pcBefore, rig.MicWrites.Count(c => c == "mic input PC"));
+        }
+    
+
+        [Fact]
+        public void The_operators_mic_write_that_fails_leaves_no_echo_expected()
+        {
+            // E1 at its source: the setter's write gives its own echo
+            // registration its outcome, so a write that never went out expects
+            // nothing at all. Control: one that went out was expected and its
+            // echo came back.
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            var connection = (Flex.Smoothlake.FlexLib.CommandConnection)rig.Vendor.Radio.CurrentCommandConnection!;
+            rig.Vendor.Transport.FailNextWrite = true;
+            OperatorChooses(rig, "BAL");
+            Assert.Equal(0, MicReports.Expecting(connection));
+            long before = MicReports.ChoicesReported(connection);
+            OperatorChooses(rig, "ACC");                                 // goes out, and echoes
+            Assert.Equal(0, MicReports.Expecting(connection));
+            Assert.Equal(before, MicReports.ChoicesReported(connection));
+        }
+
+        [Fact]
+        public void A_choice_made_after_the_press_ends_the_switch_back_before_it_records()
+        {
+            // The queued half's own question: the choice came after the press
+            // and before the queued half ran.
+            using var rig = GuestRadioMovedToMic();
+            using var held = new HeldQueue(rig.Rig);
+            PressOnly(rig);
+            rig.Rig.MicSource = "ACC";
+            held.Drain();
+            Assert.Equal(FlexBase.MicSwitchBackOutcome.ChosenSince, rig.Rig.LastQueuedMicSwitchBack);
+            Assert.Equal("mic input ACC", rig.MicWrites.Last());
         }
     }
 }

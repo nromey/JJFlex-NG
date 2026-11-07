@@ -2106,7 +2106,7 @@ namespace Radios
                 Run = run;
                 MadeBySwitchBack = madeBySwitchBack;
                 Connection = radio?.CurrentCommandConnection;
-                ChoicesAtPc = InterlockReports.MicChoicesReported(Connection as CommandConnection);
+                ChoicesAtPc = MicReports.ChoicesReported(Connection as CommandConnection);
             }
 
             /// <summary>
@@ -2139,7 +2139,7 @@ namespace Radios
 
             /// <summary>A mic choice has been reported on its connection since this app set PC.</summary>
             public bool ChoiceReportedSince =>
-                InterlockReports.MicChoicesReported(Connection as CommandConnection) != ChoicesAtPc;
+                MicReports.ChoicesReported(Connection as CommandConnection) != ChoicesAtPc;
 
             /// <summary>The interlock report sequence when it went owed (under the mic lock): only a later receive retries it.</summary>
             public long OwedSince { get; set; }
@@ -2316,7 +2316,7 @@ namespace Radios
                         Connection = connection,
                         Run = Interlocked.Read(ref _remoteAudioRun),
                         Input = radio.MicInput,
-                        Choices = InterlockReports.MicChoicesReported(connection),
+                        Choices = MicReports.ChoicesReported(connection),
                         Recorded = connection != null && connection.State == CommandConnectionState.Connected,
                     };
                 }
@@ -2428,6 +2428,7 @@ namespace Radios
             {
                 bool withheld = false, written = false, nothingToDo = false;
                 string voided = null;
+                MicReports.OwnWrite echo = null;   // this put-back's own echo registration (round six)
                 // ONE pinned step: the radio and the connection the value was saved
                 // on, the run, the input and receive, asked before the write AND at
                 // the transport's write (rounds 5 to 9). The write is forced
@@ -2441,10 +2442,10 @@ namespace Radios
                     // Saved as PC: the radio was already on PC, nothing to put back.
                     if (string.Equals(swap.Saved ?? "", "PC", StringComparison.OrdinalIgnoreCase)) { nothingToDo = true; return null; }
                     if (MicPutBackWithheld(when, swap.Saved, radio, swap.Connection)) { withheld = true; return null; }
-                    // The radio echoes a mic write to its writer (round five): ours, not a choice.
-                    InterlockReports.ExpectOwnMicEcho(swap.Connection as CommandConnection, swap.Saved);
+                    // The radio echoes a mic write to its writer: registered for
+                    // THIS write, and given its outcome below (rounds five, six).
+                    echo = MicReports.Expect(swap.Connection as CommandConnection, swap.Saved);
                     written = radio.SendMicInput(swap.Saved);
-                    if (!written) InterlockReports.CancelOwnMicEcho(swap.Connection as CommandConnection, swap.Saved);
                     return null;
                 },
                 // AT the transport's write, under the reader's dispatch gate. Reads only.
@@ -2467,8 +2468,9 @@ namespace Radios
                     if (v != null) voided = v;
                     return v;
                 });
-                // Refused at the write or at the bytes: no echo is coming (round five).
-                if (refused != null) InterlockReports.CancelOwnMicEcho(swap.Connection as CommandConnection, swap.Saved);
+                // This write's own outcome, for its echo (round six): out only
+                // when nothing refused it and the transport took it.
+                echo?.Outcome(refused == null && written);
 
                 if (voided != null)
                 {
@@ -2735,13 +2737,15 @@ namespace Radios
                     string notSent = null;
                     bool withheld = false;
                     bool rawNewer = false;
+                    MicReports.OwnWrite echo = null;   // this put-back's own echo registration (round six)
                     string refused = StepOnPinnedTarget(radio, pin.Connection, () =>
                     {
                         if (Interlocked.Read(ref _remoteAudioRun) != pin.Run)
                             return "a newer remote-audio run has begun since it was queued";
                         if (MicPutBackWithheld(when, swap.Saved, radio, pin.Connection)) { withheld = true; return null; }
-                        // The radio echoes a mic write to its writer (round five): ours, not a choice.
-                        InterlockReports.ExpectOwnMicEcho(pin.Connection as CommandConnection, swap.Saved);
+                        // The radio echoes a mic write to its writer: registered for
+                        // THIS write, and given its outcome below (rounds five, six).
+                        echo = MicReports.Expect(pin.Connection as CommandConnection, swap.Saved);
                         notSent = SendRadioCommandWithReply(radio, command, reply =>
                             Tracing.TraceLine("PutBackSavedMicInput (" + when + "): " + reply,
                                 reply.Acknowledged ? TraceLevel.Info : TraceLevel.Warning));
@@ -2776,8 +2780,8 @@ namespace Radios
                         rawNewer = true;
                         return "the mic input has changed since the check";
                     });
-                    // Not sent, or refused at the write or the bytes: no echo is coming (round five).
-                    if (notSent != null || refused != null) InterlockReports.CancelOwnMicEcho(pin.Connection as CommandConnection, swap.Saved);
+                    // This write's own outcome, for its echo (round six).
+                    echo?.Outcome(notSent == null && refused == null);
                     if (rawNewer)
                     {
                         MicLeftOnPcSettled(radio);
@@ -3221,7 +3225,7 @@ namespace Radios
         /// input in time, bound to the session it was pressed in, this radio,
         /// its connection and the run. False when that session is no longer open.
         /// </summary>
-        private bool ArmSwitchBackRetry(Radio radio, long pressedInSession)
+        private bool ArmSwitchBackRetry(Radio radio, long pressedInSession, long choicesAtPress)
         {
             PcSwitchRetry retry;
             lock (_micSwitchLock)
@@ -3230,7 +3234,10 @@ namespace Radios
                 retry = new PcSwitchRetry(radio, radio.CurrentCommandConnection, Interlocked.Read(ref _remoteAudioRun),
                     (object)opusOutputChannel ?? new object())
                 {
-                    ChoicesAtArming = Interlocked.Read(ref _micChoicesMade),
+                    // The PRESS's authority, never a count read after the capture's
+                    // wait (round six, Codex's re-check M2): a choice made during
+                    // that wait ends this retry rather than being adopted by it.
+                    ChoicesAtArming = choicesAtPress,
                     Session = pressedInSession,
                     FromSwitchBack = true,
                     StartedAt = _pcMicCheckClock(),
@@ -3437,6 +3444,12 @@ namespace Radios
             /// #861 B2).
             /// </summary>
             NotRecorded,
+            /// <summary>
+            /// Only from the queued write (round six, Codex's re-check M2): the
+            /// operator chose a mic input themselves after the press, so the
+            /// press no longer has authority; nothing was switched or armed.
+            /// </summary>
+            ChosenSince,
         }
 
         /// <summary>The outcome and the sentence to speak for it. The
@@ -3562,7 +3575,10 @@ namespace Radios
                 return new MicSwitchBackResult(MicSwitchBackOutcome.AlreadyPc,
                     Lexicon.Get("audio.mic.switch_back_already_pc"));
 
-            q.Enqueue((FunctionDel)(() => RunQueuedMicSwitchBack(radio, pressedInSession)), "MicInput switch-back");
+            // The press's authority, read HERE and carried to every later step
+            // (round six, Codex's re-check M2).
+            long choicesAtPress = Interlocked.Read(ref _micChoicesMade);
+            q.Enqueue((FunctionDel)(() => RunQueuedMicSwitchBack(radio, pressedInSession, choicesAtPress)), "MicInput switch-back");
             return new MicSwitchBackResult(MicSwitchBackOutcome.Switching,
                 Lexicon.Get("audio.mic.switch_back_switching"));
         }
@@ -3570,7 +3586,7 @@ namespace Radios
         /// <summary>The queued half of <see cref="SwitchMicInputBackToPc"/>,
         /// run by the command queue. Decides and updates the bookkeeping
         /// under the lock; sends and speaks after releasing it.</summary>
-        private void RunQueuedMicSwitchBack(Radio radio, long pressedInSession)
+        private void RunQueuedMicSwitchBack(Radio radio, long pressedInSession, long choicesAtPress)
         {
             MicSwitchBackOutcome outcome;
             MicSwitchAttempt attempt = null;
@@ -3589,6 +3605,10 @@ namespace Radios
                 sessionOpenNow = _micSessionOpen;
                 if (!_micSessionOpen || _micSessionId != pressedInSession || !ReferenceEquals(theRadio, radio))
                     outcome = MicSwitchBackOutcome.SessionChanged;
+                // The operator chose since the press, perhaps while this waited
+                // to record (round six, M2): the press has no authority left.
+                else if (Interlocked.Read(ref _micChoicesMade) != choicesAtPress)
+                    outcome = MicSwitchBackOutcome.ChosenSince;
                 else if ((notRecorded = CaptureNoLongerCurrent(capture)) != null)
                     outcome = MicSwitchBackOutcome.NotRecorded;
                 // Asked again HERE, together with the bookkeeping: the hold
@@ -3624,6 +3644,11 @@ namespace Radios
 
             switch (outcome)
             {
+                case MicSwitchBackOutcome.ChosenSince:
+                    // Their own choice is announced as theirs; nothing more is said here.
+                    Tracing.TraceLine("SwitchMicInputBackToPc: the operator chose a mic input after the press"
+                        + " - nothing written, no retry", TraceLevel.Info);
+                    return;
                 case MicSwitchBackOutcome.SessionChanged:
                     Tracing.TraceLine("SwitchMicInputBackToPc: pressed in PC-audio session " + pressedInSession
                         + "; by the time the write ran, session " + sessionNow
@@ -3652,7 +3677,7 @@ namespace Radios
                     // start does (J10), with the same bounds and at-the-bytes checks,
                     // instead of refusing. A radio, connection or run that changed
                     // under it is still refused, as before.
-                    if (!capture.Recorded && ArmSwitchBackRetry(radio, pressedInSession))
+                    if (!capture.Recorded && ArmSwitchBackRetry(radio, pressedInSession, choicesAtPress))
                     {
                         Tracing.TraceLine("SwitchMicInputBackToPc: " + notRecorded + "; nothing written yet, and it is tried"
                             + " again once a second until the radio is on PC (J21)", TraceLevel.Warning);
@@ -3673,7 +3698,9 @@ namespace Radios
             // in is still open. Refused at the write, it was not sent.
             string notSent = null;
             string refusedAtWrite = PcUnderRecord(capture,
-                () => !_micSessionOpen || _micSessionId != pressedInSession ? "the PC-audio session it was pressed in has ended" : null,
+                () => !_micSessionOpen || _micSessionId != pressedInSession ? "the PC-audio session it was pressed in has ended"
+                    : Interlocked.Read(ref _micChoicesMade) != choicesAtPress ? "the operator has chosen a mic input since the press"
+                    : null,
                 () => notSent = SendRadioCommandWithReply(radio, MicInputPcCommand, reply => OnMicSwitchBackReply(attempt, reply)));
             notSent ??= refusedAtWrite;
             Tracing.TraceLine("SwitchMicInputBackToPc: mic input '" + before + "', "

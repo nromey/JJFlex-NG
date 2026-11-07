@@ -11895,9 +11895,9 @@ namespace Radios
                 // The radio echoes a mic write to its writer (round five): the
                 // report that follows is this choice coming back, not another's.
                 if (value != null)
-                    EnqueueSettingWrite((FunctionDel)(() => { ExpectOwnMicEchoFor(theRadio, value); theRadio.MicInput = value; }),
+                    EnqueueSettingWrite((FunctionDel)(() => SetMicInputTracked(theRadio, value)),
                         RadioWrite("mic-input", "mic input " + value.ToUpperInvariant(), "transmit", "mic_selection", value.ToUpperInvariant()), "MicInput");
-                else q.Enqueue((FunctionDel)(() => { ExpectOwnMicEchoFor(theRadio, value); theRadio.MicInput = value; }), "MicInput");
+                else q.Enqueue((FunctionDel)(() => SetMicInputTracked(theRadio, value)), "MicInput");
             }
         }
 

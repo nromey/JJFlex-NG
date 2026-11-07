@@ -82,19 +82,6 @@ namespace Radios
 
         private static readonly ConditionalWeakTable<CommandConnection, Record> Reports = new();
 
-        /// <summary>How many mic inputs other than PC the radio has reported on each connection (repair round 8).</summary>
-        private static readonly ConditionalWeakTable<CommandConnection, StrongBox<long>> MicChoiceCounts = new();
-
-        /// <summary>
-        /// How many times the radio has reported a mic input OTHER than PC
-        /// (<c>mic_selection=</c>) on <paramref name="connection"/> (repair round
-        /// 8, Codex's #861 B3): a choice made since a mic debt was decided, even
-        /// one followed later by PC again, settles that debt. A repeated PC is
-        /// the radio still holding the PC this app left, and is not counted.
-        /// </summary>
-        internal static long MicChoicesReported(CommandConnection? connection) =>
-            connection != null && MicChoiceCounts.TryGetValue(connection, out var box) ? Interlocked.Read(ref box.Value) : 0;
-
         /// <summary>How many shack-speaker settings the radio has reported on each connection (round four, S1).</summary>
         private static readonly ConditionalWeakTable<CommandConnection, StrongBox<long>> SpeakerChoiceCounts = new();
 
@@ -107,80 +94,11 @@ namespace Radios
         /// and micechoprobe.log): <c>radio set mute_local_audio_when_remote</c>
         /// gets only its reply, never a status, so EVERY speaker report here is
         /// another station's choice, even one that lands on the value this app
-        /// set. <c>mic input</c> IS echoed, so the mic count below does not lean
-        /// on this; see <see cref="ExpectOwnMicEcho"/>.
+        /// set. <c>mic input</c> IS echoed, so the mic count does not lean on
+        /// this; see <see cref="MicReports"/>.
         /// </summary>
         internal static long SpeakerChoicesReported(CommandConnection? connection) =>
             connection != null && SpeakerChoiceCounts.TryGetValue(connection, out var box) ? Interlocked.Read(ref box.Value) : 0;
-
-        // ── Our own mic writes come back to us (round five) ──
-        //
-        // Measured on the 8600 over LAN, 2026-11-06 (micechoprobe.log): the
-        // writer of "mic input BAL" gets its own "transmit ... mic_selection=BAL"
-        // status, within 8 ms and BEFORE its reply. So a mic report after one of
-        // our own writes may be that write coming back, and counting it as
-        // another station's choice settles a debt nobody chose to settle (a
-        // put-back's MIC echoing after the next start recorded its debt left the
-        // radio on PC). Each of our non-PC mic writes therefore says which
-        // report it expects; the reader takes one matching report as ours and
-        // does not count it. An expectation lapses after OwnEchoMs, so one whose
-        // echo never came cannot swallow a later real choice for long.
-
-        private sealed class OwnEcho
-        {
-            public OwnEcho(string value, long until) { Value = value; Until = until; }
-            public string Value { get; }
-            public long Until { get; }
-        }
-
-        private static readonly ConditionalWeakTable<CommandConnection, System.Collections.Generic.List<OwnEcho>> OwnMicEchoes = new();
-
-        /// <summary>How long an expected echo of our own mic write is waited for.</summary>
-        internal const int OwnEchoMs = 5000;
-
-        /// <summary>The expectations' clock. Tests may replace it.</summary>
-        internal static Func<long> EchoClock = () => Environment.TickCount64;
-
-        /// <summary>
-        /// This app is about to write <c>mic input <paramref name="value"/></c> on
-        /// <paramref name="connection"/>: its echo is ours, not a choice. PC is not
-        /// counted anyway, so nothing is expected for it.
-        /// </summary>
-        internal static void ExpectOwnMicEcho(CommandConnection? connection, string? value)
-        {
-            if (connection == null || string.IsNullOrEmpty(value) || string.Equals(value, "PC", StringComparison.OrdinalIgnoreCase)) return;
-            var list = OwnMicEchoes.GetValue(connection, _ => new System.Collections.Generic.List<OwnEcho>());
-            lock (list) list.Add(new OwnEcho(value.ToUpperInvariant(), EchoClock() + OwnEchoMs));
-        }
-
-        /// <summary>The write expected by <see cref="ExpectOwnMicEcho"/> did not go out: no echo is coming.</summary>
-        internal static void CancelOwnMicEcho(CommandConnection? connection, string? value)
-        {
-            if (connection == null || string.IsNullOrEmpty(value)) return;
-            if (!OwnMicEchoes.TryGetValue(connection, out var list)) return;
-            string v = value.ToUpperInvariant();
-            lock (list)
-            {
-                int at = list.FindIndex(e => e.Value == v);
-                if (at >= 0) list.RemoveAt(at);
-            }
-        }
-
-        /// <summary>A mic report is the echo of a write of ours still expected on this connection: take it.</summary>
-        private static bool TakeOwnMicEcho(CommandConnection connection, string value)
-        {
-            if (!OwnMicEchoes.TryGetValue(connection, out var list)) return false;
-            string v = value.ToUpperInvariant();
-            long now = EchoClock();
-            lock (list)
-            {
-                list.RemoveAll(e => e.Until <= now);
-                int at = list.FindIndex(e => e.Value == v);
-                if (at < 0) return false;
-                list.RemoveAt(at);
-                return true;
-            }
-        }
 
         /// <summary>The sequence of the last report read, on any connection; zero before the first.</summary>
         private static long _sequence;
@@ -294,11 +212,8 @@ namespace Radios
                     if (at < 0) return;
                     int from = at + 14, end = text.IndexOf(' ', from);
                     string value = (end < 0 ? text.Substring(from) : text.Substring(from, end - from)).TrimEnd('\r', '\n');
-                    if (string.Equals(value, "PC", StringComparison.OrdinalIgnoreCase)) return;
-                    // Our own write coming back (round five): not a choice.
-                    if (TakeOwnMicEcho(data!.Connection, value)) return;
-                    var box = MicChoiceCounts.GetValue(data!.Connection, _ => new StrongBox<long>());
-                    Interlocked.Increment(ref box.Value);
+                    // Its owner decides what it is: our echo, or a choice (round six).
+                    MicReports.Reported(data!.Connection, value);
                     return;
                 }
                 // The shack speaker's setting, counted per connection (round

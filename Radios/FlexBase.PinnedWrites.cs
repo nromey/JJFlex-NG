@@ -149,17 +149,36 @@ public partial class FlexBase
     }
 
     /// <summary>
-    /// A setter is about to write <c>mic input <paramref name="value"/></c> to
-    /// <paramref name="radio"/>: expect its echo (round five; the radio echoes a
-    /// mic write to its writer, measured 2026-11-06). FlexLib's setter writes
-    /// only when the value differs from its cache, so nothing is expected when
-    /// it will not write.
+    /// Set <paramref name="radio"/>'s mic input to <paramref name="value"/>
+    /// through FlexLib's setter, and give the write's echo registration its
+    /// real outcome (round six, Codex's re-check E1): the radio echoes a mic
+    /// write to its writer, and an expectation for bytes that never went out
+    /// would take another station's real report as ours. The setter writes only
+    /// when the value differs from its cache, so nothing is expected otherwise.
+    /// The outcome is read from the pinned step this runs in, or from a pin of
+    /// its own (never nested inside another, which would skip that one's question).
     /// </summary>
-    private static void ExpectOwnMicEchoFor(Radio? radio, string? value)
+    private static void SetMicInputTracked(Radio? radio, string? value)
     {
-        if (radio == null || value == null) return;
-        if (string.Equals(radio.MicInput, value, StringComparison.Ordinal)) return;
-        InterlockReports.ExpectOwnMicEcho(radio.CurrentCommandConnection as CommandConnection, value);
+        if (radio == null) return;
+        if (value == null || string.Equals(radio.MicInput, value, StringComparison.Ordinal)) { radio.MicInput = value; return; }
+        var connection = radio.CurrentCommandConnection as CommandConnection;
+        var echo = MicReports.Expect(connection, value);
+        bool sent;
+        if (t_stepPin != null)
+        {
+            int before = PinnedWritesSoFar;
+            radio.MicInput = value;
+            sent = PinnedWritesSoFar > before;
+        }
+        else if (connection != null)
+        {
+            using var pin = CommandWritePin.Pin(connection);
+            radio.MicInput = value;
+            sent = pin.Written > 0 && pin.Refusal == null;
+        }
+        else { radio.MicInput = value; sent = false; }
+        echo?.Outcome(sent);
     }
 
     /// <summary>The pin of the pinned step running on this thread, if any (repair round 9).</summary>
