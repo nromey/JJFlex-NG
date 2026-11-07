@@ -1,7 +1,20 @@
 // Sprint 33 Track I — render the reference-voice script to the WAV that ships
 // with JJ Flexible.
 //
-//   dotnet run --project tools/refvoice -- [scriptPath] [outWav]
+//   dotnet run --project tools/refvoice -- [scriptPath] [outWav] [--rate N]
+//
+// --rate is the speech voice's rate, -10 to 10; 0, the default, is the voice's
+// own pace, and reproduces the render that shipped until 2026-11-06. THE WAV
+// THAT SHIPS NOW IS RENDERED AT --rate 1 (task 905, Noel 2026-11-06 17:43: "I'd
+// just jack the TTS speed up so that you end up at 1:50"), every word of the
+// script kept, so a Record yourself check carrying it ends with the reference
+// rather than at the radio's two-minute recorder limit. Only the speech speeds
+// up: the tone, the silence and the gaps between sections keep their lengths.
+// Measured 2026-11-06 with Microsoft David Desktop: rate 0 is 127.7 s (byte for
+// byte the old shipped file), rate 1 is 113.0 s, rate 2 is 102.4 s, rate 3 is
+// 92.0 s, rate 4 is 83.4 s. Rate 1 is the closest to 110 s while under 115 s,
+// seven seconds inside the recorder's two minutes. To reproduce the shipped
+// file, pass the same rate, with the same default voice.
 //
 // The script (jjflex-reference-voice.txt) is the source of truth. Lines in
 // square brackets are directives, everything else is spoken:
@@ -38,11 +51,28 @@ const double TargetPeakDbfs = -3.0;
 const double SectionGapSeconds = 0.35;
 
 string repoRoot = FindRepoRoot();
-string scriptPath = args.Length > 0
-    ? args[0]
+var positional = new List<string>();
+int rate = 0;
+for (int i = 0; i < args.Length; i++)
+{
+    if (args[i] == "--rate")
+    {
+        if (i + 1 >= args.Length || !int.TryParse(args[i + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out rate)
+            || rate < -10 || rate > 10)
+        {
+            Console.Error.WriteLine("--rate takes a whole number from -10 to 10");
+            return 1;
+        }
+        i++;
+        continue;
+    }
+    positional.Add(args[i]);
+}
+string scriptPath = positional.Count > 0
+    ? positional[0]
     : Path.Combine(repoRoot, "JJFlexWpf", "Resources", "ReferenceVoice", "jjflex-reference-voice.txt");
-string outPath = args.Length > 1
-    ? args[1]
+string outPath = positional.Count > 1
+    ? positional[1]
     : Path.Combine(repoRoot, "JJFlexWpf", "Resources", "ReferenceVoice", "jjflex-reference-voice.wav");
 
 if (!File.Exists(scriptPath))
@@ -56,7 +86,8 @@ Console.WriteLine($"refvoice — reading {scriptPath}");
 var samples = new List<float>(SampleRate * 180);
 var synth = new SpeechSynthesizer();
 Console.WriteLine($"  voice: {synth.Voice.Name}");
-synth.Rate = 0;   // the voice's own default pace — reproducible across machines.
+synth.Rate = rate;   // 0 is the voice's own default pace; see the header for the shipped rate.
+Console.WriteLine($"  rate: {rate}");
 
 double gainDb = 0;
 var spoken = new StringBuilder();

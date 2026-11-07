@@ -12,7 +12,9 @@
        Run: dotnet run (project tools/refvoice), optionally passing a script
        path and an output WAV path after the argument separator.
        Defaults write JJFlexWpf/Resources/ReferenceVoice/jjflex-reference-voice.wav
-       from the .txt beside it.
+       from the .txt beside it. The shipped WAV is rendered with rate 1 (pass
+       the rate option, see Program.cs's header); the default, rate 0,
+       reproduces the render that shipped until 2026-11-06.
 
        NOTE ON THE VOICE. This renders with a Windows speech voice, which is
        deterministic and reproducible but is NOT a human being — it has less
