@@ -133,6 +133,58 @@ public sealed class MeterCategoryPickerTests
             Assert.Equal("ListDisplay", ((System.Windows.Data.Binding)name.Value).Path.Path);
         });
 
+    /// <summary>
+    /// Codex B2 on f05fc1f2: with a meter configured on LEVEL (Receive), the
+    /// operator browses Audio, then the list is rebuilt (the "show every
+    /// meter" fold, or the radio's meter set changing). The category must
+    /// stay Audio. Choosing another meter to edit lets it follow that
+    /// meter's source again, the control that following still works.
+    /// </summary>
+    [Fact]
+    public void A_category_the_operator_chose_survives_a_rebuild_until_they_edit_another_meter()
+    {
+        var added = new List<MeterSlot>();
+        try
+        {
+            Run(panel =>
+            {
+                // Two meters to edit, built here and removed after.
+                foreach (var key in new[] { "LEVEL", "FWDPWR" })
+                {
+                    var slot = MeterToneEngine.AddSlot()!;
+                    added.Add(slot);
+                    slot.Retarget(key, key, new MeterRange(), MeterActivation.Always, -1);
+                }
+                Invoke(panel, "RefreshSlotList");
+                var slots = Combo(panel, "SlotCombo");
+                var category = Combo(panel, "CategoryCombo");
+                slots.SelectedIndex = MeterToneEngine.Slots.IndexOf(added[0]);
+                Assert.StartsWith("Every category", (string)category.SelectedItem);   // LEVEL is in view
+
+                category.SelectedIndex = Items(category).ToList().FindIndex(x => x.StartsWith("Audio"));
+
+                // The fold's own two calls (AllMetersCheck_Changed), and the
+                // inventory change's, which are the same two.
+                Invoke(panel, "RefreshSourceChoices");
+                Invoke(panel, "LoadSelectedSlot");
+                Assert.StartsWith("Audio", (string)category.SelectedItem);
+                Assert.Equal("LEVEL", added[0].Definition.Source.Key);   // nothing retargeted
+
+                // Editing another meter: the list follows its source again.
+                slots.SelectedIndex = MeterToneEngine.Slots.IndexOf(added[1]);
+                Assert.StartsWith("Power and SWR", (string)category.SelectedItem);
+            });
+        }
+        finally
+        {
+            foreach (var slot in added)
+            {
+                EarconPlayer.UnregisterContinuousTone(slot.ToneProvider);
+                MeterToneEngine.Slots.Remove(slot);
+            }
+        }
+    }
+
     private const System.Reflection.BindingFlags Private =
         System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
 

@@ -409,6 +409,16 @@ public partial class MetersPanel : UserControl
     /// <summary>The category the source list is showing; null is every category.</summary>
     private MeterCategory? _category;
 
+    /// <summary>
+    /// The meter (by slot id) the operator was editing when they last chose a
+    /// category themselves, or null. While it is still the meter being edited,
+    /// a rebuild (the "show every meter" fold, the radio's meter set changing,
+    /// the panel reloading) keeps their category instead of jumping to the
+    /// configured source's. Choosing another meter to edit lets the list
+    /// follow that meter's source again.
+    /// </summary>
+    private string? _categoryChosenForSlotId;
+
     /// <summary>The categories the category picker offers, by index after "every category".</summary>
     private readonly List<MeterCategory> _categoryChoices = new();
 
@@ -622,6 +632,7 @@ public partial class MetersPanel : UserControl
         if (_loading) return;
         int i = CategoryCombo.SelectedIndex;
         _category = i >= 1 && i - 1 < _categoryChoices.Count ? _categoryChoices[i - 1] : null;
+        _categoryChosenForSlotId = _selectedSlotId;
 
         bool wasLoading = _loading;
         _loading = true;
@@ -846,10 +857,14 @@ public partial class MetersPanel : UserControl
             MeterDefinition def = slot.Definition;
 
             int sourceIndex = _sourceChoices.FindIndex(c => Matches(c, def.Source));
-            if (sourceIndex < 0 && _allChoices.FirstOrDefault(c => Matches(c, def.Source)) is { } elsewhere)
+            if (sourceIndex < 0 && _categoryChosenForSlotId != _selectedSlotId
+                && _allChoices.FirstOrDefault(c => Matches(c, def.Source)) is { } elsewhere)
             {
-                // The meter being edited is in another category: show that
-                // one, so its source is on screen rather than a blank list.
+                // The meter being edited is in another category, and the
+                // operator has not chosen a category for this meter: show
+                // that one, so its source is on screen rather than a blank
+                // list. A category they chose stays put (see
+                // _categoryChosenForSlotId).
                 _category = elsewhere.Category;
                 CategoryCombo.SelectedIndex = _categoryChoices.IndexOf(elsewhere.Category) + 1;
                 ShowCategory();
