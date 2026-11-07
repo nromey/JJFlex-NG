@@ -306,7 +306,8 @@ internal static class Program
             int left = Native.ActiveProcesses(job);
             if (left != 0)
             {
-                Say(left + " process(es) were still running in the job after the child exited: "
+                Say((left < 0 ? "The job's process count COULD NOT BE READ" : left + " process(es) were still running in the job")
+                    + " after the child exited: "
                     + (Native.TryProcessIds(job) is { } still ? Names(still, seen) : "(the job's list could not be read)")
                     + ". Killing them.");
                 Native.TerminateJobObject(job, 1);
@@ -415,7 +416,7 @@ internal static class Program
         // A clean-up check that could not measure is a watch that could not
         // measure (round 3, B4).
         if (watch != null && (active < 0 || (!desktopGone && unmeasuredDesktopError != 0)))
-            watch.Fail("clean-up check", active < 0
+            watch.FailAfterTheRun("clean-up check", active < 0
                 ? "the job's count of running processes could not be read"
                 : "whether the hidden desktop is gone could not be checked, Windows error " + unmeasuredDesktopError);
 

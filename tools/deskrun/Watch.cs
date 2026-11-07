@@ -242,9 +242,27 @@ internal sealed class Watch : IDisposable
     /// run is killed at once rather than allowed to continue unwatched.
     /// </summary>
     internal void Fail(string which, string what)
-        => Kill(ExitCouldNotMeasure,
-                "A WATCH COULD NOT MEASURE (" + which + "): " + what + ". The run is failed rather than "
-                + "reported clean: an unmeasured window or sound is not an absent one.");
+        => Kill(ExitCouldNotMeasure, CouldNotMeasureReason(which, what));
+
+    /// <summary>
+    /// The same verdict as <see cref="Fail"/>, for a check made after the job
+    /// handle is closed (the clean-up checks), where there is nothing left to
+    /// terminate. Records the failure; kills nothing.
+    /// </summary>
+    internal void FailAfterTheRun(string which, string what)
+    {
+        string reason = CouldNotMeasureReason(which, what);
+        lock (_gate)
+        {
+            if (Violation != null) return;
+            Violation = (ExitCouldNotMeasure, reason);
+        }
+        Say(reason);
+    }
+
+    private static string CouldNotMeasureReason(string which, string what)
+        => "A WATCH COULD NOT MEASURE (" + which + "): " + what + ". The run is failed rather than "
+           + "reported clean: an unmeasured window or sound is not an absent one.";
 
     // ───────────────────────────── windows ─────────────────────────────
 
