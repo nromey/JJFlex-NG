@@ -148,11 +148,16 @@ namespace JJFlexWpf.Dialogs
         private void UpdateModeCycleMenuNote()
         {
             var notInMenu = ModeCyclesNotInMenu(_modeCycleKnown.Where(m => !UnavailableOnRadio(m)));
+            // Once a radio has reported its modes, the note speaks of THIS
+            // radio's modes only: "every mode here" would take in a saved
+            // mode the list marks "not available on this radio", which is in
+            // no menu at all (Codex B1 on 4ffb2106).
+            bool onRadio = _radioModes.Count > 0;
             ModeCycleMenuNote.Text = notInMenu.Count == 0
-                ? Lexicon.Get("settings.mode_cycle.menu_note_all")
+                ? Lexicon.Get(onRadio ? "settings.mode_cycle.menu_note_radio_all" : "settings.mode_cycle.menu_note_all")
                 : Lexicon.Get(notInMenu.Count == 1
-                        ? "settings.mode_cycle.menu_note_except"
-                        : "settings.mode_cycle.menu_note_except_many",
+                        ? (onRadio ? "settings.mode_cycle.menu_note_radio_except" : "settings.mode_cycle.menu_note_except")
+                        : (onRadio ? "settings.mode_cycle.menu_note_radio_except_many" : "settings.mode_cycle.menu_note_except_many"),
                     ("modes", JoinModes(notInMenu)));
         }
 

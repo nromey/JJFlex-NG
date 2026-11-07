@@ -94,6 +94,18 @@ namespace Radios
         }
 
         /// <summary>
+        /// Which sentence a press answers with when the cycle on this radio
+        /// holds only the slice's own mode: "the only mode in the cycle", or,
+        /// when the radio's list has left out some of the saved cycle, "the
+        /// only one this radio has". Saying the first about a saved USB and
+        /// DSB on a radio without DSB was untrue (Codex B2 on 4ffb2106).
+        /// </summary>
+        public static string OnlyOneSentenceKey(IReadOnlyList<string> saved, IReadOnlyList<string> onRadio) =>
+            onRadio.Count < saved.Count
+                ? "settings.mode_cycle.only_one_on_radio_press"
+                : "settings.mode_cycle.only_one_press";
+
+        /// <summary>
         /// The operator's saved cycle made safe to use: null (never set) is
         /// <see cref="DefaultCycle"/>; blanks and repeats are dropped and case
         /// is folded. An empty saved cycle stays empty: it is a choice.

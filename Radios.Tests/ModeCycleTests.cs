@@ -304,6 +304,31 @@ namespace Radios.Tests
             // from the radio's own list, and nothing else.
             Assert.Contains("RigControl.Mode = newMode;", body);
             Assert.Contains("Radios.ScreenReaderOutput.Speak(newMode, VerbosityLevel.Terse, true);", body);
+            Assert.Contains("Radios.ModeCycle.OnlyOneSentenceKey(saved, cycle)", body);
+        }
+
+        /// <summary>
+        /// Codex B2 on 4ffb2106: a saved cycle of USB and DSB on the 8600
+        /// (no DSB) leaves one mode on this radio, and Alt+M on USB said "USB
+        /// is the only mode in the cycle" while the cycle held two. It now says
+        /// USB is the only one in the cycle that this radio has.
+        /// </summary>
+        [Fact]
+        public void One_mode_left_on_this_radio_is_called_the_only_one_this_radio_has()
+        {
+            var radio8600 = new[] { "LSB", "USB", "AM", "CW", "DIGL", "DIGU", "SAM", "FM", "NFM", "DFM", "RTTY" };
+            var saved = ModeCycle.FromSaved(new[] { "USB", "DSB" });
+            var onRadio = ModeCycle.OnRadio(saved, radio8600);
+            Assert.Equal(new[] { "USB" }, onRadio);
+            Assert.Equal("USB", ModeCycle.Next(onRadio, ModeCycle.KnownModes(radio8600), "USB", +1));   // stays put
+
+            string sentence = Lexicon.Get(ModeCycle.OnlyOneSentenceKey(saved, onRadio), ("mode", "USB"));
+            Assert.Equal("USB is the only mode in the cycle that this radio has.", sentence);
+
+            // The control: a cycle that really holds one mode keeps the plain sentence.
+            var single = ModeCycle.FromSaved(new[] { "USB" });
+            Assert.Equal("USB is the only mode in the cycle.",
+                Lexicon.Get(ModeCycle.OnlyOneSentenceKey(single, ModeCycle.OnRadio(single, radio8600)), ("mode", "USB")));
         }
 
         /// <summary>

@@ -93,6 +93,29 @@ public sealed class ModeCycleSettingsTests
         });
     }
 
+    /// <summary>
+    /// Codex B1 on 4ffb2106: with a saved DSB marked "not available on this
+    /// radio", the note said "Every mode here except RTTY is also in the
+    /// Slice menu", which took in DSB. On a radio that reported its list the
+    /// note speaks of that radio's modes only; with no radio, the old wording.
+    /// </summary>
+    [Fact]
+    public void With_a_saved_mode_this_radio_lacks_the_note_speaks_only_of_this_radios_modes()
+    {
+        WithOperatorConfig(new[] { "USB", "DSB" }, () =>
+        {
+            var (dialog, _, _, _, _) = Section();
+            var note = (TextBlock)Field(dialog, "ModeCycleMenuNote");
+            Assert.StartsWith("Every mode here except DSB", note.Text);   // no radio: DSB really is offered
+
+            InvokeWith(dialog, "ApplyRadioModes", (IReadOnlyList<string>)Radio8600);
+            Assert.Equal("Every mode this radio has, except RTTY, is also in the Slice menu, under Mode. "
+                         + "For RTTY, the cycle is the only way to choose it.", note.Text);
+            Assert.DoesNotContain("DSB", note.Text);
+            Assert.DoesNotContain("Every mode here", note.Text);
+        });
+    }
+
     [Fact]
     public void On_a_radio_without_DSB_a_cycle_without_it_does_not_offer_it()
     {

@@ -7255,7 +7255,7 @@ public partial class MainWindow : UserControl
         {
             // DRAFT PROSE: one mode in the cycle, and the slice is already in it.
             Radios.ScreenReaderOutput.Speak(
-                Radios.Lexicon.Get("settings.mode_cycle.only_one_press", ("mode", newMode)),
+                Radios.Lexicon.Get(Radios.ModeCycle.OnlyOneSentenceKey(saved, cycle), ("mode", newMode)),
                 Radios.Speech.SpeechIntent.Latest, VerbosityLevel.Terse,
                 subject: Radios.Speech.SpeechSubject.ValueField("Mode"));
             return;

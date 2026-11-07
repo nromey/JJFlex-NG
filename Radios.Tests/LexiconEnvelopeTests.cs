@@ -1031,6 +1031,10 @@ namespace Radios.Tests
                 "settings.mode_cycle.moved",
                 "settings.mode_cycle.empty_press",
                 "settings.mode_cycle.only_one_press",
+                "settings.mode_cycle.menu_note_radio_all",
+                "settings.mode_cycle.menu_note_radio_except",
+                "settings.mode_cycle.menu_note_radio_except_many",
+                "settings.mode_cycle.only_one_on_radio_press",
                 // Junkbox #124, 2026-11-07: the meter picker's category combo,
                 // its entries and the category names. Window text, so delivery
                 // null. Every one a DRAFT awaiting Noel.
