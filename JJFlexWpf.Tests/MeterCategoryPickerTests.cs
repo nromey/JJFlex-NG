@@ -284,6 +284,131 @@ public sealed class MeterCategoryPickerTests
         }
     }
 
+    /// <summary>
+    /// Codex, fourth recheck: the saved +13.8B meter was shown, but as
+    /// "+13.8B (not reported by this radio)" while the radio WAS reporting it,
+    /// because the kept-meter entry always took the missing-meter text. Run
+    /// against an inventory holding +13.8B, with the default short list (which
+    /// leaves +13.8B out), the entry must be the radio's own, with its own text.
+    /// The control: a saved meter the inventory does not hold still says
+    /// "not reported".
+    /// </summary>
+    [Fact]
+    public void A_saved_meter_the_radio_reports_reads_as_reported_and_a_missing_one_as_missing()
+    {
+        var added = new List<MeterSlot>();
+        using var radio = FakeInventory(
+            ("RAD", 0, "+13.8A", "Main radio input voltage", "Volts"),
+            ("RAD", 0, "+13.8B", "+13.8V at PA", "Volts"),
+            ("SLC", 0, "LEVEL", "Signal strength", "Dbm"),
+            ("TX-", 0, "FWDPWR", "Forward power", "Watts"));
+        try
+        {
+            Run(panel =>
+            {
+                foreach (var key in new[] { "LEVEL", "+13.8B", "NOSUCH" })
+                {
+                    var slot = MeterToneEngine.AddSlot()!;
+                    added.Add(slot);
+                    slot.Retarget(key, key, new MeterRange(), MeterActivation.Always, -1);
+                }
+                var slots = Combo(panel, "SlotCombo");
+                var source = Combo(panel, "SourceCombo");
+                var detail = (TextBlock)panel.FindName("SourceDetailText");
+                Assert.NotEqual(true, ((CheckBox)panel.FindName("AllMetersCheck")).IsChecked);
+
+                Invoke(panel, "RefreshSlotList");
+                slots.SelectedIndex = MeterToneEngine.Slots.IndexOf(added[0]);
+                Invoke(panel, "RefreshSourceChoices");   // the live short list, built while LEVEL is edited
+                Assert.DoesNotContain(Items(source), x => x.Contains("+13.8B"));   // the short list leaves it out
+
+                slots.SelectedIndex = MeterToneEngine.Slots.IndexOf(added[1]);
+                Assert.True(source.SelectedIndex >= 0, "the saved +13.8B meter shows no source");
+                string shown = Items(source)[source.SelectedIndex];
+                Assert.Contains("+13.8B", shown);
+                Assert.Contains("+13.8V at PA", shown);                 // the radio's own description
+                Assert.DoesNotContain("not reported", shown);
+                Assert.DoesNotContain("not reporting", detail.Text);
+
+                // The control: a saved meter the radio does not report.
+                slots.SelectedIndex = MeterToneEngine.Slots.IndexOf(added[2]);
+                Assert.True(source.SelectedIndex >= 0, "the missing meter shows no source");
+                Assert.Contains("not reported", Items(source)[source.SelectedIndex]);
+                Assert.Contains("not reporting", detail.Text);
+            });
+        }
+        finally
+        {
+            foreach (var slot in added)
+            {
+                EarconPlayer.UnregisterContinuousTone(slot.ToneProvider);
+                MeterToneEngine.Slots.Remove(slot);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Stand a meter inventory up behind <see cref="MeterToneEngine.Inventory"/>
+    /// without a radio: FlexLib meters as uninitialized objects with their
+    /// fields set, read through the inventory's own reading and group types.
+    /// Restores the engine's radio on dispose. Nothing connects or sounds.
+    /// </summary>
+    private static IDisposable FakeInventory(params (string Source, int Index, string Name, string Description, string Units)[] meters)
+    {
+        var any = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic
+                  | System.Reflection.BindingFlags.Public;
+        var readingCtor = typeof(MeterReading).GetConstructors(any).Single();
+        Type meterType = readingCtor.GetParameters()[0].ParameterType;
+        void Set(object o, string field, object? value) =>
+            (o.GetType().GetField(field, any) ?? throw new InvalidOperationException(field)).SetValue(o, value);
+
+        var readings = new List<MeterReading>();
+        var byName = new Dictionary<string, MeterReading>(StringComparer.OrdinalIgnoreCase);
+        int index = 0;
+        foreach (var m in meters)
+        {
+            object meter = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(meterType);
+            Set(meter, "_index", index++);
+            Set(meter, "_source", m.Source);
+            Set(meter, "_source_index", m.Index);
+            Set(meter, "_name", m.Name);
+            Set(meter, "_description", m.Description);
+            Set(meter, "_low", 0.0);
+            Set(meter, "_high", 20.0);
+            var unitsField = meterType.GetField("_units", any)!;
+            unitsField.SetValue(meter, Enum.Parse(unitsField.FieldType, m.Units));
+            var r = (MeterReading)readingCtor.Invoke(new[] { meter });
+            readings.Add(r);
+            if (!byName.ContainsKey(r.Name)) byName[r.Name] = r;
+        }
+
+        var groupCtor = typeof(MeterGroup).GetConstructors(any).Single();
+        var groups = readings.GroupBy(r => (r.Source, r.SourceIndex))
+            .Select(g => (MeterGroup)groupCtor.Invoke(new object[] { g.Key.Source, g.Key.SourceIndex, g.ToList() }))
+            .ToList();
+
+        var inv = (MeterInventory)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(MeterInventory));
+        Set(inv, "_all", readings);
+        Set(inv, "_groups", groups);
+        Set(inv, "_byName", byName);
+
+        var rig = (FlexBase)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(FlexBase));
+        Set(rig, "<MeterInventory>k__BackingField", inv);
+
+        var engineRig = typeof(MeterToneEngine).GetField("_rig",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+        object? saved = engineRig.GetValue(null);
+        engineRig.SetValue(null, rig);
+        return new Restore(() => engineRig.SetValue(null, saved));
+    }
+
+    private sealed class Restore : IDisposable
+    {
+        private readonly Action _undo;
+        public Restore(Action undo) { _undo = undo; }
+        public void Dispose() => _undo();
+    }
+
     private const System.Reflection.BindingFlags Private =
         System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
 

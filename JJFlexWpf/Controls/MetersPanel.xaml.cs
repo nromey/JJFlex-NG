@@ -502,6 +502,20 @@ public partial class MetersPanel : UserControl
                 !string.IsNullOrWhiteSpace(def.Source.Key) &&
                 !_allChoices.Any(c => Matches(c, def.Source)))
             {
+                // The short list left it out, but the radio may well report
+                // it: a saved +13.8B is not in the short list and is on every
+                // radio that has it. Then it is the real entry, with its real
+                // text. Saying "not reported by this radio" about a meter the
+                // radio is reporting was untrue.
+                SourceChoice? reported = ReportedChoiceFor(inv, def.Source);
+                if (reported != null)
+                {
+                    _allChoices.Add(reported);
+                    RefreshCategoryChoices();
+                    ShowCategory();
+                    return;
+                }
+
                 // Say WHICH thing is missing. A meter the radio has never heard
                 // of and a meter on a slice that is not running are different
                 // problems with different fixes, and one message for both sent
@@ -660,6 +674,28 @@ public partial class MetersPanel : UserControl
         {
             _loading = wasLoading;
         }
+    }
+
+    /// <summary>
+    /// The radio's own entry for a saved source the short list left out, built
+    /// the way the full list builds it, or null when the radio does not report
+    /// it (in that form: a pinned slice meter needs that slice).
+    /// </summary>
+    private static SourceChoice? ReportedChoiceFor(MeterInventory? inv, MeterSourceRef source)
+    {
+        if (inv == null) return null;
+        foreach (MeterGroup group in inv.Groups)
+        {
+            bool isSlice = string.Equals(group.Source, "SLC", StringComparison.OrdinalIgnoreCase);
+            foreach (MeterReading r in group.Meters)
+            {
+                if (!string.Equals(r.Name, source.Key, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!isSlice && source.SliceIndex < 0) return FromReading(group, r, false);
+                if (isSlice && source.SliceIndex < 0) return FromActiveSliceReading(r);
+                if (isSlice && r.SourceIndex == source.SliceIndex) return FromReading(group, r, true);
+            }
+        }
+        return null;
     }
 
     private static bool IsCommon(string name) =>
