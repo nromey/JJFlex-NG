@@ -29,7 +29,6 @@ These keys work anywhere inside JJ Flexible, including in dialogs. For a long wh
 - **Ctrl+Shift+S** — Speak full status (multi-slice aware)
 - **Ctrl+Alt+S** — Open the status dialog
 - **Alt+Shift+S** — Speak your current transmit (TX) status
-- **Alt+Shift+T** — Open Play takes, every take of your audio, newest first. Ctrl+J then Alt+T opens it too
 - **Ctrl+F4** — Repeat what was just spoken — and keep pressing it. Within about six seconds each further press steps back through the last ten messages, wrapping round at the oldest. Leave it longer and the next press starts again from the most recent
 - **Ctrl+F5** — Step the other way, back toward the newest message. Handy when you overshoot the one you were after — `Ctrl+F4` goes back in time, `Ctrl+F5` comes forward again, and the keys sit next to each other in that order
 - **Ctrl+Shift+V** — Cycle speech verbosity (Chatty, Terse, Off)
@@ -118,7 +117,7 @@ Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it
 - **Alt+N** — Open the tracking notch filters, where you place a notch yourself instead of letting Auto Notch hunt for one (see "Tracking notch filters" below)
 - **Alt+F** — Open Recorded QSOs, your computer recordings — F for files. Play one, trim it, save it as another format, delete it or prune old ones (see "Recorded QSOs" below)
 - **Alt+C** — Open Check your audio — C for Check. It opens the window and never starts a check by itself (see "Check your audio" below)
-- **Alt+T** — Open Play takes, every take of your audio, newest first — T for takes. Play one, compare two, read the details, add a note, save a copy or delete one. Alt+Shift+T opens it too, without the JJ key. Opening it never keys the radio
+- **Alt+T** — Open Play takes, every take of your audio, newest first — T for takes. Play one, compare two, read the details, add a note, save a copy or delete one. Opening it never keys the radio
 
 ### Still finding their layer
 
