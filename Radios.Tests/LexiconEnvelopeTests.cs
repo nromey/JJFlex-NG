@@ -2222,6 +2222,11 @@ namespace Radios.Tests
                 // Round seven (#747): a transmit filter write FlexLib did not
                 // take says so. DRAFT prose.
                 "audio.tx_filter.unchanged",
+                // Round eight (#747, Codex F3): a filter write that could not
+                // run says so instead of nothing. DRAFT prose.
+                "settings.filter.not_written",
+                "settings.filter.preset_not_written",
+                "audio.tx_filter.not_written",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

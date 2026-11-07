@@ -9447,18 +9447,37 @@ namespace Radios
         /// </summary>
         public void SetFilter(int low, int high, Action<FilterApplied> applied)
         {
-            if (!HasActiveSlice) return;
+            // A write that cannot run says so (round eight, Codex F3): no
+            // slice, or a command loop that is not running (the queue would
+            // drop the write), used to end in silence.
+            if (!HasActiveSlice || !q.MainLoop)
+            {
+                Refuse(applied, FilterApplied.Refused(theRadio?.ActiveSlice?.DemodMode ?? "", low, high, FilterLow, FilterHigh), "SetFilter");
+                return;
+            }
             NoteOperatorChangedRadioSetting("SetFilter");
             q.Enqueue((FunctionDel)(() =>
             {
                 var slice = theRadio?.ActiveSlice;
-                if (slice == null) return;
+                if (slice == null)
+                {
+                    Refuse(applied, FilterApplied.Refused("", low, high, low, high), "SetFilter (slice gone at the write)");
+                    return;
+                }
                 int beforeLow = slice.FilterLow, beforeHigh = slice.FilterHigh;
                 slice.UpdateFilter(low, high);
                 var result = new FilterApplied(slice.DemodMode ?? "", low, high, beforeLow, beforeHigh, slice.FilterLow, slice.FilterHigh);
                 try { applied?.Invoke(result); }
                 catch (Exception ex) { Tracing.TraceLine("SetFilter applied callback: " + ex.Message, TraceLevel.Error); }
             }), "Filter");
+        }
+
+        /// <summary>A filter write that did not run: traced, and handed to the caller to say.</summary>
+        private static void Refuse(Action<FilterApplied> applied, FilterApplied refused, string where)
+        {
+            Tracing.TraceLine($"{where}: NOT written (no slice, or the command loop is not running); the caller says so", TraceLevel.Info);
+            try { applied?.Invoke(refused); }
+            catch (Exception ex) { Tracing.TraceLine(where + " refused callback: " + ex.Message, TraceLevel.Error); }
         }
 
         /// <summary>
@@ -9469,10 +9488,14 @@ namespace Radios
         /// doors say the same thing.
         /// </summary>
         public void ApplyFilterPreset(FilterPreset preset, string mode, Action<string> say)
+            => ApplyFilterPreset(preset, mode, (said, _) => say?.Invoke(said));
+
+        /// <summary>As above, handing the caller the result too, so a delayed speaker can check it is still true.</summary>
+        public void ApplyFilterPreset(FilterPreset preset, string mode, Action<string, FilterApplied> say)
         {
             var (low, high) = FilterPresets.MirrorForMode(mode ?? "USB", preset.Low, preset.High);
             SetFilter(low, high, applied =>
-                say?.Invoke(preset.SayApplied(applied, ScreenReaderOutput.CurrentVerbosity)));
+                say?.Invoke(preset.SayApplied(applied, ScreenReaderOutput.CurrentVerbosity), applied));
         }
 
 #if zero
@@ -11066,13 +11089,22 @@ namespace Radios
         /// </summary>
         public void SetTXFilter(int? low, int? high, Action<FilterApplied> applied)
         {
-            if (theRadio == null) return;
+            if (theRadio == null || !q.MainLoop)
+            {
+                int l = TXFilterLow, h = TXFilterHigh;
+                Refuse(applied, FilterApplied.Refused("TX", low ?? l, high ?? h, l, h), "SetTXFilter");
+                return;
+            }
             if (low.HasValue) NoteOperatorChangedRadioSetting("TXFilterLow");
             if (high.HasValue) NoteOperatorChangedRadioSetting("TXFilterHigh");
             q.Enqueue((FunctionDel)(() =>
             {
                 var r = theRadio;
-                if (r == null) return;
+                if (r == null)
+                {
+                    Refuse(applied, FilterApplied.Refused("TX", low ?? 0, high ?? 0, low ?? 0, high ?? 0), "SetTXFilter (radio gone at the write)");
+                    return;
+                }
                 int beforeLow = r.TXFilterLow, beforeHigh = r.TXFilterHigh;
                 int wantLow = low ?? beforeLow, wantHigh = high ?? beforeHigh;
                 bool lowMoves = wantLow != beforeLow, highMoves = wantHigh != beforeHigh;

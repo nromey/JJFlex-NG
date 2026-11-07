@@ -584,7 +584,7 @@ public class NativeMenuBar : IDisposable
         Rig.SetTXFilter(lowEdge ? wanted : (int?)null, lowEdge ? (int?)null : wanted, applied =>
             SpeakAfterMenuClose(Radios.FilterReadouts.Tx(applied,
                 (l, h) => Radios.Lexicon.Get("audio.value.adjusted", ("label", label), ("value", lowEdge ? l : h), ("suffix", "")),
-                Radios.ScreenReaderOutput.CurrentVerbosity)));
+                Radios.ScreenReaderOutput.CurrentVerbosity), stillTrue: TxFilterStillIs(applied)));
     }
 
     /// <summary>
@@ -1123,7 +1123,7 @@ public class NativeMenuBar : IDisposable
                     string currentMode = Rig.Mode ?? "USB";
                     // The preset's one announcement, as Alt with a bracket says
                     // it, from what the filter became (#747 rounds four and five).
-                    Rig.ApplyFilterPreset(preset, currentMode, said => SpeakAfterMenuClose(said));
+                    Rig.ApplyFilterPreset(preset, currentMode, (said, applied) => SpeakAfterMenuClose(said, stillTrue: FilterStillIs(applied)));
                 });
             }
         }
@@ -1150,7 +1150,8 @@ public class NativeMenuBar : IDisposable
     private void SayFilterWrite(int low, int high, Func<int, int, string> readout)
     {
         Rig?.SetFilter(low, high, applied => SpeakAfterMenuClose(Radios.FilterReadouts.Said(
-            applied, readout, Radios.FilterReadouts.RangeAtLimit, Radios.ScreenReaderOutput.CurrentVerbosity)));
+            applied, readout, Radios.FilterReadouts.RangeAtLimit, Radios.ScreenReaderOutput.CurrentVerbosity),
+            stillTrue: FilterStillIs(applied)));
     }
 
     /// <summary>
@@ -3453,7 +3454,7 @@ public class NativeMenuBar : IDisposable
     /// picks up the speech after the menu closes and focus returns to the main window.
     /// </summary>
     private void SpeakAfterMenuClose(string message,
-        Radios.VerbosityLevel level = Radios.VerbosityLevel.Terse)
+        Radios.VerbosityLevel level = Radios.VerbosityLevel.Terse, Func<bool>? stillTrue = null)
     {
         _window.Dispatcher.BeginInvoke(async () =>
         {
@@ -3461,9 +3462,29 @@ public class NativeMenuBar : IDisposable
             // Interrupt: cut off NVDA's window title re-announcement so user hears
             // the actual result (e.g., "Antenna 1") instead of the title first.
             await System.Threading.Tasks.Task.Delay(500);
+            // A sentence about a value that has changed again in those 500 ms
+            // is not said (round eight, Codex F3): the newer change has its
+            // own readout, and this one would now be false.
+            if (stillTrue != null && !stillTrue())
+            {
+                Tracing.TraceLine("SpeakAfterMenuClose: not said, no longer true: " + message, TraceLevel.Info);
+                return;
+            }
             Radios.ScreenReaderOutput.Speak(message, level, interrupt: true);
         });
     }
+
+    /// <summary>
+    /// For <see cref="SpeakAfterMenuClose"/>: whether the receive filter is
+    /// still what a write's sentence says it is. A write that did not run says
+    /// nothing changed, which stays true.
+    /// </summary>
+    private Func<bool>? FilterStillIs(Radios.FilterApplied applied)
+        => applied.NotWritten ? null : () => Rig != null && Rig.FilterLow == applied.Low && Rig.FilterHigh == applied.High;
+
+    /// <summary>As <see cref="FilterStillIs"/>, for the transmit filter.</summary>
+    private Func<bool>? TxFilterStillIs(Radios.FilterApplied applied)
+        => applied.NotWritten ? null : () => Rig != null && Rig.TXFilterLow == applied.Low && Rig.TXFilterHigh == applied.High;
 
     /// <summary>
     /// Radio ▸ Radio Rescue — Noel's name, and his reason: the rescue page

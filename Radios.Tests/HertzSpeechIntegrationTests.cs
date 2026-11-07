@@ -40,12 +40,16 @@ namespace Radios.Tests
             // A filter readout's width since the J13 ruling (2026-11-06):
             // "2.75 k" at Terse, "width 2750 hertz" at Chatty (J15), with the
             // sentence itself on the verbosity dial.
-            string rx = Statement(keys, "rx.Width = () =>");
-            Assert.Contains("Radios.HertzSpeech.ReadoutWidth(rx.Bank.Width, Radios.HertzUnitStyle.KiloLetter)", rx, StringComparison.Ordinal);
+            // Since round eight the readout of GIVEN edges is WidthAt, and the
+            // bank's own readout reads its pair once and calls it.
+            string rx = Statement(keys, "rx.WidthAt = (lo, hi) =>");
+            Assert.Contains("Radios.HertzSpeech.ReadoutWidth(hi - lo, Radios.HertzUnitStyle.KiloLetter)", rx, StringComparison.Ordinal);
             Assert.Contains("Radios.ScreenReaderOutput.CurrentVerbosity", rx, StringComparison.Ordinal);
-            string tx = Statement(keys, "tx.Width = () =>");
-            Assert.Contains("Radios.HertzSpeech.ReadoutWidth(tx.Bank.Width, Radios.HertzUnitStyle.KiloLetter)", tx, StringComparison.Ordinal);
+            Assert.Contains("rx.Width = () => { var (lo, hi) = rx.Bank.Pair; return rx.WidthAt(lo, hi); };", keys, StringComparison.Ordinal);
+            string tx = Statement(keys, "tx.WidthAt = (lo, hi) =>");
+            Assert.Contains("Radios.HertzSpeech.ReadoutWidth(hi - lo, Radios.HertzUnitStyle.KiloLetter)", tx, StringComparison.Ordinal);
             Assert.Contains("Radios.ScreenReaderOutput.CurrentVerbosity", tx, StringComparison.Ordinal);
+            Assert.Contains("tx.Width = () => { var (lo, hi) = tx.Bank.Pair; return tx.WidthAt(lo, hi); };", keys, StringComparison.Ordinal);
         }
 
         /// <summary>

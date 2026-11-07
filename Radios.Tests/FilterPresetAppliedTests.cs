@@ -210,7 +210,7 @@ namespace Radios.Tests
             Assert.Contains("Rig.ApplyFilterPreset(preset, mode,", handlers, StringComparison.Ordinal);
             Assert.Contains("FilterPresets.ActiveStatus(mode, low, high, Radios.ScreenReaderOutput.CurrentVerbosity)", handlers, StringComparison.Ordinal);
             string menu = Src("JJFlexWpf", "NativeMenuBar.cs");
-            Assert.Contains("Rig.ApplyFilterPreset(preset, currentMode, said => SpeakAfterMenuClose(said));", menu, StringComparison.Ordinal);
+            Assert.Contains("Rig.ApplyFilterPreset(preset, currentMode, (said, applied) => SpeakAfterMenuClose(said, stillTrue: FilterStillIs(applied)));", menu, StringComparison.Ordinal);
             Assert.Contains("string label = preset.FormatForDisplay();", menu, StringComparison.Ordinal);
             Assert.DoesNotContain("preset.Announcement(", handlers + menu, StringComparison.Ordinal);
         }

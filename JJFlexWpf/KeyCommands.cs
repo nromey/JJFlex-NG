@@ -5242,18 +5242,6 @@ public class KeyCommands
     /// puts back. Seeded from the radio once, at entry (and again for the
     /// receive side after a slice jump), then stepped locally.
     /// </summary>
-    private sealed class FilterBank
-    {
-        public int Low, High, EntryLow, EntryHigh;
-        public bool Touched;
-        public int Width => High - Low;
-        public void Seed(int low, int high)
-        {
-            Low = EntryLow = low;
-            High = EntryHigh = high;
-            Touched = false;
-        }
-    }
 
     /// <summary>Everything one side (receive or transmit) contributes.</summary>
     private sealed class FilterSide
@@ -5261,7 +5249,10 @@ public class KeyCommands
         public string Group = "";
         public string IdPrefix = "";
         public bool PerSlice;
-        public FilterBank Bank = new FilterBank();
+        // The newest request, and completions adopted only when they answer it
+        // (Radios.FilterRequestBank, round eight): an older completion can no
+        // longer roll a held key back.
+        public Radios.FilterRequestBank Bank = new Radios.FilterRequestBank();
         public Func<int> LowMin = () => 0;
         public Func<int> HighMax = () => 0;
         public int MinWidth = 50;
@@ -5273,11 +5264,18 @@ public class KeyCommands
         /// own readout of the requested edges, which is right only where the
         /// layer's rails are the radio's own (the transmit side).
         /// </summary>
-        public Action<int, int, Func<string>, Action<string>>? ApplyThenSay;
+        public Action<int, int, Func<int, int, string>, Action<string>>? ApplyThenSay;
         public Func<int, string> LowEdge = v => v.ToString();
         public Func<int, string> HighEdge = v => v.ToString();
         public Func<string> Range = () => "";
         public Func<string> Width = () => "";
+        /// <summary>
+        /// The range and width readouts of GIVEN edges (round eight): a write's
+        /// completion describes the edges IT produced, never the bank, which may
+        /// already hold a newer request.
+        /// </summary>
+        public Func<int, int, string> RangeAt = (l, h) => "";
+        public Func<int, int, string> WidthAt = (l, h) => "";
         public Func<string> Report = () => "";
     }
 
@@ -5339,7 +5337,7 @@ public class KeyCommands
             Read = () => s.Bank.Low,
             Constrain = v => ClampSafe(v, s.LowMin(), s.Bank.High - s.MinWidth),
             Apply = v => s.Apply(v, s.Bank.High),
-            ApplyThenSay = s.ApplyThenSay == null ? null : (v, say) => s.ApplyThenSay(v, s.Bank.High, () => s.LowEdge(s.Bank.Low), say),
+            ApplyThenSay = s.ApplyThenSay == null ? null : (v, say) => s.ApplyThenSay(v, s.Bank.High, (l, _) => s.LowEdge(l), say),
             Number = s.LowEdge,
             DescribeSelected = s.LowEdge,
             DescribeRail = v => AtLimit(s.LowEdge(v)),
@@ -5358,7 +5356,7 @@ public class KeyCommands
             Read = () => s.Bank.High,
             Constrain = v => ClampSafe(v, s.Bank.Low + s.MinWidth, s.HighMax()),
             Apply = v => s.Apply(s.Bank.Low, v),
-            ApplyThenSay = s.ApplyThenSay == null ? null : (v, say) => s.ApplyThenSay(s.Bank.Low, v, () => s.HighEdge(s.Bank.High), say),
+            ApplyThenSay = s.ApplyThenSay == null ? null : (v, say) => s.ApplyThenSay(s.Bank.Low, v, (_, h) => s.HighEdge(h), say),
             Number = s.HighEdge,
             DescribeSelected = s.HighEdge,
             DescribeRail = v => AtLimit(s.HighEdge(v)),
@@ -5380,7 +5378,7 @@ public class KeyCommands
             Read = () => s.Bank.Low,
             Constrain = v => ClampSafe(v, s.LowMin(), s.HighMax() - s.Bank.Width),
             Apply = v => s.Apply(v, v + s.Bank.Width),
-            ApplyThenSay = s.ApplyThenSay == null ? null : (v, say) => s.ApplyThenSay(v, v + s.Bank.Width, s.Range, say),
+            ApplyThenSay = s.ApplyThenSay == null ? null : (v, say) => s.ApplyThenSay(v, v + s.Bank.Width, s.RangeAt, say),
             Number = _ => s.Range(),
             DescribeSelected = _ => s.Report(),
             DescribeRail = _ => AtLimit(s.Range()),
@@ -5400,7 +5398,7 @@ public class KeyCommands
             Read = () => s.Bank.Width,
             Constrain = v => { var (l, h) = EdgesForWidth(s, v); return h - l; },
             Apply = v => { var (l, h) = EdgesForWidth(s, v); s.Apply(l, h); },
-            ApplyThenSay = s.ApplyThenSay == null ? null : (v, say) => { var (l, h) = EdgesForWidth(s, v); s.ApplyThenSay(l, h, s.Width, say); },
+            ApplyThenSay = s.ApplyThenSay == null ? null : (v, say) => { var (l, h) = EdgesForWidth(s, v); s.ApplyThenSay(l, h, s.WidthAt, say); },
             Number = _ => s.Width(),
             DescribeSelected = _ => s.Width(),
             DescribeRail = _ => AtLimit(s.Width()),
@@ -5413,7 +5411,7 @@ public class KeyCommands
     /// value, so the edge that opens the gap goes first; an edge that has
     /// not moved is not written.
     /// </summary>
-    private static void ApplyTxFilter(Radios.FlexBase rig, FilterBank tx, int low, int high)
+    private static void ApplyTxFilter(Radios.FlexBase rig, Radios.FilterRequestBank tx, int low, int high)
     {
         bool lowMoves = low != tx.Low, highMoves = high != tx.High;
         if (low < tx.Low)
@@ -5426,9 +5424,7 @@ public class KeyCommands
             if (highMoves) rig.TXFilterHigh = high;
             if (lowMoves) rig.TXFilterLow = low;
         }
-        tx.Low = low;
-        tx.High = high;
-        tx.Touched = true;
+        tx.Set(low, high);
     }
 
     /// <summary>
@@ -5469,7 +5465,7 @@ public class KeyCommands
             MinWidth = FreqOutHandlers.MinFilterWidthHz,
         };
         rx.StepNow = () => FreqOutHandlers.GetAdaptiveFilterStep(rx.Bank.Low, rx.Bank.High);
-        rx.Apply = (l, h) => { rx.Bank.Low = l; rx.Bank.High = h; rx.Bank.Touched = true; rig.SetFilter(l, h); };
+        rx.Apply = (l, h) => { rx.Bank.Set(l, h); rig.SetFilter(l, h); };
         // A move is said once FlexLib has run the write, from the edges it
         // produced (#747 round six): in FM it changes nothing, and in RTTY
         // and the other modes it may stop short of the layer's own rails. The
@@ -5477,24 +5473,27 @@ public class KeyCommands
         // the result when it lands.
         rx.ApplyThenSay = (l, h, readout, say) =>
         {
-            rx.Bank.Low = l; rx.Bank.High = h; rx.Bank.Touched = true;
+            long ticket = rx.Bank.Request(l, h);
             rig.SetFilter(l, h, applied =>
             {
-                rx.Bank.Low = applied.Low; rx.Bank.High = applied.High;
-                say(Radios.FilterReadouts.Said(applied, (_, _) => readout(),
+                // Adopted only if no newer press has asked for something since.
+                rx.Bank.Complete(ticket, applied.Low, applied.High);
+                say(Radios.FilterReadouts.Said(applied, readout,
                     (low, high) => AtLimit(Radios.Lexicon.Get("audio.filter.range", ("low", low), ("high", high))),
                     Radios.ScreenReaderOutput.CurrentVerbosity));
             });
         };
         rx.LowEdge = v => Radios.Lexicon.Get("audio.filter.low_edge", ("low", v));
         rx.HighEdge = v => Radios.Lexicon.Get("audio.filter.high_edge", ("high", v));
-        rx.Range = () => Radios.Lexicon.Get("audio.filter.range", ("low", rx.Bank.Low), ("high", rx.Bank.High));
+        rx.RangeAt = (lo, hi) => Radios.Lexicon.Get("audio.filter.range", ("low", lo), ("high", hi));
+        rx.Range = () => { var (lo, hi) = rx.Bank.Pair; return rx.RangeAt(lo, hi); };
         // The width through the shared formatter, as the layer's own report
         // says it (#747, integration pass finding 10). Terse leads with the
         // width ("Width 2.75 k, 100 to 2850"); Chatty is the ruled readout,
         // "RX filter 100 to 2850, width 2750 hertz" (J15).
-        rx.Width = () => Radios.Lexicon.Get("audio.filter_layer.width", Radios.ScreenReaderOutput.CurrentVerbosity,
-            ("width", Radios.HertzSpeech.ReadoutWidth(rx.Bank.Width, Radios.HertzUnitStyle.KiloLetter)), ("low", rx.Bank.Low), ("high", rx.Bank.High));
+        rx.WidthAt = (lo, hi) => Radios.Lexicon.Get("audio.filter_layer.width", Radios.ScreenReaderOutput.CurrentVerbosity,
+            ("width", Radios.HertzSpeech.ReadoutWidth(hi - lo, Radios.HertzUnitStyle.KiloLetter)), ("low", lo), ("high", hi));
+        rx.Width = () => { var (lo, hi) = rx.Bank.Pair; return rx.WidthAt(lo, hi); };
         rx.Report = () => FilterReport("audio.filter.rx_report", rx.Bank.Low, rx.Bank.High);
 
         var tx = new FilterSide
@@ -5517,18 +5516,20 @@ public class KeyCommands
         // from what it set (#747 round seven).
         tx.ApplyThenSay = (l, h, readout, say) =>
         {
-            tx.Bank.Low = l; tx.Bank.High = h; tx.Bank.Touched = true;
+            long ticket = tx.Bank.Request(l, h);
             rig.SetTXFilter(l, h, applied =>
             {
-                tx.Bank.Low = applied.Low; tx.Bank.High = applied.High;
-                say(Radios.FilterReadouts.Tx(applied, (_, _) => readout(), Radios.ScreenReaderOutput.CurrentVerbosity));
+                tx.Bank.Complete(ticket, applied.Low, applied.High);
+                say(Radios.FilterReadouts.Tx(applied, readout, Radios.ScreenReaderOutput.CurrentVerbosity));
             });
         };
         tx.LowEdge = v => Radios.Lexicon.Get("audio.tx.filter_low", ("value", v));
         tx.HighEdge = v => Radios.Lexicon.Get("audio.tx.filter_high", ("value", v));
-        tx.Range = () => Radios.Lexicon.Get("audio.tx_filter.range", ("low", tx.Bank.Low), ("high", tx.Bank.High));
-        tx.Width = () => Radios.Lexicon.Get("audio.filter_layer.tx_width", Radios.ScreenReaderOutput.CurrentVerbosity,
-            ("width", Radios.HertzSpeech.ReadoutWidth(tx.Bank.Width, Radios.HertzUnitStyle.KiloLetter)), ("low", tx.Bank.Low), ("high", tx.Bank.High));
+        tx.RangeAt = (lo, hi) => Radios.Lexicon.Get("audio.tx_filter.range", ("low", lo), ("high", hi));
+        tx.Range = () => { var (lo, hi) = tx.Bank.Pair; return tx.RangeAt(lo, hi); };
+        tx.WidthAt = (lo, hi) => Radios.Lexicon.Get("audio.filter_layer.tx_width", Radios.ScreenReaderOutput.CurrentVerbosity,
+            ("width", Radios.HertzSpeech.ReadoutWidth(hi - lo, Radios.HertzUnitStyle.KiloLetter)), ("low", lo), ("high", hi));
+        tx.Width = () => { var (lo, hi) = tx.Bank.Pair; return tx.WidthAt(lo, hi); };
         tx.Report = () => FilterReport("audio.filter.tx_report", tx.Bank.Low, tx.Bank.High);
 
         _filterRx = rx;

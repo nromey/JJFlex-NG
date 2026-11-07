@@ -266,9 +266,9 @@ public partial class AudioWorkshopDialog
         {
             if (_rig != null && !_polling)
             {
-                // #747 round seven: said from what FlexLib set, not from v.
-                _rig.SetTXFilter(v, null, applied => OnWorkshopTxFilterApplied(applied,
-                    (l, h) => Lexicon.Get("audio.tx.filter_low", ("value", l))));
+                // #747 rounds seven and eight: the field says its own number; a
+                // correction follows only when FlexLib set something else.
+                WriteWorkshopTxFilter(_txFilterLowControl, v, null);
             }
         };
         JJFlexHelp.SetText(_txFilterLowControl,
@@ -284,8 +284,7 @@ public partial class AudioWorkshopDialog
         {
             if (_rig != null && !_polling)
             {
-                _rig.SetTXFilter(null, v, applied => OnWorkshopTxFilterApplied(applied,
-                    (l, h) => Lexicon.Get("audio.tx.filter_high", ("value", h))));
+                WriteWorkshopTxFilter(_txFilterHighControl, null, v);
             }
         };
         JJFlexHelp.SetText(_txFilterHighControl,
@@ -514,18 +513,38 @@ public partial class AudioWorkshopDialog
     }
 
 
+    /// <summary>The newest Workshop transmit filter request; a completion for an older one says nothing (round eight).</summary>
+    private long _workshopTxFilterRequest;
+
     /// <summary>
-    /// A transmit filter write from the Workshop has run (#747 round seven):
-    /// say what FlexLib set (the field's own words when taken as asked, "at
-    /// limit" or "unchanged" otherwise), then put the fields and the width
-    /// label on the radio's values.
+    /// Write a transmit filter edge from one of the Workshop's two fields
+    /// (#747 rounds seven and eight), numbered and tied to this rig and the
+    /// field's own speech key, as Home does.
     /// </summary>
-    private void OnWorkshopTxFilterApplied(FilterApplied applied, Func<int, int, string> asked)
+    private void WriteWorkshopTxFilter(ValueFieldControl? field, int? low, int? high)
     {
-        ScreenReaderOutput.Speak(FilterReadouts.Tx(applied, asked, ScreenReaderOutput.CurrentVerbosity), VerbosityLevel.Terse);
+        var rig = _rig;
+        if (rig == null || field == null) return;
+        long request = System.Threading.Interlocked.Increment(ref _workshopTxFilterRequest);
+        string fieldKey = Radios.Speech.SpeechSubject.ValueField(field.Label);
+        rig.SetTXFilter(low, high, applied => OnWorkshopTxFilterApplied(applied, rig, request, fieldKey));
+    }
+
+    /// <summary>
+    /// A transmit filter write from the Workshop has run (#747 rounds seven
+    /// and eight). The field already said its number, so nothing more is said
+    /// when FlexLib took it (the Workshop used to say it a second time); a
+    /// correction is said on the field's own Latest key (Codex B3). Then the
+    /// fields and the width label take the radio's values. Only for the same
+    /// rig, the newest request, and a Workshop still open (Codex F3).
+    /// </summary>
+    private void OnWorkshopTxFilterApplied(FilterApplied applied, FlexBase rig, long request, string fieldKey)
+    {
+        if (!ReferenceEquals(rig, _rig) || request != System.Threading.Interlocked.Read(ref _workshopTxFilterRequest)) return;
+        FilterReadouts.SayFieldCorrection(applied, fieldKey, ScreenReaderOutput.CurrentVerbosity);
         Dispatcher.BeginInvoke(() =>
         {
-            if (_rig == null) return;
+            if (!IsLoaded || !ReferenceEquals(rig, _rig) || request != System.Threading.Interlocked.Read(ref _workshopTxFilterRequest)) return;
             _polling = true;
             try
             {

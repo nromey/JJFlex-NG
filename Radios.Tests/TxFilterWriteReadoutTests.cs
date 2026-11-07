@@ -175,14 +175,17 @@ namespace Radios.Tests
         public void Every_transmit_filter_write_that_speaks_goes_through_the_applied_route()
         {
             string panel = Src("JJFlexWpf", "Controls", "ScreenFieldsPanel.xaml.cs");
-            Assert.Contains("_rig.SetTXFilter(v, null, OnHomeTxFilterApplied)", panel, StringComparison.Ordinal);
-            Assert.Contains("_rig.SetTXFilter(null, v, OnHomeTxFilterApplied)", panel, StringComparison.Ordinal);
+            // Round eight: through WriteHomeTxFilter, numbered and keyed to the field.
+            Assert.Contains("WriteHomeTxFilter(_txFilterLowControl, v, null)", panel, StringComparison.Ordinal);
+            Assert.Contains("WriteHomeTxFilter(_txFilterHighControl, null, v)", panel, StringComparison.Ordinal);
+            Assert.Contains("rig.SetTXFilter(low, high, applied => OnHomeTxFilterApplied(applied, rig, request, fieldKey));", panel, StringComparison.Ordinal);
             Assert.DoesNotContain("_rig.TXFilterLow = v", panel, StringComparison.Ordinal);
             Assert.DoesNotContain("_rig.TXFilterHigh = v", panel, StringComparison.Ordinal);
 
             string workshop = Src("JJFlexWpf", "Dialogs", "AudioWorkshopDialog.TxAudio.cs");
-            Assert.Contains("_rig.SetTXFilter(v, null,", workshop, StringComparison.Ordinal);
-            Assert.Contains("_rig.SetTXFilter(null, v,", workshop, StringComparison.Ordinal);
+            Assert.Contains("WriteWorkshopTxFilter(_txFilterLowControl, v, null);", workshop, StringComparison.Ordinal);
+            Assert.Contains("WriteWorkshopTxFilter(_txFilterHighControl, null, v);", workshop, StringComparison.Ordinal);
+            Assert.Contains("rig.SetTXFilter(low, high, applied => OnWorkshopTxFilterApplied(applied, rig, request, fieldKey));", workshop, StringComparison.Ordinal);
             Assert.DoesNotContain("_rig.TXFilterLow = v", workshop, StringComparison.Ordinal);
             Assert.DoesNotContain("_rig.TXFilterHigh = v", workshop, StringComparison.Ordinal);
 

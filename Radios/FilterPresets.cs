@@ -81,6 +81,7 @@ public class FilterPreset
     /// </summary>
     public string SayApplied(FilterApplied applied, VerbosityLevel level)
     {
+        if (applied.NotWritten) return Lexicon.Get("settings.filter.preset_not_written", ("name", Name));
         if (applied.Exact) return Said(applied.Low, applied.High, atLimit: false, level);
         if (applied.Unchanged)
             return Lexicon.Get("settings.filter.preset_unchanged", level, ("name", Name), ("low", applied.Low), ("high", applied.High),
@@ -121,10 +122,19 @@ public class FilterPreset
 /// asked for, the edges before, and the edges now (round five of the
 /// 2026-11-06 junk box, Codex B2).
 /// </summary>
-public readonly record struct FilterApplied(string Mode, int RequestedLow, int RequestedHigh, int BeforeLow, int BeforeHigh, int Low, int High)
+public readonly record struct FilterApplied(string Mode, int RequestedLow, int RequestedHigh, int BeforeLow, int BeforeHigh, int Low, int High,
+    bool NotWritten = false)
 {
+    /// <summary>
+    /// The write never ran (round eight, Codex F3): the command loop was not
+    /// running, or the slice was gone when it came to run. The filter is
+    /// whatever it was; nothing was sent. Said plainly, never in silence.
+    /// </summary>
+    public static FilterApplied Refused(string mode, int requestedLow, int requestedHigh, int low, int high)
+        => new FilterApplied(mode, requestedLow, requestedHigh, low, high, low, high, NotWritten: true);
+
     /// <summary>The filter is what was asked for.</summary>
-    public bool Exact => Low == RequestedLow && High == RequestedHigh;
+    public bool Exact => !NotWritten && Low == RequestedLow && High == RequestedHigh;
 
     /// <summary>
     /// The filter is not what was asked for and is what it was before:
@@ -132,7 +142,7 @@ public readonly record struct FilterApplied(string Mode, int RequestedLow, int R
     /// already was. Either way the filter did not change, which is the one
     /// thing to say.
     /// </summary>
-    public bool Unchanged => !Exact && Low == BeforeLow && High == BeforeHigh;
+    public bool Unchanged => !NotWritten && !Exact && Low == BeforeLow && High == BeforeHigh;
 }
 
 /// <summary>

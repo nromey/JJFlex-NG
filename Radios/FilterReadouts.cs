@@ -45,6 +45,7 @@ namespace Radios
         /// </summary>
         public static string Bracket(FilterApplied applied, string ownLimit, FilterEdge held, VerbosityLevel level)
         {
+            if (applied.NotWritten) return NotWritten();
             string sentence;
             if (applied.Unchanged)
                 sentence = Unchanged(applied, level);
@@ -71,6 +72,7 @@ namespace Radios
         /// </remarks>
         public static string Said(FilterApplied applied, Func<int, int, string> asked, Func<int, int, string> heldBack, VerbosityLevel level)
         {
+            if (applied.NotWritten) return NotWritten();
             if (applied.Unchanged) return Unchanged(applied, level);
             return applied.Exact ? asked(applied.Low, applied.High) : heldBack(applied.Low, applied.High);
         }
@@ -85,6 +87,7 @@ namespace Radios
         /// </summary>
         public static string Tx(FilterApplied applied, Func<int, int, string> asked, VerbosityLevel level)
         {
+            if (applied.NotWritten) return Lexicon.Get("audio.tx_filter.not_written");
             if (applied.Unchanged)
                 return Lexicon.Get("audio.tx_filter.unchanged", ("low", applied.Low), ("high", applied.High),
                     ("width", HertzSpeech.ReadoutWidth(applied.High - applied.Low, HertzUnitStyle.KiloLetter, level)));
@@ -104,6 +107,33 @@ namespace Radios
         /// </summary>
         public static string? TxCorrectionIfAny(FilterApplied applied, VerbosityLevel level)
             => applied.Exact ? null : Tx(applied, (_, _) => "", level);
+
+        /// <summary>A receive filter write that never ran (round eight): nothing was changed. DRAFT.</summary>
+        public static string NotWritten() => Lexicon.Get("settings.filter.not_written");
+
+        /// <summary>
+        /// The correction a self-announcing value FIELD needs after a transmit
+        /// filter write (round eight, Codex B3): none when FlexLib took the
+        /// field's number, else what it really set. Said on the FIELD'S OWN
+        /// Latest key (<paramref name="fieldKey"/>, the field's
+        /// <c>SpeechSubject.ValueField(label)</c>), so it replaces any of the
+        /// field's own numbers still waiting to be spoken. As a separate
+        /// interrupt it did not: "TX Filter Low 2700", then the correction, then
+        /// a pending "TX Filter Low 2800" that was false. <paramref name="latest"/>
+        /// is the speaking call, (text, key); null speaks through
+        /// <see cref="ScreenReaderOutput"/> exactly as the field itself does.
+        /// </summary>
+        public static void SayFieldCorrection(FilterApplied applied, string fieldKey, VerbosityLevel level,
+            Action<string, string>? latest = null)
+        {
+            string? correction = TxCorrectionIfAny(applied, level);
+            if (correction == null) return;
+            (latest ?? SpeakOnFieldKey)(correction, fieldKey);
+        }
+
+        private static void SpeakOnFieldKey(string text, string fieldKey)
+            => ScreenReaderOutput.Speak(text, Speech.SpeechIntent.Latest, VerbosityLevel.Terse,
+                coalesceKey: fieldKey, kind: Speech.SpeechCoalesceKind.Value);
 
         /// <summary>"Filter -270 to 50, at limit": the whole filter, marked as the bracket keys mark a clamp.</summary>
         public static string RangeAtLimit(int low, int high)

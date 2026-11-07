@@ -218,7 +218,7 @@ namespace Radios.Tests
             string keys = Src("JJFlexWpf", "KeyCommands.cs");
             Assert.Contains("rx.ApplyThenSay = (l, h, readout, say) =>", keys, StringComparison.Ordinal);
             Assert.Contains("rig.SetFilter(l, h, applied =>", keys, StringComparison.Ordinal);
-            foreach (string coordinate in new[] { "s.LowEdge(s.Bank.Low)", "s.HighEdge(s.Bank.High)", "s.Range, say", "s.Width, say" })
+            foreach (string coordinate in new[] { "(l, _) => s.LowEdge(l)", "(_, h) => s.HighEdge(h)", "s.RangeAt, say", "s.WidthAt, say" })   // the edges the write produced (round eight)
                 Assert.Contains(coordinate, keys, StringComparison.Ordinal);
 
             string menu = Src("JJFlexWpf", "NativeMenuBar.cs");

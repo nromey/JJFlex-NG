@@ -888,7 +888,9 @@ namespace Radios
         private readonly Action? _restore;
         private Slot? _current;
         private string? _group;
-        private bool _live;
+        // Volatile: a write's completion reads it on the command loop (round
+        // eight, Codex F3: a completion after Drop must say nothing).
+        private volatile bool _live;
 
         /// <summary>The value at entry — what Escape restores. Single value:
         /// the one target; otherwise the current target, or 0.</summary>
@@ -1958,9 +1960,11 @@ namespace Radios
                 Touch(s);
                 if (s.Def.ApplyThenSay != null)
                 {
-                    // The host says the move once the write has happened (#747 round six).
+                    // The host says the move once the write has happened (#747
+                    // round six), and only while this layer is still open
+                    // (round eight): after Drop or Confirm it says nothing.
                     string subject = SubjectOf(s);
-                    s.Def.ApplyThenSay(next, said => EmitMove(said, subject));
+                    s.Def.ApplyThenSay(next, said => { if (_live) EmitMove(said, subject); });
                     return;
                 }
                 s.Def.Apply!(next);
@@ -2009,7 +2013,7 @@ namespace Radios
                 Touch(s);
                 Tracing.TraceLine("ValueSubLayer(" + Tag(s) + "): jumped " + where + " to " + next, TraceLevel.Info);
                 string subject = SubjectOf(s);
-                s.Def.ApplyThenSay(next, said => EmitMove(said, subject));
+                s.Def.ApplyThenSay(next, said => { if (_live) EmitMove(said, subject); });
                 return;
             }
             if (next != before || !s.Def.Linked)
