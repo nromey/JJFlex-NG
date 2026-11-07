@@ -47,6 +47,8 @@ This release is about the space where you actually spend your time in the app â€
 
 ### Foundation Phase Headlines {#unreleased-headlines}
 
+- **A JJ key near miss tells you the chord you meant.** Press a key the layer doesn't have, one modifier away from one it does, and you hear "You pressed K which isn't assigned. Pressing Alt+K launches Mic check if that was what you were looking for, otherwise use JJ H to hear keys you can use with the JJ key." On Terse it's "Alt+K launches Mic check, not K." The layer waits for you after a near miss, so the right chord works without pressing Ctrl+J again, and if you switch to another program while it's waiting, it lets go.
+- **A JJ key layer you leave open closes when a dialog takes the keyboard**, with its closing tone, keeping what you changed, so Tab moves through the dialog and Escape closes it.
 - **Heads-up: the DSP menu has moved to Audio, DSP.** Noise reduction, the noise blankers, PC noise reduction, auto notch and the audio peak filter are no longer on the Slice menu; they still work on your active slice, and the menu is there before you connect, saying which items need a radio. Meter Tones has its own row on the Audio menu, right below DSP.
 - **Save Station Setup to Radio has moved to the Radio menu**, right after Profiles on This Radio, from where it was tucked away under Slice, Selection.
 - **Menu items that need a radio say "connect a radio"** when you're not connected, rather than "needs a radio", so the row tells you what to do.
