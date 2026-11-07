@@ -104,6 +104,10 @@ namespace Radios.SignalCapture
                 return s;
             }
 
+            // Named before the numbers, and only when it happened (#452).
+            if (a.CoverageDegraded)
+                s.Para(CoverageSentence(a));
+
             if (!a.HasStats)
             {
                 s.Para("Only " + Count(a.AnalyzedCount) + " usable "
@@ -128,6 +132,28 @@ namespace Radios.SignalCapture
             s.Para(QsbSentence(a));
             s.Para(TrendSentence(a));
             return s;
+        }
+
+        /// <summary>
+        /// DRAFT PROSE (#452). The gaps in the readings, stated before any
+        /// figure they qualify. A gap is readings that never arrived, most
+        /// often a network stall; it says nothing about the signal.
+        /// </summary>
+        private static string CoverageSentence(QsoSignalAnalysisResult a)
+        {
+            string text = "Readings stopped arriving "
+                + (a.GapCount == 1 ? "once" : Count(a.GapCount) + " times")
+                + " during this capture, for " + SpokenDuration.English(a.MissingSeconds)
+                + " in all; the longest gap was " + SpokenDuration.English(a.LongestGapSeconds)
+                + ". Only " + QsoSignalHeadline.CoveragePercent(a.Coverage)
+                + " percent of the window was measured. A gap is missing data, most often "
+                + "a network stall, not something the signal did, so nothing below treats "
+                + "one as a fade.";
+            if (a.FadesSetAsideAtGaps > 0)
+                text += " " + (a.FadesSetAsideAtGaps == 1
+                    ? "One apparent fade fell at a gap and was not counted."
+                    : Count(a.FadesSetAsideAtGaps) + " apparent fades fell at gaps and were not counted.");
+            return text;
         }
 
         private static string QsbSentence(QsoSignalAnalysisResult a)
@@ -296,6 +322,17 @@ namespace Radios.SignalCapture
                  + "whichever is larger; the fading rhythm is the average spacing "
                  + "between fade bottoms.");
             s.Para("The trend is a least-squares line through the smoothed readings.");
+            if (a.CoverageDegraded)
+                // DRAFT PROSE (#452).
+                s.Para("A gap is any stretch between readings longer than "
+                     + QsoSignalAnalysis.GapSpacingMultiple.ToString("0", CultureInfo.InvariantCulture) + " times this "
+                     + "capture's own usual spacing, which was about "
+                     + Math.Round(a.TypicalSpacingSeconds * 1000.0).ToString("0", CultureInfo.InvariantCulture)
+                     + " milliseconds. The trough and the fading measurements leave out "
+                     + "the smoothed readings within "
+                     + SpokenDuration.English(QsoSignalAnalysis.SmoothingWindowSeconds)
+                     + " of a gap, and no fade "
+                     + "spacing is measured across one.");
             return s;
         }
 

@@ -2142,6 +2142,12 @@ namespace Radios.Tests
                 // cells. A cell of the display, never spoken on the
                 // application's own account: TextOnly. DRAFT PROSE.
                 "connect.home.braille_swr_no_reading",
+                // Junk box #452 (2026-11-07): the capture headline's coverage
+                // sentence, spoken only when readings went missing, as a part
+                // of the headline the operator's own stop press asked for. A
+                // FRAGMENT of that utterance, so TextOnly (the #777
+                // reasoning). DRAFT PROSE.
+                "audio.qso.coverage_gaps",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

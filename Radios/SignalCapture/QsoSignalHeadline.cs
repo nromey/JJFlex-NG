@@ -49,11 +49,26 @@ namespace Radios.SignalCapture
                 return Lexicon.Get("audio.qso.nothing");
             if (a.AnalyzedCount == 0)
                 return Lexicon.Get("audio.qso.all_transmit");
-            if (!a.HasStats)
-                return Lexicon.Get("audio.qso.too_short",
-                    ("duration", SpokenDuration.English(a.AnalyzedSpanSeconds)));
 
             var sb = new StringBuilder();
+
+            // Degraded coverage is named BEFORE the numbers, so the qualifier
+            // is heard before the figure it qualifies (#452). A clean capture
+            // says nothing about coverage: silence is the reward.
+            if (a.CoverageDegraded)
+                sb.Append(Lexicon.Get("audio.qso.coverage_gaps",
+                    ("coverage", CoveragePercent(a.Coverage)),
+                    ("missing", SpokenDuration.English(a.MissingSeconds)),
+                    ("longest", SpokenDuration.English(a.LongestGapSeconds))));
+
+            if (!a.HasStats)
+            {
+                Append(sb, Lexicon.Get("audio.qso.too_short",
+                    ("duration", SpokenDuration.English(a.AnalyzedSpanSeconds))));
+                return sb.ToString();
+            }
+
+            if (sb.Length > 0) sb.Append(' ');
             if (a.SwingSUnits < 1)
             {
                 sb.Append(Lexicon.Get("audio.qso.steady", ("mean", SpokenS(a.MeanDbm, band))));
@@ -97,6 +112,18 @@ namespace Radios.SignalCapture
             return SMeterReading.IsOverS9(smeter)
                 ? Lexicon.Get("audio.smeter.over_s9", ("over", SMeterReading.ExcessOverS9(smeter)))
                 : Lexicon.Get("audio.smeter.s_units", ("smeter", smeter));
+        }
+
+        /// <summary>
+        /// Coverage as a whole percentage, rounded DOWN and never 100 when
+        /// there was a gap: "only 100 percent measured" would contradict itself.
+        /// Shared with the report page so the two never say different numbers.
+        /// </summary>
+        internal static string CoveragePercent(double coverage)
+        {
+            int percent = (int)System.Math.Floor(System.Math.Clamp(coverage, 0.0, 1.0) * 100.0);
+            if (percent >= 100) percent = 99;
+            return percent.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
         private static string Period(double seconds)
