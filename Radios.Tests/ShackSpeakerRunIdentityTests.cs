@@ -97,7 +97,8 @@ namespace Radios.Tests
 
             Assert.Contains("private void remoteAudioProc(long run)", text, StringComparison.Ordinal);
 
-            int write = text.IndexOf("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop", StringComparison.Ordinal);
+            // Round five: the write is GiveShackSpeakerBack's, called from the run's end.
+            int write = text.IndexOf("GiveShackSpeakerBack(run, speakerRadio);", StringComparison.Ordinal);
             Assert.True(write > 0);
             // 1100 since rulings round two: the found-value check sits between them.
             string before = text.Substring(Math.Max(0, write - 1100), Math.Min(1100, write));

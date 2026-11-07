@@ -600,9 +600,16 @@ namespace Radios
                     Tracing.TraceLine("Speaker (" + why + "): already muted as found; nothing to put back", TraceLevel.Info);
                     return;
                 }
+                // Pinned to the record's connection, and asked "has another
+                // station chosen since?" at the write AND at the bytes (round
+                // five, Codex's S1 residual): a choice delivered while this waits
+                // for the write gate is seen there, not lost behind it.
                 if (GuardSkips("IsMuteLocalAudioWhenRemoteOn=true on disconnect, as found at connect")) return;
-                radio.IsMuteLocalAudioWhenRemoteOn = true;
-                Tracing.TraceLine("Speaker (" + why + "): muted again, as it was found at the connect", TraceLevel.Info);
+                string refused = StepOnPinnedTarget(radio, r.Connection, () => { radio.IsMuteLocalAudioWhenRemoteOn = true; return null; },
+                    () => SpeakerChosenSince(r.ChoiceReportedSince), atTheBytes: () => SpeakerChosenSince(r.ChoiceReportedSince));
+                Tracing.TraceLine("Speaker (" + why + "): " + (refused == null
+                    ? "muted again, as it was found at the connect"
+                    : "NOT muted again - " + refused), refused == null ? TraceLevel.Info : TraceLevel.Warning);
             }
             catch (Exception ex)
             {
@@ -610,12 +617,6 @@ namespace Radios
             }
         }
 
-        /// <summary>
-        /// Why a finishing run leaves the shack speaker as it is, or null to
-        /// unmute it (rulings round two, the 8600 bench's Fail 6). Pure. Only
-        /// what this run changed is put back: a speaker found muted when PC
-        /// audio started stays muted; one already unmuted is left alone.
-        /// </summary>
         /// <summary>
         /// PC audio is starting: record what the speaker was found at, then mute
         /// it (see remoteAudioProc for the rulings). The speaker reports on the
@@ -636,6 +637,29 @@ namespace Radios
             }
         }
 
+        /// <summary>The pinned speaker writes' question at the write and at the bytes (round five, S1).</summary>
+        private static string SpeakerChosenSince(bool chosen) =>
+            chosen ? "another station has set the shack speaker since; its choice stands" : null;
+
+        /// <summary>
+        /// Run <paramref name="run"/> is ending: give the shack speaker back if
+        /// it muted it and nobody has chosen since (<see cref="ShackSpeakerKeepFor"/>),
+        /// pinned to the run's connection, with "has another station chosen
+        /// since?" asked again at the write and at the bytes (round five,
+        /// Codex's S1 residual). The caller has already refused a superseded run
+        /// or a closing connection.
+        /// </summary>
+        private void GiveShackSpeakerBack(long run, Radio speakerRadio)
+        {
+            var mutedBy = _speakerMutedBy;
+            string keep = ShackSpeakerKeepFor(run, speakerRadio);
+            if (keep != null) { Tracing.TraceLine("remoteAudioProc: the shack speaker is left as it is - " + keep, TraceLevel.Info); return; }
+            if (GuardSkips("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop")) return;
+            string refused = StepOnPinnedTarget(speakerRadio, mutedBy.Connection, () => { speakerRadio.IsMuteLocalAudioWhenRemoteOn = false; return null; },
+                () => SpeakerChosenSince(mutedBy.ChoiceReportedSince), atTheBytes: () => SpeakerChosenSince(mutedBy.ChoiceReportedSince));
+            if (refused != null) Tracing.TraceLine("remoteAudioProc: the shack speaker was NOT unmuted - " + refused, TraceLevel.Warning);
+        }
+
         /// <summary>
         /// Why run <paramref name="run"/>'s end leaves the shack speaker as it is,
         /// or null to unmute it: <see cref="ShackSpeakerPutBackSkip"/>, and first
@@ -651,6 +675,12 @@ namespace Radios
             return ShackSpeakerPutBackSkip(ours, speakerRadio.IsMuteLocalAudioWhenRemoteOn);
         }
 
+        /// <summary>
+        /// Why a finishing run leaves the shack speaker as it is, or null to
+        /// unmute it (rulings round two, the 8600 bench's Fail 6). Pure. Only
+        /// what this run changed is put back: a speaker found muted when PC
+        /// audio started stays muted; one already unmuted is left alone.
+        /// </summary>
         internal static string ShackSpeakerPutBackSkip(bool thisRunMutedIt, bool mutedNow)
         {
             if (!thisRunMutedIt) return "it was found muted when PC audio started (or this run did not mute it), so it is left as found";
@@ -1582,14 +1612,9 @@ namespace Radios
             if (speakerRefusal == null)
             {
                 // Only what THIS run muted, while still muted (Fail 6), and
-                // only while no other station has set it since (S1).
-                string keep = ShackSpeakerKeepFor(run, speakerRadio);
-                if (keep != null)
-                    Tracing.TraceLine("remoteAudioProc: the shack speaker is left as it is - " + keep, TraceLevel.Info);
-                else if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop"))
-                {
-                    speakerRadio.IsMuteLocalAudioWhenRemoteOn = false;
-                }
+                // only while no other station has set it since (S1), asked
+                // again at the bytes (round five).
+                GiveShackSpeakerBack(run, speakerRadio);
             }
             else
             {

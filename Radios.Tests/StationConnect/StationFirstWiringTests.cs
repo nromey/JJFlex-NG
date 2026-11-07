@@ -454,7 +454,8 @@ namespace Radios.Tests.StationConnect
             var text = Read(FlexBase);
             Assert.Contains("if (!GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on local connect\"))", text, StringComparison.Ordinal);
             Assert.Contains("if (!GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=true on remote audio start\"))", text, StringComparison.Ordinal);
-            Assert.Contains("if (!GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on remote audio stop\"))", text, StringComparison.Ordinal);
+            // Round five: the stop's write is its own method now, pinned at the bytes; the guard returns.
+            Assert.Contains("if (GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on remote audio stop\")) return;", text, StringComparison.Ordinal);
 
             // Track G3's owner gate on these writes is gone, here and in the
             // policies file; it had made "company on the radio" decide the

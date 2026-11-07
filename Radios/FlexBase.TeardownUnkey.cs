@@ -262,7 +262,10 @@ public partial class FlexBase
         var gate = StationConnect.QueuedWriteGate.Open(() => refused ??= RestoreRefusedAtWrite(radio, connection),
             step => StepOnPinnedTarget(radio, connection, step,
                 () => RestoreRefusedAtWrite(radio, connection),
-                why => StationConnect.QueuedWriteGate.WithholdRunning(why)));
+                why => StationConnect.QueuedWriteGate.WithholdRunning(why),
+                // And at the bytes (round five, Codex's S1 residual, the class):
+                // a carrier reported while the write waits for the gate refuses it.
+                atTheBytes: () => RestoreRefusedAtWrite(radio, connection)));
         bool queued;
         try { queued = queueIt(); }
         catch (Exception ex)

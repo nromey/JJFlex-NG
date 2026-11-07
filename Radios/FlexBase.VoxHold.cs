@@ -139,11 +139,16 @@ namespace Radios
                             // under the transport's write gate, at the bytes, so an
                             // operator OFF the command loop writes meanwhile cannot be
                             // overtaken by this ON (MIGRATION.md item 25).
+                            // Round five (Codex's S1 residual, the class): receive is
+                            // asked at the bytes too, so a carrier reported while the
+                            // ON waits for the write gate refuses it there.
                             (on, step, operatorOverruled) => StepOnPinnedTarget(radio, connection, step,
                                 on && radio != null
                                     ? () => operatorOverruled?.Invoke() ?? RestoreRefusedAtWrite(radio, (object?)connection ?? NoConnection)
                                     : null,
-                                atTheBytes: on ? operatorOverruled : null));
+                                atTheBytes: on && radio != null
+                                    ? () => operatorOverruled?.Invoke() ?? RestoreRefusedAtWrite(radio, (object?)connection ?? NoConnection)
+                                    : null));
                         OperatorChangedRadioSetting -= NoteVoxPauseOperatorChange;
                         OperatorChangedRadioSetting += NoteVoxPauseOperatorChange;
                         WatchVoxRetry(_voxPauses, connection as CommandConnection);

@@ -451,6 +451,190 @@ namespace Radios.Tests
             }
         }
 
+        // ── Round five, Codex's re-check S1 residual: the restores ask at the bytes ──
+        //
+        // The speaker's choice count was asked before the write waited for the
+        // gate, so a newer choice delivered while it waited was overwritten.
+        // Every restore in the batch now asks its question again at the bytes.
+
+        /// <summary>A status line, delivered on this adapter's connection as the reader would: counted, then parsed, under its gate.</summary>
+        private void Deliver(string status)
+        {
+            var connection = (CommandConnection)_f.Vendor.Radio.CurrentCommandConnection!;
+            var received = typeof(InterlockReports).GetMethod("Received", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public)!;
+            var report = Activator.CreateInstance(typeof(CommandDataReceived), Any, null, new object[] { connection, "S0|" + status }, null)!;
+            var parse = typeof(Radio).GetMethod("_commandCommunication_TCPDataReceived", Any)!;
+            lock (_tcp.ConnectionSync)
+            {
+                received.Invoke(null, new[] { report });
+                parse.Invoke(_f.Vendor.Radio, new[] { report });
+            }
+        }
+
+        /// <summary>
+        /// <see cref="Deliver"/> on a reader thread of its own, as the real reader
+        /// is: its handlers may write, and must not wait on a gate this test
+        /// thread holds. Returns once <paramref name="recorded"/> holds.
+        /// </summary>
+        private Thread DeliverFromTheReader(string status, Func<bool> recorded)
+        {
+            var reader = new Thread(() => Deliver(status)) { IsBackground = true };
+            reader.Start();
+            WaitFor(recorded, "the report recorded: " + status);
+            return reader;
+        }
+
+        private long SpeakerReports() =>
+            InterlockReports.SpeakerChoicesReported((CommandConnection)_f.Vendor.Radio.CurrentCommandConnection!);
+
+        private bool CarrierReported() =>
+            InterlockReports.LastOn((CommandConnection)_f.Vendor.Radio.CurrentCommandConnection!)?.State == "TRANSMITTING";
+
+        /// <summary>Read <paramref name="now"/> before the restore starts, so the reader's wait compares against it.</summary>
+        private static Func<Thread> Before(long now, Func<long, Thread> then) => () => then(now);
+
+        private string[] SpeakerLines() => _writer.Commands.Where(x => x.StartsWith("radio set mute_local_audio_when_remote", StringComparison.Ordinal)).ToArray();
+
+        /// <summary>Run <paramref name="restore"/> against the held write gate; <paramref name="meanwhile"/> runs while it waits there.</summary>
+        private void AgainstTheHeldGate(Action restore, Func<Thread>? meanwhile)
+        {
+            var gate = WriteGate();
+            Assert.True(gate.Wait(0), "the write gate was not free");
+            Thread th;
+            Thread? reader = null;
+            try
+            {
+                th = new Thread(() => restore()) { IsBackground = true };
+                th.Start();
+                WaitFor(() => (th.ThreadState & ThreadState.WaitSleepJoin) != 0, "the restore waiting at the write gate");
+                reader = meanwhile?.Invoke();
+            }
+            finally { gate.Release(); }
+            Assert.True(th.Join(3000), "the restore never finished");
+            Assert.True(reader?.Join(3000) ?? true, "the reader never finished");
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void A_speaker_put_back_waiting_at_the_gate_does_not_overwrite_an_unmute_delivered_meanwhile(bool anotherStationChooses)
+        {
+            // Codex's final-speaker-boundary schedule, and its no-report control.
+            OnTheRealTcpAdapter(cw: false, pauseTheRestore: false);
+            _f.Vendor.Status("radio mute_local_audio_when_remote=1");          // found muted
+            typeof(FlexBase).GetMethod("NoteSpeakerFoundAtConnect", Any)!.Invoke(_f.Rig, new object[] { _f.Vendor.Radio });
+            _f.Vendor.Radio.IsMuteLocalAudioWhenRemoteOn = false;              // the connect's unmute
+            var putBack = typeof(FlexBase).GetMethod("PutBackSpeakerFoundAtConnect", Any)!;
+            AgainstTheHeldGate(() => putBack.Invoke(_f.Rig, new object[] { "test" }),
+                anotherStationChooses ? Before(SpeakerReports(), n => DeliverFromTheReader("radio mute_local_audio_when_remote=0", () => SpeakerReports() > n)) : null);
+            if (anotherStationChooses)
+            {
+                Assert.Equal(new[] { "radio set mute_local_audio_when_remote=0" }, SpeakerLines());
+                Assert.False(_f.Vendor.Radio.IsMuteLocalAudioWhenRemoteOn);
+            }
+            else
+            {
+                Assert.Equal("radio set mute_local_audio_when_remote=1", SpeakerLines().Last());
+                Assert.True(_f.Vendor.Radio.IsMuteLocalAudioWhenRemoteOn);
+            }
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void A_runs_speaker_unmute_waiting_at_the_gate_does_not_overwrite_a_mute_delivered_meanwhile(bool anotherStationChooses)
+        {
+            // The PC-audio run's exit: it muted the speaker, and gives it back
+            // at its end. Another station muting it while that unmute waits for
+            // the gate now owns the mute.
+            OnTheRealTcpAdapter(cw: false, pauseTheRestore: false);
+            _f.Vendor.Status("radio mute_local_audio_when_remote=0");
+            long run = (long)typeof(FlexBase).GetField("_remoteAudioRun", Any)!.GetValue(_f.Rig)!;
+            typeof(FlexBase).GetMethod("MuteShackSpeakerForRun", Any)!.Invoke(_f.Rig, new object[] { run });
+            Assert.Equal("radio set mute_local_audio_when_remote=1", SpeakerLines().Last());
+            var giveBack = typeof(FlexBase).GetMethod("GiveShackSpeakerBack", Any);
+            Assert.True(giveBack != null, "the run's speaker put-back cannot be reached by itself");
+            AgainstTheHeldGate(() => giveBack!.Invoke(_f.Rig, new object[] { run, _f.Vendor.Radio }),
+                anotherStationChooses ? Before(SpeakerReports(), n => DeliverFromTheReader("radio mute_local_audio_when_remote=1", () => SpeakerReports() > n)) : null);
+            if (anotherStationChooses)
+                Assert.DoesNotContain("radio set mute_local_audio_when_remote=0", SpeakerLines());
+            else
+                Assert.Equal("radio set mute_local_audio_when_remote=0", SpeakerLines().Last());
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void A_VOX_restore_waiting_at_the_gate_does_not_write_its_ON_over_a_carrier_reported_meanwhile(bool cw)
+        {
+            // The same class: the restore asked receive before the gate only.
+            var (which, on, off) = OnTheRealTcpAdapter(cw, pauseTheRestore: false);
+            var lease = _f.Rig.VoxPauses.Acquire(which)!;
+            Drain();
+            AgainstTheHeldGate(() => lease.Release(immediate: true),
+                () => DeliverFromTheReader("interlock state=TRANSMITTING source=PTT tx_client_handle=0x0BADF00D", CarrierReported));
+            Assert.DoesNotContain(on, _writer.Commands);
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void A_teardown_restore_step_waiting_at_the_gate_writes_nothing_under_a_carrier_reported_meanwhile(bool carrier)
+        {
+            // The profile, transmit-audio and equaliser restores' step asked
+            // receive at the write, before the gate. Control: no carrier, it runs.
+            OnTheRealTcpAdapter(cw: false, pauseTheRestore: false);
+            bool stop = false;
+            var loop = new Thread(() =>
+            {
+                while (!Volatile.Read(ref stop))
+                {
+                    if (_f.Rig.q.Count > 0) _f.Rig.RunQueuedItem(_f.Rig.q.Dequeue());
+                    else Thread.Sleep(1);
+                }
+            }) { IsBackground = true };
+            loop.Start();
+            FlexBase.RestoreStep result = default;
+            try
+            {
+                var gate = WriteGate();
+                Assert.True(gate.Wait(0), "the write gate was not free");
+                Thread step;
+                Thread? reader = null;
+                bool entered = false;
+                try
+                {
+                    step = new Thread(() => result = _f.Rig.RunRestoreStepAtTheWrite("test step", () =>
+                    {
+                        _f.Rig.q.Enqueue((FlexBase.FunctionDel)(() =>
+                        {
+                            Volatile.Write(ref entered, true);
+                            _f.Vendor.Radio.RFPower = 50;
+                        }), "test restore write");
+                        return true;
+                    }, TimeSpan.FromSeconds(3))) { IsBackground = true };
+                    step.Start();
+                    WaitFor(() => Volatile.Read(ref entered) && (loop.ThreadState & ThreadState.WaitSleepJoin) != 0,
+                        "the restore's write waiting at the gate");
+                    if (carrier) reader = DeliverFromTheReader("interlock state=TRANSMITTING source=PTT tx_client_handle=0x0BADF00D", CarrierReported);
+                }
+                finally { gate.Release(); }
+                Assert.True(step.Join(5000));
+                Assert.True(reader?.Join(3000) ?? true, "the reader never finished");
+            }
+            finally { Volatile.Write(ref stop, true); loop.Join(2000); }
+            if (carrier)
+            {
+                Assert.DoesNotContain("transmit set rfpower=50", _writer.Commands);
+                Assert.Equal(FlexBase.RestoreStep.Withheld, result);
+            }
+            else
+            {
+                Assert.Contains("transmit set rfpower=50", _writer.Commands);
+                Assert.Equal(FlexBase.RestoreStep.Ran, result);
+            }
+        }
+
         // ── Rulings round two, Codex's R2: an OFF waits for at most the line in progress ──
 
         [Theory]
