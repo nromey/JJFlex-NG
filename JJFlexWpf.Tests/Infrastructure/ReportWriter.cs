@@ -175,6 +175,7 @@ public static class ReportWriter
                       (UiThread.Isolation is DesktopIsolation.CreateFailed or DesktopIsolation.SwitchFailed
                           ? $" (Windows error {PrivateDesktop.LastError})"
                           : string.Empty));
+        sb.AppendLine($"- Launch origin: {UiThread.Origin}");
         sb.AppendLine($"- Desktop route: {PrivateDesktop.DescribeRoute(UiThread.Isolation, PrivateDesktop.LastReading, PrivateDesktop.LastJudgement, PrivateDesktop.IsolatedDesktopName, PrivateDesktop.LastError)}");
         sb.AppendLine($"- Sound: {QuietRun.Describe()}");
         sb.AppendLine($"- Settings: {TestSettingsRoot.Describe()}");

@@ -29,6 +29,14 @@ public static class UiThread
     public static DesktopIsolation Isolation { get; private set; } = DesktopIsolation.NotAttempted;
 
     /// <summary>
+    /// Where the process started, read before isolation was attempted and kept
+    /// apart from <see cref="Isolation"/> (task #906 round 3). The guard reads
+    /// the desk-free declaration only when this is
+    /// <see cref="LaunchOrigin.InteractiveDesktop"/>.
+    /// </summary>
+    public static LaunchOrigin Origin { get; private set; } = LaunchOrigin.Unknown;
+
+    /// <summary>
     /// Move the UI thread to a private, non-interactive desktop before WPF
     /// creates anything. ON by default, and it earns its keep: a dialog under
     /// test can put up a modal message box during construction, and on the
@@ -57,7 +65,7 @@ public static class UiThread
     /// </summary>
     public static string VerdictLine
         => "DeskGuard verdict: " + Guard + " (" + DeskGuard.Describe(Guard) + "), desktop isolation: "
-           + Isolation + ", " + PrivateDesktop.DescribeRoute(Isolation, PrivateDesktop.LastReading,
+           + Isolation + ", launch origin: " + Origin + ", " + PrivateDesktop.DescribeRoute(Isolation, PrivateDesktop.LastReading,
                                                              PrivateDesktop.LastJudgement,
                                                              PrivateDesktop.IsolatedDesktopName,
                                                              PrivateDesktop.LastError);
@@ -83,13 +91,14 @@ public static class UiThread
             {
                 NativeThreadId = ModalWatchdog.GetCurrentThreadId();
 
-                // Task #906 round 2: when isolation is NOT requested, still read
-                // where the process started, because the guard does not consult
-                // the desk-free declaration on the hidden-desktop route and that
-                // route is a fact about the start, not about the request.
-                Isolation = RequestPrivateDesktop
-                    ? PrivateDesktop.MoveCurrentThread()
-                    : PrivateDesktop.ReadStartingRoute();
+                // Task #906: where the process STARTED is read first, even when
+                // isolation is not requested, and kept as its own fact (round 3),
+                // because the guard reads the desk-free declaration only on a
+                // positive reading of the person's own screen, and no fallback
+                // in the isolation attempt may change that reading.
+                var attempt = PrivateDesktop.Isolate(RequestPrivateDesktop);
+                Isolation = attempt.Isolation;
+                Origin = attempt.Origin;
 
                 // THE RESULT IS NOW CHECKED. It used to be assigned here and
                 // read nowhere, so a failed isolation carried straight on and
@@ -106,7 +115,7 @@ public static class UiThread
                 // still writing the operator's real settings folder. Both are
                 // conditions of being allowed now, not lines in the report
                 // afterwards.
-                Guard = DeskGuard.Decide(RequestPrivateDesktop, Isolation,
+                Guard = DeskGuard.Decide(RequestPrivateDesktop, Isolation, Origin,
                                          DeskGuard.DeskDeclaredFree,
                                          QuietRun.Silenced,
                                          TestSettingsRoot.Isolated);
@@ -142,7 +151,7 @@ public static class UiThread
             // away.
             if (_dispatcher == null)
                 throw new DeskNotFreeException(
-                    DeskGuard.Explain(Guard, PrivateDesktop.LastError, Isolation)
+                    DeskGuard.Explain(Guard, PrivateDesktop.LastError, Isolation, Origin)
                     + Environment.NewLine + Environment.NewLine + VerdictLine);
 
             _thread = thread;
@@ -192,18 +201,18 @@ public static class UiThread
                 // to discard the isolation result entirely — not merely unread,
                 // as in EnsureStarted, but never even assigned — and then run
                 // the body regardless. A gate on one door is not a gate.
-                var isolation = privateDesktop
-                    ? PrivateDesktop.MoveCurrentThread()
-                    : PrivateDesktop.ReadStartingRoute();
+                var attempt = PrivateDesktop.Isolate(privateDesktop);
+                var isolation = attempt.Isolation;
 
-                var verdict = DeskGuard.Decide(privateDesktop, isolation,
+                var verdict = DeskGuard.Decide(privateDesktop, isolation, attempt.Origin,
                                                DeskGuard.DeskDeclaredFree,
                                                QuietRun.Silenced,
                                                TestSettingsRoot.Isolated);
                 if (!DeskGuard.IsAllowed(verdict))
                     throw new DeskNotFreeException(
-                        DeskGuard.Explain(verdict, PrivateDesktop.LastError, isolation)
+                        DeskGuard.Explain(verdict, PrivateDesktop.LastError, isolation, attempt.Origin)
                         + Environment.NewLine + Environment.NewLine
+                        + "launch origin: " + attempt.Origin + ", "
                         + PrivateDesktop.DescribeRoute(isolation, PrivateDesktop.LastReading,
                                                        PrivateDesktop.LastJudgement,
                                                        PrivateDesktop.IsolatedDesktopName,

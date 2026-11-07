@@ -52,6 +52,7 @@ public sealed class HiddenDesktopLaunchTests
 
         Assert.Equal(DeskGuard.Verdict.AllowedIsolated, UiThread.Guard);
         Assert.Equal(DesktopIsolation.StartedOnPrivateDesktop, UiThread.Isolation);
+        Assert.Equal(LaunchOrigin.HiddenDesktop, UiThread.Origin);
         Assert.False(DeskGuard.DeskDeclaredFree,
             "The desk-free declaration reached the test process; deskrun must remove it.");
 
