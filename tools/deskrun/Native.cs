@@ -192,6 +192,22 @@ internal static class Native
     internal const int JobObjectBasicAccountingInformation = 1;
     internal const int JobObjectBasicProcessIdList = 3;
     internal const int JobObjectExtendedLimitInformation = 9;
+    internal const int JobObjectBasicUIRestrictions = 4;
+
+    /// <summary>JOBOBJECT_BASIC_UI_RESTRICTIONS: one DWORD of JOB_OBJECT_UILIMIT_* flags.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct JOBOBJECT_BASIC_UI_RESTRICTIONS
+    {
+        public uint UIRestrictionsClass;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern bool SetInformationJobObject(
+        IntPtr hJob, int infoClass, ref JOBOBJECT_BASIC_UI_RESTRICTIONS info, int cbInfo);
+
+    [DllImport("kernel32.dll", EntryPoint = "QueryInformationJobObject", SetLastError = true)]
+    internal static extern bool QueryUiRestrictions(
+        IntPtr hJob, int infoClass, out JOBOBJECT_BASIC_UI_RESTRICTIONS info, int cbInfo, IntPtr returnLength);
     internal const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -260,25 +276,43 @@ internal static class Native
         return (int)info.ActiveProcesses;
     }
 
-    /// <summary>The ids of the processes alive in the job right now.</summary>
-    internal static List<int> ProcessIds(IntPtr job)
+    /// <summary>
+    /// The ids of the processes alive in the job right now, or null when the
+    /// list could not be read completely (task #906 round 3, B4). Round 2
+    /// returned an EMPTY list on failure, which reads as "nothing is the job's"
+    /// and would let any job window or sound pass unattributed. A list that
+    /// came back shorter than the job's own count is grown and read again.
+    /// </summary>
+    internal static List<int>? TryProcessIds(IntPtr job)
     {
-        const int capacity = 1024;
-        int size = 8 + IntPtr.Size * capacity;
-        IntPtr buffer = Marshal.AllocHGlobal(size);
-        try
+        int capacity = 256;
+        for (int attempt = 0; attempt < 6; attempt++)
         {
-            if (!QueryInformationJobObject(job, JobObjectBasicProcessIdList, buffer, size, IntPtr.Zero))
-                return new List<int>();
-            int count = Marshal.ReadInt32(buffer, 4);
-            var ids = new List<int>(count);
-            for (int i = 0; i < count; i++)
-                ids.Add((int)Marshal.ReadIntPtr(buffer, 8 + i * IntPtr.Size));
-            return ids;
+            int size = 8 + IntPtr.Size * capacity;
+            IntPtr buffer = Marshal.AllocHGlobal(size);
+            try
+            {
+                bool ok = QueryInformationJobObject(job, JobObjectBasicProcessIdList, buffer, size, IntPtr.Zero);
+                int error = ok ? 0 : Marshal.GetLastWin32Error();
+                int assigned = Marshal.ReadInt32(buffer, 0);
+                int inList = Marshal.ReadInt32(buffer, 4);
+                const int ErrorMoreData = 234;
+                if ((!ok && error == ErrorMoreData) || (ok && inList < assigned))
+                {
+                    capacity = Math.Max(capacity * 4, assigned + 16);
+                    continue;
+                }
+                if (!ok) return null;
+                var ids = new List<int>(inList);
+                for (int i = 0; i < inList; i++)
+                    ids.Add((int)Marshal.ReadIntPtr(buffer, 8 + i * IntPtr.Size));
+                return ids;
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
         }
-        finally
-        {
-            Marshal.FreeHGlobal(buffer);
-        }
+        return null;
     }
 }

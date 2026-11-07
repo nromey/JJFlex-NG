@@ -68,7 +68,7 @@ internal static class DeskRunRules
 
     /// <summary>The arguments, once checked.</summary>
     internal sealed record Parsed(string Project, int TimeoutSeconds, IReadOnlyList<string> PassThrough,
-                                  string? LifecycleBarrier = null);
+                                  string? LifecycleBarrier = null, string? InjectFault = null);
 
     /// <summary>
     /// Check the command line. Returns null and an error when the run must not
@@ -81,6 +81,7 @@ internal static class DeskRunRules
         error = "";
         int timeout = DefaultTimeoutSeconds;
         string? barrier = null;
+        string? fault = null;
         int i = 0;
 
         // The launcher's OWN options, before the project. None of these reach
@@ -120,6 +121,20 @@ internal static class DeskRunRules
                 i += 2;
                 continue;
             }
+            if (a == "--inject-fault")
+            {
+                // Test-only (round 3, B4). Makes one of the launcher's own
+                // watches fail, to prove the run then ends at 74. A launcher
+                // option, consumed here and never forwarded.
+                if (i + 1 >= args.Count || !InjectableFaults.Contains(args[i + 1]))
+                {
+                    error = "--inject-fault needs one of: " + string.Join(", ", InjectableFaults) + ".";
+                    return null;
+                }
+                fault = args[i + 1];
+                i += 2;
+                continue;
+            }
             break;
         }
 
@@ -150,7 +165,7 @@ internal static class DeskRunRules
             return null;
         }
 
-        return new Parsed(project, timeout, rest, barrier);
+        return new Parsed(project, timeout, rest, barrier, fault);
     }
 
     // ─────────────────────────── the allowlist ───────────────────────────
@@ -527,6 +542,186 @@ internal static class DeskRunRules
     /// measure is what reached the speakers, not whether a device was opened.
     /// </summary>
     public static bool AudibleFromTheJob(bool ownedByJob, float maxPeak) => ownedByJob && maxPeak > 0f;
+
+    // ─────────────── round 3: every check fails closed (B4) ───────────────
+
+    /// <summary>
+    /// Exit code when a watch could not measure (task #906 round 3, B4): the
+    /// audio or window watch, or the job's process list, failed to read, so the
+    /// run's silence or containment is unmeasured. A check that cannot measure
+    /// fails the run; it never reports success and never reads as zero.
+    /// </summary>
+    public const int ExitWatchCouldNotMeasure = 74;
+
+    /// <summary>Exit codes of the launcher's own judgements.</summary>
+    public const int ExitLeftSomethingBehind = 71;
+    public const int ExitWindowEscaped = 72;
+    public const int ExitAudibleFromTheJob = 73;
+    public const int ExitTimedOut = 124;
+
+    /// <summary>
+    /// The run's exit code. Pure, so the ranking is tested rather than read off
+    /// the code. A watch result (72 a window escaped, 73 the job made sound, 74
+    /// a watch could not measure) outranks everything: each is the harm the
+    /// operator experiences, or a run in which that harm was not measured.
+    /// Then an incomplete cleanup (71), then a timeout (124), and only then
+    /// the child's own code.
+    /// </summary>
+    /// <param name="violation">The code the watch killed the run with, if it did.</param>
+    /// <param name="cleanupComplete">Every recorded process gone, the job empty, the desktop gone, all of it MEASURED.</param>
+    public static int RunExitCode(int? violation, bool cleanupComplete, bool timedOut, int childExit)
+    {
+        if (violation is { } code) return code;
+        if (!cleanupComplete) return ExitLeftSomethingBehind;
+        if (timedOut) return ExitTimedOut;
+        return childExit;
+    }
+
+    /// <summary>Null when a COM call succeeded (S_OK); otherwise what failed.</summary>
+    public static string? CallFailed(string call, int hresult)
+        => hresult == 0 ? null : call + " failed (HRESULT 0x" + hresult.ToString("X8", System.Globalization.CultureInfo.InvariantCulture) + ")";
+
+    /// <summary>
+    /// A peak meter reading, or null when it is NOT a measurement: the call
+    /// failed, or the value is not a peak (NaN, negative, above 1). Round 2
+    /// turned a failed <c>GetPeakValue</c> into a zero, which reads exactly
+    /// like silence.
+    /// </summary>
+    public static float? PeakReading(int hresult, float value)
+        => hresult == 0 && !float.IsNaN(value) && value >= 0f && value <= 1f ? value : null;
+
+    /// <summary>What <c>IAudioSessionControl2::GetProcessId</c> said.</summary>
+    public enum SessionOwner
+    {
+        /// <summary>One process owns the session; its id is meaningful.</summary>
+        SingleProcess,
+
+        /// <summary>AUDCLNT_S_NO_SINGLE_PROCESS: a cross-process session, which cannot be attributed.</summary>
+        SharedAcrossProcesses,
+
+        /// <summary>The call failed: who owns the session is unmeasured.</summary>
+        Failed,
+    }
+
+    /// <summary>AUDCLNT_S_NO_SINGLE_PROCESS, a success code.</summary>
+    public const int AudclntSNoSingleProcess = 0x0889000D;
+
+    public static SessionOwner JudgeSessionOwner(int hresult)
+        => hresult == 0 ? SessionOwner.SingleProcess
+           : hresult == AudclntSNoSingleProcess ? SessionOwner.SharedAcrossProcesses
+           : SessionOwner.Failed;
+
+    /// <summary>
+    /// <c>IsSystemSoundsSession</c>: S_OK is yes, S_FALSE is no, anything else
+    /// is a failure (null).
+    /// </summary>
+    public static bool? JudgeSystemSounds(int hresult)
+        => hresult == 0 ? true : hresult == 1 ? false : null;
+
+    /// <summary>
+    /// Does a window (or an audio session) belong to the job? Round 2 compared
+    /// against a snapshot of the job's processes taken before the pass, so a
+    /// descendant born after it read as not the job's for that whole pass. Now
+    /// a process not in the snapshot is looked up again in the job's own list
+    /// at the moment its window is judged (B3). Null when that list cannot be
+    /// read: unmeasured, which fails the run.
+    /// </summary>
+    public static bool? OwnedByJob(int pid, IReadOnlySet<int> snapshot, Func<IReadOnlyCollection<int>?> jobNow)
+    {
+        if (pid == 0) return false;
+        if (snapshot.Contains(pid)) return true;
+        var fresh = jobNow();
+        if (fresh == null) return null;
+        return fresh.Contains(pid);
+    }
+
+    /// <summary>ERROR_FILE_NOT_FOUND: what OpenDesktop reports for a desktop that no longer exists (measured 2026-11-06).</summary>
+    public const int ErrorFileNotFound = 2;
+
+    /// <summary>What happened when a desktop was opened to be looked at.</summary>
+    public enum DesktopOpen
+    {
+        Opened,
+
+        /// <summary>It no longer exists (error 2): it went away between being listed and being opened, so it holds no windows.</summary>
+        Gone,
+
+        /// <summary>It exists and could not be opened: its windows are unmeasured.</summary>
+        CouldNotOpen,
+    }
+
+    public static DesktopOpen JudgeDesktopOpen(bool opened, int error)
+        => opened ? DesktopOpen.Opened : error == ErrorFileNotFound ? DesktopOpen.Gone : DesktopOpen.CouldNotOpen;
+
+    /// <summary>
+    /// <c>EnumDesktopWindows</c> returns FALSE both when it fails and when the
+    /// desktop has no windows; measured 2026-11-06, an empty desktop gives FALSE
+    /// with error 0 and a bad handle FALSE with error 6. So only FALSE with a
+    /// non-zero error is a failure.
+    /// </summary>
+    public static bool WindowEnumerationFailed(bool returned, int error) => !returned && error != 0;
+
+    // ─────────────── round 3: the job's UI limits (B3) ───────────────
+
+    /// <summary>
+    /// The UI restrictions every job gets (JOBOBJECT_BASIC_UI_RESTRICTIONS),
+    /// with what each prevents. Structural, not sampled: Windows refuses the
+    /// call, so there is nothing to catch afterwards.
+    /// </summary>
+    /// <remarks>
+    /// Chosen by measurement (round 3): each was tried against the five
+    /// real-window entries, and only those every entry still passes under are
+    /// kept. <see cref="UiLimitDesktop"/> is the one the brief requires: no job
+    /// process can call <c>CreateDesktop</c> or <c>SwitchDesktop</c>, so none
+    /// can make the hidden desktop the visible one, or make another.
+    /// </remarks>
+    public static readonly IReadOnlyList<(uint Flag, string Name, string Prevents)> JobUiLimits = new[]
+    {
+        (UiLimitDesktop, "JOB_OBJECT_UILIMIT_DESKTOP", "creating or switching desktops"),
+        (UiLimitHandles, "JOB_OBJECT_UILIMIT_HANDLES", "using window handles owned by processes outside the job"),
+        (UiLimitReadClipboard, "JOB_OBJECT_UILIMIT_READCLIPBOARD", "reading the clipboard"),
+        (UiLimitWriteClipboard, "JOB_OBJECT_UILIMIT_WRITECLIPBOARD", "writing the clipboard"),
+        (UiLimitSystemParameters, "JOB_OBJECT_UILIMIT_SYSTEMPARAMETERS", "changing system parameters"),
+        (UiLimitDisplaySettings, "JOB_OBJECT_UILIMIT_DISPLAYSETTINGS", "changing display settings"),
+        (UiLimitGlobalAtoms, "JOB_OBJECT_UILIMIT_GLOBALATOMS", "sharing the global atom table"),
+        (UiLimitExitWindows, "JOB_OBJECT_UILIMIT_EXITWINDOWS", "logging off or shutting down"),
+    };
+
+    public const uint UiLimitHandles = 0x0001;
+    public const uint UiLimitReadClipboard = 0x0002;
+    public const uint UiLimitWriteClipboard = 0x0004;
+    public const uint UiLimitSystemParameters = 0x0008;
+    public const uint UiLimitDisplaySettings = 0x0010;
+    public const uint UiLimitGlobalAtoms = 0x0020;
+    public const uint UiLimitDesktop = 0x0040;
+    public const uint UiLimitExitWindows = 0x0080;
+
+    /// <summary>The flags set on every job: <see cref="JobUiLimits"/>, combined.</summary>
+    public static uint JobUiLimitMask => JobUiLimits.Aggregate(0u, (m, l) => m | l.Flag);
+
+    // ─────────────── round 3: test-only faults (B4) ───────────────
+
+    /// <summary>
+    /// Faults the launcher can be told to inject into its own watches, so a
+    /// test can prove each "could not measure" path ends the run at 74
+    /// against the real launcher. Test-only, set only by the launcher's own
+    /// <c>--inject-fault</c> option before the project, consumed there and
+    /// never forwarded; nothing after the project can reach it, and nothing
+    /// reads one from the environment.
+    /// </summary>
+    public static readonly IReadOnlyList<string> InjectableFaults = new[]
+    {
+        "audio-init",       // a COMException creating the device enumerator (Codex's round-2 fault)
+        "audio-endpoints",  // listing the render endpoints fails
+        "audio-sessions",   // listing an endpoint's sessions fails
+        "audio-peak",       // GetPeakValue fails
+        "audio-peak-late",  // GetPeakValue fails about a second in, after the child is running
+        "window-enum",      // enumerating the window station's desktops fails
+        "job-list",         // the job's process list cannot be read
+        "stale-snapshot",   // NOT a failure: a positive control. Each window pass starts from an empty
+                            // snapshot of the job, so every job window must be attributed by the fresh
+                            // read of the job's list; the run should pass and report those reads.
+    };
 
     /// <summary>A name nobody else can be using: process id and a Guid fragment.</summary>
     public static string NewDesktopName(int processId, Guid guid)

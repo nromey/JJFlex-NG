@@ -38,8 +38,7 @@ internal static class Program
 {
     private const int ExitUsage = 64;
     private const int ExitSetupFailed = 70;
-    private const int ExitLeftSomethingBehind = 71;
-    private const int ExitTimedOut = 124;
+    private const int ExitTimedOut = DeskRunRules.ExitTimedOut;
 
     private static volatile bool _cancelled;
 
@@ -76,13 +75,14 @@ internal static class Program
             return ExitSetupFailed;
         }
 
-        IntPtr job = CreateKillOnCloseJob(out int jobError);
+        IntPtr job = CreateKillOnCloseJob(out int jobError, out string jobStep);
         if (job == IntPtr.Zero)
         {
-            Say("refused: could not create the job object that guarantees cleanup (Windows error "
-                + jobError + "). Nothing was started.");
+            Say("refused: could not " + jobStep + " (Windows error " + jobError + "). Nothing was started.");
             return ExitSetupFailed;
         }
+        Say("job limits: kill on close; UI limits "
+            + string.Join(", ", DeskRunRules.JobUiLimits.Select(l => l.Name + " (no " + l.Prevents + ")")) + ".");
 
         string name = DeskRunRules.NewDesktopName(Environment.ProcessId, Guid.NewGuid());
         string qualified = station + "\\" + name;
@@ -123,8 +123,11 @@ internal static class Program
         Say("starting: " + commandLine);
         Say("timeout: " + parsed.TimeoutSeconds + " s");
 
+        if (parsed.InjectFault != null)
+            Say("TEST-ONLY: injecting fault '" + parsed.InjectFault + "' into the launcher's own watches.");
+
         int result = Run(job, desktop, name, qualified, commandLine, childEnv, parsed.TimeoutSeconds,
-                         parsed.LifecycleBarrier, out bool finished);
+                         parsed.LifecycleBarrier, parsed.InjectFault, out bool finished);
         if (!finished)
         {
             // Nothing ran (or it was killed before running): still close what
@@ -138,7 +141,7 @@ internal static class Program
 
     private static int Run(IntPtr job, IntPtr desktop, string name, string qualified, string commandLine,
                            SortedDictionary<string, string> childEnv, int timeoutSeconds,
-                           string? barrier, out bool finished)
+                           string? barrier, string? fault, out bool finished)
     {
         finished = false;
         var seen = new Dictionary<int, (string Name, DateTime Start)>();
@@ -235,14 +238,31 @@ internal static class Program
                 return ExitSetupFailed;
             }
 
-            // ROUND 2 (conditions 1 and 2): the watchers start BEFORE the
-            // child runs a single instruction, so no window and no sound can
-            // come before the first look.
-            watch = new Watch(job, name);
+            // ROUND 3 (B3): the watchers complete one FULL pass before the
+            // child runs a single instruction. Round 2 only started their
+            // threads here while this comment claimed the first look came
+            // first; now it does. If either cannot complete a pass, the child
+            // is never resumed and the run ends at 74.
+            watch = new Watch(job, name, fault);
             watch.Start();
+            bool watched = watch.WaitForFirstPass(TimeSpan.FromSeconds(30));
 
-            Native.ResumeThread(pi.hThread);
-            Say("child process " + pi.dwProcessId + " started on " + qualified + ", inside the cleanup job");
+            if (watched)
+            {
+                if (Native.ResumeThread(pi.hThread) == uint.MaxValue)
+                {
+                    int resumeError = Marshal.GetLastWin32Error();
+                    Native.TerminateJobObject(job, 1);
+                    Say("refused: the child could not be resumed (Windows error " + resumeError + "); it was killed unrun.");
+                    return ExitSetupFailed;
+                }
+                Say("child process " + pi.dwProcessId + " started on " + qualified
+                    + ", inside the cleanup job, after both watches completed a first full pass");
+            }
+            else
+            {
+                Say("the child was NOT resumed: the watches could not complete a first full pass.");
+            }
 
             relayOut = Relay(stdout, Console.Out);
             relayErr = Relay(stderr, Console.Error);
@@ -252,7 +272,7 @@ internal static class Program
             var clock = Stopwatch.StartNew();
             while (true)
             {
-                Record(job, seen);
+                Record(job, seen, watch);
                 if (Native.WaitForSingleObject(pi.hProcess, 250) == Native.WAIT_OBJECT_0) break;
 
                 if (_cancelled)
@@ -279,7 +299,7 @@ internal static class Program
             var grace = Stopwatch.StartNew();
             while (Native.ActiveProcesses(job) > 0 && grace.Elapsed < TimeSpan.FromSeconds(15))
             {
-                Record(job, seen);
+                Record(job, seen, watch);
                 Thread.Sleep(200);
             }
 
@@ -287,7 +307,8 @@ internal static class Program
             if (left != 0)
             {
                 Say(left + " process(es) were still running in the job after the child exited: "
-                    + Names(Native.ProcessIds(job), seen) + ". Killing them.");
+                    + (Native.TryProcessIds(job) is { } still ? Names(still, seen) : "(the job's list could not be read)")
+                    + ". Killing them.");
                 Native.TerminateJobObject(job, 1);
                 var kill = Stopwatch.StartNew();
                 while (Native.ActiveProcesses(job) != 0 && kill.Elapsed < TimeSpan.FromSeconds(15))
@@ -318,11 +339,15 @@ internal static class Program
                               Dictionary<int, (string Name, DateTime Start)> seen,
                               bool timedOut, int childExit, Watch? watch)
     {
+        // -1 means the job's count could not be read: that is unmeasured, not
+        // "something is left" and not "nothing is left" (round 3, B4).
         int active = Native.ActiveProcesses(job);
 
         // Independent of the job's own count: every process ever seen in the
         // job, checked by id AND start time so a recycled id cannot pass for
-        // one of ours.
+        // one of ours. A process that cannot be opened at all is not one of
+        // ours (they all run with this launcher's own token); the job's count
+        // above is the authoritative witness for it.
         var survivors = new List<string>();
         foreach (var (pid, info) in seen)
         {
@@ -334,7 +359,7 @@ internal static class Program
             }
             catch (ArgumentException) { /* gone */ }
             catch (InvalidOperationException) { /* gone */ }
-            catch (System.ComponentModel.Win32Exception) { /* cannot open: treat by job count */ }
+            catch (System.ComponentModel.Win32Exception) { /* cannot open: not ours; the job count decides */ }
         }
 
         // Closing the job handle kills anything that is somehow still in it.
@@ -345,7 +370,11 @@ internal static class Program
         // signalled as exited, not at the same instant: measured 2026-11-06, a
         // run killed on timeout saw the desktop still present at the first look
         // and gone a moment later. So look until it is gone, for a while.
+        // Round 3 (B4): only error 2, measured as what OpenDesktop says for a
+        // name that no longer exists, counts as gone. Any other failure to open
+        // it is unmeasured, and fails the run.
         bool desktopGone = false;
+        int unmeasuredDesktopError = 0;
         var waitGone = Stopwatch.StartNew();
         int looks = 0;
         while (true)
@@ -354,44 +383,54 @@ internal static class Program
             IntPtr reopen = Native.OpenDesktop(name, 0, false, Native.DESKTOP_READOBJECTS);
             if (reopen == IntPtr.Zero)
             {
-                desktopGone = true;
-                break;
+                int error = Marshal.GetLastWin32Error();
+                if (DeskRunRules.JudgeDesktopOpen(false, error) == DeskRunRules.DesktopOpen.Gone)
+                {
+                    desktopGone = true;
+                    unmeasuredDesktopError = 0;
+                    break;
+                }
+                unmeasuredDesktopError = error;
             }
-            Native.CloseDesktop(reopen);
+            else
+            {
+                Native.CloseDesktop(reopen);
+                unmeasuredDesktopError = 0;
+            }
             if (waitGone.Elapsed > TimeSpan.FromSeconds(15)) break;
             Thread.Sleep(200);
         }
 
         Say("process tree: " + seen.Count + " process(es) ran in the job ("
-            + Names(seen.Keys, seen) + "); active after the run: " + active
+            + Names(seen.Keys, seen) + "); active after the run: "
+            + (active < 0 ? "COULD NOT BE READ" : active.ToString(System.Globalization.CultureInfo.InvariantCulture))
             + "; still running by id and start time: "
             + (survivors.Count == 0 ? "none" : string.Join(", ", survivors)) + ".");
         Say("desktop " + qualified + ": handle closed " + (closed ? "yes" : "NO")
-            + ", " + (desktopGone ? "no longer exists" : "STILL EXISTS")
+            + ", " + (desktopGone ? "no longer exists"
+                      : unmeasuredDesktopError != 0 ? "COULD NOT BE CHECKED (Windows error " + unmeasuredDesktopError + ")"
+                      : "STILL EXISTS")
             + " (" + looks + " look(s) over " + waitGone.ElapsedMilliseconds + " ms).");
+
+        // A clean-up check that could not measure is a watch that could not
+        // measure (round 3, B4).
+        if (watch != null && (active < 0 || (!desktopGone && unmeasuredDesktopError != 0)))
+            watch.Fail("clean-up check", active < 0
+                ? "the job's count of running processes could not be read"
+                : "whether the hidden desktop is gone could not be checked, Windows error " + unmeasuredDesktopError);
 
         if (watch != null)
             foreach (string line in watch.Report()) Say(line);
 
-        // A window that reached another desktop, or sound from the job, is the
-        // harm the operator experiences, so it outranks every other result.
-        if (watch?.Violation is { } violation)
-        {
-            Say("FAILED: " + violation.Reason);
-            if (active != 0 || survivors.Count != 0 || !desktopGone)
-                Say("ALSO failed to clean up completely; see above.");
-            return violation.Code;
-        }
+        bool cleanupComplete = active == 0 && survivors.Count == 0 && desktopGone;
+        int? violation = watch?.Violation?.Code;
+        if (watch?.Violation is { } v) Say("FAILED: " + v.Reason);
+        if (!cleanupComplete) Say((violation != null ? "ALSO failed" : "FAILED") + " to clean up completely; see above.");
 
-        if (active != 0 || survivors.Count != 0 || !desktopGone)
-        {
-            Say("FAILED to clean up completely; see above.");
-            return ExitLeftSomethingBehind;
-        }
-
-        if (timedOut) return ExitTimedOut;
-        Say("child exit code " + childExit + ".");
-        return childExit;
+        int result = DeskRunRules.RunExitCode(violation, cleanupComplete, timedOut, childExit);
+        if (violation == null && cleanupComplete && !timedOut)
+            Say("child exit code " + childExit + ".");
+        return result;
     }
 
     /// <summary>
@@ -421,9 +460,19 @@ internal static class Program
         Say("BARRIER " + barrier + " expired with nobody killing the launcher; carrying on.");
     }
 
-    private static void Record(IntPtr job, Dictionary<int, (string Name, DateTime Start)> seen)
+    private static void Record(IntPtr job, Dictionary<int, (string Name, DateTime Start)> seen, Watch watch)
     {
-        foreach (int pid in Native.ProcessIds(job))
+        // Round 3 (B4): the record is the second witness that nothing was left
+        // behind. A list that cannot be read makes it incomplete, so the run
+        // fails at 74 rather than reporting a tree it did not see.
+        var ids = Native.TryProcessIds(job);
+        if (ids == null)
+        {
+            watch.Fail("process-tree record", "the job's own process list could not be read, so the record of "
+                                              + "processes to check gone at the end is incomplete");
+            return;
+        }
+        foreach (int pid in ids)
         {
             if (seen.ContainsKey(pid)) continue;
             try
@@ -450,9 +499,10 @@ internal static class Program
         }
     }
 
-    private static IntPtr CreateKillOnCloseJob(out int error)
+    private static IntPtr CreateKillOnCloseJob(out int error, out string step)
     {
         error = 0;
+        step = "create the job object that guarantees cleanup";
         IntPtr job = Native.CreateJobObject(IntPtr.Zero, null);
         if (job == IntPtr.Zero)
         {
@@ -466,6 +516,26 @@ internal static class Program
                                             Marshal.SizeOf<Native.JOBOBJECT_EXTENDED_LIMIT_INFORMATION>()))
         {
             error = Marshal.GetLastWin32Error();
+            step = "make the job kill everything when it closes";
+            Native.CloseHandle(job);
+            return IntPtr.Zero;
+        }
+
+        // ROUND 3 (B3): prevent what Windows lets us prevent. Above all
+        // JOB_OBJECT_UILIMIT_DESKTOP: no process in the job can CreateDesktop
+        // or SwitchDesktop, so none can make the hidden desktop the visible one
+        // or make another. Set on the job before the child exists and read
+        // back, so the child is born under it. If it cannot be set, nothing
+        // starts.
+        var ui = new Native.JOBOBJECT_BASIC_UI_RESTRICTIONS { UIRestrictionsClass = DeskRunRules.JobUiLimitMask };
+        if (!Native.SetInformationJobObject(job, Native.JobObjectBasicUIRestrictions, ref ui,
+                                            Marshal.SizeOf<Native.JOBOBJECT_BASIC_UI_RESTRICTIONS>())
+            || !Native.QueryUiRestrictions(job, Native.JobObjectBasicUIRestrictions, out var readBack,
+                                                 Marshal.SizeOf<Native.JOBOBJECT_BASIC_UI_RESTRICTIONS>(), IntPtr.Zero)
+            || readBack.UIRestrictionsClass != DeskRunRules.JobUiLimitMask)
+        {
+            error = Marshal.GetLastWin32Error();
+            step = "set the job's UI limits (no creating or switching desktops) and read them back";
             Native.CloseHandle(job);
             return IntPtr.Zero;
         }
@@ -508,12 +578,16 @@ internal static class Program
         environment or settings. The child never receives JJFLEX_TIER1_DESK_FREE.
         After SECONDS (default 600) the whole process tree is killed.
 
-        While the child runs, every desktop is watched for a window from the job
+        The child is born inside a job that cannot create or switch desktops.
+        While it runs, every desktop is sampled for a window from the job
         (anywhere but the hidden desktop kills the run, exit 72) and every audio
-        session for sound from the job (a peak above zero kills the run, exit 73).
+        session for sound from the job (a peak above zero kills the run, exit
+        73). These are sampling tripwires, not proofs; see the README. A watch
+        that cannot measure fails the run (exit 74).
 
         Exit codes: the child's own, or 64 refused before anything was created,
         70 nothing started, 71 something was left behind, 72 a window reached
-        another desktop, 73 the job made sound, 124 timed out.
+        another desktop, 73 the job made sound, 74 a watch could not measure,
+        124 timed out.
         """;
 }

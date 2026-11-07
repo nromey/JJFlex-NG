@@ -422,4 +422,200 @@ public sealed class DeskRunRulesTests
     {
         Assert.Equal(audible, DeskRunRules.AudibleFromTheJob(ownedByJob, peak));
     }
+
+    // ── round 3, B4: every check fails closed ────────────────────────────
+    //
+    // Codex showed round 2's audio watch catching a COM failure, printing
+    // "UNMEASURED" and returning the child's success, and turning a failed
+    // meter read into a zero, which reads exactly like silence. Every look
+    // that cannot be made now ends the run at 74. These are the pure halves;
+    // the live halves run against the real launcher with --inject-fault.
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(124)]
+    public void AWatchThatCouldNotMeasureFailsTheRunWhateverTheChildSaid(int childExit)
+    {
+        Assert.Equal(74, DeskRunRules.RunExitCode(74, cleanupComplete: true, timedOut: false, childExit));
+        Assert.Equal(74, DeskRunRules.RunExitCode(74, cleanupComplete: false, timedOut: true, childExit));
+        Assert.Equal(DeskRunRules.ExitWatchCouldNotMeasure, 74);
+    }
+
+    [Theory]
+    [InlineData(72)]
+    [InlineData(73)]
+    [InlineData(74)]
+    public void AWatchResultOutranksCleanupTimeoutAndTheChild(int violation)
+    {
+        Assert.Equal(violation, DeskRunRules.RunExitCode(violation, cleanupComplete: false, timedOut: true, childExit: 0));
+    }
+
+    [Fact]
+    public void WithoutAWatchResultTheRankingIsCleanupThenTimeoutThenTheChild()
+    {
+        Assert.Equal(71, DeskRunRules.RunExitCode(null, cleanupComplete: false, timedOut: true, childExit: 0));
+        Assert.Equal(124, DeskRunRules.RunExitCode(null, cleanupComplete: true, timedOut: true, childExit: 0));
+        Assert.Equal(0, DeskRunRules.RunExitCode(null, cleanupComplete: true, timedOut: false, childExit: 0));
+        Assert.Equal(1, DeskRunRules.RunExitCode(null, cleanupComplete: true, timedOut: false, childExit: 1));
+    }
+
+    [Theory]
+    [InlineData(0, 0f, 0f)]
+    [InlineData(0, 0.25f, 0.25f)]
+    [InlineData(0, 1f, 1f)]
+    public void APeakThatWasReadIsAMeasurement(int hr, float value, float expected)
+    {
+        Assert.Equal(expected, DeskRunRules.PeakReading(hr, value));
+    }
+
+    [Theory]
+    [InlineData(unchecked((int)0x80004005), 0f)]   // E_FAIL
+    [InlineData(unchecked((int)0x88890004), 0f)]   // AUDCLNT_E_DEVICE_INVALIDATED
+    [InlineData(unchecked((int)0x80070005), 0f)]   // E_ACCESSDENIED
+    [InlineData(0, float.NaN)]
+    [InlineData(0, -0.1f)]
+    [InlineData(0, 1.5f)]
+    public void AFailedOrImpossiblePeakIsNotAZero(int hr, float value)
+    {
+        // Round 2 turned a failed GetPeakValue into peak 0: unmeasured read as silent.
+        Assert.Null(DeskRunRules.PeakReading(hr, value));
+    }
+
+    [Theory]
+    [InlineData(0, null)]
+    [InlineData(unchecked((int)0x80004005), "failed (HRESULT 0x80004005)")]
+    [InlineData(1, "failed (HRESULT 0x00000001)")]
+    public void OnlySOkIsASuccessfulCall(int hr, string? fragment)
+    {
+        string? failed = DeskRunRules.CallFailed("IMMDeviceEnumerator::EnumAudioEndpoints", hr);
+        if (fragment == null) Assert.Null(failed);
+        else Assert.Contains(fragment, failed!, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(0, (int)DeskRunRules.SessionOwner.SingleProcess)]
+    [InlineData(DeskRunRules.AudclntSNoSingleProcess, (int)DeskRunRules.SessionOwner.SharedAcrossProcesses)]
+    [InlineData(unchecked((int)0x80004005), (int)DeskRunRules.SessionOwner.Failed)]
+    [InlineData(unchecked((int)0x88890004), (int)DeskRunRules.SessionOwner.Failed)]
+    public void ASessionWhoseOwnerCannotBeReadIsAFailureNotSomebodyElses(int hr, int expected)
+    {
+        // Round 2 lumped a failed GetProcessId in with "ambiguous" and never
+        // attributed it, so a job session whose owner could not be read passed.
+        Assert.Equal((DeskRunRules.SessionOwner)expected, DeskRunRules.JudgeSessionOwner(hr));
+    }
+
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    [InlineData(unchecked((int)0x80004005), null)]
+    public void IsSystemSoundsSessionHasThreeAnswersNotTwo(int hr, bool? expected)
+    {
+        Assert.Equal(expected, DeskRunRules.JudgeSystemSounds(hr));
+    }
+
+    [Theory]
+    [InlineData(true, 0, (int)DeskRunRules.DesktopOpen.Opened)]
+    [InlineData(false, 2, (int)DeskRunRules.DesktopOpen.Gone)]           // measured: a missing name gives error 2
+    [InlineData(false, 5, (int)DeskRunRules.DesktopOpen.CouldNotOpen)]   // exists, access denied: unmeasured
+    [InlineData(false, 0, (int)DeskRunRules.DesktopOpen.CouldNotOpen)]
+    [InlineData(false, 6, (int)DeskRunRules.DesktopOpen.CouldNotOpen)]
+    public void OnlyAMissingDesktopCountsAsHoldingNoWindows(bool opened, int error, int expected)
+    {
+        Assert.Equal((DeskRunRules.DesktopOpen)expected, DeskRunRules.JudgeDesktopOpen(opened, error));
+    }
+
+    [Theory]
+    [InlineData(true, 0, false)]
+    [InlineData(false, 0, false)]   // measured: an EMPTY desktop returns FALSE with error 0
+    [InlineData(false, 6, true)]    // measured: a bad handle returns FALSE with error 6
+    [InlineData(false, 5, true)]
+    public void AWindowEnumerationFailsOnlyWithAnError(bool returned, int error, bool failed)
+    {
+        Assert.Equal(failed, DeskRunRules.WindowEnumerationFailed(returned, error));
+    }
+
+    // ── round 3, B3: ownership is read when the window is seen ───────────
+
+    [Fact]
+    public void AProcessInTheSnapshotIsTheJobsWithoutAnotherRead()
+    {
+        bool read = false;
+        Assert.True(DeskRunRules.OwnedByJob(7, new HashSet<int> { 7 }, () => { read = true; return null; }));
+        Assert.False(read);
+    }
+
+    [Fact]
+    public void ADescendantBornAfterTheSnapshotIsStillTheJobs()
+    {
+        // Codex's ownership gap: round 2 judged every window of a pass against
+        // the snapshot taken before it, so a process born during the pass read
+        // as not the job's.
+        Assert.True(DeskRunRules.OwnedByJob(9, new HashSet<int> { 7 }, () => new[] { 7, 9 }));
+    }
+
+    [Fact]
+    public void AProcessInNeitherIsNotTheJobs()
+    {
+        Assert.False(DeskRunRules.OwnedByJob(11, new HashSet<int> { 7 }, () => new[] { 7, 9 }));
+        Assert.False(DeskRunRules.OwnedByJob(0, new HashSet<int> { 0 }, () => new[] { 0 }));
+    }
+
+    [Fact]
+    public void AJobListThatCannotBeReadIsUnmeasuredNotEmpty()
+    {
+        // Round 2's process list returned EMPTY on failure, which reads as
+        // "nothing is the job's" and lets any job window pass.
+        Assert.Null(DeskRunRules.OwnedByJob(9, new HashSet<int> { 7 }, () => null));
+    }
+
+    // ── round 3, B3: the job's UI limits ─────────────────────────────────
+
+    [Fact]
+    public void EveryJobForbidsCreatingOrSwitchingDesktops()
+    {
+        Assert.Equal(0x40u, DeskRunRules.UiLimitDesktop);
+        Assert.Contains(DeskRunRules.JobUiLimits, l => l.Flag == DeskRunRules.UiLimitDesktop);
+        Assert.NotEqual(0u, DeskRunRules.JobUiLimitMask & DeskRunRules.UiLimitDesktop);
+    }
+
+    [Fact]
+    public void TheUiLimitsAreDistinctNamedFlags()
+    {
+        var flags = DeskRunRules.JobUiLimits.Select(l => l.Flag).ToList();
+        Assert.Equal(flags.Count, flags.Distinct().Count());
+        Assert.All(flags, f => Assert.True(f != 0 && (f & (f - 1)) == 0, "0x" + f.ToString("X") + " is not one flag"));
+        Assert.All(DeskRunRules.JobUiLimits, l => Assert.StartsWith("JOB_OBJECT_UILIMIT_", l.Name, StringComparison.Ordinal));
+    }
+
+    // ── round 3: the fault seam is a launcher option only ────────────────
+
+    [Theory]
+    [InlineData("audio-init")]
+    [InlineData("audio-endpoints")]
+    [InlineData("audio-sessions")]
+    [InlineData("audio-peak")]
+    [InlineData("audio-peak-late")]
+    [InlineData("window-enum")]
+    [InlineData("job-list")]
+    [InlineData("stale-snapshot")]
+    public void AnInjectedFaultIsALauncherOptionAndNeverForwarded(string fault)
+    {
+        var p = Parse("--inject-fault", fault, Project, "-c", "Debug");
+
+        Assert.NotNull(p);
+        Assert.Equal(fault, p!.InjectFault);
+        Assert.DoesNotContain(DeskRunRules.DotnetArguments(p), a => a.Contains("fault", StringComparison.Ordinal));
+        Assert.DoesNotContain(DeskRunRules.DotnetArguments(p), a => a == fault);
+    }
+
+    [Fact]
+    public void TheFaultSeamIsUnreachableAfterTheProjectAndInertByDefault()
+    {
+        Assert.Null(Parse(Project)!.InjectFault);
+        Assert.Null(Parse(Project, "--inject-fault", "audio-init"));          // after the project: not on the allowlist
+        Assert.Null(Parse(Project, "--filter", "--inject-fault"));            // nor as a value
+        Assert.Null(Parse("--inject-fault", "something-else", Project));      // only the named faults
+        Assert.Null(Parse("--inject-fault"));
+    }
 }

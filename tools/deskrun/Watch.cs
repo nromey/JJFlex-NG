@@ -7,78 +7,120 @@ namespace JJFlex.DeskRun;
 
 /// <summary>
 /// The two permanent checks a run through deskrun carries while the child is
-/// alive (task #906 round 2, Noel's ruling C9, conditions 1 and 2): no window
-/// from the job on any desktop but the hidden one, and no sound from the job.
+/// alive (task #906, Noel's ruling C9, conditions 1 and 2): no window from the
+/// job on any desktop but the hidden one, and no sound from the job.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Why these exist.</b> Round 2 stopped the guard consulting the desk-free
-/// declaration on the hidden-desktop route. Noel's condition for that was
-/// "if it really works" and "if sound is not required": the windows must
-/// really land on the hidden desktop with none reaching his screen, and the
-/// run must really be silent. Those are measured here on every run, not
-/// assumed from the guard's verdict, and both are reported at the end of every
-/// run, including the clean ones.
+/// <b>WHAT THESE ARE, HONESTLY (round 3): sampling tripwires on top of
+/// structural facts, not exhaustive proofs.</b> The facts that actually keep
+/// windows off the operator's screen are structural and hold between samples:
+/// a thread's windows are created on that thread's own desktop; every process
+/// in the job is born on the hidden desktop (<c>STARTUPINFO.lpDesktop</c>) and
+/// inside the job (<c>PROC_THREAD_ATTRIBUTE_JOB_LIST</c>); and the job carries
+/// <c>JOB_OBJECT_UILIMIT_DESKTOP</c>, so no job process can create a desktop
+/// or switch the visible one. Sound is kept off structurally by the test
+/// process's own <c>QuietRun</c> gate, which the guard requires. These watches
+/// look, often, for the case where those facts did not hold, and end the run
+/// when they see it.
+/// </para>
+/// <para>
+/// <b>What a sample can miss, named rather than chased.</b> A job process can
+/// still OPEN an existing desktop by name (<c>OpenDesktop</c>), put a thread on
+/// it (<c>SetThreadDesktop</c>) and show a window there; one that lives for less
+/// than a sample (about 100 ms) can come and go unseen, which Codex
+/// demonstrated with a 5 ms window. A burst of sound shorter than a meter
+/// sample, or from a session that opened and closed between two listings
+/// (every 200 ms), can be missed too, as can sound from a process that joined
+/// and left the job between two looks. The watches do not make those
+/// impossible; they make anything longer than a sample fatal to the run.
+/// </para>
+/// <para>
+/// <b>Every look must succeed (round 3, B4).</b> A watch that cannot measure
+/// ends the run at <see cref="ExitCouldNotMeasure"/> (74), naming what failed:
+/// the audio service, an endpoint or session listing, a peak meter, a desktop
+/// listing or a desktop that exists and cannot be opened, a window enumeration,
+/// the job's own process list, or the input desktop (the operator's screen)
+/// when it cannot be opened. Round 2 printed "UNMEASURED" and returned the
+/// child's success, and turned a failed meter read into zero, which reads
+/// exactly like silence.
+/// </para>
+/// <para>
+/// <b>Both watches finish one full pass before the child runs.</b>
+/// <see cref="WaitForFirstPass"/> is called before <c>ResumeThread</c>; round 2
+/// only started the threads, so the comment claiming the first look came first
+/// was not true.
+/// </para>
+/// <para>
+/// <b>Ownership is read when a window is seen.</b> A window or audio session
+/// whose process is not in the pass's snapshot of the job is checked against
+/// the job's own process list again at that moment, so a descendant born after
+/// the snapshot is the job's for that same pass (round 3, B3).
 /// </para>
 /// <para>
 /// <b>Windows.</b> Every 100 ms, every desktop in the window station is
 /// enumerated (the input desktop, which is the operator's screen, labelled as
-/// such) and every top-level window's owning process is compared against the
-/// processes alive in the job at that moment. A job window anywhere but the
-/// launcher's own desktop kills the job at once and the run exits 72. The
-/// hidden desktop is enumerated by the SAME code, and the job windows found
-/// there are counted and reported: that is the positive control that the
-/// enumeration and the owner filter can see a test window at all.
+/// such) and every top-level window's owner is judged against the job. A job
+/// window anywhere but the launcher's own desktop kills the job at once and the
+/// run exits 72. The hidden desktop is enumerated by the SAME code, and the job
+/// windows found there are counted and reported: the positive control that the
+/// enumeration and the owner check can see a test window at all.
 /// </para>
 /// <para>
-/// <b>Sound.</b> About every 6 ms (measured about 150 passes a second), every audio session on every active render
-/// endpoint has its peak meter read; sessions are re-listed every 200 ms. Any
-/// session owned by a process that was ever in the job, whose peak ever left
-/// zero, kills the job and the run exits 73. A meter reports the peak of one
-/// device period (about 10 ms) at a time, so sampling cannot see every period;
-/// the achieved sampling rate is reported so a reader can judge the gap. The
-/// watcher only READS meters: it never opens an audio stream.
+/// <b>Sound.</b> About every 6 ms every audio session on every active render
+/// endpoint has its peak meter read; sessions are re-listed every 200 ms and
+/// endpoints every 2 s. A session owned by a process that was ever in the job,
+/// whose peak ever left zero, kills the job and the run exits 73. The watcher
+/// only READS meters: it never opens an audio stream.
 /// </para>
 /// </remarks>
 internal sealed class Watch : IDisposable
 {
-    public const int ExitWindowEscaped = 72;
-    public const int ExitAudibleFromTheJob = 73;
+    public const int ExitWindowEscaped = DeskRunRules.ExitWindowEscaped;
+    public const int ExitAudibleFromTheJob = DeskRunRules.ExitAudibleFromTheJob;
+    public const int ExitCouldNotMeasure = DeskRunRules.ExitWatchCouldNotMeasure;
 
     private readonly IntPtr _job;
     private readonly string _hiddenName;
+    private readonly string? _fault;
     private readonly ConcurrentDictionary<int, string> _everInJob = new();
     private readonly CancellationTokenSource _stop = new();
     private readonly Thread _windows;
     private readonly Thread _audio;
+    private readonly ManualResetEventSlim _windowsFirstPass = new(false);
+    private readonly ManualResetEventSlim _audioFirstPass = new(false);
 
     // ── window results ──
     private readonly object _gate = new();
     private int _windowSamples;
+    private int _ownershipRechecks;
+    private int _ownershipRecheckHits;
     private readonly Dictionary<IntPtr, string> _hiddenJobWindows = new();
     private readonly Dictionary<string, HashSet<IntPtr>> _otherDesktopWindows = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HashSet<IntPtr>> _otherDesktopExplorer = new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> _unreadableDesktops = new(StringComparer.OrdinalIgnoreCase);
+    private int _desktopsGoneBeforeOpen;
     private string? _inputDesktopName;
     private string? _escapedOn;
-    private int _inputUnreadableSamples;
 
     // ── audio results ──
     private int _audioSamples;
     private int _audioListings;
     private double _audioSeconds;
     private int _endpoints;
-    private string? _audioFailure;
     private readonly Dictionary<string, SessionRecord> _sessions = new();
 
-    /// <summary>Set once, by whichever watcher killed the job, with the exit code and the reason.</summary>
+    /// <summary>
+    /// Set once, by whichever watcher killed the job, with the exit code and the
+    /// reason: 72 a window escaped, 73 the job made sound, 74 a watch could not
+    /// measure.
+    /// </summary>
     public (int Code, string Reason)? Violation { get; private set; }
 
     private sealed class SessionRecord
     {
         public required string Endpoint;
         public required uint Pid;
-        public required bool PidAmbiguous;
+        public required DeskRunRules.SessionOwner Owner;
         public required bool SystemSounds;
         public string Process = "?";
         public bool InJob;
@@ -86,10 +128,22 @@ internal sealed class Watch : IDisposable
         public bool EverActive;
     }
 
-    public Watch(IntPtr job, string hiddenDesktopName)
+    /// <summary>A look that could not be made. Caught once, turned into exit 74.</summary>
+    private sealed class CouldNotMeasure : Exception
+    {
+        public CouldNotMeasure(string what) : base(what) { }
+    }
+
+    /// <param name="fault">
+    /// Test-only (round 3): one of <see cref="DeskRunRules.InjectableFaults"/>,
+    /// set only by the launcher's own <c>--inject-fault</c> option. Null in
+    /// every ordinary run.
+    /// </param>
+    public Watch(IntPtr job, string hiddenDesktopName, string? fault)
     {
         _job = job;
         _hiddenName = hiddenDesktopName;
+        _fault = fault;
         _windows = new Thread(WindowLoop) { IsBackground = true, Name = "deskrun window watch" };
         _audio = new Thread(AudioLoop) { IsBackground = true, Name = "deskrun audio watch" };
         _audio.SetApartmentState(ApartmentState.MTA);
@@ -97,25 +151,62 @@ internal sealed class Watch : IDisposable
 
     public void Start()
     {
-        RefreshJob();
         _windows.Start();
         _audio.Start();
+    }
+
+    /// <summary>
+    /// Block until BOTH watches have completed one full pass, so the child is
+    /// resumed only after the first look (round 3, B3). False when either
+    /// failed, saw a violation, or did not finish in time; the run is then
+    /// already killed with the reason, and the child must not be resumed.
+    /// </summary>
+    public bool WaitForFirstPass(TimeSpan timeout)
+    {
+        var clock = Stopwatch.StartNew();
+        bool windows = _windowsFirstPass.Wait(timeout);
+        var left = timeout - clock.Elapsed;
+        bool audio = _audioFirstPass.Wait(left > TimeSpan.Zero ? left : TimeSpan.Zero);
+
+        if (Violation != null) return false;
+        if (!windows || !audio)
+        {
+            Fail("start-up", "the " + (!windows ? "window" : "audio") + " watch did not complete a first full pass within "
+                             + timeout.TotalSeconds.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
+                             + " s, so the child was never resumed");
+            return false;
+        }
+        return true;
     }
 
     /// <summary>Stop sampling and wait for both watchers to finish their last pass.</summary>
     public void Stop()
     {
         _stop.Cancel();
-        _windows.Join(TimeSpan.FromSeconds(10));
-        _audio.Join(TimeSpan.FromSeconds(10));
+        bool windows = _windows.Join(TimeSpan.FromSeconds(10));
+        bool audio = _audio.Join(TimeSpan.FromSeconds(10));
+        if (!windows || !audio)
+            Fail("shut-down", "the " + (!windows ? "window" : "audio")
+                              + " watch did not finish its last pass, so the end of the run is unmeasured");
     }
 
-    public void Dispose() => _stop.Dispose();
-
-    private HashSet<int> RefreshJob()
+    public void Dispose()
     {
-        var now = new HashSet<int>(Native.ProcessIds(_job));
-        foreach (int pid in now)
+        _stop.Dispose();
+        _windowsFirstPass.Dispose();
+        _audioFirstPass.Dispose();
+    }
+
+    /// <summary>
+    /// The job's processes right now, or null when the list could not be read.
+    /// Every id seen is remembered with its name, so a session can be
+    /// attributed after its process has gone.
+    /// </summary>
+    private HashSet<int>? JobNow()
+    {
+        var ids = _fault == "job-list" ? null : Native.TryProcessIds(_job);
+        if (ids == null) return null;
+        foreach (int pid in ids)
         {
             if (_everInJob.ContainsKey(pid)) continue;
             string name = "?";
@@ -129,7 +220,7 @@ internal sealed class Watch : IDisposable
             catch (System.ComponentModel.Win32Exception) { }
             _everInJob[pid] = name;
         }
-        return now;
+        return new HashSet<int>(ids);
     }
 
     private void Kill(int code, string reason)
@@ -139,80 +230,155 @@ internal sealed class Watch : IDisposable
             if (Violation != null) return;
             Violation = (code, reason);
         }
-        Native.TerminateJobObject(_job, (uint)code);
-        Say(reason + " The whole job was killed at once.");
+        bool killed = Native.TerminateJobObject(_job, (uint)code);
+        Say(reason + (killed
+            ? " The whole job was killed at once."
+            : " TerminateJobObject failed (Windows error " + Marshal.GetLastWin32Error()
+              + "); the job is killed when its handle closes at the end of the run."));
     }
+
+    /// <summary>
+    /// A watch could not measure: end the run at 74, naming what failed. The
+    /// run is killed at once rather than allowed to continue unwatched.
+    /// </summary>
+    internal void Fail(string which, string what)
+        => Kill(ExitCouldNotMeasure,
+                "A WATCH COULD NOT MEASURE (" + which + "): " + what + ". The run is failed rather than "
+                + "reported clean: an unmeasured window or sound is not an absent one.");
 
     // ───────────────────────────── windows ─────────────────────────────
 
     private void WindowLoop()
     {
-        while (!_stop.IsCancellationRequested)
+        try
         {
-            try { SampleWindows(); }
-            catch (Exception ex) { Say("window watch sample failed: " + ex.GetType().Name + ": " + ex.Message); }
-            if (_stop.Token.WaitHandle.WaitOne(100)) break;
+            bool first = true;
+            while (true)
+            {
+                // Read BEFORE the sample, so a stop requested during the wait
+                // still gets one last look after the child has gone.
+                bool stopping = _stop.IsCancellationRequested;
+                if (!SampleWindows()) return;
+                if (first)
+                {
+                    _windowsFirstPass.Set();
+                    first = false;
+                }
+                if (stopping) return;
+                _stop.Token.WaitHandle.WaitOne(100);
+            }
         }
-        // One last look after the child has gone, before the desktop goes.
-        try { SampleWindows(); } catch (Exception) { }
+        catch (CouldNotMeasure ex)
+        {
+            Fail("window watch", ex.Message);
+        }
+        catch (Exception ex)
+        {
+            Fail("window watch", ex.GetType().Name + ": " + ex.Message);
+        }
+        finally
+        {
+            // Wakes WaitForFirstPass on failure too; Violation tells it why.
+            _windowsFirstPass.Set();
+        }
     }
 
-    private void SampleWindows()
+    /// <summary>One full look at every desktop. False once a violation is recorded.</summary>
+    private bool SampleWindows()
     {
-        var jobNow = RefreshJob();
+        if (Violation != null) return false;
+
+        var jobNow = JobNow() ?? throw new CouldNotMeasure("the job's own process list could not be read");
+        // TEST-ONLY positive control (round 3, B3): start the pass from an
+        // empty snapshot, as if every job process were born after it, so each
+        // job window can only be attributed by the fresh read below.
+        if (_fault == "stale-snapshot") jobNow = new HashSet<int>();
+        var notTheJobs = new HashSet<int>();
         IntPtr station = Native.GetProcessWindowStation();
 
-        string? inputName = null;
         IntPtr input = OpenInputDesktop(0, false, DesktopRead);
-        if (input != IntPtr.Zero)
+        if (input == IntPtr.Zero)
         {
-            inputName = Native.ObjectName(input);
-            Native.CloseDesktop(input);
+            // The operator's screen is a desktop this user cannot open: the
+            // workstation is locked, or a secure prompt is showing. It cannot
+            // be looked at, so this run is unmeasured there. (The guard in the
+            // test process refuses to start on a hidden desktop in the same
+            // state, so this costs no run that could otherwise have started.)
+            throw new CouldNotMeasure("the input desktop (the operator's screen) could not be opened, Windows error "
+                                      + Marshal.GetLastWin32Error() + "; the workstation may be locked");
         }
+        string? inputName;
+        try { inputName = Native.ObjectName(input); }
+        finally { Native.CloseDesktop(input); }
+        if (inputName == null)
+            throw new CouldNotMeasure("the input desktop's name could not be read");
 
         var names = new List<string>();
-        EnumDesktops(station, (n, _) => { names.Add(n); return true; }, IntPtr.Zero);
-        if (inputName != null && !names.Contains(inputName, StringComparer.OrdinalIgnoreCase))
+        bool listed = _fault != "window-enum" && EnumDesktops(station, (n, _) => { names.Add(n); return true; }, IntPtr.Zero);
+        if (!listed)
+            throw new CouldNotMeasure(_fault == "window-enum"
+                ? "listing the window station's desktops failed (injected by --inject-fault window-enum)"
+                : "listing the window station's desktops failed, Windows error " + Marshal.GetLastWin32Error());
+        if (!names.Contains(_hiddenName, StringComparer.OrdinalIgnoreCase))
+            throw new CouldNotMeasure("the desktop listing does not include deskrun's own hidden desktop '"
+                                      + _hiddenName + "', so it cannot be trusted to include the others");
+        if (!names.Contains(inputName, StringComparer.OrdinalIgnoreCase))
             names.Add(inputName);
 
         lock (_gate)
         {
             _windowSamples++;
-            if (inputName == null) _inputUnreadableSamples++;
-            else _inputDesktopName = inputName;
+            _inputDesktopName = inputName;
         }
 
         foreach (string desktopName in names)
         {
             IntPtr desk = Native.OpenDesktop(desktopName, 0, false, DesktopRead);
-            if (desk == IntPtr.Zero)
+            int openError = desk == IntPtr.Zero ? Marshal.GetLastWin32Error() : 0;
+            switch (DeskRunRules.JudgeDesktopOpen(desk != IntPtr.Zero, openError))
             {
-                lock (_gate) _unreadableDesktops.Add(desktopName);
-                continue;
+                case DeskRunRules.DesktopOpen.Gone:
+                    lock (_gate) _desktopsGoneBeforeOpen++;
+                    continue;
+                case DeskRunRules.DesktopOpen.CouldNotOpen:
+                    throw new CouldNotMeasure("desktop '" + desktopName + "' exists and could not be opened to look, "
+                                              + "Windows error " + openError);
             }
 
             try
             {
                 var found = new List<IntPtr>();
-                EnumDesktopWindows(desk, (h, _) => { found.Add(h); return true; }, IntPtr.Zero);
+                bool enumerated = EnumDesktopWindows(desk, (h, _) => { found.Add(h); return true; }, IntPtr.Zero);
+                int enumError = enumerated ? 0 : Marshal.GetLastWin32Error();
+                if (DeskRunRules.WindowEnumerationFailed(enumerated, enumError))
+                    throw new CouldNotMeasure("enumerating the windows of desktop '" + desktopName
+                                              + "' failed, Windows error " + enumError);
 
                 foreach (IntPtr hwnd in found)
                 {
                     GetWindowThreadProcessId(hwnd, out uint pidU);
                     int pid = (int)pidU;
-                    bool ownedByJob = jobNow.Contains(pid);
+                    if (pid == 0) continue; // destroyed since it was listed
+
+                    bool? owned = notTheJobs.Contains(pid)
+                        ? false
+                        : DeskRunRules.OwnedByJob(pid, jobNow, () => FreshJob(jobNow));
+                    if (owned == false) notTheJobs.Add(pid);
+                    if (owned == null)
+                        throw new CouldNotMeasure("the job's own process list could not be read to judge window 0x"
+                                                  + hwnd.ToInt64().ToString("X"));
+                    bool ownedByJob = owned.Value;
                     var place = DeskRunRules.JudgeWindow(desktopName, _hiddenName, ownedByJob);
 
                     if (place == DeskRunRules.WindowPlace.Escaped)
                     {
-                        bool isInput = inputName != null
-                                       && string.Equals(desktopName, inputName, StringComparison.OrdinalIgnoreCase);
+                        bool isInput = string.Equals(desktopName, inputName, StringComparison.OrdinalIgnoreCase);
                         lock (_gate) _escapedOn ??= desktopName;
                         Kill(ExitWindowEscaped,
                              (isInput ? "A WINDOW REACHED THE OPERATOR'S DESKTOP" : "A WINDOW REACHED A DESKTOP DESKRUN DID NOT CREATE")
                              + ": desktop '" + desktopName + "'" + (isInput ? " (the input desktop)" : "")
                              + ", " + DescribeWindow(hwnd, pid) + ".");
-                        return;
+                        return false;
                     }
 
                     lock (_gate)
@@ -242,6 +408,35 @@ internal sealed class Watch : IDisposable
                 Native.CloseDesktop(desk);
             }
         }
+
+        return Violation == null;
+    }
+
+    /// <summary>
+    /// The job's process list, read again NOW, for a window or session whose
+    /// process was not in the pass's snapshot (round 3, B3). Any process found
+    /// is added to the snapshot so its other windows are judged without
+    /// another read. Null when the list cannot be read.
+    /// </summary>
+    /// <remarks>
+    /// Read once per process id per pass, not once per window: a process that
+    /// is not in the job when it is read cannot join it afterwards (only a NEW
+    /// process can be born into the job, and it has a new id), so a second
+    /// read for that process's next window in the same pass would say the
+    /// same. Measured 2026-11-06: per window it was 18,316 reads in 5.5 s and
+    /// the audio meter rate fell from about 150 to about 48 a second. The one
+    /// case the cache cannot see is a process that exits during the pass and
+    /// whose id is reused by a new job process within that same pass.
+    /// </remarks>
+    private IReadOnlyCollection<int>? FreshJob(HashSet<int> snapshot)
+    {
+        var fresh = JobNow();
+        lock (_gate) _ownershipRechecks++;
+        if (fresh == null) return null;
+        foreach (int pid in fresh)
+            if (snapshot.Add(pid))
+                lock (_gate) _ownershipRecheckHits++;
+        return fresh;
     }
 
     private readonly ConcurrentDictionary<int, string> _processNames = new();
@@ -280,11 +475,15 @@ internal sealed class Watch : IDisposable
         bool fineTimer = timeBeginPeriod(1) == 0;
         try
         {
+            if (_fault == "audio-init")
+                throw new COMException("simulated audio service failure (injected by --inject-fault audio-init)",
+                                       unchecked((int)0x80070426));
             var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumeratorComObject();
             var meters = new List<(string Key, IAudioMeterInformation Meter, IAudioSessionControl2 Control)>();
             var managers = new List<(string Endpoint, IAudioSessionManager2 Manager)>();
             var lastEndpoints = TimeSpan.FromDays(-1);
             var lastListing = TimeSpan.FromDays(-1);
+            bool first = true;
 
             while (true)
             {
@@ -299,7 +498,6 @@ internal sealed class Watch : IDisposable
 
                 if (clock.Elapsed - lastListing > TimeSpan.FromMilliseconds(200) || stopping)
                 {
-                    RefreshJob();
                     meters = ListSessions(managers);
                     lastListing = clock.Elapsed;
                     lock (_gate) _audioListings++;
@@ -307,16 +505,28 @@ internal sealed class Watch : IDisposable
 
                 foreach (var (key, meter, control) in meters)
                 {
-                    float peak = 0;
-                    if (meter.GetPeakValue(out float p) == 0) peak = p;
-                    bool active = control.GetState(out int state) == 0 && state == 1;
-
                     SessionRecord rec;
+                    lock (_gate) rec = _sessions[key];
+
+                    float raw = 0f;
+                    bool injectPeak = _fault == "audio-peak" || (_fault == "audio-peak-late" && _audioSamples >= 150);
+                    int hr = injectPeak ? unchecked((int)0x80004005) : meter.GetPeakValue(out raw);
+                    float? peak = DeskRunRules.PeakReading(hr, hr == 0 ? raw : 0f);
+                    if (peak == null)
+                        throw new CouldNotMeasure("reading the peak meter of the session of process " + rec.Process + " "
+                                                  + rec.Pid + " on " + rec.Endpoint + " failed (HRESULT 0x"
+                                                  + hr.ToString("X8") + (hr == 0 ? ", value " + raw : "") + ")"
+                                                  + (injectPeak ? ", injected by --inject-fault " + _fault : ""));
+
+                    int stateHr = control.GetState(out int state);
+                    string? stateFailed = DeskRunRules.CallFailed("IAudioSessionControl::GetState", stateHr);
+                    if (stateFailed != null)
+                        throw new CouldNotMeasure(stateFailed + " for the session of process " + rec.Process + " " + rec.Pid);
+
                     lock (_gate)
                     {
-                        rec = _sessions[key];
-                        if (peak > rec.MaxPeak) rec.MaxPeak = peak;
-                        if (active) rec.EverActive = true;
+                        if (peak.Value > rec.MaxPeak) rec.MaxPeak = peak.Value;
+                        if (state == 1) rec.EverActive = true;
                     }
 
                     if (DeskRunRules.AudibleFromTheJob(rec.InJob, rec.MaxPeak))
@@ -330,33 +540,54 @@ internal sealed class Watch : IDisposable
                 }
 
                 lock (_gate) _audioSamples++;
-                if (stopping) break;
+                if (first)
+                {
+                    _audioFirstPass.Set();
+                    first = false;
+                }
+                if (stopping || Violation != null) break;
                 Thread.Sleep(5);
             }
         }
+        catch (CouldNotMeasure ex)
+        {
+            Fail("audio watch", ex.Message);
+        }
         catch (Exception ex)
         {
-            lock (_gate) _audioFailure = ex.GetType().Name + ": " + ex.Message;
+            Fail("audio watch", ex.GetType().Name + ": " + ex.Message);
         }
         finally
         {
             if (fineTimer) timeEndPeriod(1);
             lock (_gate) _audioSeconds = clock.Elapsed.TotalSeconds;
+            _audioFirstPass.Set();
         }
     }
 
-    private static List<(string, IAudioSessionManager2)> Endpoints(IMMDeviceEnumerator enumerator)
+    private static void Check(string call, int hresult)
+    {
+        string? failed = DeskRunRules.CallFailed(call, hresult);
+        if (failed != null) throw new CouldNotMeasure(failed);
+    }
+
+    private List<(string, IAudioSessionManager2)> Endpoints(IMMDeviceEnumerator enumerator)
     {
         var list = new List<(string, IAudioSessionManager2)>();
-        if (enumerator.EnumAudioEndpoints(0 /* eRender */, 1 /* DEVICE_STATE_ACTIVE */, out var devices) != 0)
-            return list;
-        devices.GetCount(out uint count);
+        IMMDeviceCollection devices = null!;
+        int hr = _fault == "audio-endpoints"
+            ? unchecked((int)0x80004005)
+            : enumerator.EnumAudioEndpoints(0 /* eRender */, 1 /* DEVICE_STATE_ACTIVE */, out devices);
+        Check("IMMDeviceEnumerator::EnumAudioEndpoints"
+              + (_fault == "audio-endpoints" ? " (injected by --inject-fault audio-endpoints)" : ""), hr);
+        Check("IMMDeviceCollection::GetCount", devices.GetCount(out uint count));
         for (uint i = 0; i < count; i++)
         {
-            if (devices.Item(i, out var device) != 0) continue;
-            device.GetId(out string id);
+            Check("IMMDeviceCollection::Item", devices.Item(i, out var device));
+            Check("IMMDevice::GetId", device.GetId(out string id));
             var iid = typeof(IAudioSessionManager2).GUID;
-            if (device.Activate(ref iid, 0x17 /* CLSCTX_ALL */, IntPtr.Zero, out object o) != 0) continue;
+            Check("IMMDevice::Activate(IAudioSessionManager2) for " + id,
+                  device.Activate(ref iid, 0x17 /* CLSCTX_ALL */, IntPtr.Zero, out object o));
             list.Add((id, (IAudioSessionManager2)o));
         }
         return list;
@@ -365,22 +596,53 @@ internal sealed class Watch : IDisposable
     private List<(string, IAudioMeterInformation, IAudioSessionControl2)> ListSessions(
         List<(string Endpoint, IAudioSessionManager2 Manager)> managers)
     {
+        var snapshot = JobNow() ?? throw new CouldNotMeasure("the job's own process list could not be read");
+        var notTheJobs = new HashSet<int>();
         var meters = new List<(string, IAudioMeterInformation, IAudioSessionControl2)>();
         foreach (var (endpoint, manager) in managers)
         {
-            if (manager.GetSessionEnumerator(out var sessions) != 0) continue;
-            sessions.GetCount(out int count);
+            IAudioSessionEnumerator sessions = null!;
+            int hr = _fault == "audio-sessions"
+                ? unchecked((int)0x80004005)
+                : manager.GetSessionEnumerator(out sessions);
+            Check("IAudioSessionManager2::GetSessionEnumerator on " + endpoint
+                  + (_fault == "audio-sessions" ? " (injected by --inject-fault audio-sessions)" : ""), hr);
+            Check("IAudioSessionEnumerator::GetCount on " + endpoint, sessions.GetCount(out int count));
             for (int i = 0; i < count; i++)
             {
-                if (sessions.GetSession(i, out object s) != 0) continue;
+                Check("IAudioSessionEnumerator::GetSession on " + endpoint, sessions.GetSession(i, out object s));
                 var control = (IAudioSessionControl2)s;
                 var meter = (IAudioMeterInformation)s;
 
-                int pidResult = control.GetProcessId(out uint pid);
-                bool ambiguous = pidResult == AUDCLNT_S_NO_SINGLE_PROCESS || pidResult != 0;
-                bool system = control.IsSystemSoundsSession() == 0;
-                control.GetSessionInstanceIdentifier(out string instance);
+                var owner = DeskRunRules.JudgeSessionOwner(control.GetProcessId(out uint pid));
+                if (owner == DeskRunRules.SessionOwner.Failed)
+                    throw new CouldNotMeasure("IAudioSessionControl2::GetProcessId failed for a session on " + endpoint
+                                              + ", so whether it is the job's is unmeasured");
+                bool? system = DeskRunRules.JudgeSystemSounds(control.IsSystemSoundsSession());
+                if (system == null)
+                    throw new CouldNotMeasure("IAudioSessionControl2::IsSystemSoundsSession failed for a session on " + endpoint);
+                Check("IAudioSessionControl2::GetSessionInstanceIdentifier on " + endpoint,
+                      control.GetSessionInstanceIdentifier(out string instance));
                 string key = endpoint + "|" + instance;
+
+                // A session is the job's if its process was EVER in the job (a
+                // session outlives the process that opened it), or is in the
+                // job's own list read again now (round 3, B3).
+                bool inJob = false;
+                if (owner == DeskRunRules.SessionOwner.SingleProcess && pid != 0)
+                {
+                    if (_everInJob.ContainsKey((int)pid)) inJob = true;
+                    else
+                    {
+                        bool? owned = notTheJobs.Contains((int)pid)
+                            ? false
+                            : DeskRunRules.OwnedByJob((int)pid, snapshot, () => FreshJob(snapshot));
+                        if (owned == false) notTheJobs.Add((int)pid);
+                        if (owned == null)
+                            throw new CouldNotMeasure("the job's own process list could not be read to judge an audio session");
+                        inJob = owned.Value;
+                    }
+                }
 
                 lock (_gate)
                 {
@@ -390,17 +652,15 @@ internal sealed class Watch : IDisposable
                         {
                             Endpoint = endpoint,
                             Pid = pid,
-                            PidAmbiguous = ambiguous,
-                            SystemSounds = system,
+                            Owner = owner,
+                            SystemSounds = system.Value,
                         };
                         _sessions[key] = rec;
                     }
-                    // A session is the job's if its process was EVER in the
-                    // job: a session outlives the process that opened it.
-                    if (!ambiguous && pid != 0 && _everInJob.ContainsKey((int)pid))
+                    if (inJob)
                     {
                         rec.InJob = true;
-                        rec.Process = _everInJob[(int)pid];
+                        rec.Process = _everInJob.TryGetValue((int)pid, out var n) ? n : ProcessNameOf((int)pid);
                     }
                     else if (rec.Process == "?" && pid != 0)
                     {
@@ -412,8 +672,6 @@ internal sealed class Watch : IDisposable
         }
         return meters;
     }
-
-    private const int AUDCLNT_S_NO_SINGLE_PROCESS = 0x0889000D;
 
     // ───────────────────────────── the report ─────────────────────────────
 
@@ -429,8 +687,8 @@ internal sealed class Watch : IDisposable
                 .GroupBy(c => c, StringComparer.Ordinal)
                 .OrderByDescending(g => g.Count())
                 .Select(g => g.Key + " x" + g.Count());
-            lines.Add("window watch: " + _windowSamples + " sample(s). On the hidden desktop " + _hiddenName + ": "
-                      + _hiddenJobWindows.Count + " distinct top-level window(s) owned by the job"
+            lines.Add("window watch: " + _windowSamples + " sample(s), a sampling tripwire (see the README). On the hidden desktop "
+                      + _hiddenName + ": " + _hiddenJobWindows.Count + " distinct top-level window(s) owned by the job"
                       + (_hiddenJobWindows.Count == 0 ? "" : " (" + string.Join(", ", classes) + ")") + ".");
             var titled = _hiddenJobWindows.Values.Select(TitleOf).Where(t => t.Length > 0)
                                           .Distinct(StringComparer.Ordinal).Take(20).ToList();
@@ -447,55 +705,54 @@ internal sealed class Watch : IDisposable
                           + (string.Equals(desk, _escapedOn, StringComparison.OrdinalIgnoreCase) ? "AT LEAST ONE" : "0")
                           + " owned by the job.");
             }
-            if (_unreadableDesktops.Count > 0)
-                lines.Add("window watch: could not open desktop(s) " + string.Join(", ", _unreadableDesktops)
-                          + " to look (a job process could not have reached one without the same access).");
-            if (_inputUnreadableSamples > 0)
-                lines.Add("window watch: the input desktop could not be opened in " + _inputUnreadableSamples
-                          + " sample(s) (the workstation may have been locked).");
+            lines.Add("window watch: ownership re-read from the job's own process list " + _ownershipRechecks
+                      + " time(s) for a window or session whose process was not in that pass's snapshot; "
+                      + _ownershipRecheckHits + " process(es) found in the job that way.");
+            if (_desktopsGoneBeforeOpen > 0)
+                lines.Add("window watch: " + _desktopsGoneBeforeOpen + " listed desktop(s) no longer existed when "
+                          + "opened (error 2), so held no windows.");
 
-            if (_audioFailure != null)
-            {
-                lines.Add("audio watch: FAILED, so this run's silence is UNMEASURED: " + _audioFailure);
-            }
-            else
-            {
-                double rate = _audioSeconds > 0 ? _audioSamples / _audioSeconds : 0;
-                lines.Add("audio watch: " + _endpoints + " active render endpoint(s), " + _audioListings
-                          + " session listing(s), " + _audioSamples + " meter pass(es) in "
-                          + _audioSeconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)
-                          + " s (about " + rate.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
-                          + " per second).");
+            double rate = _audioSeconds > 0 ? _audioSamples / _audioSeconds : 0;
+            lines.Add("audio watch: " + _endpoints + " active render endpoint(s), " + _audioListings
+                      + " session listing(s), " + _audioSamples + " meter pass(es) in "
+                      + _audioSeconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)
+                      + " s (about " + rate.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
+                      + " per second), a sampling tripwire (see the README).");
 
-                var job = _sessions.Values.Where(s => s.InJob).ToList();
-                lines.Add("audio watch: sessions owned by the job: "
-                          + (job.Count == 0
-                              ? "none"
-                              : string.Join("; ", job.Select(s => s.Process + " " + s.Pid + " max peak "
-                                                                  + Peak(s.MaxPeak)
-                                                                  + (s.EverActive ? ", was active" : ", never active")))) + ".");
+            var job = _sessions.Values.Where(s => s.InJob).ToList();
+            lines.Add("audio watch: sessions owned by the job: "
+                      + (job.Count == 0
+                          ? "none"
+                          : string.Join("; ", job.Select(s => s.Process + " " + s.Pid + " max peak "
+                                                              + Peak(s.MaxPeak)
+                                                              + (s.EverActive ? ", was active" : ", never active")))) + ".");
 
-                var system = _sessions.Values.Where(s => s.SystemSounds).ToList();
-                if (system.Count > 0)
-                    lines.Add("audio watch: system sounds session(s) during the run (not attributable to a process): max peak "
-                              + Peak(system.Max(s => s.MaxPeak)) + ".");
+            var shared = _sessions.Values.Where(s => s.Owner == DeskRunRules.SessionOwner.SharedAcrossProcesses && !s.SystemSounds).ToList();
+            if (shared.Count > 0)
+                lines.Add("audio watch: " + shared.Count + " cross-process session(s), which cannot be attributed to one process: max peak "
+                          + Peak(shared.Max(s => s.MaxPeak)) + ".");
 
-                var others = _sessions.Values.Where(s => !s.InJob && !s.SystemSounds).ToList();
-                lines.Add("audio watch: " + others.Count + " other session(s), loudest max peak "
-                          + (others.Count == 0 ? "n/a" : Peak(others.Max(s => s.MaxPeak))
-                                                         + " (" + others.OrderByDescending(s => s.MaxPeak).First().Process + ")")
-                          + " (the meter reading a non-zero value here shows it can).");
-                // Each other process's loudest moment, because sound the job
-                // CAUSES can be rendered by somebody else (a screen reader
-                // speaking about a window, for one). That cannot be attributed
-                // from here, but a reader can see whether it happened at all.
-                if (others.Count > 0)
-                    lines.Add("audio watch: other sessions by process: "
-                              + string.Join("; ", others.GroupBy(o => o.Process + " " + o.Pid)
-                                                        .Select(g => g.Key + " max peak " + Peak(g.Max(x => x.MaxPeak))
-                                                                     + (g.Any(x => x.EverActive) ? " (active)" : "")))
-                              + ".");
-            }
+            var system = _sessions.Values.Where(s => s.SystemSounds).ToList();
+            if (system.Count > 0)
+                lines.Add("audio watch: system sounds session(s) during the run (not attributable to a process): max peak "
+                          + Peak(system.Max(s => s.MaxPeak)) + ".");
+
+            var others = _sessions.Values.Where(s => !s.InJob && !s.SystemSounds
+                                                     && s.Owner != DeskRunRules.SessionOwner.SharedAcrossProcesses).ToList();
+            lines.Add("audio watch: " + others.Count + " other session(s), loudest max peak "
+                      + (others.Count == 0 ? "n/a" : Peak(others.Max(s => s.MaxPeak))
+                                                     + " (" + others.OrderByDescending(s => s.MaxPeak).First().Process + ")")
+                      + " (the meter reading a non-zero value here shows it can).");
+            // Each other process's loudest moment, because sound the job
+            // CAUSES can be rendered by somebody else (a screen reader
+            // speaking about a window, for one). That cannot be attributed
+            // from here, but a reader can see whether it happened at all.
+            if (others.Count > 0)
+                lines.Add("audio watch: other sessions by process: "
+                          + string.Join("; ", others.GroupBy(o => o.Process + " " + o.Pid)
+                                                    .Select(g => g.Key + " max peak " + Peak(g.Max(x => x.MaxPeak))
+                                                                 + (g.Any(x => x.EverActive) ? " (active)" : "")))
+                          + ".");
 
             return lines;
         }
