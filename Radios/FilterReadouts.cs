@@ -75,6 +75,36 @@ namespace Radios
             return applied.Exact ? asked(applied.Low, applied.High) : heldBack(applied.Low, applied.High);
         }
 
+        /// <summary>
+        /// A transmit filter write's readout, from what FlexLib set (#747 round
+        /// seven): <paramref name="asked"/> of the edges when taken as asked
+        /// (the route's own words, as before); "TX filter 2750 to 2800, at
+        /// limit" when FlexLib held it back (the whole filter, because the
+        /// rule that held it is the gap to the other edge); "TX filter
+        /// unchanged at 100 to 150, width 50 hertz" when nothing moved. DRAFT.
+        /// </summary>
+        public static string Tx(FilterApplied applied, Func<int, int, string> asked, VerbosityLevel level)
+        {
+            if (applied.Unchanged)
+                return Lexicon.Get("audio.tx_filter.unchanged", ("low", applied.Low), ("high", applied.High),
+                    ("width", HertzSpeech.ReadoutWidth(applied.High - applied.Low, HertzUnitStyle.KiloLetter, level)));
+            if (applied.Exact) return asked(applied.Low, applied.High);
+            return TxCorrection(applied);
+        }
+
+        /// <summary>"TX filter 2750 to 2800, at limit": the transmit filter FlexLib held a write back to.</summary>
+        private static string TxCorrection(FilterApplied applied)
+            => Lexicon.Get("audio.tx_filter.range", ("low", applied.Low), ("high", applied.High))
+               + Lexicon.Get("settings.filter.suffix_at_limit");
+
+        /// <summary>
+        /// For a route that has ALREADY said the value it asked for (a value
+        /// field speaks its own number as it moves): null when FlexLib took it
+        /// as asked, else the sentence that corrects it.
+        /// </summary>
+        public static string? TxCorrectionIfAny(FilterApplied applied, VerbosityLevel level)
+            => applied.Exact ? null : Tx(applied, (_, _) => "", level);
+
         /// <summary>"Filter -270 to 50, at limit": the whole filter, marked as the bracket keys mark a clamp.</summary>
         public static string RangeAtLimit(int low, int high)
             => Lexicon.Get("audio.filter.range", ("low", low), ("high", high)) + Lexicon.Get("settings.filter.suffix_at_limit");

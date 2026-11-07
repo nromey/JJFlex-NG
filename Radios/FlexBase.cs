@@ -11053,6 +11053,45 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// Write the transmit filter and report, on the command loop after the
+        /// write has run, what the radio object holds (#747, round seven of the
+        /// 2026-11-06 junk box). Null leaves that edge where it is. Both edges
+        /// are written in the order that opens the gap first, because FlexLib
+        /// clamps each against the OTHER edge's current value. FlexLib's own
+        /// transmit rules decide the result (at least 50 Hz apart, 0 to 10000
+        /// Hz; MIGRATION.md item 27 makes them reach the wire), so the report
+        /// is the truth and the caller's own arithmetic is not. A filter
+        /// property write only: nothing here keys the radio.
+        /// </summary>
+        public void SetTXFilter(int? low, int? high, Action<FilterApplied> applied)
+        {
+            if (theRadio == null) return;
+            if (low.HasValue) NoteOperatorChangedRadioSetting("TXFilterLow");
+            if (high.HasValue) NoteOperatorChangedRadioSetting("TXFilterHigh");
+            q.Enqueue((FunctionDel)(() =>
+            {
+                var r = theRadio;
+                if (r == null) return;
+                int beforeLow = r.TXFilterLow, beforeHigh = r.TXFilterHigh;
+                int wantLow = low ?? beforeLow, wantHigh = high ?? beforeHigh;
+                bool lowMoves = wantLow != beforeLow, highMoves = wantHigh != beforeHigh;
+                if (wantLow < beforeLow)
+                {
+                    if (lowMoves) r.TXFilterLow = wantLow;
+                    if (highMoves) r.TXFilterHigh = wantHigh;
+                }
+                else
+                {
+                    if (highMoves) r.TXFilterHigh = wantHigh;
+                    if (lowMoves) r.TXFilterLow = wantLow;
+                }
+                var result = new FilterApplied("TX", wantLow, wantHigh, beforeLow, beforeHigh, r.TXFilterLow, r.TXFilterHigh);
+                try { applied?.Invoke(result); }
+                catch (Exception ex) { Tracing.TraceLine("SetTXFilter applied callback: " + ex.Message, TraceLevel.Error); }
+            }), "TXFilter");
+        }
+
         public int TXFilterHighMin { get { return (TXFilterLow + 50); } }
         public int TXFilterHighMax = 10000;
         public int TXFilterHighIncrement = 50;

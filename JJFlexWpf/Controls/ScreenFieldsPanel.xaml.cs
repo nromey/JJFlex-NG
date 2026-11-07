@@ -1188,12 +1188,14 @@ public partial class ScreenFieldsPanel : UserControl
 
         // TX Filter Low
         _txFilterLowControl = MakeValue(Lexicon.Get("audio.fields.tx_filter_low"), 0, 9950, 50);
-        _txFilterLowControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.TXFilterLow = v; };
+        // #747 round seven: written through the applied route; the field says
+        // its own number as it moves, so only a correction is spoken after.
+        _txFilterLowControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.SetTXFilter(v, null, OnHomeTxFilterApplied); };
         TxContent.Children.Add(_txFilterLowControl);
 
         // TX Filter High
         _txFilterHighControl = MakeValue(Lexicon.Get("audio.fields.tx_filter_high"), 50, 10000, 50);
-        _txFilterHighControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.TXFilterHigh = v; };
+        _txFilterHighControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.SetTXFilter(null, v, OnHomeTxFilterApplied); };
         TxContent.Children.Add(_txFilterHighControl);
 
         // TX Monitor
@@ -1827,6 +1829,29 @@ public partial class ScreenFieldsPanel : UserControl
             ("filterHigh", filterHigh), ("filterWidth", Radios.HertzSpeech.DisplayedWidth(filterWidth)));
         _rxFilterWidthDisplay.Text = widthText;
         System.Windows.Automation.AutomationProperties.SetName(_rxFilterWidthDisplay, widthText);
+    }
+
+    /// <summary>
+    /// A transmit filter write from Home has run (#747 round seven). The field
+    /// already said the number it asked for; if FlexLib held the write back
+    /// or changed nothing, say what it really set, and put both fields on the
+    /// radio's values at once rather than at the next poll.
+    /// </summary>
+    private void OnHomeTxFilterApplied(FilterApplied applied)
+    {
+        string? correction = FilterReadouts.TxCorrectionIfAny(applied, ScreenReaderOutput.CurrentVerbosity);
+        if (correction != null) ScreenReaderOutput.Speak(correction, VerbosityLevel.Terse, true);
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_rig == null) return;
+            _polling = true;
+            try
+            {
+                _txFilterLowControl.Value = applied.Low;
+                _txFilterHighControl.Value = applied.High;
+            }
+            finally { _polling = false; }
+        });
     }
 
     /// <summary>

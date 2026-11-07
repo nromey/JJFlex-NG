@@ -818,6 +818,7 @@
   "audio.tx_filter.high_moved": "TX high {newHigh}, width {width}",
   "audio.tx_filter.low_moved": "TX low {newLow}, width {width}",
   "audio.tx_filter.range": "TX filter {low} to {high}",
+  "audio.tx_filter.unchanged": {"text": "TX filter unchanged at {low} to {high}, {width}", "delivery": null},
   "audio.tx_tone.armed": "Test tone armed: {freq} hertz at {level} dBFS. It replaces your microphone while you transmit. Control J, Control G disarms.",
   "audio.tx_tone.armed_not_going_out": "The test tone is armed but is not going out. {trouble}",
   "audio.tx_tone.disarmed": "Test tone disarmed. Microphone restored.",

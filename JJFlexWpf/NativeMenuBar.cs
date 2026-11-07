@@ -568,6 +568,26 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
+    /// Step one transmit filter edge from the Radio menu and say, after the
+    /// menu closes, what FlexLib set (#747 round seven): "TX filter low 150"
+    /// as before when it took the step, "TX filter 2750 to 2800, at limit"
+    /// when it held it back, "TX filter unchanged at ..." when nothing moved.
+    /// The items used to say the number they asked for, which FlexLib could
+    /// hold back to 50 Hz from the other edge.
+    /// </summary>
+    private void SayTxFilterWrite(bool lowEdge, int step)
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        int current = lowEdge ? Rig.TXFilterLow : Rig.TXFilterHigh;
+        int wanted = lowEdge ? Math.Clamp(current + step, 0, 9950) : Math.Clamp(current + step, 50, 10000);
+        string label = lowEdge ? "TX filter low" : "TX filter high";
+        Rig.SetTXFilter(lowEdge ? wanted : (int?)null, lowEdge ? (int?)null : wanted, applied =>
+            SpeakAfterMenuClose(Radios.FilterReadouts.Tx(applied,
+                (l, h) => Radios.Lexicon.Get("audio.value.adjusted", ("label", label), ("value", lowEdge ? l : h), ("suffix", "")),
+                Radios.ScreenReaderOutput.CurrentVerbosity)));
+    }
+
+    /// <summary>
     /// How far one TX-filter menu press moves an edge — the SAME
     /// width-adaptive ladder the filter layer and the bracket chords walk by
     /// (#527). This menu hard-coded 50 Hz, which made three step rules for
@@ -2023,14 +2043,11 @@ public class NativeMenuBar : IDisposable
 
         // --- TX filter ---
         var txFilterSub = AddSubmenu(parent, "TX &Filter");
-        AddWired(txFilterSub, "Low Edge Up", () =>
-            AdjustValue("TX filter low", () => Rig.TXFilterLow, v => Rig.TXFilterLow = v, TxFilterStep(), 0, 9950));
-        AddWired(txFilterSub, "Low Edge Down", () =>
-            AdjustValue("TX filter low", () => Rig.TXFilterLow, v => Rig.TXFilterLow = v, -TxFilterStep(), 0, 9950));
-        AddWired(txFilterSub, "High Edge Up", () =>
-            AdjustValue("TX filter high", () => Rig.TXFilterHigh, v => Rig.TXFilterHigh = v, TxFilterStep(), 50, 10000));
-        AddWired(txFilterSub, "High Edge Down", () =>
-            AdjustValue("TX filter high", () => Rig.TXFilterHigh, v => Rig.TXFilterHigh = v, -TxFilterStep(), 50, 10000));
+        // #747 round seven: each says what FlexLib set, after the write.
+        AddWired(txFilterSub, "Low Edge Up", () => SayTxFilterWrite(lowEdge: true, TxFilterStep()));
+        AddWired(txFilterSub, "Low Edge Down", () => SayTxFilterWrite(lowEdge: true, -TxFilterStep()));
+        AddWired(txFilterSub, "High Edge Up", () => SayTxFilterWrite(lowEdge: false, TxFilterStep()));
+        AddWired(txFilterSub, "High Edge Down", () => SayTxFilterWrite(lowEdge: false, -TxFilterStep()));
         AddWired(txFilterSub, "Read TX Filter", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }

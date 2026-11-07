@@ -1163,11 +1163,8 @@ public class KeyCommands
         var rig = _context.GetRigControl();
         if (rig == null) return;
         int newLow = Math.Max(0, rig.TXFilterLow - FreqOutHandlers.TxFilterStep(rig));
-        rig.TXFilterLow = newLow;
         EarconPlayer.FilterEdgeMoveTone(true);
-        int width = rig.TXFilterHigh - newLow;
-        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tx_filter.low_moved",
-            ("newLow", newLow), ("width", width)), Radios.VerbosityLevel.Terse);
+        rig.SetTXFilter(newLow, null, SayTxLowMoved);
     }
 
     private void TXFilterLowUpHandler()
@@ -1184,10 +1181,7 @@ public class KeyCommands
         {
             EarconPlayer.FilterEdgeMoveTone(true);
         }
-        rig.TXFilterLow = newLow;
-        int width = rig.TXFilterHigh - newLow;
-        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tx_filter.low_moved",
-            ("newLow", newLow), ("width", width)), Radios.VerbosityLevel.Terse);
+        rig.SetTXFilter(newLow, null, SayTxLowMoved);
     }
 
     private void TXFilterHighDownHandler()
@@ -1204,10 +1198,7 @@ public class KeyCommands
         {
             EarconPlayer.FilterEdgeMoveTone(false);
         }
-        rig.TXFilterHigh = newHigh;
-        int width = newHigh - rig.TXFilterLow;
-        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tx_filter.high_moved",
-            ("newHigh", newHigh), ("width", width)), Radios.VerbosityLevel.Terse);
+        rig.SetTXFilter(null, newHigh, SayTxHighMoved);
     }
 
     private void TXFilterHighUpHandler()
@@ -1215,12 +1206,21 @@ public class KeyCommands
         var rig = _context.GetRigControl();
         if (rig == null) return;
         int newHigh = Math.Min(10000, rig.TXFilterHigh + FreqOutHandlers.TxFilterStep(rig));
-        rig.TXFilterHigh = newHigh;
         EarconPlayer.FilterEdgeMoveTone(false);
-        int width = newHigh - rig.TXFilterLow;
-        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tx_filter.high_moved",
-            ("newHigh", newHigh), ("width", width)), Radios.VerbosityLevel.Terse);
+        rig.SetTXFilter(null, newHigh, SayTxHighMoved);
     }
+
+    // #747 round seven: the four chords say what FlexLib set, after the
+    // write, in their own words when it took the step as asked.
+    private static void SayTxLowMoved(Radios.FilterApplied applied)
+        => Radios.ScreenReaderOutput.Speak(Radios.FilterReadouts.Tx(applied,
+            (l, h) => Radios.Lexicon.Get("audio.tx_filter.low_moved", ("newLow", l), ("width", h - l)),
+            Radios.ScreenReaderOutput.CurrentVerbosity), Radios.VerbosityLevel.Terse);
+
+    private static void SayTxHighMoved(Radios.FilterApplied applied)
+        => Radios.ScreenReaderOutput.Speak(Radios.FilterReadouts.Tx(applied,
+            (l, h) => Radios.Lexicon.Get("audio.tx_filter.high_moved", ("newHigh", h), ("width", h - l)),
+            Radios.ScreenReaderOutput.CurrentVerbosity), Radios.VerbosityLevel.Terse);
 
     private void SpeakTXFilterHandler() => SpeakTXFilterWidth();
 
@@ -5513,6 +5513,17 @@ public class KeyCommands
         };
         tx.StepNow = () => FreqOutHandlers.GetAdaptiveFilterStep(tx.Bank.Low, tx.Bank.High);
         tx.Apply = (l, h) => ApplyTxFilter(rig, tx.Bank, l, h);
+        // As the receive side: a move is said once FlexLib has run the write,
+        // from what it set (#747 round seven).
+        tx.ApplyThenSay = (l, h, readout, say) =>
+        {
+            tx.Bank.Low = l; tx.Bank.High = h; tx.Bank.Touched = true;
+            rig.SetTXFilter(l, h, applied =>
+            {
+                tx.Bank.Low = applied.Low; tx.Bank.High = applied.High;
+                say(Radios.FilterReadouts.Tx(applied, (_, _) => readout(), Radios.ScreenReaderOutput.CurrentVerbosity));
+            });
+        };
         tx.LowEdge = v => Radios.Lexicon.Get("audio.tx.filter_low", ("value", v));
         tx.HighEdge = v => Radios.Lexicon.Get("audio.tx.filter_high", ("value", v));
         tx.Range = () => Radios.Lexicon.Get("audio.tx_filter.range", ("low", tx.Bank.Low), ("high", tx.Bank.High));

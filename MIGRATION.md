@@ -236,6 +236,23 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     from 23 before the two batches merged. Keep it until a FlexLib release
     offers a non-sending way to update a radio's identity.
 
+27. **Transmit filter setters send what they computed (2026-11-06)**: keep the
+    two comment-marked JJFlex patches in `FlexLib_API/FlexLib/Radio.cs`, in the
+    `TXFilterLow` and `TXFilterHigh` setters. Each works out a clamped edge,
+    kept at least 50 Hz from the other edge and inside 0 to 10000 Hz, and stock
+    code then passed the UNCLAMPED `value` to `_SetTXFilter`, which stored and
+    sent it. So the 50 Hz minimum was never enforced, and a low edge at or
+    above the high edge was dropped by `_SetTXFilter`'s own low-below-high
+    check, silently, while Home's field, the Audio Workshop and the Radio
+    menu's TX filter items said the new value. The patch passes the computed
+    `new_cut` instead. FlexLib's own transmit rules are unchanged; no limit
+    was added. Pinned by `Radios.Tests/TxFilterWriteReadoutTests` (a gap under
+    50 Hz, a low edge above the high, a high edge under the low plus 50, the
+    in-rules control, and a source pin on both setters). Numbered 27 because
+    the 2026-11-02 junk box carries items 21, 22, 23, 25 and 26 and this batch
+    carries 24, so 27 cannot collide when the two batches merge. Remove it if
+    a FlexLib release sends the clamped edge itself.
+
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 
 FlexLib is not the only vendor code in this repo, and a patch in one of the

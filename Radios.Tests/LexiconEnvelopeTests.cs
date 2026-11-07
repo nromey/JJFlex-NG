@@ -2219,6 +2219,9 @@ namespace Radios.Tests
                 // Round six (#747): a receive filter write that FlexLib did not
                 // take (FM) says the filter is unchanged. DRAFT prose.
                 "settings.filter.unchanged",
+                // Round seven (#747): a transmit filter write FlexLib did not
+                // take says so. DRAFT prose.
+                "audio.tx_filter.unchanged",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

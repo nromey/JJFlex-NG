@@ -266,9 +266,9 @@ public partial class AudioWorkshopDialog
         {
             if (_rig != null && !_polling)
             {
-                _rig.TXFilterLow = v;
-                UpdateFilterWidth();
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.tx.filter_low", ("value", v)), VerbosityLevel.Terse);
+                // #747 round seven: said from what FlexLib set, not from v.
+                _rig.SetTXFilter(v, null, applied => OnWorkshopTxFilterApplied(applied,
+                    (l, h) => Lexicon.Get("audio.tx.filter_low", ("value", l))));
             }
         };
         JJFlexHelp.SetText(_txFilterLowControl,
@@ -284,9 +284,8 @@ public partial class AudioWorkshopDialog
         {
             if (_rig != null && !_polling)
             {
-                _rig.TXFilterHigh = v;
-                UpdateFilterWidth();
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.tx.filter_high", ("value", v)), VerbosityLevel.Terse);
+                _rig.SetTXFilter(null, v, applied => OnWorkshopTxFilterApplied(applied,
+                    (l, h) => Lexicon.Get("audio.tx.filter_high", ("value", h))));
             }
         };
         JJFlexHelp.SetText(_txFilterHighControl,
@@ -514,6 +513,29 @@ public partial class AudioWorkshopDialog
         }
     }
 
+
+    /// <summary>
+    /// A transmit filter write from the Workshop has run (#747 round seven):
+    /// say what FlexLib set (the field's own words when taken as asked, "at
+    /// limit" or "unchanged" otherwise), then put the fields and the width
+    /// label on the radio's values.
+    /// </summary>
+    private void OnWorkshopTxFilterApplied(FilterApplied applied, Func<int, int, string> asked)
+    {
+        ScreenReaderOutput.Speak(FilterReadouts.Tx(applied, asked, ScreenReaderOutput.CurrentVerbosity), VerbosityLevel.Terse);
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_rig == null) return;
+            _polling = true;
+            try
+            {
+                if (_txFilterLowControl != null) _txFilterLowControl.Value = applied.Low;
+                if (_txFilterHighControl != null) _txFilterHighControl.Value = applied.High;
+                UpdateFilterWidth();
+            }
+            finally { _polling = false; }
+        });
+    }
 
     private void UpdateFilterWidth()
     {

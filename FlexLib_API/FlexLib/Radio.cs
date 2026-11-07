@@ -9542,7 +9542,12 @@ namespace Flex.Smoothlake.FlexLib
 
                 if (_txFilterLow != new_cut)
                 {
-                    _SetTXFilter(value, _txFilterHigh);
+                    // JJFlex patch (MIGRATION.md item 27): send the value this
+                    // setter computed. Stock code passed the unclamped `value`,
+                    // so the 50 Hz gap above was never enforced and a low edge
+                    // at or above the high edge was dropped by _SetTXFilter's
+                    // own check, silently, while the caller said the new value.
+                    _SetTXFilter(new_cut, _txFilterHigh);
                     RaisePropertyChanged("TXFilterLow");
                 }
                 else if (new_cut != value)
@@ -9570,7 +9575,9 @@ namespace Flex.Smoothlake.FlexLib
 
                 if (_txFilterHigh != new_cut)
                 {
-                    _SetTXFilter(_txFilterLow, value);
+                    // JJFlex patch (MIGRATION.md item 27): send the value this
+                    // setter computed, not the unclamped `value`; see TXFilterLow.
+                    _SetTXFilter(_txFilterLow, new_cut);
                     RaisePropertyChanged("TXFilterHigh");
                 }
                 else if (new_cut != value)
