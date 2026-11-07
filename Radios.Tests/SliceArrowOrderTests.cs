@@ -25,6 +25,9 @@ namespace Radios.Tests
     /// still only half the ruling.
     /// </para>
     /// </remarks>
+    // AccessibilityConfig.Load records where the operator file lives, so
+    // the classes that call it share this collection rather than racing.
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class SliceArrowOrderTests
     {
         [Fact]

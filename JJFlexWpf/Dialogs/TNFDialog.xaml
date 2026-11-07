@@ -44,14 +44,19 @@
                      local:JJFlexHelp.Text="How hard the notch bites, from 1 to 3. Deep is usually right for a steady carrier. Up and down arrows change it and say the new number."
                      PreviewKeyDown="DepthBox_PreviewKeyDown" LostFocus="DepthBox_LostFocus"/>
 
-            <TextBlock Grid.Row="2" Grid.Column="0" Text="Keep:" VerticalAlignment="Center" Margin="0,0,8,0"/>
-            <ComboBox x:Name="PermanentCombo" Grid.Row="2" Grid.Column="1"
-                      AutomationProperties.Name="Keep this notch across band changes and restarts"
-                      local:JJFlexHelp.Text="No means the notch is a passing thing. Yes means the radio stores it and holds it through band changes and power cycles — right for a birdie that lives at one frequency forever, wrong for a station that will have moved by tomorrow. A kept notch belongs to the radio, so it is still there if you operate with something else."
-                      SelectionChanged="PermanentCombo_SelectionChanged">
-                <ComboBoxItem Content="No"/>
-                <ComboBoxItem Content="Yes"/>
-            </ComboBox>
+            <!-- A yes or no choice is a checkbox: Space toggles it and the
+                 screen reader says checked or not checked. It was a two-item
+                 "No"/"Yes" list. The label promises only restarts: FlexLib
+                 sends "tnf set <id> permanent=" and says nothing about what
+                 the radio does with it, and the one behaviour on record for
+                 the flag is a notch kept through a power cycle. Nothing ties
+                 it to band changes, so the old "across band changes" claim is
+                 gone. DRAFT label and help text. -->
+            <CheckBox x:Name="PermanentCheck" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                      Content="Keep this notch when the radio restarts"
+                      AutomationProperties.Name="Keep this notch when the radio restarts"
+                      local:JJFlexHelp.Text="Checked, the radio stores this notch and puts it back after it is turned off and on again. Right for a birdie that lives at one frequency forever, wrong for a station that will have moved by tomorrow. Not checked, the notch goes when the radio restarts."
+                      Checked="PermanentCheck_Changed" Unchecked="PermanentCheck_Changed"/>
         </Grid>
 
         <!-- Buttons -->

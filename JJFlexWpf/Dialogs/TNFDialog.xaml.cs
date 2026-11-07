@@ -178,20 +178,20 @@ public partial class TNFDialog : JJFlexDialog
             // and without sight those two sound identical.
             WidthBox.IsEnabled = hasSelection;
             DepthBox.IsEnabled = hasSelection;
-            PermanentCombo.IsEnabled = hasSelection;
+            PermanentCheck.IsEnabled = hasSelection;
             RemoveButton.IsEnabled = hasSelection;
 
             if (hasSelection)
             {
                 WidthBox.Text = (GetTNFWidth?.Invoke(idx) ?? 0).ToString();
                 DepthBox.Text = (GetTNFDepth?.Invoke(idx) ?? 1).ToString();
-                PermanentCombo.SelectedIndex = (GetTNFPermanent?.Invoke(idx) ?? false) ? 1 : 0;
+                PermanentCheck.IsChecked = GetTNFPermanent?.Invoke(idx) ?? false;
             }
             else
             {
                 WidthBox.Text = "";
                 DepthBox.Text = "";
-                PermanentCombo.SelectedIndex = -1;
+                PermanentCheck.IsChecked = false;
             }
         }
         finally
@@ -312,13 +312,19 @@ public partial class TNFDialog : JJFlexDialog
         SpeakValue(DepthLabel, newVal.ToString());
     }
 
-    private void PermanentCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    /// <summary>
+    /// The keep-it checkbox. The write goes straight to the radio, so the
+    /// toggle answers with the on or off tone like every other checkbox that
+    /// acts at once; the screen reader says checked or not checked itself.
+    /// </summary>
+    private void PermanentCheck_Changed(object sender, RoutedEventArgs e)
     {
         if (_suppressEvents) return;
         int idx = TNFList.SelectedIndex;
         if (idx < 0) return;
-        bool permanent = PermanentCombo.SelectedIndex == 1;
+        bool permanent = PermanentCheck.IsChecked == true;
         SetTNFPermanent?.Invoke(idx, permanent);
+        EarconPlayer.ToggleTone(permanent);
     }
 
     /// <summary>

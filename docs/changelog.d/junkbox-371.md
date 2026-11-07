@@ -1,0 +1,1 @@
+If you listen on the radio itself with nothing wrong, the receive audio check now gives you a clean bill of health. It used to say two stages had nothing to check yet; now it tells you those two are not part of your receive path because you are not connected remotely and radio audio through this computer is switched off.

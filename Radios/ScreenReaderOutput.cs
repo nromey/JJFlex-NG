@@ -907,7 +907,45 @@ namespace Radios
         /// </summary>
         private static void SilenceBackendQuietly()
         {
-            try { lock (_backendLock) { _backend?.Silence(); } } catch { }
+            try
+            {
+                Speech.SpeechDelivery answer;
+                lock (_backendLock) { answer = _backend?.Silence() ?? Speech.SpeechDelivery.NotAttempted; }
+                NoteSilenceAnswer(answer, "the urgent path's cut");
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// The reader's answer to the last stop request, and which call asked.
+        /// Kept for the trace and for a reader of the code; nothing may act on
+        /// it.
+        /// </summary>
+        /// <remarks>
+        /// <b>An accepted answer means the reader took the REQUEST, never that
+        /// speech has stopped.</b> No supported backend can say when speaking
+        /// has ended (see <see cref="Speech.IScreenReader.Silence"/>), so
+        /// nothing here may release a turn, retire a debt or start the next
+        /// sentence on this value. That is the defect this answer could
+        /// otherwise reintroduce.
+        /// </remarks>
+        internal static (Speech.SpeechDelivery Answer, string Caller) LastSilenceAnswer { get; private set; }
+
+        /// <summary>
+        /// Keep a stop request's answer and trace a refusal. An accepted or
+        /// unattempted stop is not traced: the urgent path cuts on every
+        /// urgent sentence, and a line each time would bury the one that
+        /// matters, a reader refusing to stop.
+        /// </summary>
+        private static void NoteSilenceAnswer(Speech.SpeechDelivery answer, string caller)
+        {
+            LastSilenceAnswer = (answer, caller);
+            if (answer.Refused)
+            {
+                Tracing.TraceLine(
+                    $"ScreenReaderOutput: the reader refused a stop request ({caller}): {answer.Failure}",
+                    TraceLevel.Warning);
+            }
         }
 
         /// <summary>Record a verbosity-gated utterance - fired but filtered.</summary>
@@ -1192,7 +1230,9 @@ namespace Radios
             {
                 if (_available)
                 {
-                    lock (_backendLock) { _backend?.Silence(); }
+                    Speech.SpeechDelivery answer;
+                    lock (_backendLock) { answer = _backend?.Silence() ?? Speech.SpeechDelivery.NotAttempted; }
+                    NoteSilenceAnswer(answer, "a silence request");
                 }
             }
             catch { /* ignore */ }
@@ -1850,7 +1890,12 @@ namespace Radios
                     // 2. Best-effort quiet on the way out. Usually a no-op: the
                     // reader we are talking to has typically already gone,
                     // which is the whole reason we are here.
-                    try { _backend?.Silence(); } catch { /* best effort */ }
+                    try
+                    {
+                        NoteSilenceAnswer(_backend?.Silence() ?? Speech.SpeechDelivery.NotAttempted,
+                            "re-binding to the running reader");
+                    }
+                    catch { /* best effort */ }
 
                     var old = _backend;
                     if (old is Speech.PrismScreenReader oldPrism)

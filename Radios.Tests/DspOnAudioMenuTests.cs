@@ -294,6 +294,8 @@ namespace Radios.Tests
                          "R(\"Noise Profiles...\")",
                          "R(NrItemLabel(\"FFT Auto-Notch",
                          "R(\"Legacy Auto-Notch\")",
+                         // The tracking notch dialog's menu door (#773).
+                         "R(\"Tracking Notch Filters...\\tCtrl+J, Alt+N\")",
                          "R(\"Audio Peak Filter (APF)",
                      })
             {

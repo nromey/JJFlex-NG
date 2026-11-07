@@ -1,0 +1,1 @@
+Every sound in Per-Sound Loudness now plays at the loudness you set for it. The filter edge sounds, the plain beep, the rising and falling chirps, the transmit test-tone monitor, the tuner-working tone and the connect sound auditions used to ignore their setting.

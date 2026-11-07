@@ -865,11 +865,21 @@ namespace Radios.ChainChecks
         /// Say why a stage is not in the path in terms of what the operator
         /// chose, using the fact's own words rather than the condition's.
         /// </summary>
+        /// <remarks>
+        /// A flag says its value in its own words
+        /// (<see cref="DiagnosticFact.StatedValue"/>): pasting a flag's label
+        /// and "yes" or "no" together gave "because radio audio through this
+        /// computer is no". A text fact still reads properly that way,
+        /// "because microphone input selected on the radio is MIC", so it keeps
+        /// it.
+        /// </remarks>
         private static string DescribeNotInPath(Condition c, DiagnosticFacts facts)
         {
             DiagnosticFact f = facts.Find(c.FactName);
             if (f == null) return "it needs " + c.Text;
             if (f.State != FactState.Observed) return "it needs " + c.Text;
+            string stated = f.StatedValue();
+            if (stated.Length != 0) return "because " + stated;
             return "because " + f.Label.ToLowerInvariant() + " is "
                  + (f.TextValue.Length == 0 ? "empty" : f.TextValue);
         }

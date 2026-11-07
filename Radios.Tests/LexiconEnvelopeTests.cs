@@ -1022,6 +1022,53 @@ namespace Radios.Tests
                 "audio.value_layer.ptt_not_here",
                 "audio.value_layer.lock_not_here",
                 "audio.value_layer.bracket_not_here",
+                // Junkbox #263, 2026-11-07: the mode cycle setting's section
+                // of the Notifications tab, and the two sentences Alt+M says
+                // when the cycle is empty or holds only the slice's own mode.
+                // Window text, or spoken only in answer to a press, so
+                // delivery null. Every one a DRAFT awaiting Noel.
+                "settings.mode_cycle.header",
+                "settings.mode_cycle.intro",
+                "settings.mode_cycle.menu_note_all",
+                "settings.mode_cycle.menu_note_except",
+                "settings.mode_cycle.menu_note_except_many",
+                "settings.mode_cycle.list_name",
+                "settings.mode_cycle.list_help",
+                "settings.mode_cycle.include",
+                "settings.mode_cycle.move_up",
+                "settings.mode_cycle.move_up_name",
+                "settings.mode_cycle.move_down",
+                "settings.mode_cycle.move_down_name",
+                "settings.mode_cycle.row_in",
+                "settings.mode_cycle.row_in_unavailable",
+                "settings.mode_cycle.row_out_unavailable",
+                "settings.mode_cycle.none_on_radio_press",
+                "settings.mode_cycle.row_out",
+                "settings.mode_cycle.moved",
+                "settings.mode_cycle.empty_press",
+                "settings.mode_cycle.only_one_press",
+                "settings.mode_cycle.menu_note_radio_all",
+                "settings.mode_cycle.menu_note_radio_except",
+                "settings.mode_cycle.menu_note_radio_except_many",
+                "settings.mode_cycle.only_one_on_radio_press",
+                // Junkbox #124, 2026-11-07: the meter picker's category combo,
+                // its entries and the category names. Window text, so delivery
+                // null. Every one a DRAFT awaiting Noel.
+                "settings.meter_category.label",
+                "settings.meter_category.combo_name",
+                "settings.meter_category.help",
+                "settings.meter_category.every",
+                "settings.meter_category.every_one",
+                "settings.meter_category.item",
+                "settings.meter_category.item_one",
+                "settings.meter_category.source_display",
+                "settings.meter_category.transmit",
+                "settings.meter_category.receive",
+                "settings.meter_category.power_and_swr",
+                "settings.meter_category.temperature_and_voltage",
+                "settings.meter_category.amplifier",
+                "settings.meter_category.audio",
+                "settings.meter_category.other",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note

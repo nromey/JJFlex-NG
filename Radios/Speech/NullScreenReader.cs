@@ -32,7 +32,7 @@ namespace Radios.Speech
         public SpeechDelivery Speak(string message, bool interrupt) => SpeechDelivery.NotAttempted;
         public SpeechDelivery Output(string message, bool interrupt) => SpeechDelivery.NotAttempted;
         public SpeechDelivery Braille(string message) => SpeechDelivery.NotAttempted;
-        public void Silence() { }
+        public SpeechDelivery Silence() => SpeechDelivery.NotAttempted;
         public void Dispose() { }
     }
 }

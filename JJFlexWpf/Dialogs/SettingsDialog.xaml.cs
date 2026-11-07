@@ -224,6 +224,9 @@ namespace JJFlexWpf.Dialogs
             // The alert sound delay (#855): Audio tab, Alerts. See SettingsDialog.AlertBuffer.cs.
             InitializeAlertBuffer();
 
+            // The mode cycle: Notifications tab, Mode Cycle. See SettingsDialog.ModeCycle.cs.
+            InitializeModeCycle();
+
             // The reflected cut's full explanation is Ctrl+F1, on demand —
             // NOT AutomationProperties.HelpText, which NVDA recites as the
             // control's description on every focus (#91).
@@ -1587,6 +1590,10 @@ namespace JJFlexWpf.Dialogs
 
             // Apply audio settings immediately
             _audioConfig.Apply();
+
+            // The mode cycle, into the same operator file saved just below.
+            // See SettingsDialog.ModeCycle.cs.
+            CommitModeCycle();
 
             // Sprint 28 Phase 1 — Accessibility tab: commit DoubleTapTolerance selection.
             // Save updates AccessibilityConfig.Current as a side effect, so any consumer

@@ -55,7 +55,7 @@
 # remedies name the main window and stop there.
 
 ruleset: Receive audio check
-version: 3
+version: 4
 symptom: you still cannot hear the radio
 
 
@@ -86,9 +86,14 @@ fix: Connect to your radio, then run this test again.
 # string, and a rung living only in retired prose is a rung that is gone.
 #
 # Every rule here is gated on active-slice at RULE level rather than by a
-# stage-level needs:, because the fact is a flag and a stage gated on a flag
-# currently reports "not part of your receive path, because a slice is
-# receiving is no" (#371). The stage's nothing-to-check line says it properly.
+# stage-level needs:, and since 2026-11-07 that is a choice about meaning, not
+# a dodge. A flag now says its own value properly in a sentence, so stages 4
+# and 5 below carry a stage-level needs: and read "not part of your receive
+# path, because ...". This stage must not: with no slice receiving the radio
+# makes no sound at all, which is not a stage outside the operator's path but
+# a check that cannot be made yet, and the stage's nothing-to-check line says
+# what to do about it. Gated at stage level it would leave a silent radio with
+# a clean bill of health.
 
 stage: 1 the slice you are listening to
 about: A slice's own mute and volume, which sit ahead of every output the radio has and of the audio sent to this computer.
@@ -209,10 +214,18 @@ evidence: lineout-level
 # Last, because it is a routing CHOICE rather than a fault — except on a
 # remote connection, where it is the whole ball game: there is no other path
 # for the sound to take.
+#
+# Gated at STAGE level on remote-radio (2026-11-07). On a local connection
+# this stage is not part of the operator's path at all, and saying so does not
+# dent the verdict. It used to be gated at rule level only, because a flag
+# could not say its own value in a sentence, which left a local operator with
+# nothing wrong told "2 stages had nothing to check yet, so this is not a
+# clean bill of health". The rule keeps its own needs: as well, so it is
+# still gated if this stage is ever edited.
 
 stage: 4 how the audio reaches you
 about: Whether radio audio is being carried to this computer, which on a remote connection is the only way to hear it.
-nothing-to-check: you are not connected remotely, so how the audio travels is a choice rather than a fault: the radio's own outputs are in the room with you whichever way it is set.
+needs: remote-radio is yes
 
 rule: rx-pc-audio-off-on-remote
 in-stage: 4
@@ -248,9 +261,12 @@ evidence: remote-radio
 # judgement nobody has made, and the report already states and interprets the
 # holes in its measurement sentence either way.
 
+# Gated at STAGE level on pc-audio, for the reason given at stage 4 (2026-11-07).
+# Its rules keep their own needs: too.
+
 stage: 5 audio arriving from the radio
 about: Whether audio is actually reaching this computer, measured from what the radio has been sending over the last half minute rather than from any setting.
-nothing-to-check: radio audio through this computer is switched off, so the radio is not sending any audio here and none is expected. What you hear comes out of the radio itself.
+needs: pc-audio is yes
 
 rule: rx-nothing-arriving
 in-stage: 5

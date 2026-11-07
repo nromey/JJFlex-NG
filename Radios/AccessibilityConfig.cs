@@ -166,6 +166,25 @@ namespace Radios
         public bool ReclaimStolenForeground { get; set; } = true;
 
         /// <summary>
+        /// The modes the mode cycle visits, in the operator's order (see
+        /// <see cref="ModeCycle"/>). Null means never set, which is the cycle
+        /// as shipped (<see cref="ModeCycle.DefaultCycle"/>); an empty array is
+        /// a cycle the operator emptied.
+        /// </summary>
+        /// <remarks>
+        /// Here rather than in the per-radio audio config because it describes
+        /// the operator's keys, like <see cref="SliceArrowOrder"/>: this file
+        /// is read from the settings root once a session (at the first connect)
+        /// and no radio's copy replaces it. Settings writes the cycle into that
+        /// same file through <see cref="ChooseModeCycle"/>, so it survives a
+        /// restart and a connect. An array, not a list: the XML reader
+        /// appends to a list that already holds the defaults.
+        /// </remarks>
+        [System.Xml.Serialization.XmlArray("ModeCycle")]
+        [System.Xml.Serialization.XmlArrayItem("Mode")]
+        public string[]? ModeCycleModes { get; set; }
+
+        /// <summary>
         /// The active (most recently loaded or saved) accessibility config. UI-layer
         /// consumers that don't take an AccessibilityConfig parameter (e.g., double-tap
         /// detectors in FreqOutHandlers or ScreenFieldsPanel) read this. Updated by
@@ -176,34 +195,113 @@ namespace Radios
 
         public static AccessibilityConfig Load(string configDirectory, string operatorName)
         {
-            var filePath = GetFilePath(configDirectory, operatorName);
+            var config = ReadFile(GetFilePath(configDirectory, operatorName)) ?? CreateDefault();
 
-            if (!File.Exists(filePath))
+            // Remember where the operator's file was read from, so a setting
+            // that must survive a restart can be written back to THIS file
+            // (see ChooseModeCycle). The Settings dialog's own save goes to the
+            // per-radio folder it is given, which this Load never reads.
+            _homeDirectory = configDirectory;
+            _homeOperator = operatorName;
+
+            // A mode cycle chosen before this file was first read (Settings
+            // opened before the first connect of the session) wins over the
+            // file, and is written into it now, so it is neither lost here nor
+            // at the next start.
+            if (_modeCyclePending)
             {
-                Current = CreateDefault();
-                return Current;
+                config.ModeCycleModes = _pendingModeCycle;
+                _modeCyclePending = false;
+                _pendingModeCycle = null;
+                WriteModeCycle(configDirectory, operatorName, config.ModeCycleModes);
             }
 
+            Current = config;
+            return config;
+        }
+
+        /// <summary>Read one operator file, or null when it is missing or unreadable.</summary>
+        private static AccessibilityConfig? ReadFile(string filePath)
+        {
+            if (!File.Exists(filePath)) return null;
             try
             {
                 using var fs = File.OpenRead(filePath);
                 var serializer = new XmlSerializer(typeof(AccessibilityConfig));
                 var config = (AccessibilityConfig?)serializer.Deserialize(fs);
-                if (config == null)
-                {
-                    Current = CreateDefault();
-                    return Current;
-                }
-                config.Validate();
-                Current = config;
+                config?.Validate();
                 return config;
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Trace.WriteLine($"AccessibilityConfig.Load failed: {ex.Message}");
-                Current = CreateDefault();
-                return Current;
+                return null;
             }
+        }
+
+        private static string? _homeDirectory;
+        private static string? _homeOperator;
+        private static bool _modeCyclePending;
+        private static string[]? _pendingModeCycle;
+
+        /// <summary>
+        /// The operator chose a mode cycle (Settings, OK or Apply): make it
+        /// live and keep it in the file <see cref="Load"/> reads at start-up.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The Settings dialog saves this object under the folder it is handed,
+        /// the per-radio one (<c>Radios</c> under the settings root), while the
+        /// application loads it from the settings root itself. So a setting
+        /// that relied on that save was live until the next start and then
+        /// gone. This writes the one field into the file the load reads,
+        /// leaving every other field there as it was.
+        /// </para>
+        /// <para>
+        /// Before that file has been read this session there is no file to
+        /// write to: the choice is held, and the load applies it over the file
+        /// and writes it, so it survives the connect that triggers the load.
+        /// </para>
+        /// </remarks>
+        public static void ChooseModeCycle(string[]? modes)
+        {
+            Current.ModeCycleModes = modes;
+            if (_homeDirectory != null && _homeOperator != null)
+            {
+                WriteModeCycle(_homeDirectory, _homeOperator, modes);
+            }
+            else
+            {
+                _modeCyclePending = true;
+                _pendingModeCycle = modes;
+            }
+        }
+
+        /// <summary>Put one field into an operator file without disturbing the rest.</summary>
+        private static void WriteModeCycle(string configDirectory, string operatorName, string[]? modes)
+        {
+            string path = GetFilePath(configDirectory, operatorName);
+            var onDisk = ReadFile(path) ?? CreateDefault();
+            onDisk.ModeCycleModes = modes;
+            try
+            {
+                Directory.CreateDirectory(configDirectory);
+                using var fs = File.Create(path);
+                new XmlSerializer(typeof(AccessibilityConfig)).Serialize(fs, onDisk);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"AccessibilityConfig: mode cycle not saved: {ex.Message}");
+            }
+        }
+
+        /// <summary>Tests only: forget where the operator file was read from and any held choice.</summary>
+        internal static void ForgetHomeForTests()
+        {
+            _homeDirectory = null;
+            _homeOperator = null;
+            _modeCyclePending = false;
+            _pendingModeCycle = null;
         }
 
         public void Save(string configDirectory, string operatorName)

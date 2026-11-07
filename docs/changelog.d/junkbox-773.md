@@ -1,0 +1,1 @@
+The tracking notch's keep-it choice is now a checkbox, "Keep this notch when the radio restarts", so Space checks it and your screen reader says checked or not checked. The tracking notch filters also have a menu item now, under Audio, DSP, beside Auto Notch.

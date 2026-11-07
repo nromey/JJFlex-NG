@@ -625,7 +625,13 @@ namespace Radios.Tests
 
             Assert.Equal(0, r.StagesBroken);
             Assert.NotEqual(StageVerdict.Broken, Stage4(r).Verdict);
-            Assert.Contains("none is expected", string.Join(" ", Stage4(r).Reasons));
+            // Since 2026-11-07 the stage itself is gated on pc-audio, so it is
+            // not in this operator's path rather than pending with nothing to
+            // check, and the reason is the flag's own words. It said "none is
+            // expected" from the stage's nothing-to-check line until then.
+            Assert.Equal(StageVerdict.NotInPath, Stage4(r).Verdict);
+            Assert.Contains("because radio audio through this computer is switched off",
+                            string.Join(" ", Stage4(r).Reasons));
         }
 
         [Theory]
