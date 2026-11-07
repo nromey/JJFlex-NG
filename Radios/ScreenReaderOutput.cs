@@ -313,6 +313,29 @@ namespace Radios
             _arbiter.DiscardAll();
         }
 
+        /// <summary>
+        /// Withdraw the value still WAITING on a Latest key, unheard; anything
+        /// already handed over is untouched. For a speaker whose context has
+        /// ended (a surface closed, a rig replaced, a connection changed) while
+        /// its last result was still waiting its turn (#747, round eleven of
+        /// the 2026-11-06 junk box). Returns whether anything was waiting.
+        /// </summary>
+        public static bool RetireLatest(string key) => _arbiter.RetireLatest(key);
+
+        /// <summary>
+        /// A Latest sentence built when it is handed over, from
+        /// <paramref name="compose"/> (null means nothing to say), with the
+        /// reader's outcome reported to the composition's callback (#747,
+        /// round twelve of the 2026-11-06 junk box). Gated by verbosity at
+        /// hand-over, like any Latest value.
+        /// </summary>
+        public static void SpeakComposed(string coalesceKey, Func<Speech.SpeechComposition?> compose,
+            VerbosityLevel level = VerbosityLevel.Terse,
+            [CallerFilePath] string callerFile = "",
+            [CallerLineNumber] int callerLine = 0,
+            [CallerMemberName] string callerMember = "")
+            => _arbiter.LatestComposed(coalesceKey, compose, level, FormatOrigin(callerFile, callerLine, callerMember));
+
         // ── The paced delivery (#521) ─────────────────────────────────────
         //
         // Where the reader can say what became of an utterance, text no

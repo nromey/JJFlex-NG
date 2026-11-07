@@ -73,14 +73,16 @@ public class FreqOutHandlers
     /// <summary>Whether frequency readout is currently enabled.</summary>
     public bool FreqReadoutEnabled => _freqReadout;
 
-    // Filter edge selection mode — double-tap bracket to adjust a single edge
-    private enum FilterEdgeMode { None, LowerEdge, UpperEdge }
-    private FilterEdgeMode _filterEdgeMode = FilterEdgeMode.None;
-    private Key _lastBracketKey;
-    private DateTime _lastBracketTime = DateTime.MinValue;
+    // Filter edge mode: Alt+Shift+[ grabs the low edge, Alt+Shift+] the high
+    // edge, and plain brackets then move that edge alone (#748, Noel's rulings
+    // of 2026-10-17). The bracket double-tap that used to enter it is retired:
+    // a held bracket repeats at about the speed of a deliberate double-tap, so
+    // widening a filter entered the mode by accident. The grammar lives in
+    // Radios.FilterBracketKeys, where it is tested without a window.
+    private Radios.FilterEdge _filterEdgeMode = Radios.FilterEdge.None;
     // First consumer of the StickyAnnouncedMode helper (Sprint 29 Track F).
     // Owns the entry/exit speech, ascending/descending earcons, and the 10s
-    // inactivity watchdog. The per-edge state (Lower / Upper) stays in
+    // inactivity watchdog. The held edge (Low / High) stays in
     // _filterEdgeMode above — the helper handles the shell, not the variant.
     private StickyAnnouncedMode? _filterEdgeSticky;
 
@@ -3314,6 +3316,11 @@ public class FreqOutHandlers
     ///   Shift+[ = shift passband down (slide)
     ///   Shift+] = shift passband up (slide)
     ///   Alt+[ = previous preset, Alt+] = next preset (handled separately)
+    ///   Alt+Shift+[ = grab the low edge, Alt+Shift+] = grab the high edge
+    ///     (#748); the held edge's key again lets go, the other one switches.
+    ///     While an edge is held, plain brackets move it alone and Shift or
+    ///     Ctrl with a bracket change nothing and say which edge is held.
+    /// The decision is Radios.FilterBracketKeys.Decide; this method carries it out.
     /// Uses SetFilter() to set both edges atomically (Sprint 14 race fix).
     /// </summary>
     public void HandleFilterHotkey(KeyEventArgs e)
@@ -3326,11 +3333,50 @@ public class FreqOutHandlers
         bool alt = (mods & ModifierKeys.Alt) != 0;
         int minWidth = MinFilterWidthHz;
 
-        // Alt+bracket = preset cycling (handled in Phase 4)
-        if (alt && !ctrl && !shift)
+        if (key != Key.OemOpenBrackets && key != Key.OemCloseBrackets) return;
+        var decision = Radios.FilterBracketKeys.Decide(_filterEdgeMode,
+            closeBracket: key == Key.OemCloseBrackets, shift: shift, ctrl: ctrl, alt: alt);
+
+        switch (decision.Action)
         {
-            HandlePresetCycle(key, e);
-            return;
+            case Radios.BracketAction.NotOurs:
+                // Unmatched combos fall through (unhandled) so the window-level
+                // registry dispatch gets its turn: Ctrl+Shift and Ctrl+Alt with
+                // a bracket are the transmit filter's edges.
+                return;
+            case Radios.BracketAction.PresetCycle:
+                // Alt+bracket = preset cycling (handled in Phase 4)
+                HandlePresetCycle(key, e);
+                return;
+            case Radios.BracketAction.GrabEdge:
+                _filterEdgeMode = decision.Edge;
+                EnsureFilterEdgeStickyMode().Enter(
+                    Radios.FilterBracketKeys.EntrySentence(decision.Edge, Radios.ScreenReaderOutput.CurrentVerbosity));
+                e.Handled = true;
+                return;
+            case Radios.BracketAction.LeaveEdgeMode:
+                CancelFilterEdgeMode();
+                e.Handled = true;
+                return;
+            case Radios.BracketAction.SwitchEdge:
+                // Seamless (Noel, 2026-11-06): the mode stays, so no exit and
+                // entry earcons; only the edge now held is said.
+                _filterEdgeMode = decision.Edge;
+                _filterEdgeSticky?.ResetInactivityTimer();
+                Radios.ScreenReaderOutput.Speak(Radios.FilterBracketKeys.HeldSentence(decision.Edge), VerbosityLevel.Terse, true);
+                e.Handled = true;
+                return;
+            case Radios.BracketAction.RefusedWhileHeld:
+                // Shift and Ctrl with a bracket used to move the whole filter
+                // here as if edge mode were not on. Now they change nothing and
+                // say which edge is held, and at Chatty how to do what the key
+                // pressed suggests.
+                _filterEdgeSticky?.ResetInactivityTimer();
+                Radios.ScreenReaderOutput.Speak(
+                    Radios.FilterBracketKeys.RefusalSentence(decision.Edge, decision.WouldHaveDone, Radios.ScreenReaderOutput.CurrentVerbosity),
+                    VerbosityLevel.Terse, true);
+                e.Handled = true;
+                return;
         }
 
         int low = Rig.FilterLow;
@@ -3345,23 +3391,22 @@ public class FreqOutHandlers
         // chords — were silently swallowed here as an RX squeeze/pull before
         // registry dispatch ever saw them. Unmatched combos now fall through
         // (unhandled) so the window-level registry dispatch gets its turn.
-        if (shift && !ctrl && !alt) // Shift = slide passband (unchanged from Sprint 14)
+        if (decision.Action == Radios.BracketAction.Slide) // Shift = slide passband (unchanged from Sprint 14)
         {
             if (key == Key.OemOpenBrackets)
             {
                 low -= step;
                 high -= step;
             }
-            else if (key == Key.OemCloseBrackets)
+            else
             {
                 low += step;
                 high += step;
             }
-            else return;
         }
-        else if (ctrl && !shift && !alt) // Ctrl = squeeze/pull (both edges equally)
+        else if (decision.Action == Radios.BracketAction.Squeeze || decision.Action == Radios.BracketAction.Pull) // Ctrl = squeeze/pull (both edges equally)
         {
-            if (key == Key.OemOpenBrackets)
+            if (decision.Action == Radios.BracketAction.Squeeze)
             {
                 // Squeeze: narrow both edges inward
                 int newLow = low + step;
@@ -3374,77 +3419,42 @@ public class FreqOutHandlers
                     return;
                 }
             }
-            else if (key == Key.OemCloseBrackets)
+            else
             {
                 // Pull: widen both edges outward
                 low -= step;
                 high += step;
             }
-            else return;
         }
-        else if (!ctrl && !shift && !alt) // Unmodified = independent edges or edge mode
+        else if (decision.Action == Radios.BracketAction.MoveHeldEdge) // Edge mode: the held edge alone
         {
-            // Check for double-tap to enter/exit edge selection mode.
-            // Sprint 28 Phase 2 — tolerance window is now user-configurable via
-            // Settings > Accessibility > Double-tap tolerance (default 500 ms,
-            // up from the previous hardcoded 300 ms). Users who preferred the
-            // snappier feel can pick "Quick (250 ms)".
-            var now = DateTime.UtcNow;
-            bool isDoubleTap = (key == _lastBracketKey) &&
-                               (now - _lastBracketTime).TotalMilliseconds < Radios.AccessibilityConfig.Current.DoubleTapToleranceMs &&
-                               _filterEdgeMode == FilterEdgeMode.None;
-            _lastBracketKey = key;
-            _lastBracketTime = now;
-
-            if (isDoubleTap)
+            _filterEdgeSticky?.ResetInactivityTimer();
+            if (_filterEdgeMode == Radios.FilterEdge.Low)
             {
-                _filterEdgeMode = key == Key.OemOpenBrackets ? FilterEdgeMode.LowerEdge : FilterEdgeMode.UpperEdge;
-                string edgeName = _filterEdgeMode == FilterEdgeMode.LowerEdge
-                    ? Lexicon.Get("settings.filter.edge_lower")
-                    : Lexicon.Get("settings.filter.edge_upper");
-                EnsureFilterEdgeStickyMode().Enter(
-                    Lexicon.Get("settings.filter.edge_mode_enter", ("edge", edgeName)));
-                e.Handled = true;
-                return;
+                if (key == Key.OemOpenBrackets) low -= step;
+                else low += step;
             }
-
-            if (_filterEdgeMode != FilterEdgeMode.None)
+            else // High
             {
-                _filterEdgeSticky?.ResetInactivityTimer();
-                if (_filterEdgeMode == FilterEdgeMode.LowerEdge)
-                {
-                    if (key == Key.OemOpenBrackets) low -= step;
-                    else if (key == Key.OemCloseBrackets) low += step;
-                    else return;
-                }
-                else // UpperEdge
-                {
-                    if (key == Key.OemOpenBrackets) high -= step;
-                    else if (key == Key.OemCloseBrackets) high += step;
-                    else return;
-                }
-                if (high - low < minWidth) { Radios.ScreenReaderOutput.Speak(Lexicon.Get("settings.filter.at_minimum"), VerbosityLevel.Terse, true); e.Handled = true; return; }
-                EarconPlayer.FilterEdgeMoveTone(_filterEdgeMode == FilterEdgeMode.LowerEdge);
+                if (key == Key.OemOpenBrackets) high -= step;
+                else high += step;
             }
-            else
-            {
-                // Normal single-tap: expand in one direction
-                if (key == Key.OemOpenBrackets)
-                    low -= step;
-                else if (key == Key.OemCloseBrackets)
-                    high += step;
-                else return;
-            }
+            if (high - low < minWidth) { Radios.ScreenReaderOutput.Speak(Lexicon.Get("settings.filter.at_minimum"), VerbosityLevel.Terse, true); e.Handled = true; return; }
+            EarconPlayer.FilterEdgeMoveTone(_filterEdgeMode == Radios.FilterEdge.Low);
         }
-        else return;
+        else // Widen: unmodified, not in edge mode, expands in one direction
+        {
+            if (key == Key.OemOpenBrackets)
+                low -= step;
+            else
+                high += step;
+        }
 
         // Clamp to mode-specific bounds — track what was requested vs what survived clamping
         int requestedLow = low, requestedHigh = high;
         low = Math.Max(low, lowMin);
         high = Math.Min(high, highMax);
         if (high - low < minWidth) high = low + minWidth; // safety
-
-        Rig.SetFilter(low, high);
 
         // Boundary announcements — only announce "at limit" when clamping actually
         // restricted movement, not just because an edge sits at a mode boundary.
@@ -3456,10 +3466,6 @@ public class FreqOutHandlers
         }
         else
         {
-            int width = high - low;
-            string widthStr = width >= 1000
-                ? Lexicon.Get("settings.filter.width_kilo", ("width", (width / 1000.0).ToString("F1")))
-                : width.ToString();
             bool lowClamped = low != requestedLow;
             bool highClamped = high != requestedHigh;
             string atLimit = "";
@@ -3469,10 +3475,17 @@ public class FreqOutHandlers
                 atLimit = Lexicon.Get("settings.filter.suffix_lower_limit");
             else if (highClamped)
                 atLimit = Lexicon.Get("settings.filter.suffix_upper_limit");
-            Radios.ScreenReaderOutput.Speak(
-                Lexicon.Get("settings.filter.range",
-                    ("low", low), ("high", high), ("width", widthStr), ("limit", atLimit)),
-                VerbosityLevel.Terse, true);
+            // The readout is said once FlexLib has run the write, from the
+            // edges it produced (#747 round six): in FM it changes nothing,
+            // and in RTTY and other modes it may stop short of this handler's
+            // own bounds, so the edges asked for are never what is said. One
+            // formatter for the width: "2.75 k" at Terse, "width 2750 hertz"
+            // at Chatty (J15). In edge mode the held edge leads at Chatty
+            // (#748), so the mode is said WHILE you are in it.
+            var held = decision.Action == Radios.BracketAction.MoveHeldEdge ? _filterEdgeMode : Radios.FilterEdge.None;
+            Rig.SetFilter(low, high, applied => Radios.ScreenReaderOutput.Speak(
+                Radios.FilterReadouts.Bracket(applied, atLimit, held, Radios.ScreenReaderOutput.CurrentVerbosity),
+                VerbosityLevel.Terse, true));
         }
         e.Handled = true;
     }
@@ -3493,26 +3506,22 @@ public class FreqOutHandlers
 
         string mode = Rig.Mode ?? "USB";
         int direction = key == Key.OemCloseBrackets ? 1 : -1;
-        var preset = FilterPresets.CyclePreset(mode, Rig.FilterLow, Rig.FilterHigh, direction);
 
-        if (preset == null)
-        {
-            string boundary = direction > 0
-                ? Lexicon.Get("settings.filter.preset_widest")
-                : Lexicon.Get("settings.filter.preset_narrowest");
-            Radios.ScreenReaderOutput.Speak(boundary, VerbosityLevel.Terse, true);
-        }
-        else
-        {
-            var (mirroredLow, mirroredHigh) = FilterPresets.MirrorForMode(mode, preset.Low, preset.High);
-            Rig.SetFilter(mirroredLow, mirroredHigh);
-            Radios.ScreenReaderOutput.Speak(
-                Lexicon.Get("settings.filter.preset_announce",
-                    ("name", preset.Name), ("description", preset.FormatForSpeech())),
-                VerbosityLevel.Terse, true);
-        }
+        // The cursor steps by the operator's own position in the list, so a
+        // preset the radio refused (FM refuses them all) still moves the next
+        // press on to the next name (bench item 7, 2026-11-06). Each preset's
+        // one announcement is made once the write has run, from what the
+        // filter BECAME (#747 rounds four and five), so a refusal says
+        // "unchanged".
+        _presetCursor.Cycle(Rig, FilterPresets, mode, direction,
+            said => Radios.ScreenReaderOutput.Speak(said, VerbosityLevel.Terse, true),
+            widest => Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get(widest ? "settings.filter.preset_widest" : "settings.filter.preset_narrowest"),
+                VerbosityLevel.Terse, true));
         e.Handled = true;
     }
+
+    private readonly Radios.PresetCycleCursor _presetCursor = new Radios.PresetCycleCursor();
 
     // Lazily build the StickyAnnouncedMode wrapping the filter-edge state. We
     // can't construct it eagerly because _window.Dispatcher isn't available
@@ -3533,29 +3542,34 @@ public class FreqOutHandlers
             // shell state so a stale Lower / Upper marker doesn't survive.
             OnTimeout = () =>
             {
-                _filterEdgeMode = FilterEdgeMode.None;
+                _filterEdgeMode = Radios.FilterEdge.None;
+                // "Off", as every other way out says (round two, Codex F3-R):
+                // the edge that moved is kept here too.
                 Radios.ScreenReaderOutput.Speak(
-                    Lexicon.Get("settings.filter.edge_mode_ended"), VerbosityLevel.Terse);
+                    Radios.FilterBracketKeys.OffSentence(), VerbosityLevel.Terse);
             }
         };
         return _filterEdgeSticky;
     }
 
-    // Cancel filter edge mode (called on Escape from MainWindow).
+    // Leave filter edge mode: Escape (called from MainWindow) and the held
+    // edge's own grab key (#748). "Filter edge mode off", not "cancelled":
+    // the edge you moved is kept, and "cancelled" said it was thrown away
+    // (Noel, 2026-11-04).
     public void CancelFilterEdgeMode()
     {
-        if (_filterEdgeMode != FilterEdgeMode.None)
+        if (_filterEdgeMode != Radios.FilterEdge.None)
         {
-            _filterEdgeMode = FilterEdgeMode.None;
-            _filterEdgeSticky?.Exit(Lexicon.Get("settings.filter.edge_mode_cancelled"));
+            _filterEdgeMode = Radios.FilterEdge.None;
+            _filterEdgeSticky?.Exit(Radios.FilterBracketKeys.OffSentence());
         }
     }
 
-    public bool InFilterEdgeMode => _filterEdgeMode != FilterEdgeMode.None;
+    public bool InFilterEdgeMode => _filterEdgeMode != Radios.FilterEdge.None;
 
     public string? FilterEdgeStatus =>
-        _filterEdgeMode == FilterEdgeMode.LowerEdge ? Lexicon.Get("settings.filter.edge_status_lower") :
-        _filterEdgeMode == FilterEdgeMode.UpperEdge ? Lexicon.Get("settings.filter.edge_status_upper") :
+        _filterEdgeMode == Radios.FilterEdge.Low ? Lexicon.Get("settings.filter.edge_status_lower") :
+        _filterEdgeMode == Radios.FilterEdge.High ? Lexicon.Get("settings.filter.edge_status_upper") :
         null;
 
     // RIT/XIT scale-adjust mode helpers — second consumer of the
@@ -3640,11 +3654,11 @@ public class FreqOutHandlers
         {
             if (FilterPresets == null || Rig == null) return null;
             string mode = Rig.Mode ?? "USB";
-            int idx = FilterPresets.FindActivePreset(mode, Rig.FilterLow, Rig.FilterHigh);
-            if (idx < 0) return null;
-            var presets = FilterPresets.GetPresetsForMode(mode);
-            return Lexicon.Get("settings.filter.active_preset_status",
-                ("description", presets[idx].FormatForSpeech()));
+            // One reading of the live filter, for recognising the preset AND
+            // for the numbers said: a preset within 20 Hz is named, but its
+            // saved edges are not said as current (#747 round five).
+            int low = Rig.FilterLow, high = Rig.FilterHigh;
+            return FilterPresets.ActiveStatus(mode, low, high, Radios.ScreenReaderOutput.CurrentVerbosity);
         }
     }
 

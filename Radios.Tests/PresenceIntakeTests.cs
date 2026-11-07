@@ -138,22 +138,14 @@ namespace Radios.Tests
         private static void Push(MockWanServer wan) =>
             wan.RaiseWanRadioRadioListReceived(Array.Empty<Radio>());
 
-        // FlexBase's own record that a list arrived for the account it is
-        // waiting on. Private, and read here rather than widened: the fix is
-        // about who receives, and adding a public "did you receive?" would be
-        // API invented for a test.
-        private static readonly FieldInfo LatchField =
-            typeof(FlexBase).GetField("wanListReceived", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        // FlexBase's own record of the lists its intake consumed. Private, and
+        // read here rather than widened: the fix is about who receives, and
+        // adding a public "did you receive?" would be API invented for a
+        // test. (It read the rig-wide connect latch until that was removed in
+        // the 2026-11-06 integration pass; see IntakeTook.)
+        private static bool Consumed(FlexBase rig) => IntakeTook.AnyList(rig);
 
-        private static bool Consumed(FlexBase rig)
-        {
-            Assert.True(LatchField != null,
-                "FlexBase.wanListReceived is not where this test reads it. Without that field " +
-                "every assertion below is vacuous — find its new name before trusting a green run.");
-            return (bool)LatchField!.GetValue(rig)!;
-        }
-
-        private static void ClearConsumed(FlexBase rig) => LatchField!.SetValue(rig, false);
+        private static void ClearConsumed(FlexBase rig) => IntakeTook.Forget(rig);
 
         // The coordinator's list event, by its backing field, so the test can
         // count what is actually subscribed rather than infer it.

@@ -76,6 +76,49 @@ namespace JJFlexWpf.Dialogs
         private readonly RadioInfoCallbacks _callbacks;
         private bool _suppressDisplayChange;
 
+        // What each identity box showed when the dialog filled it, or the
+        // last edit the radio took. The radio is told a callsign or a name ONLY when the box now
+        // differs from this, which is to say the operator edited it here; a
+        // value the radio has since corrected underneath is never sent back
+        // (#477, repair round 2).
+        private string _shownCallsign = "";
+        private string _shownNickname = "";
+
+        /// <summary>
+        /// The text to send for an identity box, or null when the operator has
+        /// not changed it since it was shown. Compared with what the dialog
+        /// SHOWED, never with the live value, which can move underneath.
+        /// </summary>
+        internal static string? EditedIdentity(string shown, string inBox)
+            => string.Equals(shown ?? "", inBox ?? "", StringComparison.Ordinal) ? null : inBox;
+
+        /// <summary>
+        /// One commit of an identity box: send the edit, if there is one, and
+        /// return the new baseline. The baseline moves to the edit only when
+        /// the radio now holds it (sent, or already so); a refusal (no radio,
+        /// the change-nothing hold) returns nothing to say so, and leaves the
+        /// edit pending so the same text tried again is sent again (#477,
+        /// repair round 3, Codex F3). The live value is read only to learn
+        /// whether the edit took, never to decide what is sent.
+        /// </summary>
+        internal static string CommitIdentity(string shown, string inBox,
+            Action<string> send, Func<string> heldNow, Func<string, string> asTheRadioKeepsIt)
+        {
+            var edited = EditedIdentity(shown, inBox);
+            if (edited == null) return shown;
+            send(edited);
+            return string.Equals(asTheRadioKeepsIt(edited), heldNow() ?? "", StringComparison.Ordinal)
+                ? edited : shown;
+        }
+
+        private void CommitCallsignIfEdited()
+            => _shownCallsign = CommitIdentity(_shownCallsign, CallBox.Text,
+                _callbacks.SetCallsign, _callbacks.GetCallsign, Radios.FlexBase.CallsignAsTheRadioKeepsIt);
+
+        private void CommitNicknameIfEdited()
+            => _shownNickname = CommitIdentity(_shownNickname, NameBox.Text,
+                name => _callbacks.SetNickname(name), _callbacks.GetNickname, Radios.FlexBase.NicknameAsTheRadioKeepsIt);
+
         public RadioInfoDialog(RadioInfoCallbacks callbacks, RadioInfoTab initialTab = RadioInfoTab.General)
         {
             _callbacks = callbacks ?? throw new ArgumentNullException(nameof(callbacks));
@@ -92,8 +135,8 @@ namespace JJFlexWpf.Dialogs
             ModelBox.Text = _callbacks.GetModel();
             VersionBox.Text = _callbacks.GetVersion();
             SerialBox.Text = _callbacks.GetSerial();
-            CallBox.Text = _callbacks.GetCallsign();
-            NameBox.Text = _callbacks.GetNickname();
+            CallBox.Text = _shownCallsign = _callbacks.GetCallsign() ?? "";
+            NameBox.Text = _shownNickname = _callbacks.GetNickname() ?? "";
             IPBox.Text = _callbacks.GetIPAddress();
 
             // Populate display modes
@@ -122,38 +165,18 @@ namespace JJFlexWpf.Dialogs
             Close();
         }
 
-        private void CallBox_LostFocus(object sender, RoutedEventArgs e)
-        {
-            var currentCallsign = _callbacks.GetCallsign();
-            if (CallBox.Text != currentCallsign)
-                _callbacks.SetCallsign(CallBox.Text);
-        }
+        private void CallBox_LostFocus(object sender, RoutedEventArgs e) => CommitCallsignIfEdited();
 
         private void CallBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
         {
-            if (e.Key == Key.Return)
-            {
-                var currentCallsign = _callbacks.GetCallsign();
-                if (CallBox.Text != currentCallsign)
-                    _callbacks.SetCallsign(CallBox.Text);
-            }
+            if (e.Key == Key.Return) CommitCallsignIfEdited();
         }
 
-        private void NameBox_LostFocus(object sender, RoutedEventArgs e)
-        {
-            var currentNickname = _callbacks.GetNickname();
-            if (NameBox.Text != currentNickname)
-                _callbacks.SetNickname(NameBox.Text);
-        }
+        private void NameBox_LostFocus(object sender, RoutedEventArgs e) => CommitNicknameIfEdited();
 
         private void NameBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
         {
-            if (e.Key == Key.Return)
-            {
-                var currentNickname = _callbacks.GetNickname();
-                if (NameBox.Text != currentNickname)
-                    _callbacks.SetNickname(NameBox.Text);
-            }
+            if (e.Key == Key.Return) CommitNicknameIfEdited();
         }
 
         private void DisplayCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)

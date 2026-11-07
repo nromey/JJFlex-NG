@@ -1,0 +1,1 @@
+- In the noise layer, H's list of keys now leaves out the switches your radio can't use and names them together at the end of the list, the same way the spoken version always did. The count in the window's title is the number of keys you can actually use.

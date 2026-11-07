@@ -113,9 +113,19 @@ public partial class ScreenFieldsPanel : UserControl
 
     private CycleFieldControl _agcModeControl = null!;
     private ValueFieldControl _agcThresholdControl = null!;
+    // #888: the AGC field is the threshold while AGC is on and the off gain
+    // while it is off (one field, Noel's ruling of 2026-11-06). What the
+    // field is NOW, so a write goes to the setting its label names.
+    private bool _agcFieldIsOffLevel;
     private CheckBox _squelchCheck = null!;
     private ValueFieldControl _squelchLevelControl = null!;
     private ValueFieldControl _rfGainControl = null!;
+    private CheckBox _rfPreampCheck = null!;
+    // The panadapter whose report the RF gain controls are showing, which is
+    // where the field writes (#889, repair round 2).
+    private Flex.Smoothlake.FlexLib.Panadapter? _rfGainShownPan;
+    // Bumped by every focus hand-off request, so a late one cannot act.
+    private int _rfFocusGeneration;
     private System.Windows.Controls.TextBlock _rxFilterWidthDisplay = null!;
 
     #endregion
@@ -218,6 +228,7 @@ public partial class ScreenFieldsPanel : UserControl
     /// </summary>
     public void Initialize(FlexBase rig)
     {
+        _homeTxFilter.Invalidate();   // nothing in flight answers the new rig (#747 round nine)
         _rig = rig;
 
         // Repopulate antenna combos from the connected radio's antenna lists
@@ -253,10 +264,10 @@ public partial class ScreenFieldsPanel : UserControl
         _atuCheck.Visibility = hasATU ? Visibility.Visible : Visibility.Collapsed;
         _atuModeControl.Visibility = hasATU ? Visibility.Visible : Visibility.Collapsed;
 
-        // RF Gain bounds vary by radio model — update from connected radio
-        _rfGainControl.Min = rig.RFGainMin;
-        _rfGainControl.Max = rig.RFGainMax;
-        _rfGainControl.Step = rig.RFGainIncrement;
+        // RF Gain bounds vary by radio model — update from connected radio.
+        // The panadapter reports them a moment later, and again on a band
+        // change, so PollReceiver re-applies them whenever they move (#889).
+        ApplyRfGainShape(rig);
 
         // QB Track I — TX power personality follows the TX antenna from the
         // first paint (PollTX keeps it honest afterwards).
@@ -272,6 +283,9 @@ public partial class ScreenFieldsPanel : UserControl
 
         // Subscribe to mode changes for immediate DSP refresh
         rig.ModeChanged += OnModeChanged;
+        // A refused AGC field write (the mode changed under it) refreshes
+        // the field at once rather than at the next poll (#888 round two).
+        rig.AgcFieldWentStale += OnAgcFieldWentStale;
 
         // Create PC-side audio processing pipeline (works on ALL radios)
         _audioPipeline?.Dispose();
@@ -286,6 +300,22 @@ public partial class ScreenFieldsPanel : UserControl
 
         // Force initial poll to populate values
         PollUpdate();
+    }
+
+    /// <summary>
+    /// An AGC field write was refused on the command loop because the AGC
+    /// mode no longer gave the field that meaning; FlexBase has said the
+    /// field's current label and value. Bring the field itself up to date.
+    /// </summary>
+    private void OnAgcFieldWentStale(string sentence)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_rig == null) return;
+            _polling = true;
+            try { RefreshAgcField(); }
+            finally { _polling = false; }
+        });
     }
 
     private void OnModeChanged(string newMode)
@@ -305,9 +335,11 @@ public partial class ScreenFieldsPanel : UserControl
     /// </summary>
     public void Detach()
     {
+        _homeTxFilter.Invalidate();
         if (_rig != null)
         {
             _rig.ModeChanged -= OnModeChanged;
+            _rig.AgcFieldWentStale -= OnAgcFieldWentStale;
             _rig.AudioPostProcessor = null;
         }
         // Track I: unhook the TX conditioning chain alongside the RX pipeline.
@@ -958,7 +990,9 @@ public partial class ScreenFieldsPanel : UserControl
         // !_polling matches the sibling handlers: a poll refresh rewriting the
         // control's value must not echo back to the rig — since #225 that echo
         // would also be misread as an operator settings change.
-        _agcThresholdControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.AGCThreshold = v; };
+        // #888: written to what the field currently is, the off gain with
+        // AGC off and the threshold otherwise.
+        _agcThresholdControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.SetAgcFieldValue(_agcFieldIsOffLevel, v); };
         ReceiverContent.Children.Add(_agcThresholdControl);
 
         _squelchCheck = MakeToggle(Lexicon.Get("audio.fields.squelch"));
@@ -983,8 +1017,20 @@ public partial class ScreenFieldsPanel : UserControl
         // RF Gain bounds are instance fields (vary by radio), set defaults here, updated in Initialize()
         _rfGainControl = MakeValue(Lexicon.Get("audio.fields.rf_gain"), -10, 30, 10);
         // !_polling for the same reason as the AGC threshold handler above.
-        _rfGainControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.RFGain = v; };
+        _rfGainControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.SetRFGain(_rfGainShownPan, v); };
         ReceiverContent.Children.Add(_rfGainControl);
+
+        // #889: where the radio offers RF gain as only two settings, 0 and one
+        // other, it is a preamp, and a switch says so where a number field
+        // offering two values reads as broken. Named "RF preamp" by Noel,
+        // 2026-11-05. Collapsed until the radio reports that shape; the
+        // number field shows until then, exactly as before, so there is
+        // always one RF gain control on Home and never none.
+        _rfPreampCheck = MakeToggle(Lexicon.Get("audio.fields.rf_preamp"));
+        _rfPreampCheck.Visibility = Visibility.Collapsed;
+        _rfPreampCheck.Checked += (s, e) => ToggleRfPreamp(true);
+        _rfPreampCheck.Unchecked += (s, e) => ToggleRfPreamp(false);
+        ReceiverContent.Children.Add(_rfPreampCheck);
 
         // Read-only RX filter width display. The accessible name tracks the
         // text (PollReceiver refreshes both together), so the screen reader
@@ -1144,12 +1190,20 @@ public partial class ScreenFieldsPanel : UserControl
 
         // TX Filter Low
         _txFilterLowControl = MakeValue(Lexicon.Get("audio.fields.tx_filter_low"), 0, 9950, 50);
-        _txFilterLowControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.TXFilterLow = v; };
+        // #747 round seven: written through the applied route; the field says
+        // its own number as it moves, so only a correction is spoken after.
+        // #747 round nine: the field never says the number it asked for; its
+        // write is said from what FlexLib set, by _homeTxFilter, the one speaker.
+        _txFilterLowControl.SpeaksOnlyTheAppliedResult = true;
+        _txFilterLowControl.AppliedEndStop = atMinimum => _homeTxFilter.SayEndStop(lowField: true, atMinimum, _txFilterLowControl.Value);
+        _txFilterLowControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _homeTxFilter.Write(lowField: true, v); };
         TxContent.Children.Add(_txFilterLowControl);
 
         // TX Filter High
         _txFilterHighControl = MakeValue(Lexicon.Get("audio.fields.tx_filter_high"), 50, 10000, 50);
-        _txFilterHighControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.TXFilterHigh = v; };
+        _txFilterHighControl.SpeaksOnlyTheAppliedResult = true;
+        _txFilterHighControl.AppliedEndStop = atMinimum => _homeTxFilter.SayEndStop(lowField: false, atMinimum, _txFilterHighControl.Value);
+        _txFilterHighControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _homeTxFilter.Write(lowField: false, v); };
         TxContent.Children.Add(_txFilterHighControl);
 
         // TX Monitor
@@ -1351,6 +1405,87 @@ public partial class ScreenFieldsPanel : UserControl
     }
 
     #endregion
+
+    /// <summary>
+    /// Give RF gain the shape the radio last reported (#889): the RF preamp
+    /// switch when it offers exactly two settings with 0 as one of them, the
+    /// number field otherwise, with the field's bounds re-applied whenever
+    /// they move. Before the radio has reported anything the field shows
+    /// with its defaults, as it always did. Called at Initialize and on
+    /// every receiver poll, so a band change that changes the radio's
+    /// answer changes the control with it, both ways.
+    /// </summary>
+    private void ApplyRfGainShape(FlexBase rig)
+    {
+        // The ACTIVE panadapter's report (repair round 1): it is the one RF
+        // gain reads and writes.
+        var report = rig.ActiveRFGainReport;
+        _rfGainShownPan = report.Pan;
+        if (_rfGainControl.Min != report.Min) _rfGainControl.Min = report.Min;
+        if (_rfGainControl.Max != report.Max) _rfGainControl.Max = report.Max;
+        if (_rfGainControl.Step != report.Step) _rfGainControl.Step = report.Step;
+
+        bool asSwitch = FlexBase.IsPreampSwitch(report, out _);
+        var fieldWanted = asSwitch ? Visibility.Collapsed : Visibility.Visible;
+        var switchWanted = asSwitch ? Visibility.Visible : Visibility.Collapsed;
+        if (_rfGainControl.Visibility == fieldWanted && _rfPreampCheck.Visibility == switchWanted) return;
+
+        // The shape is changing. If the operator is on the outgoing control,
+        // hand focus to its replacement, so they stay at RF gain rather than
+        // wherever WPF puts focus when a focused control collapses.
+        bool fieldHadFocus = _rfGainControl.IsKeyboardFocusWithin;
+        bool switchHadFocus = _rfPreampCheck.IsKeyboardFocusWithin;
+        _rfGainControl.Visibility = fieldWanted;
+        _rfPreampCheck.Visibility = switchWanted;
+        if (asSwitch && fieldHadFocus) HandRfGainFocusTo(_rfPreampCheck, _rfGainControl);
+        else if (!asSwitch && switchHadFocus) HandRfGainFocusTo(_rfGainControl, _rfPreampCheck);
+    }
+
+    /// <summary>
+    /// Focus the RF gain control that just became visible, once layout has
+    /// made it focusable, and ONLY if the operator is still where the hand-off
+    /// began: keyboard focus still on the outgoing RF gain control, or on
+    /// nothing. A Tab, a dialog or another window in the meantime wins, and so
+    /// does any later hand-off request (repair round 2).
+    /// </summary>
+    private void HandRfGainFocusTo(UIElement incoming, UIElement outgoing)
+    {
+        int generation = ++_rfFocusGeneration;
+        var rig = _rig;
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, new Action(() =>
+        {
+            if (generation != _rfFocusGeneration || !ReferenceEquals(rig, _rig)) return;
+            if (!incoming.IsVisible) return;
+            if (!RfGainFocusStillAt(System.Windows.Input.Keyboard.FocusedElement as DependencyObject, outgoing)) return;
+            incoming.Focus();
+        }));
+    }
+
+    /// <summary>
+    /// True when keyboard focus is nowhere, or still on (or inside) the RF
+    /// gain control the hand-off started from.
+    /// </summary>
+    internal static bool RfGainFocusStillAt(DependencyObject? focused, UIElement outgoing)
+        => focused == null || ReferenceEquals(focused, outgoing) || outgoing.IsAncestorOf(focused);
+
+    /// <summary>
+    /// The RF preamp switch, pressed: the radio's own "on" setting or 0, and
+    /// the sentence that says which (DRAFT wording).
+    /// </summary>
+    private void ToggleRfPreamp(bool on)
+    {
+        if (_polling || _rig == null) return;
+        // One report for the decision and the write: its panadapter is where
+        // the value goes, whatever is active when the queue runs (repair 2).
+        var report = _rig.ActiveRFGainReport;
+        if (!FlexBase.IsPreampSwitch(report, out int onDb)) return;
+        string sentence = on
+            ? Lexicon.Get("audio.fields.rf_preamp_on", ("db", onDb))
+            : Lexicon.Get("audio.fields.rf_preamp_off");
+        ToggleRig(Lexicon.Get("audio.fields.rf_preamp"),
+            v => { if (_rig != null) _rig.SetRFGain(report.Pan, v == FlexBase.OffOnValues.on ? onDb : 0); },
+            on, sentence);
+    }
 
     #region Rig Toggle Helpers
 
@@ -1679,26 +1814,84 @@ public partial class ScreenFieldsPanel : UserControl
         };
         _agcModeControl.SelectedIndex = agcIndex;
 
-        _agcThresholdControl.Value = _rig.AGCThreshold;
+        RefreshAgcField();
 
         bool squelchOn = _rig.Squelch == FlexBase.OffOnValues.on;
         _squelchCheck.IsChecked = squelchOn;
         _squelchLevelControl.Visibility = squelchOn ? Visibility.Visible : Visibility.Collapsed;
         if (squelchOn) _squelchLevelControl.Value = _rig.SquelchLevel;
 
+        ApplyRfGainShape(_rig);
         _rfGainControl.Value = _rig.RFGain;
+        if (_rfPreampCheck.Visibility == Visibility.Visible)
+            _rfPreampCheck.IsChecked = _rig.RFGain != 0;
 
         // RX filter width (read-only)
         int filterLow = _rig.FilterLow;
         int filterHigh = _rig.FilterHigh;
         int filterWidth = filterHigh - filterLow;
-        string widthText = filterWidth >= 1000
-            ? Lexicon.Get("audio.fields.rx_filter_width_khz", ("filterLow", filterLow),
-                ("filterHigh", filterHigh), ("filterWidth", $"{filterWidth / 1000.0:F1}"))
-            : Lexicon.Get("audio.fields.rx_filter_width_hz", ("filterLow", filterLow),
-                ("filterHigh", filterHigh), ("filterWidth", filterWidth));
+        // The shared displayed form, "2.75 kHz" or "500 Hz" (#747,
+        // integration pass finding 10): one string, the unit from the
+        // formatter, never a second 1000 Hz rule here.
+        string widthText = Lexicon.Get("audio.fields.rx_filter_width", ("filterLow", filterLow),
+            ("filterHigh", filterHigh), ("filterWidth", Radios.HertzSpeech.DisplayedWidth(filterWidth)));
         _rxFilterWidthDisplay.Text = widthText;
         System.Windows.Automation.AutomationProperties.SetName(_rxFilterWidthDisplay, widthText);
+    }
+
+    private TxFilterFields? _homeTxFilterOwner;
+
+    /// <summary>
+    /// Home's two transmit filter fields and their one speaker (#747 round
+    /// nine; <see cref="TxFilterFields"/>): one Latest key for both, each
+    /// result for that field's newest request on the same connection, and
+    /// the fields put on the applied values after.
+    /// </summary>
+    private TxFilterFields _homeTxFilter => _homeTxFilterOwner ??= new TxFilterFields(
+        Radios.Speech.SpeechSubject.ValueField("TX filter, Home"),
+        Lexicon.Get("audio.fields.tx_filter_low"), Lexicon.Get("audio.fields.tx_filter_high"),
+        () => _rig, () => true,
+        refresh: stillCurrent => Dispatcher.BeginInvoke(() =>
+        {
+            // Re-checked HERE, when the window gets to it (round eleven), and
+            // the pair read HERE, so the fields copy only what is still true
+            // (round twelve).
+            if (!stillCurrent() || _rig == null) return;
+            _polling = true;
+            try { SetTxFilterFields(_rig.TXFilterLow, _rig.TXFilterHigh); }
+            finally { _polling = false; }
+        }));
+
+    /// <summary>
+    /// Put Home's two TX filter fields on a pair the radio holds, with their
+    /// bounds the radio's own limits for that pair (#747 round eleven): the
+    /// low edge at most 50 under the high, the high at least 50 over the low,
+    /// within 0 to 10000. So a field's end is the radio's real end, and its
+    /// display cannot run ahead past what the radio will take.
+    /// </summary>
+    private void SetTxFilterFields(int low, int high)
+    {
+        _txFilterLowControl.Max = Math.Max(0, high - 50);
+        _txFilterHighControl.Min = Math.Min(10000, low + 50);
+        _txFilterLowControl.Value = low;
+        _txFilterHighControl.Value = high;
+    }
+
+    /// <summary>
+    /// #888: one AGC field whose meaning follows the mode the radio reports.
+    /// The value first, then the label, so a rename carries the new value.
+    /// </summary>
+    private void RefreshAgcField()
+    {
+        if (_rig == null) return;
+        var agcMode = _rig.AGCSpeed;
+        bool agcOffLevel = FlexBase.AgcFieldIsOffLevel(agcMode);
+        _agcThresholdControl.Value = _rig.AgcFieldValue(agcOffLevel);
+        if (agcOffLevel != _agcFieldIsOffLevel)
+        {
+            _agcFieldIsOffLevel = agcOffLevel;
+            _agcThresholdControl.Label = FlexBase.AgcFieldLabel(agcOffLevel);
+        }
     }
 
     /// <summary>
@@ -1785,8 +1978,7 @@ public partial class ScreenFieldsPanel : UserControl
         _processorSettingControl.Visibility = processorOn ? Visibility.Visible : Visibility.Collapsed;
         if (processorOn) _processorSettingControl.SelectedIndex = (int)_rig.ProcessorSetting;
 
-        _txFilterLowControl.Value = _rig.TXFilterLow;
-        _txFilterHighControl.Value = _rig.TXFilterHigh;
+        SetTxFilterFields(_rig.TXFilterLow, _rig.TXFilterHigh);
 
         bool monitorOn = _rig.Monitor == FlexBase.OffOnValues.on;
         _monitorCheck.IsChecked = monitorOn;

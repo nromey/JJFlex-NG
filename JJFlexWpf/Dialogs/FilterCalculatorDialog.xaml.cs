@@ -61,7 +61,7 @@ namespace JJFlexWpf.Dialogs
                     ResultLow = low;
                     ResultHigh = high;
                     ResultText.Text = Lexicon.Get("audio.filter.calculator.computed_width",
-                        ("width", width), ("low", low), ("high", high));
+                        ("width", Radios.HertzSpeech.DisplayedWidth(width)), ("low", low), ("high", high));
                 }
                 else
                 {
@@ -69,7 +69,7 @@ namespace JJFlexWpf.Dialogs
                     ResultLow = low;
                     ResultHigh = high;
                     ResultText.Text = Lexicon.Get("audio.filter.calculator.all_three",
-                        ("low", low), ("high", high), ("width", high - low));
+                        ("low", low), ("high", high), ("width", Radios.HertzSpeech.DisplayedWidth(high - low)));
                 }
 
                 bool valid = ResultLow >= 0 && ResultHigh > ResultLow;

@@ -266,11 +266,13 @@ public partial class AudioWorkshopDialog
         {
             if (_rig != null && !_polling)
             {
-                _rig.TXFilterLow = v;
-                UpdateFilterWidth();
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.tx.filter_low", ("value", v)), VerbosityLevel.Terse);
+                // #747 round nine: the field says nothing of its own; the
+                // applied result is said by _workshopTxFilter, the one speaker.
+                _workshopTxFilter.Write(lowField: true, v);
             }
         };
+        _txFilterLowControl.SpeaksOnlyTheAppliedResult = true;
+        _txFilterLowControl.AppliedEndStop = atMinimum => _workshopTxFilter.SayEndStop(lowField: true, atMinimum, _txFilterLowControl.Value);
         JJFlexHelp.SetText(_txFilterLowControl,
             "Where your transmitted audio starts, in hertz. One hundred to "
             + "three hundred is the usual range for voice: lower sounds "
@@ -284,11 +286,11 @@ public partial class AudioWorkshopDialog
         {
             if (_rig != null && !_polling)
             {
-                _rig.TXFilterHigh = v;
-                UpdateFilterWidth();
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.tx.filter_high", ("value", v)), VerbosityLevel.Terse);
+                _workshopTxFilter.Write(lowField: false, v);
             }
         };
+        _txFilterHighControl.SpeaksOnlyTheAppliedResult = true;
+        _txFilterHighControl.AppliedEndStop = atMinimum => _workshopTxFilter.SayEndStop(lowField: false, atMinimum, _txFilterHighControl.Value);
         JJFlexHelp.SetText(_txFilterHighControl,
             "Where your transmitted audio stops, in hertz. Around twenty-nine "
             + "hundred is the usual voice ceiling: higher sounds airier but "
@@ -514,6 +516,50 @@ public partial class AudioWorkshopDialog
         }
     }
 
+    private TxFilterFields? _workshopTxFilterOwner;
+
+    /// <summary>Set false when the Workshop closes; read on the command loop, so volatile.</summary>
+    private volatile bool _workshopOpenForTxFilter = true;
+
+    /// <summary>
+    /// The Workshop's two transmit filter fields and their one speaker (#747
+    /// round nine; <see cref="TxFilterFields"/>), with its own key, and
+    /// nothing said or refreshed once the Workshop has closed.
+    /// </summary>
+    private TxFilterFields _workshopTxFilter => _workshopTxFilterOwner ??= new TxFilterFields(
+        Radios.Speech.SpeechSubject.ValueField("TX filter, Audio Workshop"),
+        "TX Filter Low", "TX Filter High",
+        () => _rig, () => _workshopOpenForTxFilter,
+        refresh: stillCurrent => Dispatcher.BeginInvoke(() =>
+        {
+            // Re-checked HERE, when the window gets to it (round eleven), and
+            // the pair read HERE, so the fields copy only what is still true
+            // (round twelve).
+            if (!stillCurrent() || _rig == null) return;
+            _polling = true;
+            try { SetWorkshopTxFilterFields(_rig.TXFilterLow, _rig.TXFilterHigh); }
+            finally { _polling = false; }
+        }));
+
+    /// <summary>
+    /// The Workshop's two TX filter fields on a pair the radio holds, with
+    /// their bounds the radio's own limits for that pair (#747 round eleven),
+    /// and the width label after.
+    /// </summary>
+    private void SetWorkshopTxFilterFields(int low, int high)
+    {
+        if (_txFilterLowControl != null)
+        {
+            _txFilterLowControl.Max = Math.Max(0, high - 50);
+            _txFilterLowControl.Value = low;
+        }
+        if (_txFilterHighControl != null)
+        {
+            _txFilterHighControl.Min = Math.Min(10000, low + 50);
+            _txFilterHighControl.Value = high;
+        }
+        UpdateFilterWidth();
+    }
 
     private void UpdateFilterWidth()
     {
@@ -521,7 +567,8 @@ public partial class AudioWorkshopDialog
         int low = _txFilterLowControl.Value;
         int high = _txFilterHighControl.Value;
         int width = high - low;
-        string widthStr = width >= 1000 ? $"{width / 1000.0:0.#} kHz" : $"{width} Hz";
+        // A label, so the displayed form: never rounded (#747).
+        string widthStr = Radios.HertzSpeech.DisplayedWidth(width, Radios.HertzUnitStyle.Symbols);
         _filterWidthLabel.Text = $"Width: {low} to {high} Hz ({widthStr})";
     }
 
@@ -551,9 +598,7 @@ public partial class AudioWorkshopDialog
                 if (processorOn) _processorSettingControl.SelectedIndex = (int)_rig.ProcessorSetting;
             }
 
-            if (_txFilterLowControl != null) _txFilterLowControl.Value = _rig.TXFilterLow;
-            if (_txFilterHighControl != null) _txFilterHighControl.Value = _rig.TXFilterHigh;
-            UpdateFilterWidth();
+            SetWorkshopTxFilterFields(_rig.TXFilterLow, _rig.TXFilterHigh);
 
             // Mode-aware monitor header — phone modes only. CW mode keeps
             // today's behavior untouched (CW monitor work is deferred behind

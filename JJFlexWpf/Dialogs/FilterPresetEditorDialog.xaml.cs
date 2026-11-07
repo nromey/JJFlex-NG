@@ -42,9 +42,8 @@ namespace JJFlexWpf.Dialogs
             var presets = GetCurrentPresets();
             foreach (var p in presets)
             {
-                string bw = p.Width >= 1000
-                    ? Lexicon.Get("audio.filter.presets.width_khz", ("width", $"{p.Width / 1000.0:0.#}"))
-                    : Lexicon.Get("audio.filter.presets.width_hz", ("width", p.Width));
+                // List text, so the displayed form: never rounded (#747).
+                string bw = HertzSpeech.DisplayedWidth(p.Width, HertzUnitStyle.Symbols);
                 PresetList.Items.Add(Lexicon.Get("audio.filter.presets.list_item", ("name", p.Name), ("bw", bw)));
             }
 

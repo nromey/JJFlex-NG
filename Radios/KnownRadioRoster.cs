@@ -52,8 +52,15 @@ namespace Radios
         public string PreferredAccount { get; set; } = "";
 
         /// <summary>Which account reaches this radio: the choice if made,
-        /// otherwise the observation. Callers fall through to the
-        /// preferred-account-for-new-connections when this is empty too.</summary>
+        /// otherwise the observation, read from the roster row. The same two
+        /// tiers, in the same order, sit under the live-attribution tier in
+        /// <see cref="RadioAccountRouting.ForSerial"/>; the account connect
+        /// and registration actually use is the first SAVED one in that order
+        /// (<c>FlexBase.AccountPicture.FirstSaved</c>), which this row-level
+        /// answer does not filter. Empty is a real answer here too: nothing on
+        /// record names an account. Each caller that falls back to the saved
+        /// default account on an empty answer does so explicitly, at the
+        /// call site, as a "nothing better is known" rather than a gate.</summary>
         public string ResolvedAccount =>
             !string.IsNullOrWhiteSpace(PreferredAccount) ? PreferredAccount : LastSeenViaAccount;
 

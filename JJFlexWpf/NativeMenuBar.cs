@@ -542,6 +542,19 @@ public class NativeMenuBar : IDisposable
     /// unit rides the speech ("PC volume 12 dB") so the operator always hears
     /// which scale a value is on — plain numbers stay plain.
     /// </summary>
+    /// <summary>
+    /// Step the AGC field from the menu: the off gain while AGC is off, the
+    /// threshold otherwise, decided at click time and spoken with the label
+    /// that names it (#888).
+    /// </summary>
+    private void AdjustAgcField(int step)
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        bool offLevel = FlexBase.AgcFieldIsOffLevel(Rig.AGCSpeed);
+        AdjustValue(FlexBase.AgcFieldLabel(offLevel), () => Rig.AgcFieldValue(offLevel), v => Rig.SetAgcFieldValue(offLevel, v),
+            step, FlexBase.AGCThresholdMin, FlexBase.AGCThresholdMax);
+    }
+
     private void AdjustValue(string label, Func<int> getter, Action<int> setter,
         int step, int min, int max, string unit = "")
     {
@@ -552,6 +565,27 @@ public class NativeMenuBar : IDisposable
         string suffix = string.IsNullOrEmpty(unit) ? "" : " " + unit;
         SpeakAfterMenuClose(Radios.Lexicon.Get("audio.value.adjusted",
             ("label", label), ("value", newVal), ("suffix", suffix)));
+    }
+
+    /// <summary>
+    /// Step one transmit filter edge from the Radio menu and say, after the
+    /// menu closes, what FlexLib set (#747 round seven): "TX filter low 150"
+    /// as before when it took the step, "TX filter 2750 to 2800, at limit"
+    /// when it held it back, "TX filter unchanged at ..." when nothing moved.
+    /// The items used to say the number they asked for, which FlexLib could
+    /// hold back to 50 Hz from the other edge.
+    /// </summary>
+    private void SayTxFilterWrite(bool lowEdge, int step)
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        int current = lowEdge ? Rig.TXFilterLow : Rig.TXFilterHigh;
+        int wanted = lowEdge ? Math.Clamp(current + step, 0, 9950) : Math.Clamp(current + step, 50, 10000);
+        string label = lowEdge ? "TX filter low" : "TX filter high";
+        var rig = Rig;   // the originating rig, from the request (round eleven)
+        rig.SetTXFilter(lowEdge ? wanted : (int?)null, lowEdge ? (int?)null : wanted, applied =>
+            SpeakAfterMenuClose(Radios.FilterReadouts.Tx(applied,
+                (l, h) => Radios.Lexicon.Get("audio.value.adjusted", ("label", label), ("value", lowEdge ? l : h), ("suffix", "")),
+                Radios.ScreenReaderOutput.CurrentVerbosity), stillTrue: TxFilterStillIs(rig, applied)));
     }
 
     /// <summary>
@@ -980,9 +1014,7 @@ public class NativeMenuBar : IDisposable
             int newHigh = high - filterStep;
             if (newHigh - newLow >= 50)
             {
-                Rig.SetFilter(newLow, newHigh);
-                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.range",
-                    ("low", newLow), ("high", newHigh)));
+                SayFilterWrite(newLow, newHigh, (l, h) => Radios.Lexicon.Get("audio.filter.range", ("low", l), ("high", h)));
             }
             else
             {
@@ -1003,9 +1035,7 @@ public class NativeMenuBar : IDisposable
             }
             else
             {
-                Rig.SetFilter(newLow, newHigh);
-                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.range",
-                    ("low", newLow), ("high", newHigh)));
+                SayFilterWrite(newLow, newHigh, (l, h) => Radios.Lexicon.Get("audio.filter.range", ("low", l), ("high", h)));
             }
         });
         AddWired(parent, "Shift Low Edge Up", () =>
@@ -1015,8 +1045,7 @@ public class NativeMenuBar : IDisposable
             int high = Rig.FilterHigh;
             if (high - newLow >= 10)
             {
-                Rig.SetFilter(newLow, high);
-                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.low_edge", ("low", newLow)));
+                SayFilterWrite(newLow, high, (l, h) => Radios.Lexicon.Get("audio.filter.low_edge", ("low", l)));
             }
             else
             {
@@ -1035,8 +1064,7 @@ public class NativeMenuBar : IDisposable
             }
             else
             {
-                Rig.SetFilter(newLow, Rig.FilterHigh);
-                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.low_edge", ("low", newLow)));
+                SayFilterWrite(newLow, Rig.FilterHigh, (l, h) => Radios.Lexicon.Get("audio.filter.low_edge", ("low", l)));
             }
         });
         AddWired(parent, "Shift High Edge Up", () =>
@@ -1051,8 +1079,7 @@ public class NativeMenuBar : IDisposable
             }
             else
             {
-                Rig.SetFilter(Rig.FilterLow, newHigh);
-                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.high_edge", ("high", newHigh)));
+                SayFilterWrite(Rig.FilterLow, newHigh, (l, h) => Radios.Lexicon.Get("audio.filter.high_edge", ("high", h)));
             }
         });
         AddWired(parent, "Shift High Edge Down", () =>
@@ -1062,8 +1089,7 @@ public class NativeMenuBar : IDisposable
             int newHigh = Rig.FilterHigh - filterStep;
             if (newHigh - low >= 10)
             {
-                Rig.SetFilter(low, newHigh);
-                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.high_edge", ("high", newHigh)));
+                SayFilterWrite(low, newHigh, (l, h) => Radios.Lexicon.Get("audio.filter.high_edge", ("high", h)));
             }
             else
             {
@@ -1089,17 +1115,17 @@ public class NativeMenuBar : IDisposable
             for (int i = 0; i < presets.Count; i++)
             {
                 var preset = presets[i];
-                string label = $"{preset.Name} ({preset.FormatForSpeech()})";
+                string label = preset.FormatForDisplay();
                 if (i == activeIdx)
                     label = $"\u2713 {label}"; // Unicode checkmark prefix
                 AddWired(parent, label, () =>
                 {
                     if (Rig == null) { SpeakNoRadio(); return; }
                     string currentMode = Rig.Mode ?? "USB";
-                    var (mLow, mHigh) = FilterPresets.MirrorForMode(currentMode, preset.Low, preset.High);
-                    Rig.SetFilter(mLow, mHigh);
-                    SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.preset_selected",
-                        ("preset", preset.Name), ("width", preset.FormatForSpeech())));
+                    // The preset's one announcement, as Alt with a bracket says
+                    // it, from what the filter became (#747 rounds four and five).
+                    var rig = Rig;   // the originating rig, from the request (round eleven)
+                    rig.ApplyFilterPreset(preset, currentMode, (said, applied) => SpeakAfterMenuClose(said, stillTrue: FilterStillIs(rig, applied)));
                 });
             }
         }
@@ -1114,6 +1140,21 @@ public class NativeMenuBar : IDisposable
                 Rig.SetFilter(dialog.ResultLow.Value, dialog.ResultHigh.Value);
             }
         });
+    }
+
+    /// <summary>
+    /// Write the receive filter from a Filter menu item and say, after the menu
+    /// closes, what it became: <paramref name="readout"/> of the edges FlexLib
+    /// produced, the whole filter with ", at limit" when the mode held it back,
+    /// or "Filter unchanged at ..." when nothing moved (#747 round six). The items used to say the
+    /// edges they asked for, which FM refuses and other modes clamp.
+    /// </summary>
+    private void SayFilterWrite(int low, int high, Func<int, int, string> readout)
+    {
+        var rig = Rig;   // the originating rig, from the request (round eleven)
+        rig?.SetFilter(low, high, applied => SpeakAfterMenuClose(Radios.FilterReadouts.Said(
+            applied, readout, Radios.FilterReadouts.RangeAtLimit, Radios.ScreenReaderOutput.CurrentVerbosity),
+            stillTrue: FilterStillIs(rig, applied)));
     }
 
     /// <summary>
@@ -1856,12 +1897,12 @@ public class NativeMenuBar : IDisposable
             SpeakAfterMenuClose(Radios.Lexicon.Get("audio.agc.mode", ("newMode", newMode)));
         });
 
-        AddWired(parent, "AGC Threshold Up", () =>
-            AdjustValue("AGC Threshold", () => Rig.AGCThreshold, v => Rig.AGCThreshold = v,
-                FlexBase.AGCThresholdIncrement, FlexBase.AGCThresholdMin, FlexBase.AGCThresholdMax));
-        AddWired(parent, "AGC Threshold Down", () =>
-            AdjustValue("AGC Threshold", () => Rig.AGCThreshold, v => Rig.AGCThreshold = v,
-                -FlexBase.AGCThresholdIncrement, FlexBase.AGCThresholdMin, FlexBase.AGCThresholdMax));
+        // #888: these step the one AGC field, so with AGC off they move the
+        // off gain and say so; otherwise the threshold, as always. Named
+        // "AGC Level", true in both modes (Noel, 2026-11-06, J18; they were
+        // "AGC Threshold Up" and "Down").
+        AddWired(parent, "AGC Level Up", () => AdjustAgcField(FlexBase.AGCThresholdIncrement));
+        AddWired(parent, "AGC Level Down", () => AdjustAgcField(-FlexBase.AGCThresholdIncrement));
 
         AddSep(parent);
 
@@ -1877,12 +1918,34 @@ public class NativeMenuBar : IDisposable
 
         AddSep(parent);
 
-        AddWired(parent, "RF Gain Up", () =>
-            AdjustValue("RF Gain", () => Rig.RFGain, v => Rig.RFGain = v,
-                Rig.RFGainIncrement, Rig.RFGainMin, Rig.RFGainMax));
-        AddWired(parent, "RF Gain Down", () =>
-            AdjustValue("RF Gain", () => Rig.RFGain, v => Rig.RFGain = v,
-                -Rig.RFGainIncrement, Rig.RFGainMin, Rig.RFGainMax));
+        AddWired(parent, "RF Gain Up", () => AdjustRfGain(up: true));
+        AddWired(parent, "RF Gain Down", () => AdjustRfGain(up: false));
+    }
+
+    /// <summary>
+    /// RF Gain Up and Down. They already stepped 0 and 20 correctly on a radio
+    /// that offers only those two (#889); what changes is the answer, which
+    /// uses Home's RF preamp words there ("RF preamp on, 20 dB") instead of a
+    /// bare number. Anything with a real range is answered as before.
+    /// </summary>
+    private void AdjustRfGain(bool up)
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        // One report, and the panadapter it belongs to, for both the decision
+        // and the write (repair round 2).
+        var report = Rig.ActiveRFGainReport;
+        if (FlexBase.IsPreampSwitch(report, out int onDb))
+        {
+            int value = up ? onDb : 0;
+            Rig.SetRFGain(report.Pan, value);
+            SpeakAfterMenuClose(value != 0
+                ? Radios.Lexicon.Get("audio.fields.rf_preamp_on", ("db", onDb))
+                : Radios.Lexicon.Get("audio.fields.rf_preamp_off"));
+            return;
+        }
+        // The active panadapter's range, and its own value and write (repair rounds 1 and 2).
+        AdjustValue("RF Gain", () => report.Pan?.RFGain ?? 0, v => Rig.SetRFGain(report.Pan, v),
+            up ? report.Step : -report.Step, report.Min, report.Max);
     }
 
     /// <summary>
@@ -1984,14 +2047,11 @@ public class NativeMenuBar : IDisposable
 
         // --- TX filter ---
         var txFilterSub = AddSubmenu(parent, "TX &Filter");
-        AddWired(txFilterSub, "Low Edge Up", () =>
-            AdjustValue("TX filter low", () => Rig.TXFilterLow, v => Rig.TXFilterLow = v, TxFilterStep(), 0, 9950));
-        AddWired(txFilterSub, "Low Edge Down", () =>
-            AdjustValue("TX filter low", () => Rig.TXFilterLow, v => Rig.TXFilterLow = v, -TxFilterStep(), 0, 9950));
-        AddWired(txFilterSub, "High Edge Up", () =>
-            AdjustValue("TX filter high", () => Rig.TXFilterHigh, v => Rig.TXFilterHigh = v, TxFilterStep(), 50, 10000));
-        AddWired(txFilterSub, "High Edge Down", () =>
-            AdjustValue("TX filter high", () => Rig.TXFilterHigh, v => Rig.TXFilterHigh = v, -TxFilterStep(), 50, 10000));
+        // #747 round seven: each says what FlexLib set, after the write.
+        AddWired(txFilterSub, "Low Edge Up", () => SayTxFilterWrite(lowEdge: true, TxFilterStep()));
+        AddWired(txFilterSub, "Low Edge Down", () => SayTxFilterWrite(lowEdge: true, -TxFilterStep()));
+        AddWired(txFilterSub, "High Edge Up", () => SayTxFilterWrite(lowEdge: false, TxFilterStep()));
+        AddWired(txFilterSub, "High Edge Down", () => SayTxFilterWrite(lowEdge: false, -TxFilterStep()));
         AddWired(txFilterSub, "Read TX Filter", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
@@ -2081,14 +2141,17 @@ public class NativeMenuBar : IDisposable
             var profilesSub = AddSubmenu(radio, "Profiles on This Radio");
 
             // The three answers, mutually exclusive. Checkmark only; the row
-            // text is never rewritten with a state suffix.
-            AddChecked(profilesSub, "Use My Transmit Audio Here",
+            // text is never rewritten with a state suffix. AddRadioChecked is
+            // what makes that true (#680): AddChecked appended ": On" and
+            // ": Off", so the reader called these three toggles, and a
+            // toggle that will not toggle off.
+            AddRadioChecked(profilesSub, "Use My Transmit Audio Here",
                 () => SetGuestProfileIntent(Radios.ProfileGuestIntent.UseMyTransmitAudio),
                 () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.UseMyTransmitAudio);
-            AddChecked(profilesSub, "Load All My Profiles Here",
+            AddRadioChecked(profilesSub, "Load All My Profiles Here",
                 () => SetGuestProfileIntent(Radios.ProfileGuestIntent.LoadMineAndPutBack),
                 () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.LoadMineAndPutBack);
-            AddChecked(profilesSub, "Leave This Radio's Profiles Alone",
+            AddRadioChecked(profilesSub, "Leave This Radio's Profiles Alone",
                 () => SetGuestProfileIntent(Radios.ProfileGuestIntent.LeaveAlone),
                 () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.LeaveAlone);
 
@@ -3394,7 +3457,7 @@ public class NativeMenuBar : IDisposable
     /// picks up the speech after the menu closes and focus returns to the main window.
     /// </summary>
     private void SpeakAfterMenuClose(string message,
-        Radios.VerbosityLevel level = Radios.VerbosityLevel.Terse)
+        Radios.VerbosityLevel level = Radios.VerbosityLevel.Terse, Func<bool>? stillTrue = null)
     {
         _window.Dispatcher.BeginInvoke(async () =>
         {
@@ -3402,9 +3465,31 @@ public class NativeMenuBar : IDisposable
             // Interrupt: cut off NVDA's window title re-announcement so user hears
             // the actual result (e.g., "Antenna 1") instead of the title first.
             await System.Threading.Tasks.Task.Delay(500);
+            // A sentence about a value that has changed again in those 500 ms
+            // is not said (round eight, Codex F3): the newer change has its
+            // own readout, and this one would now be false.
+            if (stillTrue != null && !stillTrue())
+            {
+                Tracing.TraceLine("SpeakAfterMenuClose: not said, no longer true: " + message, TraceLevel.Info);
+                return;
+            }
             Radios.ScreenReaderOutput.Speak(message, level, interrupt: true);
         });
     }
+
+    /// <summary>
+    /// For <see cref="SpeakAfterMenuClose"/>: whether a receive filter write's
+    /// sentence is still true after the wait, checked against the rig and
+    /// connection the write was made on, not whatever rig the window holds by
+    /// then; a refusal is retired by a later write that ran (#747 round nine,
+    /// <see cref="Radios.FilterWriteFreshness"/>).
+    /// </summary>
+    private Func<bool> FilterStillIs(FlexBase originatingRig, Radios.FilterApplied applied)
+        => Radios.FilterWriteFreshness.StillTrue(originatingRig, applied, transmit: false, windowRig: () => Rig);
+
+    /// <summary>As <see cref="FilterStillIs"/>, for the transmit filter.</summary>
+    private Func<bool> TxFilterStillIs(FlexBase originatingRig, Radios.FilterApplied applied)
+        => Radios.FilterWriteFreshness.StillTrue(originatingRig, applied, transmit: true, windowRig: () => Rig);
 
     /// <summary>
     /// Radio ▸ Radio Rescue — Noel's name, and his reason: the rescue page

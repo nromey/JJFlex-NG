@@ -1,0 +1,1 @@
+- JJ Flexible no longer sends a radio its own name or callsign when it reads a SmartLink radio list. A list that was a little out of date could put an old name back into the radio's memory, including a radio that isn't yours. The radio's name and callsign now change only when you change them.

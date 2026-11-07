@@ -195,6 +195,10 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
         Closed += (s, e) =>
         {
+            // Nothing in flight says anything once the Workshop has closed
+            // (#747 round nine, Codex F3).
+            _workshopOpenForTxFilter = false;
+            _workshopTxFilter.Invalidate();
             // The check, the test tone, the reference recording and take
             // playback lived here until #835 and each had its teardown in this
             // handler; they live in Check your audio now, whose own Closed
@@ -521,6 +525,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     {
         var oldRig = _rig;
         if (!ReferenceEquals(oldRig, rig)) BenchToolsRigChanging(rig);
+        _workshopTxFilter.Invalidate();   // nothing in flight answers the new rig (#747 round nine)
         _rig = rig;
         UpdateRadioControlAvailability();
         if (rig != null)

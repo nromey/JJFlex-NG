@@ -1984,8 +1984,12 @@ namespace Radios.Tests
 
         private static int ClampSafe(int v, int min, int max) => max < min ? min : Math.Clamp(v, min, max);
 
-        private static string Report(string key, int low, int high)
-            => Lexicon.Get(key, ("low", low), ("high", high), ("widthKHz", ((high - low) / 1000.0).ToString("F1")));
+        // Mirrors KeyCommands.FilterReport: the width comes from the shared
+        // formatter with its unit attached, at the verbosity in force (#747).
+        // The shipped host reads ScreenReaderOutput.CurrentVerbosity, which
+        // is what the harness's Verbosity stands for.
+        private static string Report(string key, int low, int high, VerbosityLevel level)
+            => Lexicon.Get(key, ("low", low), ("high", high), ("width", HertzSpeech.ReadoutWidth(high - low, HertzUnitStyle.KiloLetter, level)));
 
         private static string AtLimit(string what) => Lexicon.Get("audio.filter_layer.at_limit", ("what", what));
 
@@ -2071,8 +2075,8 @@ namespace Radios.Tests
             rx.LowEdge = v => Lexicon.Get("audio.filter.low_edge", ("low", v));
             rx.HighEdge = v => Lexicon.Get("audio.filter.high_edge", ("high", v));
             rx.Range = () => Lexicon.Get("audio.filter.range", ("low", rx.Bank.Low), ("high", rx.Bank.High));
-            rx.Width = () => Lexicon.Get("audio.filter_layer.width", ("width", rx.Bank.Width), ("low", rx.Bank.Low), ("high", rx.Bank.High));
-            rx.Rep = () => Report("audio.filter.rx_report", rx.Bank.Low, rx.Bank.High);
+            rx.Width = () => Lexicon.Get("audio.filter_layer.width", h.Verbosity, ("width", HertzSpeech.ReadoutWidth(rx.Bank.Width, HertzUnitStyle.KiloLetter, h.Verbosity)), ("low", rx.Bank.Low), ("high", rx.Bank.High));
+            rx.Rep = () => Report("audio.filter.rx_report", rx.Bank.Low, rx.Bank.High, h.Verbosity);
 
             var tx = new Side
             {
@@ -2093,8 +2097,8 @@ namespace Radios.Tests
             tx.LowEdge = v => Lexicon.Get("audio.tx.filter_low", ("value", v));
             tx.HighEdge = v => Lexicon.Get("audio.tx.filter_high", ("value", v));
             tx.Range = () => Lexicon.Get("audio.tx_filter.range", ("low", tx.Bank.Low), ("high", tx.Bank.High));
-            tx.Width = () => Lexicon.Get("audio.filter_layer.tx_width", ("width", tx.Bank.Width), ("low", tx.Bank.Low), ("high", tx.Bank.High));
-            tx.Rep = () => Report("audio.filter.tx_report", tx.Bank.Low, tx.Bank.High);
+            tx.Width = () => Lexicon.Get("audio.filter_layer.tx_width", h.Verbosity, ("width", HertzSpeech.ReadoutWidth(tx.Bank.Width, HertzUnitStyle.KiloLetter, h.Verbosity)), ("low", tx.Bank.Low), ("high", tx.Bank.High));
+            tx.Rep = () => Report("audio.filter.tx_report", tx.Bank.Low, tx.Bank.High, h.Verbosity);
 
             var def = new ValueSubLayerDefinition
             {
@@ -2155,9 +2159,14 @@ namespace Radios.Tests
             // entry used to carry 260 characters of grammar lesson on every
             // press, which is the recitation #524 was raised about wearing a
             // different hat.
+            // And at Chatty the width is whole hertz with its label (#747,
+            // ruled 2026-11-05: "k on terse and 00 on chatty", and 2026-11-06
+            // J15: "filter 100 to 2850, width 2750 hertz"); this pinned "2.7
+            // kilohertz" here until the first, "2700 hertz" until J13, and
+            // "2700 hertz wide" until J15.
             var (h, _) = OpenFilter(VerbosityLevel.Chatty);
             Assert.Equal(
-                "Filter layer. RX filter 100 to 2800, 2.7 kilohertz. Press H for a list of keys, Escape to revert changes, Enter to accept.",
+                "Filter layer. RX filter 100 to 2800, width 2700 hertz. Press H for a list of keys, Escape to revert changes, Enter to accept.",
                 Assert.Single(h.Said));
             Assert.Equal("receive", h.Layer.CurrentGroup);
             Assert.Null(h.Layer.CurrentTarget);
@@ -2195,7 +2204,7 @@ namespace Radios.Tests
         public void Filter_entry_at_terse_is_the_report()
         {
             var (h, _) = OpenFilter(VerbosityLevel.Terse);
-            Assert.Equal("Filter layer. RX filter 100 to 2800, 2.7 kilohertz.", Assert.Single(h.Said));
+            Assert.Equal("Filter layer. RX filter 100 to 2800, 2.7 k.", Assert.Single(h.Said));
         }
 
         [Fact]
@@ -2209,7 +2218,7 @@ namespace Radios.Tests
             Assert.Equal(ValueLayerKeyResult.Closed, h.Layer.HandleKey(Keys.Return));
             Assert.Equal(new[]
             {
-                "Filter layer. RX filter 100 to 2800, 2.7 kilohertz.",
+                "Filter layer. RX filter 100 to 2800, 2.7 k.",
                 "Low edge 50",
                 "Filter layer closed",
             }, h.Transcript);
@@ -2257,7 +2266,7 @@ namespace Radios.Tests
             var (h, rig) = OpenFilter(VerbosityLevel.Terse);
             h.Layer.HandleKey(Keys.Up | Keys.Control);
             Assert.Equal((50, 2850), (rig.RxLow, rig.RxHigh));
-            Assert.Equal("Width 2800, 50 to 2850", h.LastMove);
+            Assert.Equal("Width 2.8 k, 50 to 2850", h.LastMove);
             h.Layer.HandleKey(Keys.Down | Keys.Control);
             Assert.Equal((100, 2800), (rig.RxLow, rig.RxHigh));
         }
@@ -2280,7 +2289,7 @@ namespace Radios.Tests
         {
             var (h, rig) = OpenFilter(VerbosityLevel.Terse);
             Press(h, rig, Keys.S, ShiftSide.None);
-            Assert.Equal("RX filter 100 to 2800, 2.7 kilohertz", h.LastAnswer);
+            Assert.Equal("RX filter 100 to 2800, 2.7 k", h.LastAnswer);
             Press(h, rig, Keys.S | Keys.Shift, ShiftSide.Left);
             Assert.Equal("Low edge 100", h.LastAnswer);
             Press(h, rig, Keys.S | Keys.Shift, ShiftSide.Right);
@@ -2322,7 +2331,7 @@ namespace Radios.Tests
             var (h, rig) = OpenFilter(VerbosityLevel.Terse);
             h.Layer.HandleKey(Keys.T);
             Assert.Equal("transmit", h.Layer.CurrentGroup);
-            Assert.Equal("TX filter 300 to 2700, 2.4 kilohertz", h.LastSaid);
+            Assert.Equal("TX filter 300 to 2700, 2.4 k", h.LastSaid);
 
             Press(h, rig, Keys.Left | Keys.Shift, ShiftSide.Left);
             Assert.Equal((250, 2700), (rig.TxLow, rig.TxHigh));
@@ -2340,7 +2349,7 @@ namespace Radios.Tests
 
             h.Layer.HandleKey(Keys.R);
             Assert.Equal("receive", h.Layer.CurrentGroup);
-            Assert.Equal("RX filter 100 to 2800, 2.7 kilohertz", h.LastSaid);
+            Assert.Equal("RX filter 100 to 2800, 2.7 k", h.LastSaid);
         }
 
         [Fact]
@@ -2389,7 +2398,7 @@ namespace Radios.Tests
             var (h, _) = OpenFilter(VerbosityLevel.Terse);
             h.Layer.HandleKey(Keys.T);
             h.Layer.HandleKey(k);
-            Assert.Equal("HELP: Filter layer, TX filter 300 to 2700, 2.4 kilohertz", h.LastSaid);
+            Assert.Equal("HELP: Filter layer, TX filter 300 to 2700, 2.4 k", h.LastSaid);
         }
 
         [Fact]
@@ -2448,7 +2457,7 @@ namespace Radios.Tests
             var (h, rig) = OpenFilter(VerbosityLevel.Terse, rxLow: 0, rxHigh: 2700);
             h.Layer.HandleKey(Keys.Up | Keys.Control);   // width 2700 + 2 × 50
             Assert.Equal((0, 2800), (rig.RxLow, rig.RxHigh));
-            Assert.Equal("Width 2800, 0 to 2800", h.LastMove);
+            Assert.Equal("Width 2.8 k, 0 to 2800", h.LastMove);
         }
 
         [Fact]
@@ -2791,7 +2800,9 @@ namespace Radios.Tests
             // H and Shift+slash go to Track K's surfaces — the list and the
             // explorer — and the fallback sentence is K's too. The
             // duplicate builder Track I wrote is gone (#524).
-            Assert.Contains("KeyLayerHelp.Present(context)", source);
+            // Present takes the layer's gating since #741, so the list window
+            // lifts the keys this radio cannot use as the spoken form does.
+            Assert.Contains("KeyLayerHelp.Present(context, lifted)", source);
             Assert.Contains("Dialogs.KeyExplorerDialog.Open(context)", source);
             Assert.Contains("KeyLayerHelp.SpokenList(KeyInventory.AudioLayerContext)", source);
             Assert.Contains("KeyLayerHelp.SpokenList(KeyInventory.FilterLayerContext)", source);

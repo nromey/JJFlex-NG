@@ -33,6 +33,12 @@ namespace JJFlexWpf.Dialogs
         public string HelpTitle { get; set; } = "";
 
         /// <summary>
+        /// A sentence shown as the list's LAST row, after the keys: where a
+        /// layer names the keys this radio cannot use (#741). Null, no row.
+        /// </summary>
+        public string? ClosingLine { get; set; }
+
+        /// <summary>
         /// An optional second button beside Close — the door from a narrow
         /// surface to a wider one ("Explore the JJ key" from a layer's list).
         /// Underscore marks the access key. No label, no button.
@@ -69,6 +75,9 @@ namespace JJFlexWpf.Dialogs
                         string item = $"{key,-16} {desc}";
                         HelpListBox.Items.Add(item);
                     }
+
+                    if (!string.IsNullOrWhiteSpace(ClosingLine))
+                        HelpListBox.Items.Add(ClosingLine);
                 }
                 else if (!string.IsNullOrEmpty(HelpText))
                 {

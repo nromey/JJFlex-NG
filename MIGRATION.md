@@ -302,6 +302,54 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     and the behaviour test beside it. (Numbered 23 at the merge of 2026-11-06: items 21 and 22 were
     added on the batch branch the same week.)
 
+24. **Identity from a radio list, never a command (2026-11-06)**: keep the
+    comment-marked JJFlex patch in `FlexLib_API/FlexLib/Radio.cs`, the public
+    `UpdateIdentityFromList(nickname, callsign)` beside the `Nickname` setter.
+    The stock `Nickname` and `Callsign` setters send `radio name` and
+    `radio callsign`, which the radio keeps in firmware, and FlexLib's
+    `SendCommand` asks only whether the TRANSPORT is up. `FlexBase`'s SmartLink
+    list merge (`UpdateRadioDiscoveryFields`) used those setters, so a list that
+    lagged a rename could write the old name back into somebody's radio. The
+    merge now leaves a connected radio's identity to the radio's own status and
+    updates any other copy through this method, which sets the fields, raises
+    `PropertyChanged`, and sends nothing. **The vendor's own LAN discovery
+    refresh had the same defect and is patched the same way** (repair round 1,
+    2026-11-06): `FlexLib_API/FlexLib/API.cs` `RefreshRadio`, which runs on every
+    discovery packet for a radio already in the list, used the sending setters
+    in both of its branches; both now leave a connected radio's identity to its
+    status and otherwise call `UpdateIdentityFromList`, comment-marked
+    `JJFlex patch`. `Discovery.cs` and `WanServer.cs` still use the setters, but
+    only on a `Radio` they have just constructed, before the new object is
+    published or connected (it has its own disconnected adapter, which sends
+    nothing), so nothing can be sent there; re-check that when merging a new
+    drop. **Repair round 2 (2026-11-06) makes the copy atomic against the
+    radio's own word.** `UpdateIdentityFromList` refuses while the radio is
+    flagged connected or its command transport is up, and does its check and
+    both writes under a private `_identityGate`, raising its notifications only
+    after; the radio's identity reports (`ParseRadioStatus` callsign and
+    nickname, `UpdateInfo` callsign and name) and the `Connected` setter take
+    the same gate. Without it a copy could write the name, a connect and the
+    radio's own report could land during its notification, and the copy then
+    wrote the stale callsign over the report. **Repair round 3 (2026-11-06)
+    patches the two sending setters themselves.** `Callsign` and `Nickname`
+    assigned the sanitized value to the shared field and then built the command
+    by reading that field AGAIN, so a report received in between was put on the
+    wire as if the operator had typed it. Each now does its check and write
+    under the same gate and builds the command from its own sanitized value;
+    the command and the notification go out after the gate is released. The
+    setters also carry a test seam, `AfterIdentityCached`, null in the product,
+    invoked between the write and the command. Keep all eight gated sites on a
+    new drop: the list copy, the two parser cases in `ParseRadioStatus`, the two
+    in `UpdateInfo`, the `Connected` setter, and both setters. Pinned by
+    `Radios.Tests/DiscoveryMergeWritesTests` and `Radios.Tests/IdentityGateTests`
+    (a contention row per site, the wire argument under a landed report, and a
+    source pin that nothing is raised or sent inside the gate). Numbered 24
+    because the 2026-11-02 junk box carries items 21 (the write-time gate), 22
+    (forced writes) and 23 (slice frequency report arrival), and its tests pin
+    its 23 literally; this entry and every comment citing it were renumbered
+    from 23 before the two batches merged. Keep it until a FlexLib release
+    offers a non-sending way to update a radio's identity.
+
 25. **Command write order (2026-11-06, the 2026-11-02 junk box batch; Codex's
     #596 B4)**: keep the comment-marked JJFlex patches ("write order (MIGRATION.md
     item 25)") in `FlexLib_API/FlexLib/CommandConnection.cs` (`CommandWritePin.AtTheBytes`
@@ -407,6 +455,23 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
       that uses the private `_freq` and `RaisePropertyChanged`.
     - **When it could be removed.** If the radio starts reporting a tune to the
       client that sent it, or the app goes back to the `Freq` setter.
+
+27. **Transmit filter setters send what they computed (2026-11-06)**: keep the
+    two comment-marked JJFlex patches in `FlexLib_API/FlexLib/Radio.cs`, in the
+    `TXFilterLow` and `TXFilterHigh` setters. Each works out a clamped edge,
+    kept at least 50 Hz from the other edge and inside 0 to 10000 Hz, and stock
+    code then passed the UNCLAMPED `value` to `_SetTXFilter`, which stored and
+    sent it. So the 50 Hz minimum was never enforced, and a low edge at or
+    above the high edge was dropped by `_SetTXFilter`'s own low-below-high
+    check, silently, while Home's field, the Audio Workshop and the Radio
+    menu's TX filter items said the new value. The patch passes the computed
+    `new_cut` instead. FlexLib's own transmit rules are unchanged; no limit
+    was added. Pinned by `Radios.Tests/TxFilterWriteReadoutTests` (a gap under
+    50 Hz, a low edge above the high, a high edge under the low plus 50, the
+    in-rules control, and a source pin on both setters). Numbered 27 because
+    the 2026-11-02 junk box carries items 21, 22, 23, 25 and 26 and this batch
+    carries 24, so 27 cannot collide when the two batches merge. Remove it if
+    a FlexLib release sends the clamped edge itself.
 
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 

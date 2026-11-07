@@ -122,49 +122,68 @@ namespace Radios.Tests
 
         private static Radio WanRadio(string serial) => SmartLinkRegistrationReplayTests.WanRadio(serial);
 
-        private static readonly FieldInfo? RadiosField =
-            typeof(FlexBase).GetField("radios", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo? MyRadioListField =
             typeof(FlexBase).GetField("myRadioList", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly MethodInfo? ForgetWanRadiosForAccount =
             typeof(FlexBase).GetMethod("ForgetWanRadiosForAccount", BindingFlags.NonPublic | BindingFlags.Static);
-        private static readonly FieldInfo? LatchField =
-            typeof(FlexBase).GetField("wanListReceived", BindingFlags.NonPublic | BindingFlags.Instance);
-        private static readonly FieldInfo? ServerListThisCallField =
-            typeof(FlexBase).GetField("_serverListThisCall", BindingFlags.NonPublic | BindingFlags.Instance);
 
-        /// <summary>The raw latch field, read without the intake's lock —
-        /// what an unguarded reader would see.</summary>
-        private static bool LatchFieldOf(FlexBase rig)
+        // The rig-wide latch (wanListReceived, radios, _serverListThisCall)
+        // was removed in the 2026-11-06 integration pass: no product code read
+        // it after #713's per-call latches. These tests now pin the per-call
+        // latch, which is what a connect actually waits on, reached the way a
+        // call opens one: under the intake's lock, with the session's list as
+        // the call's start.
+        private static readonly Type? LatchType =
+            typeof(FlexBase).GetNestedType("ConnectLatch", BindingFlags.NonPublic);
+        private static readonly FieldInfo? OpenLatchesField =
+            typeof(FlexBase).GetField("_openLatches", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo? IntakeLockField =
+            typeof(FlexBase).GetField("_wanIntakeLock", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly MethodInfo? LatchReceivedMethod =
+            typeof(FlexBase).GetMethod("LatchReceived", BindingFlags.NonPublic | BindingFlags.Instance);
+
+        private static object IntakeLockOf(FlexBase rig)
         {
-            Assert.True(LatchField != null, "FlexBase.wanListReceived is not where this test reads it.");
-            return (bool)LatchField!.GetValue(rig)!;
+            Assert.True(IntakeLockField != null, "FlexBase._wanIntakeLock is not where this test reads it.");
+            return IntakeLockField!.GetValue(null)!;
         }
 
-        private static bool ServerSpokeThisCall(FlexBase rig)
+        /// <summary>Open a call's latch as ConnectToSmartLink does: under the intake's lock, starting from the session's list.</summary>
+        private static object BeginACall(FlexBase rig, WanSessionOwner owner)
         {
-            Assert.True(ServerListThisCallField != null, "FlexBase._serverListThisCall is not where this test reads it.");
-            return ServerListThisCallField!.GetValue(rig) != null;
+            Assert.True(LatchType != null && OpenLatchesField != null && LatchReceivedMethod != null,
+                "The per-call latch is not where this test reaches it, so every assertion on it would be vacuous.");
+            var latch = Activator.CreateInstance(LatchType!, new object[] { Account })!;
+            lock (IntakeLockOf(rig))
+            {
+                var start = owner.RadioListSnapshot;
+                LatchType!.GetField("StartSessionId")!.SetValue(latch, start.SessionId ?? "");
+                LatchType.GetField("StartRevision")!.SetValue(latch, start.ListRevision);
+                ((System.Collections.IList)OpenLatchesField!.GetValue(rig)!).Add(latch);
+            }
+            return latch;
         }
 
-        /// <summary>What ConnectToSmartLink does when a call begins: the
-        /// latch and the server-spoke capture are cleared, so the next list
-        /// is the one this call is waiting for.</summary>
-        private static void BeginACall(FlexBase rig)
+        /// <summary>The call's latch field, read without the intake's lock: what an unguarded reader would see.</summary>
+        private static bool LatchFieldOf(object call) => (bool)LatchType!.GetField("Received")!.GetValue(call)!;
+
+        /// <summary>The call's latch, read the way the connect reads it while waiting: never inside an intake.</summary>
+        private static bool CallLatched(FlexBase rig, object call) => (bool)LatchReceivedMethod!.Invoke(rig, new[] { call })!;
+
+        private static bool ServerSpokeThisCall(object call) => LatchType!.GetField("ServerPush")!.GetValue(call) != null;
+
+        /// <summary>The call's list, raw.</summary>
+        private static List<string> CallRadiosRaw(object call)
+            => ((List<Radio>?)LatchType!.GetField("Radios")!.GetValue(call))?.Select(r => r.Serial).ToList() ?? new List<string>();
+
+        /// <summary>The call's list, read once under the intake's lock, as the connect reads it after its wait.</summary>
+        private static List<string> CallRadiosSettled(FlexBase rig, object call)
         {
-            Assert.True(LatchField != null && ServerListThisCallField != null,
-                "The connect flow's latch fields are not where this test clears them.");
-            LatchField!.SetValue(rig, false);
-            ServerListThisCallField!.SetValue(rig, null);
+            lock (IntakeLockOf(rig)) return CallRadiosRaw(call);
         }
 
-        /// <summary>The serials of the list the connect flow reads downstream.</summary>
-        private static List<string> RadiosOf(FlexBase rig)
-        {
-            Assert.True(RadiosField != null, "FlexBase.radios is not where this test reads it.");
-            var list = (List<Radio>?)RadiosField!.GetValue(rig);
-            return list == null ? new List<string>() : list.Select(r => r.Serial).ToList();
-        }
+        /// <summary>The serials this rig's intake has taken: its WAN rows.</summary>
+        private static List<string> RadiosOf(FlexBase rig) => WanSerialsInMyRadioList(rig);
 
         private static List<string> WanSerialsInMyRadioList(FlexBase rig)
         {
@@ -667,8 +686,6 @@ namespace Radios.Tests
                 Assert.Equal(0, replay.Result);
                 Assert.Empty(WanSerialsInMyRadioList(rig));
                 Assert.Empty(RadiosOf(rig));
-                Assert.False(rig.ConnectListLatched(),
-                    "A replayed list that stopped being current between its snapshot and the intake set the connect latch (#619, Sol's review of L6).");
             }
             finally
             {
@@ -703,7 +720,7 @@ namespace Radios.Tests
                 rig.EngageSmartLinkPresence();
                 ConnectAndList(owner, wan, Listed);
                 Assert.Equal(new[] { Listed }, RadiosOf(rig));
-                BeginACall(rig);
+                var call = BeginACall(rig, owner);
 
                 var checkedCurrent = new ManualResetEventSlim();
                 rig.WanIntakeStageReached = stage =>
@@ -724,16 +741,17 @@ namespace Radios.Tests
                 release.Set();
                 Assert.True(late.Wait(5000), "the parked push never finished");
 
-                Assert.False(LatchFieldOf(rig),
+                Assert.False(LatchFieldOf(call),
                     "A push whose connection was replaced after its currency check set the connect latch (#619, Sol's review of L6).");
-                Assert.False(ServerSpokeThisCall(rig));
-                Assert.Equal(new[] { Listed }, RadiosOf(rig));
+                Assert.False(ServerSpokeThisCall(call));
+                Assert.Empty(CallRadiosRaw(call));
                 Assert.Equal(new[] { Listed }, WanSerialsInMyRadioList(rig));
 
                 // Control: connection 2's own list sets it.
                 wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Third) });
-                Assert.True(rig.ConnectListLatched());
-                Assert.True(ServerSpokeThisCall(rig));
+                Assert.True(CallLatched(rig, call));
+                Assert.True(ServerSpokeThisCall(call));
+                Assert.Equal(new[] { Third }, CallRadiosSettled(rig, call));
                 Assert.Equal(new[] { Third }, RadiosOf(rig));
             }
             finally
@@ -765,7 +783,8 @@ namespace Radios.Tests
                 var rig = NewRig();
                 rig.EngageSmartLinkPresence();
                 ConnectAndList(owner, wan, Listed);
-                BeginACall(rig);
+                WaitUntil(() => RadiosOf(rig).Count == 1, "the first list was never taken");
+                var call = BeginACall(rig, owner);
 
                 var written = new ManualResetEventSlim();
                 rig.WanIntakeStageReached = stage =>
@@ -781,13 +800,14 @@ namespace Radios.Tests
 
                 // The trap, stated: the field is set, and it is not yet known
                 // to be kept.
-                Assert.True(LatchFieldOf(rig));
-                Assert.False(rig.ConnectListLatched(),
+                Assert.True(LatchFieldOf(call));
+                Assert.False(CallLatched(rig, call),
                     "The connect flow read a latch the intake had written and not yet re-validated (#619).");
 
                 release.Set();
                 Assert.True(push.Wait(5000), "the parked push never finished");
-                Assert.True(rig.ConnectListLatched());
+                Assert.True(CallLatched(rig, call));
+                Assert.Equal(new[] { Other }, CallRadiosSettled(rig, call));
                 Assert.Equal(new[] { Other }, RadiosOf(rig));
             }
             finally
@@ -1003,14 +1023,14 @@ namespace Radios.Tests
                 rig.EngageSmartLinkPresence();
                 ConnectAndList(owner, wan, Listed);
                 Assert.Equal(new[] { Listed }, RadiosOf(rig));
-                BeginACall(rig);
+                var call = BeginACall(rig, owner);
 
                 var late = ParkPush(rig, wan, 1, Other, FlexBase.WanIntakeStage.LatchWritten, release);
 
-                // The trap, stated: the field holds the list the intake has
-                // not yet decided to keep.
-                Assert.Equal(new[] { Other }, RadiosOf(rig));
-                var read = Task.Run(() => rig.ConnectListSettled());
+                // The trap, stated: the call's field holds the list the
+                // intake has not yet decided to keep.
+                Assert.Equal(new[] { Other }, CallRadiosRaw(call));
+                var read = Task.Run(() => CallRadiosSettled(rig, call));
                 Assert.False(read.Wait(300),
                     "The connect flow's read returned while the intake still held the list, so it read a list the intake could take back (#619, Sol's review of L7).");
 
@@ -1021,7 +1041,8 @@ namespace Radios.Tests
                 release.Set();
                 Assert.True(late.Wait(5000), "the parked push never finished");
                 Assert.True(read.Wait(5000), "the connect flow's read never completed once the intake finished");
-                Assert.Equal(new[] { Listed }, read.Result.Select(r => r.Serial).ToList());
+                Assert.Empty(read.Result);                         // the call's list as it was: none
+                Assert.False(LatchFieldOf(call));
                 Assert.Equal(new[] { Listed }, RadiosOf(rig));
 
                 // Control: with nothing changed, a settled list is read.
@@ -1029,7 +1050,7 @@ namespace Radios.Tests
                 WaitUntil(() => wan.ConnectionGeneration == 2 && owner.IsConnected,
                     "the session never reconnected");
                 wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Third) });
-                Assert.Equal(new[] { Third }, rig.ConnectListSettled().Select(r => r.Serial).ToList());
+                Assert.Equal(new[] { Third }, CallRadiosSettled(rig, call));
             }
             finally
             {

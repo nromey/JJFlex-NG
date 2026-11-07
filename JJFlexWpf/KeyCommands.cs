@@ -1163,11 +1163,8 @@ public class KeyCommands
         var rig = _context.GetRigControl();
         if (rig == null) return;
         int newLow = Math.Max(0, rig.TXFilterLow - FreqOutHandlers.TxFilterStep(rig));
-        rig.TXFilterLow = newLow;
         EarconPlayer.FilterEdgeMoveTone(true);
-        int width = rig.TXFilterHigh - newLow;
-        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tx_filter.low_moved",
-            ("newLow", newLow), ("width", width)), Radios.VerbosityLevel.Terse);
+        rig.SetTXFilter(newLow, null, SayTxLowMoved);
     }
 
     private void TXFilterLowUpHandler()
@@ -1184,10 +1181,7 @@ public class KeyCommands
         {
             EarconPlayer.FilterEdgeMoveTone(true);
         }
-        rig.TXFilterLow = newLow;
-        int width = rig.TXFilterHigh - newLow;
-        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tx_filter.low_moved",
-            ("newLow", newLow), ("width", width)), Radios.VerbosityLevel.Terse);
+        rig.SetTXFilter(newLow, null, SayTxLowMoved);
     }
 
     private void TXFilterHighDownHandler()
@@ -1204,10 +1198,7 @@ public class KeyCommands
         {
             EarconPlayer.FilterEdgeMoveTone(false);
         }
-        rig.TXFilterHigh = newHigh;
-        int width = newHigh - rig.TXFilterLow;
-        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tx_filter.high_moved",
-            ("newHigh", newHigh), ("width", width)), Radios.VerbosityLevel.Terse);
+        rig.SetTXFilter(null, newHigh, SayTxHighMoved);
     }
 
     private void TXFilterHighUpHandler()
@@ -1215,12 +1206,21 @@ public class KeyCommands
         var rig = _context.GetRigControl();
         if (rig == null) return;
         int newHigh = Math.Min(10000, rig.TXFilterHigh + FreqOutHandlers.TxFilterStep(rig));
-        rig.TXFilterHigh = newHigh;
         EarconPlayer.FilterEdgeMoveTone(false);
-        int width = newHigh - rig.TXFilterLow;
-        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tx_filter.high_moved",
-            ("newHigh", newHigh), ("width", width)), Radios.VerbosityLevel.Terse);
+        rig.SetTXFilter(null, newHigh, SayTxHighMoved);
     }
+
+    // #747 round seven: the four chords say what FlexLib set, after the
+    // write, in their own words when it took the step as asked.
+    private static void SayTxLowMoved(Radios.FilterApplied applied)
+        => Radios.ScreenReaderOutput.Speak(Radios.FilterReadouts.Tx(applied,
+            (l, h) => Radios.Lexicon.Get("audio.tx_filter.low_moved", ("newLow", l), ("width", h - l)),
+            Radios.ScreenReaderOutput.CurrentVerbosity), Radios.VerbosityLevel.Terse);
+
+    private static void SayTxHighMoved(Radios.FilterApplied applied)
+        => Radios.ScreenReaderOutput.Speak(Radios.FilterReadouts.Tx(applied,
+            (l, h) => Radios.Lexicon.Get("audio.tx_filter.high_moved", ("newHigh", h), ("width", h - l)),
+            Radios.ScreenReaderOutput.CurrentVerbosity), Radios.VerbosityLevel.Terse);
 
     private void SpeakTXFilterHandler() => SpeakTXFilterWidth();
 
@@ -5228,8 +5228,9 @@ public class KeyCommands
     //  out loud because a control that silently refuses to move is
     //  indistinguishable from a broken one.
     //
-    //  Not removed: the bracket chords and the double-tap edge grab. Don
-    //  has learned them and they work; this is a second door. Not built:
+    //  Not removed: the bracket chords and the edge grab (Alt+Shift with a
+    //  bracket since #748, which retired the double-tap). Operators have
+    //  learned them and they work; this is a second door. Not built:
     //  transmit presets — FilterPresets is driven from the slice's receive
     //  filter and has nothing to offer the transmit side (reported, not
     //  invented).
@@ -5241,18 +5242,6 @@ public class KeyCommands
     /// puts back. Seeded from the radio once, at entry (and again for the
     /// receive side after a slice jump), then stepped locally.
     /// </summary>
-    private sealed class FilterBank
-    {
-        public int Low, High, EntryLow, EntryHigh;
-        public bool Touched;
-        public int Width => High - Low;
-        public void Seed(int low, int high)
-        {
-            Low = EntryLow = low;
-            High = EntryHigh = high;
-            Touched = false;
-        }
-    }
 
     /// <summary>Everything one side (receive or transmit) contributes.</summary>
     private sealed class FilterSide
@@ -5260,16 +5249,33 @@ public class KeyCommands
         public string Group = "";
         public string IdPrefix = "";
         public bool PerSlice;
-        public FilterBank Bank = new FilterBank();
+        // The newest request, and completions adopted only when they answer it
+        // (Radios.FilterRequestBank, round eight): an older completion can no
+        // longer roll a held key back.
+        public Radios.FilterRequestBank Bank = new Radios.FilterRequestBank();
         public Func<int> LowMin = () => 0;
         public Func<int> HighMax = () => 0;
         public int MinWidth = 50;
         public Func<int> StepNow = () => 50;
         public Action<int, int> Apply = (l, h) => { };
+        /// <summary>
+        /// Optional: write a pair and say the result once the write has run,
+        /// from the edges it produced (#747 round six). Null keeps the engine's
+        /// own readout of the requested edges, which is right only where the
+        /// layer's rails are the radio's own (the transmit side).
+        /// </summary>
+        public Action<int, int, Func<int, int, string>, Action<string>>? ApplyThenSay;
         public Func<int, string> LowEdge = v => v.ToString();
         public Func<int, string> HighEdge = v => v.ToString();
         public Func<string> Range = () => "";
         public Func<string> Width = () => "";
+        /// <summary>
+        /// The range and width readouts of GIVEN edges (round eight): a write's
+        /// completion describes the edges IT produced, never the bank, which may
+        /// already hold a newer request.
+        /// </summary>
+        public Func<int, int, string> RangeAt = (l, h) => "";
+        public Func<int, int, string> WidthAt = (l, h) => "";
         public Func<string> Report = () => "";
     }
 
@@ -5331,6 +5337,7 @@ public class KeyCommands
             Read = () => s.Bank.Low,
             Constrain = v => ClampSafe(v, s.LowMin(), s.Bank.High - s.MinWidth),
             Apply = v => s.Apply(v, s.Bank.High),
+            ApplyThenSay = s.ApplyThenSay == null ? null : (v, say) => s.ApplyThenSay(v, s.Bank.High, (l, _) => s.LowEdge(l), say),
             Number = s.LowEdge,
             DescribeSelected = s.LowEdge,
             DescribeRail = v => AtLimit(s.LowEdge(v)),
@@ -5349,6 +5356,7 @@ public class KeyCommands
             Read = () => s.Bank.High,
             Constrain = v => ClampSafe(v, s.Bank.Low + s.MinWidth, s.HighMax()),
             Apply = v => s.Apply(s.Bank.Low, v),
+            ApplyThenSay = s.ApplyThenSay == null ? null : (v, say) => s.ApplyThenSay(s.Bank.Low, v, (_, h) => s.HighEdge(h), say),
             Number = s.HighEdge,
             DescribeSelected = s.HighEdge,
             DescribeRail = v => AtLimit(s.HighEdge(v)),
@@ -5370,6 +5378,7 @@ public class KeyCommands
             Read = () => s.Bank.Low,
             Constrain = v => ClampSafe(v, s.LowMin(), s.HighMax() - s.Bank.Width),
             Apply = v => s.Apply(v, v + s.Bank.Width),
+            ApplyThenSay = s.ApplyThenSay == null ? null : (v, say) => s.ApplyThenSay(v, v + s.Bank.Width, s.RangeAt, say),
             Number = _ => s.Range(),
             DescribeSelected = _ => s.Report(),
             DescribeRail = _ => AtLimit(s.Range()),
@@ -5389,6 +5398,7 @@ public class KeyCommands
             Read = () => s.Bank.Width,
             Constrain = v => { var (l, h) = EdgesForWidth(s, v); return h - l; },
             Apply = v => { var (l, h) = EdgesForWidth(s, v); s.Apply(l, h); },
+            ApplyThenSay = s.ApplyThenSay == null ? null : (v, say) => { var (l, h) = EdgesForWidth(s, v); s.ApplyThenSay(l, h, s.WidthAt, say); },
             Number = _ => s.Width(),
             DescribeSelected = _ => s.Width(),
             DescribeRail = _ => AtLimit(s.Width()),
@@ -5401,7 +5411,7 @@ public class KeyCommands
     /// value, so the edge that opens the gap goes first; an edge that has
     /// not moved is not written.
     /// </summary>
-    private static void ApplyTxFilter(Radios.FlexBase rig, FilterBank tx, int low, int high)
+    private static void ApplyTxFilter(Radios.FlexBase rig, Radios.FilterRequestBank tx, int low, int high)
     {
         bool lowMoves = low != tx.Low, highMoves = high != tx.High;
         if (low < tx.Low)
@@ -5414,19 +5424,19 @@ public class KeyCommands
             if (highMoves) rig.TXFilterHigh = high;
             if (lowMoves) rig.TXFilterLow = low;
         }
-        tx.Low = low;
-        tx.High = high;
-        tx.Touched = true;
+        tx.Set(low, high);
     }
 
     /// <summary>
-    /// The filter report — low, high, width in kilohertz — in the one
-    /// wording both the layer and the Ctrl+J readouts use, so two doors
-    /// into the same fact say the same sentence.
+    /// The filter report — low, high and width — in the one wording both
+    /// the layer and the Ctrl+J readouts use, so two doors into the same
+    /// fact say the same sentence. The width is a filter readout's width
+    /// from the shared formatter (#747): "2.75 k" at Terse, "width 2750
+    /// hertz" at Chatty (Noel, 2026-11-06, J15).
     /// </summary>
     private static string FilterReport(string key, int low, int high)
         => Radios.Lexicon.Get(key, ("low", low), ("high", high),
-            ("widthKHz", ((high - low) / 1000.0).ToString("F1")));
+            ("width", Radios.HertzSpeech.ReadoutWidth(high - low, Radios.HertzUnitStyle.KiloLetter)));
 
     /// <summary>
     /// Enter the filter layer on the active slice's receive filter. See the
@@ -5455,12 +5465,35 @@ public class KeyCommands
             MinWidth = FreqOutHandlers.MinFilterWidthHz,
         };
         rx.StepNow = () => FreqOutHandlers.GetAdaptiveFilterStep(rx.Bank.Low, rx.Bank.High);
-        rx.Apply = (l, h) => { rx.Bank.Low = l; rx.Bank.High = h; rx.Bank.Touched = true; rig.SetFilter(l, h); };
+        rx.Apply = (l, h) => { rx.Bank.Set(l, h); rig.SetFilter(l, h); };
+        // A move is said once FlexLib has run the write, from the edges it
+        // produced (#747 round six): in FM it changes nothing, and in RTTY
+        // and the other modes it may stop short of the layer's own rails. The
+        // bank takes the request at once, so a held key keeps stepping, and
+        // the result when it lands.
+        rx.ApplyThenSay = (l, h, readout, say) =>
+        {
+            long ticket = rx.Bank.Request(l, h);
+            rig.SetFilter(l, h, applied =>
+            {
+                // Adopted only if no newer press has asked for something since.
+                rx.Bank.Complete(ticket, applied.Low, applied.High);
+                say(Radios.FilterReadouts.Said(applied, readout,
+                    (low, high) => AtLimit(Radios.Lexicon.Get("audio.filter.range", ("low", low), ("high", high))),
+                    Radios.ScreenReaderOutput.CurrentVerbosity));
+            });
+        };
         rx.LowEdge = v => Radios.Lexicon.Get("audio.filter.low_edge", ("low", v));
         rx.HighEdge = v => Radios.Lexicon.Get("audio.filter.high_edge", ("high", v));
-        rx.Range = () => Radios.Lexicon.Get("audio.filter.range", ("low", rx.Bank.Low), ("high", rx.Bank.High));
-        rx.Width = () => Radios.Lexicon.Get("audio.filter_layer.width",
-            ("width", rx.Bank.Width), ("low", rx.Bank.Low), ("high", rx.Bank.High));
+        rx.RangeAt = (lo, hi) => Radios.Lexicon.Get("audio.filter.range", ("low", lo), ("high", hi));
+        rx.Range = () => { var (lo, hi) = rx.Bank.Pair; return rx.RangeAt(lo, hi); };
+        // The width through the shared formatter, as the layer's own report
+        // says it (#747, integration pass finding 10). Terse leads with the
+        // width ("Width 2.75 k, 100 to 2850"); Chatty is the ruled readout,
+        // "RX filter 100 to 2850, width 2750 hertz" (J15).
+        rx.WidthAt = (lo, hi) => Radios.Lexicon.Get("audio.filter_layer.width", Radios.ScreenReaderOutput.CurrentVerbosity,
+            ("width", Radios.HertzSpeech.ReadoutWidth(hi - lo, Radios.HertzUnitStyle.KiloLetter)), ("low", lo), ("high", hi));
+        rx.Width = () => { var (lo, hi) = rx.Bank.Pair; return rx.WidthAt(lo, hi); };
         rx.Report = () => FilterReport("audio.filter.rx_report", rx.Bank.Low, rx.Bank.High);
 
         var tx = new FilterSide
@@ -5479,11 +5512,24 @@ public class KeyCommands
         };
         tx.StepNow = () => FreqOutHandlers.GetAdaptiveFilterStep(tx.Bank.Low, tx.Bank.High);
         tx.Apply = (l, h) => ApplyTxFilter(rig, tx.Bank, l, h);
+        // As the receive side: a move is said once FlexLib has run the write,
+        // from what it set (#747 round seven).
+        tx.ApplyThenSay = (l, h, readout, say) =>
+        {
+            long ticket = tx.Bank.Request(l, h);
+            rig.SetTXFilter(l, h, applied =>
+            {
+                tx.Bank.Complete(ticket, applied.Low, applied.High);
+                say(Radios.FilterReadouts.Tx(applied, readout, Radios.ScreenReaderOutput.CurrentVerbosity));
+            });
+        };
         tx.LowEdge = v => Radios.Lexicon.Get("audio.tx.filter_low", ("value", v));
         tx.HighEdge = v => Radios.Lexicon.Get("audio.tx.filter_high", ("value", v));
-        tx.Range = () => Radios.Lexicon.Get("audio.tx_filter.range", ("low", tx.Bank.Low), ("high", tx.Bank.High));
-        tx.Width = () => Radios.Lexicon.Get("audio.filter_layer.tx_width",
-            ("width", tx.Bank.Width), ("low", tx.Bank.Low), ("high", tx.Bank.High));
+        tx.RangeAt = (lo, hi) => Radios.Lexicon.Get("audio.tx_filter.range", ("low", lo), ("high", hi));
+        tx.Range = () => { var (lo, hi) = tx.Bank.Pair; return tx.RangeAt(lo, hi); };
+        tx.WidthAt = (lo, hi) => Radios.Lexicon.Get("audio.filter_layer.tx_width", Radios.ScreenReaderOutput.CurrentVerbosity,
+            ("width", Radios.HertzSpeech.ReadoutWidth(hi - lo, Radios.HertzUnitStyle.KiloLetter)), ("low", lo), ("high", hi));
+        tx.Width = () => { var (lo, hi) = tx.Bank.Pair; return tx.WidthAt(lo, hi); };
         tx.Report = () => FilterReport("audio.filter.tx_report", tx.Bank.Low, tx.Bank.High);
 
         _filterRx = rx;
@@ -5767,33 +5813,18 @@ public class KeyCommands
             // ones together in one closing sentence - ruled by Noel 2026-10-17
             // over marking each gated row in place. The keys stay bound,
             // pressable and self-explaining; only where they are named changes.
+            //
+            // ONE gating answer for both of H's surfaces (#741): the spoken
+            // form here, and the list window ListCommands opens below. The
+            // window used to be built from the ungated rows, so on this
+            // layer, which is always long enough to take the window, the
+            // lift was unreachable.
             DescribeLayerHelp = layer =>
             {
-                var closed = gatedSwitches.Where(g => rig.CapabilityIsClosedOnThisRadio(g.Capability)).ToList();
-                if (closed.Count == 0) return KeyLayerHelp.SpokenList(KeyInventory.NoiseLayerContext);
-
-                // Hardware and subscription are different sentences, and the
-                // honest one depends on why. If a radio somehow has both
-                // reasons across the three, hardware wins: it is the permanent
-                // fact, and telling somebody about a subscription for a feature
-                // their radio cannot run is the actively harmful error.
-                bool anyHardware = closed.Any(g =>
-                    rig.CapabilityClosedReason(g.Capability) == Radios.CapabilityBlock.Hardware);
-
-                string sentence = Radios.Lexicon.Get(
-                    anyHardware
-                        ? "audio.noise_layer.gated_keys_unavailable"
-                        : GatedKeysLicenceKeyPendingNoel(closed
-                            .Select(g => rig.CapabilityLicenceReasonCode(g.Capability))
-                            .Where(code => code != null)
-                            .Distinct(StringComparer.Ordinal)
-                            .ToList()),
-                    ("keys", KeyLayerHelp.SpeakKeyList(closed.Select(g => g.Key).ToList())));
-
-                return KeyLayerHelp.SpokenList(
-                    KeyInventory.NoiseLayerContext,
-                    closed.Select(g => g.Key).ToHashSet(StringComparer.OrdinalIgnoreCase),
-                    sentence);
+                var gating = NoiseGating();
+                return gating == null
+                    ? KeyLayerHelp.SpokenList(KeyInventory.NoiseLayerContext)
+                    : KeyLayerHelp.SpokenList(KeyInventory.NoiseLayerContext, gating.UnavailableKeys, gating.ClosingSentence);
             },
             DescribeClosed = () => Radios.Lexicon.Get("audio.noise_layer.closed"),
             // #536's rule, as the audio layer applies it: say that everything
@@ -5819,7 +5850,7 @@ public class KeyCommands
             // this is the fallback should that ever be null.
             DescribeUnknownKey = (key, why) => LayerUnknownKey(KeyInventory.NoiseLayerContext, key, why),
             DescribeFineStep = LayerFineStep,
-            ListCommands = () => TryShowLayerCommandList(KeyInventory.NoiseLayerContext),
+            ListCommands = () => TryShowLayerCommandList(KeyInventory.NoiseLayerContext, NoiseGating),
             OpenExplorer = () => TryOpenLayerExplorer(KeyInventory.NoiseLayerContext),
             Cues = new Radios.ValueLayerCues
             {
@@ -5832,6 +5863,44 @@ public class KeyCommands
                 Audible = () => EarconPlayer.IsOn(EarconPlayer.EarconCategory.CommandsAndConfirmations),
             },
         };
+
+        // H lists the keys this radio can actually use, and names the gated
+        // ones together in one closing sentence - ruled by Noel 2026-10-17
+        // over marking each gated row in place. The keys stay bound,
+        // pressable and self-explaining; only where they are named changes.
+        // Null when nothing is shut.
+        KeyLayerHelp.LayerGating? NoiseGating()
+        {
+            var gate = NoiseLayerGateOverride;
+            bool IsClosed(Radios.RadioCapability c) =>
+                gate != null ? gate(c) != Radios.CapabilityBlock.None : rig.CapabilityIsClosedOnThisRadio(c);
+            Radios.CapabilityBlock Why(Radios.RadioCapability c) =>
+                gate != null ? gate(c) : rig.CapabilityClosedReason(c);
+
+            var closed = gatedSwitches.Where(g => IsClosed(g.Capability)).ToList();
+            if (closed.Count == 0) return null;
+
+            // Hardware and subscription are different sentences, and the
+            // honest one depends on why. If a radio somehow has both
+            // reasons across the three, hardware wins: it is the permanent
+            // fact, and telling somebody about a subscription for a feature
+            // their radio cannot run is the actively harmful error.
+            bool anyHardware = closed.Any(g => Why(g.Capability) == Radios.CapabilityBlock.Hardware);
+
+            string sentence = Radios.Lexicon.Get(
+                anyHardware
+                    ? "audio.noise_layer.gated_keys_unavailable"
+                    : GatedKeysLicenceKeyPendingNoel(closed
+                        .Select(g => rig.CapabilityLicenceReasonCode(g.Capability))
+                        .Where(code => code != null)
+                        .Distinct(StringComparer.Ordinal)
+                        .ToList()),
+                ("keys", KeyLayerHelp.SpeakKeyList(closed.Select(g => g.Key).ToList())));
+
+            return new KeyLayerHelp.LayerGating(
+                closed.Select(g => g.Key).ToHashSet(StringComparer.OrdinalIgnoreCase),
+                sentence);
+        }
 
         // PLACEHOLDER #720/#752. One layer summary may cover several refused
         // features, hence the list. Every reason combination preserves today's
@@ -5903,12 +5972,24 @@ public class KeyCommands
     /// is still live when it closes; the engine has already played the help
     /// cue by the time this runs.
     /// </remarks>
-    private bool TryShowLayerCommandList(string context)
+    private bool TryShowLayerCommandList(string context, Func<KeyLayerHelp.LayerGating?>? gating = null)
     {
-        _context.Trace("Layer help list: " + context);
-        OnMainDispatcher(() => KeyLayerHelp.Present(context));
+        // The gating is read here, at the press, so the window and the
+        // spoken form answer from the same moment (#741). A layer with no
+        // gated keys passes none and gets exactly the list it always had.
+        var lifted = gating?.Invoke();
+        _context.Trace("Layer help list: " + context
+            + (lifted == null ? "" : " (" + lifted.UnavailableKeys.Count + " key(s) lifted as unavailable)"));
+        OnMainDispatcher(() => KeyLayerHelp.Present(context, lifted));
         return true;
     }
+
+    /// <summary>
+    /// For a windowless test of the noise layer's H road (#741): answers the
+    /// gate for the three gated switches in place of the radio, which a test
+    /// cannot connect. Null in the product.
+    /// </summary>
+    internal static Func<Radios.RadioCapability, Radios.CapabilityBlock>? NoiseLayerGateOverride { get; set; }
 
     /// <summary>
     /// Shift+slash inside a layer: the JJ key tree explorer, landed on this

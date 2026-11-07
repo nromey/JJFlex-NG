@@ -6,8 +6,9 @@ namespace Radios
 {
     /// <summary>
     /// Double-tap timing tolerance for input interactions that use double-press
-    /// semantics (filter-edge bracket double-tap, Escape-collapse-all, any future
-    /// double-tap consumer).
+    /// semantics (Escape-collapse-all, any future double-tap consumer). The
+    /// filter-edge bracket double-tap was its other consumer until #748
+    /// retired it for Alt+Shift with a bracket.
     ///
     /// Sprint 28 Phase 1 primitive. Enum values are the millisecond counts
     /// themselves — casting to int gives the tolerance directly, no translation

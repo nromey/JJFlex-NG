@@ -121,7 +121,17 @@ namespace Radios.Tests
             // no carrier was established (DRAFT).
             // Twenty-three from its round four (J28): a typed frequency the radio
             // refused, Noel's sentence at Terse and Chatty.
-            Assert.Equal(23, ladders);
+            // Combined at the 2026-11-07 merge of both batches: the 2026-11-02
+            // batch added three (above) and the 2026-11-06 batch fifteen (below).
+            // Thirty from the 2026-11-06 junk box rulings round (#748): filter
+            // edge mode's entry, refusal and step sentences, each Terse plus a
+            // Chatty form that says more (Noel's ruling J2). DRAFT prose.
+            // Thirty-two: the filter layer's width readouts, Terse and Chatty
+            // (#747, J13). DRAFT prose.
+            // Thirty-three: the preset announcement (#747 round four).
+            // Thirty-four: the preset left unchanged (#747 round five).
+            // Thirty-five: the audio preset announcement (#747 round ten, J29).
+            Assert.Equal(38, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -2205,12 +2215,113 @@ namespace Radios.Tests
                 "settings.radio.register.confirm_body",
                 "settings.radio.unregister.confirm_body",
                 "settings.radio.way_in.set",
+                // Junk box 2026-11-06 (#798): a SmartLink connect says what
+                // actually happened when the signed-in account's list is empty,
+                // and says at once when no saved account lists the radio.
+                // DRAFT prose, awaiting Noel.
+                "connect.failure.smartlink_lists_no_radios",
+                "connect.failure.smartlink_not_on_any_account",
+                "connect.failure.smartlink_not_on_any_account_but_local",
+                // Junk box 2026-11-06 (#747): one width formatter; the unit
+                // travels with the width, so the two filter reports were
+                // reworded and classified, and two unit wordings were added.
+                // DRAFT prose, awaiting Noel.
+                "audio.filter.rx_report",
+                "audio.filter.tx_report",
+                "settings.filter.width_hertz_words",
+                // Junk box 2026-11-06 (#889): RF gain offered as two settings is
+                // an RF preamp switch, named by Noel 2026-11-05. DRAFT prose.
+                "audio.fields.rf_preamp",
+                "audio.fields.rf_preamp_on",
+                "audio.fields.rf_preamp_off",
+                // Junk box 2026-11-06 integration (#747): the unit travels
+                // with the width from the shared formatter, so Home's receive
+                // filter field is one string (it was a Hz and a kHz pair) and
+                // the filter calculator's two width strings lost their fixed
+                // " Hz". Home's text reads as before; the calculator now
+                // shows "2.75 kHz" where it showed "2750 Hz".
+                "audio.fields.rx_filter_width",
+                "audio.filter.calculator.all_three",
+                "audio.filter.calculator.computed_width",
+                // Junk box 2026-11-06 rulings round (#748): Alt+Shift with a
+                // bracket grabs a filter edge, the double-tap is retired, and
+                // edge mode says which edge is held. "Filter edge mode off" is
+                // Noel's wording (it replaced "cancelled"). DRAFT prose.
+                "settings.filter.edge_held_high",
+                "settings.filter.edge_held_low",
+                "settings.filter.edge_mode_off",
+                "settings.filter.edge_mode_on_high",
+                "settings.filter.edge_mode_on_low",
+                "settings.filter.edge_refused_high_pull",
+                "settings.filter.edge_refused_high_slide",
+                "settings.filter.edge_refused_high_squeeze",
+                "settings.filter.edge_refused_low_pull",
+                "settings.filter.edge_refused_low_slide",
+                "settings.filter.edge_refused_low_squeeze",
+                "settings.filter.edge_step_high",
+                "settings.filter.edge_step_low",
+                // Junk box 2026-11-06 rulings round (#888): the one AGC field
+                // is labelled for what it is while AGC is off. DRAFT prose.
+                "audio.fields.agc_off_gain",
+                // Junk box 2026-11-06 rulings round (#747, Noel's ruling J13):
+                // a filter readout's width is "2.75 k" at Terse and, since
+                // J15, "width 2750 hertz" at Chatty; the layer's two width
+                // readouts became ladders so Chatty says the readout. The
+                // kilohertz-words unit went with the style nothing used.
+                // DRAFT prose.
+                "audio.filter_layer.width",
+                "audio.filter_layer.tx_width",
+                // Round three (J15): "width 2750 hertz" replaced "2750 hertz
+                // wide" at Chatty. DRAFT prose.
+                "settings.filter.width_named_hertz",
+                // Junk box 2026-11-06 rulings round two (#798, Codex B1-R): a
+                // connect whose planned account lost its session before the
+                // dial is refused, never dialled through another account.
+                // DRAFT prose.
+                "connect.failure.smartlink_planned_account_dropped",
+                // Round four (#747, J15's scope): every filter preset
+                // announcement says the name once, then the filter readout.
+                // DRAFT prose.
+                "settings.filter.preset_said",
+                "settings.filter.active_preset_status",
+                // Round five (#747, Codex B2): a preset the mode would not
+                // take says the filter is unchanged. DRAFT prose.
+                "settings.filter.preset_unchanged",
+                // Round six (#747): a receive filter write that FlexLib did not
+                // take (FM) says the filter is unchanged. DRAFT prose.
+                "settings.filter.unchanged",
+                // Round seven (#747): a transmit filter write FlexLib did not
+                // take says so. DRAFT prose.
+                "audio.tx_filter.unchanged",
+                // Round eight (#747, Codex F3): a filter write that could not
+                // run says so instead of nothing. DRAFT prose.
+                "settings.filter.not_written",
+                "settings.filter.preset_not_written",
+                "audio.tx_filter.not_written",
+                // Round ten (#747, Noel's J29): a stored audio preset is said
+                // with "preset" after its name and the J15 filter form. DRAFT.
+                "audio.preset.announcement",
+                "audio.preset.announcement_tuned_for",
+                // Round eleven (#747): the transmit filter speaker joins the
+                // edges it must cover into one sentence. DRAFT.
+                "audio.tx_filter.clause_joiner",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
             // 3,133: main's junk box classified two (3,140 to 3,138) and Check
             // your audio five (3,140 to 3,135); the two sets are disjoint.
-            Assert.Equal(3095, unclassified);
+            // 3093 since the 2026-11-06 junk box classified the two reworded
+            // filter reports (#747). 3089 since its integration pass removed
+            // Home's Hz/kHz width pair and classified the calculator's two
+            // width strings (#747). 3085 since its rulings round removed the
+            // four edge-mode strings the double-tap and "cancelled" used (#748).
+            // 3083 since the same round classified the filter layer's two
+            // width readouts (#747, J13).
+            // 3082 since its round two removed the edge-mode timeout's
+            // "Filter edge mode ended" (#748; every exit says off).
+            // 3079 since round four replaced the preset announcement's two
+            // wrappers and reworded the active-preset status (#747).
+            Assert.Equal(3079, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

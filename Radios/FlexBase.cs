@@ -1906,9 +1906,6 @@ namespace Radios
             {
                 Tracing.TraceLine($"CycleWanSession ({reason}): {ex.Message}", TraceLevel.Error);
             }
-            radios = null;
-            wanListReceived = false;
-            lock (_wanIntakeLock) { _serverListThisCall = null; }
             // The WAN Radio objects belong to the session being cycled; a fresh
             // list repopulates them. Keeping them would let a path-choice
             // connect dial a handle the server has already forgotten. With no
@@ -1961,8 +1958,14 @@ namespace Radios
         /// </summary>
         public void SetChangeNothingActive(bool active)
         {
-            if (ChangeNothingActive == active) return;
-            ChangeNothingActive = active;
+            // Under the hold's own lock, which a write that must not happen
+            // under the hold takes around its last check and its command
+            // (#713, repair round 4): once this returns, no such write starts.
+            lock (_changeNothingGate)
+            {
+                if (ChangeNothingActive == active) return;
+                ChangeNothingActive = active;
+            }
             Tracing.TraceLine(
                 "ChangeNothing: " + (active
                     ? "armed — JJ Flexible Radio Access will not change anything this radio keeps"
@@ -1981,6 +1984,37 @@ namespace Radios
         private bool GuardRefuses(string actionKey)
         {
             if (!ChangeNothingActive) return false;
+            SayTheHoldRefused(actionKey);
+            return true;
+        }
+
+        /// <summary>
+        /// Serializes the hold with the writes it forbids at their last
+        /// moment (#713, repair round 4, Codex B4). Held across the last
+        /// check and the vendor's synchronous command write, which can wait
+        /// on the socket (Codex, round-5 re-check); never across speech, and
+        /// never across a registration progress callback (repair round 5).
+        /// </summary>
+        private readonly object _changeNothingGate = new object();
+
+        /// <summary>
+        /// Run <paramref name="write"/> only if the hold is not armed, as one
+        /// step against <see cref="SetChangeNothingActive"/>: the hold cannot
+        /// be armed between the check and the write. False when the hold
+        /// refused it; the caller speaks, outside the lock.
+        /// </summary>
+        private bool WriteUnlessHeld(Func<bool> write)
+        {
+            lock (_changeNothingGate)
+            {
+                if (ChangeNothingActive) return false;
+                return write();
+            }
+        }
+
+        /// <summary>The refusal, traced and spoken, naming the action.</summary>
+        private void SayTheHoldRefused(string actionKey)
+        {
             Tracing.TraceLine("ChangeNothing: refused " + actionKey, TraceLevel.Warning);
             if (!SuppressSpeech)
             {
@@ -1989,7 +2023,6 @@ namespace Radios
                         ("action", Lexicon.Get(actionKey))),
                     VerbosityLevel.Critical, true);
             }
-            return true;
         }
 
         /// <summary>
@@ -2321,19 +2354,22 @@ namespace Radios
 
         /// <summary>
         /// Sprint 27 Track A / Phase A.3 — persists a SmartLink listen-port
-        /// preference on the account currently bound to this connection, and
-        /// refreshes the in-memory account reference so the next auto-apply
-        /// on connect (see <see cref="ApplyAccountPortPreferenceIfAny"/>) uses
-        /// the new value. Pass null to clear the preference (revert to FlexLib
-        /// default behavior). Returns false if no account is bound or the port
+        /// preference on the account currently bound to this connection. It is
+        /// a record of what the operator applied, and NOTHING applies it to a
+        /// radio on connect: that auto-apply was removed on 2026-08-29 after it
+        /// wrote one account's port into another account's radio, and its
+        /// method was deleted on 2026-11-06 (#477). The only writer of a radio's
+        /// forwarded port is the Network tab's Apply, through
+        /// <see cref="SetSmartLinkPortForwarding"/>. Pass null to clear the
+        /// preference (revert to FlexLib default behavior). Returns false if no account is bound or the port
         /// is invalid. Validation is delegated to
         /// <see cref="SmartLinkAccountManager.IsValidPort"/> so the UI can
         /// check the same rule before calling.
         ///
         /// <para>QB Track C — meaning contract: from this build on, the value
         /// saved here carries exactly ONE meaning — the RADIO-side forwarded
-        /// port (Tier 1), written by the Network tab's port-forward Apply and
-        /// re-applied on connect. The client-side hole-punch port, which an
+        /// port (Tier 1), written by the Network tab's port-forward Apply.
+        /// The client-side hole-punch port, which an
         /// older build also wrote into this same field, lives per-radio in
         /// <see cref="RadioConfig.FixedHolePunchPort"/> now. Legacy punch
         /// values already on disk are still honored by sendRemoteConnect's
@@ -2357,23 +2393,6 @@ namespace Radios
             return true;
         }
 
-        /// <summary>
-        /// Sprint 27 Track A / Phase A.2 — auto-apply the active SmartLink
-        /// account's saved listen-port preference (Tier 1) to the connected
-        /// radio. Called from the post-connect success branch of
-        /// <see cref="Connect(string, bool)"/> for remote (WAN) rigs only.
-        ///
-        /// <para>Silent no-op (trace only) in all of the following cases:</para>
-        /// <list type="bullet">
-        /// <item>No account is bound to the current connection.</item>
-        /// <item>The account has no <see cref="SmartLinkAccount.ConfiguredListenPort"/> set.</item>
-        /// <item>The radio's firmware already reports the account's configured port on TCP and UDP (nothing to change).</item>
-        /// </list>
-        ///
-        /// <para>Only calls <see cref="SetSmartLinkPortForwarding"/> when a
-        /// change is actually needed, to avoid spurious radio commands on every
-        /// reconnect.</para>
-        /// </summary>
         /// <summary>
         /// Sprint 27 Track D. Most-recent NetworkTest report for the active
         /// session (any radio, latest timestamp). Null if nothing cached.
@@ -2572,44 +2591,6 @@ namespace Radios
             if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return true;
             if (b[0] == 192 && b[1] == 168) return true;
             return false;
-        }
-
-        private void ApplyAccountPortPreferenceIfAny()
-        {
-            if (_currentAccount == null)
-            {
-                Tracing.TraceLine("ApplyAccountPortPreferenceIfAny: no current account; skipping", TraceLevel.Info);
-                return;
-            }
-            int? preferred = _currentAccount.ConfiguredListenPort;
-            if (!preferred.HasValue)
-            {
-                Tracing.TraceLine($"ApplyAccountPortPreferenceIfAny: account {_currentAccount.Email} has no preference; using FlexLib default", TraceLevel.Info);
-                return;
-            }
-            if (theRadio == null)
-            {
-                Tracing.TraceLine("ApplyAccountPortPreferenceIfAny: theRadio is null; skipping", TraceLevel.Warning);
-                return;
-            }
-
-            int port = preferred.Value;
-            bool alreadyMatches =
-                PortForwardingEnabled &&
-                PortForwardingTcpPort == port &&
-                PortForwardingUdpPort == port;
-            if (alreadyMatches)
-            {
-                Tracing.TraceLine($"ApplyAccountPortPreferenceIfAny: radio already reports tcp={port} udp={port} enabled; no-op", TraceLevel.Info);
-                return;
-            }
-
-            Tracing.TraceLine($"ApplyAccountPortPreferenceIfAny: account={_currentAccount.Email} applying port={port} (radio reports enabled={PortForwardingEnabled} tcp={PortForwardingTcpPort} udp={PortForwardingUdpPort})", TraceLevel.Info);
-            bool ok = SetSmartLinkPortForwarding(true, port, port);
-            if (!ok)
-            {
-                Tracing.TraceLine($"ApplyAccountPortPreferenceIfAny: SetSmartLinkPortForwarding returned false; preference not applied", TraceLevel.Warning);
-            }
         }
 
         private Thread mainThread;
@@ -2966,13 +2947,14 @@ namespace Radios
                     // offer "apply my port on connect", the owner of THAT radio has
                     // to have said yes to it, on that radio.
                     //
-                    // ApplyAccountPortPreferenceIfAny() now has NO CALLERS. The
-                    // Network tab writes through FlexBase.SetSmartLinkPortForwarding
-                    // directly (SettingsDialog.xaml.cs:841), which is the operator
-                    // action described above. The method is left in place, unused,
-                    // only so this comment has something to point at; deleting it is
-                    // safe and should happen in a quieter moment. Do NOT re-add the
-                    // call from here.
+                    // ApplyAccountPortPreferenceIfAny() WAS DELETED on 2026-11-06
+                    // (#477), having had no callers since this removal; the trace
+                    // above is all that is left of it. The only writer of a radio's
+                    // forwarded port is the Network tab's Apply, which calls
+                    // FlexBase.SetSmartLinkPortForwarding from
+                    // SettingsDialog.PerformPortForwardApply: the operator action
+                    // described above. Do NOT re-add a port write here, or anywhere
+                    // on the connect path, under any name.
 
                     // Sprint 27 Track B / Phase B.3 — attempt UPnP mapping
                     // for Tier 2 opt-in accounts. Silent no-op when UPnP is
@@ -3311,31 +3293,46 @@ namespace Radios
                 // Skip auth if WAN is already connected from discovery phase.
                 // GUIClient lifecycle issues are handled by RetryConnect if Start() fails.
                 apiInit();
-                bool wanAlreadyConnected = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.IsConnected == true;
-                if (wanAlreadyConnected)
+                // This attempt's report, not an earlier pass's: the picker's
+                // own remote pass runs setupRemote on this same instance, and
+                // a report it left must not stand in for this connect (#798).
+                LastConnectFailureReport = null;
+                // The #798 plan decides EVERY SmartLink connect (Codex F2 on the
+                // 2026-11-06 integration pass). The fast path used to skip it
+                // whenever the active session listed the radio, and so skipped
+                // adopting the account and the shared-radio tie-break: with two
+                // accounts listing one radio it could dial a different account
+                // than the plan names. When the active session lists the radio
+                // the plan uses a held session and signs in to nothing, so the
+                // fast path loses no speed; it is one decision, two routes to
+                // it.
+                if (TheActiveSessionListsTheRadio(serial))
+                    Tracing.TraceLine($"ReconnectRemote: the active SmartLink session lists {serial}; the plan picks among the listing accounts, no sign-in ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                // #798: decided from the RADIO before anything signs in. A
+                // held session that already lists it is used as it stands;
+                // a radio no saved account lists is said at once; the
+                // radio's own account is signed in as when it is known;
+                // only otherwise does the saved default sign in.
+                bool remoteOk = PrepareSmartLinkForSerial(serial, allowInteractiveLogin, sw);
+                Tracing.TraceLine($"ReconnectRemote: PrepareSmartLinkForSerial returned {remoteOk} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                if (!remoteOk)
                 {
-                    Tracing.TraceLine($"ReconnectRemote: WAN already connected, skipping auth ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                }
-                else
-                {
-                    bool remoteOk = setupRemote(allowInteractiveLogin);
-                    Tracing.TraceLine($"ReconnectRemote: setupRemote returned {remoteOk} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                    if (!remoteOk)
+                    Tracing.TraceLine($"ReconnectRemote: SmartLink preparation FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                    // The preparation, and setupRemote under it, file their
+                    // own classified report (auth vs server vs an empty list
+                    // vs a radio no account lists). Only file a generic one
+                    // if neither did — a caller must always find SOMETHING
+                    // here. Since #798 this means a sign-in that produced no
+                    // token, or a cancelled account choice.
+                    if (LastConnectFailureReport == null)
                     {
-                        Tracing.TraceLine($"ReconnectRemote: setupRemote FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                        // setupRemote files its own classified report (auth vs
-                        // server vs cancelled). Only file a generic one if it
-                        // did not — a caller must always find SOMETHING here.
-                        if (LastConnectFailureReport == null)
+                        RecordConnectFailure(new ConnectFailureReport
                         {
-                            RecordConnectFailure(new ConnectFailureReport
-                            {
-                                Class = ConnectFailureClass.SessionSetupFailed,
-                                SpokenSummary = "Could not sign in to SmartLink or reach its server, so the radio was never contacted.",
-                            });
-                        }
-                        return false;
+                            Class = ConnectFailureClass.SessionSetupFailed,
+                            SpokenSummary = "Could not sign in to SmartLink or reach its server, so the radio was never contacted.",
+                        });
                     }
+                    return false;
                 }
 
                 // Wait for the radio to appear in myRadioList.
@@ -5742,15 +5739,12 @@ namespace Radios
                         break;
                     case "RFGainLow":
                         Tracing.TraceLine("RFGainLow:" + p.RFGainLow, TraceLevel.Info);
-                        RFGainMin = p.RFGainLow;
                         break;
                     case "RFGainHigh":
                         Tracing.TraceLine("RFGainHigh:" + p.RFGainHigh, TraceLevel.Info);
-                        RFGainMax = p.RFGainHigh;
                         break;
                     case "RFGainStep":
                         Tracing.TraceLine("RFGainStep:" + p.RFGainStep, TraceLevel.Info);
-                        RFGainIncrement = p.RFGainStep;
                         break;
                     case "RFGainMarkers":
                         {
@@ -5760,6 +5754,13 @@ namespace Radios
                                 str += i.ToString() + ' ';
                             }
                             Tracing.TraceLine("RFGainMarkers:" + str, TraceLevel.Info);
+                            // Two markers with 0 as one of them is the radio
+                            // offering RF gain as a preamp switch, and Home
+                            // presents it as one (#889). The vendor raises
+                            // RFGainMarkers LAST, after its
+                            // reply has filled every field, so this is the one
+                            // moment the report is complete (#889, repair 2).
+                            RecordRFGainReport(p);
                         }
                         break;
                 }
@@ -9993,6 +9994,90 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// Set the receive filter and, once FlexLib's <c>Slice.UpdateFilter</c>
+        /// has run on the command loop, report what the slice holds then
+        /// (round five of the 2026-11-06 junk box, Codex B2). UpdateFilter
+        /// refuses FM and NFM and clamps every other mode, so the edges asked
+        /// for are not evidence; this reads FlexLib's own result rather than
+        /// copying its rules. <paramref name="applied"/> runs on the command
+        /// loop, and not at all if the write never runs.
+        /// </summary>
+        public void SetFilter(int low, int high, Action<FilterApplied> applied)
+        {
+            // A write that cannot run says so (round eight, Codex F3): no
+            // slice, or a command loop that is not running (the queue would
+            // drop the write), used to end in silence.
+            if (!HasActiveSlice || !q.MainLoop)
+            {
+                Refuse(applied, FilterApplied.Refused(theRadio?.ActiveSlice?.DemodMode ?? "", low, high, FilterLow, FilterHigh), "SetFilter");
+                return;
+            }
+            NoteOperatorChangedRadioSetting("SetFilter");
+            // As SetTXFilter: never run on a replaced command connection (round eleven).
+            var requestRadio = theRadio;
+            object requestConnection = requestRadio?.CurrentCommandConnection;
+            q.Enqueue((FunctionDel)(() =>
+            {
+                var slice = theRadio?.ActiveSlice;
+                if (slice == null)
+                {
+                    Refuse(applied, FilterApplied.Refused("", low, high, low, high), "SetFilter (slice gone at the write)");
+                    return;
+                }
+                if (!ReferenceEquals(theRadio, requestRadio) || !ReferenceEquals(theRadio?.CurrentCommandConnection, requestConnection))
+                {
+                    Refuse(applied, FilterApplied.Refused(slice.DemodMode ?? "", low, high, slice.FilterLow, slice.FilterHigh),
+                        "SetFilter (the command connection was replaced before the write ran)");
+                    return;
+                }
+                int beforeLow = slice.FilterLow, beforeHigh = slice.FilterHigh;
+                slice.UpdateFilter(low, high);
+                System.Threading.Interlocked.Increment(ref _rxFilterWritesRun);
+                var result = new FilterApplied(slice.DemodMode ?? "", low, high, beforeLow, beforeHigh, slice.FilterLow, slice.FilterHigh);
+                try { applied?.Invoke(result); }
+                catch (Exception ex) { Tracing.TraceLine("SetFilter applied callback: " + ex.Message, TraceLevel.Error); }
+            }), "Filter");
+        }
+
+        private long _rxFilterWritesRun, _txFilterWritesRun;
+
+        /// <summary>
+        /// How many receive / transmit filter writes have RUN on the command
+        /// loop through the applied route. A delayed "not changed" sentence is
+        /// retired when this moves (round nine; <see cref="FilterWriteFreshness"/>).
+        /// </summary>
+        public long RxFilterWritesRun => System.Threading.Interlocked.Read(ref _rxFilterWritesRun);
+
+        /// <inheritdoc cref="RxFilterWritesRun"/>
+        public long TxFilterWritesRun => System.Threading.Interlocked.Read(ref _txFilterWritesRun);
+
+        /// <summary>A filter write that did not run: traced, and handed to the caller to say.</summary>
+        private static void Refuse(Action<FilterApplied> applied, FilterApplied refused, string where)
+        {
+            Tracing.TraceLine($"{where}: NOT written (no slice, or the command loop is not running); the caller says so", TraceLevel.Info);
+            try { applied?.Invoke(refused); }
+            catch (Exception ex) { Tracing.TraceLine(where + " refused callback: " + ex.Message, TraceLevel.Error); }
+        }
+
+        /// <summary>
+        /// Put a filter preset on the radio for <paramref name="mode"/> and hand
+        /// <paramref name="say"/> the sentence for what the filter became
+        /// (<see cref="FilterPreset.SayApplied"/>), after the write has run.
+        /// Alt with a bracket and the Filter menu both come here, so the two
+        /// doors say the same thing.
+        /// </summary>
+        public void ApplyFilterPreset(FilterPreset preset, string mode, Action<string> say)
+            => ApplyFilterPreset(preset, mode, (said, _) => say?.Invoke(said));
+
+        /// <summary>As above, handing the caller the result too, so a delayed speaker can check it is still true.</summary>
+        public void ApplyFilterPreset(FilterPreset preset, string mode, Action<string, FilterApplied> say)
+        {
+            var (low, high) = FilterPresets.MirrorForMode(mode ?? "USB", preset.Low, preset.High);
+            SetFilter(low, high, applied =>
+                say?.Invoke(preset.SayApplied(applied, ScreenReaderOutput.CurrentVerbosity), applied));
+        }
+
 #if zero
         // TXAntenna must be set first.
         public bool RXAntenna
@@ -10241,6 +10326,18 @@ namespace Radios
                 r.Callsign = value;
             }
         }
+
+        /// <summary>
+        /// A typed callsign as the radio keeps it: FlexLib's setter upper-cases
+        /// and sanitizes. Radio Info compares with this to learn whether an
+        /// edit took (#477, repair round 3).
+        /// </summary>
+        public static string CallsignAsTheRadioKeepsIt(string typed)
+            => Flex.Util.StringHelper.Sanitize((typed ?? string.Empty).ToUpper());
+
+        /// <summary>A typed name as the radio keeps it: <see cref="RenameRadio"/> trims, FlexLib sanitizes.</summary>
+        public static string NicknameAsTheRadioKeepsIt(string typed)
+            => Flex.Util.StringHelper.Sanitize((typed ?? string.Empty).Trim());
 
         /// <summary>
         /// The front-panel display (screensaver) mode choices the radio
@@ -11178,6 +11275,90 @@ namespace Radios
         }
 
         /// <summary>
+        /// The fixed receive gain the radio applies while AGC is OFF (FlexLib
+        /// <c>Slice.AGCOffLevel</c>, <c>agc_off_level</c>, 0 to 100, the same
+        /// range and step as the threshold). Nothing could reach it until
+        /// #888: every gain control wrote the threshold, which the radio does
+        /// not use with AGC off, so turning AGC off left the receiver silent
+        /// with no way to bring it up.
+        /// </summary>
+        public int AGCOffLevel
+        {
+            get { return theRadio?.ActiveSlice?.AGCOffLevel ?? 0; }
+            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("AGCOffLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.AGCOffLevel = value; })); } }
+        }
+
+        /// <summary>
+        /// ONE AGC field, its meaning following the AGC mode (Noel's ruling,
+        /// 2026-11-06, night question J1: "Agree with one field because in
+        /// essence, they do similar things, we'll just need to label it to be
+        /// what it is"). True when the field is the off gain: AGC is off. Any
+        /// other mode, and no slice (<see cref="AGCMode.None"/>), is the
+        /// threshold, as it always was.
+        /// </summary>
+        public static bool AgcFieldIsOffLevel(AGCMode mode) => mode == AGCMode.Off;
+
+        /// <summary>
+        /// Raised, with the sentence said, when an AGC field write is refused
+        /// because the field's meaning no longer matches the radio's AGC mode
+        /// (round two, Codex F2-R). Home refreshes the field on it.
+        /// </summary>
+        public event Action<string> AgcFieldWentStale;
+
+        /// <summary>The AGC field's value: the off gain when <paramref name="offLevel"/>, else the threshold.</summary>
+        public int AgcFieldValue(bool offLevel) => offLevel ? AGCOffLevel : AGCThreshold;
+
+        /// <summary>
+        /// Write the AGC field. <paramref name="offLevel"/> is what the field
+        /// SHOWED when the operator moved it. The write is checked again AT
+        /// THE WRITE, on the command loop (round two, Codex F2-R): if the
+        /// radio's AGC mode no longer gives the field that meaning, because
+        /// the mode changed before the field caught up or while the write
+        /// waited in the queue, nothing is written. A value chosen as an off
+        /// gain is not a threshold, and the other way round. The field's
+        /// current label and value are said instead, and
+        /// <see cref="AgcFieldWentStale"/> asks Home to refresh it.
+        /// </summary>
+        public void SetAgcFieldValue(bool offLevel, int value)
+        {
+            if (!HasActiveSlice) return;
+            NoteOperatorChangedRadioSetting(offLevel ? "AGCOffLevel" : "AGCThreshold");
+            q.Enqueue((FunctionDel)(() => WriteAgcField(offLevel, value)), "AgcField");
+        }
+
+        /// <summary>The AGC field's write, on the command loop; see <see cref="SetAgcFieldValue"/>.</summary>
+        private void WriteAgcField(bool offLevel, int value)
+        {
+            var slice = theRadio?.ActiveSlice;
+            if (slice == null) return;
+            bool offNow = AgcFieldIsOffLevel(slice.AGCMode);
+            if (offNow != offLevel)
+            {
+                string sentence = AgcFieldSentence(offNow, offNow ? slice.AGCOffLevel : slice.AGCThreshold);
+                Tracing.TraceLine(
+                    $"WriteAgcField: refused {(offLevel ? "off gain" : "threshold")} {value}, AGC is now {slice.AGCMode}; said \"{sentence}\"",
+                    TraceLevel.Info);
+                ScreenReaderOutput.Speak(sentence, VerbosityLevel.Terse, true);
+                try { AgcFieldWentStale?.Invoke(sentence); }
+                catch (Exception ex) { Tracing.TraceLine("AgcFieldWentStale: " + ex.Message, TraceLevel.Error); }
+                return;
+            }
+            if (offLevel) slice.AGCOffLevel = value;
+            else slice.AGCThreshold = value;
+        }
+
+        /// <summary>The AGC field's current label and value, as the field itself says them: "AGC Threshold 65".</summary>
+        public static string AgcFieldSentence(bool offLevel, int value)
+            => Lexicon.Get("audio.field.spoken_value", ("label", AgcFieldLabel(offLevel)), ("value", value), ("unit", ""));
+
+        /// <summary>The AGC field's label, naming what it currently is. "AGC Off Gain" is DRAFT wording.</summary>
+        public static string AgcFieldLabel(bool offLevel)
+        {
+            if (offLevel) return Lexicon.Get("audio.fields.agc_off_gain");
+            return Lexicon.Get("audio.fields.agc_threshold");
+        }
+
+        /// <summary>
         /// data type for RIT/XIT.
         /// </summary>
         public class RITData
@@ -11483,6 +11664,66 @@ namespace Radios
                 NoteOperatorChangedRadioSetting("TXFilterLow");
                 q.Enqueue((FunctionDel)(() => { theRadio.TXFilterLow = value; }));
             }
+        }
+
+        /// <summary>
+        /// Write the transmit filter and report, on the command loop after the
+        /// write has run, what the radio object holds (#747, round seven of the
+        /// 2026-11-06 junk box). Null leaves that edge where it is. Both edges
+        /// are written in the order that opens the gap first, because FlexLib
+        /// clamps each against the OTHER edge's current value. FlexLib's own
+        /// transmit rules decide the result (at least 50 Hz apart, 0 to 10000
+        /// Hz; MIGRATION.md item 27 makes them reach the wire), so the report
+        /// is the truth and the caller's own arithmetic is not. A filter
+        /// property write only: nothing here keys the radio.
+        /// </summary>
+        public void SetTXFilter(int? low, int? high, Action<FilterApplied> applied)
+        {
+            if (theRadio == null || !q.MainLoop)
+            {
+                int l = TXFilterLow, h = TXFilterHigh;
+                Refuse(applied, FilterApplied.Refused("TX", low ?? l, high ?? h, l, h), "SetTXFilter");
+                return;
+            }
+            if (low.HasValue) NoteOperatorChangedRadioSetting("TXFilterLow");
+            if (high.HasValue) NoteOperatorChangedRadioSetting("TXFilterHigh");
+            // The connection the request was made on (round eleven, Codex F3):
+            // a write queued on one command connection never runs on its
+            // replacement, silently or otherwise.
+            var requestRadio = theRadio;
+            object requestConnection = requestRadio.CurrentCommandConnection;
+            q.Enqueue((FunctionDel)(() =>
+            {
+                var r = theRadio;
+                if (r == null)
+                {
+                    Refuse(applied, FilterApplied.Refused("TX", low ?? 0, high ?? 0, low ?? 0, high ?? 0), "SetTXFilter (radio gone at the write)");
+                    return;
+                }
+                if (!ReferenceEquals(r, requestRadio) || !ReferenceEquals(r.CurrentCommandConnection, requestConnection))
+                {
+                    Refuse(applied, FilterApplied.Refused("TX", low ?? r.TXFilterLow, high ?? r.TXFilterHigh, r.TXFilterLow, r.TXFilterHigh),
+                        "SetTXFilter (the command connection was replaced before the write ran)");
+                    return;
+                }
+                int beforeLow = r.TXFilterLow, beforeHigh = r.TXFilterHigh;
+                int wantLow = low ?? beforeLow, wantHigh = high ?? beforeHigh;
+                bool lowMoves = wantLow != beforeLow, highMoves = wantHigh != beforeHigh;
+                if (wantLow < beforeLow)
+                {
+                    if (lowMoves) r.TXFilterLow = wantLow;
+                    if (highMoves) r.TXFilterHigh = wantHigh;
+                }
+                else
+                {
+                    if (highMoves) r.TXFilterHigh = wantHigh;
+                    if (lowMoves) r.TXFilterLow = wantLow;
+                }
+                System.Threading.Interlocked.Increment(ref _txFilterWritesRun);
+                var result = new FilterApplied("TX", wantLow, wantHigh, beforeLow, beforeHigh, r.TXFilterLow, r.TXFilterHigh);
+                try { applied?.Invoke(result); }
+                catch (Exception ex) { Tracing.TraceLine("SetTXFilter applied callback: " + ex.Message, TraceLevel.Error); }
+            }), "TXFilter");
         }
 
         public int TXFilterHighMin { get { return (TXFilterLow + 50); } }
@@ -13019,20 +13260,128 @@ namespace Radios
             get { return theRadio?.ActiveSlice?.Panadapter; }
         }
 
-        public int RFGainMin = -10;
-        public int RFGainMax = 30;
-        public int RFGainIncrement = 10;
+        // The rig-wide RF gain fields (RFGainMin, RFGainMax, RFGainIncrement,
+        // RFGainMarkers) and RFGainIsPreampSwitch were removed in the
+        // 2026-11-06 integration pass: after #889 nothing read them. The one
+        // vocabulary is the per-panadapter RFGainReport below.
+
+        /// <summary>
+        /// One panadapter's RF gain report: its range, its step and its marked
+        /// settings, and the panadapter it belongs to, which is where a value
+        /// chosen from it is written (repair round 2).
+        /// </summary>
+        public readonly record struct RFGainReport(int Min, int Max, int Step, int[] Markers, Panadapter Pan = null);
+
+        /// <summary>The field Home shows before a panadapter has reported: today's defaults, no markers.</summary>
+        public static RFGainReport NotYetReported(Panadapter pan) => new RFGainReport(-10, 30, 10, Array.Empty<int>(), pan);
+
+        /// <summary>
+        /// Each panadapter's last COMPLETED report, taken when the vendor
+        /// raises RFGainMarkers, the last of its four notifications after one
+        /// reply has filled every field. Never the vendor fields read raw: its
+        /// parser publishes a new marker array before filling it, so a raw
+        /// read can see a half-made answer (Codex, repair round 2). Weak keys,
+        /// so a closed panadapter takes its report with it.
+        /// </summary>
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Panadapter, System.Runtime.CompilerServices.StrongBox<RFGainReport>> _rfGainReports = new();
+
+        /// <summary>Record a panadapter's completed RF gain report.</summary>
+        internal void RecordRFGainReport(Panadapter pan)
+        {
+            if (pan == null) return;
+            var report = new RFGainReport(pan.RFGainLow, pan.RFGainHigh, pan.RFGainStep,
+                pan.RFGainMarkers?.ToArray() ?? Array.Empty<int>(), pan);
+            _rfGainReports.AddOrUpdate(pan, new System.Runtime.CompilerServices.StrongBox<RFGainReport>(report));
+        }
+
+        /// <summary>
+        /// The RF gain report Home and the Radio menu act on: the ACTIVE
+        /// panadapter's own completed report, or, until it has one, the plain
+        /// number field's defaults. Never another panadapter's report and never
+        /// the rig-wide fields any panadapter writes (repair rounds 1 and 2).
+        /// </summary>
+        public RFGainReport ActiveRFGainReport => ReportForPanadapter(activePan);
+
+        /// <summary>One panadapter's completed report, or the defaults when it has none.</summary>
+        internal RFGainReport ReportForPanadapter(Panadapter pan)
+        {
+            if (pan != null && _rfGainReports.TryGetValue(pan, out var box)) return box.Value;
+            return NotYetReported(pan);
+        }
+
+        /// <summary>
+        /// True when a report offers RF gain as exactly two settings, one of
+        /// them 0, which Home presents as an RF preamp switch rather than a
+        /// number field (#889). <paramref name="onDb"/> is the other setting,
+        /// read from the radio's own report and never assumed: the 6300
+        /// reports 0 and 20, but a model or band that reports another pair
+        /// gets its own figure, and anything with a real range keeps the
+        /// number field. The MARKERS
+        /// say which settings the radio labels; the RANGE says which settings
+        /// exist. Both must say "0 and one other" (repair round 1): markers of
+        /// 0 and 20 over a range of 0 to 20 in steps of 5 are a five-setting
+        /// field with two labels, and a switch would hide 5, 10 and 15.
+        /// </summary>
+        public static bool IsPreampSwitch(RFGainReport report, out int onDb)
+        {
+            onDb = 0;
+            var markers = report.Markers;
+            if (markers == null || markers.Length != 2) return false;
+            int other;
+            // A preamp ADDS gain: the other setting must be above 0. A pair of
+            // 0 and a negative number would be an attenuator, which this is
+            // not, and it keeps the number field.
+            if (markers[0] == 0 && markers[1] > 0) other = markers[1];
+            else if (markers[1] == 0 && markers[0] > 0) other = markers[0];
+            else return false;
+            // Exactly two settings exist: 0 and that one, one step apart.
+            if (report.Min != 0 || report.Max != other || report.Step != other) return false;
+            onDb = other;
+            return true;
+        }
         public int RFGain
         {
             get { return (activePan != null) ? activePan.RFGain : 0; }
-            set
+            // The panadapter is captured HERE, at the decision, not looked up
+            // again when the queue runs (#889, repair round 2).
+            set { SetRFGain(activePan, value); }
+        }
+
+        /// <summary>
+        /// Write RF gain to the panadapter the value was chosen for. The queued
+        /// write carries that panadapter; it used to re-resolve the active
+        /// panadapter when the queue ran, so a value chosen from panadapter A's
+        /// report landed on B if the active panadapter changed in between. If
+        /// the chosen panadapter is gone by then, nothing is sent, and the
+        /// trace says so.
+        /// </summary>
+        public void SetRFGain(Panadapter pan, int value)
+        {
+            if (pan == null) return;
+            NoteOperatorChangedRadioSetting("RFGain");
+            q.Enqueue((FunctionDel)(() => WriteRFGainTo(pan, value)));
+        }
+
+        private void WriteRFGainTo(Panadapter pan, int value)
+        {
+            var radio = theRadio;
+            bool present = false;
+            try
             {
-                if (activePan != null)
-                {
-                    NoteOperatorChangedRadioSetting("RFGain");
-                    q.Enqueue((FunctionDel)(() => { activePan.RFGain = value; }));
-                }
+                var pans = radio?.PanadapterList;
+                if (pans != null)
+                    lock (pans) present = pans.Contains(pan);
             }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("WriteRFGainTo: panadapter list unreadable: " + ex.Message, TraceLevel.Warning);
+            }
+            if (!present)
+            {
+                Tracing.TraceLine($"WriteRFGainTo: RF gain {value} not sent; the panadapter it was chosen for is gone", TraceLevel.Info);
+                return;
+            }
+            pan.RFGain = value;
         }
 
 #if zero

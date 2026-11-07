@@ -240,6 +240,14 @@ namespace Radios.SmartLink
         /// </summary>
         public long ConnectionGeneration { get; }
 
+        /// <summary>
+        /// The session owner's revision for this list (see
+        /// <see cref="SessionRadioListSnapshot.ListRevision"/>), stamped by
+        /// the owner when it accepts the list and forwards it; 0 from the
+        /// transport, which does not number lists.
+        /// </summary>
+        public long ListRevision { get; init; }
+
         public WanRadioListReceivedEventArgs(IReadOnlyList<Radio> radios, long connectionGeneration)
         {
             Radios = radios;

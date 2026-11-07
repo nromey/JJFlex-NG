@@ -281,6 +281,20 @@ namespace Radios
         /// </summary>
         public Action<int>? Apply;
 
+        /// <summary>
+        /// Optional. When set, a nudge or a jump writes through this INSTEAD of
+        /// <see cref="Apply"/>, and the engine does not speak the move itself:
+        /// the host calls the second argument with the sentence once the write
+        /// has really happened. For a value whose write the radio side may
+        /// refuse or clamp, so the words come from what it became rather than
+        /// from what was asked (#747, round six of the 2026-11-06 junk box:
+        /// the receive filter, which FlexLib refuses in FM and clamps in other
+        /// modes). <see cref="Apply"/> is still required: cancel's restore
+        /// uses it. The second argument may be called from another thread; it
+        /// only speaks.
+        /// </summary>
+        public Action<int, Action<string>>? ApplyThenSay;
+
         public int Min;
         public int Max = 100;
 
@@ -874,7 +888,9 @@ namespace Radios
         private readonly Action? _restore;
         private Slot? _current;
         private string? _group;
-        private bool _live;
+        // Volatile: a write's completion reads it on the command loop (round
+        // eight, Codex F3: a completion after Drop must say nothing).
+        private volatile bool _live;
 
         /// <summary>The value at entry — what Escape restores. Single value:
         /// the one target; otherwise the current target, or 0.</summary>
@@ -1941,8 +1957,17 @@ namespace Radios
             if (next != before)
             {
                 s.Shadow = next;
-                s.Def.Apply!(next);
                 Touch(s);
+                if (s.Def.ApplyThenSay != null)
+                {
+                    // The host says the move once the write has happened (#747
+                    // round six), and only while this layer is still open
+                    // (round eight): after Drop or Confirm it says nothing.
+                    string subject = SubjectOf(s);
+                    s.Def.ApplyThenSay(next, said => { if (_live) EmitMove(said, subject); });
+                    return;
+                }
+                s.Def.Apply!(next);
                 EmitMove(FormOf(s, next), SubjectOf(s));
                 return;
             }
@@ -1981,6 +2006,16 @@ namespace Radios
             if (s.Def.Constrain != null) next = s.Def.Constrain(next);
 
             s.Shadow = next;
+            if (s.Def.ApplyThenSay != null && (next != before || !s.Def.Linked))
+            {
+                // The host says where the jump landed once the write has
+                // happened (#747 round six).
+                Touch(s);
+                Tracing.TraceLine("ValueSubLayer(" + Tag(s) + "): jumped " + where + " to " + next, TraceLevel.Info);
+                string subject = SubjectOf(s);
+                s.Def.ApplyThenSay(next, said => { if (_live) EmitMove(said, subject); });
+                return;
+            }
             if (next != before || !s.Def.Linked)
             {
                 s.Def.Apply!(next);

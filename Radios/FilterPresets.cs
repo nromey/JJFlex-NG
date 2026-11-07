@@ -31,15 +31,118 @@ public class FilterPreset
     }
 
     /// <summary>
-    /// Format preset for speech: e.g. "2.4k SSB" or "250 CW".
+    /// What every route that announces this preset says: its name once, then
+    /// the filter it sets for <paramref name="mode"/>, in the readout form
+    /// (#747; Noel, 2026-11-06, J15: "every Chatty filter readout"). At
+    /// Chatty "Wide, filter 100 to 2800, width 2700 hertz"; at Terse "Wide,
+    /// 2.7 k". DRAFT. The edges are the ones the preset puts on the radio,
+    /// mirrored for a lower-sideband mode as <see cref="FilterPresets.MirrorForMode"/>
+    /// does.
     /// </summary>
-    public string FormatForSpeech()
+    /// <remarks>
+    /// Until round four of the 2026-11-06 junk box each route wrapped a
+    /// fragment that already carried the name, so the name was said twice
+    /// and no edges were said at all: "Wide, 2700 hertz Wide" (Codex's
+    /// re-verify, F1). Alt with a bracket, the Filter menu's preset items
+    /// and the active-preset status all say this now.
+    /// </remarks>
+    public string Announcement(string mode)
+        => Announcement(mode, ScreenReaderOutput.CurrentVerbosity);
+
+    /// <summary>The announcement at the given verbosity; see <see cref="Announcement(string)"/>.</summary>
+    public string Announcement(string mode, VerbosityLevel level)
     {
-        int w = Width;
-        if (w >= 1000)
-            return $"{w / 1000.0:0.#}k {Name}".Trim();
-        return $"{w} hertz {Name}".Trim();
+        var (low, high) = FilterPresets.MirrorForMode(mode ?? "USB", Low, High);
+        return Said(low, high, atLimit: false, level);
     }
+
+    /// <summary>The name once, then a filter readout of these edges; ", at limit" when the mode held it back.</summary>
+    private string Said(int low, int high, bool atLimit, VerbosityLevel level)
+        => Lexicon.Get("settings.filter.preset_said", level, ("name", Name), ("low", low), ("high", high),
+            ("width", HertzSpeech.ReadoutWidth(high - low, HertzUnitStyle.KiloLetter, level)),
+            ("limit", atLimit ? Lexicon.Get("settings.filter.suffix_at_limit") : ""));
+
+    /// <summary>
+    /// What selecting this preset says, from what the filter BECAME (round
+    /// five of the 2026-11-06 junk box, Codex B2). <paramref name="applied"/>
+    /// is read on the command loop right after FlexLib's
+    /// <c>Slice.UpdateFilter</c> has run, so its edges are FlexLib's own
+    /// result: FM and NFM refuse a filter change outright, and every other
+    /// mode clamps to its own range, by rules this code never copies.
+    /// <list type="bullet">
+    /// <item>Taken as asked: the announcement, "Wide, filter 100 to 2800,
+    /// width 2700 hertz".</item>
+    /// <item>Held back by the mode: the filter it became, marked ", at
+    /// limit" as the bracket keys mark it.</item>
+    /// <item>Not changed at all: "Narrow, filter unchanged at -6000 to 6000,
+    /// width 12000 hertz", the filter as it stands.</item>
+    /// </list>
+    /// DRAFT wording.
+    /// </summary>
+    public string SayApplied(FilterApplied applied, VerbosityLevel level)
+    {
+        if (applied.NotWritten) return Lexicon.Get("settings.filter.preset_not_written", ("name", Name));
+        if (applied.Exact) return Said(applied.Low, applied.High, atLimit: false, level);
+        if (applied.Unchanged)
+            return Lexicon.Get("settings.filter.preset_unchanged", level, ("name", Name), ("low", applied.Low), ("high", applied.High),
+                ("width", HertzSpeech.ReadoutWidth(applied.High - applied.Low, HertzUnitStyle.KiloLetter, level)));
+        return Said(applied.Low, applied.High, atLimit: true, level);
+    }
+
+    /// <summary>
+    /// The active preset as Speak Status and the Status window give it:
+    /// the preset's NAME, then the filter that IS on the radio,
+    /// <paramref name="liveLow"/> to <paramref name="liveHigh"/>: "preset
+    /// Wide, filter 110 to 2790, width 2680 hertz" at Chatty, "preset Wide,
+    /// 2.68 k" at Terse. DRAFT.
+    /// </summary>
+    /// <remarks>
+    /// A preset is recognised within 20 Hz an edge
+    /// (<see cref="FilterPresets.FindActivePreset"/>), so the saved edges
+    /// may not be the current ones. This said the saved edges as if they
+    /// were current until round five (Codex B1): "filter 100 to 2850" for a
+    /// filter at 110 to 2840.
+    /// </remarks>
+    public string StatusSentence(int liveLow, int liveHigh, VerbosityLevel level)
+        => Lexicon.Get("settings.filter.active_preset_status",
+            ("description", Said(liveLow, liveHigh, atLimit: false, level)));
+
+    /// <summary>
+    /// The preset as a menu item shows it, which is not on the verbosity
+    /// dial: "Wide (2.7 k)", the never-rounding kilo form at and above 1 kHz.
+    /// It was "Wide (2.7 k Wide)", the name twice, until round five (Codex F1).
+    /// </summary>
+    public string FormatForDisplay()
+        => $"{Name} ({HertzSpeech.DisplayedWidth(Width, HertzUnitStyle.KiloLetter)})";
+}
+
+/// <summary>
+/// A receive filter request, as the slice holds it right after FlexLib's
+/// <c>Slice.UpdateFilter</c> ran on the command loop: the mode, the edges
+/// asked for, the edges before, and the edges now (round five of the
+/// 2026-11-06 junk box, Codex B2).
+/// </summary>
+public readonly record struct FilterApplied(string Mode, int RequestedLow, int RequestedHigh, int BeforeLow, int BeforeHigh, int Low, int High,
+    bool NotWritten = false)
+{
+    /// <summary>
+    /// The write never ran (round eight, Codex F3): the command loop was not
+    /// running, or the slice was gone when it came to run. The filter is
+    /// whatever it was; nothing was sent. Said plainly, never in silence.
+    /// </summary>
+    public static FilterApplied Refused(string mode, int requestedLow, int requestedHigh, int low, int high)
+        => new FilterApplied(mode, requestedLow, requestedHigh, low, high, low, high, NotWritten: true);
+
+    /// <summary>The filter is what was asked for.</summary>
+    public bool Exact => !NotWritten && Low == RequestedLow && High == RequestedHigh;
+
+    /// <summary>
+    /// The filter is not what was asked for and is what it was before:
+    /// refused, as FM and NFM refuse, or held back to exactly where it
+    /// already was. Either way the filter did not change, which is the one
+    /// thing to say.
+    /// </summary>
+    public bool Unchanged => !NotWritten && !Exact && Low == BeforeLow && High == BeforeHigh;
 }
 
 /// <summary>
@@ -86,6 +189,18 @@ public class FilterPresets
     /// Match tolerance: within 20 Hz on each edge.
     /// Mirrors current radio values to match stored preset convention (USB-positive).
     /// </summary>
+    /// <summary>
+    /// The active-preset status for a live filter: the recognised preset's
+    /// name with the LIVE edges and width (Codex B1), or null when no preset
+    /// is within 20 Hz an edge. One reading of the filter feeds both the
+    /// recognition and the numbers.
+    /// </summary>
+    public string? ActiveStatus(string mode, int liveLow, int liveHigh, VerbosityLevel level)
+    {
+        int idx = FindActivePreset(mode, liveLow, liveHigh);
+        return idx < 0 ? null : GetPresetsForMode(mode)[idx].StatusSentence(liveLow, liveHigh, level);
+    }
+
     public int FindActivePreset(string mode, int low, int high)
     {
         // Mirror current radio values so LSB (-1900, -100) compares as (100, 1900)

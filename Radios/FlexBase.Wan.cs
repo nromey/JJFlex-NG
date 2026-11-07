@@ -21,30 +21,12 @@ namespace Radios
     {
         // WAN routines.
         #region WAN
-        private List<Radio> radios;
-        private bool wanListReceived = false;
-
-        /// <summary>
-        /// The list the SmartLink server pushed for the account this
-        /// instance's connect flow is waiting on, captured at the moment of
-        /// receipt — or null when no server push has landed since the last
-        /// <see cref="ConnectToSmartLink"/> began.
-        /// </summary>
-        /// <remarks>
-        /// <para><b>Why this is not <see cref="wanListReceived"/>.</b> That
-        /// latch answers the connect flow's question, "is there a list to work
-        /// with yet?", and a replay of a held session's cached copy sets it as
-        /// legitimately as a push does. The registration query asks a
-        /// different question — "did the SERVER speak during this call?" — and
-        /// only a push answers it. Track L read the latch for that question,
-        /// and the replay set it (#619).</para>
-        ///
-        /// <para>Written only by <see cref="wanRadioListReceivedHandler"/> for
-        /// a <see cref="WanListArrival.ServerPush"/>, which only the
-        /// coordinator's live event reaches. Guarded by
-        /// <see cref="_wanIntakeLock"/>.</para>
-        /// </remarks>
-        private SmartLinkRegistrationEvidence.AccountList? _serverListThisCall;
+        // The rig-wide connect latch (radios, wanListReceived and
+        // _serverListThisCall, with ConnectListLatched and ConnectListSettled)
+        // was removed in the 2026-11-06 integration pass: after #713's
+        // per-call latches (ConnectLatch) no product code read it. Each call
+        // waits on its own latch, and a registration query reads its own
+        // call's server push.
 
         /// <summary>
         /// How a list reached <see cref="wanRadioListReceivedHandler"/>. Named
@@ -78,7 +60,142 @@ namespace Radios
         /// <c>EnsureSessionForAccount</c>, so the list-received latch is only
         /// satisfied by the account actually being waited on.
         /// </summary>
-        private string CurrentSessionKey => _currentAccount?.Email ?? "default-account";
+
+        /// <summary>
+        /// One <see cref="ConnectToSmartLink"/> call's own wait: the account it
+        /// asked, whether a list for that account has reached the intake since
+        /// the call began, that list, and the server's own push if one came.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Per call, never per rig (#713, repair round 2).</b> Round 1
+        /// scoped the rig-wide latch to a query's account for the length of the
+        /// query, so a connect running at the same time on the same rig stopped
+        /// recognising its own account's list and finished on the query's; and
+        /// two queries finishing out of order restored each other's key. Each
+        /// call now owns one of these, registered for its duration; the intake
+        /// writes every open latch whose account matches the list, and each call
+        /// reads only its own. There is no rig-wide latch any more (removed in
+        /// the 2026-11-06 integration pass: nothing read it).</para>
+        /// <para>Every field is read and written under <c>_wanIntakeLock</c>.</para>
+        /// </remarks>
+        private sealed class ConnectLatch
+        {
+            public ConnectLatch(string account) { Account = account; }
+            public readonly string Account;
+            /// <summary>The call's session and its list revision when the call began; set where the latch opens.</summary>
+            public string StartSessionId = "";
+            public long StartRevision;
+            public bool Received;
+            public List<Radio> Radios;
+            public SmartLinkRegistrationEvidence.AccountList? ServerPush;
+        }
+
+        /// <summary>
+        /// THE rule for what completes a waiting call (#613, #713 and #798,
+        /// repair round 4): a list the SERVER pushed, for the call's account
+        /// (checked by the caller), on the call's own session, NEWER than the
+        /// list that session held when the call began. A replay of a held copy
+        /// never completes a waiting call, whoever replays it: it is not the
+        /// server speaking during the call, and taking it lost the answer the
+        /// server had already sent (Codex #713 B3, #613 B3-R3b). An older or
+        /// equal revision is a list the call already had at its start, which
+        /// it answers from itself (<see cref="TheListWasFoundAtStart"/>).
+        /// </summary>
+        internal static bool ListAnswersTheCall(bool serverPush,
+            string startSessionId, long startRevision, string listSessionId, long listRevision)
+            => serverPush
+               && string.Equals(startSessionId ?? "", listSessionId ?? "", StringComparison.Ordinal)
+               && listRevision > startRevision;
+
+        /// <summary>
+        /// Write <paramref name="lst"/> into every call waiting here that it
+        /// answers, by <see cref="ListAnswersTheCall"/>, and return what each
+        /// held before, so a list that stops being current while it is taken
+        /// can be put back (<see cref="PutBackWaitingCalls"/>). Caller holds
+        /// <c>_wanIntakeLock</c>.
+        /// </summary>
+        private List<(ConnectLatch latch, bool received, List<Radio> radios, SmartLinkRegistrationEvidence.AccountList? push)>
+            AnswerWaitingCalls(string accountId, IReadOnlyList<Radio> lst, bool serverPush, WanListProvenance provenance)
+        {
+            var before = new List<(ConnectLatch latch, bool received, List<Radio> radios, SmartLinkRegistrationEvidence.AccountList? push)>();
+            foreach (var open in _openLatches)
+            {
+                if (!string.Equals(open.Account, accountId, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!ListAnswersTheCall(serverPush,
+                        open.StartSessionId, open.StartRevision, provenance.SessionId, provenance.ListRevision)) continue;
+                before.Add((open, open.Received, open.Radios, open.ServerPush));
+                open.Received = true;
+                open.Radios = lst.ToList();
+                // ListAnswersTheCall has required a server push.
+                open.ServerPush = new SmartLinkRegistrationEvidence.AccountList(
+                    accountId,
+                    lst.Select(r => r.Serial).Where(x => !string.IsNullOrEmpty(x)).ToList(),
+                    SmartLinkRegistrationEvidence.ListSource.ServerPushThisCall);
+            }
+            return before;
+        }
+
+        /// <summary>Undo <see cref="AnswerWaitingCalls"/>. Caller holds <c>_wanIntakeLock</c>.</summary>
+        private static void PutBackWaitingCalls(
+            List<(ConnectLatch latch, bool received, List<Radio> radios, SmartLinkRegistrationEvidence.AccountList? push)> before)
+        {
+            foreach (var (open, received, openRadios, push) in before)
+            {
+                open.Received = received;
+                open.Radios = openRadios;
+                open.ServerPush = push;
+            }
+        }
+
+        /// <summary>
+        /// A push, offered to the calls waiting on a rig that is NOT the
+        /// display intake (#798, repair round 5, Codex B4). The one intake
+        /// still does all the display work (rows, events, the ghost sweep);
+        /// this only answers waiting calls, by the same rule, with the same
+        /// check-write-recheck the intake uses. Without it a call on a rig
+        /// that lost the intake mid-call never heard its own session's push:
+        /// a connect that had always succeeded ended ConnectFailed after ten
+        /// seconds, and setupRemote answered that by cycling the session.
+        /// </summary>
+        private void OfferPushToWaitingCalls(Radios.SmartLink.SessionRadioListEventArgs e)
+        {
+            if (e?.Radios == null || e.Session == null) return;
+            var provenance = new WanListProvenance(e.Session, e.SessionId, e.ConnectionGeneration, e.ListRevision);
+            lock (_wanIntakeLock)
+            {
+                if (_openLatches.Count == 0) return;
+                if (!ListStillCurrent(provenance)) return;
+                var before = AnswerWaitingCalls(e.AccountId ?? "", e.Radios, serverPush: true, provenance);
+                if (before.Count == 0) return;
+                if (!ListStillCurrent(provenance))
+                {
+                    PutBackWaitingCalls(before);
+                    return;
+                }
+                Tracing.TraceLine(
+                    $"presence: {e.AccountId}'s list ({provenance}) answered {before.Count} waiting call(s) on a rig that is not the intake",
+                    TraceLevel.Info);
+            }
+        }
+
+        /// <summary>The calls waiting now. Guarded by <c>_wanIntakeLock</c>.</summary>
+        private readonly List<ConnectLatch> _openLatches = new List<ConnectLatch>();
+
+        /// <summary>
+        /// Whether this call's latch is set, read the way the connect must
+        /// read it: never inside an intake, and never blocking. The intake
+        /// writes the latch and re-validates it as one critical section, and
+        /// a latch it later takes back must never have been seen; an intake in
+        /// progress reads as "not yet". It never blocks, because the intake can
+        /// be raising events into the picker, which marshals to the UI thread
+        /// and waits for it.
+        /// </summary>
+        private bool LatchReceived(ConnectLatch latch)
+        {
+            if (!System.Threading.Monitor.TryEnter(_wanIntakeLock)) return false;
+            try { return latch.Received; }
+            finally { System.Threading.Monitor.Exit(_wanIntakeLock); }
+        }
 
         /// <summary>
         /// Adapter from the coordinator's attributed list event. Replaces the
@@ -91,7 +208,7 @@ namespace Radios
         private void sessionRadioListReceivedHandler(object sender, Radios.SmartLink.SessionRadioListEventArgs e)
         {
             wanRadioListReceivedHandler(e.AccountId ?? "", e.Radios, WanListArrival.ServerPush,
-                new WanListProvenance(e.Session, e.SessionId, e.ConnectionGeneration));
+                new WanListProvenance(e.Session, e.SessionId, e.ConnectionGeneration, e.ListRevision));
         }
 
         /// <summary>
@@ -119,13 +236,20 @@ namespace Radios
         /// at its own decision. Internal rather than private only so the
         /// public sighting can hold it.</para>
         internal readonly record struct WanListProvenance(
-            Radios.SmartLink.IWanSessionOwner Session, string SessionId, long ConnectionGeneration)
+            Radios.SmartLink.IWanSessionOwner Session, string SessionId, long ConnectionGeneration, long ListRevision = 0)
         {
+            /// <summary>
+            /// This is the very list <paramref name="snapshot"/> describes:
+            /// same session, same connection, same list revision. The
+            /// connection alone is not enough, because one connection can
+            /// carry more than one list (#613, repair round 4, Codex B3-R3a).
+            /// </summary>
             public bool Matches(Radios.SmartLink.SessionRadioListSnapshot snapshot) =>
                 string.Equals(SessionId, snapshot.SessionId, StringComparison.Ordinal)
-                && ConnectionGeneration == snapshot.ConnectionGeneration;
+                && ConnectionGeneration == snapshot.ConnectionGeneration
+                && ListRevision == snapshot.ListRevision;
 
-            public override string ToString() => $"session {SessionId} connection {ConnectionGeneration}";
+            public override string ToString() => $"session {SessionId} connection {ConnectionGeneration} list {ListRevision}";
         }
 
         /// <summary>
@@ -259,6 +383,22 @@ namespace Radios
         {
             FlexBase target = PresenceIntake;
 
+            // Calls wait on the rig that made them, and a rig can lose the
+            // intake while its call waits. Every engaged rig other than the
+            // intake has its waiting calls answered here; the intake answers
+            // its own in the full intake below (#798, repair round 5).
+            FlexBase[] others;
+            lock (_presenceIntakeGate)
+                others = _presenceEngaged.Where(r => !ReferenceEquals(r, target)).ToArray();
+            foreach (var rig in others)
+            {
+                try { rig.OfferPushToWaitingCalls(e); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"presenceIntakeDispatch: offering a list to a waiting call failed: {ex.Message}", TraceLevel.Warning);
+                }
+            }
+
             if (target == null)
             {
                 // Not an error: no rig exists between a teardown and the next
@@ -291,7 +431,7 @@ namespace Radios
                     // that is no longer the session's current knowledge when
                     // it reaches this line would overwrite the entries a
                     // current list wrote with older ones.
-                    var provenance = new WanListProvenance(e.Session, e.SessionId, e.ConnectionGeneration);
+                    var provenance = new WanListProvenance(e.Session, e.SessionId, e.ConnectionGeneration, e.ListRevision);
                     if (!ListStillCurrent(provenance))
                     {
                         Tracing.TraceLine(
@@ -433,46 +573,6 @@ namespace Radios
         internal Action<WanIntakeStage> WanIntakeStageReached;
 
         /// <summary>
-        /// Whether the connect flow's latch is set, read the way the flow
-        /// must read it: never inside an intake. The intake writes the latch
-        /// and re-validates it as one critical section (see
-        /// <see cref="wanRadioListReceivedHandler"/>), and a latch it later
-        /// takes back must never have been seen; so this asks the intake's
-        /// lock without waiting for it, and an intake in progress reads as
-        /// "not yet". It never blocks, because the intake can be raising
-        /// events into the picker, which marshals to the UI thread and
-        /// waits for it.
-        /// </summary>
-        internal bool ConnectListLatched()
-        {
-            if (!System.Threading.Monitor.TryEnter(_wanIntakeLock)) return false;
-            try { return wanListReceived; }
-            finally { System.Threading.Monitor.Exit(_wanIntakeLock); }
-        }
-
-        /// <summary>
-        /// The list the connect flow reads once its wait is over — the
-        /// <c>radios</c> field, read under the intake's lock so it is the
-        /// list an intake SETTLED, never one an intake has written and is
-        /// about to take back (#619, Sol's review of L7). Blocks for an
-        /// intake in progress, as the read at the deadline already does; the
-        /// flow never runs on the UI thread, so an intake raising into the
-        /// picker cannot be waiting on the flow.
-        /// </summary>
-        /// <remarks>
-        /// Until Track L8 the flow read <c>radios</c> bare, three times —
-        /// a count, a loop and a second count — after a wait that itself
-        /// never looked inside an intake. A push landing in that gap wrote
-        /// <c>radios</c> before its re-validation, so the flow could count
-        /// one list, walk another and judge "no radios" by a third, one of
-        /// them a list the intake then put back. One read, one list.
-        /// </remarks>
-        internal List<Radio> ConnectListSettled()
-        {
-            lock (_wanIntakeLock) return radios;
-        }
-
-        /// <summary>
         /// The one currency question the intake asks of every list, pushed or
         /// replayed: is the list, by its own generation, still the session's
         /// current knowledge right now (#619)?
@@ -520,10 +620,10 @@ namespace Radios
                 // while its list was current: the re-validation came after
                 // the write, so any dial, disconnect or death that follows is
                 // later than the write, and the latch then holds what a list
-                // consumed an instant before that change would hold. The
-                // connect flow reads the latch through ConnectListLatched,
-                // which never looks inside an intake, so a latch taken back
-                // at step 2 is never seen.
+                // consumed an instant before that change would hold. A call
+                // reads its latch through LatchReceived, which never looks
+                // inside an intake, so a latch taken back at step 2 is never
+                // seen.
                 //
                 // Step 1 is subsumed by step 2 for correctness: removing it
                 // turns no test red, measured on Track L7. It stays because it
@@ -585,35 +685,18 @@ namespace Radios
                 }
                 WanIntakeStageReached?.Invoke(WanIntakeStage.CurrencyChecked);
 
-                // The connect flow's one-shot latch belongs to the account it
-                // is waiting on; a push from another held session must not
-                // satisfy it with the wrong account's radios.
-                bool latchIsOurs = string.Equals(accountId, CurrentSessionKey, StringComparison.OrdinalIgnoreCase);
-                var radiosBefore = radios;
-                bool latchBefore = wanListReceived;
-                var serverListBefore = _serverListThisCall;
-                if (latchIsOurs)
-                {
-                    radios = lst.ToList();
-                    wanListReceived = true;
-
-                    // The server spoke. Captured HERE, where the arrival is
-                    // known, because nothing downstream can tell a replayed
-                    // list from a pushed one — they are the same objects.
-                    if (arrival == WanListArrival.ServerPush)
-                        _serverListThisCall = new SmartLinkRegistrationEvidence.AccountList(
-                            accountId,
-                            lst.Select(r => r.Serial).Where(x => !string.IsNullOrEmpty(x)).ToList(),
-                            SmartLinkRegistrationEvidence.ListSource.ServerPushThisCall);
-                }
+                // Each call waiting on THIS account gets the list on its own
+                // latch (#713, repair round 2), put back below with the rest
+                // if the list stops being current while it is taken; and only
+                // if the list answers that call, by the one rule
+                // (ListAnswersTheCall, repair round 4).
+                var latchesBefore = AnswerWaitingCalls(accountId, lst, arrival == WanListArrival.ServerPush, provenance);
                 WanIntakeStageReached?.Invoke(WanIntakeStage.LatchWritten);
 
                 // Step 2: the same question, after the write. See above.
                 if (!ListStillCurrent(provenance))
                 {
-                    radios = radiosBefore;
-                    wanListReceived = latchBefore;
-                    _serverListThisCall = serverListBefore;
+                    PutBackWaitingCalls(latchesBefore);
                     Tracing.TraceLine(
                         $"wanRadioListReceivedHandler: {arrival} list of {lst.Count} radio(s) for {accountId} from {provenance} stopped being that session's current knowledge while it was being taken — a dial, a disconnect or the transport's death landed between the check and the latch — so the latch is put back as it was and nothing else is written",
                         TraceLevel.Info);
@@ -761,10 +844,23 @@ namespace Radios
         private void UpdateRadioDiscoveryFields(Radio newRadio, Radio oldRadio, string accountId)
         {
             Tracing.TraceLine("UpdateRadioDiscoveryFields:" + newRadio.Nickname + ' ' + newRadio.Callsign, TraceLevel.Info);
-            if (oldRadio.Nickname != newRadio.Nickname)
-                oldRadio.Nickname = newRadio.Nickname;
-            if (oldRadio.Callsign != newRadio.Callsign)
-                oldRadio.Callsign = newRadio.Callsign;
+            // A LIST NEVER COMMANDS A RADIO'S NAME OR CALLSIGN (#477, under #397).
+            // FlexLib's Nickname and Callsign setters send "radio name" and
+            // "radio callsign", which the radio keeps in its firmware, and this
+            // merge adopts the CONNECTED radio as its target - so a SmartLink
+            // snapshot that lagged a rename wrote the old name back into
+            // somebody's radio. The list is a copy of what the radio says about
+            // itself; the radio is the authority:
+            // - Connected, the radio reports its own name and callsign in its
+            //   status, so the list's copy is not applied at all.
+            // - Not connected, the list is the only source for the picker's
+            //   row, so the copy is applied through UpdateIdentityFromList, a
+            //   FlexLib patch that updates the record and sends nothing
+            //   (MIGRATION.md item 24).
+            // Not an ownership check: no radio, ours or anyone's, is ever told
+            // its name by a list.
+            if (!oldRadio.Connected)
+                oldRadio.UpdateIdentityFromList(newRadio.Nickname, newRadio.Callsign);
             if (oldRadio.Status != newRadio.Status)
                 oldRadio.Status = newRadio.Status;
             if (oldRadio.GuiClientIPs != newRadio.GuiClientIPs)
@@ -1005,19 +1101,38 @@ namespace Radios
         /// an exhausted chain earns the native sign-in form. True preserves
         /// the historical behaviour for every existing caller.
         /// </param>
-        private bool setupRemote(bool allowInteractive = true)
+        /// <param name="radiosAccount">
+        /// The saved account the RADIO is reached through, when the connect
+        /// knows it (#798, from <see cref="PrepareSmartLinkForSerial"/>). Signs
+        /// in as that account without asking the account selector, which has
+        /// no serial and can only answer with the default. Null keeps the
+        /// selector's answer, as for every caller before.
+        /// </param>
+        private bool setupRemote(bool allowInteractive = true, SmartLinkAccount radiosAccount = null)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            Tracing.TraceLine($"setupRemote: BEGIN allowInteractive={allowInteractive}", TraceLevel.Info);
+            Tracing.TraceLine($"setupRemote: BEGIN allowInteractive={allowInteractive} radiosAccount={radiosAccount?.Email ?? "none"}", TraceLevel.Info);
             ConnectionProfiler.Current?.RecordEvent("setup_remote_begin");
             bool rv = false;
             string jwt = null;
+            // Declared up here, not where it is first assigned, because the
+            // done label reads it (#798) and the early exits jump over the
+            // assignment. Null means no list was ever asked for.
+            SmartLinkConnectResult? connectResult = null;
 
             // Check for saved accounts
             var accounts = AccountManager.Accounts;
             Tracing.TraceLine($"setupRemote: {accounts.Count} saved account(s) ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
 
-            if (accounts.Count > 0)
+            if (radiosAccount != null)
+            {
+                // The radio's own account, resolved from the radio (#798).
+                _currentAccount = radiosAccount;
+                Tracing.TraceLine($"setupRemote: signing in as the radio's own account '{_currentAccount.Email}', not the selector's default", TraceLevel.Info);
+                jwt = GetJwtFromSavedAccount(_currentAccount, allowInteractiveLogin: allowInteractive);
+                Tracing.TraceLine($"setupRemote: GetJwtFromSavedAccount returned jwt={(!string.IsNullOrEmpty(jwt) ? "yes" : "null/empty")} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+            }
+            else if (accounts.Count > 0)
             {
                 // Sprint 10: Show account selector via delegate (decoupled from WinForms Form)
                 Tracing.TraceLine($"setupRemote: ShowAccountSelector delegate is {(ShowAccountSelector != null ? "WIRED" : "NULL")}", TraceLevel.Info);
@@ -1062,7 +1177,7 @@ namespace Radios
             // Connect to SmartLink server
             Tracing.TraceLine($"setupRemote: calling ConnectToSmartLink ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             ConnectionProfiler.Current?.RecordEvent("smartlink_connect_begin");
-            SmartLinkConnectResult connectResult = ConnectToSmartLink(jwt);
+            connectResult = ConnectToSmartLink(jwt);
             rv = connectResult == SmartLinkConnectResult.Success;
             ConnectionProfiler.Current?.RecordEvent("smartlink_connect_end", new Dictionary<string, object>
             {
@@ -1195,6 +1310,20 @@ namespace Radios
             }
 
             setupRemoteDone:
+            // #798: the account signed in and its list came back empty. Every
+            // NoRadios branch above jumps here, and none filed a report, so
+            // ReconnectRemote's fallback told the operator sign-in had failed
+            // when it had succeeded. Say what actually happened.
+            if (connectResult == SmartLinkConnectResult.NoRadios)
+            {
+                RecordConnectFailure(new ConnectFailureReport
+                {
+                    Class = ConnectFailureClass.RadioNotFound,
+                    // DRAFT wording (#798), awaiting Noel.
+                    SpokenSummary = Lexicon.Get("connect.failure.smartlink_lists_no_radios",
+                        ("email", _currentAccount?.Email ?? Lexicon.Get("connect.selector.this_account"))),
+                });
+            }
             // #259: the operator expressed remote intent this session, so from
             // here on hold a presence session per saved account — whatever this
             // particular pass's outcome. A failed pass on ONE account is no
@@ -1861,7 +1990,7 @@ namespace Radios
         /// left the replay reading it, on the reasoning that the replay is
         /// discovery rather than evidence and the next push corrects it; Sol's
         /// review of L3 listed what the replay actually does with a list —
-        /// sets the connect flow's latch, assigns <c>radios</c>, adds to
+        /// sets the connect flow's latch, adds to
         /// <c>myRadioList</c>, rewrites the WAN object bank, runs the
         /// account-wide ghost sweep, writes the account-list display cache,
         /// and can satisfy the connect wait on the spot — and every one of
@@ -1883,7 +2012,8 @@ namespace Radios
         /// <param name="sw">The connect flow's stopwatch, for the trace
         /// timings; null outside the flow.</param>
         internal int ReplayHeldListsIntoTheIntake(
-            string accountEmail, bool sessionWasAlreadyConnected, System.Diagnostics.Stopwatch sw = null)
+            string accountEmail, bool sessionWasAlreadyConnected, System.Diagnostics.Stopwatch sw = null,
+            Radios.SmartLink.SessionRadioListSnapshot? ownListAtStart = null)
         {
             int replayed = 0;
             string at() => sw == null ? "" : $" ({sw.ElapsedMilliseconds}ms)";
@@ -1894,8 +2024,22 @@ namespace Radios
                     if (held == null) continue;
                     var snapshot = held.RadioListSnapshot;
                     if (!snapshot.SessionConnected) continue;
-                    if (string.Equals(held.AccountId, accountEmail, StringComparison.OrdinalIgnoreCase)
-                        && !sessionWasAlreadyConnected) continue;
+                    bool own = string.Equals(held.AccountId, accountEmail, StringComparison.OrdinalIgnoreCase);
+                    if (own && !sessionWasAlreadyConnected) continue;
+                    // A connect call replays its OWN account's list only if it
+                    // is the list the call found (#613, repair round 3, Codex
+                    // B3-R2a). A list accepted during the call is that call's
+                    // answer from the server; replaying it as a held copy
+                    // satisfied the call before the push reached its latch, and
+                    // the answer was lost. The push brings it instead.
+                    if (own && ownListAtStart.HasValue && !TheListWasFoundAtStart(ownListAtStart.Value, snapshot))
+                    {
+                        if (snapshot.Radios != null && snapshot.Radios.Count > 0)
+                            Tracing.TraceLine(
+                                $"ConnectToSmartLink: not replaying {held.AccountId}'s list (session {snapshot.SessionId} connection {snapshot.ConnectionGeneration}) — it arrived during this call, so its push is this call's answer{at()}",
+                                TraceLevel.Info);
+                        continue;
+                    }
                     var cached = snapshot.Radios;
                     if (cached == null || cached.Count == 0) continue;
                     if (!snapshot.ArrivedOnTheLiveConnection)
@@ -1928,7 +2072,7 @@ namespace Radios
                     // a list it actually took is counted.
                     WanIntakeStageReached?.Invoke(WanIntakeStage.ReplaySnapshotTaken);
                     if (wanRadioListReceivedHandler(held.AccountId, cached, WanListArrival.ReplayOfHeldCopy,
-                            new WanListProvenance(held, snapshot.SessionId, snapshot.ConnectionGeneration)))
+                            new WanListProvenance(held, snapshot.SessionId, snapshot.ConnectionGeneration, snapshot.ListRevision)))
                         replayed++;
                 }
                 catch (Exception replayEx)
@@ -1972,6 +2116,15 @@ namespace Radios
         /// </remarks>
         internal bool OwnRowsMayAnswerTheConnect(
             Radios.SmartLink.IWanSessionOwner session, string accountEmail, System.Diagnostics.Stopwatch sw = null)
+            => session != null && OwnRowsMayAnswerTheConnect(session.RadioListSnapshot, accountEmail, sw);
+
+        /// <summary>
+        /// <see cref="OwnRowsMayAnswerTheConnect(Radios.SmartLink.IWanSessionOwner, string, System.Diagnostics.Stopwatch)"/>
+        /// on a reading the caller already took, so its other decisions rest
+        /// on the same one (#613, repair round 3).
+        /// </summary>
+        internal bool OwnRowsMayAnswerTheConnect(
+            Radios.SmartLink.SessionRadioListSnapshot snapshot, string accountEmail, System.Diagnostics.Stopwatch sw = null)
         {
             // WAN entries only: myRadioList also accumulates LAN radios, and a
             // LAN-only cache says nothing about this SmartLink session. Scoped
@@ -1981,9 +2134,8 @@ namespace Radios
             int rows = myRadioList.Count(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail));
             if (rows == 0) return false;
 
-            // One read, so the connected fact and the arrived-on-the-live-
+            // One reading, so the connected fact and the arrived-on-the-live-
             // connection fact describe the same moment.
-            var snapshot = session.RadioListSnapshot;
             if (!snapshot.SessionConnected) return false;
             if (!snapshot.ArrivedOnTheLiveConnection)
             {
@@ -2010,6 +2162,59 @@ namespace Radios
         }
 
         /// <summary>
+        /// True when the session's list for its LIVE connection has already
+        /// arrived and holds no radio — an empty answer, given (#613).
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Arrived, not merely "connected with nothing cached".</b>
+        /// <see cref="OwnRowsMayAnswerTheConnect"/> answers false at zero rows
+        /// before it reads whether the list arrived, so an account whose list
+        /// came back EMPTY was indistinguishable from one whose list had not
+        /// come yet, and the connect waited ten seconds for a second list the
+        /// server does not send per TLS session (measured in Noel's trace of
+        /// 2026-09-23: the wait, then the cycle, then the list 79 ms after the
+        /// fresh registration). A session that connected a moment ago and has
+        /// not been listed yet also holds nothing; that is NOT this, and it
+        /// still waits, because its list is coming.</para>
+        /// <para>One snapshot, so the connected fact, the arrived fact and the
+        /// list describe the same moment, as in
+        /// <see cref="OwnRowsMayAnswerTheConnect"/>. The session is one
+        /// account's, so its list is that account's list.</para>
+        /// </remarks>
+        /// <summary>
+        /// True when <paramref name="now"/> is the very list the call found
+        /// at its start, and that list was an answer then: connected and
+        /// arrived on that connection, and still the same session,
+        /// connection and list revision now (#613, repair rounds 2 to 4; the
+        /// revision replaced the wall-clock arrival time in round 4). Two
+        /// readings compared as values; nothing is read here.
+        /// </summary>
+        internal static bool TheListWasFoundAtStart(
+            Radios.SmartLink.SessionRadioListSnapshot atStart, Radios.SmartLink.SessionRadioListSnapshot now)
+            => atStart.SessionConnected && atStart.ArrivedOnTheLiveConnection
+               && now.SessionConnected && now.ArrivedOnTheLiveConnection
+               && string.Equals(now.SessionId, atStart.SessionId, StringComparison.Ordinal)
+               && now.ConnectionGeneration == atStart.ConnectionGeneration
+               && now.ListRevision == atStart.ListRevision;
+
+        /// <summary>
+        /// True when this one reading is a list that arrived on its live
+        /// connection and holds no radio: an empty answer, given (#613).
+        /// The caller passes the reading it decides everything else from.
+        /// </summary>
+        internal static bool TheLiveListAnsweredEmpty(
+            Radios.SmartLink.SessionRadioListSnapshot snapshot, string account, System.Diagnostics.Stopwatch sw = null)
+        {
+            if (!snapshot.SessionConnected || !snapshot.ArrivedOnTheLiveConnection) return false;
+            if (snapshot.Radios != null && snapshot.Radios.Count > 0) return false;
+            Tracing.TraceLine(
+                $"ConnectToSmartLink: {account}'s list for its live connection (session {snapshot.SessionId} connection {snapshot.ConnectionGeneration}) has arrived and is empty — no list wait"
+                + (sw == null ? "" : $" ({sw.ElapsedMilliseconds}ms)"),
+                TraceLevel.Info);
+            return true;
+        }
+
+        /// <summary>
         /// Connects to SmartLink server with the given JWT.
         ///
         /// <para>
@@ -2029,28 +2234,51 @@ namespace Radios
         /// each held session hears only its own account's lists (instance
         /// event in the vendored FlexLib, see MIGRATION.md item 13) and the
         /// coordinator re-raises them stamped with the account. Our handler
-        /// populates <c>radios</c> + <c>wanListReceived</c> only for the
-        /// account this flow is waiting on; the owner populates
+        /// answers this call's own latch (a newer push for its account on its
+        /// session; ListAnswersTheCall); the owner populates
         /// <c>session.AvailableRadios</c> for every account.
         /// </para>
         /// </summary>
-        private SmartLinkConnectResult ConnectToSmartLink(string jwt)
+        /// <param name="accountEmail">The account whose session to work
+        /// through; null keeps the connection's account, as every caller did
+        /// before the registration query learned to ask under the radio's own
+        /// account (#713).</param>
+        private SmartLinkConnectResult ConnectToSmartLink(string jwt, string accountEmail = null)
+            => ConnectToSmartLink(jwt, accountEmail, out _);
+
+        /// <param name="serverPush">The list the SmartLink server pushed to
+        /// THIS call for its account, or null when none came: the evidence a
+        /// registration query may read an absence from.</param>
+        /// <param name="activateSession">True for a connect, which makes its
+        /// account's session the active one, as it always has. False for an
+        /// advisory call (the registration query): it uses the account's
+        /// session without making it active, so the spoken status, the next
+        /// connect's fallback and ReconnectRemote's question stay on the
+        /// operator's account (integration pass, finding 1).</param>
+        private SmartLinkConnectResult ConnectToSmartLink(string jwt, string accountEmail,
+            out SmartLinkRegistrationEvidence.AccountList? serverPush, bool activateSession = true)
         {
+            serverPush = null;
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Tracing.TraceLine($"ConnectToSmartLink: BEGIN jwt length={jwt?.Length ?? 0}", TraceLevel.Info);
             ConnectionProfiler.Current?.RecordEvent("smartlink_connect_begin", new Dictionary<string, object>
             {
                 { "jwtLength", jwt?.Length ?? 0 }
             });
+            ConnectLatch latch = null;
             try
             {
-                var accountEmail = _currentAccount?.Email ?? "default-account";
-                var session = Radios.SmartLink.SmartLinkServices.Coordinator.EnsureSessionForAccount(accountEmail);
+                if (string.IsNullOrWhiteSpace(accountEmail))
+                    accountEmail = _currentAccount?.Email ?? "default-account";
+                latch = new ConnectLatch(accountEmail);
+                var session = activateSession
+                    ? Radios.SmartLink.SmartLinkServices.Coordinator.EnsureSessionForAccount(accountEmail)
+                    : Radios.SmartLink.SmartLinkServices.Coordinator.GetOrCreateSession(accountEmail);
 
-                // Take the intake, so `radios` and `wanListReceived` get
-                // populated alongside session.AvailableRadios. The connect flow
-                // WAITS on that latch, so this is not optional bookkeeping —
-                // it is the reason a connect can finish. #386 replaced the
+                // Take the intake, so this rig's rows are kept current with
+                // session.AvailableRadios. A waiting call is answered wherever
+                // the intake is (repair round 5), but the rows a held answer
+                // uses are this rig's, so the intake is still taken. #386 replaced the
                 // per-instance unsubscribe/subscribe pair here: one static
                 // dispatcher, one intake, this one.
                 becomeThePresenceIntake();
@@ -2062,12 +2290,27 @@ namespace Radios
                 // trace 20260805-163019: re-clicking Remote sat through the
                 // full wait for an event the server never re-sends).
                 bool sessionWasAlreadyConnected = session.IsConnected;
+                // The session's list as this call FOUND it (#613, repair rounds
+                // 2 and 3). Only an answer that was already there, and is
+                // still the very same list, may stand in for the wait below or
+                // be replayed to this call; a list that arrives during the call
+                // is this call's answer and comes through the intake to this
+                // call's latch. Read under the lock that opens the latch: the
+                // session records a list before it forwards it, and the intake
+                // writes latches under this lock, so a list is either in this
+                // reading (held) or reaches the latch (pushed), never neither.
+                Radios.SmartLink.SessionRadioListSnapshot listAtStart;
 
                 // Kick the monitor thread. If the session is already connected (e.g. we're
                 // re-entering ConnectToSmartLink after a successful previous call), Connect
                 // is a cheap no-op because _wan.IsConnected is already true.
-                wanListReceived = false;
-                lock (_wanIntakeLock) { _serverListThisCall = null; }
+                lock (_wanIntakeLock)
+                {
+                    _openLatches.Add(latch);
+                    listAtStart = session.RadioListSnapshot;
+                    latch.StartSessionId = listAtStart.SessionId ?? "";
+                    latch.StartRevision = listAtStart.ListRevision;
+                }
                 session.Connect();
 
                 Tracing.TraceLine($"ConnectToSmartLink: waiting up to 10s for session IsConnected ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
@@ -2098,7 +2341,16 @@ namespace Radios
                     Tracing.TraceLine($"ConnectToSmartLink: session already registered this connection — skipping duplicate registration ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 }
 
-                ReplayHeldListsIntoTheIntake(accountEmail, sessionWasAlreadyConnected, sw);
+                ReplayHeldListsIntoTheIntake(accountEmail, sessionWasAlreadyConnected, sw, listAtStart);
+
+                // ONE reading of this account's list decides both shortcuts
+                // below (#613, repair round 3, Codex B3-R2b): whether it is the
+                // list the call found, whether this rig's rows came from it,
+                // and whether it is empty. A helper that checked the list's
+                // identity on one reading and its emptiness on another could
+                // pair the start list's identity with a reconnect's answer.
+                var listNow = session.RadioListSnapshot;
+                bool foundAtStart = TheListWasFoundAtStart(listAtStart, listNow);
 
                 // When we already hold a radio list from this session, don't make
                 // the user sit through the full 10s window on the off chance the
@@ -2107,7 +2359,7 @@ namespace Radios
                 // now: rows taken on the connection before a reconnect are
                 // not this session's list, and the live connection's push is
                 // still coming (#619) — see OwnRowsMayAnswerTheConnect.
-                bool haveCachedList = OwnRowsMayAnswerTheConnect(session, accountEmail, sw);
+                bool haveCachedList = OwnRowsMayAnswerTheConnect(listNow, accountEmail, sw);
 
                 // Re-entry over a session that was ALREADY live when this call
                 // began and has been listed on its live connection: the one
@@ -2117,67 +2369,70 @@ namespace Radios
                 // SessionRadioListReceived subscription stays active, so pushes
                 // keep landing as refreshes through wanRadioListReceivedHandler
                 // exactly as the 2026-08-06 refresh/morph flow expects.
-                if (sessionWasAlreadyConnected && haveCachedList)
+                if (haveCachedList && foundAtStart)
                 {
+                    // Held rows answer only for the list the call FOUND
+                    // (#613, repair round 4, Codex B3-R3b). A list that
+                    // arrived during the call is answered by its push, by the
+                    // one rule; rows taken from it, by this call's replay or
+                    // another call's, must not answer in its place.
                     var fromRows = myRadioList.Where(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)).ToList();
-                    lock (_wanIntakeLock) radios = fromRows;
+                    lock (_wanIntakeLock) latch.Radios = fromRows;
                     Tracing.TraceLine(
                         $"ConnectToSmartLink: session was already live — satisfied immediately from {fromRows.Count} cached WAN radio(s), no list wait ({sw.ElapsedMilliseconds}ms)",
                         TraceLevel.Info);
                 }
+                else if (!haveCachedList && foundAtStart && TheLiveListAnsweredEmpty(listNow, accountEmail, sw))
+                {
+                    // #613: the session's one list for this connection has
+                    // ARRIVED and holds no row for this account, so waiting ten
+                    // seconds for another has no possible outcome. Answer from
+                    // it: an empty list, which the count below turns into
+                    // NoRadios. A push that lands meanwhile is not overwritten.
+                    //
+                    // ONLY for a session that was live before this call. A
+                    // session this call connected is pushed its list through
+                    // the intake, and the snapshot can show that list a moment
+                    // before the intake has taken it; answering from the
+                    // snapshot then lost the server's answer, so a fresh empty
+                    // list read as Unknown instead of a live absence (found in
+                    // repair round 1: SmartLinkRegistrationReplayTests'
+                    // fresh-push test failed one run in three). Round 2 made
+                    // it exact: the empty list must be the one the call FOUND,
+                    // unchanged (same session, connection and list revision), so a
+                    // first list or a reconnect's list arriving during the
+                    // call is waited for, not answered from the snapshot.
+                    lock (_wanIntakeLock)
+                    {
+                        if (!latch.Received) latch.Radios = new List<Radio>();
+                    }
+                }
                 else
                 {
-                int listWaitMs = haveCachedList ? 2000 : 10000;
+                const int listWaitMs = 10000;
 
                 Tracing.TraceLine($"ConnectToSmartLink: registration sent, waiting up to {listWaitMs / 1000}s for radio list (cached={myRadioList.Count}) ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                // The latch is read through ConnectListLatched, which never
+                // The latch is read through LatchReceived, which never
                 // looks inside an intake: the intake writes the latch and
                 // re-validates it as one step, and may take it back (#619).
                 // A list whose intake is still running when the window ends
                 // is settled by one read that waits for the intake to finish.
-                bool listArrived = await(() => ConnectListLatched() || session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired, listWaitMs);
+                bool listArrived = await(() => LatchReceived(latch) || session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired, listWaitMs);
                 if (!listArrived)
                 {
-                    lock (_wanIntakeLock) listArrived = wanListReceived;
+                    lock (_wanIntakeLock) listArrived = latch.Received;
                 }
                 if (!listArrived)
                 {
-                    // The server sends the radio list once per TLS session. On a
-                    // re-entry into ConnectToSmartLink over a session that is
-                    // ALREADY connected, that list has long since arrived, so
-                    // waiting for a fresh one waits forever — 10s per attempt,
-                    // and setupRemote's retry doubles it. Noel hit ~80s of
-                    // apparent hanging on 2026-08-05 (trace 20260805-171637)
-                    // doing nothing more exotic than pressing Remote twice.
-                    // Accept the list we already have rather than declaring
-                    // failure on a healthy session.
-                    if (haveCachedList)
-                    {
-                        // The cache check above reads myRadioList, but everything
-                        // downstream reads `radios`, which only a fresh
-                        // WanRadioRadioListRecieved event assigns. On a NEW
-                        // FlexBase over the still-live app-global session —
-                        // selector closed and reopened, which remote-first
-                        // startup now does on every open — `radios` is null
-                        // here: NRE, mapped to ConnectFailed, answered with a
-                        // pointless interactive re-login on a healthy session
-                        // (Noel, 2026-08-06, trace 203418). Rebuild it from the
-                        // cache being accepted — scoped to this account, so
-                        // another account's presence radios cannot stand in
-                        // for a list this account never gave us. RadioFound for
-                        // these entries already fired via radioAddedHandler at
-                        // apiInit, so no re-announce is needed here.
-                        var fromRows = myRadioList.Where(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)).ToList();
-                        lock (_wanIntakeLock) radios = fromRows;
-                        Tracing.TraceLine(
-                            $"ConnectToSmartLink: no new radio list, session live with {fromRows.Count} cached WAN radio(s) — using those ({sw.ElapsedMilliseconds}ms)",
-                            TraceLevel.Info);
-                    }
-                    else
-                    {
-                        Tracing.TraceLine($"ConnectToSmartLink: TIMED OUT waiting for radio list after {listWaitMs / 1000}s ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                        return SmartLinkConnectResult.ConnectFailed;
-                    }
+                    // Only the server's answer completes a waiting call; rows
+                    // this rig holds are not one (repair round 4). The case
+                    // this branch once covered with rows, a re-entry over a
+                    // session whose one list arrived long ago (Noel, ~80 s of
+                    // apparent hanging on 2026-08-05, trace 20260805-171637),
+                    // is the held list the call FOUND at its start, answered
+                    // above without waiting.
+                    Tracing.TraceLine($"ConnectToSmartLink: TIMED OUT waiting for radio list after {listWaitMs / 1000}s ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                    return SmartLinkConnectResult.ConnectFailed;
                 }
                 } // end fresh-session wait path
 
@@ -2188,10 +2443,16 @@ namespace Radios
                 }
 
                 // One settled read, used for everything below. The intake
-                // writes `radios` before it re-validates and may put it
-                // back; reading the field bare here could count one list and
-                // walk another (#619, Sol's review of L7).
-                var listed = ConnectListSettled();
+                // writes the latch before it re-validates and may put it
+                // back; reading it bare here could count one list and walk
+                // another (#619, Sol's review of L7).
+                // This call's own settled list, and the server's push to it.
+                List<Radio> listed;
+                lock (_wanIntakeLock)
+                {
+                    listed = latch.Radios ?? new List<Radio>();
+                    serverPush = latch.ServerPush;
+                }
                 Tracing.TraceLine($"ConnectToSmartLink: radio list received! {listed.Count} radio(s), myRadioList has {myRadioList.Count} entries ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 ConnectionProfiler.Current?.RecordEvent("wan_radio_list", new Dictionary<string, object>
                 {
@@ -2231,6 +2492,15 @@ namespace Radios
                 Tracing.TraceLine($"ConnectToSmartLink: EXCEPTION {ex.GetType().Name}: {ex.Message} (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                 return SmartLinkConnectResult.ConnectFailed;
             }
+            finally
+            {
+                if (latch != null)
+                    lock (_wanIntakeLock)
+                    {
+                        _openLatches.Remove(latch);
+                        if (serverPush == null) serverPush = latch.ServerPush;
+                    }
+            }
         }
 
         /// <summary>
@@ -2255,10 +2525,30 @@ namespace Radios
         /// <see cref="AccountThatWillBroker"/>, which answers from this same
         /// decision — the words and the wire cannot diverge again.</para>
         /// </summary>
-        private static Radios.SmartLink.IWanSessionOwner ResolveBrokeringSession(string serial, out bool viaOwningAccount)
+        private static Radios.SmartLink.IWanSessionOwner ResolveBrokeringSession(string serial, out bool viaOwningAccount,
+            string plannedAccount = null)
         {
             viaOwningAccount = false;
             var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
+
+            // The account this connect's plan chose and named, and ONLY that
+            // account (Codex B1 on the 2026-11-06 integration pass, and B1-R on
+            // the rulings round). The serial-keyed bank below is written by
+            // whichever held list was replayed LAST, so on a radio two held
+            // accounts list, the plan announced one account and the wire went
+            // through the other. And when the planned account's session has
+            // dropped by the dial, falling through to the bank or the active
+            // session dialled through another account, unannounced: a plan
+            // that named an account dials through it or not at all, so the
+            // answer is then null and the caller says why.
+            if (!string.IsNullOrEmpty(plannedAccount))
+            {
+                var planned = Radios.SmartLink.SmartLinkServices.Coordinator.GetSessionForAccount(plannedAccount);
+                if (planned == null || !planned.IsConnected) return null;
+                viaOwningAccount = session == null
+                    || !string.Equals(session.AccountId, plannedAccount, StringComparison.OrdinalIgnoreCase);
+                return planned;
+            }
 
             string owningAccount = GetWanAccountForSerial(serial);
             if (!string.IsNullOrEmpty(owningAccount)
@@ -2282,19 +2572,486 @@ namespace Radios
         /// session can broker the serial, because that is then genuinely the
         /// account the attempt will use.
         /// </summary>
-        public static string AccountThatWillBroker(string serial, string activeAccountEmail)
+        public static string AccountThatWillBroker(string serial, string activeAccountEmail,
+            IEnumerable<string> savedAccounts = null)
         {
             try
             {
-                var session = ResolveBrokeringSession(serial, out _);
-                if (session != null && !string.IsNullOrEmpty(session.AccountId))
-                    return session.AccountId;
+                // The #798 plan decides every SmartLink connect now, the
+                // fast path included (Codex F2), so the account to name is
+                // the plan's, from one reading (integration pass, finding 4;
+                // #401's class), and the wire uses that same account (Codex
+                // B1).
+                var saved = savedAccounts ?? AccountManager.Accounts.Where(a => a != null).Select(a => a.Email);
+                string planned = RadiosOwnAccount(PlanSmartLinkSignIn(TakeAccountPictureFor(serial, saved: saved)));
+                if (planned.Length > 0) return planned;
+                // Nothing names the radio's account. With a session live the
+                // connect signs in to nothing and the wire resolves as it
+                // always did; name what it will resolve.
+                if (Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.IsConnected == true)
+                {
+                    var session = ResolveBrokeringSession(serial, out _);
+                    if (session != null && !string.IsNullOrEmpty(session.AccountId))
+                        return session.AccountId;
+                }
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine($"AccountThatWillBroker({serial}): {ex.Message}", TraceLevel.Warning);
             }
             return activeAccountEmail ?? "";
+        }
+
+        /// <summary>
+        /// Whether the active SmartLink session is live AND its current list
+        /// names <paramref name="serial"/>: the state the old fast path stood
+        /// on. It no longer decides anything (Codex F2 on the 2026-11-06
+        /// integration pass: the fast path skipped adopting the account and
+        /// the shared-radio tie-break, so it could reach a different account
+        /// than the plan). <see cref="ReconnectRemote"/> asks it only to say
+        /// in the trace which route the plan is taking.
+        /// </summary>
+        internal static bool TheActiveSessionListsTheRadio(string serial)
+        {
+            var active = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
+            if (active == null || !active.IsConnected) return false;
+            var s = active.RadioListSnapshot;
+            return s.SessionConnected && s.ArrivedOnTheLiveConnection
+                && s.Radios != null
+                && s.Radios.Any(r => r != null && string.Equals(r.Serial, serial, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// THE answer to "which account is this radio's, for this connect":
+        /// the account a plan uses (its held session, or a sign-in as the
+        /// radio's own account), else empty. The connect's preparation acts on
+        /// it, the announcement names it, the wire resolves through it, and
+        /// registration registers to it (Codex B1, F1 and F2 on the
+        /// 2026-11-06 integration pass): one decision, every consumer.
+        /// </summary>
+        internal static string RadiosOwnAccount(SmartLinkSignInPlan plan)
+            => plan.Kind == SmartLinkSignInPlanKind.UseHeldSession
+               || plan.Kind == SmartLinkSignInPlanKind.SignInAsRadiosAccount
+                ? plan.Account ?? ""
+                : "";
+
+        /// <summary>
+        /// The account this rig's plan chose for a connect to a serial, kept
+        /// so the dial goes through the account the plan named (Codex B1).
+        /// Set by <see cref="PrepareSmartLinkForSerial"/>; read by
+        /// <see cref="BrokeringSessionForConnect"/>, and only for the same
+        /// serial, so a later connect to another radio never inherits it.
+        /// </summary>
+        private (string Serial, string Account) _connectPlanAccount;
+
+        /// <summary>
+        /// The session the dial to <paramref name="serial"/> goes through:
+        /// this rig's plan's account when it chose one for this serial, else
+        /// the long-standing resolution (the owning account's live session,
+        /// then the active one).
+        /// </summary>
+        internal Radios.SmartLink.IWanSessionOwner BrokeringSessionForConnect(string serial, out bool viaOwningAccount)
+            => BrokeringSessionForConnect(serial, out viaOwningAccount, out _);
+
+        /// <summary>
+        /// As above; <paramref name="plannedAccount"/> is the account this
+        /// rig's plan named for the serial, or null when it named none. A null
+        /// session with a planned account means that account's session is
+        /// gone, and the dial must not go out through any other (B1-R).
+        /// </summary>
+        internal Radios.SmartLink.IWanSessionOwner BrokeringSessionForConnect(string serial, out bool viaOwningAccount,
+            out string plannedAccount)
+        {
+            var planned = _connectPlanAccount;
+            plannedAccount = !string.IsNullOrEmpty(planned.Account)
+                && string.Equals(planned.Serial, serial, StringComparison.OrdinalIgnoreCase)
+                ? planned.Account : null;
+            return ResolveBrokeringSession(serial, out viaOwningAccount, plannedAccount);
+        }
+
+        /// <summary>
+        /// The report filed when the dial refused because the planned
+        /// account's session dropped (B1-R), kept so the connect's general
+        /// failure report does not replace the true reason. Cleared at each
+        /// dial.
+        /// </summary>
+        private ConnectFailureReport _dialRefusedReport;
+
+        /// <summary>What a SmartLink connect to one serial should do about signing in.</summary>
+        internal enum SmartLinkSignInPlanKind
+        {
+            /// <summary>Nothing better is known: sign in through the saved default account, as before.</summary>
+            SignInAsUsual,
+
+            /// <summary>A held session already lists the radio on its live connection: use it, sign in to nothing.</summary>
+            UseHeldSession,
+
+            /// <summary>The radio's own account is known and saved, but its session cannot answer now: sign in as THAT account.</summary>
+            SignInAsRadiosAccount,
+
+            /// <summary>Every saved account's list has arrived on its live connection and none lists the radio: say so, sign in to nothing.</summary>
+            NotListedByAnySavedAccount,
+        }
+
+        /// <summary>The plan, and the account it names (empty for the default path).</summary>
+        internal readonly record struct SmartLinkSignInPlan(SmartLinkSignInPlanKind Kind, string Account, string Why)
+        {
+            public override string ToString() => $"{Kind}{(string.IsNullOrEmpty(Account) ? "" : " " + Account)}: {Why}";
+        }
+
+        /// <summary>
+        /// One held session's list, as one immutable reading: which account,
+        /// which session and connection, whether the session is connected and
+        /// its list arrived on that connection, when that list arrived, and
+        /// whether it names the serial asked about.
+        /// </summary>
+        internal readonly record struct AccountListView(
+            string Account, string SessionId, long Generation, bool Connected, bool Arrived,
+            long Revision, bool ListsSerial)
+        {
+            /// <summary>This account's list answers now: connected, and arrived on that connection.</summary>
+            public bool Answers => Connected && Arrived;
+        }
+
+        /// <summary>
+        /// EVERYTHING a SmartLink connect decides its account from, read once:
+        /// each held session's list (<see cref="AccountListView"/>), the
+        /// radio's chosen and last-seen accounts, and whether it is on the LAN.
+        /// The plan is a pure function of this, and the action uses this, not
+        /// a second look at live state (#798, repair round 2).
+        /// </summary>
+        internal sealed record AccountPicture(
+            string Serial, IReadOnlyList<AccountListView> Lists, string Preferred, string LastSeen, bool OnLan,
+            IReadOnlyList<string> Saved)
+        {
+            /// <summary>
+            /// The account whose list answers now and names the radio: live
+            /// attribution, from the session's CURRENT list, never from the WAN
+            /// bank (which can lag a newer list on the same connection, Codex
+            /// B1). A club rig on two accounts: the chosen account, then the
+            /// last-seen one, then the first by name, so the answer never
+            /// depends on the order sessions were made in (Codex F2).
+            /// </summary>
+            public string LiveAccount
+            {
+                get
+                {
+                    var listing = Lists.Where(l => l.Answers && l.ListsSerial).Select(l => l.Account).ToList();
+                    if (listing.Count == 0) return "";
+                    string pick(string want) => listing.FirstOrDefault(a => !string.IsNullOrWhiteSpace(want)
+                        && string.Equals(a, want, StringComparison.OrdinalIgnoreCase));
+                    return pick(Preferred) ?? pick(LastSeen)
+                        ?? listing.OrderBy(a => a, StringComparer.OrdinalIgnoreCase).First();
+                }
+            }
+
+            /// <summary>The routing answer this picture gives: live, then chosen, then last seen, then none.</summary>
+            public AccountRoute Route => RadioAccountRouting.Resolve(LiveAccount, Preferred, LastSeen);
+
+            /// <summary>
+            /// The first of <paramref name="tiers"/>, in order, that is a saved
+            /// account; empty when none is. THE tier walk for "which saved
+            /// account is this radio's": the connect's plan walks the chosen
+            /// then the last-seen account through it. Registration no longer
+            /// walks it separately: it takes the plan's own answer
+            /// (<see cref="RadiosOwnAccount"/>, Codex F1), so one radio
+            /// resolves to one account.
+            /// </summary>
+            public string FirstSaved(params string[] tiers)
+                => tiers.FirstOrDefault(IsSaved) ?? "";
+
+            /// <summary>
+            /// Whether an account is one of this picture's saved accounts.
+            /// </summary>
+            public bool IsSaved(string account)
+                => !string.IsNullOrWhiteSpace(account)
+                   && (Saved ?? Array.Empty<string>()).Any(s => string.Equals(s, account, StringComparison.OrdinalIgnoreCase));
+
+            /// <summary>
+            /// True when <paramref name="other"/> describes the same moment:
+            /// the same lists (account, session, connection, connected,
+            /// arrived, arrival time, membership), the same chosen and
+            /// last-seen accounts, and the same saved accounts (repair round
+            /// 3, Codex B2-R2: an account saved between the readings has not
+            /// answered, and the plan must see it). Two readings that differ
+            /// mean something was received in between, and two equal
+            /// readings mean nothing was: each list carries its session's
+            /// list revision, which every accepted list advances (repair
+            /// round 4, settling Codex F4; the wall-clock arrival time is no
+            /// longer compared).
+            /// </summary>
+            public bool SameAs(AccountPicture other)
+                => other != null
+                   && string.Equals(Serial, other.Serial, StringComparison.OrdinalIgnoreCase)
+                   && string.Equals(Preferred ?? "", other.Preferred ?? "", StringComparison.OrdinalIgnoreCase)
+                   && string.Equals(LastSeen ?? "", other.LastSeen ?? "", StringComparison.OrdinalIgnoreCase)
+                   && OnLan == other.OnLan
+                   && Lists.SequenceEqual(other.Lists)
+                   && (Saved ?? Array.Empty<string>()).SequenceEqual(other.Saved ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Read the picture once from the held sessions and the given chosen
+        /// and last-seen accounts. Each session's list is one snapshot.
+        /// </summary>
+        internal static AccountPicture TakeAccountPicture(string serial,
+            IEnumerable<Radios.SmartLink.IWanSessionOwner> sessions, string preferred, string lastSeen, bool onLan,
+            IEnumerable<string> saved = null)
+        {
+            var lists = new List<AccountListView>();
+            foreach (var held in sessions ?? Array.Empty<Radios.SmartLink.IWanSessionOwner>())
+            {
+                if (held == null || string.IsNullOrWhiteSpace(held.AccountId)) continue;
+                var s = held.RadioListSnapshot;
+                bool lists_ = s.Radios != null
+                    && s.Radios.Any(r => r != null && string.Equals(r.Serial, serial, StringComparison.OrdinalIgnoreCase));
+                lists.Add(new AccountListView(held.AccountId, s.SessionId ?? "", s.ConnectionGeneration,
+                    s.SessionConnected, s.ArrivedOnTheLiveConnection, s.ListRevision, lists_));
+            }
+            lists.Sort((a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Account, b.Account));
+            var savedNames = (saved ?? Array.Empty<string>())
+                .Where(a => !string.IsNullOrWhiteSpace(a))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(a => a, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            return new AccountPicture(serial ?? "", lists, preferred ?? "", lastSeen ?? "", onLan, savedNames);
+        }
+
+        /// <summary>The picture for a serial now, from the coordinator's sessions, the radio's own record and these saved accounts.</summary>
+        internal AccountPicture TakeAccountPicture(string serial, IEnumerable<string> saved)
+            => TakeAccountPictureFor(serial, RadioAvailability(serial).lan, saved);
+
+        /// <summary>
+        /// The picture without a rig: no LAN reading (false). Without
+        /// <paramref name="saved"/> the picture carries no saved accounts,
+        /// which its <see cref="AccountPicture.Route"/> does not use.
+        /// </summary>
+        internal static AccountPicture TakeAccountPictureFor(string serial, bool onLan = false, IEnumerable<string> saved = null)
+        {
+            string preferred = "", lastSeen = "";
+            try
+            {
+                var cfg = RadioConfig.LoadForRadio(serial);
+                preferred = cfg.PreferredAccount ?? "";
+                lastSeen = cfg.LastSeenViaAccount ?? "";
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"TakeAccountPicture({serial}): per-radio record unreadable: {ex.Message}", TraceLevel.Warning);
+            }
+            return TakeAccountPicture(serial, Radios.SmartLink.SmartLinkServices.Coordinator.AllSessions,
+                preferred, lastSeen, onLan, saved);
+        }
+
+        /// <summary>
+        /// The plan, a pure function of one picture, its saved accounts
+        /// included (#798; the rules are in the 2026-11-06 repair-2 and
+        /// repair-3 reports):
+        /// <list type="number">
+        /// <item>An account's list answers now and names the radio: use that
+        /// held session (<see cref="AccountPicture.LiveAccount"/>).</item>
+        /// <item>Every saved account's list answers now, and none names the
+        /// radio: say so. Any saved account without an answering list makes
+        /// this unknown, and the plan falls through.</item>
+        /// <item>The radio's chosen account is saved: sign in as it; else its
+        /// last-seen account is saved: sign in as that.</item>
+        /// <item>Otherwise sign in as before, through the saved default.</item>
+        /// </list>
+        /// </summary>
+        internal static SmartLinkSignInPlan PlanSmartLinkSignIn(AccountPicture picture)
+        {
+            string live = picture.LiveAccount;
+            if (live.Length > 0)
+                return new SmartLinkSignInPlan(SmartLinkSignInPlanKind.UseHeldSession, live,
+                    "its held session lists the radio on its live connection");
+
+            var saved = picture.Saved ?? Array.Empty<string>();
+            bool IsSaved(string a) => picture.IsSaved(a);
+
+            if (saved.Count > 0 && saved.All(a => picture.Lists.Any(l => l.Answers
+                    && string.Equals(l.Account, a, StringComparison.OrdinalIgnoreCase))))
+                return new SmartLinkSignInPlan(SmartLinkSignInPlanKind.NotListedByAnySavedAccount, "",
+                    $"all {saved.Count} saved account(s) answer on their live connections, and none lists the radio");
+
+            string own = picture.FirstSaved(picture.Preferred, picture.LastSeen);
+            if (own.Length > 0)
+                return new SmartLinkSignInPlan(SmartLinkSignInPlanKind.SignInAsRadiosAccount, own,
+                    string.Equals(own, picture.Preferred, StringComparison.OrdinalIgnoreCase)
+                        ? "the radio's chosen account has no live list that answers"
+                        : "the account that last listed the radio has no live list that answers");
+
+            return new SmartLinkSignInPlan(SmartLinkSignInPlanKind.SignInAsUsual, "",
+                "no saved account is known to reach the radio, and not every saved account answers");
+        }
+
+        /// <summary>
+        /// For a windowless test: runs between the two readings of the picture
+        /// in <see cref="PrepareSmartLinkForSerial"/>. Null in the product.
+        /// </summary>
+        internal Action AfterAccountPictureTaken;
+
+        /// <summary>How many times the preparation re-reads a picture that changed under it before giving up on a verdict.</summary>
+        internal const int PictureReadAttempts = 3;
+
+        /// <summary>
+        /// The SmartLink half of <see cref="ReconnectRemote"/> when no session
+        /// is active: decide from ONE picture and act on THAT picture.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Read twice, act only on a steady reading (repair rounds
+        /// 2 and 3).</b> The picture is read, then read again; the plan is made and
+        /// acted on only when the two are the same, which means nothing was
+        /// received in between, so every list in it held at one moment. A
+        /// list that arrived while the lists were being read, a reconnect, a
+        /// change of the radio's chosen account, or an account saved meanwhile
+        /// makes the readings differ, and the picture is taken again. If it
+        /// never steadies, no plan is made from it at all: the preparation
+        /// falls back to the usual sign-in, which only costs time. A change not yet
+        /// received when the reading is made cannot be known, and is not
+        /// guarded against.</para>
+        /// </remarks>
+        /// <param name="savedAccounts">The saved accounts; null reads the
+        /// account manager, as production always does. A test passes its own
+        /// so it never edits the process-wide account store.</param>
+        internal bool PrepareSmartLinkForSerial(string serial, bool allowInteractiveLogin,
+            System.Diagnostics.Stopwatch sw = null, IReadOnlyList<SmartLinkAccount> savedAccounts = null)
+        {
+            string at() => sw == null ? "" : $" ({sw.ElapsedMilliseconds}ms)";
+            var coordinator = Radios.SmartLink.SmartLinkServices.Coordinator;
+            var savedSource = savedAccounts ?? AccountManager.Accounts;
+
+            // The saved accounts are read WITH each picture, and the account
+            // objects kept from the reading the plan is made from (repair
+            // round 3, Codex B2-R2): an account saved between two readings
+            // makes them differ, and a steady picture's saved set is the one
+            // the action signs in from.
+            List<SmartLinkAccount> savedNow = null;
+            AccountPicture Read()
+            {
+                savedNow = savedSource.Where(a => a != null).ToList();
+                return TakeAccountPicture(serial, savedNow.Select(a => a.Email));
+            }
+
+            AccountPicture picture = null;
+            SmartLinkSignInPlan plan = default;
+            bool steady = false;
+            for (int attempt = 0; attempt < PictureReadAttempts && !steady; attempt++)
+            {
+                picture = Read();
+                var savedAtPicture = savedNow;
+                AfterAccountPictureTaken?.Invoke();
+                steady = Read().SameAs(picture);
+                savedNow = savedAtPicture;
+                if (!steady)
+                    Tracing.TraceLine($"PrepareSmartLinkForSerial: {serial} the accounts changed while being read; reading again{at()}", TraceLevel.Info);
+            }
+            if (steady)
+            {
+                plan = PlanSmartLinkSignIn(picture);
+            }
+            else
+            {
+                // No steady picture: no plan is made from one (repair round 3,
+                // Codex F3). Every plan, not only the verdict of absence,
+                // would act on a reading already known to be out of date; the
+                // usual sign-in is the path that decides nothing from it.
+                plan = new SmartLinkSignInPlan(SmartLinkSignInPlanKind.SignInAsUsual, "",
+                    "the accounts kept changing while being read; nothing is decided from an unsteady picture");
+            }
+            Tracing.TraceLine($"PrepareSmartLinkForSerial: {serial} route={picture.Route} plan={plan} steady={steady}{at()}", TraceLevel.Info);
+
+            // The dial goes through the account this plan names, never
+            // through whichever held list the replay below wrote last (Codex
+            // B1). Empty when the plan names none, and the resolution is then
+            // the long-standing one.
+            _connectPlanAccount = (serial, RadiosOwnAccount(plan));
+
+            switch (plan.Kind)
+            {
+                case SmartLinkSignInPlanKind.UseHeldSession:
+                {
+                    // The session that lists the radio becomes the one this
+                    // connect works through, exactly as a sign-in under that
+                    // account would have made it; nothing signs in.
+                    var held = coordinator.EnsureSessionForAccount(plan.Account);
+                    // The connection's own account is now the held one, as a
+                    // sign-in under it would have made it (integration pass,
+                    // finding 3): the Network tab's port preference, the
+                    // legacy hole-punch port and the session key read it.
+                    // The account object comes from the same reading the plan
+                    // was made from; a held account nobody saved is adopted
+                    // for this session only.
+                    // This rig's own sign-in for the same account is kept, with its
+                    // tokens, before an email-only stand-in is made (round two,
+                    // Codex F1-R: a session-only sign-in lost its tokens here).
+                    AdoptSignedInAccount(
+                        savedNow.FirstOrDefault(a => string.Equals(a.Email, plan.Account, StringComparison.OrdinalIgnoreCase))
+                        ?? (_currentAccount != null && string.Equals(_currentAccount.Email, plan.Account, StringComparison.OrdinalIgnoreCase)
+                            ? _currentAccount : null)
+                        ?? new SmartLinkAccount { Email = plan.Account, FriendlyName = plan.Account });
+                    becomeThePresenceIntake();
+                    int replayed = ReplayHeldListsIntoTheIntake(plan.Account, sessionWasAlreadyConnected: true, sw);
+                    Tracing.TraceLine(
+                        $"PrepareSmartLinkForSerial: using {plan.Account}'s held session {held.SessionId}, no sign-in; replayed {replayed} held list(s){at()}",
+                        TraceLevel.Info);
+                    return true;
+                }
+
+                case SmartLinkSignInPlanKind.NotListedByAnySavedAccount:
+                {
+                    // The LAN reading is the picture's, taken with the lists.
+                    string name = RadioNameForSpeech(serial);
+                    RecordConnectFailure(new ConnectFailureReport
+                    {
+                        Class = ConnectFailureClass.RadioNotFound,
+                        SpokenSummary = picture.OnLan
+                            ? Lexicon.Get("connect.failure.smartlink_not_on_any_account_but_local", ("radioName", name))
+                            : Lexicon.Get("connect.failure.smartlink_not_on_any_account", ("radioName", name)),
+                    });
+                    return false;
+                }
+
+                case SmartLinkSignInPlanKind.SignInAsRadiosAccount:
+                {
+                    // From the same reading the plan was made from.
+                    var account = savedNow.FirstOrDefault(a =>
+                        string.Equals(a.Email, plan.Account, StringComparison.OrdinalIgnoreCase));
+                    return setupRemote(allowInteractiveLogin, account);
+                }
+
+                default:
+                    // Nothing better is known. With a SmartLink session already
+                    // live, that is the path ReconnectRemote always took: no
+                    // sign-in, straight on to finding the radio through the
+                    // sessions that are up. Only with none live does the saved
+                    // default sign in (integration pass, finding 6: the plan
+                    // now runs with a live session, and must not add a sign-in
+                    // prompt to the case it has nothing to say about).
+                    if (coordinator.ActiveSession?.IsConnected == true)
+                    {
+                        Tracing.TraceLine($"PrepareSmartLinkForSerial: {serial} nothing better known and a session is live — no sign-in{at()}", TraceLevel.Info);
+                        return true;
+                    }
+                    return setupRemote(allowInteractiveLogin);
+            }
+        }
+
+        /// <summary>
+        /// The operator's name for a radio known only by serial: the chosen
+        /// name, else the radio's own, else the serial.
+        /// </summary>
+        private static string RadioNameForSpeech(string serial)
+        {
+            try
+            {
+                var name = RadioConfig.LoadForRadio(serial).DisplayName;
+                if (!string.IsNullOrWhiteSpace(name)) return name;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"RadioNameForSpeech({serial}): {ex.Message}", TraceLevel.Warning);
+            }
+            return serial;
         }
 
         private bool sendRemoteConnect(Radio r)
@@ -2309,7 +3066,28 @@ namespace Radios
                 { "serial", r.Serial }
             });
 
-            var session = ResolveBrokeringSession(r.Serial, out bool viaOwningAccount);
+            _dialRefusedReport = null;
+            var session = BrokeringSessionForConnect(r.Serial, out bool viaOwningAccount, out string plannedAccount);
+            if (session == null && plannedAccount != null)
+            {
+                // B1-R: the account the plan named and announced has lost its
+                // session since the preparation. Dialling through another
+                // account would connect as someone the operator was not told
+                // about, so nothing is sent; the reason is filed the way the
+                // plan files every failed connect, and connecting again plans,
+                // and names the account, afresh.
+                Tracing.TraceLine(
+                    $"sendRemoteConnect: REFUSED, the planned account {plannedAccount}'s session is not connected; not dialling {r.Serial} through any other account",
+                    TraceLevel.Warning);
+                RecordConnectFailure(new ConnectFailureReport
+                {
+                    Class = ConnectFailureClass.SessionSetupFailed,
+                    SpokenSummary = Lexicon.Get("connect.failure.smartlink_planned_account_dropped",
+                        ("email", plannedAccount), ("radioName", RadioNameForSpeech(r.Serial))),
+                });
+                _dialRefusedReport = LastConnectFailureReport;
+                return false;
+            }
             if (viaOwningAccount)
             {
                 Tracing.TraceLine(

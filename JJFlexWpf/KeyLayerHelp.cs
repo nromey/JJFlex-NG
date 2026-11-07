@@ -51,29 +51,65 @@ public static class KeyLayerHelp
     public static bool IsShort(int rowCount) => rowCount <= SpokenLimit;
 
     /// <summary>
+    /// Keys this radio cannot use in a layer, and the one sentence that names
+    /// them (#726 item 3, ruled by Noel 2026-10-17). The caller builds both,
+    /// because only it knows WHY the keys are shut and so which sentence is
+    /// honest; see <see cref="SpokenList(string, IReadOnlyCollection{string}?, string?)"/>.
+    /// </summary>
+    public sealed record LayerGating(IReadOnlyCollection<string> UnavailableKeys, string ClosingSentence);
+
+    /// <summary>Which surface H gives: nothing to list, a sentence, or the list window.</summary>
+    public enum HelpSurface { Empty, Spoken, List }
+
+    /// <summary>
+    /// What H presents, decided before anything is spoken or shown: the
+    /// surface, the spoken text for a short layer, the window's title and
+    /// rows for a long one, and the closing sentence naming the lifted keys.
+    /// </summary>
+    public sealed record HelpPresentation(
+        HelpSurface Surface,
+        string Spoken,
+        string Title,
+        IReadOnlyList<(string key, string description)> Rows,
+        string? ClosingLine);
+
+    /// <summary>
+    /// The seam where <see cref="Present(string, LayerGating?)"/> hands its
+    /// model to the window. Null in the product. A windowless test sets it
+    /// to take the model instead of a window being built (#741).
+    /// </summary>
+    internal static Action<HelpPresentation>? PresentationSink { get; set; }
+
+    /// <summary>
     /// Speak the layer's keys if there are few, open the list if there are
     /// many, and say the count first either way. The caller plays whatever
     /// cue its layer uses; this only speaks or shows.
     /// </summary>
-    public static void Present(string layerContext)
-    {
-        var rows = Rows(layerContext);
-        string layer = LayerName(layerContext);
+    public static void Present(string layerContext) => Present(layerContext, null);
 
-        if (rows.Count == 0)
+    /// <summary>
+    /// <see cref="Present(string)"/>, with the keys this radio cannot use
+    /// lifted out and named in one closing sentence, in the WINDOW as well
+    /// as the spoken form (#741). Until this took the gating, a long layer's
+    /// list was built from the ungated rows, so the noise layer's H opened
+    /// "Noise layer, 15 keys" with every refused switch listed as ordinary
+    /// and no sentence, on a radio where three were shut.
+    /// </summary>
+    public static void Present(string layerContext, LayerGating? gating)
+    {
+        var model = Prepare(layerContext, gating);
+        var sink = PresentationSink;
+        if (sink != null)
         {
-            // Never silent: a key that says nothing reads as a key that does
-            // nothing. And never a window whose whole content is "nothing".
-            Radios.ScreenReaderOutput.Speak(
-                Radios.Lexicon.Get("leader.help.empty", ("layer", layer)),
-                Radios.VerbosityLevel.Terse, true);
+            sink(model);
             return;
         }
 
-        if (IsShort(rows.Count))
+        if (model.Surface != HelpSurface.List)
         {
-            Radios.ScreenReaderOutput.Speak(SpokenList(layerContext),
-                Radios.VerbosityLevel.Terse, true);
+            // Never silent: a key that says nothing reads as a key that does
+            // nothing. And never a window whose whole content is "nothing".
+            Radios.ScreenReaderOutput.Speak(model.Spoken, Radios.VerbosityLevel.Terse, true);
             return;
         }
 
@@ -81,12 +117,54 @@ public static class KeyLayerHelp
         {
             // The count rides in the title, which is the first thing a screen
             // reader says about a new window — count first, by construction.
-            Title = ListTitle(layerContext, rows.Count),
-            HelpItems = rows.ToList(),
+            Title = model.Title,
+            HelpItems = model.Rows.ToList(),
+            ClosingLine = model.ClosingLine,
             SecondaryActionLabel = Radios.Lexicon.Get("leader.help.explore_button"),
             SecondaryAction = () => Dialogs.KeyExplorerDialog.Open(layerContext),
         };
         dialog.ShowModalDialog();
+    }
+
+    /// <summary>
+    /// The model <see cref="Present(string, LayerGating?)"/> acts on. Pure:
+    /// it builds no window and speaks nothing.
+    /// </summary>
+    /// <remarks>
+    /// <para>The count is the count of keys this radio can use, in the title
+    /// and in the spoken form alike, and whether the layer is short enough to
+    /// speak is decided on that same count. The closing sentence is there
+    /// only when something was actually lifted.</para>
+    /// <para>In the window the sentence is the LAST row, after the keys:
+    /// where a reader of the list arrives at its end, and where the spoken
+    /// form says it too.</para>
+    /// </remarks>
+    public static HelpPresentation Prepare(string layerContext, LayerGating? gating = null)
+    {
+        var all = Rows(layerContext);
+        if (all.Count == 0)
+        {
+            return new HelpPresentation(HelpSurface.Empty,
+                Radios.Lexicon.Get("leader.help.empty", ("layer", LayerName(layerContext))),
+                "", Array.Empty<(string, string)>(), null);
+        }
+
+        var unavailable = gating?.UnavailableKeys;
+        var shown = all.Where(r => unavailable == null || !unavailable.Contains(r.key)).ToList();
+        bool lifted = shown.Count < all.Count;
+        string? closing = lifted && !string.IsNullOrWhiteSpace(gating?.ClosingSentence)
+            ? gating!.ClosingSentence
+            : null;
+
+        if (IsShort(shown.Count))
+        {
+            return new HelpPresentation(HelpSurface.Spoken,
+                SpokenList(layerContext, unavailable, gating?.ClosingSentence),
+                "", shown, closing);
+        }
+
+        return new HelpPresentation(HelpSurface.List, "",
+            ListTitle(layerContext, shown.Count), shown, closing);
     }
 
     /// <summary>

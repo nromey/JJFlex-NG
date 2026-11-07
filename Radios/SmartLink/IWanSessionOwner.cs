@@ -314,11 +314,10 @@ namespace Radios.SmartLink
     /// the monitor has changed the session's status (#619).</param>
     /// <param name="ConnectionGeneration">The
     /// <see cref="IWanServer.ConnectionGeneration"/> of the connection the
-    /// list arrived on; -1 before any list. With <see cref="SessionId"/> this
-    /// names the list exactly, so a consumer that took rows from it can later
-    /// prove those rows came from the list that is current now, rather than
-    /// from an earlier connection's that happened to describe the same
-    /// account.</param>
+    /// list arrived on; -1 before any list. It names the CONNECTION, not the
+    /// list: one connection can carry more than one list, so a consumer that
+    /// must prove which list it holds compares <see cref="ListRevision"/>
+    /// (#613, repair round 4, Codex B3-R3a).</param>
     /// <param name="SessionId">The session that holds the list, so the
     /// generation is scoped: generations restart when a session is rebuilt.</param>
     public readonly record struct SessionRadioListSnapshot(
@@ -327,7 +326,18 @@ namespace Radios.SmartLink
         bool SessionConnected,
         bool ArrivedOnTheLiveConnection,
         long ConnectionGeneration,
-        string SessionId);
+        string SessionId)
+    {
+        /// <summary>
+        /// The session's count of lists it has accepted, as of this list: 0
+        /// before any, then 1, 2, 3 ... on every connection, never reused.
+        /// With <see cref="SessionId"/> it names ONE list exactly, and a
+        /// larger number is a newer list. This is what a call compares, not
+        /// <see cref="ReceivedUtc"/>, which is the wall clock and only a
+        /// diagnostic (#613 and #798, repair round 4; Codex F4).
+        /// </summary>
+        public long ListRevision { get; init; }
+    }
 
     /// <summary>Event payload for signal-strength threshold crossings.</summary>
     public sealed class SignalThresholdEventArgs : EventArgs

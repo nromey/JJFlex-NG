@@ -1,6 +1,7 @@
 ﻿#define CWMonitor
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -31,6 +32,18 @@ namespace Radios
             public List<string> Warnings { get; } = new List<string>();
             /// <summary>Account the radio would be registered to.</summary>
             public string AccountEmail { get; set; } = string.Empty;
+
+            /// <summary>
+            /// The account this check resolved, which the confirm step names
+            /// and the registration is sent under. Set once, by the preflight
+            /// that made this check, and readable outside this assembly but
+            /// not settable: a later preflight makes a NEW check and cannot
+            /// change this one (repair round 1 of #713).
+            /// </summary>
+            public SmartLinkAccount Account { get; internal set; }
+
+            /// <summary>The radio this check was made for, by serial.</summary>
+            public string RadioSerial { get; internal set; } = string.Empty;
         }
 
         /// <summary>
@@ -48,32 +61,7 @@ namespace Radios
                 if (theRadio == null) return "No radio connected.";
                 try
                 {
-                    return theRadio.WanOwnerHandshakeStatus switch
-                    {
-                        Radio.WanRadioRegistrationState.Undefined =>
-                            "Not started. JJ Flexible Radio Access cannot tell from here whether this radio is already registered — if it shows up in your SmartLink radio list, it is.",
-                        Radio.WanRadioRegistrationState.WaitingOnSmartLinkConnection =>
-                            "The radio is contacting SmartLink.",
-                        Radio.WanRadioRegistrationState.WaitingForPTT =>
-                            "The radio is waiting for you to key the microphone or the CW key. Do that now, at the radio.",
-                        Radio.WanRadioRegistrationState.WaitingOnServerConfirmation =>
-                            "Keyed. Waiting for SmartLink to confirm.",
-                        Radio.WanRadioRegistrationState.RegisterSuccess =>
-                            "Registered. This radio is now tied to your SmartLink account, so you can connect to it when you're away from home.",
-                        Radio.WanRadioRegistrationState.UnregisterSuccess =>
-                            "Unregistered. This radio is no longer tied to a SmartLink account.",
-                        Radio.WanRadioRegistrationState.FailedPTT =>
-                            "Failed — the radio did not see the microphone or key pressed in time. Try again and key it as soon as you are asked.",
-                        Radio.WanRadioRegistrationState.FailedServerConnection =>
-                            "Failed — the radio could not reach SmartLink. Check that the radio has a working internet connection.",
-                        Radio.WanRadioRegistrationState.FailedServerConfirmation =>
-                            "Failed — SmartLink did not confirm the registration.",
-                        Radio.WanRadioRegistrationState.FailedNotLicensed =>
-                            "Failed — this radio is not licensed for SmartLink.",
-                        Radio.WanRadioRegistrationState.FailedUnknown =>
-                            "Failed, with no reason given. See the trace file.",
-                        _ => "Unknown.",
-                    };
+                    return RegistrationStateTextFor(theRadio.WanOwnerHandshakeStatus);
                 }
                 catch (Exception ex)
                 {
@@ -81,6 +69,42 @@ namespace Radios
                     return "Unknown.";
                 }
             }
+        }
+
+        /// <summary>
+        /// The sentence for one handshake state. A state queued for later
+        /// delivery is reported with ITS sentence, taken when it was raised,
+        /// not with whatever the radio says by the time it is delivered
+        /// (#713, repair round 5, Codex F1).
+        /// </summary>
+        internal static string RegistrationStateTextFor(Radio.WanRadioRegistrationState state)
+        {
+            return state switch
+            {
+                Radio.WanRadioRegistrationState.Undefined =>
+                    "Not started. JJ Flexible Radio Access cannot tell from here whether this radio is already registered — if it shows up in your SmartLink radio list, it is.",
+                Radio.WanRadioRegistrationState.WaitingOnSmartLinkConnection =>
+                    "The radio is contacting SmartLink.",
+                Radio.WanRadioRegistrationState.WaitingForPTT =>
+                    "The radio is waiting for you to key the microphone or the CW key. Do that now, at the radio.",
+                Radio.WanRadioRegistrationState.WaitingOnServerConfirmation =>
+                    "Keyed. Waiting for SmartLink to confirm.",
+                Radio.WanRadioRegistrationState.RegisterSuccess =>
+                    "Registered. This radio is now tied to your SmartLink account, so you can connect to it when you're away from home.",
+                Radio.WanRadioRegistrationState.UnregisterSuccess =>
+                    "Unregistered. This radio is no longer tied to a SmartLink account.",
+                Radio.WanRadioRegistrationState.FailedPTT =>
+                    "Failed — the radio did not see the microphone or key pressed in time. Try again and key it as soon as you are asked.",
+                Radio.WanRadioRegistrationState.FailedServerConnection =>
+                    "Failed — the radio could not reach SmartLink. Check that the radio has a working internet connection.",
+                Radio.WanRadioRegistrationState.FailedServerConfirmation =>
+                    "Failed — SmartLink did not confirm the registration.",
+                Radio.WanRadioRegistrationState.FailedNotLicensed =>
+                    "Failed — this radio is not licensed for SmartLink.",
+                Radio.WanRadioRegistrationState.FailedUnknown =>
+                    "Failed, with no reason given. See the trace file.",
+                _ => "Unknown.",
+            };
         }
 
         /// <summary>True once the handshake has reported success this session.</summary>
@@ -124,7 +148,13 @@ namespace Radios
                 return check;
             }
 
-            if (!TryLoadSavedAccount())
+            // The radio's OWN account (#713), resolved by the same routing
+            // resolver the connect uses (#798); the saved default only when
+            // nothing names one, which is the usual case for a radio being
+            // registered for the first time. The confirm step names whichever
+            // account this is before anything is sent, and that is the consent.
+            var account = ResolveRegistrationAccount(theRadio.Serial);
+            if (account == null)
             {
                 // Two different problems, two different fixes. With several
                 // accounts saved and none chosen, "sign in first" is false
@@ -139,7 +169,13 @@ namespace Radios
                 return check;
             }
 
-            check.AccountEmail = _currentAccount.Email;
+            // Bound to THIS check, not to the rig: the confirmation names this
+            // account, and only this check carries it to the send. A status
+            // refresh that runs another preflight meanwhile makes another
+            // check and changes nothing here (repair round 1, Codex B1).
+            check.Account = account;
+            check.RadioSerial = theRadio.Serial ?? string.Empty;
+            check.AccountEmail = account.Email;
 
             var others = OtherConnectedStations;
             if (others.Count > 0)
@@ -161,6 +197,61 @@ namespace Radios
 
             check.CanProceed = true;
             return check;
+        }
+
+        /// <summary>
+        /// The SmartLink account registration on this radio goes through
+        /// (#713): the account the CONNECT's plan uses for this radio
+        /// (<see cref="RadiosOwnAccount"/>: a held session that lists it, or a
+        /// sign-in as its chosen or last-seen saved account), otherwise the
+        /// saved default as before. One resolver for both (ruled by the
+        /// orchestrator on Codex F1, 2026-11-06, under #713's principle that
+        /// registration asks the radio's own account exactly as connect does):
+        /// a live account nobody saved, which the connect uses, is the one
+        /// registration names too.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Routing, not permission.</b> This answers which account to
+        /// register TO. The permission is the operator's yes at the confirm
+        /// step, which names the account before anything commits; an identity
+        /// answer is never reused as a permission answer (#405).</para>
+        /// <para><b>An empty route is the normal case</b> for a radio being
+        /// registered for the first time: no account lists it and nothing on
+        /// record names one. That falls back to the saved default, exactly as
+        /// before; it never refuses.</para>
+        /// <para>Does not change <c>_currentAccount</c>: the connection's own
+        /// account stays what the connect made it.</para>
+        /// </remarks>
+        /// <param name="savedAccounts">The saved accounts; null reads the
+        /// account manager, as production always does.</param>
+        internal SmartLinkAccount ResolveRegistrationAccount(string serial, IReadOnlyList<SmartLinkAccount> savedAccounts = null)
+        {
+            var saved = (savedAccounts ?? AccountManager.Accounts).Where(a => a != null).ToList();
+            // One reading, and the connect's own plan over it (integration
+            // pass, finding 5; Codex F1): the account a connect to this radio
+            // would use is the account registration names.
+            var picture = TakeAccountPictureFor(serial, saved: saved.Select(a => a.Email));
+            string email = RadiosOwnAccount(PlanSmartLinkSignIn(picture));
+            if (email.Length > 0)
+            {
+                // A saved account carries its own tokens. A live account
+                // nobody saved is the session's: this rig's own when it is the
+                // one signed in here (a sign-in with Remember unchecked keeps
+                // its tokens there), otherwise named only, so the send asks
+                // that account to sign in rather than using another's token.
+                var own = saved.FirstOrDefault(a => string.Equals(a.Email, email, StringComparison.OrdinalIgnoreCase))
+                    ?? (_currentAccount != null && string.Equals(_currentAccount.Email, email, StringComparison.OrdinalIgnoreCase)
+                        ? _currentAccount
+                        : new SmartLinkAccount { Email = email, FriendlyName = email });
+                Tracing.TraceLine(
+                    $"ResolveRegistrationAccount: {serial} goes through its own account '{own.Email}' (route {picture.Route}, {(picture.IsSaved(email) ? "saved" : "live, session-only")})",
+                    TraceLevel.Info);
+                return own;
+            }
+            Tracing.TraceLine(
+                $"ResolveRegistrationAccount: {serial} names no saved account (route {picture.Route}); using the saved default, as before",
+                TraceLevel.Info);
+            return TryLoadSavedAccount() ? _currentAccount : null;
         }
 
         /// <summary>
@@ -305,11 +396,11 @@ namespace Radios
                     serial, arrivedOverSmartLink: true, anySavedAccount: true,
                     anAccountIsInHand: true, listsInHand: null));
 
-            // A local connection never loads the account on its own — fall back
-            // to the saved one so the query can give a real answer instead of
-            // an Unknown that silences the advisory.
-            TryLoadSavedAccount();
-            var account = _currentAccount;
+            // A local connection never loads the account on its own. Ask the
+            // radio's own account first (#713, the resolver #798 built), and
+            // fall back to the saved default so the query can give a real
+            // answer instead of an Unknown that silences the advisory.
+            var account = ResolveRegistrationAccount(serial);
             if (account == null)
             {
                 bool anySaved = SmartLinkAccountManager.AnySavedAccounts();
@@ -384,8 +475,8 @@ namespace Radios
         /// this call, a held copy it replayed through the intake, and a list it
         /// rebuilt from <c>myRadioList</c>, which is this client's own
         /// bookkeeping. Only the first is the server speaking. Track L told
-        /// them apart with the <c>wanListReceived</c> latch, and the replay
-        /// sets that latch — so a replayed list read as a live answer and could
+        /// them apart with the rig-wide connect latch (since removed), and the
+        /// replay set that latch — so a replayed list read as a live answer and could
         /// produce the negative verdict from held state, which is exactly what
         /// the design forbids. The push is now captured at the one entry point
         /// that only a server push reaches, and the replay cannot reach it.</para>
@@ -393,11 +484,16 @@ namespace Radios
         internal SmartLinkRegistrationEvidence.Finding AskSmartLinkAboutSerial(
             string serial, string askedAccount, string jwt)
         {
-            var result = ConnectToSmartLink(jwt);
+            // The asked account's session, not whichever one _currentAccount
+            // names (#713): the query may be asking under the radio's own
+            // account while the connection's account is another.
+            // This call's own capture (#713, repair round 2): another flow on
+            // the rig cannot replace or clear it.
+            // Advisory: the asked account's session is used, never made the
+            // active one (integration pass, finding 1).
+            var result = ConnectToSmartLink(jwt, askedAccount, out var pushed, activateSession: false);
 
             var lists = new List<SmartLinkRegistrationEvidence.AccountList>(HeldAccountLists());
-            SmartLinkRegistrationEvidence.AccountList? pushed;
-            lock (_wanIntakeLock) { pushed = _serverListThisCall; }
             // The capture belongs to the account the connect flow waited on. A
             // picker switch between the push and this read would otherwise
             // answer one account's question with another's list — the #342
@@ -452,9 +548,12 @@ namespace Radios
         /// text from <see cref="RegistrationStateText"/>. The subscription is dropped
         /// once the handshake reaches any terminal state.
         /// </summary>
+        /// <param name="confirmed">The check the operator confirmed: the
+        /// registration is sent under ITS account, for ITS radio, and refused
+        /// if the connected radio is no longer that radio.</param>
         /// <returns>False if the command could not be sent at all.</returns>
-        public bool BeginSmartLinkRegistration(Action<string, bool> onStateChange)
-            => SendRegistrationCommand(register: true, onStateChange);
+        public bool BeginSmartLinkRegistration(RegistrationCheck confirmed, Action<string, bool> onStateChange)
+            => SendRegistrationCommand(register: true, confirmed, onStateChange);
 
         /// <summary>
         /// Remove this radio's SmartLink registration.
@@ -464,34 +563,95 @@ namespace Radios
         /// it can never be reached over SmartLink again without someone travelling to
         /// it. Callers must warn about this in the strongest terms they have.
         /// </summary>
-        public bool BeginSmartLinkUnregistration(Action<string, bool> onStateChange)
-            => SendRegistrationCommand(register: false, onStateChange);
+        public bool BeginSmartLinkUnregistration(RegistrationCheck confirmed, Action<string, bool> onStateChange)
+            => SendRegistrationCommand(register: false, confirmed, onStateChange);
 
-        private bool SendRegistrationCommand(bool register, Action<string, bool> onStateChange, int attempt = 1)
+        /// <summary>
+        /// The account a confirmed check may be sent under, on the radio now
+        /// connected: the check's own account, or null when the check is not
+        /// a proceedable one or was made for another radio. Never the rig's
+        /// latest preflight, and never the connection's account.
+        /// </summary>
+        internal static SmartLinkAccount AccountConfirmedFor(RegistrationCheck confirmed, string connectedSerial)
         {
-            if (theRadio == null || !IsConnected || _currentAccount == null) return false;
+            if (confirmed == null || !confirmed.CanProceed || confirmed.Account == null) return null;
+            if (string.IsNullOrEmpty(connectedSerial)
+                || !string.Equals(confirmed.RadioSerial, connectedSerial, StringComparison.OrdinalIgnoreCase))
+                return null;
+            return confirmed.Account;
+        }
+
+        /// <summary>
+        /// True while <paramref name="radio"/> is still the connected radio:
+        /// the same object the send read at its start, and connected.
+        /// </summary>
+        internal bool StillTheRegistrationTarget(Radio radio)
+            => radio != null && ReferenceEquals(theRadio, radio) && IsConnected;
+
+        /// <summary>
+        /// For a windowless test: the registration token, in place of a
+        /// saved account's. Null in the product. A test that sets it runs the
+        /// send against a fake command transport that forwards nothing.
+        /// </summary>
+        internal Func<SmartLinkAccount, string> RegistrationTokenForTest;
+
+        private bool SendRegistrationCommand(bool register, RegistrationCheck confirmed, Action<string, bool> onStateChange, int attempt = 1)
+        {
+            var r = theRadio;   // ONE read of the radio for the whole send (see below)
+            if (r == null || !IsConnected) return false;
             // Registration binds the radio to an ACCOUNT and persists in the
             // radio. Both directions — register and unregister — change what
             // the radio keeps, so both sit inside the hold (audit 2.9).
             if (GuardRefuses("settings.guard.action.registration")) return false;
+            // The serial the confirmed check is matched against, the radio the
+            // command goes to, and the one asked again after the token are the
+            // same object (#713, repair round 2). Two reads of the connected
+            // radio let one swapped in between be commanded under another
+            // radio's confirmation.
+            // The account the operator confirmed, carried by the check itself
+            // (#713, repair round 1). Asked again on the retry, so a radio
+            // that changed in between is refused rather than registered.
+            var account = AccountConfirmedFor(confirmed, r.Serial);
+            if (account == null)
+            {
+                Tracing.TraceLine(
+                    $"SendRegistrationCommand: refused, the confirmed check does not cover this radio (check={(confirmed == null ? "none" : confirmed.RadioSerial + " " + confirmed.AccountEmail)}, connected={r.Serial})",
+                    TraceLevel.Warning);
+                return false;
+            }
 
             try
             {
-                var r = theRadio;
 
-                string jwt = GetJwtFromSavedAccount(_currentAccount);
+                string jwt = RegistrationTokenForTest != null
+                    ? RegistrationTokenForTest(account)
+                    : GetJwtFromSavedAccount(account);
                 if (string.IsNullOrEmpty(jwt))
                 {
                     Tracing.TraceLine("SendRegistrationCommand: no JWT available", TraceLevel.Error);
                     return false;
                 }
 
+                // Progress: each state the radio raises is queued WITH its own
+                // sentence, in order, and delivered by ONE drainer on a pool
+                // thread, with no lock of ours held while a callback runs
+                // (#713, repair round 5, Codex B5 and F1). Radio Setup's
+                // callback is a Dispatcher.Invoke: it waits on the window. The
+                // round-4 queue delivered under its ordering lock, so an
+                // earlier operation's status could hold that lock while
+                // waiting on the window, while the window, sending again, raised
+                // a status the earlier operation also hears and waited for the
+                // same lock. The raising thread now only enqueues. States raised
+                // during the write wait in the queue until it is done, so none
+                // is delivered while the hold's lock is held either.
+                var order = new object();
+                var pending = new Queue<(Radio.WanRadioRegistrationState state, string text)>();
+                bool deferring = true;
+                bool draining = false;
+                bool finished = false;   // a terminal state (or the retry) ends this send's reports
                 System.ComponentModel.PropertyChangedEventHandler handler = null;
-                handler = (s, e) =>
+                void Deliver(Radio.WanRadioRegistrationState state, string text)
                 {
-                    if (e.PropertyName != "WanOwnerHandshakeStatus") return;
-
-                    var state = r.WanOwnerHandshakeStatus;
                     bool terminal =
                         state == Radio.WanRadioRegistrationState.RegisterSuccess
                         || state == Radio.WanRadioRegistrationState.UnregisterSuccess
@@ -513,6 +673,7 @@ namespace Radios
                         || state == Radio.WanRadioRegistrationState.FailedServerConfirmation;
                     if (terminal && serverSideFailure && attempt == 1)
                     {
+                        lock (order) finished = true;
                         r.PropertyChanged -= handler;
                         Tracing.TraceLine($"SendRegistrationCommand: server-side failure ({state}), retrying once", TraceLevel.Warning);
                         onStateChange?.Invoke("The SmartLink server refused the first attempt. Trying again.", false);
@@ -521,23 +682,99 @@ namespace Radios
                             Thread.Sleep(2000);
                             // Re-entering fetches a fresh JWT — SmartLink id_tokens
                             // live 60 seconds, so the first one may already be dead.
-                            if (!SendRegistrationCommand(register, onStateChange, attempt: 2))
+                            if (!SendRegistrationCommand(register, confirmed, onStateChange, attempt: 2))
                                 onStateChange?.Invoke("The retry could not be sent. See the trace file for details.", true);
                         });
                         return;
                     }
 
-                    onStateChange?.Invoke(RegistrationStateText, terminal);
+                    if (terminal)
+                    {
+                        lock (order) finished = true;
+                        r.PropertyChanged -= handler;
+                    }
 
-                    if (terminal) r.PropertyChanged -= handler;
+                    onStateChange?.Invoke(text, terminal);
+                }
+                void Drain()
+                {
+                    while (true)
+                    {
+                        (Radio.WanRadioRegistrationState state, string text) next;
+                        lock (order)
+                        {
+                            if (finished || pending.Count == 0)
+                            {
+                                draining = false;
+                                if (finished) pending.Clear();
+                                return;
+                            }
+                            next = pending.Dequeue();
+                        }
+                        try { Deliver(next.state, next.text); }
+                        catch (Exception ex)
+                        {
+                            Tracing.TraceLine($"SendRegistrationCommand: progress report failed: {ex.Message}", TraceLevel.Error);
+                        }
+                    }
+                }
+                void StartDrainIfIdle()
+                {
+                    bool start;
+                    lock (order)
+                    {
+                        start = !deferring && !draining && !finished && pending.Count > 0;
+                        if (start) draining = true;
+                    }
+                    if (start) Task.Run(Drain);
+                }
+                handler = (s, e) =>
+                {
+                    if (e.PropertyName != "WanOwnerHandshakeStatus") return;
+                    var state = r.WanOwnerHandshakeStatus;
+                    lock (order)
+                    {
+                        if (finished) return;
+                        pending.Enqueue((state, RegistrationStateTextFor(state)));
+                    }
+                    StartDrainIfIdle();
                 };
 
-                r.PropertyChanged += handler;
+                // The token can take a sign-in; the connection, and the
+                // change-nothing hold, can change in that time. Both are asked
+                // again here, at the last moment, as ONE step with the command
+                // (#713, repair rounds 2 and 4): still the same radio object,
+                // still connected, and the hold not armed. The hold's lock is
+                // held across the check and the vendor's command write, so a
+                // hold armed from Settings either lands first and refuses the
+                // write, or waits until the command is already written.
+                bool stillTheTarget = true;
+                bool written = WriteUnlessHeld(() =>
+                {
+                    if (!StillTheRegistrationTarget(r)) { stillTheTarget = false; return false; }
+                    r.PropertyChanged += handler;
+                    if (register) r.WanRegisterRadio(jwt);
+                    else r.WanUnregisterRadio(jwt);
+                    return true;
+                });
+                if (!written)
+                {
+                    if (!stillTheTarget)
+                    {
+                        Tracing.TraceLine($"SendRegistrationCommand: refused after the token, the radio {r.Serial} is no longer the connected radio", TraceLevel.Warning);
+                    }
+                    else
+                    {
+                        Tracing.TraceLine("SendRegistrationCommand: refused after the token, the change-nothing hold was armed meanwhile", TraceLevel.Warning);
+                        SayTheHoldRefused("settings.guard.action.registration");
+                    }
+                    return false;
+                }
 
-                if (register) r.WanRegisterRadio(jwt);
-                else r.WanUnregisterRadio(jwt);
+                lock (order) deferring = false;
+                StartDrainIfIdle();
 
-                Tracing.TraceLine($"SendRegistrationCommand: sent {(register ? "register" : "unregister")} for account {_currentAccount.Email}", TraceLevel.Info);
+                Tracing.TraceLine($"SendRegistrationCommand: sent {(register ? "register" : "unregister")} for account {account.Email}", TraceLevel.Info);
                 return true;
             }
             catch (Exception ex)
@@ -720,6 +957,11 @@ namespace Radios
         /// </summary>
         private ConnectFailureReport BuildRemoteConnectFailureReport(Radio r, bool remoteHandshakeFailed)
         {
+            // The dial refused before anything was sent, because the account
+            // the plan named lost its session (B1-R); that is the reason, not
+            // the network evidence below.
+            if (remoteHandshakeFailed && _dialRefusedReport != null) return _dialRefusedReport;
+
             var detail = new List<string>();
             bool punch = false;
             try { punch = r.RequiresHolePunch; } catch { }

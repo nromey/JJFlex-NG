@@ -956,9 +956,10 @@ namespace JJFlexWpf.Dialogs
             bool ok = _rig.SetSmartLinkPortForwarding(enabled, tcp, udp);
             if (ok)
             {
-                // Sprint 27 Track A / Phase A.3 — also persist as account preference
-                // so future connections (see FlexBase.ApplyAccountPortPreferenceIfAny)
-                // auto-apply without user action. Only meaningful when a SmartLink
+                // Sprint 27 Track A / Phase A.3 — also persist as account preference.
+                // It is a record only: since 2026-08-29 nothing applies it to a
+                // radio on connect, and the method that did was deleted on
+                // 2026-11-06. This Apply is the only port writer. Only meaningful when a SmartLink
                 // account is bound (gated by HasCurrentSmartLinkAccount). If the user
                 // used advanced mode with separate TCP/UDP, we save the TCP value —
                 // per-account model is single-port; advanced mode is per-session only.

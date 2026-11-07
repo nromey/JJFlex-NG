@@ -1,0 +1,1 @@
+- Registering a radio for SmartLink now uses the radio's own SmartLink account when JJ Flexible knows it, instead of whichever account happens to be your default. The confirmation still names the account before anything is sent, so you can back out there.
