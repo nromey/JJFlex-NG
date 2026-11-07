@@ -214,6 +214,7 @@ namespace Radios.Tests
                     SuccessorRecording = archiveResult.TracingOn,
                     TailUncertain = archiveResult.TailUncertain,
                     SinkFailedBeforeDrop = archiveResult.SinkFailedBeforeArchive,
+                    EndedDetailedCapture = archiveResult.EndedDetailedCapture,
                 };
                 // As globals.vb does: the operator is only ever offered a path
                 // that exists, so wait for the archive here, on the worker.
@@ -405,7 +406,11 @@ namespace Radios.Tests
             // Which sentence it is, by key, is RecordingHealthNoticeTests'
             // business: that class sits in the statics collection the lexicon
             // store requires, and this one does not.
-            Assert.Contains("The capture has been closed and saved.", receiveOnly.WhatWasSaved, StringComparison.Ordinal);
+            // These drops run on the standing log (Begin with asDetailedCapture:
+            // false), so the window speaks of the log, not of a capture
+            // (#625, repair round two): the real fact, carried end to end.
+            Assert.Contains("The diagnostic log has been closed and saved.", receiveOnly.WhatWasSaved, StringComparison.Ordinal);
+            Assert.False(receiveOnly.DetailedCapture);
 
             // The file: each kind that was written introduces itself, once,
             // directly ahead of its first line; a kind that was not written is

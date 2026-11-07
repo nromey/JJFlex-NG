@@ -2164,8 +2164,20 @@ namespace Radios.Tests
                 "logging.capture.dropped.what_named",
                 "logging.capture.dropped.what_plain",
                 "logging.capture.dropped.what_to_do",
-                "logging.capture.dropped.what_to_do_not_recording",
-                "logging.capture.dropped.what_to_do_stopped_since",
+                // Repair round two (2026-11-07): the window's standing-log
+                // variants, the complete-capture next steps, and the two
+                // not-recording endings split out of the retired combined
+                // keys what_to_do_not_recording and what_to_do_stopped_since.
+                // Same TextOnly reasoning. All DRAFT PROSE.
+                "logging.capture.dropped.ending_not_recording",
+                "logging.capture.dropped.ending_stopped_since",
+                "logging.capture.dropped.saved_log",
+                "logging.capture.dropped.saved_tail_uncertain_log",
+                "logging.capture.dropped.tail_uncertain_log",
+                "logging.capture.dropped.what_named_log",
+                "logging.capture.dropped.what_plain_log",
+                "logging.capture.dropped.what_to_do_complete",
+                "logging.capture.dropped.what_to_do_log",
                 // Junk box #593 (2026-11-07): the frame that carries several
                 // alarm warnings in one utterance. A FRAGMENT around the
                 // member sentences, which keep their own keys and

@@ -182,7 +182,28 @@ namespace Radios
                                  bool successorOpened, Guid? archivedSessionId,
                                  bool tailUncertain, bool sinkFailedBeforeDrop,
                                  Func<bool> recordingNow)
+            : this(radioName, archivePath, successorOpened, archivedSessionId, tailUncertain,
+                   sinkFailedBeforeDrop, recordingNow, detailedCapture: true)
         {
+        }
+
+        /// <summary>
+        /// The full set of facts, including whether the archived session was a
+        /// detailed capture the operator started or only the standing
+        /// diagnostic log (#625, repair round two). The window opens after ANY
+        /// connection loss, and the standing log is on by default, so the
+        /// approved text's "was recording a capture" and "You made it to
+        /// describe a problem you were experiencing" are true only of a capture.
+        /// The production path (CaptureArchive) always passes the real fact.
+        /// The shorter overloads mean a capture, as they always have: they
+        /// predate this fact and every caller of them was written for one.
+        /// </summary>
+        public CaptureArchiveNotice(string radioName, string archivePath,
+                                 bool successorOpened, Guid? archivedSessionId,
+                                 bool tailUncertain, bool sinkFailedBeforeDrop,
+                                 Func<bool> recordingNow, bool detailedCapture)
+        {
+            DetailedCapture = detailedCapture;
             RadioName = (radioName ?? string.Empty).Trim();
             ArchivePath = archivePath ?? string.Empty;
             SuccessorOpened = successorOpened;
@@ -245,6 +266,12 @@ namespace Radios
         public bool SuccessorOpened { get; }
 
         /// <summary>
+        /// The archived session was a detailed capture the operator started.
+        /// False when only the standing diagnostic log was running.
+        /// </summary>
+        public bool DetailedCapture { get; }
+
+        /// <summary>
         /// Whether something is recording at the moment this is ASKED — the
         /// reader is consulted on every read, never cached. Chooses the
         /// what-to-do paragraph: the ordinary one promises that what happens
@@ -279,9 +306,13 @@ namespace Radios
         /// hedge, and the operator may have more than one.
         /// </summary>
         public string WhatHappened =>
-            string.IsNullOrEmpty(RadioName)
-                ? Lexicon.Get("logging.capture.dropped.what_plain")
-                : Lexicon.Get("logging.capture.dropped.what_named", ("radioName", RadioName));
+            DetailedCapture
+                ? (string.IsNullOrEmpty(RadioName)
+                    ? Lexicon.Get("logging.capture.dropped.what_plain")
+                    : Lexicon.Get("logging.capture.dropped.what_named", ("radioName", RadioName)))
+                : (string.IsNullOrEmpty(RadioName)
+                    ? Lexicon.Get("logging.capture.dropped.what_plain_log")
+                    : Lexicon.Get("logging.capture.dropped.what_named_log", ("radioName", RadioName)));
 
         /// <summary>
         /// That the recording was kept, and how far it reaches — and NOTHING
@@ -299,9 +330,13 @@ namespace Radios
         /// rule.
         /// </summary>
         public string WhatWasSaved =>
-            TailUncertain
-                ? Lexicon.Get("logging.capture.dropped.saved_tail_uncertain")
-                : Lexicon.Get("logging.capture.dropped.saved");
+            DetailedCapture
+                ? (TailUncertain
+                    ? Lexicon.Get("logging.capture.dropped.saved_tail_uncertain")
+                    : Lexicon.Get("logging.capture.dropped.saved"))
+                : (TailUncertain
+                    ? Lexicon.Get("logging.capture.dropped.saved_tail_uncertain_log")
+                    : Lexicon.Get("logging.capture.dropped.saved_log"));
 
         /// <summary>The label above the path.</summary>
         public string PathLabel => Lexicon.Get("logging.capture.dropped.path_label");
@@ -317,12 +352,26 @@ namespace Radios
         /// archive wait, or its file failed); both say where to read why.
         /// DRAFTS for the two endings — Noel's to rule.
         /// </summary>
-        public string WhatToDo =>
-            RecordingNow
-                ? Lexicon.Get("logging.capture.dropped.what_to_do", ("address", SendAddress))
-                : SuccessorOpened
-                    ? Lexicon.Get("logging.capture.dropped.what_to_do_stopped_since", ("address", SendAddress))
-                    : Lexicon.Get("logging.capture.dropped.what_to_do_not_recording", ("address", SendAddress));
+        public string WhatToDo
+        {
+            get
+            {
+                // Repair round two (#625): Noel's approved paragraph only when a
+                // capture he started was running AND the file may be short,
+                // because it says "the capture itself failed part way through"
+                // and "even if it is incomplete". A complete capture and the
+                // standing log get their own DRAFT paragraphs.
+                string nextSteps = !DetailedCapture
+                    ? Lexicon.Get("logging.capture.dropped.what_to_do_log", ("address", SendAddress))
+                    : TailUncertain
+                        ? Lexicon.Get("logging.capture.dropped.what_to_do", ("address", SendAddress))
+                        : Lexicon.Get("logging.capture.dropped.what_to_do_complete", ("address", SendAddress));
+                if (RecordingNow) return nextSteps;
+                return nextSteps + " " + (SuccessorOpened
+                    ? Lexicon.Get("logging.capture.dropped.ending_stopped_since")
+                    : Lexicon.Get("logging.capture.dropped.ending_not_recording"));
+            }
+        }
 
         /// <summary>
         /// Where the window asks the operator to email the capture. ONE
@@ -363,7 +412,9 @@ namespace Radios
                 if (!TailUncertain) return string.Empty;
                 return SinkFailedBeforeDrop
                     ? Lexicon.Get("logging.capture.dropped.tail_uncertain_earlier")
-                    : Lexicon.Get("logging.capture.dropped.tail_uncertain");
+                    : DetailedCapture
+                        ? Lexicon.Get("logging.capture.dropped.tail_uncertain")
+                        : Lexicon.Get("logging.capture.dropped.tail_uncertain_log");
             }
         }
 

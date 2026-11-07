@@ -144,18 +144,23 @@ namespace Radios.Tests
         /// <summary>
         /// The approved "Next steps" paragraph (#625, 2026-09-29), with the
         /// address taken from its one lexicon string, so changing where
-        /// captures are sent is a one-line edit.
+        /// captures are sent is a one-line edit. Since repair round two it is
+        /// said only for a capture whose file may be short, the one case in
+        /// which "failed part way through" is true.
         /// </summary>
         [Fact]
         public void What_to_do_is_the_approved_next_steps_with_the_address_from_one_string()
         {
+            var shortCapture = new CaptureArchiveNotice("6300inshack", Path0, successorOpened: true,
+                archivedSessionId: Guid.NewGuid(), tailUncertain: true, sinkFailedBeforeDrop: false,
+                recordingNow: () => true, detailedCapture: true);
             Assert.Equal(
                 "Next steps: because the file closed unexpectedly, it would help to send us the capture "
                 + "even if it is incomplete. You made it to describe a problem you were experiencing, and "
                 + "the fact that the capture itself failed part way through may also help us find a "
                 + "possible fault in the application. Use the button below to copy the path to this file, "
                 + "attach it to an email to " + CaptureArchiveNotice.SendAddress + ", and we will process it.",
-                Named().WhatToDo);
+                shortCapture.WhatToDo);
             Assert.Contains("@", CaptureArchiveNotice.SendAddress, StringComparison.Ordinal);
             Assert.DoesNotContain("{address}", Named().WhatToDo, StringComparison.Ordinal);
         }

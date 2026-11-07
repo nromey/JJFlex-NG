@@ -92,6 +92,14 @@ namespace Radios
         public bool SinkFailedBeforeDrop { get; set; }
 
         /// <summary>
+        /// The archived session was a detailed capture the operator started,
+        /// not only the standing diagnostic log. The drop window's wording
+        /// depends on it: "you made it to describe a problem" is true only of a
+        /// capture (#625, repair round two).
+        /// </summary>
+        public bool EndedDetailedCapture { get; set; }
+
+        /// <summary>
         /// Whether the successor is VERIFIED recording — its first record
         /// written and flushed — as opposed to merely opened.
         /// <see cref="SuccessorOpened"/> is the transition's fact; this is the
@@ -572,7 +580,8 @@ namespace Radios
                     radioName, result.ArchivePath, result.SuccessorOpened, result.ArchivedSessionId,
                     tailUncertain: result.TailUncertain,
                     sinkFailedBeforeDrop: result.SinkFailedBeforeDrop,
-                    recordingNow: CaptureArchiveNotice.LiveRecordingState));
+                    recordingNow: CaptureArchiveNotice.LiveRecordingState,
+                    detailedCapture: result.EndedDetailedCapture));
             }
             catch (Exception ex)
             {
