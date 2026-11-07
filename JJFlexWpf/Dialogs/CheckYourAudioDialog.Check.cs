@@ -1509,7 +1509,7 @@ public partial class CheckYourAudioDialog
             if (admitted && _ptt.IsTransmitting) _owner.TransmitSliceNoticeKeyed();
             if (!admitted)
             {
-                if (placeChanged) RefuseTransmit(placeRefusal);
+                if (placeChanged) RefuseTransmit(placeRefusal, _owner._transmitSliceNotice);
                 _ptt.AudioCheckNarration = false;
                 _ptt.PlannedStopSeconds = null;
                 if (_method == AudioCheckListenMethods.OffAir) _owner._iqRun?.OwnKeying(false);

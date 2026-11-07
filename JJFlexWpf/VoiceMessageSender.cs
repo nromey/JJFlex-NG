@@ -502,12 +502,12 @@ internal static class VoiceMessageSender
         }
         if (!heard)
         {
-            Dialogs.CheckYourAudioDialog.TransmitSliceNotHeard();
+            Dialogs.CheckYourAudioDialog.TransmitSliceNotHeard(notice);
             return;
         }
         if (!TransmitSliceNotice.StillTheAnnouncedPlace(notice, out string? changed))
         {
-            Dialogs.CheckYourAudioDialog.RefuseTransmit(changed);
+            Dialogs.CheckYourAudioDialog.RefuseTransmit(changed, notice);
             return;
         }
         BeginAndLaunch(rig, info, info.Label, loaded);
@@ -948,7 +948,7 @@ internal static class VoiceMessageSender
             // The reader never got where this would transmit: nothing keys.
             _starting = null;
             pause.Dispose();
-            Dialogs.CheckYourAudioDialog.TransmitSliceNotHeard();
+            Dialogs.CheckYourAudioDialog.TransmitSliceNotHeard(sliceNotice);
             return false;
         }
         if (!ReferenceEquals(_starting, info))
@@ -1005,7 +1005,7 @@ internal static class VoiceMessageSender
         if (!TransmitSliceNotice.StillTheAnnouncedPlace(sliceNotice, out string? changed))
         {
             pause.Dispose();
-            Dialogs.CheckYourAudioDialog.RefuseTransmit(changed);
+            Dialogs.CheckYourAudioDialog.RefuseTransmit(changed, sliceNotice);
             return false;
         }
 

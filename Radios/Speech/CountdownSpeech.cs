@@ -141,6 +141,16 @@ namespace Radios.Speech
                 _arbiter.Withdraw(w.Piece, by, "CountdownSpeech.Withdraw(piece)");
         }
 
+        /// <summary>
+        /// Take back one piece through the speech layer that handed it out,
+        /// whichever instance that was (round seven): a refused key's notice,
+        /// held or queued, is retired by its own arbiter.
+        /// </summary>
+        internal static void WithdrawItsOwn(Radios.ICountdownWords words, string by)
+        {
+            if (words is Words w) w.Owner._arbiter.Withdraw(w.Piece, by, "CountdownSpeech.WithdrawItsOwn");
+        }
+
         private sealed class Words : Radios.ICountdownWords
         {
             private readonly CountdownSpeech _owner;

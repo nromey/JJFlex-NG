@@ -126,7 +126,7 @@ public partial class CheckYourAudioDialog
         // notice back, and a cancelled start says no refusal of its own.
         if (await TransmitSliceNotice.HeardAsync(_transmitSliceNotice, () => !_closing && !_checkStarts.IsCancelled))
             return true;
-        if (!_closing && !_checkStarts.IsCancelled) TransmitSliceNotHeard();
+        if (!_closing && !_checkStarts.IsCancelled) TransmitSliceNotHeard(_transmitSliceNotice);
         return false;
     }
 
@@ -154,15 +154,19 @@ public partial class CheckYourAudioDialog
     /// nothing keyed (#863). Said with a sound as well, since speech is what
     /// just failed. Wording ruled by Noel 2026-11-04 06:59.
     /// </summary>
-    internal static void TransmitSliceNotHeard() =>
-        RefuseTransmit(Lexicon.Get("audio.ptt.transmit_slice_not_heard"));
+    internal static void TransmitSliceNotHeard(TransmitSliceNotice.Notice? notice) =>
+        RefuseTransmit(Lexicon.Get("audio.ptt.transmit_slice_not_heard"), notice);
 
     /// <summary>
     /// A door refused to key because the place changed while it waited, with
     /// the sentence for what changed (<see cref="TransmitSliceNotice.RefusalForChangedPlace"/>).
     /// </summary>
-    internal static void RefuseTransmit(string? sentence)
+    /// <param name="notice">The refused attempt's notice (round seven): retired
+    /// FIRST, with any copy queued or held for salvage, so it can never be said
+    /// after the refusal. Null when there is none.</param>
+    internal static void RefuseTransmit(string? sentence, TransmitSliceNotice.Notice? notice)
     {
+        if (notice != null) TransmitSliceNotice.Retire(notice, "its key was refused");
         EarconPlayer.LeaderInvalidTone();
         ScreenReaderOutput.Speak(sentence ?? Lexicon.Get("audio.ptt.transmit_slice_not_heard"),
             VerbosityLevel.Critical, interrupt: true);

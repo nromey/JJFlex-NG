@@ -172,7 +172,7 @@ public sealed class TransmitSliceNoticeTests
         Assert.Contains("TransmitSliceNotice.Retire(_transmitSliceNotice,", check.Substring(cancel, cancelEnd - cancel));
         string countdown = Source("JJFlexWpf/Dialogs/CheckYourAudioDialog.Countdown.cs");
         Assert.Contains("TransmitSliceNotice.HeardAsync(_transmitSliceNotice, () => !_closing && !_checkStarts.IsCancelled)", countdown);
-        Assert.Contains("if (!_closing && !_checkStarts.IsCancelled) TransmitSliceNotHeard();", countdown);
+        Assert.Contains("if (!_closing && !_checkStarts.IsCancelled) TransmitSliceNotHeard(_transmitSliceNotice);", countdown);
         int end = countdown.IndexOf("private void EndStartCountdown()", StringComparison.Ordinal);
         int retire = countdown.IndexOf("TransmitSliceNotice.Retire(_transmitSliceNotice,", end, StringComparison.Ordinal);
         int clear = countdown.IndexOf("_transmitSliceNotice = null;", end, StringComparison.Ordinal);
@@ -183,12 +183,13 @@ public sealed class TransmitSliceNoticeTests
     public void Every_door_that_refuses_a_changed_place_says_what_changed()
     {
         string sender = Source("JJFlexWpf/VoiceMessageSender.cs");
-        Assert.Equal(2, Count(sender, "Dialogs.CheckYourAudioDialog.RefuseTransmit(changed);"));
+        Assert.Equal(1, Count(sender, "Dialogs.CheckYourAudioDialog.RefuseTransmit(changed, notice);"));
+        Assert.Equal(1, Count(sender, "Dialogs.CheckYourAudioDialog.RefuseTransmit(changed, sliceNotice);"));
         string check = Source("JJFlexWpf/Dialogs/CheckYourAudioDialog.Check.cs");
-        Assert.Contains("if (placeChanged) RefuseTransmit(placeRefusal);", check);
+        Assert.Contains("if (placeChanged) RefuseTransmit(placeRefusal, _owner._transmitSliceNotice);", check);
         // The not-heard doors keep the not-announced sentence.
         string countdown = Source("JJFlexWpf/Dialogs/CheckYourAudioDialog.Countdown.cs");
-        Assert.Contains("if (!_closing && !_checkStarts.IsCancelled) TransmitSliceNotHeard();", countdown);
+        Assert.Contains("if (!_closing && !_checkStarts.IsCancelled) TransmitSliceNotHeard(_transmitSliceNotice);", countdown);
     }
 
     private static int Count(string s, string what)
@@ -521,5 +522,68 @@ public sealed class TransmitSliceNoticeTests
         Assert.Contains("if (_keyedElsewhere) EarconPlayer.TxElsewhereStartTone();", ptt);
         Assert.Contains("OweStopToneAtRealReceive(elsewhere ? FallingTone.Elsewhere : FallingTone.Chirp, ownKey: key);", ptt);   // round 9: anchored to our own key
         Assert.DoesNotContain("if (_config.ChirpEnabled) EarconPlayer.TxStartTone();\n                _updateStatusDisplay", ptt.Replace("\r\n", "\n"));
+    }
+
+    // ── Round seven, the third bench's Fail 1: a refused key retires its notice first ──
+    //
+    // A split send whose notice the reader cut at word 0 (NVDA's own focus
+    // speech, not ours) was refused at the ten-second ceiling with "The
+    // transmit slice could not be announced, so nothing was transmitted", and
+    // 600 ms later the held salvage said "Transmitting on slice A, 21.195.000".
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_refused_key_never_says_where_it_would_have_transmitted_after_the_refusal(bool refusalRetiresTheNotice)
+    {
+        var clock = new FakeSpeechClock();
+        var said = new List<(string Text, bool Salvaged)>();
+        long ticket = 0;
+        string last = "";
+        var arbiter = new SpeechArbiter(clock, () => VerbosityLevel.Chatty,
+            (message, interrupt, intent, level, origin, salvaged) =>
+            {
+                said.Add((message, salvaged));
+                last = message;
+                return SpeechHandoff.TrackedAs(++ticket);
+            },
+            () => { }, (m, l, i, o) => { }, new SpeechRateModel(), () => null, (t, r) => false);
+        var speech = new CountdownSpeech(arbiter);
+        const string Where = "Transmitting on slice A, 21.195.000";
+        const string Refusal = "The transmit slice could not be announced, so nothing was transmitted.";
+
+        ICountdownWords words = speech.SayWhole(Where, SpeechSubject.TransmitSliceNotice, ahead: true);
+        var notice = new TransmitSliceNotice.Notice(null!, "a send", default, mandatory: false, spoke: true, words);
+        long noticeTicket = ticket;
+        clock.Advance(58);
+        arbiter.OnOutcome(noticeTicket, Where, SpeechOutcome.Cancelled(0, 5, false, 58));   // NVDA's own focus speech
+        clock.Advance(10_000);                                                              // the queued ceiling passes
+
+        // The refusal, as the doors make it.
+        if (refusalRetiresTheNotice) TransmitSliceNotice.Retire(notice, "its key was refused");
+        arbiter.Emit(Refusal, true, SpeechIntent.Interrupt, VerbosityLevel.Critical, "refusal");
+        clock.Advance(SpeechArbiter.SalvageSettleMs + 100);
+
+        int refusalAt = said.FindIndex(x => x.Text == Refusal);
+        Assert.True(refusalAt >= 0);
+        bool whereAfter = said.FindIndex(refusalAt + 1, x => x.Text == Where) >= 0;
+        if (refusalRetiresTheNotice) Assert.False(whereAfter, "the notice was said after the refusal");
+        else Assert.True(whereAfter, "control: without the retirement the held notice comes back after the refusal");
+    }
+
+    [Fact]
+    public void Both_refusals_retire_the_notice_before_they_speak()
+    {
+        string countdown = Source("JJFlexWpf/Dialogs/CheckYourAudioDialog.Countdown.cs");
+        int refuse = countdown.IndexOf("internal static void RefuseTransmit(string? sentence, TransmitSliceNotice.Notice? notice)", StringComparison.Ordinal);
+        Assert.True(refuse > 0);
+        string body = countdown.Substring(refuse, 400);
+        int retire = body.IndexOf("TransmitSliceNotice.Retire(notice,", StringComparison.Ordinal);
+        int speak = body.IndexOf("ScreenReaderOutput.Speak(", StringComparison.Ordinal);
+        Assert.True(retire > 0 && speak > retire, "the refusal is spoken before its notice is retired");
+        Assert.Contains("RefuseTransmit(Lexicon.Get(\"audio.ptt.transmit_slice_not_heard\"), notice);", countdown);
+        string sender = Source("JJFlexWpf/VoiceMessageSender.cs");
+        Assert.Equal(1, Count(sender, "Dialogs.CheckYourAudioDialog.TransmitSliceNotHeard(notice);"));
+        Assert.Equal(1, Count(sender, "Dialogs.CheckYourAudioDialog.TransmitSliceNotHeard(sliceNotice);"));
     }
 }

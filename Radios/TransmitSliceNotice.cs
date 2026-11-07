@@ -371,16 +371,22 @@ namespace Radios
         }
 
         /// <summary>
-        /// Take back this notice's own sentence if it is still queued (#863,
-        /// repair round 3, Codex's second re-check F1): the attempt that said
-        /// it was cancelled before it keyed. Only this notice's piece goes; a
-        /// newer attempt's notice on the same subject stays. Never throws.
+        /// Take back this notice's own sentence if it is still queued or held
+        /// for salvage (#863, repair round 3, Codex's second re-check F1; round
+        /// seven): the attempt that said it was cancelled, or REFUSED, before
+        /// it keyed. Only this notice's piece goes; a newer attempt's notice on
+        /// the same subject stays. A refusal retires it BEFORE the refusal is
+        /// spoken, so the refusal's own interrupt cannot rescue it: the third
+        /// bench heard "Transmitting on slice A" 600 ms after "nothing was
+        /// transmitted". Never throws.
         /// </summary>
         public static void Retire(Notice notice, string why)
         {
             if (notice?.Words == null) return;
             ClearDue();
-            try { ScreenReaderOutput.CountdownSpeech.Withdraw(notice.Words, why); }
+            // Through the speech layer that said it (round seven), so a copy
+            // held for salvage after a cut is taken back too.
+            try { Speech.CountdownSpeech.WithdrawItsOwn(notice.Words, why); }
             catch (Exception ex)
             {
                 Tracing.TraceLine("TransmitSliceNotice (" + notice.Door + "): could not take its sentence back: " + ex.Message,
