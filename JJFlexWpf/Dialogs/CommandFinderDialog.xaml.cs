@@ -82,10 +82,39 @@ namespace JJFlexWpf.Dialogs
                 .OrderBy(g => g, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             groups.Insert(0, AllCategories);
-            CategoryCombo.ItemsSource = groups;
-            CategoryCombo.SelectedIndex = 0;
+
+            // Selecting the first category fires SelectionChanged, which would
+            // filter and speak the count; the explicit pass below speaks it
+            // again. Opening the finder said "320 results" twice. Populating
+            // is not a choice the operator made, so it filters nothing: the
+            // one pass below is the only count said on open.
+            _populatingCategories = true;
+            try
+            {
+                CategoryCombo.ItemsSource = groups;
+                CategoryCombo.SelectedIndex = 0;
+            }
+            finally
+            {
+                _populatingCategories = false;
+            }
 
             FilterResults("");
+            SearchBox.Focus();
+        }
+
+        private bool _populatingCategories;
+
+        /// <summary>
+        /// Focus starts in the search box, as the help page promises: the
+        /// finder is opened to type into. The base class moves focus to the
+        /// first control in tab order, once at Loaded and again at
+        /// ContentRendered, and the Category combo comes first, so without
+        /// this the ContentRendered pass undid <see cref="OnLoaded"/>'s
+        /// <c>SearchBox.Focus()</c> and the operator arrived on the combo.
+        /// </summary>
+        protected override void FocusFirstControl()
+        {
             SearchBox.Focus();
         }
 
@@ -125,7 +154,7 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         private void CategoryCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (_allCommands.Count > 0 && !CategoryCombo.IsDropDownOpen)
+            if (_allCommands.Count > 0 && !CategoryCombo.IsDropDownOpen && !_populatingCategories)
                 FilterResults(SearchBox.Text.Trim());
         }
 
