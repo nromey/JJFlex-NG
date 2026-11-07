@@ -3737,10 +3737,20 @@ namespace Radios.Speech
         /// the conservative answer. No other caller's behaviour changes.</para>
         /// <para>The composer runs UNDER the arbiter's lock: it must be quick,
         /// must not block, and must not call back into this arbiter. A
-        /// composer that throws says nothing for its entry. The outcome
-        /// callback never runs under the lock: when a reader reports
-        /// synchronously from inside an emission, it is deferred to the clock
-        /// (round thirteen).</para>
+        /// composer that throws says nothing for its entry.</para>
+        /// <para><b>What the outcome callback is promised, and what it is not</b>
+        /// (corrected after Codex's ninth re-verify). It is called at most
+        /// once per hand-over, and never on a thread that holds this arbiter's
+        /// lock. When a reader reports from inside an emission, the callback is
+        /// handed to the clock and runs on the clock's thread: that can be
+        /// CONCURRENT with the emitting thread, which may still hold the lock;
+        /// it can run AFTER a newer outcome's callback; and it can run after
+        /// <see cref="RetireLatest"/> or <see cref="DiscardAll"/>, because once
+        /// handed to the clock it is no longer in the ticket table they clear.
+        /// So a producer must tolerate late and reordered delivery.
+        /// <c>TxFilterFields</c> does: its callback ignores anything but
+        /// Completed, takes only its own gate, and checks its epoch, so a late
+        /// or out-of-order outcome from a retired context does nothing.</para>
         /// <para>A plain <see cref="Latest"/> on the same key replaces a
         /// waiting composition outright.</para>
         /// </summary>
@@ -3804,11 +3814,14 @@ namespace Radios.Speech
         }
 
         /// <summary>
-        /// Tell a composed entry's producer its outcome, never under this
-        /// arbiter's lock (#747 round thirteen). A reader can report a cut
-        /// synchronously from inside an emission (the paced delivery does, on
-        /// an interrupt), when an outer call still holds the lock; then the
-        /// callback goes to the clock and runs once the lock is released.
+        /// Tell a composed entry's producer its outcome, never on a thread that
+        /// holds this arbiter's lock (#747 round thirteen). A reader can report
+        /// a cut synchronously from inside an emission (the paced delivery
+        /// does, on an interrupt), when an outer call still holds the lock;
+        /// then the callback goes to the clock and runs on the clock's thread.
+        /// That is NOT a barrier: it may run while the emitter still holds the
+        /// lock, after a newer outcome's callback, or after the key was retired.
+        /// See <see cref="LatestComposed"/> for what a producer must tolerate.
         /// </summary>
         private void DeliverComposedOutcome(Action<SpeechOutcome> callback, SpeechOutcome outcome)
         {
