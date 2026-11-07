@@ -29,7 +29,8 @@ namespace JJFlexWpf.Tests.Infrastructure;
 /// </para>
 /// <para>
 /// <b>FAIL CLOSED.</b> Anything other than a confirmed isolation, or an
-/// explicit human declaration, refuses. A guard whose uncertain case is "carry
+/// explicit human declaration (not consulted on the hidden-desktop route, see
+/// <see cref="Decide"/>), refuses. A guard whose uncertain case is "carry
 /// on" is the guard that just failed.
 /// </para>
 /// <para>
@@ -49,7 +50,8 @@ internal static class DeskGuard
 {
     /// <summary>
     /// Set to 1 by a human who has stepped away from the machine, or by
-    /// <c>radiocheck -DeskFree</c> on their behalf.
+    /// <c>radiocheck -DeskFree</c> on their behalf. Not consulted when the
+    /// process started on a hidden desktop (task #906 round 2).
     /// </summary>
     /// <remarks>
     /// Deliberately an environment variable and not a setting file. It must be
@@ -106,12 +108,30 @@ internal static class DeskGuard
     /// whole settings tree points somewhere throwaway?
     /// </param>
     /// <remarks>
-    /// <para>The human declaration is checked before the desk conditions and
-    /// wins over them outright. Someone who has stepped away has said the
-    /// strongest thing available, and a test run that refuses after being told
-    /// it may proceed is a test run nobody can use. That declaration covers
-    /// sound as well as windows: "the machine is mine to use" is not a
-    /// statement about one sense.</para>
+    /// <para><b>The order, as of task #906 round 2 (Noel's ruling C9,
+    /// 2026-11-06):</b> settings first, and nothing waives them; then the human
+    /// declaration, EXCEPT when the process started on a hidden desktop; then
+    /// whether isolation was asked for; then whether it happened; then
+    /// sound.</para>
+    /// <para><b>Everywhere but the hidden-desktop route, the human declaration
+    /// is checked before the desk conditions and wins over them outright.</b>
+    /// Someone who has stepped away has said the strongest thing available, and
+    /// a test run that refuses after being told it may proceed is a test run
+    /// nobody can use. That declaration covers sound as well as windows: "the
+    /// machine is mine to use" is not a statement about one sense.</para>
+    /// <para><b>On the hidden-desktop route
+    /// (<see cref="DesktopIsolation.StartedOnPrivateDesktop"/>) the declaration
+    /// is not consulted at all.</b> The windows are hidden there whatever it
+    /// says, so the only thing it could ever waive is SOUND, and that is the
+    /// one thing such a run must still prove. Ignoring it is strictly stricter.
+    /// It also closes, at the one place every route passes through, the ways a
+    /// launched run can have the variable put back after <c>tools/deskrun</c>
+    /// removed it (Codex found three: an option value dotnet re-reads as
+    /// <c>--environment</c>, a multiline <c>&lt;Import</c>, and an inherited
+    /// <c>MSBuildUserExtensionsPath</c>) and test code that sets it on itself.
+    /// The launcher chasing MSBuild's import graph had no end; this does. The
+    /// declaration still means exactly what it always meant for a person at a
+    /// real desk, which is every other route.</para>
     /// <para><b>It does NOT cover the settings, which is why that one is
     /// checked first and cannot be waived.</b> <c>JJFLEX_TIER1_DESK_FREE</c>
     /// says the SCREEN and the SPEAKERS are free — a statement about a person
@@ -132,7 +152,10 @@ internal static class DeskGuard
     {
         if (!settingsIsolated) return Verdict.RefusedSettingsNotIsolated;
 
-        if (deskDeclaredFree) return Verdict.AllowedDeskDeclaredFree;
+        // Task #906 round 2 (C9): not consulted on the hidden-desktop route.
+        // The windows are hidden there whatever it says, so it could only waive
+        // sound, and sound is what that route must still prove.
+        if (deskDeclaredFree && !DeclarationNotConsulted(isolation)) return Verdict.AllowedDeskDeclaredFree;
 
         if (!isolationRequested) return Verdict.RefusedIsolationDisabled;
 
@@ -155,6 +178,13 @@ internal static class DeskGuard
         => isolation == DesktopIsolation.Isolated
            || isolation == DesktopIsolation.StartedOnPrivateDesktop;
 
+    /// <summary>
+    /// True on the route where the human declaration is not consulted: the
+    /// process started on a hidden desktop (task #906 round 2, ruling C9).
+    /// </summary>
+    public static bool DeclarationNotConsulted(DesktopIsolation isolation)
+        => isolation == DesktopIsolation.StartedOnPrivateDesktop;
+
     /// <summary>True when a human has declared the desk free for this run.</summary>
     public static bool DeskDeclaredFree
         => Environment.GetEnvironmentVariable(DeskFreeVariable) == "1";
@@ -163,11 +193,19 @@ internal static class DeskGuard
     /// What to tell whoever is reading the failure. Written for a person who
     /// did not expect this and does not know what Tier 1 is.
     /// </summary>
-    public static string Explain(Verdict v, int lastWin32Error) => v switch
+    /// <param name="isolation">
+    /// What the isolation attempt actually did, so the text names the step that
+    /// failed (task #906 round 2: the measured failure under a plain
+    /// <c>dotnet test</c> is MOVING the thread, not creating the desktop), and
+    /// so a refusal on the hidden-desktop route does not offer a declaration
+    /// that route no longer consults.
+    /// </param>
+    public static string Explain(Verdict v, int lastWin32Error,
+                                 DesktopIsolation isolation = DesktopIsolation.NotAttempted) => v switch
     {
         Verdict.RefusedIsolationFailed =>
             "These tests build real application windows, so they run on a private "
-            + "desktop that nobody can see. Creating that desktop FAILED (Windows "
+            + "desktop that nobody can see. " + WhatFailed(isolation) + " (Windows "
             + "error " + lastWin32Error + "), and rather than put the windows on "
             + "your actual screen, the run stopped.\r\n\r\n"
             + "Under a plain dotnet test this is expected: the test thread already owns a "
@@ -180,11 +218,32 @@ internal static class DeskGuard
             + "mind windows appearing — set " + DeskFreeVariable + "=1 for this run "
             + "and they will proceed.",
 
+        Verdict.RefusedIsolationDisabled when DeclarationNotConsulted(isolation) =>
+            "These tests build real application windows. This process started on a "
+            + "hidden desktop (tools/deskrun), but private-desktop isolation is switched "
+            + "off (JJFLEX_TIER1_PRIVATE_DESKTOP=0), so the run stopped.\r\n\r\n"
+            + DeskFreeVariable + " is not consulted on this route: the windows are "
+            + "hidden here whatever it says, so all it could waive is the sound check. "
+            + "Remove JJFLEX_TIER1_PRIVATE_DESKTOP=0 from the run.",
+
         Verdict.RefusedIsolationDisabled =>
             "These tests build real application windows. Private-desktop isolation "
             + "is switched off (JJFLEX_TIER1_PRIVATE_DESKTOP=0) and nobody has said "
             + "the screen is free to use, so the run stopped rather than show them.\r\n\r\n"
             + "Set " + DeskFreeVariable + "=1 for this run if that is what you want.",
+
+        Verdict.RefusedAudioNotSuppressed when DeclarationNotConsulted(isolation) =>
+            "The windows were on a hidden desktop, but this run would still have "
+            + "made NOISE. Building these dialogs drives earcons and speech, and "
+            + "turning that off for the test process FAILED"
+            + (QuietRun.Failure == null ? "" : " (" + QuietRun.Failure + ")")
+            + ".\r\n\r\n"
+            + "A run you cannot see but can hear is worse than one you can see: the "
+            + "sound arrives from something that cannot be found, focused or "
+            + "dismissed. So the run stopped.\r\n\r\n"
+            + DeskFreeVariable + " does NOT lift this here. On the hidden-desktop route "
+            + "the windows are hidden whatever it says, so sound is the only thing it "
+            + "could waive, and a run started there must prove it is silent instead.",
 
         Verdict.RefusedAudioNotSuppressed =>
             "The windows would have been invisible, but this run would still have "
@@ -213,6 +272,17 @@ internal static class DeskGuard
     };
 
     /// <summary>
+    /// The step that failed, named from what was measured rather than assumed.
+    /// </summary>
+    private static string WhatFailed(DesktopIsolation isolation) => isolation switch
+    {
+        DesktopIsolation.SwitchFailed =>
+            "The private desktop was created, but MOVING the test thread onto it FAILED",
+        DesktopIsolation.CreateFailed => "Creating that desktop FAILED",
+        _ => "Putting the test thread on a private desktop FAILED",
+    };
+
+    /// <summary>
     /// A one-line summary for the run report, so an allowed run says WHY it was
     /// allowed. "It worked" and "somebody waived the check" must never look the
     /// same afterwards.
@@ -221,7 +291,7 @@ internal static class DeskGuard
     {
         Verdict.AllowedIsolated => "windows on a private desktop, audio suppressed",
         Verdict.AllowedDeskDeclaredFree => "windows VISIBLE and audio UNCHECKED — desk declared free",
-        Verdict.RefusedIsolationFailed => "refused — private desktop could not be created",
+        Verdict.RefusedIsolationFailed => "refused — the UI thread could not be put on a private desktop",
         Verdict.RefusedIsolationDisabled => "refused — isolation off and desk not declared free",
         Verdict.RefusedAudioNotSuppressed => "refused — invisible but audible: audio could not be suppressed",
         Verdict.RefusedSettingsNotIsolated => "refused — the operator's own settings folder was in scope",

@@ -308,6 +308,38 @@ internal static class PrivateDesktop
         };
     }
 
+    /// <summary>
+    /// Only the first half of <see cref="MoveCurrentThread"/>: read where the
+    /// calling thread already is and report
+    /// <see cref="DesktopIsolation.StartedOnPrivateDesktop"/> when it is an
+    /// accepted hidden desktop, otherwise <see cref="DesktopIsolation.NotAttempted"/>.
+    /// Creates nothing, moves nothing.
+    /// </summary>
+    /// <remarks>
+    /// <b>Task #906 round 2.</b> Used when isolation was NOT requested
+    /// (<c>JJFLEX_TIER1_PRIVATE_DESKTOP=0</c>, or test code switching
+    /// <see cref="UiThread.RequestPrivateDesktop"/> off). The hidden-desktop
+    /// route is a fact about where the process started, not about what was
+    /// asked for, and <see cref="DeskGuard.Decide"/> keys "do not consult the
+    /// declaration" on it. If this were only read when isolation was asked
+    /// for, switching isolation off and setting the declaration would put the
+    /// waiver back on the very route the ruling took it off.
+    /// </remarks>
+    public static DesktopIsolation ReadStartingRoute()
+    {
+        try
+        {
+            var reading = ReadCurrentThread();
+            LastReading = reading;
+            LastJudgement = JudgeStartingDesktop(reading.WindowStation, reading.ThreadDesktop, reading.InputDesktop);
+            if (LastJudgement != StartingDesktopJudgement.Accepted) return DesktopIsolation.NotAttempted;
+            IsolatedDesktopName = reading.WindowStation + "\\" + reading.ThreadDesktop;
+            return DesktopIsolation.StartedOnPrivateDesktop;
+        }
+        catch (DllNotFoundException) { return DesktopIsolation.NotAttempted; }
+        catch (EntryPointNotFoundException) { return DesktopIsolation.NotAttempted; }
+    }
+
     public static DesktopIsolation MoveCurrentThread()
     {
         try

@@ -209,6 +209,163 @@ public sealed class DeskGuardDecisionTests
                              settingsIsolated: true));
     }
 
+    // ── Task #906 round 2 (Noel's ruling C9): the declaration is NOT consulted
+    //    on the hidden-desktop route ─────────────────────────────────────────
+    //
+    // Created state first. On StartedOnPrivateDesktop the windows are hidden
+    // whatever the declaration says, so all it could waive is SOUND, which is
+    // what that route must still prove. Every other route keeps the declaration
+    // exactly as it was: a person's word at a real desk. These rows never set
+    // JJFLEX_TIER1_DESK_FREE; the decision is a pure function and its rows are
+    // the proof.
+
+    [Fact]
+    public void DeclaredFreeOnTheHiddenRouteButAudibleIsRefused()
+    {
+        // THE row the ruling exists for. Before round 2 this returned
+        // AllowedDeskDeclaredFree, so any route that put the variable back
+        // after deskrun removed it (Codex found three) waived the sound check.
+        var verdict = DeskGuard.Decide(isolationRequested: true,
+                                       isolation: DesktopIsolation.StartedOnPrivateDesktop,
+                                       deskDeclaredFree: true,
+                                       audioSuppressed: false,
+                                       settingsIsolated: true);
+
+        Assert.Equal(DeskGuard.Verdict.RefusedAudioNotSuppressed, verdict);
+        Assert.False(DeskGuard.IsAllowed(verdict));
+    }
+
+    [Fact]
+    public void DeclaredFreeOnTheHiddenRouteWithSettingsInScopeIsRefusedOnSettings()
+    {
+        Assert.Equal(
+            DeskGuard.Verdict.RefusedSettingsNotIsolated,
+            DeskGuard.Decide(isolationRequested: true,
+                             isolation: DesktopIsolation.StartedOnPrivateDesktop,
+                             deskDeclaredFree: true,
+                             audioSuppressed: true,
+                             settingsIsolated: false));
+    }
+
+    [Fact]
+    public void DeclaredFreeOnTheHiddenRouteAndSilentIsAllowedAsIsolatedNotAsWaived()
+    {
+        // Allowed, but on the grounds of isolation and silence, so the report
+        // says so. "Somebody waived it" would be false here: nothing was waived.
+        Assert.Equal(
+            DeskGuard.Verdict.AllowedIsolated,
+            DeskGuard.Decide(isolationRequested: true,
+                             isolation: DesktopIsolation.StartedOnPrivateDesktop,
+                             deskDeclaredFree: true,
+                             audioSuppressed: true,
+                             settingsIsolated: true));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void DeclaredFreeOnTheHiddenRouteWithIsolationSwitchedOffIsRefused(bool silent)
+    {
+        // UiThread reads the starting desktop even when isolation is switched
+        // off, so JJFLEX_TIER1_PRIVATE_DESKTOP=0 plus the declaration cannot
+        // put the waiver back on this route.
+        Assert.Equal(
+            DeskGuard.Verdict.RefusedIsolationDisabled,
+            DeskGuard.Decide(isolationRequested: false,
+                             isolation: DesktopIsolation.StartedOnPrivateDesktop,
+                             deskDeclaredFree: true,
+                             audioSuppressed: silent,
+                             settingsIsolated: true));
+    }
+
+    [Theory]
+    [InlineData(DesktopIsolation.NotAttempted, true, true)]
+    [InlineData(DesktopIsolation.NotAttempted, true, false)]
+    [InlineData(DesktopIsolation.NotAttempted, false, true)]
+    [InlineData(DesktopIsolation.NotAttempted, false, false)]
+    [InlineData(DesktopIsolation.Isolated, true, true)]
+    [InlineData(DesktopIsolation.Isolated, true, false)]
+    [InlineData(DesktopIsolation.Isolated, false, false)]
+    [InlineData(DesktopIsolation.CreateFailed, true, true)]
+    [InlineData(DesktopIsolation.CreateFailed, true, false)]
+    [InlineData(DesktopIsolation.CreateFailed, false, false)]
+    [InlineData(DesktopIsolation.SwitchFailed, true, true)]
+    [InlineData(DesktopIsolation.SwitchFailed, true, false)]
+    [InlineData(DesktopIsolation.SwitchFailed, false, false)]
+    public void DeclaredFreeOnEveryOtherRouteBehavesExactlyAsBefore(
+        DesktopIsolation isolation, bool requested, bool silent)
+    {
+        // A person at a real desk: the declaration still wins outright, sound
+        // included. Round 2 does not touch this.
+        Assert.Equal(
+            DeskGuard.Verdict.AllowedDeskDeclaredFree,
+            DeskGuard.Decide(isolationRequested: requested,
+                             isolation: isolation,
+                             deskDeclaredFree: true,
+                             audioSuppressed: silent,
+                             settingsIsolated: true));
+    }
+
+    [Fact]
+    public void OnlyTheHiddenRouteIgnoresTheDeclarationIncludingAnyValueAddedLater()
+    {
+        // By enumeration, so a new DesktopIsolation value cannot silently join
+        // or leave the route that ignores the declaration.
+        foreach (DesktopIsolation isolation in Enum.GetValues(typeof(DesktopIsolation)))
+        {
+            var verdict = DeskGuard.Decide(isolationRequested: true,
+                                           isolation: isolation,
+                                           deskDeclaredFree: true,
+                                           audioSuppressed: false,
+                                           settingsIsolated: true);
+
+            Assert.Equal(isolation == DesktopIsolation.StartedOnPrivateDesktop
+                             ? DeskGuard.Verdict.RefusedAudioNotSuppressed
+                             : DeskGuard.Verdict.AllowedDeskDeclaredFree,
+                         verdict);
+        }
+    }
+
+    [Fact]
+    public void OnTheHiddenRouteTheRefusalDoesNotOfferTheDeclarationAsTheWayOut()
+    {
+        // The text must not tell somebody to set a variable this route ignores.
+        string hidden = DeskGuard.Explain(DeskGuard.Verdict.RefusedAudioNotSuppressed, 0,
+                                          DesktopIsolation.StartedOnPrivateDesktop);
+        Assert.Contains("does NOT lift this", hidden, StringComparison.Ordinal);
+        Assert.DoesNotContain("=1 for this run", hidden, StringComparison.Ordinal);
+
+        string disabled = DeskGuard.Explain(DeskGuard.Verdict.RefusedIsolationDisabled, 0,
+                                            DesktopIsolation.StartedOnPrivateDesktop);
+        Assert.Contains("not consulted", disabled, StringComparison.Ordinal);
+        Assert.DoesNotContain("=1 for this run", disabled, StringComparison.Ordinal);
+
+        // Off the hidden route, the declaration is still offered.
+        Assert.Contains("=1 for this run",
+                        DeskGuard.Explain(DeskGuard.Verdict.RefusedAudioNotSuppressed, 0,
+                                          DesktopIsolation.Isolated),
+                        StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AFailedIsolationNamesTheStepThatFailed()
+    {
+        // Measured: under a plain dotnet test the desktop IS created and moving
+        // the thread fails with 170. The text used to say "could not be created".
+        string moved = DeskGuard.Explain(DeskGuard.Verdict.RefusedIsolationFailed, 170,
+                                         DesktopIsolation.SwitchFailed);
+        Assert.Contains("MOVING the test thread", moved, StringComparison.Ordinal);
+        Assert.DoesNotContain("Creating that desktop FAILED", moved, StringComparison.Ordinal);
+
+        string created = DeskGuard.Explain(DeskGuard.Verdict.RefusedIsolationFailed, 5,
+                                           DesktopIsolation.CreateFailed);
+        Assert.Contains("Creating that desktop FAILED", created, StringComparison.Ordinal);
+
+        Assert.DoesNotContain("could not be created",
+                              DeskGuard.Describe(DeskGuard.Verdict.RefusedIsolationFailed),
+                              StringComparison.Ordinal);
+    }
+
     [Fact]
     public void EveryIsolationValueOtherThanTheTwoIsolatedRoutesRefuses()
     {

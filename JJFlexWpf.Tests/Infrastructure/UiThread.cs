@@ -83,8 +83,13 @@ public static class UiThread
             {
                 NativeThreadId = ModalWatchdog.GetCurrentThreadId();
 
-                if (RequestPrivateDesktop)
-                    Isolation = PrivateDesktop.MoveCurrentThread();
+                // Task #906 round 2: when isolation is NOT requested, still read
+                // where the process started, because the guard does not consult
+                // the desk-free declaration on the hidden-desktop route and that
+                // route is a fact about the start, not about the request.
+                Isolation = RequestPrivateDesktop
+                    ? PrivateDesktop.MoveCurrentThread()
+                    : PrivateDesktop.ReadStartingRoute();
 
                 // THE RESULT IS NOW CHECKED. It used to be assigned here and
                 // read nowhere, so a failed isolation carried straight on and
@@ -137,7 +142,7 @@ public static class UiThread
             // away.
             if (_dispatcher == null)
                 throw new DeskNotFreeException(
-                    DeskGuard.Explain(Guard, PrivateDesktop.LastError)
+                    DeskGuard.Explain(Guard, PrivateDesktop.LastError, Isolation)
                     + Environment.NewLine + Environment.NewLine + VerdictLine);
 
             _thread = thread;
@@ -189,7 +194,7 @@ public static class UiThread
                 // the body regardless. A gate on one door is not a gate.
                 var isolation = privateDesktop
                     ? PrivateDesktop.MoveCurrentThread()
-                    : DesktopIsolation.NotAttempted;
+                    : PrivateDesktop.ReadStartingRoute();
 
                 var verdict = DeskGuard.Decide(privateDesktop, isolation,
                                                DeskGuard.DeskDeclaredFree,
@@ -197,7 +202,7 @@ public static class UiThread
                                                TestSettingsRoot.Isolated);
                 if (!DeskGuard.IsAllowed(verdict))
                     throw new DeskNotFreeException(
-                        DeskGuard.Explain(verdict, PrivateDesktop.LastError)
+                        DeskGuard.Explain(verdict, PrivateDesktop.LastError, isolation)
                         + Environment.NewLine + Environment.NewLine
                         + PrivateDesktop.DescribeRoute(isolation, PrivateDesktop.LastReading,
                                                        PrivateDesktop.LastJudgement,
