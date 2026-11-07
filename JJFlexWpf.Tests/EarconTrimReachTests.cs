@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using Xunit;
@@ -94,14 +95,48 @@ public sealed class EarconTrimReachTests : IDisposable
     }
 
     [Fact]
-    public void The_transmit_test_tone_monitor_plays_at_its_trim()
+    public void Every_continuous_sound_the_picker_offers_plays_at_its_trim()
     {
+        // The one-shot test above leaves out the continuous entries, which
+        // need Start and Stop: the transmit test-tone monitor and the ATU
+        // progress tone. Both are in the picker, so both must answer it.
         NoiseReductionPerChannelTests.AssertWindowless();
-        double plain = MonitorRms();
-        Assert.True(plain > 1e-6, "the monitor submitted nothing, so the test would prove nothing");
+        var continuous = EarconCatalog.All.Where(e => e.IsContinuous).ToList();
+        Assert.Contains(continuous, e => e.Id == EarconPlayer.TxToneMonitorTrimId);
+        Assert.Contains(continuous, e => e.Id == nameof(EarconPlayer.StartATUProgressEarcon));
 
-        EarconPlayer.SetLevelTrimDb(EarconPlayer.TxToneMonitorTrimId, TrimDb);
-        double trimmed = MonitorRms();
+        var missed = new List<string>();
+        foreach (var e in continuous)
+        {
+            EarconPlayer.SetAllLevelTrimsDb(null);
+            double plain = ContinuousRms(e);
+            Assert.True(plain > 1e-6, e.Id + " submitted nothing, so the test would prove nothing");
+
+            EarconPlayer.SetLevelTrimDb(e.Id, TrimDb);
+            double ratio = ContinuousRms(e) / plain;
+            if (Math.Abs(ratio - Expected) > 0.02)
+                missed.Add($"{e.Id} (level ratio {ratio:F3}, expected {Expected:F3})");
+        }
+        Assert.True(missed.Count == 0, "Continuous sounds that ignore their trim: " + string.Join("; ", missed));
+    }
+
+    [Fact]
+    public void A_figure_played_later_on_a_worker_thread_keeps_its_sounds_trim()
+    {
+        // The connect-sound audition A plays its last figure later, from a
+        // pool thread, where the thread-static trim is whatever that thread
+        // last held. The figure must carry the trim of the sound it belongs
+        // to. The offline render places the figure on the calling thread, so
+        // only the live path, through the test mixer seam, can see this.
+        NoiseReductionPerChannelTests.AssertWindowless();
+        const string id = "ConnectSeriesCandidate.A";
+        Assert.Contains(EarconCatalog.All, e => e.Id == id);
+
+        double plain = LaterFigureRms(() => EarconPlayer.ConnectSeriesCandidate('A'));
+        Assert.True(plain > 1e-6, "the later figure never arrived, so the test would prove nothing");
+
+        EarconPlayer.SetLevelTrimDb(id, TrimDb);
+        double trimmed = LaterFigureRms(() => EarconPlayer.ConnectSeriesCandidate('A'));
 
         Assert.InRange(trimmed / plain, Expected - 0.02, Expected + 0.02);
     }
@@ -146,18 +181,53 @@ public sealed class EarconTrimReachTests : IDisposable
         }
     }
 
-    private static double MonitorRms()
+    /// <summary>Start a continuous sound into the test mixer, read a second of it, stop it.</summary>
+    private static double ContinuousRms(EarconEntry e)
     {
         var mixer = new MixingSampleProvider(
             WaveFormat.CreateIeeeFloatWaveFormat(EarconPlayer.MixerSampleRate, 2)) { ReadFully = false };
         EarconPlayer.TestAlertMixer = mixer;
         try
         {
-            EarconPlayer.StartTxToneMonitor(700f);
-            var buffer = new float[EarconPlayer.MixerSampleRate / 5 * 2];
+            e.Play();
+            var buffer = new float[EarconPlayer.MixerSampleRate * 2];
             int n = mixer.Read(buffer.AsSpan());
-            EarconPlayer.StopTxToneMonitor();
+            e.Stop!();
             return Rms(buffer.Take(n).ToArray());
+        }
+        finally
+        {
+            EarconPlayer.TestAlertMixer = null;
+        }
+    }
+
+    /// <summary>
+    /// Play a sound into the test mixer, drop what it added at once, wait for
+    /// the figure it schedules for later, and measure that figure alone.
+    /// </summary>
+    private static double LaterFigureRms(Action play)
+    {
+        var mixer = new MixingSampleProvider(
+            WaveFormat.CreateIeeeFloatWaveFormat(EarconPlayer.MixerSampleRate, 2)) { ReadFully = false };
+        EarconPlayer.TestAlertMixer = mixer;
+        try
+        {
+            play();
+            foreach (var now in mixer.MixerInputs.ToList()) mixer.RemoveMixerInput(now);
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (!mixer.MixerInputs.Any() && sw.ElapsedMilliseconds < 5000) Thread.Sleep(20);
+            Assert.True(mixer.MixerInputs.Any(), "no figure arrived within five seconds");
+
+            var all = new List<float>();
+            var buffer = new float[EarconPlayer.MixerSampleRate / 10 * 2];
+            for (int guard = 0; guard < 100; guard++)
+            {
+                int n = mixer.Read(buffer.AsSpan());
+                if (n <= 0) break;
+                all.AddRange(buffer.Take(n));
+            }
+            return Rms(all.ToArray());
         }
         finally
         {

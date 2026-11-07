@@ -2718,8 +2718,13 @@ namespace JJFlexWpf
             try
             {
                 JJTrace.Tracing.TraceLine("EarconPlayer: ATU progress earcon started");
+                // Its own trim, from the picker's "ATU tuning in progress"
+                // entry. Folded into the provider's volume rather than wrapped,
+                // so the mixer input is still the provider Stop removes; a
+                // zero trim leaves the shipped level exactly as it was.
+                _currentTrimDb = GetLevelTrimDb(nameof(StartATUProgressEarcon));
                 _atuProgressProvider = new VoicedToneSampleProvider(450f,
-                    VolumeSoft * (_previewActive ? _previewGain : 1f))
+                    VolumeSoft * (_previewActive ? _previewGain : 1f) * TrimGain(_currentTrimDb))
                 {
                     Voice = MeterVoiceLibrary.Resolve(
                         MeterVoiceLibrary.FromLegacyWaveform(WaveformType.FastPulse)),
@@ -3663,6 +3668,10 @@ namespace JJFlexWpf
             _currentTrimDb = GetLevelTrimDb(trimId);
             if (_captureMixer == null) SoundTiming.Begin(caller);
         }
+
+        /// <summary>A trim in dB as a gain factor; exactly 1 for no trim.</summary>
+        private static float TrimGain(float trimDb) =>
+            Math.Abs(trimDb) < 0.05f ? 1f : (float)Math.Pow(10.0, trimDb / 20.0);
 
         private static void NoTrim([CallerMemberName] string caller = "")
         {
