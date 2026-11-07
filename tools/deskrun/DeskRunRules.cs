@@ -27,6 +27,18 @@ namespace JJFlex.DeskRun;
 /// read as settings, and the project's own build files are checked for a
 /// settings route before anything is created.
 /// </para>
+/// <para>
+/// <b>Round 2 moved the guarantee to the guard; these rules are now the
+/// second layer.</b> Codex's re-check found three more ways to put the
+/// declaration back (an option value dotnet re-reads as <c>--environment</c>,
+/// a multiline <c>&lt;Import</c> the scan below misses, and an inherited
+/// <c>MSBuildUserExtensionsPath</c> whose <c>ImportAfter</c> files nothing
+/// here reads). Chasing MSBuild's import graph from outside has no end, so
+/// <c>DeskGuard.Decide</c> no longer consults the declaration at all when the
+/// process started on a hidden desktop. The first of the three is also refused
+/// here, because it costs a few lines; the other two are closed at the guard
+/// and deliberately not chased further.
+/// </para>
 /// </remarks>
 internal static class DeskRunRules
 {
@@ -194,8 +206,16 @@ internal static class DeskRunRules
     /// list: it runs nothing, and it is how a filter is checked before a run.
     /// <c>--nologo</c> only removes a banner.
     /// </summary>
+    /// <remarks>
+    /// <c>--disable-build-servers</c> was added in round 2 (2026-11-06): the
+    /// verification briefs require it on every dotnet invocation, and Codex's
+    /// re-check found the allowlist refusing it. It only stops dotnet starting
+    /// or reusing compiler and MSBuild servers, which a <c>--no-build</c> run
+    /// should not touch anyway; it cannot set testhost's environment or
+    /// settings.
+    /// </remarks>
     private static readonly string[] Flags =
-        { "--no-build", "--no-restore", "--blame-hang", "--list-tests", "--nologo" };
+        { "--no-build", "--no-restore", "--blame-hang", "--list-tests", "--nologo", "--disable-build-servers" };
 
     /// <summary>
     /// The one MSBuild property allowed: Platform, with a plain value. Every
@@ -253,6 +273,18 @@ internal static class DeskRunRules
                 }
 
                 if (value == null) continue;
+
+                // ROUND 2, route (a): a value that itself looks like an option.
+                // "--filter --environment=X=Y" passed the filter check here as
+                // a value, while dotnet's own parser read the second token as
+                // --environment (Codex reproduced it). No legitimate value of
+                // any of these options starts with a dash or a slash, so
+                // refuse rather than guess which parser is right. This is a
+                // second layer: the guard no longer consults the declaration
+                // on the hidden route at all.
+                if (value.Length == 0 || value[0] == '-' || value[0] == '/')
+                    return Refuse(a + " " + value,
+                                  "its value starts like an option, and dotnet could read it as one");
                 if (!valid(value))
                     return Refuse(a + " " + value, "the value must be " + what);
                 matched = true;
@@ -270,7 +302,8 @@ internal static class DeskRunRules
         => "refused argument '" + argument + "': " + why + ". deskrun forwards only "
            + "-c/--configuration, -p:Platform=, --filter, --logger (console or trx), "
            + "--results-directory, --blame-hang, --blame-hang-timeout, --no-build, "
-           + "--no-restore, --list-tests, --nologo and -v/--verbosity. Anything that "
+           + "--no-restore, --list-tests, --nologo, --disable-build-servers and "
+           + "-v/--verbosity. Anything that "
            + "could set testhost's environment or settings (--environment, --settings, "
            + "other properties, response files, inline settings) is refused.";
 
@@ -456,6 +489,44 @@ internal static class DeskRunRules
             sb.Append(kv.Key).Append('=').Append(kv.Value).Append('\0');
         return sb.ToString();
     }
+
+    // ─────────────── round 2: what the watchers conclude ───────────────
+
+    /// <summary>Where a sampled top-level window stands.</summary>
+    public enum WindowPlace
+    {
+        /// <summary>Not owned by a process in the job: not ours to judge.</summary>
+        NotTheJobs,
+
+        /// <summary>Owned by the job and on the launcher's hidden desktop: where it belongs.</summary>
+        OnTheHiddenDesktop,
+
+        /// <summary>Owned by the job and on ANY other desktop. The run is killed at once.</summary>
+        Escaped,
+    }
+
+    /// <summary>
+    /// Judge one top-level window the watcher saw (task #906 round 2,
+    /// condition 1). A job window is acceptable on exactly one desktop, the one
+    /// this launcher created; every other desktop, the operator's input desktop
+    /// above all, and a desktop whose name could not be read, is an escape.
+    /// </summary>
+    public static WindowPlace JudgeWindow(string? desktopName, string hiddenDesktopName, bool ownedByJob)
+    {
+        if (!ownedByJob) return WindowPlace.NotTheJobs;
+        if (desktopName != null
+            && string.Equals(desktopName, hiddenDesktopName, StringComparison.OrdinalIgnoreCase))
+            return WindowPlace.OnTheHiddenDesktop;
+        return WindowPlace.Escaped;
+    }
+
+    /// <summary>
+    /// True when an audio session belongs to the job and its meter ever left
+    /// zero (task #906 round 2, condition 2). A session from the job whose
+    /// peak stayed at exactly zero rendered digital silence and passes: the
+    /// measure is what reached the speakers, not whether a device was opened.
+    /// </summary>
+    public static bool AudibleFromTheJob(bool ownedByJob, float maxPeak) => ownedByJob && maxPeak > 0f;
 
     /// <summary>A name nobody else can be using: process id and a Guid fragment.</summary>
     public static string NewDesktopName(int processId, Guid guid)

@@ -195,6 +195,19 @@ public sealed class DeskRunRulesTests
     [InlineData("--filter", "Name~A;VSTestSetting=x")]
     [InlineData("--filter", "Name~A,B")]
     [InlineData("--results-directory", "out;VSTestSetting=x")]
+    // round 2, route (a): a value that dotnet would read as an option. The
+    // first filter keeps the run narrow; the second "filter" is --environment
+    // to dotnet (Codex reproduced it through the real launcher).
+    [InlineData("--filter", "Name~A", "--filter", "--environment=CANARY=1")]
+    [InlineData("--filter", "--environment=CANARY=1")]
+    [InlineData("--filter", "-e")]
+    [InlineData("--filter", "/environment:CANARY=1")]
+    [InlineData("--filter=--environment=CANARY=1")]
+    [InlineData("--results-directory", "--environment=CANARY=1")]
+    [InlineData("--logger", "-e")]
+    [InlineData("-c", "--settings")]
+    [InlineData("--blame-hang-timeout", "-s")]
+    [InlineData("-v", "-e")]
     // the test-only barrier is a LAUNCHER option, unreachable after the project
     [InlineData("--lifecycle-barrier", "after-create")]
     // and anything unknown
@@ -235,6 +248,7 @@ public sealed class DeskRunRulesTests
     [InlineData("--no-restore")]
     [InlineData("--list-tests")]
     [InlineData("--nologo")]
+    [InlineData("--disable-build-servers")]
     [InlineData("-v", "minimal")]
     [InlineData("--verbosity", "detailed")]
     public void EachAllowedOptionPasses(params string[] option)
@@ -362,5 +376,50 @@ public sealed class DeskRunRulesTests
         Assert.NotEqual(a, b);
         Assert.StartsWith("JJFlexDeskRun_42_", a, StringComparison.Ordinal);
         Assert.DoesNotContain("\\", a, StringComparison.Ordinal);
+    }
+
+    // ── round 2: the watchers' judgements (Noel's conditions 1 and 2) ─────
+
+    private const string Hidden = "JJFlexDeskRun_42_abcdef012345";
+
+    [Theory]
+    [InlineData("Default")]
+    [InlineData("default")]
+    [InlineData("Winlogon")]
+    [InlineData("Screen-saver")]
+    [InlineData("SomebodyElsesHiddenDesktop")]
+    [InlineData("JJFlexDeskRun_42_abcdef012346")]
+    [InlineData(null)]
+    public void AJobWindowOnAnyDesktopButTheHiddenOneHasEscaped(string? desktop)
+    {
+        Assert.Equal(DeskRunRules.WindowPlace.Escaped, DeskRunRules.JudgeWindow(desktop, Hidden, ownedByJob: true));
+    }
+
+    [Theory]
+    [InlineData(Hidden)]
+    [InlineData("jjflexdeskrun_42_ABCDEF012345")]
+    public void AJobWindowOnTheHiddenDesktopIsWhereItBelongs(string desktop)
+    {
+        Assert.Equal(DeskRunRules.WindowPlace.OnTheHiddenDesktop,
+                     DeskRunRules.JudgeWindow(desktop, Hidden, ownedByJob: true));
+    }
+
+    [Theory]
+    [InlineData("Default")]
+    [InlineData(Hidden)]
+    [InlineData(null)]
+    public void AWindowNotOwnedByTheJobIsNotJudged(string? desktop)
+    {
+        Assert.Equal(DeskRunRules.WindowPlace.NotTheJobs, DeskRunRules.JudgeWindow(desktop, Hidden, ownedByJob: false));
+    }
+
+    [Theory]
+    [InlineData(true, 0f, false)]       // digital silence from the job passes
+    [InlineData(true, 1e-7f, true)]     // anything above zero fails, however small
+    [InlineData(true, 0.5f, true)]
+    [InlineData(false, 1f, false)]      // somebody else's sound is not the job's
+    public void OnlyANonZeroPeakFromTheJobCountsAsSound(bool ownedByJob, float peak, bool audible)
+    {
+        Assert.Equal(audible, DeskRunRules.AudibleFromTheJob(ownedByJob, peak));
     }
 }

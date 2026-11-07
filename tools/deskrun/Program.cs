@@ -143,6 +143,7 @@ internal static class Program
         finished = false;
         var seen = new Dictionary<int, (string Name, DateTime Start)>();
         bool timedOut = false;
+        Watch? watch = null;
         int childExit = -1;
         Task relayOut = Task.CompletedTask, relayErr = Task.CompletedTask;
         var pi = default(Native.PROCESS_INFORMATION);
@@ -234,6 +235,12 @@ internal static class Program
                 return ExitSetupFailed;
             }
 
+            // ROUND 2 (conditions 1 and 2): the watchers start BEFORE the
+            // child runs a single instruction, so no window and no sound can
+            // come before the first look.
+            watch = new Watch(job, name);
+            watch.Start();
+
             Native.ResumeThread(pi.hThread);
             Say("child process " + pi.dwProcessId + " started on " + qualified + ", inside the cleanup job");
 
@@ -291,6 +298,7 @@ internal static class Program
         }
         finally
         {
+            watch?.Stop();
             attributes?.Dispose();
             if (envBlock != IntPtr.Zero) Marshal.FreeHGlobal(envBlock);
             if (pi.hThread != IntPtr.Zero) Native.CloseHandle(pi.hThread);
@@ -298,7 +306,9 @@ internal static class Program
         }
 
         finished = true;
-        return Finish(job, desktop, name, qualified, seen, timedOut, childExit);
+        int result = Finish(job, desktop, name, qualified, seen, timedOut, childExit, watch);
+        watch?.Dispose();
+        return result;
     }
 
     /// <summary>
@@ -306,7 +316,7 @@ internal static class Program
     /// </summary>
     private static int Finish(IntPtr job, IntPtr desktop, string name, string qualified,
                               Dictionary<int, (string Name, DateTime Start)> seen,
-                              bool timedOut, int childExit)
+                              bool timedOut, int childExit, Watch? watch)
     {
         int active = Native.ActiveProcesses(job);
 
@@ -359,6 +369,19 @@ internal static class Program
         Say("desktop " + qualified + ": handle closed " + (closed ? "yes" : "NO")
             + ", " + (desktopGone ? "no longer exists" : "STILL EXISTS")
             + " (" + looks + " look(s) over " + waitGone.ElapsedMilliseconds + " ms).");
+
+        if (watch != null)
+            foreach (string line in watch.Report()) Say(line);
+
+        // A window that reached another desktop, or sound from the job, is the
+        // harm the operator experiences, so it outranks every other result.
+        if (watch?.Violation is { } violation)
+        {
+            Say("FAILED: " + violation.Reason);
+            if (active != 0 || survivors.Count != 0 || !desktopGone)
+                Say("ALSO failed to clean up completely; see above.");
+            return violation.Code;
+        }
 
         if (active != 0 || survivors.Count != 0 || !desktopGone)
         {
@@ -479,12 +502,18 @@ internal static class Program
         Exactly one project is required; a solution is refused. Only these options
         are forwarded: -c/--configuration, -p:Platform=, --filter, --logger (console
         or trx), --results-directory, --blame-hang, --blame-hang-timeout, --no-build,
-        --no-restore, --list-tests, --nologo, -v/--verbosity. Anything else is
+        --no-restore, --list-tests, --nologo, --disable-build-servers,
+        -v/--verbosity. Anything else is
         refused before a desktop is created, because it could set testhost's
         environment or settings. The child never receives JJFLEX_TIER1_DESK_FREE.
         After SECONDS (default 600) the whole process tree is killed.
 
+        While the child runs, every desktop is watched for a window from the job
+        (anywhere but the hidden desktop kills the run, exit 72) and every audio
+        session for sound from the job (a peak above zero kills the run, exit 73).
+
         Exit codes: the child's own, or 64 refused before anything was created,
-        70 nothing started, 71 something was left behind, 124 timed out.
+        70 nothing started, 71 something was left behind, 72 a window reached
+        another desktop, 73 the job made sound, 124 timed out.
         """;
 }
