@@ -65,6 +65,9 @@ internal static class Program
 
         string command = args[0].ToLowerInvariant();
         var opt = new Args(args.Skip(1));
+        // Where the app's traces are: --config-dir, else JJFLEX_CONFIG_DIR in
+        // jjprobe's own environment, else the ordinary folder (#914).
+        TraceLog.ConfigDirOption = opt.Str("config-dir");
 
         return command switch
         {
@@ -126,6 +129,10 @@ jjprobe — drive and observe a running JJ Flexible from outside the process.
                     [--risk safe,mutates,transmits] [--max N] [--no-capture] [--digest]
                     [--transmit-clearance FILE] [--exclude "Comma,Period"] [--dry-run]
                     [--out FILE] [--json]
+
+Every command that reads the app's trace looks in --config-dir DIR when given,
+else in JJFLEX_CONFIG_DIR from jjprobe's own environment, else in
+%AppData%\JJFlexRadio. Run jjprobe with the same JJFLEX_CONFIG_DIR as the app.
 
 Default process name is 'jjflexible'. --window takes a title substring, a class
 substring, or an index from `jjprobe windows`.
