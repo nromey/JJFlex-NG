@@ -1851,12 +1851,14 @@ public partial class ScreenFieldsPanel : UserControl
         Radios.Speech.SpeechSubject.ValueField("TX filter, Home"),
         Lexicon.Get("audio.fields.tx_filter_low"), Lexicon.Get("audio.fields.tx_filter_high"),
         () => _rig, () => true,
-        refresh: (applied, stillCurrent) => Dispatcher.BeginInvoke(() =>
+        refresh: stillCurrent => Dispatcher.BeginInvoke(() =>
         {
-            // Re-checked HERE, when the window gets to it (round eleven).
-            if (!stillCurrent()) return;
+            // Re-checked HERE, when the window gets to it (round eleven), and
+            // the pair read HERE, so the fields copy only what is still true
+            // (round twelve).
+            if (!stillCurrent() || _rig == null) return;
             _polling = true;
-            try { SetTxFilterFields(applied.Low, applied.High); }
+            try { SetTxFilterFields(_rig.TXFilterLow, _rig.TXFilterHigh); }
             finally { _polling = false; }
         }));
 

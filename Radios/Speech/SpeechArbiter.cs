@@ -574,6 +574,13 @@ namespace Radios.Speech
             /// <summary>The ledger subject a flushed value carries — its coalesce key, unless the caller said otherwise.</summary>
             public string? Subject;
             public ISpeechTimer? Timer;
+
+            /// <summary>
+            /// For a composed entry (<see cref="LatestComposed"/>): builds the
+            /// sentence at the moment of hand-over, or says there is nothing to
+            /// say. <see cref="Message"/> is ignored while this is set.
+            /// </summary>
+            public Func<SpeechComposition?>? Compose;
         }
 
         private sealed class BelievedQueued
@@ -770,6 +777,18 @@ namespace Radios.Speech
 
         private readonly Dictionary<string, PendingUtterance> _pending =
             new Dictionary<string, PendingUtterance>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Composed Latest entries handed over under a completion ticket, and
+        /// who wants to know what became of each (#747 round twelve). A Latest
+        /// emission interrupts and never enters the ledger, so its outcome was
+        /// only traced; this is the one place a composed entry's producer
+        /// hears it. Removed when the outcome arrives.
+        /// </summary>
+        private readonly Dictionary<long, Action<SpeechOutcome>> _composedOutcomes = new();
+
+        /// <summary>What the sink did with the last interrupting emission; read by <see cref="EmitComposedLocked"/> only.</summary>
+        private SpeechHandoff _lastInterruptHandoff;
 
         /// <summary>
         /// Per key: what was last spoken, when, and how long the next utterance
@@ -2372,6 +2391,7 @@ namespace Radios.Speech
             }
 
             var sounding = _sink(message, true, intent, level, origin, salvaged: false);
+            _lastInterruptHandoff = sounding;
             if (!sounding.Reached)
             {
                 // Suppressed or no backend: the reader never saw the cancel,
@@ -3520,6 +3540,26 @@ namespace Radios.Speech
         /// </summary>
         public void OnOutcome(long ticket, string message, SpeechOutcome outcome)
         {
+            // A composed Latest entry's producer is told, once, outside the
+            // lock, after the arbiter's own accounting (#747 round twelve).
+            Action<SpeechOutcome>? composed = null;
+            lock (_lock)
+            {
+                if (ticket != 0 && _composedOutcomes.Remove(ticket, out var callback)) composed = callback;
+            }
+            OnOutcomeCore(ticket, message, outcome);
+            if (composed != null)
+            {
+                try { composed(outcome); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("SpeechArbiter: a composed entry's outcome callback threw: " + ex.Message, TraceLevel.Error);
+                }
+            }
+        }
+
+        private void OnOutcomeCore(long ticket, string message, SpeechOutcome outcome)
+        {
             lock (_lock)
             {
                 var now = _clock.UtcNow;
@@ -3686,6 +3726,85 @@ namespace Radios.Speech
         }
 
         /// <summary>
+        /// A Latest entry whose sentence is built when it is HANDED OVER, not
+        /// when it is submitted (#747, round twelve of the 2026-11-06 junk
+        /// box). <paramref name="compose"/> runs under the arbiter's lock at
+        /// the moment of hand-over, immediately when the key is idle and at
+        /// the flush otherwise, and returns the sentence with the callback
+        /// that wants its outcome, or null for "nothing to say". So a sentence
+        /// about a value says the value as it is when it is spoken, not as it
+        /// was when the request completed.
+        /// <para>Narrowly scoped: the coalescing, the anti-clip gap and the
+        /// verbosity gate are a Value entry's, unchanged. The one difference is
+        /// that a composed entry is never skipped as a repeat of the key's
+        /// last sentence; the composer decides what is owed. The outcome
+        /// callback is called once, outside the lock, and only for a tracked
+        /// hand-over; an untracked or refused hand-over never reports
+        /// Completed, which is the conservative answer. No other caller's
+        /// behaviour changes.</para>
+        /// <para>The composer must not call back into this arbiter.</para>
+        /// </summary>
+        public void LatestComposed(string key, Func<SpeechComposition?> compose, VerbosityLevel level,
+            string? origin, string? subject = null)
+        {
+            subject ??= key;
+            lock (_lock)
+            {
+                if (_pending.TryGetValue(key, out var existing))
+                {
+                    existing.Compose = compose;
+                    existing.Level = level;
+                    existing.Kind = SpeechCoalesceKind.Value;
+                    existing.Origin = origin;
+                    existing.Subject = subject;
+                    try { existing.Timer?.Change(CoalesceMs); }
+                    catch (ObjectDisposedException) { }
+                    return;
+                }
+
+                var now = _clock.UtcNow;
+                bool sweeping = _lastByKey.TryGetValue(key, out var last)
+                    && (now - last.At).TotalMilliseconds < SweepWindowMs;
+                int gapWait = RemainingGapMsLocked(key);
+
+                if (!sweeping && gapWait == 0)
+                {
+                    var composed = compose();
+                    if (composed == null || string.IsNullOrEmpty(composed.Value.Text)) return;
+                    EmitComposedLocked(key, composed.Value, level, origin, subject);
+                    return;
+                }
+
+                var entry = new PendingUtterance
+                {
+                    Level = level,
+                    Kind = SpeechCoalesceKind.Value,
+                    Origin = origin,
+                    Subject = subject,
+                    Compose = compose,
+                };
+                _pending[key] = entry;
+                entry.Timer = _clock.StartTimer(CoalesceMs, () => FlushCoalesced(key));
+            }
+        }
+
+        /// <summary>Hand over a composed sentence and register for its outcome.</summary>
+        private void EmitComposedLocked(string key, SpeechComposition composed, VerbosityLevel level,
+            string? origin, string? subject)
+        {
+            _lastByKey[key] = (composed.Text, _clock.UtcNow, AntiClipGapMs(composed.Text));
+            if ((int)level > (int)_verbosity())
+            {
+                _recordGated(composed.Text, level, SpeechIntent.Latest, origin);
+                return;
+            }
+            _lastInterruptHandoff = SpeechHandoff.NotReached;
+            EmitLocked(composed.Text, interrupt: true, SpeechIntent.Latest, level, origin, subject);
+            if (composed.Outcome != null && _lastInterruptHandoff.Tracked)
+                _composedOutcomes[_lastInterruptHandoff.Ticket] = composed.Outcome;
+        }
+
+        /// <summary>
         /// Withdraw the value still waiting on a Latest key, unheard (#747,
         /// round eleven of the 2026-11-06 junk box): its speaker's context has
         /// ended. Anything already handed over is untouched; a timer that fires
@@ -3708,6 +3827,24 @@ namespace Radios.Speech
             {
                 if (!_pending.TryGetValue(key, out var entry)) return;
                 _pending.Remove(key);
+
+                if (entry.Compose != null)
+                {
+                    // Too soon after our own last sentence: wait, and compose
+                    // when it is actually handed over.
+                    int composedWait = RemainingGapMsLocked(key);
+                    if (composedWait > 0)
+                    {
+                        _pending[key] = entry;
+                        try { entry.Timer?.Change(composedWait); return; }
+                        catch (ObjectDisposedException) { _pending.Remove(key); }
+                    }
+                    entry.Timer?.Dispose();
+                    var composed = entry.Compose();
+                    if (composed == null || string.IsNullOrEmpty(composed.Value.Text)) return;
+                    EmitComposedLocked(key, composed.Value, entry.Level, entry.Origin, entry.Subject);
+                    return;
+                }
 
                 // Nothing new to say. Skipping matters: on a two- or three-step
                 // sweep the settle would otherwise arrive while the lead
@@ -3824,6 +3961,7 @@ namespace Radios.Speech
         {
             foreach (var entry in _pending.Values) entry.Timer?.Dispose();
             _pending.Clear();
+            _composedOutcomes.Clear();
 
             // Forget what was last spoken as well, so the next value after
             // an urgent warning always speaks rather than being suppressed

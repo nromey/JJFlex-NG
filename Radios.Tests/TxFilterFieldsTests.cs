@@ -37,11 +37,20 @@ namespace Radios.Tests
         private readonly FlexBase _rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
         private readonly VendorRadioFixture _vendor = new VendorRadioFixture("1111-2222-6300-4444");
         private readonly FakeSpeechClock _clock = new FakeSpeechClock();
+        /// <summary>Every text handed to the reader, in order (not proof it was heard).</summary>
         private readonly List<string> _heard = new List<string>();
         private readonly SpeechArbiter _arbiter;
         private bool _open = true;
         private readonly TxFilterFields _fields;
-        private readonly List<(FilterApplied applied, Func<bool> stillCurrent)> _refreshes = new();
+        private readonly List<Func<bool>> _refreshes = new();
+
+        // The reader: every hand-over is tracked, an interrupt cuts what is
+        // still outstanding (Cancelled, by us, no words reached), and the
+        // test says when the reader finished the rest (Completed).
+        private long _nextTicket = 1;
+        private readonly List<(long Ticket, string Text)> _outstanding = new();
+        private readonly List<(long Ticket, string Text, SpeechOutcome Outcome)> _toReport = new();
+        private bool _refuse;
 
         private const string SurfaceKey = "value-field:TX filter (test surface)";
 
@@ -49,14 +58,46 @@ namespace Radios.Tests
         {
             _rig.theRadio = _vendor.Radio;
             _rig.q.MainLoop = true;   // the queue holds writes for Drain, as the main loop would run them
-            _arbiter = new SpeechArbiter(_clock, () => VerbosityLevel.Chatty,
-                (text, interrupt, intent, level, origin, salvaged) => { _heard.Add(text); return true; },
-                () => { }, (_, _, _, _) => { });
+            _arbiter = new SpeechArbiter(_clock, () => VerbosityLevel.Chatty, Reader, () => { }, (_, _, _, _) => { });
             _fields = new TxFilterFields(SurfaceKey, "TX Filter Low", "TX Filter High", () => _rig, () => _open,
-                latest: (text, key) => _arbiter.Latest(key, text, VerbosityLevel.Terse, SpeechCoalesceKind.Value, "test"),
-                refresh: (applied, stillCurrent) => _refreshes.Add((applied, stillCurrent)),
-                now: () => _clock.UtcNow,
+                speak: (key, compose) => _arbiter.LatestComposed(key, compose, VerbosityLevel.Terse, "test"),
+                refresh: stillCurrent => _refreshes.Add(stillCurrent),
                 retire: key => _arbiter.RetireLatest(key));
+        }
+
+        private SpeechHandoff Reader(string text, bool interrupt, SpeechIntent? intent, VerbosityLevel? level, string? origin, bool salvaged)
+        {
+            _heard.Add(text);
+            if (_refuse) return SpeechHandoff.NotReached;
+            if (interrupt)
+            {
+                foreach (var (ticket, cut) in _outstanding)
+                    _toReport.Add((ticket, cut, SpeechOutcome.Cancelled(0, Words(cut), byUs: true, elapsedMs: 10)));
+                _outstanding.Clear();
+            }
+            long t = _nextTicket++;
+            _outstanding.Add((t, text));
+            return SpeechHandoff.TrackedAs(t);
+        }
+
+        private static int Words(string text) => text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+
+        /// <summary>Report the cuts the reader has made.</summary>
+        private void Pump()
+        {
+            var due = _toReport.ToList();
+            _toReport.Clear();
+            foreach (var (ticket, text, outcome) in due) _arbiter.OnOutcome(ticket, text, outcome);
+        }
+
+        /// <summary>The reader finishes everything it still holds.</summary>
+        private void Finish()
+        {
+            Pump();
+            var done = _outstanding.ToList();
+            _outstanding.Clear();
+            foreach (var (ticket, text) in done)
+                _arbiter.OnOutcome(ticket, text, SpeechOutcome.Completed(Words(text), Words(text), 100));
         }
 
         public void Dispose()
@@ -80,7 +121,13 @@ namespace Radios.Tests
             }
         }
 
-        private void Settle() => _clock.Advance(5000);
+        /// <summary>Let everything waiting be handed over, and the reader finish it.</summary>
+        private void Settle()
+        {
+            Pump();
+            _clock.Advance(5000);
+            Finish();
+        }
 
         private (int, int) Actual => (_vendor.Radio.TXFilterLow, _vendor.Radio.TXFilterHigh);
 
@@ -312,7 +359,7 @@ namespace Radios.Tests
             Tx(100, 2800);
             _fields.Write(lowField: true, 300);
             Drain();
-            var (_, stillCurrent) = Assert.Single(_refreshes);
+            var stillCurrent = Assert.Single(_refreshes);
             Assert.True(stillCurrent());
             _fields.Invalidate();
             Assert.False(stillCurrent());
@@ -445,13 +492,259 @@ namespace Radios.Tests
             {
                 string host = System.IO.File.ReadAllText(System.IO.Path.Combine(new[] { IntegrationPassTree.Root }.Concat(rel).ToArray()));
                 Assert.True(CountOf(host, ".AppliedEndStop = atMinimum =>") == 2, string.Join("/", rel) + ": both fields route their end stop");
-                Assert.Contains("refresh: (applied, stillCurrent) => Dispatcher.BeginInvoke(() =>", host, StringComparison.Ordinal);
-                Assert.Contains("if (!stillCurrent()) return;", host, StringComparison.Ordinal);
+                Assert.Contains("refresh: stillCurrent => Dispatcher.BeginInvoke(() =>", host, StringComparison.Ordinal);
+                Assert.Contains("if (!stillCurrent() || _rig == null) return;", host, StringComparison.Ordinal);
+                // Round twelve: the pair is read when the closure runs, never captured at completion.
+                Assert.Contains("TxFilterFields(_rig.TXFilterLow, _rig.TXFilterHigh); }", host, StringComparison.Ordinal);
+                Assert.DoesNotContain("applied.Low, applied.High", host, StringComparison.Ordinal);
                 Assert.Contains("Control.Max = Math.Max(0, high - 50);", host, StringComparison.Ordinal);
                 Assert.Contains("Control.Min = Math.Min(10000, low + 50);", host, StringComparison.Ordinal);
             }
             string workshop = System.IO.File.ReadAllText(System.IO.Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs", "AudioWorkshopDialog.TxAudio.cs"));
             Assert.Contains("_workshopTxFilter", workshop, StringComparison.Ordinal);
+        }
+
+        // ------------------------------------------------------------------
+        // Round twelve: composed when it is spoken; heard only when Completed
+        // (Codex's seventh re-verify: B4, B3 end stop, B3/F3 other door, F4)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// B4. The field's Low 150 was heard; another door then set Low 300;
+        /// the field asks for High 3000 and the write is refused. The refusal
+        /// used to rebuild the pair from what was last said, and claimed Low
+        /// 150 as current. The values come from the radio.
+        /// </summary>
+        [Fact]
+        public void A_refusal_states_the_edges_as_the_radio_holds_them_not_as_last_said()
+        {
+            Tx(100, 2800);
+            _fields.Write(lowField: true, 150);
+            Drain();
+            Finish();                                  // "TX Filter Low 150", heard
+            _clock.Advance(50);
+            WriteTx(300);                              // another door
+            _rig.q.MainLoop = false;
+            _fields.Write(lowField: false, 3000);      // refused at once
+            Settle();
+            Assert.Equal("TX Filter Low 300. TX filter not changed. The radio is not taking changes right now.", _heard.Last());
+            Assert.Equal((300, 2800), Actual);
+        }
+
+        /// <summary>Codex's control: a refusal with no history says only that nothing changed.</summary>
+        [Fact]
+        public void Control_a_refusal_with_nothing_owed_says_only_that_nothing_changed()
+        {
+            Tx(100, 2800);
+            _rig.q.MainLoop = false;
+            _fields.Write(lowField: false, 3000);
+            Settle();
+            Assert.Equal("TX filter not changed. The radio is not taking changes right now.", Assert.Single(_heard));
+        }
+
+        private void HearLow150ThenLeaveLow200Waiting(int high)
+        {
+            Tx(100, high);
+            _fields.Write(lowField: true, 150);
+            Drain();
+            Finish();                                  // "TX Filter Low 150", heard
+            _clock.Advance(50);
+            _fields.Write(lowField: true, 200);
+            Drain();                                   // waits its turn on the key
+        }
+
+        /// <summary>
+        /// B3, the end stop. An end stop on the high edge replaces the low
+        /// edge's waiting result on the shared key, so it states the low edge
+        /// too, and what it did not state is not credited: a later high result
+        /// does not need to repeat the low, because the low WAS stated and heard.
+        /// </summary>
+        [Fact]
+        public void An_end_stop_covers_an_edge_still_owed_and_credits_only_what_it_said()
+        {
+            HearLow150ThenLeaveLow200Waiting(high: 10000);
+            _fields.SayEndStop(lowField: false, atMinimum: false, shownValue: 10000);
+            Settle();
+            Assert.Equal("TX Filter Low 200. TX Filter High 10000, maximum", _heard.Last());
+            _fields.Write(lowField: false, 9950);
+            Drain();
+            Settle();
+            Assert.Equal("TX Filter High 9950", _heard.Last());
+        }
+
+        /// <summary>Codex's control: with the low edge heard first, the end stop says only its own edge.</summary>
+        [Fact]
+        public void Control_an_end_stop_with_nothing_else_owed_says_only_its_edge()
+        {
+            HearLow150ThenLeaveLow200Waiting(high: 10000);
+            Settle();
+            Assert.Equal("TX Filter Low 200", _heard.Last());
+            _fields.SayEndStop(lowField: false, atMinimum: false, shownValue: 10000);
+            Settle();
+            Assert.Equal("TX Filter High 10000, maximum", _heard.Last());
+        }
+
+        /// <summary>
+        /// B3/F3, another door. The field's Low 200 is waiting when another
+        /// door sets Low 300. The sentence is composed when it is handed over,
+        /// so it says the 300 the radio holds, and never the 200.
+        /// </summary>
+        [Fact]
+        public void A_waiting_result_says_the_value_another_door_set_since()
+        {
+            HearLow150ThenLeaveLow200Waiting(high: 2800);
+            WriteTx(300);                              // another door
+            Settle();
+            Assert.Equal("TX Filter Low 300", _heard.Last());
+            Assert.DoesNotContain("TX Filter Low 200", _heard);
+        }
+
+        /// <summary>Codex's control: with no other write, the waiting result is said as it was.</summary>
+        [Fact]
+        public void Control_with_no_other_door_the_waiting_result_is_said()
+        {
+            HearLow150ThenLeaveLow200Waiting(high: 2800);
+            Settle();
+            Assert.Equal("TX Filter Low 200", _heard.Last());
+        }
+
+        /// <summary>
+        /// F4, refused. The reader took nothing of Low 150. Five seconds later
+        /// is no evidence it was heard, so High 2850 still covers it.
+        /// </summary>
+        [Fact]
+        public void A_sentence_the_reader_refused_is_still_owed()
+        {
+            Tx(100, 2800);
+            _refuse = true;
+            _fields.Write(lowField: true, 150);
+            Drain();
+            _refuse = false;
+            _clock.Advance(5000);
+            _fields.Write(lowField: false, 2850);
+            Drain();
+            Settle();
+            Assert.Equal("TX Filter Low 150. TX Filter High 2850", _heard.Last());
+        }
+
+        /// <summary>
+        /// F4, cancelled. Other speech cut Low 150 before a word of it was
+        /// said, and the reader reported Cancelled. Time passing does not make
+        /// it heard: High 2850 covers it.
+        /// </summary>
+        [Fact]
+        public void A_sentence_the_reader_cancelled_is_still_owed()
+        {
+            Tx(100, 2800);
+            _fields.Write(lowField: true, 150);
+            Drain();
+            _clock.Advance(50);
+            _arbiter.Emit("Other focus speech", interrupt: true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "test", subject: "other");
+            Finish();                                  // Low 150 Cancelled; the other speech Completed
+            _clock.Advance(5000);
+            _fields.Write(lowField: false, 2850);
+            Drain();
+            Settle();
+            Assert.Equal("TX Filter Low 150. TX Filter High 2850", _heard.Last());
+        }
+
+        /// <summary>
+        /// A refusal waiting to be said is withdrawn by a later success on the
+        /// surface: "not changed" would no longer be true when spoken.
+        /// </summary>
+        [Fact]
+        public void A_later_success_withdraws_a_refusal_not_yet_said()
+        {
+            Tx(100, 2800);
+            _fields.Write(lowField: true, 150);
+            Drain();                                   // handed over, not finished
+            _clock.Advance(50);
+            _rig.q.MainLoop = false;
+            _fields.Write(lowField: false, 3000);      // refused; waits its turn
+            _rig.q.MainLoop = true;
+            _fields.Write(lowField: false, 2900);
+            Drain();
+            Settle();
+            Assert.Equal("TX Filter Low 150. TX Filter High 2900", _heard.Last());
+            Assert.DoesNotContain(_heard, h => h.Contains("not changed"));
+        }
+
+        /// <summary>
+        /// Completed credits only what the text STATED. Another door moves the
+        /// low edge while a high-only sentence is being spoken; that sentence
+        /// finishing is no evidence the new low was heard, so the next
+        /// sentence states it.
+        /// </summary>
+        [Fact]
+        public void A_completed_sentence_credits_only_the_edges_it_stated()
+        {
+            Tx(100, 2800);
+            _fields.Write(lowField: true, 150);
+            Drain();
+            Finish();                                  // "TX Filter Low 150", heard
+            _clock.Advance(5000);
+            _fields.Write(lowField: false, 2850);
+            Drain();                                   // "TX Filter High 2850", being spoken
+            WriteTx(300);                              // another door, meanwhile
+            Finish();                                  // the high-only sentence finishes
+            _clock.Advance(5000);
+            _fields.Write(lowField: false, 2900);
+            Drain();
+            Settle();
+            Assert.Equal("TX Filter Low 300. TX Filter High 2900", _heard.Last());
+        }
+
+        /// <summary>
+        /// A sentence cut before it was heard is said again even when the words
+        /// are the same: a composed sentence is never skipped as a repeat.
+        /// </summary>
+        [Fact]
+        public void A_cut_sentence_is_said_again_even_in_the_same_words()
+        {
+            Tx(100, 2800);
+            _fields.Write(lowField: true, 150);
+            Drain();
+            _arbiter.Emit("Other focus speech", interrupt: true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "test", subject: "other");
+            Pump();                                    // Low 150 Cancelled
+            _clock.Advance(50);
+            _fields.Write(lowField: true, 150);        // the same value again
+            Drain();
+            Settle();
+            Assert.Equal(2, _heard.Count(h => h == "TX Filter Low 150"));
+        }
+
+        /// <summary>
+        /// A Completed outcome pays only the obligations its text carried. A
+        /// second press held back to the same value, raised while the first
+        /// sentence was being spoken, still gets its own "at limit".
+        /// </summary>
+        [Fact]
+        public void A_completed_sentence_does_not_pay_a_newer_request()
+        {
+            Tx(2700, 2800);
+            _fields.Write(lowField: true, 2800);
+            Drain();                                   // "TX Filter Low 2750, at limit", being spoken
+            _clock.Advance(50);
+            _fields.Write(lowField: true, 2900);
+            Drain();                                   // held back to 2750 again; waits
+            Finish();                                  // the first finishes
+            Settle();
+            Assert.Equal(2, _heard.Count(h => h == "TX Filter Low 2750, at limit"));
+        }
+
+        /// <summary>Codex's control: Low 150 Completed, and High 2850 says only the high.</summary>
+        [Fact]
+        public void Control_a_completed_sentence_is_not_repeated()
+        {
+            Tx(100, 2800);
+            _fields.Write(lowField: true, 150);
+            Drain();
+            Finish();
+            _clock.Advance(5000);
+            _fields.Write(lowField: false, 2850);
+            Drain();
+            Settle();
+            Assert.Equal("TX Filter High 2850", _heard.Last());
         }
 
         // ------------------------------------------------------------------

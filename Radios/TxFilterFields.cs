@@ -1,58 +1,69 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Flex.Smoothlake.FlexLib;
+using Radios.Speech;
 
 namespace Radios
 {
     /// <summary>
     /// The two transmit filter fields of one surface (Home, or the Audio
-    /// Workshop), and the ONE speaker for them (#747, rounds nine and eleven
-    /// of the 2026-11-06 junk box). The state table this implements is in the
-    /// round-eleven section of the batch's rulings report.
+    /// Workshop), and the ONE speaker for them (#747, rounds nine, eleven and
+    /// twelve of the 2026-11-06 junk box). The state table this implements is
+    /// in the round-twelve section of the batch's rulings report.
     /// </summary>
     /// <remarks>
     /// <para><b>Why one speaker.</b> A value field said the number it ASKED
-    /// for, on its own key, and a separate correction then said what FlexLib
-    /// set; each round's patch to keep two streams in step opened a new way for
-    /// the last word to be false (Codex's fifth re-verify). So the fields say
-    /// nothing of their own (<c>ValueFieldControl.SpeaksOnlyTheAppliedResult</c>)
-    /// and every word about them comes from here: the applied result after a
-    /// write, and the end stop, which says the APPLIED value (round eleven).</para>
-    /// <para><b>One key per surface, and no erasure.</b> Both fields speak on
-    /// one Latest key, so a newer result for either edge replaces an older one
-    /// still waiting. A replacement must not lose what it replaced (Codex's
-    /// sixth re-verify), so each sentence states every edge that differs from
-    /// what the operator last HEARD. A sentence counts as heard once no newer
-    /// one followed it within the arbiter's longest possible wait; until then
-    /// the next sentence covers it too. Over-covering is a repeat; under-
-    /// covering would be a lost edge.</para>
-    /// <para><b>Request identity.</b> Each request records its field, its
-    /// number within that field, the surface's epoch, and the rig, Radio and
-    /// command connection it was made on. A completion speaks only if it
+    /// for, and a separate correction then said what FlexLib set; each patch
+    /// to keep two streams in step opened a new way for the last word to be
+    /// false. So the fields say nothing of their own
+    /// (<c>ValueFieldControl.SpeaksOnlyTheAppliedResult</c>) and every word
+    /// about them comes from here.</para>
+    /// <para><b>Composed when it is SPOKEN (round twelve).</b> A sentence
+    /// built when a write completed could be false by the time the arbiter
+    /// handed it over: another door may have written the filter, or a refusal
+    /// rebuilt the pair from history. So this class records only what is
+    /// OWED, and the sentence is composed at hand-over
+    /// (<see cref="SpeechArbiter.LatestComposed"/>) from the radio's pair at
+    /// that moment. History decides WHICH edges to state; the radio supplies
+    /// every value.</para>
+    /// <para><b>Owed until the reader says it finished.</b> An edge is owed
+    /// when its newest result has not been said, when its value differs from
+    /// the last value a sentence stated and the reader reported COMPLETED, or
+    /// when an end stop on it is waiting. A refusal is owed until said. Only a
+    /// Completed outcome for the exact text that stated something pays it;
+    /// Cancelled, Unknown, refused, untracked and never-handed-over all leave
+    /// it owed, so the next sentence on the key covers it. Elapsed time is no
+    /// evidence of hearing and is not used.</para>
+    /// <para><b>Request identity.</b> A completion is recorded only if it
     /// answers that field's newest request, in the same epoch, on the same
-    /// connection, with the surface open; a window refresh re-checks the same
-    /// when it RUNS. <see cref="Invalidate"/> (Initialize, Detach, SetRig,
-    /// close) and a change of the Radio's command connection move the epoch on
-    /// AND retire a result still waiting on the key, unheard.</para>
+    /// rig, Radio and command connection, with the surface open; a window
+    /// refresh re-checks the same when it RUNS and reads the pair then.
+    /// <see cref="Invalidate"/> (Initialize, Detach, SetRig, close) and a
+    /// change of the Radio's command connection clear what is owed and
+    /// retire a sentence still waiting, unheard.</para>
     /// </remarks>
     public sealed class TxFilterFields
     {
         private readonly string _surfaceKey, _lowLabel, _highLabel;
         private readonly Func<FlexBase?> _rig;
         private readonly Func<bool> _open;
-        private readonly Action<string, string> _latest;
-        private readonly Action<FilterApplied, Func<bool>>? _refresh;
-        private readonly Func<DateTime> _now;
+        private readonly Action<string, Func<SpeechComposition?>> _speak;
+        private readonly Action<Func<bool>>? _refresh;
         private readonly Action<string> _retire;
         private readonly object _gate = new object();
-        private long _epoch, _lowNewest, _highNewest;
+        private long _epoch, _lowNewest, _highNewest, _seq;
 
-        // What has been said: the pair each submitted sentence left the
-        // operator believing, when, and how long it could have waited unheard.
-        private readonly List<(DateTime At, int Low, int High, int MayWaitMs)> _said = new();
-        private (int Low, int High)? _baseline;
-        private bool _lowAtLimit, _highAtLimit;
+        // What is owed, all under _gate. A sequence of 0 means nothing owed.
+        private FlexBase? _stateRig;
+        private Radio? _stateRadio;
+        private object? _stateConnection;
+        private int? _heardLow, _heardHigh;      // the last value a COMPLETED sentence stated, or the pair before the first request
+        private long _lowAsked, _highAsked;      // an unsaid newest result for that edge
+        private int? _lowLimitAt, _highLimitAt;  // the value that edge's newest result was held back to
+        private long _notWritten;                // an unsaid refusal
+        private long _endStopSeq;                // an unsaid end stop
+        private bool _endStopLow, _endStopAtMinimum;
+        private int _endStopShown;
 
         private Radio? _watchedRadio;
 
@@ -60,50 +71,75 @@ namespace Radios
         /// <param name="lowLabel">The low field's label, said with its value.</param>
         /// <param name="highLabel">The high field's label.</param>
         /// <param name="rig">The surface's rig now.</param>
-        /// <param name="open">Whether the surface is still open; asked on the command loop, so it must be thread-safe.</param>
-        /// <param name="latest">The speaking call, (text, key); null speaks through <see cref="ScreenReaderOutput"/> on Latest.</param>
-        /// <param name="refresh">Put the fields on the applied values. The second argument says whether this result still answers; call it again inside the queued window work, when it runs.</param>
-        /// <param name="now">The speech clock; null is the wall clock.</param>
-        /// <param name="retire">Withdraw a result still waiting on the key; null uses <see cref="ScreenReaderOutput.RetireLatest"/>.</param>
+        /// <param name="open">Whether the surface is still open; asked on the command loop and at hand-over, so it must be thread-safe.</param>
+        /// <param name="speak">Submit the surface's composer on its key, (key, composer); null uses <see cref="ScreenReaderOutput.SpeakComposed"/>.</param>
+        /// <param name="refresh">Put the fields on the radio's pair. The argument says whether this surface's request still answers; call it, and read the pair, inside the queued window work when it runs.</param>
+        /// <param name="retire">Withdraw a sentence still waiting on the key; null uses <see cref="ScreenReaderOutput.RetireLatest"/>.</param>
         public TxFilterFields(string surfaceKey, string lowLabel, string highLabel, Func<FlexBase?> rig, Func<bool> open,
-            Action<string, string>? latest = null, Action<FilterApplied, Func<bool>>? refresh = null,
-            Func<DateTime>? now = null, Action<string>? retire = null)
+            Action<string, Func<SpeechComposition?>>? speak = null, Action<Func<bool>>? refresh = null,
+            Action<string>? retire = null)
         {
             _surfaceKey = surfaceKey;
             _lowLabel = lowLabel;
             _highLabel = highLabel;
             _rig = rig;
             _open = open;
-            _latest = latest ?? SpeakLatest;
+            _speak = speak ?? ((key, compose) => ScreenReaderOutput.SpeakComposed(key, compose, VerbosityLevel.Terse));
             _refresh = refresh;
-            _now = now ?? (() => DateTime.UtcNow);
             _retire = retire ?? (key => ScreenReaderOutput.RetireLatest(key));
         }
 
-        private static void SpeakLatest(string text, string key)
-            => ScreenReaderOutput.Speak(text, Speech.SpeechIntent.Latest, VerbosityLevel.Terse,
-                coalesceKey: key, kind: Speech.SpeechCoalesceKind.Value);
-
         /// <summary>
         /// The surface's context ended (Initialize, Detach, SetRig, close, or a
-        /// connection change): nothing in flight answers any more, and a result
-        /// still waiting to be said is withdrawn, unheard.
+        /// connection change): nothing in flight answers any more, nothing is
+        /// owed, and a sentence still waiting to be said is withdrawn, unheard.
         /// </summary>
         public void Invalidate()
         {
             lock (_gate)
             {
                 _epoch++;
-                _said.Clear();
-                _baseline = null;
+                ClearOwedLocked();
+                _stateRig = null;
+                _stateRadio = null;
+                _stateConnection = null;
             }
             _retire(_surfaceKey);
+        }
+
+        private void ClearOwedLocked()
+        {
+            _heardLow = _heardHigh = null;
+            _lowAsked = _highAsked = _notWritten = _endStopSeq = 0;
+            _lowLimitAt = _highLimitAt = null;
+        }
+
+        /// <summary>
+        /// The owed state belongs to one rig, Radio and connection; a request
+        /// on another starts it afresh. The pair before the first request is
+        /// what the operator is taken to know already.
+        /// </summary>
+        private void AdoptLocked(FlexBase rig, Radio? radio, object? connection)
+        {
+            if (!ReferenceEquals(rig, _stateRig) || !ReferenceEquals(radio, _stateRadio)
+                || !ReferenceEquals(connection, _stateConnection))
+            {
+                ClearOwedLocked();
+                _stateRig = rig;
+                _stateRadio = radio;
+                _stateConnection = connection;
+            }
+            if (_heardLow == null && radio != null)
+            {
+                _heardLow = rig.TXFilterLow;
+                _heardHigh = rig.TXFilterHigh;
+            }
         }
 
         /// <summary>
         /// A field moved to <paramref name="value"/>: by an arrow, a held key or
         /// typed entry, all alike. Writes that edge through the applied route
-        /// and says the result.
+        /// and, once it has run, asks for the result to be said.
         /// </summary>
         public void Write(bool lowField, int value)
         {
@@ -115,38 +151,62 @@ namespace Radios
             long epoch, request;
             lock (_gate)
             {
+                AdoptLocked(rig, radio, connection);
                 epoch = _epoch;
                 request = lowField ? ++_lowNewest : ++_highNewest;
             }
-            string label = lowField ? _lowLabel : _highLabel;
             rig.SetTXFilter(lowField ? value : (int?)null, lowField ? (int?)null : value, applied =>
             {
                 bool StillCurrent() => Answers(rig, radio, connection, epoch, lowField, request);
                 if (!StillCurrent()) return;
-                Say(Result(applied, lowField, label));
-                _refresh?.Invoke(applied, StillCurrent);
+                lock (_gate)
+                {
+                    long s = ++_seq;
+                    if (applied.NotWritten)
+                    {
+                        _notWritten = s;
+                    }
+                    else
+                    {
+                        _notWritten = 0;   // a later success makes an unsaid refusal untrue
+                        if (lowField)
+                        {
+                            _lowAsked = s;
+                            _lowLimitAt = applied.Low != applied.RequestedLow ? applied.Low : null;
+                        }
+                        else
+                        {
+                            _highAsked = s;
+                            _highLimitAt = applied.High != applied.RequestedHigh ? applied.High : null;
+                        }
+                    }
+                }
+                _speak(_surfaceKey, Compose);
+                _refresh?.Invoke(StillCurrent);
             });
         }
 
         /// <summary>
-        /// A press against a field's end (round eleven, Codex's end-stop
-        /// blocker): the boundary word with the APPLIED value of that edge,
-        /// read from the radio, never the field's own optimistic value.
-        /// <paramref name="shownValue"/> is used only when there is no radio
-        /// to read. DRAFT.
+        /// A press against a field's end: the boundary word with that edge's
+        /// value as the radio holds it when the sentence is spoken, covering
+        /// whatever else is owed. <paramref name="shownValue"/> is used only
+        /// when there is no radio to read. DRAFT.
         /// </summary>
         public void SayEndStop(bool lowField, bool atMinimum, int shownValue)
         {
             var rig = _rig();
-            int value = rig?.theRadio == null ? shownValue : (lowField ? rig.TXFilterLow : rig.TXFilterHigh);
-            string label = lowField ? _lowLabel : _highLabel;
-            string text = Lexicon.Get(atMinimum ? "audio.field.spoken_value_minimum" : "audio.field.spoken_value_maximum",
-                ("label", label), ("value", value), ("unit", ""));
-            if (rig?.theRadio != null)
+            if (rig == null) return;
+            Radio? radio = rig.theRadio;
+            Watch(radio);
+            lock (_gate)
             {
-                lock (_gate) Record(rig.TXFilterLow, rig.TXFilterHigh, text);
+                AdoptLocked(rig, radio, radio?.CurrentCommandConnection);
+                _endStopSeq = ++_seq;
+                _endStopLow = lowField;
+                _endStopAtMinimum = atMinimum;
+                _endStopShown = shownValue;
             }
-            _latest(text, _surfaceKey);
+            _speak(_surfaceKey, Compose);
         }
 
         /// <summary>Follow the Radio's command connection: a change retires what is waiting.</summary>
@@ -176,39 +236,76 @@ namespace Radios
                 && _open();
         }
 
-        private void Say(string text) => _latest(text, _surfaceKey);
-
         /// <summary>
-        /// What one field's write says, from what FlexLib set, covering every
-        /// edge that differs from what was last heard. DRAFT.
+        /// The sentence, built at hand-over from the radio's pair NOW, stating
+        /// every owed edge and an owed refusal, or null when nothing is owed or
+        /// the surface's context has gone. DRAFT.
         /// </summary>
-        private string Result(FilterApplied applied, bool lowField, string label)
+        private SpeechComposition? Compose()
         {
             lock (_gate)
             {
-                var heard = HeardPairLocked(applied);
-                int low = applied.Low, high = applied.High;
-                if (applied.NotWritten && _said.Count > 0)
-                {
-                    // A refusal changes nothing; the pair is the last one said.
-                    low = _said[_said.Count - 1].Low;
-                    high = _said[_said.Count - 1].High;
-                }
-                if (!applied.NotWritten)
-                {
-                    if (lowField) _lowAtLimit = applied.Low != applied.RequestedLow;
-                    else _highAtLimit = applied.High != applied.RequestedHigh;
-                }
+                var rig = _rig();
+                if (rig == null || !ReferenceEquals(rig, _stateRig) || !_open()) return null;
+                Radio? radio = rig.theRadio;
+                if (!ReferenceEquals(radio, _stateRadio)
+                    || !ReferenceEquals(radio?.CurrentCommandConnection, _stateConnection)) return null;
 
                 var clauses = new List<string>();
-                bool lowSays = low != heard.Low || (!applied.NotWritten && lowField);
-                bool highSays = high != heard.High || (!applied.NotWritten && !lowField);
-                if (lowSays) clauses.Add(Clause(_lowLabel, low, _lowAtLimit));
-                if (highSays) clauses.Add(Clause(_highLabel, high, _highAtLimit));
-                if (applied.NotWritten) clauses.Add(Lexicon.Get("audio.tx_filter.not_written"));
+                int? statedLow = null, statedHigh = null;
+                long paidLow = 0, paidHigh = 0, paidEnd = 0;
+
+                if (radio == null)
+                {
+                    // Nothing to read: only an end stop's shown value and a refusal can be said.
+                    if (_endStopSeq != 0)
+                    {
+                        clauses.Add(EndClause(_endStopLow ? _lowLabel : _highLabel, _endStopShown, _endStopAtMinimum));
+                        paidEnd = _endStopSeq;
+                    }
+                }
+                else
+                {
+                    int low = rig.TXFilterLow, high = rig.TXFilterHigh;
+                    bool lowEnd = _endStopSeq != 0 && _endStopLow, highEnd = _endStopSeq != 0 && !_endStopLow;
+                    if (lowEnd || _lowAsked != 0 || low != _heardLow)
+                    {
+                        clauses.Add(lowEnd ? EndClause(_lowLabel, low, _endStopAtMinimum)
+                                           : Clause(_lowLabel, low, _lowAsked != 0 && _lowLimitAt == low));
+                        statedLow = low;
+                        paidLow = _lowAsked;
+                    }
+                    if (highEnd || _highAsked != 0 || high != _heardHigh)
+                    {
+                        clauses.Add(highEnd ? EndClause(_highLabel, high, _endStopAtMinimum)
+                                            : Clause(_highLabel, high, _highAsked != 0 && _highLimitAt == high));
+                        statedHigh = high;
+                        paidHigh = _highAsked;
+                    }
+                    if (lowEnd || highEnd) paidEnd = _endStopSeq;
+                }
+                long paidRefusal = _notWritten;
+                if (paidRefusal != 0) clauses.Add(Lexicon.Get("audio.tx_filter.not_written"));
+                if (clauses.Count == 0) return null;
+
                 string text = string.Join(Lexicon.Get("audio.tx_filter.clause_joiner"), clauses);
-                Record(low, high, text);
-                return text;
+                long epoch = _epoch;
+                return new SpeechComposition(text, outcome =>
+                {
+                    if (outcome.Kind != SpeechOutcomeKind.Completed) return;   // still owed
+                    lock (_gate)
+                    {
+                        if (epoch != _epoch) return;
+                        // Credit only what this text stated, and pay only the
+                        // obligations it carried, not newer ones raised since.
+                        if (statedLow.HasValue) _heardLow = statedLow;
+                        if (statedHigh.HasValue) _heardHigh = statedHigh;
+                        if (paidLow != 0 && _lowAsked == paidLow) _lowAsked = 0;
+                        if (paidHigh != 0 && _highAsked == paidHigh) _highAsked = 0;
+                        if (paidEnd != 0 && _endStopSeq == paidEnd) _endStopSeq = 0;
+                        if (paidRefusal != 0 && _notWritten == paidRefusal) _notWritten = 0;
+                    }
+                });
             }
         }
 
@@ -216,47 +313,8 @@ namespace Radios
             => Lexicon.Get("audio.field.spoken_value", ("label", label), ("value", value), ("unit", ""))
                + (atLimit ? Lexicon.Get("settings.filter.suffix_at_limit") : "");
 
-        /// <summary>
-        /// The pair the operator last HEARD: the newest sentence that no newer
-        /// sentence followed within its possible wait, else the pair before the
-        /// first one.
-        /// </summary>
-        private (int Low, int High) HeardPairLocked(FilterApplied applied)
-        {
-            _baseline ??= (applied.BeforeLow, applied.BeforeHigh);
-            var heard = _baseline.Value;
-            DateTime now = _now();
-            for (int i = 0; i < _said.Count; i++)
-            {
-                DateTime next = i + 1 < _said.Count ? _said[i + 1].At : now;
-                if ((next - _said[i].At).TotalMilliseconds >= _said[i].MayWaitMs)
-                    heard = (_said[i].Low, _said[i].High);
-            }
-            return heard;
-        }
-
-        private void Record(int low, int high, string text)
-        {
-            DateTime now = _now();
-            // Forget sentences that are certainly heard, keeping the newest of
-            // them as the baseline, so the list stays short.
-            var heard = _baseline ?? (low, high);
-            while (_said.Count > 0 && (now - _said[0].At).TotalMilliseconds >= _said[0].MayWaitMs
-                   && (_said.Count == 1 || (_said[1].At - _said[0].At).TotalMilliseconds >= _said[0].MayWaitMs))
-            {
-                heard = (_said[0].Low, _said[0].High);
-                _said.RemoveAt(0);
-            }
-            _baseline = heard;
-            // The longest a Latest value can wait unheard: a sweep's settle,
-            // plus the anti-clip gap after whatever was said before it.
-            int mayWait = Speech.SpeechArbiter.SweepWindowMs + Speech.SpeechArbiter.CoalesceMs
-                + Speech.SpeechArbiter.AntiClipGapMs(text);
-            _said.Add((now, low, high, mayWait));
-            // A long unbroken sweep keeps every entry unheard; past this many,
-            // the oldest is dropped (its edges are still covered by the newer
-            // ones, which hold the same or later values).
-            if (_said.Count > 64) _said.RemoveAt(0);
-        }
+        private static string EndClause(string label, int value, bool atMinimum)
+            => Lexicon.Get(atMinimum ? "audio.field.spoken_value_minimum" : "audio.field.spoken_value_maximum",
+                ("label", label), ("value", value), ("unit", ""));
     }
 }

@@ -530,12 +530,14 @@ public partial class AudioWorkshopDialog
         Radios.Speech.SpeechSubject.ValueField("TX filter, Audio Workshop"),
         "TX Filter Low", "TX Filter High",
         () => _rig, () => _workshopOpenForTxFilter,
-        refresh: (applied, stillCurrent) => Dispatcher.BeginInvoke(() =>
+        refresh: stillCurrent => Dispatcher.BeginInvoke(() =>
         {
-            // Re-checked HERE, when the window gets to it (round eleven).
-            if (!stillCurrent()) return;
+            // Re-checked HERE, when the window gets to it (round eleven), and
+            // the pair read HERE, so the fields copy only what is still true
+            // (round twelve).
+            if (!stillCurrent() || _rig == null) return;
             _polling = true;
-            try { SetWorkshopTxFilterFields(applied.Low, applied.High); }
+            try { SetWorkshopTxFilterFields(_rig.TXFilterLow, _rig.TXFilterHigh); }
             finally { _polling = false; }
         }));
 
