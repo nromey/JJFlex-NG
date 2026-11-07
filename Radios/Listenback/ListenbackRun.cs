@@ -28,6 +28,8 @@ public sealed class ListenbackRun
     public bool RestoreHeldByTransmit { get; private set; }
     public bool HasRadioKeying { get; private set; }
     public bool Active => Volatile.Read(ref _stopping) == 0;
+    /// <summary>Completes when the run has stopped and restored; faulted when stopping threw (Unified takes, part 4g).</summary>
+    public Task Stopped => _stopped.Task;
     internal void NoteRadioKeying() => HasRadioKeying = true;
 
     /// <summary>A run whose restore says whether it was done, refused for transmit (Retry), or failed.</summary>

@@ -131,7 +131,14 @@ namespace Radios.Tests
             // Thirty-three: the preset announcement (#747 round four).
             // Thirty-four: the preset left unchanged (#747 round five).
             // Thirty-five: the audio preset announcement (#747 round ten, J29).
-            Assert.Equal(38, ladders);
+            // Twenty-two from Unified takes round four: the reference's
+            // finished sentence and its push to talk form, Noel's ruled
+            // chatty and terse pairs (2026-11-05 01:39 to 01:41).
+            // Twenty-four from Unified takes part 7n-2 (task 904): the radio still
+            // transmitting after the app let go, an audio check's form and the
+            // general one, Noel's ruled Chatty and Terse (2026-11-06 17:40, C5).
+            // Forty-two at the merge of Unified takes onto main: main's 38 plus takes' four.
+            Assert.Equal(42, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -1956,9 +1963,6 @@ namespace Radios.Tests
                 "audio.tone.reference_already_armed",
                 "audio.diagnostics.bench_idle",
                 "audio.diagnostics.bench_smartlink",
-                // Track A fix round 2: the sentence for Escape when the radio
-                // is keyed by something other than this app.
-                "audio.check.escape_radio_still_transmitting",
                 // Track A fix round 2: a teardown that could not be confirmed
                 // before the radio went.
                 "audio.check.teardown_unconfirmed",
@@ -2396,6 +2400,193 @@ namespace Radios.Tests
                 // member sentences, which keep their own keys and
                 // classification, so TextOnly (the #777 reasoning). DRAFT PROSE.
                 "alarms.coalesced",
+                // Unified takes part 1: the kind names (ruled) and phrases, and the
+                // refusal to detune a playback take. TextOnly: labels and status
+                // lines the windows show. Draft wording where not ruled.
+                "audio.takes.kind.off_air",
+                "audio.takes.kind.radio_recording",
+                "audio.takes.kind.looped_back",
+                "audio.takes.kind.diagnostic",
+                "audio.takes.kind.unknown",
+                "audio.takes.kind.damaged",
+                "audio.takes.phrase.off_air",
+                "audio.takes.phrase.radio_recording",
+                "audio.takes.phrase.looped_back",
+                "audio.takes.phrase.diagnostic",
+                "audio.takes.phrase.unknown",
+                "audio.takes.no_detune",
+                // Unified takes part 2: the header contract's sentences for mic gain,
+                // boost and bias, the compander, the speech processor and the transmit
+                // equalizer, and the several-settings warning. Draft prose.
+                "audio.takes.setup_mic_gain",
+                "audio.takes.setup_mic_boost",
+                "audio.takes.setup_mic_bias",
+                "audio.takes.setup_compander",
+                "audio.takes.setup_processor",
+                "audio.takes.setup_eq_switched",
+                "audio.takes.setup_eq_bands",
+                "audio.takes.setup_eq_bands_off",
+                "audio.takes.eq_band",
+                "audio.takes.state_on",
+                "audio.takes.state_off",
+                "audio.takes.state_on_level",
+                "audio.takes.state_off_level",
+                "audio.takes.and",
+                "audio.takes.setup_several",
+                // Unified takes part 6: the audio road's comparison sentences. The two
+                // mixed-kind sentences follow Noel's ruled structure (2026-11-02 17:31);
+                // the rest are draft prose.
+                "audio.takes.mixed_tone_only",
+                "audio.takes.mixed_nothing_fair",
+                "audio.takes.level_withheld_boundary",
+                "audio.takes.level_withheld_transport",
+                "audio.takes.level_withheld_slice_volume",
+                "audio.takes.level_withheld_receive_chain",
+                "audio.takes.tone_same",
+                "audio.takes.tone_changed",
+                "audio.takes.level_and_tone",
+                "audio.takes.level_same_tone",
+                "audio.takes.setup_radio",
+                "audio.takes.refused_kind",
+                "audio.takes.refused_source_unknown",
+                "audio.takes.refused_mode",
+                "audio.takes.refused_tx_antenna",
+                "audio.takes.refused_receive_antenna",
+                "audio.takes.refused_radio",
+                "audio.takes.refused_too_little",
+                "audio.takes.refused_unreadable",
+                // Unified takes part 7: the Play takes window and its rows, details,
+                // actions, refusals and Ctrl+F1 lines, and Check your audio's door to it.
+                // Draft prose.
+                "audio.takes.row",
+                "audio.takes.row_member",
+                "audio.takes.row_no_test",
+                "audio.takes.row_note",
+                "audio.takes.row_damaged",
+                "audio.takes.unknown_radio",
+                "audio.takes.when_unknown",
+                "audio.takes.show_all",
+                "audio.takes.details_made",
+                "audio.takes.details_state",
+                "audio.takes.details_reason",
+                "audio.takes.details_provenance",
+                "audio.takes.details_boundary_unverified",
+                "audio.takes.details_no_figures",
+                "audio.takes.details_figures",
+                "audio.takes.details_splatter",
+                "audio.takes.title",
+                "audio.takes.description",
+                "audio.takes.show_label",
+                "audio.takes.list",
+                "audio.takes.empty",
+                "audio.takes.unreadable",
+                "audio.takes.cannot_read",
+                "audio.takes.play",
+                "audio.takes.choose_first",
+                "audio.takes.compare",
+                "audio.takes.details",
+                "audio.takes.save_wav",
+                "audio.takes.save_flac",
+                "audio.takes.delete",
+                "audio.takes.note_label",
+                "audio.takes.save_note",
+                "audio.takes.test_name_label",
+                "audio.takes.rename",
+                "audio.takes.close",
+                "audio.takes.chosen",
+                "audio.takes.compare_none",
+                "audio.takes.compare_same",
+                "audio.takes.note_saved",
+                "audio.takes.renamed",
+                "audio.takes.rename_empty",
+                "audio.takes.rename_too_long",
+                "audio.takes.rename_taken",
+                "audio.takes.rename_unknown",
+                "audio.takes.saved_copy",
+                "audio.takes.save_failed",
+                "audio.takes.delete_title",
+                "audio.takes.delete_message",
+                "audio.takes.delete_question",
+                "audio.takes.delete_yes",
+                "audio.takes.delete_no",
+                "audio.takes.deleted",
+                "audio.takes.delete_refused_owed",
+                "audio.takes.delete_refused_unreadable",
+                "audio.takes.delete_refused_busy",
+                "audio.takes.delete_failed",
+                "audio.takes.failed",
+                "audio.takes.help.show",
+                "audio.takes.help.list",
+                "audio.takes.help.play",
+                "audio.takes.help.choose_first",
+                "audio.takes.help.compare",
+                "audio.takes.help.details",
+                "audio.takes.help.save_copy",
+                "audio.takes.help.delete",
+                "audio.takes.help.note",
+                "audio.takes.help.rename",
+                "audio.takes.help.close",
+                "audio.takes.open_button",
+                "audio.takes.help.open_button",
+                "audio.takes.admission_title",
+                "audio.takes.admission_message_one",
+                "audio.takes.admission_message_many",
+                "audio.takes.admission_what.mic_input",
+                "audio.takes.admission_what.pc_microphone",
+                "audio.takes.admission_what.mic_profile",
+                "audio.takes.admission_what.radio",
+                "audio.takes.admission_question",
+                "audio.takes.admission_new",
+                "audio.takes.admission_add",
+                "audio.takes.admission_backed_out",
+                "audio.takes.refused_contaminated",
+                "audio.takes.details_contaminated",
+                "audio.takes.details_playback_muted",
+                "audio.takes.not_saved",
+                "audio.takes.not_isolated",
+                "audio.takes.no_saved_take",
+                "audio.takes.help.play_last",
+                "audio.takes.needs_computer_audio",
+                "audio.takes.save_playback",
+                "audio.takes.help.save_playback",
+                "audio.takes.tone_same_chosen",
+                "audio.takes.tone_changed_chosen",
+                "audio.takes.level_and_tone_chosen",
+                "audio.takes.level_same_tone_chosen",
+                "audio.takes.earlier_session_chosen",
+                "audio.takes.earlier_session_this",
+                "audio.takes.add_to_test",
+                "audio.takes.help.add_to_test",
+                "audio.takes.add_to_test_done",
+                // Unified takes, round three (5b): a reference reaching its end
+                // ends the transmission (Noel, 2026-11-04), so the finished
+                // sentence no longer says the microphone is back; reworded, it
+                // leaves the legacy manifest. Today's wording moves to a key of
+                // its own for a transmission the app does not hold, and the two
+                // users of the transmit file player refuse each other.
+                "audio.reference.finished",
+                "audio.check.reference_already_armed",
+                "audio.check.send_already_playing",
+                // Unified takes, round four (part 6): the finished sentence and
+                // its push to talk form are Noel's ruled ladders (2026-11-05),
+                // the "microphone is back" key is gone because nothing hands the
+                // microphone back at a reference's end any more, and an arm
+                // during the silence after a pass refuses.
+                "audio.reference.finished_release_ptt",
+                "audio.check.reference_end_silence_held",
+                // Round five (7d, 7e): a send, or the Fixer's injected stage,
+                // refused during the silence after a reference's end.
+                "audio.check.reference_end_silence_busy",
+                "audio.check.fixer_reference_in_the_way",
+                // Part 7n-1 (task 903, ruled C6): Play's refusal names whose key is up,
+                // replacing the legacy audio.check.still_transmitting.
+                "audio.check.play_after_check",
+                "audio.check.play_after_transmit",
+                // Part 7n-2 (task 904, ruled C5): the radio still transmitting after
+                // the app let go, an audio check's form and the general one; they
+                // replace Track A fix round 2's draft, audio.check.escape_radio_still_transmitting.
+                "audio.check.radio_still_transmitting",
+                "audio.ptt.radio_still_transmitting",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
@@ -2414,7 +2605,10 @@ namespace Radios.Tests
             // wrappers and reworded the active-preset status (#747).
             // And nine more (3079 to 3070 on the merge): junk box 2026-11-07 (#625) reworded and classified nine
             // logging.capture.dropped.* keys.
-            Assert.Equal(3070, unclassified);
+            // 3094: Unified takes round three reworded audio.reference.finished.
+            // 3093: part 7n-1 retired audio.check.still_transmitting (task 903).
+            // 3068 at the merge of Unified takes onto main: main's 3070 less takes' two.
+            Assert.Equal(3068, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

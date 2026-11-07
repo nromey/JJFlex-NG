@@ -105,16 +105,21 @@ namespace Radios.Tests
             Assert.Contains("SelectTakeForPlayback()", body, StringComparison.Ordinal);
             // #835: "Monitor" became "every method that makes no take" (Test
             // your microphone, Monitor, Loopback), asked of one rule.
-            Assert.Contains("if (!AudioCheckMethods.MakesTake(method))", selection, StringComparison.Ordinal);
+            // Unified takes round two: the rule also hears whether Looped back
+            // saves its playback; it is still the one rule.
+            Assert.Contains("if (!AudioCheckMethods.MakesTake(method, SavedPlaybackOffered(method)))", selection, StringComparison.Ordinal);
             Assert.Contains("NewestRadioTake()", selection, StringComparison.Ordinal);
-            Assert.Contains("ListenbackTakes.NewestDirectory()", selection, StringComparison.Ordinal);
+            // Unified takes part 1: the off-air method asks for Heard on the
+            // air takes BY KIND, so a newer playback take never becomes its
+            // "last take".
+            Assert.Contains("ListenbackTakes.NewestDirectory(ListenbackTakes.OffAirOnly)", selection, StringComparison.Ordinal);
             Assert.DoesNotContain("RecordingStore.Newest", selection, StringComparison.Ordinal);
             Assert.Contains("TakePlaybackSelector.Choose(method", selection, StringComparison.Ordinal);
             string label = MethodBody(ReadWorkshop("AudioCheck"), "private void SyncPlayTakeLabel()");
             Assert.Contains("Visibility.Collapsed", label, StringComparison.Ordinal);
             // Collapsed is out of the tab order; since #835 the button is also
             // hidden until a take exists to play.
-            Assert.Contains("AudioCheckMethods.MakesTake(SelectedMethod)", label, StringComparison.Ordinal);
+            Assert.Contains("AudioCheckMethods.MakesTake(SelectedMethod, SavedPlaybackOffered(SelectedMethod))", label, StringComparison.Ordinal);
             Assert.Contains("selected.Choice != TakePlaybackChoice.None", label, StringComparison.Ordinal);
             Assert.Contains("selected.Method == AudioCheckListenMethods.OffAir", body, StringComparison.Ordinal);
             Assert.Contains("selected.Method == AudioCheckListenMethods.RecordPlayback", body, StringComparison.Ordinal);
@@ -229,11 +234,35 @@ namespace Radios.Tests
         [InlineData("TestTone", "private void DisarmTone(bool speak, FlexBase? rig = null)")]
         [InlineData("TestTone", "private void SyncToneArmUi()")]
         [InlineData("ReferenceAudio", "private void DisarmReference(bool speak, FlexBase? rig = null)")]
-        [InlineData("ReferenceAudio", "private void SyncReferenceUi()")]
+        // Unified takes round four (part 6): the recording playing itself out
+        // no longer restores in SyncReferenceUi. The transmitter carries
+        // silence until the radio receives (Noel, 2026-11-05), and moving the
+        // input back to Mic while it still transmits would put the hand
+        // microphone on the air, so that restore waits for receive.
+        [InlineData("ReferenceEnd", "private void ReferenceEndSilenceEnded(")]
         public void EveryReleasePathRestoresTheTransmitInput(string file, string signature)
         {
             Assert.Contains("RestoreInjectionPath",
                 MethodBody(ReadWorkshop(file), signature), StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The played-out road reaches that restore: SyncReferenceUi finishes
+        /// the pass, and the finish begins the wait that ends in it.
+        /// </summary>
+        [Fact]
+        public void APlayedOutReferenceRestoresTheTransmitInputOnceTheRadioReceives()
+        {
+            // Round five repair (7h-2): the poll's end is a helper a radio switch shares.
+            Assert.Contains("FinishPassIfItEnded(rig)",
+                MethodBody(ReadWorkshop("ReferenceAudio"), "private void SyncReferenceUi()"), StringComparison.Ordinal);
+            Assert.Contains("FinishReferencePass(rig, holder",
+                MethodBody(ReadWorkshop("ReferenceAudio"), "private bool FinishPassIfItEnded(FlexBase rig)"), StringComparison.Ordinal);
+            string end = ReadWorkshop("ReferenceEnd");
+            Assert.Contains("BeginReferenceEndSilence(rig);",
+                MethodBody(end, "internal string FinishReferencePass("), StringComparison.Ordinal);
+            Assert.Contains("ReferenceEndSilenceEnded(rig, token, how)",
+                MethodBody(end, "private void BeginReferenceEndSilence("), StringComparison.Ordinal);
         }
 
         /// <summary>

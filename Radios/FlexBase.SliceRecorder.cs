@@ -480,6 +480,7 @@ public partial class FlexBase
                     // warning cannot use the removed slice. Do the cleanup
                     // after the event returns; it must not wait for our lock.
                     state.Retired = true;
+                    ObserveSlicePlayback(state, false, "slice-retired");
                     ThreadPool.QueueUserWorkItem(_ =>
                     {
                         lock (_sliceRecorders)
@@ -553,10 +554,47 @@ public partial class FlexBase
                 state.CapWarning = null;
             }
         }
+        // Outside the lock: a subscriber (a playback take's capture) must never
+        // run disk work or wait under _sliceRecorders.
+        if (property == nameof(Slice.PlayOn) && !state.Retired)
+            ObserveSlicePlayback(state, state.Slice.PlayOn, "radio-status");
         if (finished != null)
             try { SlicePlaybackFinished?.Invoke(finished); }
             catch (Exception ex) { Tracing.TraceLine("Slice playback finished output: " + ex.Message, TraceLevel.Warning); }
     }
+
+    // ── Raw playback edges (Unified takes, design section 5) ──
+    //
+    // IsSlicePlaying is NOT a radio report: StartPlayLockedAsync sets Playing
+    // before the command goes out. A playback take's capture starts and ends
+    // on what the radio REPORTED, so it subscribes here, before asking for the
+    // playback, and every edge carries its monotonic arrival time. Every edge
+    // is also traced, because the bench measurement of where the playback's
+    // audio really starts and ends (LAN and SmartLink) reads these lines
+    // against the audio packets' own timestamps.
+
+    private long _slicePlaybackObservationOrdinal;
+
+    /// <summary>
+    /// Every raw PlayOn edge the radio reports for one of our slices, and a
+    /// stop when the slice is retired. Raised outside the recorder lock.
+    /// </summary>
+    public event Action<SlicePlaybackObservation> SlicePlaybackObserved;
+
+    private void ObserveSlicePlayback(SliceRecorderState state, bool playing, string cause)
+    {
+        var observation = new SlicePlaybackObservation(state.Slice.Index, LetterOf(state.Slice), playing,
+            Stopwatch.GetTimestamp(), Interlocked.Increment(ref _slicePlaybackObservationOrdinal), cause,
+            state.Connection?.Id.ToString() ?? "");
+        Tracing.TraceLine(string.Create(CultureInfo.InvariantCulture,
+            $"SlicePlaybackEdge: slice={observation.SliceLetter} index={observation.SliceIndex} playOn={(playing ? 1 : 0)} arrivalTicks={observation.ArrivalTicks} tickFrequency={Stopwatch.Frequency} ordinal={observation.Ordinal} cause={cause}"),
+            TraceLevel.Info);
+        try { SlicePlaybackObserved?.Invoke(observation); }
+        catch (Exception ex) { Tracing.TraceLine("Slice playback observation output: " + ex.Message, TraceLevel.Warning); }
+    }
+
+    /// <summary>The slice index a recorder target resolves to right now, or null.</summary>
+    public int? SliceIndexFor(SliceRecorderTarget target) => ResolveSliceRecorderTarget(target)?.Index;
 
     private async Task<bool> SliceRecorderCommandAsync(SliceRecorderState state, string property, bool enabled)
     {

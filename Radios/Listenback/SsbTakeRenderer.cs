@@ -94,6 +94,9 @@ public static class SsbTakeRenderer
     {
         if (Math.Abs(detuneHz) > 1000) throw new ArgumentOutOfRangeException(nameof(detuneHz));
         var take = TakeReader.Inspect(directory);
+        // An audio take IS its audio; there is no IQ to render, and its
+        // heard.wav must never be overwritten by a render (design section 1).
+        if (take.IsAudio) throw new InvalidDataException("audio-take-has-no-iq");
         if (!take.Playable) throw new InvalidDataException(take.Reason);
         int rate = int.Parse(take.Get("rate-echoed") ?? take.Get("rate-requested"), CultureInfo.InvariantCulture);
         double Read(string key) => double.Parse(take.Get(key), CultureInfo.InvariantCulture);

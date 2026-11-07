@@ -208,10 +208,13 @@ namespace JJFlexWpf.Tests
         public void A_slipped_modifier_on_a_moved_toggle_recovers_to_the_ctrl_form()
         {
             // T moved from bare to Ctrl+T in Sprint 48 Track C, and Shift+T
-            // (the old earcons chord) is unbound. An Alt+T press — the wrong
+            // (the old earcons chord) is unbound. A Shift+T press — the wrong
             // modifier on the right letter — must be told the Ctrl form.
+            // This used Alt+T until Unified takes bound Alt+T to Play takes
+            // (proposed 2026-11-02); Shift+T keeps the test's intent, a
+            // slipped modifier on a letter whose toggle moved to Ctrl.
             bool found = KeyInventory.TryFindLeaderNearMiss(
-                Keys.T | Keys.Alt, out string key, out string what);
+                Keys.T | Keys.Shift, out string key, out string what);
 
             Assert.True(found);
             Assert.Equal("Ctrl+T", key);

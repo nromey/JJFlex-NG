@@ -585,6 +585,44 @@ namespace Radios.Speech
         /// <see cref="ComputerRecorder"/>.
         /// </summary>
         public const string RecordedQsos = "recorded-qsos";
+        /// <summary>
+        /// The Play takes window's own answers (Unified takes): a comparison's
+        /// result, a note saved, a test renamed, a copy saved, a delete done or
+        /// refused. One subject, because each answer replaces the last.
+        /// </summary>
+        public const string PlayTakes = "play-takes";
+        /// <summary>
+        /// Check your audio's notices about saving a playback as a take (Unified
+        /// takes, round two): the new-test question backed out, a take that could
+        /// not be saved or could not keep your other slices out. One subject,
+        /// because each notice is about the take now being made and replaces the
+        /// last. The slice mutes a saved playback makes and puts back say nothing.
+        /// </summary>
+        public const string PlaybackTake = "playback-take";
+        /// <summary>
+        /// Check your audio's Play refusing while something transmits (task
+        /// 903): wait for the check to complete, or for the radio to stop. One
+        /// of them is true at a time, and the next refused press replaces an
+        /// unheard earlier one.
+        /// </summary>
+        public const string CheckPlayRefused = "check-play-refused";
+        /// <summary>
+        /// The radio still reports transmit after the app let go of its key
+        /// (task 904): said once the radio has had its time to report receive,
+        /// and again by a second Stop or Escape in Check your audio. One fact,
+        /// one owner: the newer replaces an unheard older one, and it is
+        /// withdrawn rather than replayed once the radio lets go.
+        /// </summary>
+        public const string RadioStillTransmitting = "radio-still-transmitting";
+        /// <summary>
+        /// The reference recording's own notices in Check your audio (Unified
+        /// takes, round three): that it played to its end, which since Noel's
+        /// 2026-11-04 ruling also ends the transmission, and that it was not
+        /// armed because a recording was already being sent. One subject,
+        /// because each is about the reference now and the newer replaces an
+        /// unheard older one.
+        /// </summary>
+        public const string ReferenceAudio = "reference-audio";
         /// A global-profile write refused because the radio is not declared
         /// the operator's, or its ownership is not yet answered (junkbox
         /// #777). Spoken from the funnel every global save passes through,

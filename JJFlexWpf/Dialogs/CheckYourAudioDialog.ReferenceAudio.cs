@@ -92,7 +92,12 @@ public partial class CheckYourAudioDialog
             + "you key the radio as usual and the recording goes out in place "
             + "of your microphone, through exactly the same processing your "
             + "voice goes through. It starts from the beginning each time you "
-            + "key, and your microphone comes back when it finishes.");
+            // DRAFT PROSE (#864, round four): the transmission ends with the
+            // reference (Noel, 2026-11-04), and silence is sent until the radio
+            // is receiving (2026-11-05); the microphone is not handed back.
+            + "key. When it finishes, the transmission ends, and silence goes "
+            + "out until the radio is receiving, never your microphone. If "
+            + "your own push to talk is still held, you are asked to let go.");
         _sections.Add(CheckContent, _refArmCheck);
 
         _refRecordButton = new Button
@@ -332,6 +337,37 @@ public partial class CheckYourAudioDialog
             return;
         }
 
+        // A send or Play from computer has the same transmit player: arming now
+        // would load the reference over the recording going out (round three).
+        if (rig.TxFilePlaying && !rig.TxReferenceArmed)
+        {
+            SetReferenceArmSilently(false);
+            EarconPlayer.Warning2Beep();
+            // DRAFT PROSE (#864, round three): awaiting Noel.
+            ScreenReaderOutput.Speak(
+                Lexicon.Get("audio.reference.not_armed",
+                    ("reason", Lexicon.Get("audio.check.send_already_playing"))),
+                Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.ReferenceAudio);
+            return;
+        }
+
+        // The last pass ended and the radio has not yet said it is receiving:
+        // the player is holding silence for it, and arming would load over it
+        // (round four).
+        if (rig.TxReferenceEndSilenceHeld)
+        {
+            SetReferenceArmSilently(false);
+            EarconPlayer.Warning2Beep();
+            // DRAFT PROSE (#864, round four): awaiting Noel.
+            ScreenReaderOutput.Speak(
+                Lexicon.Get("audio.reference.not_armed",
+                    ("reason", Lexicon.Get("audio.check.reference_end_silence_held"))),
+                Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.ReferenceAudio);
+            return;
+        }
+
         // The reference rides the PC-audio transmit path, exactly as the test
         // tone does, so it needs the identical preconditions — and goes through
         // the identical helper (#458) rather than growing a second opinion
@@ -396,6 +432,12 @@ public partial class CheckYourAudioDialog
             return;
         }
         _refPassRunning = true;
+        // Held while armed, so a hardware push to talk pressed under the
+        // app's own key still reads as hardware when the pass ends (round
+        // four; FlexLib's own source goes stale under our key). Let go when
+        // the silence after the pass ends, or on any disarm.
+        ReleaseReferencePttWatch();
+        _refPttWatch = rig.WatchPttSource();
 
         // #128 sweep audit (2026-08-21): arm answers back, mirroring the test
         // tone checkbox one tab over — the two arms are siblings on the same
@@ -410,14 +452,21 @@ public partial class CheckYourAudioDialog
 
     /// <summary>
     /// Release the reference and restore the microphone. Runs on operator
-    /// unarm, on the recording finishing, on dialog close, and on radio
-    /// teardown (pass the departing rig for that case, where _rig is null).
+    /// unarm, on a pass stopped before its end, and on radio teardown (pass
+    /// the departing rig for that case, where _rig is null). A closing window
+    /// and a switch to another radio come here too, unless the reference is
+    /// past its end and holding silence: that goes to the radio's own receive
+    /// wait instead (round five, 7b, <see cref="ReleaseReferenceLeavingWindow"/>).
     /// </summary>
     private void DisarmReference(bool speak, FlexBase? rig = null)
     {
         FlexBase? live = rig ?? _rig;
+        // Also ends the silence after a finished pass, if it is still held:
+        // a disarm, a closing window and a departing radio never leave it on.
         live?.TxFileStop();
         _refPassRunning = false;
+        _refSilenceToken++;
+        ReleaseReferencePttWatch();
         SetReferenceArmSilently(false);
         // #458: put the transmit input back if arming moved it, on every exit
         // path — same rule, same helper, as the test tone's release.
@@ -485,6 +534,31 @@ public partial class CheckYourAudioDialog
     }
 
     /// <summary>
+    /// If the pass on <paramref name="rig"/> has played to its end and the
+    /// window has not said so yet: say so, stand down, and end the transmission
+    /// it rode. True when it did. The poll's end, and since round five repair
+    /// (7h-2) a radio switch's too, so a switch inside a pass's last half
+    /// second still lets go of the departing radio's key.
+    /// </summary>
+    private bool FinishPassIfItEnded(FlexBase rig)
+    {
+        if (!_refPassRunning || rig.TxFilePlaying || !rig.TxFilePlayer.ReachedEnd) return false;
+        // Played to the end. Say so and stand down — leaving the box armed
+        // after the recording has run out would promise a second pass that
+        // would happen, silently, at the next key-down. The player is
+        // already sending silence, and the microphone and the transmit
+        // input (#458) come back only once the radio receives (round four,
+        // ReferenceEnd.cs). The transmission it rode ends (Noel,
+        // 2026-11-04): a check stops as Stop stops it, a key the app holds
+        // is let go; a hardware line is asked to let go.
+        var holder = ReferenceHolderNow(rig);
+        FinishReferencePass(rig, holder, hardwareLine: rig.PttSourceIsHardware);
+        if (holder is ReferenceEndHolder.Check or ReferenceEndHolder.App)
+            EndTransmissionAfterReferenceTail(rig, holder);
+        return true;
+    }
+
+    /// <summary>
     /// Reference housekeeping, run from the meter tick on every tab: notice
     /// when a pass has played out so the operator hears that it finished
     /// rather than wondering, and keep the arm box honest against the engine.
@@ -501,27 +575,7 @@ public partial class CheckYourAudioDialog
         bool engaged = rig.TxFilePlaying;
         bool armed = _refArmCheck.IsChecked == true;
 
-        if (_refPassRunning && !engaged && rig.TxFilePlayer.ReachedEnd)
-        {
-            // Played to the end. Say so and stand down — leaving the box armed
-            // after the recording has run out would promise a second pass that
-            // would happen, silently, at the next key-down.
-            _refPassRunning = false;
-            EarconPlayer.ConfirmTone();
-            // "Your microphone is back" has to be TRUE, and since #458 an arm
-            // may have moved the transmit input to get here — so this path
-            // restores it too, exactly as the operator-initiated disarm does.
-            // Without this the sentence would have been the lie the whole
-            // finding is about.
-            rig.TxFileStop();
-            RestoreInjectionPath(rig, out string pathNote);
-            string finished = Lexicon.Get("audio.reference.finished");
-            if (!string.IsNullOrEmpty(pathNote)) finished += " " + pathNote;
-            ScreenReaderOutput.Speak(finished, VerbosityLevel.Terse, interrupt: false);
-            SetReferenceArmSilently(false);
-            UpdateReferenceStatus();
-            return;
-        }
+        if (FinishPassIfItEnded(rig)) return;
 
         if (_refPassRunning && !engaged)
         {

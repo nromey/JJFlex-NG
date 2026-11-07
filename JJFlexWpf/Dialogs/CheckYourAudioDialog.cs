@@ -164,7 +164,11 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             // source that outlived it would replace the microphone at the
             // next key-down with nothing on screen saying so.
             DisarmTone(speak: false);
-            DisarmReference(speak: false);
+            // A reference's held end silence is handed to the radio's own
+            // receive wait rather than ended here (round five, 7b; Noel
+            // 2026-11-06 03:12): under a held hand mic, ending it would put
+            // the desk microphone on the air. Anything else disarms as before.
+            ReleaseReferenceAtClose();
             DetachReferenceAudio();
             // Local take playback: the player is static and would otherwise keep
             // sounding, and keep calling back into a button that is gone.
@@ -213,8 +217,13 @@ public partial class CheckYourAudioDialog : JJFlexDialog
         _instance?.ToggleAudioCheck();
     }
 
-    public static void NotifyRigReady(FlexBase rig) =>
+    public static void NotifyRigReady(FlexBase rig)
+    {
+        // Whether or not this window is open: a test carries on only on the
+        // same radio (Unified takes, D3), so every connection is counted.
+        NoteTakeSeriesConnection(rig);
         DialogSections.PostRigChange(_instance, w => w.SetRig(rig), onlyIfLoaded: true);
+    }
 
     /// <summary>
     /// Radio teardown. The window outlives the radio, so the poll must stop
@@ -256,6 +265,8 @@ public partial class CheckYourAudioDialog : JJFlexDialog
                 {
                     inst._tearingDown = true;
                     inst.CancelCheckStart();
+                    // A saved playback ends before its mutes are put back (Unified takes).
+                    inst._session?.EndTake("connection-ending");
                     inst._session?.ForceEnd("Radio disconnected, audio check ended", connectionEnding: true);
                     inst._session = null;
                     inst.DisarmTone(speak: false);
@@ -542,9 +553,12 @@ public partial class CheckYourAudioDialog : JJFlexDialog
         var ptt = PttControllerSource?.Invoke();
         if (ptt?.IsTransmitting == true) ptt.EscapeUnlock();
         else if (!ourTune && _rig?.Transmit == true)
-            // DRAFT PROSE (#835): awaiting Noel.
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.escape_radio_still_transmitting"),
-                VerbosityLevel.Critical, interrupt: true);
+            // No check is running, so the general form (Noel 2026-11-06 17:40,
+            // C5, task 904).
+            ScreenReaderOutput.Speak(
+                PttSafetyController.RadioStillTransmittingSentence(audioCheck: false, ScreenReaderOutput.CurrentVerbosity),
+                Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.RadioStillTransmitting);
     }
 
     /// <summary>
@@ -648,16 +662,26 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             // the session only after _rig was null.
             if (oldRig != null)
             {
-                _session?.ForceEnd(rig == null ? "Radio disconnected, audio check ended" : "Radio changed, audio check ended",
-                    connectionEnding: true);
+                // A saved playback ends incomplete, and is not waited for (Unified takes).
+                _session?.EndTake(rig == null ? "connection-ended" : "radio-changed");
+                _skipTakeDrain = true;
+                try
+                {
+                    _session?.ForceEnd(rig == null ? "Radio disconnected, audio check ended" : "Radio changed, audio check ended",
+                        connectionEnding: true);
+                }
+                finally { _skipTakeDrain = false; }
                 _session = null;
             }
+            _savedTakes.Clear();
             _iqRecoveryReader = null;
             _lastIqDirectory = null;
             _offAirStatus = "";
             _offAirReading = "";
             _radioCfg = null;
             _radioCfgSerial = "";
+            // A per-radio setting: the next radio's is read when it arrives.
+            _savePlaybackTakes = false;
         }
         if (oldRig != null && !ReferenceEquals(oldRig, rig))
             _ = oldRig.StopSliceRecorderOwnedByAsync(this);
@@ -665,6 +689,24 @@ public partial class CheckYourAudioDialog : JJFlexDialog
         UpdateRadioControlAvailability();
         if (rig != null)
         {
+            // A switch straight to another radio lets the departing radio's
+            // tone and reference go, as the branch below does for a radio that
+            // leaves with none arriving (round four repair, part 6e-3). The
+            // shell's own switch tears the old radio down first
+            // (EndCheckBeforeTeardown, from UnwireRadioEvents), which makes this
+            // a second, harmless release there; but a surface holding an older
+            // radio can call ShowOrFocus with it and reach this switch with no
+            // teardown at all, and a window must never leave a departing radio
+            // armed, whoever called it.
+            if (oldRig != null && !ReferenceEquals(oldRig, rig))
+            {
+                DisarmTone(speak: false, rig: oldRig);
+                // An end its poll had not seen yet is finished for that radio,
+                // the app's key let go after the tail (round five repair,
+                // 7h-2); its held end silence, if any, goes to that radio's own
+                // receive wait, as at a close (round five, 7b).
+                ReleaseReferenceAtSwitch(oldRig);
+            }
             LoadPerRadioPrefs();
             LoadToneSettings();
             // A fresh rig is never armed — arming does not survive a radio

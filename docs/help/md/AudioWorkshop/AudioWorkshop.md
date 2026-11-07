@@ -1,4 +1,4 @@
-﻿---
+---
 keywords:
   - audio workshop
 ---
@@ -132,19 +132,19 @@ Start keys the radio at your check power and turns on the transmit monitor, so y
 
 Fine on a local connection; over SmartLink the monitor arrives late enough to trip up your speech.
 
-#### Record yourself, then hear it played back {#check-audio-record}
+#### Radio recording: the radio records you before you transmit, then plays it back {#check-audio-record}
 
 Start keys the radio at your check power, and the radio records you. When you stop, it plays the recording back. It keeps the last two minutes. Your microphone's verdict appears in the reading box.
 
 Talk first, listen after. The recording carries the full processing chain. This is the one you start on over SmartLink.
 
-#### Hear what you transmitted, received off the air {#check-audio-off-air}
+#### Heard on the air: the radio receives your transmitted signal internally, and then plays back what it received {#check-audio-off-air}
 
 Start makes an off-air take at one watt: the radio listens to its own signal through its second transverter port and plays it back after you stop. Your microphone's verdict and the take's measurements appear in the reading box. It needs a local or VPN connection, two receivers and a transverter port.
 
 Its options, the IQ rate and whether to hear yourself during the take, appear only while it is chosen. Its measurements are loudness, peak, punch, brightness, splatter, and how what you sent compares with what came back.
 
-#### Hear your real signal, looped back through the transverter port {#check-audio-loopback}
+#### Looped back: your signal goes out the transverter port and back into the radio's receiver, and the radio plays back what it heard {#check-audio-loopback}
 
 Start sends one watt through the transverter port to a listening receiver, records what it hears, and plays it back after you stop. Your microphone's verdict appears in the reading box. It needs a local connection, two receivers and a transverter port.
 

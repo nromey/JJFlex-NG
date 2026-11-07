@@ -336,7 +336,6 @@ audio.check.recorder_already_running	ae65b438d414b9a8
 audio.check.recording_plays_back	f422a16f2883ddbf
 audio.check.remote_monitor_advice	7576c56e90335e64
 audio.check.remote_monitor_note	baf2e8bfa34aa9ef
-audio.check.still_transmitting	bbf0b73fedf51980
 audio.check.stop_current_first	28daa9023a010098
 audio.check.transmit_off	1b999dc3762ff1a1
 audio.check.transmitter_released	c1f13d74fcacb19e
@@ -927,7 +926,6 @@ audio.recording.stopped_faulted	12428550446fc6a5
 audio.recording.stopped_nothing_captured	c7ed0b965b5da95d
 audio.recording.the_saved_microphone	0642097aa4db3a32
 audio.reference.disarmed	7ef15b2b0a614e20
-audio.reference.finished	7378ef16786e7bc1
 audio.reference.folder_open_failed	0fc6c12051eda2d3
 audio.reference.load_failed	328cfda2b2ebf034
 audio.reference.not_armed	56c3087ab3006b82

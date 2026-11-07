@@ -164,9 +164,12 @@ namespace Radios.Tests
             Assert.True(closed >= 0);
             string handler = shell.Substring(closed, shell.IndexOf("};", closed, StringComparison.Ordinal) - closed);
             foreach (string step in new[] { "CancelCheckStart();", "_session?.ForceEnd(", "DisarmTone(speak: false);",
-                                            "DisarmReference(speak: false);", "DetachTakePlayback();", "_gain.Dispose();",
+                                            "ReleaseReferenceAtClose();", "DetachTakePlayback();", "_gain.Dispose();",
                                             "if (ReferenceEquals(_instance, this)) _instance = null;" })
                 Assert.Contains(step, handler);
+            // Round five (7b): the close no longer ends a held reference silence itself;
+            // ReleaseReferenceAtClose hands it to the radio, and disarms anything else.
+            Assert.DoesNotContain("DisarmReference(", handler);
         }
 
         // ── The methods (13:51, 13:57, 14:57) ──────────────────────────────
@@ -210,7 +213,8 @@ namespace Radios.Tests
             string start = Body(check, "public async Task<bool> StartAsync(AudioCheckStartGate.Lease start)");
             Assert.Contains("_recorderTarget = SliceRecorderTarget.LoopbackEars;", start);
             string post = Body(check, "private void TickPostUnkey(FlexBase rig)");
-            int loop = post.IndexOf("if (_method == AudioCheckListenMethods.Loopback)", StringComparison.Ordinal);
+            // Unified takes round two: a saved Radio recording playback stays up too.
+            int loop = post.IndexOf("if (_method == AudioCheckListenMethods.Loopback || _take?.Capturing == true)", StringComparison.Ordinal);
             Assert.True(loop >= 0 && post.IndexOf("_phase = Phase.PlayingBack;", loop, StringComparison.Ordinal) > loop);
             Assert.Contains("AudioCheckListenMethods.Loopback, AudioCheckPowerModes.LowPower, 1,",
                 Body(check, "private async Task StartLoopbackCheckAsync()"));

@@ -11,9 +11,17 @@ public sealed record TakeStatistics(bool Available, string Reason = "", double L
     double PeakDbfs = 0, double RmsDbfs = 0, double BrightnessDb = 0,
     double PunchDb = 0, double SplatterDbfs = 0)
 {
+    /// <summary>
+    /// False when <see cref="SplatterDbfs"/> is not a measurement: a playback
+    /// take's receive filter and codec destroy that evidence (Unified takes,
+    /// design section 2). A zero never stands in for "not measured".
+    /// </summary>
+    public bool SplatterAvailable { get; init; } = true;
+
     public static TakeStatistics Measure(string directory, bool reuseRender = false)
     {
         var take = TakeReader.Inspect(directory);
+        if (take.IsAudio) return AudioTakeStatistics.Measure(directory, take);
         if (!take.Playable) return new(false, "take is not playable");
         if (take.Get("mode") is not ("USB" or "LSB")) return new(false, "this mode has no speech render");
         // The Workshop has just rendered the current take for playback and

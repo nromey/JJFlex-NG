@@ -17,9 +17,18 @@ public sealed record AudioShape(double RmsDb, double PeakDb, double CrestDb, dou
 /// whose values are the two takes' sources, so the refusal can say which was
 /// which.
 /// </summary>
+/// <remarks>
+/// Unified takes (design section 2): a comparison involving a playback take
+/// travels <see cref="Road"/> <c>audio</c> and says WHICH measures it made.
+/// <see cref="LevelCompared"/> false means <see cref="LevelDb"/> is not a
+/// measurement, and <see cref="LevelWithheld"/> says why; a zero never stands
+/// in for "omitted". The IQ road leaves these at their defaults.
+/// </remarks>
 public sealed record AudioDifference(bool Comparable, string Reason, double LevelDb = 0,
     double TiltDb = 0, double CrestDb = 0, double StopbandDb = 0,
-    IReadOnlyList<SetupChange> SetupChanges = null);
+    IReadOnlyList<SetupChange> SetupChanges = null,
+    string Road = "iq", string FirstKind = null, string SecondKind = null,
+    bool LevelCompared = true, string LevelWithheld = "");
 
 /// <summary>Sample-derived audio comparison; independent of the meter differential.</summary>
 public static class AudioDifferential

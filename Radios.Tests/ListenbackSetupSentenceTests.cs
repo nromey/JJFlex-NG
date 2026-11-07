@@ -52,7 +52,10 @@ public sealed class ListenbackSetupSentenceTests
         Assert.Equal(
             "Your transmit filter was 100 to 2900 hertz on your last take and is 200 to 2700 hertz on this one. " +
             "Your RF power was 1 watt on your last take and is 5 watts on this one. " +
-            "Your microphone profile was Default on your last take and is Heil PR 781 on this one.",
+            "Your microphone profile was Default on your last take and is Heil PR 781 on this one. " +
+            // Unified takes part 2, on purpose: three setting groups changed,
+            // so the several-settings warning follows (design section 7).
+            "More than one setting changed between these takes, so a difference can't be put down to any one of them.",
             ListenbackResultText.SetupChanges(compared));
     }
 
@@ -68,7 +71,10 @@ public sealed class ListenbackSetupSentenceTests
         Assert.Equal(
             "Your microphone profile was none on your last take and is Heil PR 781 on this one. " +
             "Your microphone input was PC on your last take and is MIC on this one. " +
-            "Your computer microphone was Yeti on your last take and is Shure MV7 on this one.",
+            "Your computer microphone was Yeti on your last take and is Shure MV7 on this one. " +
+            // Unified takes part 2, on purpose: the profile and the microphone
+            // input are two groups, so the several-settings warning follows.
+            "More than one setting changed between these takes, so a difference can't be put down to any one of them.",
             ListenbackResultText.SetupChanges(compared));
     }
 

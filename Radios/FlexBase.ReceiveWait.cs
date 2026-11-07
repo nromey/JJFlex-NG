@@ -14,6 +14,54 @@ namespace Radios
     public partial class FlexBase
     {
         /// <summary>
+        /// The radio's own word, now, on whether it is transmitting: true while
+        /// it reports transmit, false once it reports receive, null when there
+        /// is no connected radio to ask.
+        /// </summary>
+        /// <remarks>
+        /// The same pair <see cref="WhenRadioReallyReceives"/> waits on: our
+        /// cached <see cref="Transmit"/> AND the radio's interlock
+        /// (<see cref="RadioInterlockReportsTransmit"/>), because the cache
+        /// falls the moment we ask for an unkey while a hardware push to talk
+        /// line or VOX may still key the radio. Asked by the push to talk
+        /// controller after it lets go of its key, so "Receiving" is the
+        /// radio's claim and not only the app's (task 904).
+        /// </remarks>
+        public bool? RadioReportsTransmitNow
+        {
+            get
+            {
+                Radio? radio = theRadio;
+                if (radio == null || !radio.Connected) return null;
+                return _Transmit || RadioInterlockReportsTransmit;
+            }
+        }
+
+        /// <summary>
+        /// The radio's command connection as it stands now, for comparing by
+        /// reference only: the same object while one transport attempt lasts,
+        /// a new one for every attempt, and null with no radio. Connected or
+        /// not, so a lost connection is still the same one; only a new attempt
+        /// or another radio changes it.
+        /// </summary>
+        /// <remarks>
+        /// The identity <see cref="WhenRadioReallyReceives"/> pins its wait to,
+        /// offered to the push to talk controller so its wait for the radio's
+        /// receive after a release is pinned the same way (task 904, repair 7o).
+        /// <see cref="CurrentConnectionBinding"/> is asked beside it: the
+        /// binding follows the transport's own report, this reads the
+        /// transport.
+        /// </remarks>
+        public object? CommandConnectionNow
+        {
+            get
+            {
+                try { return theRadio?.CurrentCommandConnection; }
+                catch { return null; }
+            }
+        }
+
+        /// <summary>
         /// <see cref="WhenRadioReallyReceives"/> for the push-to-talk controller:
         /// the falling tri-tone of a carrier this computer did not key for
         /// itself plays on the radio's real receive, not on our cache's

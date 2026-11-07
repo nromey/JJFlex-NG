@@ -198,6 +198,8 @@ public partial class CheckYourAudioDialog
         // Off the air's own options sit in the method's section and appear only
         // while it is chosen.
         BuildOffAirOptions();
+        // "Save each playback as a take" (Unified takes; SaveTakes.cs).
+        BuildSavePlaybackTakesOption();
 
         // The sources. Arming never transmits; the operator keys.
         BuildTestToneSection();
@@ -278,12 +280,12 @@ public partial class CheckYourAudioDialog
             Visibility = Visibility.Collapsed
         };
         AutomationProperties.SetName(_playTakeButton, "Play last take");
-        JJFlexHelp.SetText(_playTakeButton,
-            "Plays the slice recording with Record yourself, or the off-air take "
-            + "with Hear what you transmitted. Press again to stop.");
+        // DRAFT PROSE: awaiting Noel. Says the saved take too (Unified takes).
+        JJFlexHelp.SetText(_playTakeButton, Lexicon.Get("audio.takes.help.play_last"));
         _playTakeButton.Click += (s, e) => PlayLastTake();
         _playTakeButton.GotFocus += (s, e) => SyncPlayTakeLabel();
         _sections.Add(CheckContent, _playTakeButton);
+        AddPlayTakesDoor();
 
         BuildOffAirResults();
 
@@ -427,6 +429,7 @@ public partial class CheckYourAudioDialog
             _powerSection.Visibility = AudioCheckMethods.UsesCheckPower(method) ? Visibility.Visible : Visibility.Collapsed;
         }
         ApplyOffAirLayout(method);
+        ApplySavePlaybackTakesLayout(method);
         SyncPlayTakeLabel();
         UpdateMethodStatus();
         UpdateMethodHelp(method);
@@ -557,6 +560,7 @@ public partial class CheckYourAudioDialog
             finally { _polling = false; }
         }
         UpdateCheckWattsVisibility();
+        LoadSavePlaybackTakesPref();
     }
 
     /// <summary>
@@ -575,12 +579,12 @@ public partial class CheckYourAudioDialog
             : (AudioCheckPowerModes)_checkPowerControl.SelectedIndex;
         int watts = _checkWattsControl?.Value ?? _radioCfg.AudioCheckLowPowerWatts;
         bool compare = _iqAutoCompare?.IsChecked == true;
-        RadioConfig.RecordAudioCheckPref(_radioCfgSerial, edited, method, power, watts, compare);
+        RadioConfig.RecordAudioCheckPref(_radioCfgSerial, edited, method, power, watts, compare, _savePlaybackTakes);
         // Setting a level on a radio with only Low power IS choosing Low power
         // (#859): without this, a saved dummy load would show 1 watt again at
         // the next open and lose the level the operator just set.
         if (edited == AudioCheckPref.LowPowerWatts && RadioPowerFloor.Applies(_rig?.RadioModel))
-            RadioConfig.RecordAudioCheckPref(_radioCfgSerial, AudioCheckPref.PowerMode, method, power, watts, compare);
+            RadioConfig.RecordAudioCheckPref(_radioCfgSerial, AudioCheckPref.PowerMode, method, power, watts, compare, _savePlaybackTakes);
         // Keep the in-memory copy in step, so a rebuild of the cycle resolves
         // against what was just saved.
         if (edited == AudioCheckPref.ListenMethod && _listenMethodControl != null)
@@ -822,6 +826,9 @@ public partial class CheckYourAudioDialog
         // the off-air one with "another IQ take is running", but an ordinary
         // check would key straight into it.
         if (AudioWorkshopDialog.ABenchTakeIsRunning) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
+        // Unified takes: "start a new test or add to this one", before the
+        // countdown and never while keyed (CheckYourAudioDialog.SaveTakes.cs).
+        if (!AdmitTakeBeforeCountdown(SelectedMethod, ptt)) return;
         _lastAudioCheckSource = null;
         var method = SelectedMethod;
         if (method == AudioCheckListenMethods.OffAir) { _ = StartOffAirAsync(ptt); return; }
@@ -912,14 +919,18 @@ public partial class CheckYourAudioDialog
         // A method that left the offer while the check ran comes off now.
         RefreshOfferedMethods();
         if (_iqWasOffAir && _iqRun != null) { await FinishIqAsync(_tearingDown ? "connection-ending" : "operator-stop"); return; }
-        if (_rig != null && _rig.LoopbackArranged)
+        // The radio as the check ended: a saved Looped back playback drains
+        // before the arrangement comes down (Unified takes, part 4d).
+        var endedRig = _rig;
+        await DrainEndingTakeAsync(endedRig);
+        if (endedRig != null && endedRig.LoopbackArranged)
         {
             try
             {
                 // Says only what was really put back (#835, 2026-10-29 item 2):
                 // after a disconnect while still transmitting, every restore was
                 // abandoned and this still said "settings restored".
-                var outcome = await _rig.EndLoopbackArrangementWithOutcomeAsync();
+                var outcome = await endedRig.EndLoopbackArrangementWithOutcomeAsync();
                 ScreenReaderOutput.Speak(outcome.Sentence(),
                     outcome.NotRestored.Count == 0 ? VerbosityLevel.Terse : VerbosityLevel.Critical);
             }
@@ -950,7 +961,7 @@ public partial class CheckYourAudioDialog
     /// </summary>
     private void PlayLastTake()
     {
-        if (!AudioCheckMethods.MakesTake(SelectedMethod)) return;
+        if (!AudioCheckMethods.MakesTake(SelectedMethod, SavedPlaybackOffered(SelectedMethod))) return;
         // Press again to stop, whichever thing is playing.
         if (RecordingPlayer.IsPlaying)
         {
@@ -963,12 +974,7 @@ public partial class CheckYourAudioDialog
             return;
         }
 
-        if (_session != null && _session.EscapeStopsTransmit)
-        {
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.still_transmitting"),
-                VerbosityLevel.Critical, interrupt: true);
-            return;
-        }
+        if (RefusePlayWhileTransmitting()) return;
 
         var selected = SelectTakeForPlayback();
         switch (selected.Choice)
@@ -980,32 +986,83 @@ public partial class CheckYourAudioDialog
             case TakePlaybackChoice.OffAir:
                 _ = PlayIqAsync(selected.IqDirectory, 0);
                 return;
+            case TakePlaybackChoice.Saved:
+                _ = PlaySavedTakeAsync(selected.IqDirectory!);
+                return;
             default:
-                if (selected.Method == AudioCheckListenMethods.RecordPlayback) SayNoTake("slice");
+                if (selected.Method == AudioCheckListenMethods.Loopback) SayNoSavedTake();
+                else if (selected.Method == AudioCheckListenMethods.RecordPlayback) SayNoTake("slice");
                 else if (selected.Method == AudioCheckListenMethods.OffAir) SayNoTake("off-air");
                 return;
         }
+    }
+
+    /// <summary>
+    /// Play refuses while the check's session reads transmitting, and says
+    /// what to wait for. True when it refused.
+    /// </summary>
+    /// <remarks>
+    /// Ruled by Noel 2026-11-06 17:42 (question C6, task 903). The refusal
+    /// stays; the sentence asks whose key is up. Until then it said "Still
+    /// transmitting. Stop the check first." whenever the session read
+    /// transmitting, which was false over the operator's own lock, a hardware
+    /// push to talk line or VOX, and the moment after Stop before the radio
+    /// reports receive: none of those is the check.
+    /// </remarks>
+    internal bool RefusePlayWhileTransmitting()
+    {
+        string? key = PlayRefusalKey();
+        if (key == null) return false;
+        ScreenReaderOutput.Speak(Lexicon.Get(key), Radios.Speech.SpeechIntent.Interrupt,
+            VerbosityLevel.Critical, subject: Radios.Speech.SpeechSubject.CheckPlayRefused);
+        return true;
+    }
+
+    /// <summary>
+    /// The sentence Play refuses with, or null when it may play: the check's
+    /// own key up (<c>AudioCheckSession.OwnKeyUp</c>, the one authority for
+    /// that question since part 7j) waits for the check to complete; any
+    /// other transmission the session sees waits for the radio to stop.
+    /// </summary>
+    /// <remarks>
+    /// The radio is asked as well as the app (repair 7o, task 903): just after
+    /// the app lets go, its cache and the controller read receive while a
+    /// hardware push to talk line or VOX still holds the radio's interlock in
+    /// transmit, and C6 names exactly those among the cases that wait for the
+    /// radio. Only while a session is open, the scope this gate always had.
+    /// </remarks>
+    internal string? PlayRefusalKey()
+    {
+        var session = _session;
+        if (session == null) return null;
+        if (session.EscapeStopsTransmit)
+            return session.OwnKeyUp ? "audio.check.play_after_check" : "audio.check.play_after_transmit";
+        return session.RadioReportsTransmit ? "audio.check.play_after_transmit" : null;
     }
 
     private (AudioCheckListenMethods Method, TakePlaybackChoice Choice,
         SliceRecorderTarget? RadioTarget, string? IqDirectory, DateTime? MadeUtc) SelectTakeForPlayback()
     {
         var method = SelectedMethod;
-        if (!AudioCheckMethods.MakesTake(method))
+        if (!AudioCheckMethods.MakesTake(method, SavedPlaybackOffered(method)))
             return (method, TakePlaybackChoice.None, null, null, null);
         var (radioTarget, radioTime) = method == AudioCheckListenMethods.RecordPlayback
             ? NewestRadioTake() : (null, null);
-        string? iqDirectory = method == AudioCheckListenMethods.OffAir ? ListenbackTakes.NewestDirectory() : null;
+        string? iqDirectory = method == AudioCheckListenMethods.OffAir ? ListenbackTakes.NewestDirectory(ListenbackTakes.OffAirOnly) : null;
         DateTime? iqAt = iqDirectory != null && File.Exists(Path.Combine(iqDirectory, "take.txt"))
             ? File.GetLastWriteTimeUtc(Path.Combine(iqDirectory, "take.txt")) : null;
-        var choice = TakePlaybackSelector.Choose(method, radioTarget != null, iqDirectory != null);
+        // A saved playback take is preferred, the radio's slot the fallback
+        // (Unified takes, part 4d). Its folder rides in the directory slot.
+        string? saved = SavedTakeFor(method);
+        var choice = TakePlaybackSelector.Choose(method, radioTarget != null, iqDirectory != null, saved != null);
         DateTime? madeUtc = choice switch
         {
             TakePlaybackChoice.Slice => radioTime,
             TakePlaybackChoice.OffAir => iqAt,
+            TakePlaybackChoice.Saved => Radios.Listenback.TakeSession.MadeUtc(saved!),
             _ => null
         };
-        return (method, choice, radioTarget, iqDirectory, madeUtc);
+        return (method, choice, radioTarget, choice == TakePlaybackChoice.Saved ? saved : iqDirectory, madeUtc);
     }
 
     private (SliceRecorderTarget? Target, DateTime? MadeUtc) NewestRadioTake()
@@ -1146,7 +1203,7 @@ public partial class CheckYourAudioDialog
         bool playing = RecordingPlayer.IsPlaying ||
             _rig?.IsSlicePlaying(RadioTakeTarget) == true;
         var selected = SelectTakeForPlayback();
-        bool available = AudioCheckMethods.MakesTake(SelectedMethod)
+        bool available = AudioCheckMethods.MakesTake(SelectedMethod, SavedPlaybackOffered(SelectedMethod))
             && (playing || selected.Choice != TakePlaybackChoice.None);
         if (!available && _playTakeButton.IsKeyboardFocusWithin) _startCheckButton?.Focus();
         _playTakeButton.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
@@ -1235,7 +1292,7 @@ public partial class CheckYourAudioDialog
     /// still-transmitting honesty check. This session alone stops a recording
     /// check (Record yourself, Loopback) at the radio's two-minute buffer limit.
     /// </summary>
-    private sealed class AudioCheckSession
+    private sealed partial class AudioCheckSession
     {
         private enum Phase { Idle, Keyed, AwaitPlayback, PlayingBack, Done }
 
@@ -1249,6 +1306,44 @@ public partial class CheckYourAudioDialog
 
         private Phase _phase = Phase.Idle;
         private DateTime _keyedAt;
+
+        /// <summary>
+        /// The transmission this check keyed, taken the moment it keyed: the
+        /// controller, its count of keyings, the connection (round five repair
+        /// 2, 7i-2). The same identity a reference's tail plans with
+        /// (<see cref="ReferenceKeying"/>), asked the same way.
+        /// </summary>
+        private ReferenceKeying? _ownKeying;
+
+        /// <summary>
+        /// True while the controller still transmits the key this check made:
+        /// transmitting, the same controller, no keying since, on the same
+        /// connection. <b>The one answer to "is the check's key up"</b> (part
+        /// 7j): the watcher, the stop, the close, the reference's end and its
+        /// holder all ask this, and nothing in the session asks "is the
+        /// controller transmitting" to mean the check's key.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>"The controller is transmitting" is not the same question</b>
+        /// (round five repair 2, 7i-2). The watcher samples once a second, so
+        /// an operator who unlocks the check's key and locks again between two
+        /// ticks left it reading the new key as the check's own: the elapsed
+        /// minutes went on, and a recording check's two-minute limit then
+        /// ended the operator's transmission ("Check stopped at the
+        /// recorder's two-minute limit").
+        /// </para>
+        /// <para>
+        /// Round five repair 3 (7j) found the same question asked the old way
+        /// by every other consumer: the stop, the close and a radio change,
+        /// which then ended the operator's new key; and the reference's holder,
+        /// which took a key made before its end poll for the check's own. They
+        /// all ask this now. The controller's own speech and its warning ladder
+        /// ask the controller's record of the same keying, because the
+        /// controller cannot see the session (<c>PttSafetyController.AudioCheckNarration</c>).
+        /// </para>
+        /// </remarks>
+        private bool OwnKeyHeld => _ptt.IsTransmitting && _ownKeying?.StillCurrent(_changedRig, _ptt) == true;
         private int _lastMinuteSpoken;
         private bool _noKeyWarned;
         private bool _hardwareWarned;
@@ -1290,6 +1385,15 @@ public partial class CheckYourAudioDialog
         /// </summary>
         public bool EscapeStopsTransmit =>
             Active && (_ptt.IsTransmitting || Rig?.Transmit == true);
+
+        /// <summary>
+        /// True while the session is open and its radio's own word is that it
+        /// is transmitting (<see cref="FlexBase.RadioReportsTransmitNow"/>):
+        /// the interlock, which a hardware push to talk line or VOX holds after
+        /// the app's cache has fallen. Play asks it (repair 7o, task 903).
+        /// </summary>
+        public bool RadioReportsTransmit =>
+            Active && Rig?.RadioReportsTransmitNow == true;
 
         /// <summary>
         /// The radio this check changed, held for the life of the session, so
@@ -1402,6 +1506,9 @@ public partial class CheckYourAudioDialog
                             VerbosityLevel.Critical, interrupt: true);
                     return false;
                 }
+                // Unified takes, part 4b: the take's facts as the radio
+                // records; nothing is on disk until the playback (SaveTakes.cs).
+                AdmitTake(rig);
             }
             if (!_loopback)
             {
@@ -1468,6 +1575,10 @@ public partial class CheckYourAudioDialog
                         using (rig.AppInitiatedSettingChanges()) rig.XmitPower = saved;
                     }, CheckPutBack.Power(saved, checkPower));
                 }
+                // The take's header says the power the check commanded (not a
+                // power the radio acknowledged; round five repair, 7h-4), not the
+                // power before this block (Unified takes, round five, 7f).
+                _take?.NoteCheckPower(_powerMode, power, currentPower, theirDummyLoad);
 
                 if (_method == AudioCheckListenMethods.Monitor &&
                     rig.Monitor != FlexBase.OffOnValues.on)
@@ -1533,6 +1644,7 @@ public partial class CheckYourAudioDialog
                 return false;
             }
 
+            _take?.NoteKeyed();
             _owner._lastAudioCheckSource = rig.TxToneEngaged
                 ? $"{(int)rig.TxToneFrequency} hertz test tone"
                 : rig.TxFilePlaying ? "reference recording" : "microphone";
@@ -1545,6 +1657,9 @@ public partial class CheckYourAudioDialog
                 VerbosityLevel.Critical);
 
             _keyedAt = DateTime.UtcNow;
+            // Which transmission is the check's (7i-2): taken here, with no
+            // await since KeyForCheck, so nothing can have keyed in between.
+            _ownKeying = ReferenceKeying.Now(rig, _ptt);
             _phase = Phase.Keyed;
             Active = true;
             _watcher.Start();
@@ -1552,21 +1667,48 @@ public partial class CheckYourAudioDialog
         }
 
         /// <summary>
-        /// Operator-initiated stop (Escape stage one, Stop button). Unkeys
-        /// through the controller and restores session state. The dialog
-        /// stays open.
+        /// Operator-initiated stop (Escape stage one, Stop button, Ctrl+Enter,
+        /// Escape in another window). Unkeys through the controller and
+        /// restores session state. The dialog stays open.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>The check's own key</b> stops exactly as ever, through
+        /// <see cref="StopOwnKey"/>, which the reference's end calls too.
+        /// </para>
+        /// <para>
+        /// <b>A key that is not the check's</b> (the operator unlocked the
+        /// check's key and locked again, between two of its watcher's ticks or
+        /// after one) is ended too, like Escape: the press is the operator's
+        /// own, their explicit choice, and Escape here with no check running
+        /// lets go of the app's key the same way (<c>UnkeyOutsideACheck</c>).
+        /// Nothing is said beyond the release's own "Receiving". Ruled by Noel
+        /// 2026-11-06 12:26 (night question C4, task 864): until then this path
+        /// added "Still transmitting. Stop the check first.", which was false
+        /// the moment it was said, because the press had just let the key go.
+        /// Only a press comes here; nothing automatic does: the reference's end
+        /// and an off-air capture's end call <see cref="StopOwnKey"/>, and a
+        /// close or a radio change <see cref="ForceEnd"/>, none of which ends a
+        /// key that is not the check's.
+        /// </para>
+        /// </remarks>
         public void StopCheck(bool escape = false)
         {
             _owner.CancelCheckStart();
             if (!Active) return;
             if (_phase == Phase.Keyed)
-                HandleUnkey(external: false);
-            else if (_ptt.IsTransmitting)
             {
+                // The check's key, stopped; or its key had already ended and
+                // the session is told so. Either way the press is spent, unless
+                // a key that is not the check's is up.
+                if (StopOwnKey() || !_ptt.IsTransmitting) return;
+            }
+            if (_ptt.IsTransmitting)
+            {
+                // Not the check's key: the operator's explicit choice, ended as
+                // Escape ends it; the release's "Receiving" is all that is said
+                // (ruled 2026-11-06, C4; see remarks).
                 _ptt.EscapeUnlock();
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.still_transmitting"),
-                    VerbosityLevel.Critical, interrupt: true);
             }
             else if (escape && _owner.EscapeOurTune())
             {
@@ -1585,19 +1727,52 @@ public partial class CheckYourAudioDialog
             else if (Rig?.Transmit == true)
             {
                 // The app has let go and the radio is still keyed: a hardware
-                // line or VOX. Software cannot release it; say so, plainly.
-                // DRAFT PROSE (#835): awaiting Noel.
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.escape_radio_still_transmitting"),
-                    VerbosityLevel.Critical, interrupt: true);
+                // line or VOX. Software cannot release it; say so, plainly, in
+                // the audio check's ruled words (Noel 2026-11-06 17:40, C5,
+                // task 904). The first release already said it once the radio
+                // had had its time to report receive; this press asks again.
+                ScreenReaderOutput.Speak(
+                    PttSafetyController.RadioStillTransmittingSentence(audioCheck: true, ScreenReaderOutput.CurrentVerbosity),
+                    Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical,
+                    subject: Radios.Speech.SpeechSubject.RadioStillTransmitting);
             }
             else ForceEnd(null);
         }
 
         /// <summary>
-        /// Terminal teardown: dialog closing or radio gone. Unkeys if still
-        /// keyed, restores what can be restored, stops playback, ends the
-        /// session. Safe to call repeatedly.
+        /// Stop the check's own key, if it is up: what the Stop button does
+        /// while the check is keyed, and what a reference's end and an off-air
+        /// capture's end do (part 7j). If the check's key has already ended,
+        /// the session is told so (<see cref="KeyEndedElsewhere"/>) and nothing
+        /// is unkeyed, whatever else is on the air. True when it stopped the
+        /// check's key. Only while keyed.
         /// </summary>
+        internal bool StopOwnKey()
+        {
+            if (!Active || _phase != Phase.Keyed) return false;
+            if (!OwnKeyHeld)
+            {
+                KeyEndedElsewhere();
+                return false;
+            }
+            HandleUnkey(external: false);
+            return true;
+        }
+
+        /// <summary>
+        /// Terminal teardown: dialog closing or radio gone. Unkeys the check's
+        /// own key if it is still up, restores what can be restored, stops
+        /// playback, ends the session. Safe to call repeatedly.
+        /// </summary>
+        /// <remarks>
+        /// <b>A key that is not the check's is left alone</b> (part 7j). Until
+        /// then a close, a radio change or a disconnect while the session still
+        /// read keyed ended whatever the controller was transmitting, so an
+        /// operator who had unlocked the check's key and locked again between
+        /// two ticks lost their transmission when the window closed (Codex,
+        /// round five repair 2, B3). A window closing with no check running
+        /// never ends the app's key either.
+        /// </remarks>
         /// <param name="reason">Said when the session ends, or null.</param>
         /// <param name="connectionEnding">
         /// True when the connection is going (a drop, a disconnect, a radio
@@ -1619,7 +1794,7 @@ public partial class CheckYourAudioDialog
             // it: a disconnect is exactly when the restore matters most.
             if (_phase == Phase.Keyed)
             {
-                if (_ptt.IsTransmitting)
+                if (OwnKeyHeld)
                 {
                     if (_method == AudioCheckListenMethods.OffAir) _owner._iqRun?.OwnKeying(false);
                     // Codex's second re-check, N1: on a drop this ran BEFORE the
@@ -1630,7 +1805,9 @@ public partial class CheckYourAudioDialog
                     if (connectionEnding) _ptt.ReleaseForTeardown();
                     else _ptt.EscapeUnlock();
                 }
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.transmit_off"), VerbosityLevel.Critical);
+                // "Transmit off" would be false over the operator's own key.
+                if (!_ptt.IsTransmitting)
+                    ScreenReaderOutput.Speak(Lexicon.Get("audio.check.transmit_off"), VerbosityLevel.Critical);
                 if (Records)
                     _ = RecorderControls.ReportStopFailureAsync(_changedRig.StopSliceRecordAsync(_recorderTarget));
             }
@@ -1641,11 +1818,13 @@ public partial class CheckYourAudioDialog
             // it; the arrangement comes down after End.
             if (Records)
                 _ = RecorderControls.ReportStopFailureAsync(_changedRig.StopSlicePlayAsync(_recorderTarget));
+            _take?.StopRequested("check-ended");
             End(reason);
         }
 
         private void End(string? reason)
         {
+            _owner._endingTake = _take;
             _phase = Phase.Done;
             Active = false;
             _watcher.Stop();
@@ -1658,14 +1837,35 @@ public partial class CheckYourAudioDialog
         }
 
         /// <summary>
+        /// The check's own key has ended without the check ending it, and what
+        /// is on the air now, if anything, is not the check's: the watcher's
+        /// external unkey, and <see cref="StopOwnKey"/> finding the check's key
+        /// gone (a stop, a reference's end, an off-air capture's end; round five
+        /// repair 2, 7i-1, and part 7j). Restores come back at receive, and a
+        /// recording check stops its recorder and plays back, exactly as after
+        /// a timeout; nothing is unkeyed. Only while keyed; safe to call twice.
+        /// </summary>
+        internal void KeyEndedElsewhere()
+        {
+            if (Active && _phase == Phase.Keyed) HandleUnkey(external: true);
+        }
+
+        /// <summary>
         /// The unkey path every stop flows through: restores power and
         /// monitor, and hands recording checks to the auto-play flow. The
         /// verdict is the reading box's, which every method fills (13:50);
         /// key-up itself is quiet since recorder round 5.
         /// </summary>
+        /// <param name="external">
+        /// False only from <see cref="StopOwnKey"/>, which has just found the
+        /// check's own key up: that key is let go here. True when the key has
+        /// ended already, or was ended by the caller (the recorder's limit);
+        /// nothing is unkeyed. The question is asked once, by the caller
+        /// (part 7j), so there is no second answer here to drift from it.
+        /// </param>
         private void HandleUnkey(bool external)
         {
-            if (!external && _ptt.IsTransmitting)
+            if (!external)
             {
                 if (_method == AudioCheckListenMethods.OffAir) _owner._iqRun?.OwnKeying(false);
                 _ptt.EscapeUnlock();
@@ -1732,10 +1932,12 @@ public partial class CheckYourAudioDialog
         {
             // External unkey: timeout, hard kill, ALC auto-release, or a PTT
             // chord outside this dialog. The controller already spoke; we
-            // restore state and finish the flow.
-            if (!_ptt.IsTransmitting)
+            // restore state and finish the flow. Also a key the operator made
+            // since, between two ticks: the check's own key ended first, and
+            // the new one is not the check's to time or to stop (7i-2).
+            if (!OwnKeyHeld)
             {
-                HandleUnkey(external: true);
+                KeyEndedElsewhere();
                 return;
             }
 
@@ -1776,14 +1978,22 @@ public partial class CheckYourAudioDialog
 
             // The radio may still be keyed after our unkey. PTTSource SW also
             // names VOX, so it cannot establish a hardware line by itself.
-            if (!_hardwareWarned && _postUnkeyTicks >= 2 && rig.Transmit && !_ptt.IsTransmitting)
+            // The controller asks the radio after every release and says the
+            // ruled sentence once the radio has had its time (task 904): while
+            // it is still asking, this waits; when it has said it, this does
+            // not say it again, but still watches for the release.
+            if (!_hardwareWarned && _postUnkeyTicks >= 2 && rig.Transmit && !_ptt.IsTransmitting
+                && !_ptt.AwaitingRadioReceive)
             {
                 _hardwareWarned = true;
-                ScreenReaderOutput.Speak(
-                    rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox
-                        ? "Warning: the radio is still transmitting. VOX is on and may be keying it. Check the radio before continuing."
-                        : "Warning: the radio is still transmitting after the app unkeyed. Check P T T and the radio before continuing.",
-                    VerbosityLevel.Critical, interrupt: true);
+                if (!_ptt.LastReleaseFoundRadioTransmitting)
+                {
+                    ScreenReaderOutput.Speak(
+                        rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox
+                            ? "Warning: the radio is still transmitting. VOX is on and may be keying it. Check the radio before continuing."
+                            : "Warning: the radio is still transmitting after the app unkeyed. Check P T T and the radio before continuing.",
+                        VerbosityLevel.Critical, interrupt: true);
+                }
                 return; // keep watching until the radio releases
             }
             if (_hardwareWarned && rig.Transmit)
@@ -1801,7 +2011,7 @@ public partial class CheckYourAudioDialog
                 // timer ticks cannot make teardown safer.
                 if (_method == AudioCheckListenMethods.OffAir)
                 {
-                    if (!_ptt.IsTransmitting && !rig.Transmit) End(null);
+                    if (CheckTransmissionOver(rig)) End(null);
                     return;
                 }
                 // Other no-playback methods retain their post-unkey grace.
@@ -1831,7 +2041,9 @@ public partial class CheckYourAudioDialog
                     // up while it plays, and comes down when it finishes or is
                     // stopped; Record yourself's take stays on the radio and the
                     // check can end now.
-                    if (_method == AudioCheckListenMethods.Loopback)
+                    // A saved playback keeps Radio recording attached too,
+                    // until its capture closes (Unified takes, part 4d).
+                    if (_method == AudioCheckListenMethods.Loopback || _take?.Capturing == true)
                     {
                         _phase = Phase.PlayingBack;
                         _playingBackTicks = 0;
@@ -1840,7 +2052,11 @@ public partial class CheckYourAudioDialog
                     }
                     End(null);
                 }
-                else End(played?.Message ?? Lexicon.Get("audio.check.no_recording_available"));
+                else
+                {
+                    _take?.End("play-refused");
+                    End(played?.Message ?? Lexicon.Get("audio.check.no_recording_available"));
+                }
                 return;
             }
             if (_recordStop != null && !_recordStop.IsCompleted)
@@ -1855,6 +2071,9 @@ public partial class CheckYourAudioDialog
             }
             if (rig.SliceHasRecording(_recorderTarget))
             {
+                // Unified takes: the capture is armed BEFORE the playback is
+                // asked for, so a short one cannot end unheard (SaveTakes.cs).
+                if (!TakeReadyForPlayback(rig)) return;
                 RecorderControls.Observe(rig);
                 RecorderControls.PlayStartClick();
                 _playStart = rig.StartSlicePlayAsync(_recorderTarget);
@@ -1865,6 +2084,19 @@ public partial class CheckYourAudioDialog
                 End(Lexicon.Get("audio.check.no_recording_available"));
             }
         }
+
+        /// <summary>
+        /// The check's own transmission is over on the radio: its key is no
+        /// longer up, and the radio is receiving or carries a key that is not
+        /// the check's (part 7j). Until then the off-air check waited for "the
+        /// controller is not transmitting", so a key the operator made after
+        /// the check's ended held the session open, the window's push to talk
+        /// and lock refused, for as long as they transmitted. A radio still
+        /// keyed with the app holding nothing (a hardware line, VOX) still
+        /// waits, as before.
+        /// </summary>
+        private bool CheckTransmissionOver(FlexBase rig) =>
+            !OwnKeyHeld && (!rig.Transmit || _ptt.IsTransmitting);
 
         /// <summary>
         /// The Loopback method's playback: watch it to its end, then end the
@@ -1886,6 +2118,8 @@ public partial class CheckYourAudioDialog
             _owner._checkPlayTargets.Remove(_recorderTarget);
             if (rig.IsSlicePlaying(_recorderTarget))
                 _ = RecorderControls.ReportStopFailureAsync(rig.StopSlicePlayAsync(_recorderTarget));
+            // A saved playback's capture closes first (Unified takes, part 4d).
+            if (!TakeDrained()) return;
             End(null);
         }
 

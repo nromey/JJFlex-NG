@@ -455,6 +455,22 @@ namespace Radios.ChainChecks
             // without consulting it.
             facts.ConditioningActive = TxDifferentialCapture.ConditioningActive(rig);
 
+            // The reference in Check your audio shares the transmit player
+            // (Unified takes, round five, 7e; Noel 2026-11-06 03:14). Armed, this
+            // stage's voice would take it over and its stop would disarm it;
+            // in the silence after its end, the stage would replace that
+            // silence and its stop would hand the microphone back while a hand
+            // mic may still key the radio. Refused before the gate is asked, so
+            // nothing is charged, armed or keyed, and the stage reads as not run.
+            string inTheWay = ReferenceInTheWay(rig);
+            if (inTheWay.Length > 0)
+            {
+                Tracing.TraceLine("FixerTransmitAudioBoundary: injected transmit not run — "
+                                  + inTheWay, TraceLevel.Warning);
+                facts.Detail = inTheWay;
+                return facts;
+            }
+
             // Facts the gate is not allowed to take on trust, read from the
             // radio itself. This stage keys MOX, so the transmit power — not
             // tune power — is what the low-power ceiling judges (#180).
@@ -746,6 +762,23 @@ namespace Radios.ChainChecks
         private SpokenTransmitFacts RunSpoken(string stageId, SpokenTransmitFacts facts)
         {
             FlexBase rig = FixerTransmitBoundary.Safely(_radio);
+
+            // The reference in Check your audio shares the transmit player with
+            // the computer microphone this stage measures (Unified takes, round
+            // five repair, 7h-5; the injected stage's refusal, 7e). Armed, it
+            // takes the microphone's place at this stage's own key, so the
+            // operator's voice would never be what reached the radio; in the
+            // silence after its end the encoder carries zeros instead. Refused
+            // first, in the same order and words, before the gate is asked:
+            // nothing is charged or keyed, and the stage reads as not run.
+            string inTheWay = ReferenceInTheWay(rig);
+            if (inTheWay.Length > 0)
+            {
+                Tracing.TraceLine("FixerTransmitAudioBoundary: spoken transmit not run — "
+                                  + inTheWay, TraceLevel.Warning);
+                facts.Detail = inTheWay;
+                return facts;
+            }
 
             FixerTransmitGate.Decision d = _gate.Request(
                 _gate.RunId, stageId, stageTransmits: true,
@@ -1253,6 +1286,34 @@ namespace Radios.ChainChecks
         // Defensive accessors — a fact that cannot be read says so and never
         // takes the run down with it.
         // ================================================================
+
+        /// <summary>
+        /// Why the reference in Check your audio stands in the way of this
+        /// stage, in the shape of the arm's own refusals, or empty. The silence
+        /// after a reference's end is asked first: its lease is still held, so
+        /// it reads as armed as well, and "turn the reference off" would be false.
+        /// </summary>
+        // DRAFT PROSE (#864, round five): awaiting Noel.
+        private static string ReferenceInTheWay(FlexBase rig)
+        {
+            if (rig == null) return "";
+            try
+            {
+                if (rig.TxReferenceEndSilenceHeld)
+                    return Lexicon.Get("audio.check.fixer_reference_in_the_way",
+                        ("reason", Lexicon.Get("audio.check.reference_end_silence_busy")));
+                if (rig.TxReferenceArmed)
+                    return Lexicon.Get("audio.check.fixer_reference_in_the_way",
+                        ("reason", Lexicon.Get("audio.check.reference_already_armed")));
+                return "";
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("FixerTransmitAudioBoundary: the reference's state could not be read — "
+                                  + ex.Message, TraceLevel.Warning);
+                return "";
+            }
+        }
 
         private string PrepareVoice(FlexBase rig)
         {

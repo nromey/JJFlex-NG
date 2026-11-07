@@ -235,6 +235,10 @@ public class Host
         private bool _loopback, _dummyEngaged, _powerTouched, _monitorTouched;
         private SliceRecorderTarget _recorderTarget = SliceRecorderTarget.ActiveSlice;
         private DateTime _keyedAt;
+        // Round five repair 2 (7i-2): StartAsync takes the check's own keying
+        // the moment it keys. Nothing here asks it.
+        private ReferenceKeying _ownKeying;
+        private sealed class ReferenceKeying { public static ReferenceKeying Now(FlexBase rig, PttSafetyController ptt) => new(); }
         private enum Phase { Keyed, Done }
         private Phase _phase;
         private Watcher _watcher = new();
@@ -252,6 +256,14 @@ public class Host
         private static string SourceFriendlyName(string s) => s;
         private void HandleUnkey(bool external) { _ptt.EscapeUnlock(); Active=false; _owner.OnSessionEnded(); }
         private void ForceEnd(string s) { HandleUnkey(false); }
+        // Part 7j: StopCheck stops the check's own key first, through
+        // StopOwnKey. The host keeps no identity: its one keying is its own.
+        private bool StopOwnKey() { if (!Active || _phase != Phase.Keyed) return false; HandleUnkey(false); return true; }
+        // Unified takes, round two: StartAsync admits a saved playback's take
+        // (CheckYourAudioDialog.SaveTakes.cs). Saving is off in every scenario here.
+        private TakeStub _take;
+        private void AdmitTake(FlexBase rig) { }
+        private sealed class TakeStub { public void NoteKeyed() { } public void NoteCheckPower(AudioCheckPowerModes m, AudioCheckPowerStep s, int c, bool d) { } }
         /*StartAsync*/
         /*StopCheck*/
     }
@@ -311,11 +323,13 @@ public record ListenbackOptions(int Rate, bool OffAir, bool HearSelfDuringOffAir
 public static class EarconPlayer { public static void FeatureOnTone() { } }
 public static class TuneDoors { public static bool Up(FlexBase rig) => rig.Tuning; public static void RefuseStart() { RecorderControls.Spoken++; } }
 public class PttSafetyController { public bool IsTransmitting; public int Keys; public int? SessionTimeoutOverrideSeconds; public bool AudioCheckNarration; public int? PlannedStopSeconds; public Action Keyed;
-    public void KeyForCheck() { Keys++; IsTransmitting=true; Keyed?.Invoke(); } public void EscapeUnlock() { IsTransmitting=false; } }
+    public void KeyForCheck() { Keys++; IsTransmitting=true; Keyed?.Invoke(); } public void EscapeUnlock() { IsTransmitting=false; }
+    public bool AwaitingRadioReceive; public bool LastReleaseFoundRadioTransmitting;
+    public static string RadioStillTransmittingSentence(bool audioCheck, VerbosityLevel level) => audioCheck ? "audio.check.radio_still_transmitting" : "audio.ptt.radio_still_transmitting"; }
 public enum AudioCheckListenMethods { Monitor, RecordPlayback, OffAir, MicTest, Loopback }
 public enum AudioCheckPowerModes { DummyLoad, LowPower }
 public enum VerbosityLevel { Terse, Critical }
 public static class Lexicon { public static string Get(string s, params (string, object)[] args) => s; }
-public static class ScreenReaderOutput { public static void Speak(string s, VerbosityLevel v, bool interrupt=false) { } public static void Speak(string s, Radios.Speech.SpeechIntent intent, VerbosityLevel v) { } public static void Supersede(string a, string b) { } }
+public static class ScreenReaderOutput { public static VerbosityLevel CurrentVerbosity; public static void Speak(string s, VerbosityLevel v, bool interrupt=false) { } public static void Speak(string s, Radios.Speech.SpeechIntent intent, VerbosityLevel v, string subject = null) { } public static void Supersede(string a, string b) { } }
 public static class RecorderControls { public static int Spoken; public static void Speak(RecorderOutcome r) { Spoken++; } public static async Task ReportStopFailureAsync(Task<RecorderOutcome> t) { await t; } }
 namespace JJTrace { public static class Tracing { public static void TraceLine(string s, System.Diagnostics.TraceLevel l) { } } }

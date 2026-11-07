@@ -152,6 +152,27 @@ namespace Radios
             lock (Gate) return PutBacks(Read(), serial.Trim());
         }
 
+        /// <summary>
+        /// <see cref="PutBacksFor"/> for evidence that must not be guessed at:
+        /// deleting a take (Unified takes, design section 8). The ordinary read
+        /// answers an unreadable file with an empty list, which is right for a
+        /// connect reminder and wrong as proof that nothing is owed, so this
+        /// one throws instead.
+        /// </summary>
+        public IReadOnlyList<CheckPutBack> PutBacksForStrict(string serial)
+        {
+            if (string.IsNullOrWhiteSpace(serial)) throw new ArgumentException("serial");
+            lock (Gate)
+            {
+                // Something other than a file at the path is not "no file".
+                if (Directory.Exists(_path)) throw new IOException("put-back store is not a file");
+                var lines = File.Exists(_path)
+                    ? File.ReadAllLines(_path).Select(l => l.Trim()).Where(l => l.Length > 0).ToList()
+                    : new List<string>();
+                return PutBacks(lines, serial.Trim());
+            }
+        }
+
         /// <summary>This setting was put back (the radio answered) or left alone: forget it.</summary>
         public void RemovePutBack(string? serial, CheckPutBack item)
         {

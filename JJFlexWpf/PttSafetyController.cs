@@ -74,8 +74,46 @@ namespace JJFlexWpf
         /// </summary>
         public static Func<string?>? KeyDownAnnouncementExtra { get; set; }
         private const string KeyDownExtraSubject = "ptt-key-down-extra";
-        /// <summary>The Audio Check supplies its own short keying narration.</summary>
+        /// <summary>
+        /// The Audio Check supplies its own short keying narration, for the
+        /// keying it made itself and no other.
+        /// </summary>
+        /// <remarks>
+        /// <b>It quiets only the check's own keying</b> (Unified takes, part 7j).
+        /// A check sets it for the whole session, from before it keys until it
+        /// ends, and until 7j it quieted every key-down and every "Receiving"
+        /// in that time. So when the operator unlocked the check's key and
+        /// locked again, their own transmission's "Receiving" was swallowed at
+        /// release, for as long as the check went on waiting for its playback
+        /// (Codex, round five repair 2, B5). Now it applies only while the
+        /// transmission is the one the check keyed through
+        /// <see cref="KeyForCheck"/> (<see cref="ThisKeyingIsTheChecks"/>).
+        /// </remarks>
         public bool AudioCheckNarration { get; set; }
+
+        /// <summary>
+        /// Which keying a check made through <see cref="KeyForCheck"/>, by its
+        /// <see cref="Keyings"/> number; 0 before any. The same number the
+        /// check's session records as its own the moment it keys
+        /// (<c>AudioCheckSession._ownKeying</c>), taken here because the
+        /// controller decides its own speech and its own warning ladder and
+        /// cannot ask the session.
+        /// </summary>
+        private int _checkKeying;
+
+        /// <summary>
+        /// True while the transmission on the air is the one a check keyed
+        /// through <see cref="KeyForCheck"/>: no keying since. Every gate that
+        /// means "the check's transmission" asks this, never "a check is open"
+        /// (part 7j).
+        /// </summary>
+        private bool ThisKeyingIsTheChecks => _checkKeying != 0 && _checkKeying == Keyings;
+
+        /// <summary>The check narrates this transmission itself, so the controller's own keying lines stay quiet.</summary>
+        private bool CheckNarratesThisKeying => AudioCheckNarration && ThisKeyingIsTheChecks;
+
+        /// <summary>Set for the one call of <see cref="EndAfterReference"/>: its unkey says nothing.</summary>
+        private bool _endingAfterReference;
 
         /// <summary>
         /// The first thing a key-down that starts a transmission says. When the
@@ -96,7 +134,7 @@ namespace JJFlexWpf
                 // tick still takes it over a moment later.
                 Tracing.TraceLine("PTT: send takeover at key-down failed: " + ex.Message, TraceLevel.Warning);
             }
-            bool speakKeying = _config.SpeechEnabled && !AudioCheckNarration;
+            bool speakKeying = _config.SpeechEnabled && !CheckNarratesThisKeying;
             if (string.IsNullOrEmpty(takeover))
             {
                 if (speakKeying)
@@ -133,6 +171,13 @@ namespace JJFlexWpf
         /// exactly as for any other transmission. Null for every other
         /// transmission, Monitor and off-air checks included.
         /// </summary>
+        /// <remarks>
+        /// <b>It owns only the check's own keying</b> (part 7j). The check sets
+        /// it for the whole session, so until 7j a transmission the operator
+        /// keyed while a recording check waited for its playback lost its
+        /// timeout warnings too, with nothing planned to stop it: the check
+        /// never ends a key that is not its own.
+        /// </remarks>
         public int? PlannedStopSeconds { get; set; }
 
         private double EffectiveTimeoutSeconds =>
@@ -470,8 +515,20 @@ namespace JJFlexWpf
         /// write rather than a queued one, because the command loop is about
         /// to stop and a queued write might never run (Astra B3). Idempotent.
         /// </summary>
+        /// <remarks>
+        /// Also the end of this controller's lifetime on that connection for a
+        /// release still waiting for the radio's receive (task 904, repair 7o):
+        /// the teardown generation advances, so a waiting release, and its
+        /// "still transmitting" warning if one is retained unheard, retire
+        /// silently; and no new wait starts on the connection being torn down,
+        /// so a release made while the teardown ends a check speaks at once,
+        /// as it did before the wait existed. Normal Disconnect comes through
+        /// here and does not dispose this controller, which is why
+        /// <see cref="Dispose"/> alone was not enough (Codex, 7n B1).
+        /// </remarks>
         public void ReleaseRigForTeardown(string why)
         {
+            EndReleaseLifetime(why);
             _cutHold.Abandon(why, Environment.TickCount64, immediate: true);
             lock (_cutHoldWiring) EndCutHoldWiringLocked();
         }
@@ -963,6 +1020,7 @@ namespace JJFlexWpf
             if (State == PttState.Idle)
             {
                 _pttDownTicks = Stopwatch.GetTimestamp();   // #216, see NotePttRelease
+                Keyings++;
                 State = PttState.PttHold;
                 // Every owed falling tone is void BEFORE the key is asked for
                 // (repair round 5, Codex's #863 N2): a payment already under
@@ -974,7 +1032,7 @@ namespace JJFlexWpf
                 KeyDownTone();
                 _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_transmitting"));
                 SpeakKeyDownFirstLine(TransmittingWords());
-                if (!AudioCheckNarration) SpeakKeyDownExtra();
+                if (!CheckNarratesThisKeying) SpeakKeyDownExtra();
                 _healthReflectedWarned = false;
                 _reflectedRun.Reset();
                 _healthTxSeconds = 0;
@@ -999,7 +1057,7 @@ namespace JJFlexWpf
                 // means the screen reader is synthesising pairs (#216). The
                 // release still happens — detection only, no behaviour change.
                 NotePttRelease();
-                GoIdle(ReceivingWords());
+                GoIdle(ReceivingWords(), confirmReceive: true);
             }
             // If locked/warning, key-up does nothing (still locked)
         }
@@ -1034,7 +1092,7 @@ namespace JJFlexWpf
             else
             {
                 // Any TX state — unlock
-                GoIdle(ReceivingWords());
+                GoIdle(ReceivingWords(), confirmReceive: true);
             }
         }
 
@@ -1512,8 +1570,57 @@ namespace JJFlexWpf
         {
             if (State != PttState.Idle)
             {
-                GoIdle(ReceivingWords());
+                GoIdle(ReceivingWords(), confirmReceive: true);
             }
+        }
+
+        /// <summary>
+        /// A reference recording this transmission carried has finished, and
+        /// the app lets go of its own key after the tail (Unified takes, round
+        /// three 5b). Everything <see cref="EscapeUnlock"/> does except the
+        /// spoken "Receiving": ruled by Noel 2026-11-06 03:13 (C1), the finished
+        /// sentence the window has just queued is the only thing said. Until
+        /// then "Receiving", at Interrupt, cut that sentence at its first word
+        /// and the speech arbiter replayed it whole 600 ms later.
+        /// </summary>
+        /// <remarks>
+        /// The same shape as the Audio Check's own unkey, which says nothing
+        /// either (<see cref="CheckNarratesThisKeying"/>), and so the microphone
+        /// level advice goes too: what went out was the recording, not the
+        /// operator's voice. Held only for this one call, so it cannot quiet a
+        /// later transmission's "Receiving"; the window rechecks that this is
+        /// still the transmission the reference rode before calling
+        /// (<see cref="Keyings"/>). The stop chirp still sounds when chirps are on.
+        /// </remarks>
+        public void EndAfterReference()
+        {
+            if (State == PttState.Idle) return;
+            _endingAfterReference = true;
+            try { GoIdle(ReceivingWords(), confirmReceive: true); }
+            finally { _endingAfterReference = false; }
+        }
+
+        /// <summary>
+        /// How many times this controller has keyed from idle: a push-to-talk
+        /// hold or a lock begun with nothing transmitting. A hold becoming a
+        /// lock is the same keying. Lets a caller that planned an unkey ask, at
+        /// the moment it acts, whether it is still the transmission it planned
+        /// for (round five, 7c).
+        /// </summary>
+        public int Keyings { get; private set; }
+
+        /// <summary>
+        /// True when this controller's key keys <paramref name="rig"/>: the radio
+        /// it was built to key is that radio now. A caller that planned an unkey
+        /// for one radio asks this before acting (round five repair, 7h-1), so
+        /// it cannot end a transmission on a different one.
+        /// </summary>
+        public bool KeysRadio(FlexBase? rig)
+        {
+            if (rig == null) return false;
+            FlexBase? mine = null;
+            try { mine = _getRigControl(); } catch { }
+            return ReferenceEquals(mine, rig);
         }
 
         /// <summary>
@@ -1613,6 +1720,13 @@ namespace JJFlexWpf
             }
 
             bool fromIdle = State == PttState.Idle;
+            if (fromIdle)
+            {
+                Keyings++;
+                // The check's own keying (part 7j): the only one its narration
+                // quiets and its planned stop owns.
+                if (_keyingForCheck) _checkKeying = Keyings;
+            }
             State = PttState.Locked;
             // As at PttDown: owed falling tones are void before the key (#863 N2).
             if (fromIdle) ForgetEdgeTones();
@@ -1646,9 +1760,9 @@ namespace JJFlexWpf
 
             _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_locked"));
             if (fromIdle) SpeakKeyDownFirstLine(LockedWords());
-            else if (_config.SpeechEnabled && !AudioCheckNarration)
+            else if (_config.SpeechEnabled && !CheckNarratesThisKeying)
                 ScreenReaderOutput.Speak(LockedWords(), VerbosityLevel.Critical, interrupt: true);
-            if (!AudioCheckNarration) SpeakKeyDownExtra();
+            if (!CheckNarratesThisKeying) SpeakKeyDownExtra();
             Tracing.TraceLine("PTT: Locked", TraceLevel.Info);
 
             StartWarningTimer();
@@ -1664,9 +1778,28 @@ namespace JJFlexWpf
         /// sentence is never binned by its length while the operator is still
         /// wondering why the transmission ended (#503, #571).
         /// </param>
-        private void GoIdle(string speechMessage, bool forceSpeech = false, string subject = null)
+        /// <param name="confirmReceive">
+        /// True for the releases whose sentence is "Receiving", or would be but
+        /// for the check's narration or a reference's end: the push to talk
+        /// release, the lock's unlock, Escape and the check's own stops, and
+        /// the unkey after a reference. Their sentence waits for the radio's
+        /// own word, and if the radio is still transmitting past
+        /// <see cref="RadioReleaseReportMs"/> the ruled "still transmitting"
+        /// sentence is said instead (task 904; see <see cref="BeginReleaseWatch"/>).
+        /// False for the cuts and the kill, which say their own sentence at
+        /// once, as before.
+        /// </param>
+        private void GoIdle(string speechMessage, bool forceSpeech = false, string subject = null, bool confirmReceive = false)
         {
             var wasState = State;
+            // Asked before anything changes: the check's own keying, or the one
+            // quiet unkey after a reference (part 7j).
+            bool quiet = _endingAfterReference || CheckNarratesThisKeying;
+            // Which form a "still transmitting" takes: the check's own keying
+            // is an audio check ending; everything else is the app letting go.
+            bool checksOwn = CheckNarratesThisKeying;
+            EndReleaseWatch(null);
+            _stuckRelease = null;
             State = PttState.Idle;
             SetTx(false);
             // Our transmission is over: a restart of the audio sample it made
@@ -1684,7 +1817,7 @@ namespace JJFlexWpf
             // three paths that are a safety outcome — timeout, hard kill, ALC
             // release — and an operator who has just been unkeyed by the
             // software does not also need to hear about their microphone gain.
-            string levelAdvice = forceSpeech || AudioCheckNarration ? "" : MicLevelAdviceOrEmpty(_getRigControl(), wasState);
+            string levelAdvice = forceSpeech || quiet ? "" : MicLevelAdviceOrEmpty(_getRigControl(), wasState);
 
             StopAllTimers();
             _lockClock.Reset();
@@ -1721,7 +1854,14 @@ namespace JJFlexWpf
             // answer. Captured AFTER SetTx(false) above, which is the ended
             // transmission's episode: the answer stays yes until RF next goes
             // on.
-            if ((forceSpeech || (_config.SpeechEnabled && !AudioCheckNarration)) && !string.IsNullOrEmpty(unkeyMessage))
+            bool speaks = (forceSpeech || (_config.SpeechEnabled && !quiet)) && !string.IsNullOrEmpty(unkeyMessage);
+            if (confirmReceive && BeginReleaseWatch(speaks ? unkeyMessage : null, checksOwn))
+            {
+                Tracing.TraceLine($"PTT: Idle (was {wasState}); the radio still reports transmit, waiting up to "
+                    + RadioReleaseReportMs + " ms for its receive", TraceLevel.Info);
+                return;
+            }
+            if (speaks)
                 ScreenReaderOutput.Speak(
                     unkeyMessage,
                     forceSpeech
@@ -1732,6 +1872,301 @@ namespace JJFlexWpf
                     stillValid: forceSpeech ? _transmitEpisode.NoTransmissionSince() : null);
 
             Tracing.TraceLine($"PTT: Idle (was {wasState})", TraceLevel.Info);
+        }
+
+        // -------------------------------------------------------------------
+        // The radio's own word after a release (task 904)
+        // -------------------------------------------------------------------
+        //
+        // Ruled by Noel 2026-11-06 17:40 (question C5): when the radio still
+        // reports transmit after the app lets go, say so AT ONCE, with no
+        // second Stop or Escape. Until then GoIdle said "Receiving" whenever
+        // the app released, without asking the radio, so a hardware push to
+        // talk line or VOX holding the radio heard "Receiving" while it was
+        // still on the air.
+        //
+        // The radio reports receive some time after the unkey. Measured from
+        // the traces on this machine, PTT idle to the interlock's receive:
+        // 2 to 55 ms on the LAN (14 releases, 2026-10-22), 126 to 172 ms over
+        // SmartLink (7 releases, 2026-11-01); and 100 to 213 ms from the
+        // unkey command on the LAN in a check (the bench, 2026-11-06). So a
+        // release that finds the radio still transmitting waits for its word:
+        // on receive, the release's own sentence is said then; past the bound,
+        // the ruled sentence. Nothing is said during the wait. A release that
+        // finds the radio already receiving, or no radio to ask, speaks at
+        // once, exactly as before.
+
+        /// <summary>
+        /// How long the radio gets to report receive after the app lets go of
+        /// its key before "still transmitting" is said: about five times the
+        /// slowest receive report measured (213 ms), so the radio's own lag on
+        /// a slow SmartLink link is not taken for a stuck transmitter. It is
+        /// felt only when the radio really is still transmitting; an ordinary
+        /// release waits only as long as the radio takes to answer.
+        /// </summary>
+        public const int RadioReleaseReportMs = 1000;
+
+        /// <summary>How often the wait asks the radio.</summary>
+        private const int RadioReleasePollMs = 25;
+
+        /// <summary>
+        /// The radio's own transmit report for a rig: true transmitting, false
+        /// receiving, null when there is no connected radio to ask
+        /// (<see cref="FlexBase.RadioReportsTransmitNow"/>). Replaced by tests,
+        /// which have no radio.
+        /// </summary>
+        internal Func<FlexBase?, bool?> RadioReportsTransmit { get; set; } = rig => rig?.RadioReportsTransmitNow;
+
+        /// <summary>The wait's clock, in milliseconds. Replaced by tests.</summary>
+        internal Func<long> ReleaseClockMs { get; set; } = () => Environment.TickCount64;
+
+        // ── Whose release a wait belongs to (repair 7o, Codex 7n B1 and F1) ──
+        //
+        // A waiting release, and the "still transmitting" warning it may leave
+        // retained unheard, belong to ONE release: on one rig, on one command
+        // connection, inside one lifetime of this controller, ending one
+        // keying. 7n held only the rig and the keying count, so the normal
+        // Disconnect (which unwires and does not dispose this controller) left
+        // the wait running and its poll then spoke about a radio being torn
+        // down; a replaced connection on the same rig was the same wait; and a
+        // different rig read as "no radio to ask" and said "Receiving" about a
+        // radio nobody had asked. Now any mismatch retires the wait silently:
+        // a mismatch is stale work, never evidence about the radio there now.
+
+        /// <summary>
+        /// The rig and command connection a release was made on: the rig by
+        /// instance, the connection both by the rig's binding
+        /// (<see cref="FlexBase.CurrentConnectionBinding"/>, new for every
+        /// transport attempt) and by the transport's own current connection
+        /// (<see cref="FlexBase.CommandConnectionNow"/>), so a change seen by
+        /// either is a different connection.
+        /// </summary>
+        private sealed class ReleaseConnection
+        {
+            public readonly FlexBase? Rig;
+            public readonly RadioConnectionBinding? Binding;
+            public readonly object? Command;
+
+            public ReleaseConnection(FlexBase? rig)
+            {
+                Rig = rig;
+                if (rig == null) return;
+                try { Binding = rig.CurrentConnectionBinding; } catch { }
+                try { Command = rig.CommandConnectionNow; } catch { }
+            }
+
+            public bool SameRig(ReleaseConnection now) => ReferenceEquals(Rig, now.Rig);
+
+            public bool SameConnection(ReleaseConnection now) =>
+                ReferenceEquals(Binding, now.Binding) && ReferenceEquals(Command, now.Command);
+        }
+
+        private ReleaseConnection ConnectionNow() => new ReleaseConnection(SafeRig());
+
+        private sealed class ReleaseWatch
+        {
+            public required ReleaseConnection On;
+            public int Lifetime;
+            public long StartMs;
+            public int Keyings;
+            public string? Then;
+            public bool ChecksOwn;
+            public DispatcherTimer? Timer;
+        }
+
+        private ReleaseWatch? _releaseWatch;
+
+        /// <summary>
+        /// This controller's teardown generation: advanced by
+        /// <see cref="ReleaseRigForTeardown"/>, which <see cref="Dispose"/>
+        /// also calls. A release made in an earlier generation is not current.
+        /// </summary>
+        private int _lifetime;
+
+        private bool _disposed;
+
+        /// <summary>
+        /// The rig and connection the last teardown began on. No new wait
+        /// starts on it: a release made while a teardown ends a check speaks at
+        /// once, as before the wait existed. A later connection may wait again.
+        /// </summary>
+        private ReleaseConnection? _tornDown;
+
+        /// <summary>The release that found the radio still transmitting and said so, until the next release.</summary>
+        private ReleaseWatch? _stuckRelease;
+
+        /// <summary>True while a release waits for the radio to report receive.</summary>
+        public bool AwaitingRadioReceive => _releaseWatch != null;
+
+        /// <summary>
+        /// The last release found the radio still transmitting past
+        /// <see cref="RadioReleaseReportMs"/> and said so, and is still current:
+        /// the same rig, connection and controller lifetime, with no keying
+        /// since. Cleared by the next release. Check your audio's watcher asks
+        /// it, so its own hardware warning is not said a second time over the
+        /// same transmission, and is said over any other.
+        /// </summary>
+        public bool LastReleaseFoundRadioTransmitting =>
+            _stuckRelease is { } stuck && WhyNotCurrent(stuck) == null;
+
+        /// <summary>
+        /// Why a release is no longer the one in force, or null while it is.
+        /// Asked by the wait's every look and by its retained warning before
+        /// any replay.
+        /// </summary>
+        private string? WhyNotCurrent(ReleaseWatch w)
+        {
+            if (_disposed || w.Lifetime != _lifetime) return "the radio was torn down or the controller is gone";
+            if (State != PttState.Idle || Keyings != w.Keyings) return "a new transmission began";
+            var now = ConnectionNow();
+            if (!w.On.SameRig(now)) return "a different radio";
+            if (!w.On.SameConnection(now)) return "a different connection";
+            return null;
+        }
+
+        /// <summary>
+        /// The teardown boundary: a new generation, the connection recorded so
+        /// nothing waits on it again, and any waiting release retired silently.
+        /// </summary>
+        private void EndReleaseLifetime(string why)
+        {
+            _lifetime++;
+            _tornDown = ConnectionNow();
+            EndReleaseWatch("the radio is being torn down (" + why + "); retired without a word");
+        }
+
+        /// <summary>
+        /// The sentence for a radio still transmitting after the app let go, at
+        /// the operator's verbosity. Ruled by Noel 2026-11-06 17:40 (C5), both
+        /// forms: an audio check's own key, and everywhere else.
+        /// </summary>
+        public static string RadioStillTransmittingSentence(bool audioCheck, VerbosityLevel level) =>
+            Lexicon.Get(audioCheck ? "audio.check.radio_still_transmitting" : "audio.ptt.radio_still_transmitting", level);
+
+        /// <summary>
+        /// After a release, if the radio still reports transmit, hold the
+        /// release's sentence and watch the radio. False when there is nothing
+        /// to wait for, and the caller speaks at once.
+        /// </summary>
+        private bool BeginReleaseWatch(string? then, bool checksOwn)
+        {
+            if (_disposed) return false;
+            var on = ConnectionNow();
+            if (RadioReportsTransmit(on.Rig) != true) return false;
+            if (_tornDown is { } gone && gone.SameRig(on) && gone.SameConnection(on))
+            {
+                // The connection is ending: a wait would outlive it. Speak as
+                // before the wait existed (for the check's own key that is
+                // nothing; its narration owns it).
+                Tracing.TraceLine("PTT: the radio still reports transmit, but its connection is being torn down; no wait", TraceLevel.Info);
+                return false;
+            }
+            var watch = new ReleaseWatch
+            {
+                On = on,
+                Lifetime = _lifetime,
+                StartMs = ReleaseClockMs(),
+                Keyings = Keyings,
+                Then = then,
+                ChecksOwn = checksOwn,
+            };
+            try
+            {
+                watch.Timer = new DispatcherTimer(DispatcherPriority.Normal, _dispatcher)
+                {
+                    Interval = TimeSpan.FromMilliseconds(RadioReleasePollMs),
+                };
+                watch.Timer.Tick += (_, _) => PollRadioRelease();
+                watch.Timer.Start();
+            }
+            catch (Exception ex)
+            {
+                // Without a timer the answer would never come: speak as before.
+                Tracing.TraceLine("PTT: the release watch could not start (" + ex.Message + "); speaking at once", TraceLevel.Warning);
+                return false;
+            }
+            _releaseWatch = watch;
+            return true;
+        }
+
+        /// <summary>
+        /// One look at the radio for a waiting release: on receive, or with no
+        /// radio left to ask on the same connection, the release's own
+        /// sentence; past the bound with the radio still transmitting, the
+        /// ruled sentence, once. A release that is no longer current (a new
+        /// transmission, a teardown, another rig or connection) ends silently:
+        /// a new key-down has spoken for itself, and the old release's
+        /// "Receiving" or warning would be about something else. Driven by the
+        /// watch's timer, and by tests directly.
+        /// </summary>
+        internal void PollRadioRelease()
+        {
+            var w = _releaseWatch;
+            if (w == null) return;
+            if (WhyNotCurrent(w) is { } stale)
+            {
+                EndReleaseWatch(stale + "; retired without a word");
+                return;
+            }
+            FlexBase? rig = w.On.Rig;
+            bool? report = RadioReportsTransmit(rig);
+            if (report == true)
+            {
+                if (ReleaseClockMs() - w.StartMs < RadioReleaseReportMs) return;
+                EndReleaseWatch("the radio still reports transmit");
+                _stuckRelease = w;
+                // Said whatever the operator's push to talk speech setting, as
+                // the cuts are: the operator believes the radio has stopped.
+                // Valid only for THIS release (repair 7o, F1): the same rig,
+                // connection and controller lifetime, no keying since, and the
+                // radio still transmitting without having let go in between.
+                // Once a look finds any of that false it stays false: a later
+                // transmission is a different one, so an unheard copy is never
+                // replayed over it.
+                bool over = false;
+                ScreenReaderOutput.Speak(
+                    RadioStillTransmittingSentence(w.ChecksOwn, ScreenReaderOutput.CurrentVerbosity),
+                    Radios.Speech.SpeechIntent.Urgent,
+                    VerbosityLevel.Critical,
+                    subject: Radios.Speech.SpeechSubject.RadioStillTransmitting,
+                    stillValid: () =>
+                    {
+                        if (over) return false;
+                        bool valid = WhyNotCurrent(w) == null && RadioReportsTransmit(rig) == true;
+                        if (!valid) over = true;
+                        return valid;
+                    });
+                return;
+            }
+            EndReleaseWatch(report == false ? "the radio reports receive" : "no radio to ask");
+            if (!string.IsNullOrEmpty(w.Then))
+                ScreenReaderOutput.Speak(w.Then, Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical);
+        }
+
+        private FlexBase? SafeRig()
+        {
+            try { return _getRigControl(); } catch { return null; }
+        }
+
+        private void EndReleaseWatch(string? why)
+        {
+            var w = _releaseWatch;
+            if (w == null) return;
+            _releaseWatch = null;
+            // DispatcherTimer.Stop is thread-affine; stop it where it lives,
+            // or a teardown off that thread would leave it ticking.
+            try
+            {
+                if (w.Timer is { } t)
+                {
+                    if (_dispatcher.CheckAccess()) t.Stop();
+                    else _dispatcher.BeginInvoke(new Action(t.Stop));
+                }
+            }
+            catch { }
+            if (why != null)
+                Tracing.TraceLine("PTT: release watch ended after "
+                    + (ReleaseClockMs() - w.StartMs) + " ms: " + why, TraceLevel.Info);
         }
 
         // -------------------------------------------------------------------
@@ -1751,13 +2186,22 @@ namespace JJFlexWpf
             _beepTimer.Tick += BeepTimerTick;
         }
 
+        /// <summary>
+        /// A planned stop that comes first owns the cut, so the ladder for a
+        /// later timeout would only be noise. Only for the check's own keying
+        /// (part 7j): a transmission keyed since is the operator's, nothing
+        /// plans to stop it, and its warnings run.
+        /// </summary>
+        private bool PlannedStopOwnsTheCut =>
+            PlannedStopSeconds is int planned && ThisKeyingIsTheChecks && EffectiveTimeoutSeconds > planned;
+
         private void WarningTimerTick(object? sender, EventArgs e)
         {
             if (State == PttState.Idle) { StopAllTimers(); return; }
             // A planned stop that comes first owns the cut, so the ladder for
             // a later timeout would only be noise. A shorter operator timeout
             // still wins, and the 15-minute hard kill runs regardless.
-            if (PlannedStopSeconds is int planned && EffectiveTimeoutSeconds > planned) return;
+            if (PlannedStopOwnsTheCut) return;
             // A recording riding the lock is governed by its own ten-minute
             // limit, not the lock's timeout (#835; Noel, 2026-10-30 00:00), and
             // the clock stands still under it. The 15-minute hard kill is its
@@ -2383,6 +2827,8 @@ namespace JJFlexWpf
         /// </summary>
         public void Dispose()
         {
+            _disposed = true;
+            EndReleaseWatch("the controller is going away");
             if (State != PttState.Idle)
             {
                 // Scoped to this client's own carrier (integration fix 2, Codex's

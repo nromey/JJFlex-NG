@@ -99,7 +99,7 @@ namespace Radios.Tests
             int stay = handler.IndexOf("case AudioCheckEscapeAction.UnkeyAndStay:", StringComparison.Ordinal);
             string arm = handler.Substring(stay, handler.IndexOf("return;", stay, StringComparison.Ordinal) - stay);
             Assert.Contains("UnkeyOutsideACheck()", arm);
-            Assert.Contains("audio.check.escape_radio_still_transmitting", Shell());
+            Assert.Contains("RadioStillTransmittingSentence(audioCheck: false", Shell());
         }
 
         [Fact]
@@ -161,13 +161,13 @@ namespace Radios.Tests
             // tune first.
             string outside = Body(Shell(), "private void UnkeyOutsideACheck()");
             int tune = outside.IndexOf("EscapeOurTune()", StringComparison.Ordinal);
-            int blame = outside.IndexOf("escape_radio_still_transmitting", StringComparison.Ordinal);
+            int blame = outside.IndexOf("RadioStillTransmittingSentence(", StringComparison.Ordinal);
             Assert.True(tune >= 0 && blame > tune);
             Assert.Contains("!ourTune && _rig?.Transmit == true", outside);
 
             string stop = Body(Check(), "public void StopCheck(bool escape = false)");
             tune = stop.IndexOf("_owner.EscapeOurTune()", StringComparison.Ordinal);
-            blame = stop.IndexOf("escape_radio_still_transmitting", StringComparison.Ordinal);
+            blame = stop.IndexOf("RadioStillTransmittingSentence(", StringComparison.Ordinal);
             Assert.True(tune >= 0 && blame > tune);
 
             // Only Escape turns it off; the Stop button names it.

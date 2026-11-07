@@ -117,6 +117,7 @@ Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it
 - **Alt+N** — Open the tracking notch filters, where you place a notch yourself instead of letting Auto Notch hunt for one (see "Tracking notch filters" below)
 - **Alt+F** — Open Recorded QSOs, your computer recordings — F for files. Play one, trim it, save it as another format, delete it or prune old ones (see "Recorded QSOs" below)
 - **Alt+C** — Open Check your audio — C for Check. It opens the window and never starts a check by itself (see "Check your audio" below)
+- **Alt+T** — Open Play takes, every take of your audio, newest first — T for takes. Play one, compare two, read the details, add a note, save a copy or delete one. Opening it never keys the radio
 
 ### Still finding their layer
 

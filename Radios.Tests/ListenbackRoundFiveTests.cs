@@ -148,6 +148,13 @@ public sealed class ListenbackRoundFiveTests : IDisposable
         Assert.Contains("listener-command-reply", header);
         Assert.Contains(refuseSliceTune ? "50000001" : "pan-frequency", header);
         if (!refuseSliceTune) Assert.Contains("confirmed-created-resources", header);
+        // Unified takes, part 4g: the take joined the active test, and its
+        // reservation says what became of it.
+        var member = TakeSession.Membership(root, dir);
+        Assert.NotNull(member);
+        await Task.Delay(100); // the stopped run's mark lands off the test's thread
+        var reservation = TakeSession.Test(root, member!.Value.Test.Id)!.Reservations.Single(r => dir.EndsWith(r.Folder, StringComparison.Ordinal));
+        Assert.Equal(refuseSliceTune ? TakeReservation.Failed : TakeReservation.Made, reservation.State);
     }
 
     private static async Task<bool> Stop(ListenbackRun run)

@@ -3204,7 +3204,8 @@ namespace Radios.Tests
             Assert.Contains("ResetPttInput();", After(main.Substring(txChange, txChangeEnd - txChange), "_pttController.EscapeUnlock();"));
             int lost = main.IndexOf("internal void HandleDialogHoldLost()", StringComparison.Ordinal);
             Assert.True(lost >= 0);
-            string lostBody = main.Substring(lost, 800);
+            // The whole method, not a fixed window (round five repair, 7h-3 grew it).
+            string lostBody = main[lost..main.IndexOf("\n    }", lost, StringComparison.Ordinal)];
             Assert.Contains("ResetPttInput();", lostBody);
             Assert.Contains("_pttController.PttUp();", lostBody);
             // Codex F2 by class: a dialog releases only a hold its own door

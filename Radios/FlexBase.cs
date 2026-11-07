@@ -8145,7 +8145,13 @@ namespace Radios
                 if (TxReferenceArmed)
                 {
                     if (txFilePlayer.Engaged) txFilePlayer.RestartOnNextBuffer();
-                    else TxFileStop();
+                    // A reference past its end holds silence until the radio
+                    // REALLY receives (round four): this is our Mox cache,
+                    // which falls the moment we ask for an unkey and while a
+                    // hand mic may still key the radio. Its own wait ends it.
+                    // "Past its end" includes the final fade (round four
+                    // repair, B1): the one definition, asked here too.
+                    else if (!TxReferenceEndSilenceHeld) TxFileStop();
                 }
             }
             if (_Transmit != oldTransmit)
@@ -12323,9 +12329,7 @@ namespace Radios
             List<Slice> ownedAtStart;
             lock (mySlices) ownedAtStart = mySlices.ToList();
             _lbSavedActive = VFOToSlice(RXVFO);
-            var savedMutes = new List<(Slice Slice, bool Muted)>();
-            foreach (var owned in ownedAtStart)
-                savedMutes.Add((owned, await PriorSliceMuteAsync(arrangementRadio, arrangementConnection, owned).ConfigureAwait(false)));
+            var savedMutes = await SnapshotSliceMutesAsync(arrangementRadio, arrangementConnection, ownedAtStart).ConfigureAwait(false);
             _lbSavedMutes = savedMutes;
             LoopbackSliceResources resources;
             lock (mySlices)
@@ -12401,6 +12405,9 @@ namespace Radios
             foreach (var saved in _lbSavedMutes)
             {
                 Tracing.TraceLine($"Loopback prior mute: slice={saved.Slice.Index} muted={saved.Muted}", TraceLevel.Info);
+                // The station layout records the operator's own mute, not this
+                // arrangement's, until the ending puts it back (Unified takes).
+                if (!saved.Muted) HoldTemporaryMute(saved.Slice, false);
                 if (!saved.Muted && !await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection,
                     saved.Slice, $"slice set {saved.Slice.Index} audio_mute=1", "mute setup").ConfigureAwait(false))
                     throw new InvalidOperationException("slice-mute-setup-unconfirmed");
@@ -12544,8 +12551,8 @@ namespace Radios
         }
 
         private async Task<bool> LoopbackSliceCommandAsync(Radio radio, CommandConnection connection,
-            Slice slice, string command, string purpose) =>
-            await LoopbackSliceSendAsync(radio, connection, slice, command, purpose, asRestore: false).ConfigureAwait(false)
+            Slice slice, string command, string purpose, string traceOwner = "Loopback") =>
+            await LoopbackSliceSendAsync(radio, connection, slice, command, purpose, asRestore: false, traceOwner).ConfigureAwait(false)
                 == RestoreOutcome.Done;
 
         /// <summary>
@@ -12556,8 +12563,9 @@ namespace Radios
         /// R2-B1: the mute restore used to go out unasked after the owner's
         /// earlier question). The arrangement's own set-up writes do not ask.
         /// </summary>
+        /// <param name="traceOwner">Whose command this is, for the trace: the Loopback's by default; the playback take names itself.</param>
         private async Task<RestoreOutcome> LoopbackSliceSendAsync(Radio radio, CommandConnection connection,
-            Slice slice, string command, string purpose, bool asRestore)
+            Slice slice, string command, string purpose, bool asRestore, string traceOwner = "Loopback")
         {
             var reply = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             bool refused = false;
@@ -12570,22 +12578,22 @@ namespace Radios
                 if (asRestore && RestoreRefusalAtRun() is string why)
                 {
                     refused = true;
-                    Tracing.TraceLine($"Loopback {purpose}: refused at its run, {why}; waits for receive", TraceLevel.Warning);
+                    Tracing.TraceLine($"{traceOwner} {purpose}: refused at its run, {why}; waits for receive", TraceLevel.Warning);
                     return;
                 }
                 int sent = radio.SendReplyCommand((sequence, code, response) =>
                 {
-                    Tracing.TraceLine($"Loopback {purpose}: reply {sequence} {code:X8} {response}", TraceLevel.Info);
+                    Tracing.TraceLine($"{traceOwner} {purpose}: reply {sequence} {code:X8} {response}", TraceLevel.Info);
                     reply.TrySetResult(code == 0);
                 }, command);
-                Tracing.TraceLine($"Loopback {purpose}: sent {sent} {command}", TraceLevel.Info);
+                Tracing.TraceLine($"{traceOwner} {purpose}: sent {sent} {command}", TraceLevel.Info);
             }).ConfigureAwait(false);
             if (refused) return RestoreOutcome.Retry;
             using var timeout = new CancellationTokenSource(ListenbackConfirmationWait);
             try { return await reply.Task.WaitAsync(timeout.Token).ConfigureAwait(false) ? RestoreOutcome.Done : RestoreOutcome.Failed; }
             catch (OperationCanceledException)
             {
-                Tracing.TraceLine($"Loopback {purpose}: reply timed out for {command}", TraceLevel.Error);
+                Tracing.TraceLine($"{traceOwner} {purpose}: reply timed out for {command}", TraceLevel.Error);
                 return RestoreOutcome.Failed;
             }
         }
@@ -12761,43 +12769,11 @@ namespace Radios
             // Each saved mute is its own entry, registered here so the FIFO
             // order stays the one the steps were written in.
             foreach (var saved in savedMutes ?? new List<(Slice Slice, bool Muted)>())
-            {
-                steps.Add(owner.Register($"loopback: slice {saved.Slice.Index} mute", async () =>
-                {
-                    if (!Same()) return RestoreOutcome.Failed;
-                    try
-                    {
-                        var sent = await LoopbackSliceSendAsync(arrangementRadio, arrangementConnection,
-                            saved.Slice, $"slice set {saved.Slice.Index} audio_mute={(saved.Muted ? 1 : 0)}", "mute restore",
-                            asRestore: true).ConfigureAwait(false);
-                        if (sent == RestoreOutcome.Retry) return RestoreOutcome.Retry;
-                        if (sent != RestoreOutcome.Done)
-                        {
-                            Trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
-                            return RestoreOutcome.Failed;
-                        }
-                        // The reply alone left FlexLib's Slice.Mute stale on the
-                        // bench, and the station layout and the next check both
-                        // read it. A fresh report corrects the cache and proves
-                        // the restore.
-                        // A readback that never came (null) is unconfirmed too
-                        // (fix round 5): the fresh report is the proof.
-                        if (await ReadSliceMuteAsync(arrangementRadio, arrangementConnection,
-                            saved.Slice).ConfigureAwait(false) is not bool read || read != saved.Muted)
-                        {
-                            Trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
-                            return RestoreOutcome.Failed;
-                        }
-                        return RestoreOutcome.Done;
-                    }
-                    catch (Exception ex)
-                    {
-                        Tracing.TraceLine("Loopback mute restore: " + ex.Message, TraceLevel.Error);
-                        Trouble($"Slice {saved.Slice.Index} mute restoration was not confirmed. ");
-                        return RestoreOutcome.Failed;
-                    }
-                }));
-            }
+                // The restore is the one the playback take uses too (Unified
+                // takes, round two): the command, refused while the radio
+                // transmits, then a fresh report from the radio as the proof.
+                steps.Add(RegisterSliceMuteRestore(owner, $"loopback: slice {saved.Slice.Index} mute",
+                    arrangementRadio, arrangementConnection, saved, Same, Trouble));
             steps.AddRange(new[]
             {
                 // Through the restore path since round 1030's repairs: asked
@@ -12837,6 +12813,9 @@ namespace Radios
                 }),
                 owner.Register("loopback: forget the arrangement", () =>
                 {
+                    // A mute not put back is the slice's real state now; the
+                    // layout reads the slice again (Unified takes, round two).
+                    if (savedMutes != null) ReleaseTemporaryMutes(savedMutes.Select(m => m.Slice));
                     if (ReferenceEquals(_lbResources, resources)) _lbResources = null;
                     if (ReferenceEquals(_lbSavedMutes, savedMutes)) _lbSavedMutes = null;
                     if (ReferenceEquals(_lbSavedActive, savedActive)) _lbSavedActive = null;

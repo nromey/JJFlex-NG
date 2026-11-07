@@ -201,6 +201,8 @@ public partial class FlexBase
         IqRadioCapture capture = null;
         Slice created = null;
         LoopbackSliceResources ownedLoopback = null;
+        List<Slice> offAirMuted = null;
+        (string Root, string TestId)? joined = null;
         bool leaseTransferred = false;
         var store = IqRecovery;
         using var setupStatus = radio == null ? null : new RadioStatusTap(radio);
@@ -285,6 +287,9 @@ public partial class FlexBase
             writer = new IqTakeWriter(directory, options.Rate, new Dictionary<string, string> {
                 ["serial"] = radio.Serial, ["kind"] = options.OffAir ? "off-air" : "receive-only-diagnostic" });
             writer.Header.Event("prior-radio-state", snapshot);
+            // Unified takes, part 4g: an off-air or diagnostic take joins the
+            // active test too, its number held in its own sidecar.
+            joined = JoinActiveTest(directory);
             if (MicSource == "PC" && pipeline != null) sent = new SentAudioWriter(pipeline, directory);
             else writer.Header.Write("sent-absent-reason", MicSource == "PC" ? "PC pipeline unavailable" : "radio microphone jack; DAX MIC is outside this build");
             edge = (_, keyed) =>
@@ -310,6 +315,9 @@ public partial class FlexBase
                     throw new InvalidOperationException(_lbSetupFailure ?? "arrangement-refused");
                 }
                 ownedLoopback = _lbResources;
+                // The slices the arrangement muted: the station layout keeps their
+                // own mutes until this take's restore has run (Unified takes).
+                offAirMuted = _lbSavedMutes?.Select(m => m.Slice).ToList();
                 if (ownedLoopback?.Slice != null)
                 {
                     var ears = ownedLoopback.Slice;
@@ -511,8 +519,12 @@ public partial class FlexBase
                 provenance["pan-centre-source"] = "unmoved-transmit-pan";
             }
             foreach (var fact in provenance) writer.Header.Write(fact.Key, fact.Value);
-            writer.Header.Event("tx-equalizer", GetTxEq() == null ? null :
-                new { GetTxEq().Enabled, GetTxEq().Hz32, GetTxEq().Hz63, GetTxEq().Hz125, GetTxEq().Hz250, GetTxEq().Hz500, GetTxEq().Hz1000, GetTxEq().Hz2000, GetTxEq().Hz4000, GetTxEq().Hz8000 });
+            // Read ONCE (Unified takes, design section 7): ten separate reads
+            // could each see a different snapshot if a report arrived between
+            // them. The record's shape is TakeSetup's, shared with playback takes.
+            var txEq = GetTxEq();
+            writer.Header.Event("tx-equalizer", txEq == null ? null : TakeSetup.TxEqualizerRecord(txEq.Enabled,
+                txEq.Hz32, txEq.Hz63, txEq.Hz125, txEq.Hz250, txEq.Hz500, txEq.Hz1000, txEq.Hz2000, txEq.Hz4000, txEq.Hz8000));
             snapshot.ResourceCreationPending = true; // stream ID is not known until status arrives
             store.Save(snapshot);
             writer.Header.Event("prior-radio-state", snapshot);
@@ -604,18 +616,28 @@ public partial class FlexBase
             {
                 try
                 {
-                    return SameConnection()
+                    var outcome = SameConnection()
                         ? await RestoreListenbackSnapshotOutcomeAsync(snapshot, true, identities).ConfigureAwait(false)
                         : RestoreOutcome.Failed;
+                    // Put back, or never to be on this connection: the layout reads
+                    // the slices again. A restore held by transmit keeps them held.
+                    if (outcome != RestoreOutcome.Retry) ReleaseTemporaryMutes(offAirMuted);
+                    return outcome;
                 }
                 finally { if (Interlocked.Exchange(ref leaseReleased, 1) == 0) _iqLease.Release(); }
             }, () => { TransmitChange -= edge; if (ownedLoopback != null && ReferenceEquals(_lbResources, ownedLoopback)) { _loopbackArranged = false; _lbResources = null; _lbDriveBand = null; } });
             if (heardKeying) run.NoteRadioKeying();
+            if (joined is { } member)
+            {
+                string takeFolder = directory;
+                _ = run.Stopped.ContinueWith(t => MarkJoinedTake(member, takeFolder, t.IsCompletedSuccessfully), TaskScheduler.Default);
+            }
             leaseTransferred = true;
             return run;
         }
         catch
         {
+            if (joined is { } member && writer != null) MarkJoinedTake(member, writer.DirectoryPath, made: false);
             if (edge != null) TransmitChange -= edge;
             try
             {
@@ -644,6 +666,7 @@ public partial class FlexBase
                     if (!restored) DescribeCheckRestoreOwedElsewhere(CheckRestorations.RecordFailure("IQ take start rollback"),
                         () => IqRecovery.Find(snapshot.Serial) != null);
                 }
+                ReleaseTemporaryMutes(offAirMuted);
             }
             throw;
         }

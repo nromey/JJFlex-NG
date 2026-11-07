@@ -13,7 +13,7 @@ namespace Radios.Listenback;
 /// night was made under conditions nobody remembers, so numbers against it
 /// mislead more than they inform; a second take is cheap.
 /// </summary>
-public static class TakeSession
+public static partial class TakeSession
 {
     private const string NameStamp = "yyyyMMdd-HHmmss-fff";
 
@@ -42,13 +42,33 @@ public static class TakeSession
     /// is from an earlier session, e.g. "Your last take is from an earlier
     /// session, yesterday at 8:15 PM." Both times are local.
     /// </summary>
-    public static string EarlierSessionNote(DateTime takeLocal, DateTime nowLocal)
+    public static string EarlierSessionNote(DateTime takeLocal, DateTime nowLocal) =>
+        Lexicon.Get("audio.iq.earlier_session", ("when", When(takeLocal, nowLocal)));
+
+    /// <summary>
+    /// Play takes' notes in front of a comparison of two takes the operator
+    /// chose, one for each that is from an earlier session, naming which take
+    /// each describes: "The take you chose is from an earlier session,
+    /// yesterday at 8:15 PM." and "This take is from ...". DRAFT, round two.
+    /// </summary>
+    public static string EarlierSessionNotes(string chosenDirectory, string thisDirectory, DateTime sessionStartUtc, DateTime nowLocal)
+    {
+        var notes = new System.Collections.Generic.List<string>();
+        if (!IsThisSession(chosenDirectory, sessionStartUtc))
+            notes.Add(Lexicon.Get("audio.takes.earlier_session_chosen",
+                ("when", When(MadeUtc(chosenDirectory).ToLocalTime(), nowLocal))));
+        if (!IsThisSession(thisDirectory, sessionStartUtc))
+            notes.Add(Lexicon.Get("audio.takes.earlier_session_this",
+                ("when", When(MadeUtc(thisDirectory).ToLocalTime(), nowLocal))));
+        return string.Join(" ", notes);
+    }
+
+    private static string When(DateTime takeLocal, DateTime nowLocal)
     {
         string time = takeLocal.ToString("h:mm tt", CultureInfo.CurrentCulture);
-        string when = takeLocal.Date == nowLocal.Date ? Lexicon.Get("audio.iq.when_today", ("time", time))
+        return takeLocal.Date == nowLocal.Date ? Lexicon.Get("audio.iq.when_today", ("time", time))
             : takeLocal.Date == nowLocal.Date.AddDays(-1) ? Lexicon.Get("audio.iq.when_yesterday", ("time", time))
             : Lexicon.Get("audio.iq.when_date", ("date", takeLocal.ToString("dddd, MMMM d", CultureInfo.CurrentCulture)),
                 ("time", time));
-        return Lexicon.Get("audio.iq.earlier_session", ("when", when));
     }
 }

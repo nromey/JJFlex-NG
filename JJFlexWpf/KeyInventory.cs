@@ -716,6 +716,12 @@ public static class KeyInventory
             new[] { "check", "audio", "hear", "myself", "yourself", "sound", "microphone", "mic", "test",
                     "monitor", "record", "playback", "loopback", "off-air", "verdict", "level", "leader" },
             "Global", "Audio"),
+        // Unified takes (#864): T for takes, PROPOSED 2026-11-02, not yet
+        // ruled. Opens Play takes; never starts a check or keys.
+        new("Leader", "JJ key", "Ctrl+J, Alt+T", "Play takes: every take of your audio, to play, compare, read, note, rename its test, save a copy or delete. Opening it never keys the radio",
+            new[] { "takes", "take", "play takes", "compare takes", "recordings of my audio", "compare", "test",
+                    "heard on the air", "radio recording", "looped back", "diagnostic", "leader" },
+            "Global", "Audio"),
 
         // ── Not yet in the grammar — each with the reason, and a home ──
         // A toggle whose Ctrl initial is spoken for cannot derive a chord,

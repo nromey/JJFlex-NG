@@ -13,8 +13,9 @@ using Radios.Listenback;
 namespace JJFlexWpf.Dialogs;
 
 /// <summary>
-/// Check your audio, the "Hear what you transmitted, received off the air"
-/// method: an IQ take of what actually went out, demodulated and played back
+/// Check your audio, the "Heard on the air" method (its label until Unified
+/// takes was "Hear what you transmitted, received off the air"): an IQ take
+/// of what actually went out, demodulated and played back
 /// after you stop, with its measurements in the reading box.
 /// </summary>
 /// <remarks>
@@ -77,7 +78,11 @@ public partial class CheckYourAudioDialog
         {
             if (_iqRun != null && _iqRun.Capture.Ended.IsCompleted && !_iqBusy)
             {
-                if (_iqWasOffAir && _session?.Active == true) _session.StopCheck();
+                // The capture's end stops the check's own key and nothing else
+                // (part 7j): StopCheck is a press, and a press may let go of a
+                // key that is not the check's; a capture ending is not a press.
+                // A session past its key finishes on its own watcher.
+                if (_iqWasOffAir && _session?.Active == true) _session.StopOwnKey();
                 else await FinishIqAsync("stream-ended");
             }
         };
@@ -130,7 +135,7 @@ public partial class CheckYourAudioDialog
         if (_iqRate != null) _iqRate.Visibility = options;
         if (_iqHearSelfDuringTake != null) _iqHearSelfDuringTake.Visibility = options;
 
-        string? newest = offAir && local ? ListenbackTakes.NewestDirectory() : null;
+        string? newest = offAir && local ? ListenbackTakes.NewestDirectory(ListenbackTakes.OffAirOnly) : null;
         SetShown(_iqAutoCompare, newest != null);
         SetShown(_playSentButton, newest != null && File.Exists(Path.Combine(newest, "sent.wav")));
         // Something to restore is shown whatever the method, because it blocks
@@ -266,7 +271,7 @@ public partial class CheckYourAudioDialog
                 }
                 if (_iqClosing || _tearingDown) { AnnounceClosedRecovery(run.Restored); return; }
             }
-            string? previousDirectory = ListenbackTakes.PreviousDirectory(run.DirectoryPath);
+            string? previousDirectory = ListenbackTakes.PreviousDirectory(run.DirectoryPath, ListenbackTakes.OffAirOnly);
             _lastIqDirectory = run.DirectoryPath;
             _iqAnalysisDetails = "";
             _iqComparisonSentence = "";
@@ -436,7 +441,7 @@ public partial class CheckYourAudioDialog
         _iqBusy = true;
         try
         {
-            string? directory = ListenbackTakes.NewestDirectory();
+            string? directory = ListenbackTakes.NewestDirectory(ListenbackTakes.OffAirOnly);
             if (directory == null || !File.Exists(Path.Combine(directory, "sent.wav")))
             { IqStatus(Lexicon.Get("audio.iq.sent_unavailable")); return; }
             string path = Path.Combine(directory, "sent.wav");
