@@ -1877,7 +1877,7 @@
                               AutomationProperties.Name="Input Timing">
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                                       Text="Double-tap tolerance controls how quickly you need to press a key twice for JJ Flexible Radio Access to recognize the second press as part of a double-tap. This affects filter-edge bracket double-tap (entering single-edge adjust mode) and Escape-Escape to collapse all field groups. Pick a setting that matches your typing cadence — faster if you tap quickly, slower if you verify speech between presses."/>
+                                       Text="Double-tap tolerance controls how quickly you need to press a key twice for JJ Flexible Radio Access to recognize the second press as part of a double-tap. This affects Escape-Escape to collapse all field groups. Pick a setting that matches your typing cadence — faster if you tap quickly, slower if you verify speech between presses."/>
 
                             <GroupBox Header="Double-tap tolerance" Margin="0,0,0,8"
                                       AutomationProperties.Name="Double-tap tolerance">

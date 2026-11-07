@@ -441,8 +441,8 @@ public static class KeyInventory
             new[] { "filter", "squeeze", "pull", "narrow", "widen" }, "Radio", "Filter"),
         new("Filter", "Anywhere in radio modes", "Alt+[ Alt+]", "Cycle filter presets",
             new[] { "filter", "preset", "cycle" }, "Radio", "Filter"),
-        new("Filter", "Anywhere in radio modes", "Alt+Shift+[ Alt+Shift+]", "Grab the low or high filter edge, so brackets move just that edge; the same key again or Escape lets go, the other one switches edges",
-            new[] { "filter", "edge", "grab", "low", "high", "single" }, "Radio", "Filter"),
+        new("Filter", "Anywhere in radio modes", "Alt+Shift+[ Alt+Shift+]", "Grab the low or high filter edge, so brackets move just that edge; the same key again or Escape lets go, the other one switches edges; while an edge is held, Shift and Ctrl with a bracket leave the filter alone",
+            new[] { "filter", "edge", "grab", "low", "high", "single", "mode", "hold", "held" }, "Radio", "Filter"),
     };
 
     // ────────────────────────────────────────────────────────────────
