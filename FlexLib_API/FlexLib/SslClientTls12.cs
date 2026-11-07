@@ -63,14 +63,26 @@ public class SslClientTls12
         return _connectTcs.Task;
     }
 
-    public void Write(string message)
+    public void Write(string message) => TryWrite(message, out _);
+
+    /// <summary>
+    /// JJFlex patch (MIGRATION.md item 22): <see cref="Write"/>, saying whether the
+    /// line was handed to the writer. False with no writer, or when the writer threw.
+    /// </summary>
+    public bool TryWrite(string message, out string? failure)
     {
+        var writer = _writer;
+        if (writer == null) { failure = "the TLS client had no writer"; return false; }
         try
         {
-            _writer?.WriteLine(message);
+            writer.WriteLine(message);
+            failure = null;
+            return true;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            failure = "the write failed: " + ex.Message;
+            return false;
         }
     }
 

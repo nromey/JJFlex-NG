@@ -128,6 +128,7 @@ namespace JJFlexWpf.Dialogs
             AudioOutputConfig? audioConfig = null)
         {
             _pttConfig = pttConfig;
+            _pttAtOpen = pttConfig?.Snapshot() ?? "";
             _licenseConfig = licenseConfig ?? new LicenseConfig();
             _audioConfig = audioConfig ?? new AudioOutputConfig();
             CoarseTuneStep = currentCoarseStep;
@@ -232,6 +233,24 @@ namespace JJFlexWpf.Dialogs
             // The tune reminder (#860). DRAFT PROSE: awaiting Noel
             JJFlexHelp.SetText(PttTuneReminderBox, Lexicon.Get("settings.ptt.tune_reminder_help"));
 
+            // Name the slice in the transmit and receive announcements (#496).
+            // DRAFT PROSE (#496): awaiting Noel
+            PttAnnounceSliceCheckbox.Content = Lexicon.Get("settings.ptt.announce_slice_label");
+            System.Windows.Automation.AutomationProperties.SetName(PttAnnounceSliceCheckbox,
+                Lexicon.Get("settings.ptt.announce_slice_label"));
+            JJFlexHelp.SetText(PttAnnounceSliceCheckbox, Lexicon.Get("settings.ptt.announce_slice_help"));
+
+            // What a door does when it keys a slice other than the active one
+            // (#863, ruled 2026-11-03), beside the switch above. DRAFT PROSE.
+            TransmitElsewhereLabel.Text = Lexicon.Get("settings.ptt.transmit_elsewhere_label") + ":";
+            System.Windows.Automation.AutomationProperties.SetName(TransmitElsewhereCombo,
+                Lexicon.Get("settings.ptt.transmit_elsewhere_label"));
+            JJFlexHelp.SetText(TransmitElsewhereCombo, Lexicon.Get("settings.ptt.transmit_elsewhere_help"));
+            TransmitElsewhereCombo.Items.Clear();
+            TransmitElsewhereCombo.Items.Add(Lexicon.Get("settings.ptt.transmit_elsewhere_speak_and_tone")); // 0
+            TransmitElsewhereCombo.Items.Add(Lexicon.Get("settings.ptt.transmit_elsewhere_tone_only"));      // 1
+            TransmitElsewhereCombo.Items.Add(Lexicon.Get("settings.ptt.transmit_elsewhere_off"));            // 2
+
             // The VOX send box (#835). DRAFT PROSE (#835): awaiting Noel
             VoxSendBoxCheckbox.Content = Lexicon.Get("audio.send.box_label");
             System.Windows.Automation.AutomationProperties.SetName(VoxSendBoxCheckbox,
@@ -257,6 +276,8 @@ namespace JJFlexWpf.Dialogs
             PttAlcBox.Text = _pttConfig.AlcAutoReleaseSeconds.ToString();
             PttTuneReminderBox.Text = _pttConfig.TuneReminderSeconds.ToString();
             PttSpeechCheckbox.IsChecked = _pttConfig.SpeechEnabled;
+            PttAnnounceSliceCheckbox.IsChecked = _pttConfig.AnnounceTransmitSlice;
+            TransmitElsewhereCombo.SelectedIndex = Math.Clamp(_audioConfig.TransmitElsewhereNotice, 0, 2);
             ChirpEnabledCheckbox.IsChecked = _pttConfig.ChirpEnabled;
             VoxSendBoxCheckbox.IsChecked = _audioConfig.VoxSendKeysRadio;
 
@@ -402,6 +423,18 @@ namespace JJFlexWpf.Dialogs
             MicVerdictOutputCombo.Items.Add(Lexicon.Get("settings.speech.mic_verdict_plain"));   // 1 Plain
             MicVerdictOutputCombo.Items.Add(Lexicon.Get("settings.speech.mic_verdict_numbers")); // 2 Numbers
             MicVerdictOutputCombo.SelectedIndex = Math.Clamp(_audioConfig.MicVerdictOutput, 0, 2);
+
+            // Which slice F reads (#642). Items in FrequencyKeySlices order.
+            // DRAFT PROSE (#642), awaiting Noel.
+            FrequencyKeyLabel.Text = Lexicon.Get("settings.speech.frequency_key_label") + ":";
+            System.Windows.Automation.AutomationProperties.SetName(FrequencyKeyCombo,
+                Lexicon.Get("settings.speech.frequency_key_label"));
+            JJFlexHelp.SetText(FrequencyKeyCombo, Lexicon.Get("settings.speech.frequency_key_help"));
+            FrequencyKeyCombo.Items.Clear();
+            FrequencyKeyCombo.Items.Add(Lexicon.Get("settings.speech.frequency_key_both"));      // 0 Both
+            FrequencyKeyCombo.Items.Add(Lexicon.Get("settings.speech.frequency_key_transmit"));  // 1 Transmit
+            FrequencyKeyCombo.Items.Add(Lexicon.Get("settings.speech.frequency_key_selected"));  // 2 Selected
+            FrequencyKeyCombo.SelectedIndex = Math.Clamp(_audioConfig.FrequencyKeyReads, 0, 2);
 
             EarconsEnabledCheck.IsChecked = _audioConfig.EarconsEnabled;
             EarconConnectionCheck.IsChecked = _audioConfig.EarconConnectionEnabled;
@@ -1387,6 +1420,9 @@ namespace JJFlexWpf.Dialogs
             _pttConfig.OhCrapSecondsBeforeTimeout = ohCrap;
             _pttConfig.AlcAutoReleaseSeconds = alc;
             _pttConfig.SpeechEnabled = PttSpeechCheckbox.IsChecked == true;
+            _pttConfig.AnnounceTransmitSlice = PttAnnounceSliceCheckbox.IsChecked == true;
+            // #863: with the audio settings, made live by _audioConfig.Apply().
+            _audioConfig.TransmitElsewhereNotice = Math.Clamp(TransmitElsewhereCombo.SelectedIndex, 0, 2);
             _pttConfig.ChirpEnabled = ChirpEnabledCheckbox.IsChecked == true;
             // The VOX send box (#835): saved with the audio settings, made live by
             // _audioConfig.Apply() below.
@@ -1483,6 +1519,7 @@ namespace JJFlexWpf.Dialogs
             // Verbosity & Notifications tab
             _audioConfig.SpeechVerbosity = SpeechVerbosityCombo.SelectedIndex;
             _audioConfig.MicVerdictOutput = Math.Clamp(MicVerdictOutputCombo.SelectedIndex, 0, 2);
+            _audioConfig.FrequencyKeyReads = Math.Clamp(FrequencyKeyCombo.SelectedIndex, 0, 2);
             _audioConfig.EarconsEnabled = EarconsEnabledCheck.IsChecked == true;
             _audioConfig.EarconConnectionEnabled = EarconConnectionCheck.IsChecked == true;
             _audioConfig.EarconTransmitEnabled = EarconTransmitCheck.IsChecked == true;
@@ -1601,9 +1638,22 @@ namespace JJFlexWpf.Dialogs
         /// tab status lines hold the re-readable detail and one summary is
         /// spoken.
         /// </summary>
+        /// <summary>
+        /// False when the PTT tab edits a throwaway because no radio is
+        /// connected (set by NativeMenuBar): its changes are not kept, and the
+        /// commit says so (the 8600 bench's Fail 3, #496).
+        /// </summary>
+        public bool PttSettingsHaveAHome { get; set; } = true;
+
+        /// <summary>The PTT tab's settings as the dialog opened on them.</summary>
+        private string _pttAtOpen;
+
         private bool ApplyAllSettings(bool closing)
         {
             if (!SaveSettings()) return false;
+            // DRAFT PROSE (#496, rulings round two): never "Settings saved." over
+            // a PTT change that had nowhere to go.
+            bool pttDropped = PttConfig.ChangesNotKept(_pttAtOpen, _pttConfig, PttSettingsHaveAHome);
 
             var queued = new List<string>();   // saved, but waits for a connection (or was declined)
             var applied = new List<string>();  // done now
@@ -1639,13 +1689,13 @@ namespace JJFlexWpf.Dialogs
                 }
                 else
                 {
-                    ScreenReaderOutput.Speak(Lexicon.Get("settings.commit.saved_spoken"),
+                    ScreenReaderOutput.Speak(Lexicon.Get(pttDropped ? "settings.commit.ptt_not_saved" : "settings.commit.saved_spoken"),
                         VerbosityLevel.Terse, interrupt: true);
                 }
             }
             else
             {
-                string summary = Lexicon.Get("settings.commit.applied_spoken");
+                string summary = pttDropped ? Lexicon.Get("settings.commit.ptt_not_saved") : Lexicon.Get("settings.commit.applied_spoken");
                 if (queued.Count > 0)
                     summary += Lexicon.Get("settings.commit.waiting_lead") + string.Join(" ", queued);
                 else if (applied.Count > 0)

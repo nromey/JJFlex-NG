@@ -97,9 +97,11 @@ namespace Radios.Tests
 
             Assert.Contains("private void remoteAudioProc(long run)", text, StringComparison.Ordinal);
 
-            int write = text.IndexOf("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop", StringComparison.Ordinal);
+            // Round five: the write is GiveShackSpeakerBack's, called from the run's end.
+            int write = text.IndexOf("GiveShackSpeakerBack(run, speakerRadio);", StringComparison.Ordinal);
             Assert.True(write > 0);
-            string before = text.Substring(Math.Max(0, write - 600), Math.Min(600, write));
+            // 1100 since rulings round two: the found-value check sits between them.
+            string before = text.Substring(Math.Max(0, write - 1100), Math.Min(1100, write));
             // Both arguments pinned: this run's own number, against the
             // number of the run that is current NOW. Passing the same value
             // twice would compile, read as guarded, and check nothing.
@@ -114,5 +116,40 @@ namespace Radios.Tests
             Assert.NotNull(dir);
             return System.IO.File.ReadAllText(System.IO.Path.Combine(dir.FullName, relative.Replace('/', System.IO.Path.DirectorySeparatorChar)));
         }
+    
+
+        // ── Rulings round two (the 8600 bench, Fail 6): put back only what this run changed ──
+
+        [Theory]
+        [InlineData(true, true, false)]    // this run muted it, still muted: unmute
+        [InlineData(true, false, true)]    // already unmuted: leave
+        [InlineData(false, true, true)]    // found muted (the bench: 1 before the app connected): leave muted
+        [InlineData(false, false, true)]   // nothing of ours: leave
+        public void Only_a_speaker_this_run_muted_is_unmuted(bool thisRunMutedIt, bool mutedNow, bool leave)
+        {
+            Assert.Equal(leave, FlexBase.ShackSpeakerPutBackSkip(thisRunMutedIt, mutedNow) != null);
+        }
+
+        [Fact]
+        public void The_start_records_what_it_found_before_it_mutes_and_the_stop_asks_it()
+        {
+            string text = FlexBasePartials.JoinedText();
+            int found = text.IndexOf("bool speakerFoundMuted = SpeakerFoundForRun(theRadio);", StringComparison.Ordinal);
+            int mute = text.IndexOf("theRadio.IsMuteLocalAudioWhenRemoteOn = true;", StringComparison.Ordinal);
+            int owed = text.IndexOf("if (!speakerFoundMuted) _speakerMutedBy = new SpeakerMute(run, theRadio, speakerConnection, speakerChoices);", StringComparison.Ordinal);
+            Assert.True(found > 0 && mute > found && owed > mute, "the start no longer records the speaker it found before muting it");
+            // The start's mute is its own method now (round four, S1), called by
+            // the run, so a test can drive it; the run must still call it.
+            Assert.Contains("MuteShackSpeakerForRun(run);", text, StringComparison.Ordinal);
+            int unmute = text.IndexOf("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop", StringComparison.Ordinal);
+            string before = text.Substring(Math.Max(0, unmute - 600), Math.Min(600, unmute));
+            Assert.Contains("ShackSpeakerKeepFor(run, speakerRadio)", before, StringComparison.Ordinal);
+            int keepFor = text.IndexOf("internal string ShackSpeakerKeepFor(", StringComparison.Ordinal);
+            Assert.True(keepFor > 0, "the stop's put-back decision is gone");
+            string helper = text.Substring(keepFor, Math.Min(700, text.Length - keepFor));
+            Assert.Contains("mutedBy.Run == run && ReferenceEquals(mutedBy.Radio, speakerRadio)", helper, StringComparison.Ordinal);
+            Assert.Contains("ShackSpeakerPutBackSkip(", helper, StringComparison.Ordinal);
+        }
+
     }
 }

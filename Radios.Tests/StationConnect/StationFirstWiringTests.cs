@@ -454,7 +454,8 @@ namespace Radios.Tests.StationConnect
             var text = Read(FlexBase);
             Assert.Contains("if (!GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on local connect\"))", text, StringComparison.Ordinal);
             Assert.Contains("if (!GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=true on remote audio start\"))", text, StringComparison.Ordinal);
-            Assert.Contains("if (!GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on remote audio stop\"))", text, StringComparison.Ordinal);
+            // Round five: the stop's write is its own method now, pinned at the bytes; the guard returns.
+            Assert.Contains("if (GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on remote audio stop\")) return;", text, StringComparison.Ordinal);
 
             // Track G3's owner gate on these writes is gone, here and in the
             // policies file; it had made "company on the radio" decide the
@@ -467,8 +468,12 @@ namespace Radios.Tests.StationConnect
             // three guards above. A fourth would be the app re-asserting the
             // setting behind the operator's back, which is what would take
             // the opt-out away.
+            // Four since the junk box rulings round three: the fourth is the
+            // disconnect's put-back of the value a local connect FOUND (only
+            // while the radio still reads the app's own 0), not a re-assertion.
+            Assert.Contains("if (GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=true on disconnect, as found at connect\")) return;", Read("Radios/FlexBase.RemoteAudio.cs"), StringComparison.Ordinal);
             var writes = System.Text.RegularExpressions.Regex.Matches(text, @"IsMuteLocalAudioWhenRemoteOn = ");
-            Assert.Equal(3, writes.Count);
+            Assert.Equal(4, writes.Count);
             foreach (System.Text.RegularExpressions.Match m in writes)
             {
                 // The 200 characters before each write: the hold, and no
@@ -521,9 +526,16 @@ namespace Radios.Tests.StationConnect
         [Fact]
         public void TheDeferredCreateRunsFromTheCleanDisconnectAndFromDispose()
         {
+            // Changed on purpose (junk box repair round 2, #596 N3): Dispose
+            // reaches the deferred create through Disconnect, after its unkey,
+            // instead of calling it before anything had unkeyed.
             var text = Read(FlexBase);
-            int count = text.Split(new[] { "saveNewGlobalProfile();" }, StringSplitOptions.None).Length - 1;
-            Assert.True(count >= 2, "expected calls from Disconnect and from Dispose, found " + count);
+            int disconnect = IndexOf(text, "public void Disconnect()");
+            int unkey = text.IndexOf("UnkeyBeforePuttingBack(" + '"' + "Disconnect" + '"', disconnect, StringComparison.Ordinal);
+            int create = text.IndexOf("saveNewGlobalProfile();", disconnect, StringComparison.Ordinal);
+            Assert.True(unkey > disconnect && create > unkey, "the clean disconnect does not run the deferred create after its unkey");
+            int dispose = IndexOf(text, "protected virtual void Dispose(bool disposing)");
+            Assert.True(text.IndexOf("Disconnect();", dispose, StringComparison.Ordinal) > dispose, "Dispose no longer reaches Disconnect");
         }
 
         [Fact]

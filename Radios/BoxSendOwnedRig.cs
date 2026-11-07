@@ -43,11 +43,16 @@ namespace Radios
         private readonly IVoiceMessageRig _source;
         private IDisposable? _arm;
 
+        // The radio and command connection at the press (repair round 4, #596
+        // B5): a box send outlived by its connection keys and unkeys nothing.
+        private readonly object _admission;
+
         private BoxSendOwnedRig(FlexBase rig, IVoiceMessageRig source, IDisposable arm)
         {
             _rig = rig;
             _source = source;
             _arm = arm;
+            _admission = rig.TransmitAdmissionNow();
         }
 
         /// <summary>
@@ -97,24 +102,34 @@ namespace Radios
         public bool KeyRefused { get; private set; }
 
         /// <summary>
-        /// Keying goes through the kill switch; unkeying is never conditional
-        /// (<see cref="TransmitKillSwitch.DropCarrier"/>).
+        /// Keying goes through the kill switch, pinned to this send's
+        /// admission. The send's OWN release is pinned too (repair round 5,
+        /// Codex's #596 B7): it is checked when it runs, and leaves alone a
+        /// carrier on a connection the send was not admitted on, or one that
+        /// another client holds. That is this send's release, NOT the kill:
+        /// <see cref="TransmitKillSwitch.Request"/> still drops the carrier
+        /// through <see cref="TransmitKillSwitch.DropCarrier"/>, unconditionally.
         /// </summary>
         public bool Transmit
         {
             get => _source.Transmit;
             set
             {
+                if (!_rig.TransmitAdmissionStands(_admission, value ? "a box send's key" : "a box send's unkey"))
+                {
+                    if (value) KeyRefused = true;
+                    return;
+                }
                 if (value)
                 {
-                    if (!TransmitKillSwitch.RaiseCarrier(_rig, TransmitKillSwitch.Carrier.Mox))
+                    if (!TransmitKillSwitch.RaiseCarrier(_rig, TransmitKillSwitch.Carrier.Mox, _admission))
                     {
                         KeyRefused = true;
                         Tracing.TraceLine("BoxSendOwnedRig: the kill switch refused the key; nothing was transmitted",
                             TraceLevel.Warning);
                     }
                 }
-                else TransmitKillSwitch.DropCarrier(_rig, TransmitKillSwitch.Carrier.Mox);
+                else _rig.TransmitAdmitted(_admission, false, "a box send's unkey");
             }
         }
 

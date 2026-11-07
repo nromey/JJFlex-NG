@@ -16,7 +16,7 @@
                     Click="EditButton_Click"
                     AutomationProperties.Name="Edit Group"
                     AutomationProperties.AcceleratorKey="Alt+E" />
-            <Button Content="_Delete Group" MinWidth="90" Height="28" Margin="0,0,8,0"
+            <Button x:Name="DeleteButton" Content="_Delete Group" MinWidth="90" Height="28" Margin="0,0,8,0"
                     Click="DeleteButton_Click"
                     AutomationProperties.Name="Delete Group"
                     AutomationProperties.AcceleratorKey="Alt+D" />

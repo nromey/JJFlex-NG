@@ -105,6 +105,12 @@ internal static class VoiceMessageSender
         public PieceHolds? Holds;
         /// <summary>Push to talk's first sentence already said this send stopped, so Settle says nothing.</summary>
         public bool TakeoverSpoken;
+        /// <summary>This piece keyed on a slice other than the selected one and played the
+        /// three-note tone, so its unkey plays the falling one (#863).</summary>
+        public bool KeyedElsewhere;
+        /// <summary>This piece was released to VOX on another slice, and the controller
+        /// plays its tri-tones on the radio's own edges (#863, ruled 2026-11-04).</summary>
+        public bool VoxEdgeTones;
     }
 
     /// <summary>
@@ -413,7 +419,116 @@ internal static class VoiceMessageSender
             return;
         }
 
+        // With the box off, a send that starts a carrier says where first
+        // (#863, ruled by Noel 2026-11-03 18:03: "yes, they say it too"),
+        // through the same notice, and waits for it, whole: with VOX off it
+        // keys the radio itself, and with VOX on the file it releases keys
+        // the radio through VOX (Codex's re-check, R1), so the sentence comes
+        // before the file is released. VOX still owns its keying. A send that
+        // joins a transmission already up starts no carrier and does not wait.
+        if (StartsACarrierWithTheBoxOff(rig))
+        {
+            var notice = TransmitSliceNotice.Prepare(rig, "the send of " + Name(info), mandatory: false);
+            if (notice != null && notice.Spoke)
+            {
+                _ = BeginAfterNoticeAsync(rig, info, loaded, notice);
+                return;
+            }
+            BeginAndLaunch(rig, info, info.Label, loaded);
+            AfterBoxOffBegin(info, notice);
+            return;
+        }
+
         BeginAndLaunch(rig, info, info.Label, loaded);
+    }
+
+    /// <summary>
+    /// What <see cref="VoiceMessageSend.Begin"/> will do with the box off when
+    /// the radio is not already transmitting: start a carrier, by keying the
+    /// radio itself with VOX off, or by releasing the file to VOX with VOX on
+    /// (#863 R1). A transmission already up is joined, and starts nothing.
+    /// </summary>
+    internal static bool StartsACarrierWithTheBoxOff(FlexBase rig)
+    {
+        try { return !rig.Transmit; }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// A box-off send has begun. Keyed by us: the notice is remembered and the
+    /// three-note tone plays (<see cref="KeyedWithNotice"/>). Released to VOX:
+    /// the notice was heard before the release, so it is remembered, and the
+    /// tri-tones play on the RADIO's edges, under the same switches as every
+    /// other send (ruled by Noel 2026-11-04, before repair round 3): the
+    /// rising one when the radio reports it keyed, the falling one when it
+    /// really receives. The controller owns both edges, with the same real
+    /// receive a taken-over send's falling tone waits for; nothing waits on
+    /// them, so VOX is not delayed.
+    /// </summary>
+    private static void AfterBoxOffBegin(SendInfo info, TransmitSliceNotice.Notice? notice)
+    {
+        if (_send == null) return;
+        if (_send.WeKeyed) { KeyedWithNotice(info, notice); return; }
+        TransmitSliceNotice.Keyed(notice);
+        var ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
+        bool chirps = ptt?.ChirpEnabled ?? true;
+        if (ptt != null && notice != null
+            && TransmitSliceNotice.PlaysTones(TransmitSliceNotice.Setting, chirps, notice.Announced))
+        {
+            info.VoxEdgeTones = true;
+            ptt.TonesOnVoxEdges();
+        }
+    }
+
+    /// <summary>
+    /// The box-off send, after its notice: waits for the sentence whole, reads
+    /// the slices again at the key, and keys only the place it announced (#863).
+    /// Stop while it waits ends it as a box start's Stop does; a kill keys
+    /// nothing.
+    /// </summary>
+    private static async Task BeginAfterNoticeAsync(FlexBase rig, SendInfo info, TxAudioFile.Loaded loaded,
+        TransmitSliceNotice.Notice notice)
+    {
+        _starting = info;
+        long disarmsAtPress = TransmitKillSwitch.DisarmGeneration;
+        bool heard = await TransmitSliceNotice.HeardAsync(notice, () => ReferenceEquals(_starting, info));
+        if (!ReferenceEquals(_starting, info)) return;   // stopped, or replaced by another press
+        _starting = null;
+        if (TransmitKillSwitch.DisarmGeneration != disarmsAtPress)
+        {
+            Tracing.TraceLine("VoiceMessageSender: the send of " + Name(info) + " cancelled by a kill before it keyed",
+                TraceLevel.Warning);
+            return;
+        }
+        if (!heard)
+        {
+            Dialogs.CheckYourAudioDialog.TransmitSliceNotHeard(notice);
+            return;
+        }
+        if (!TransmitSliceNotice.StillTheAnnouncedPlace(notice, out string? changed))
+        {
+            Dialogs.CheckYourAudioDialog.RefuseTransmit(changed, notice);
+            return;
+        }
+        BeginAndLaunch(rig, info, info.Label, loaded);
+        AfterBoxOffBegin(info, notice);
+    }
+
+    /// <summary>
+    /// A send keyed the radio itself: what its notice said is now known, and
+    /// the three-note tone marks a key on a slice other than the selected one
+    /// (#863). Its unkey plays the falling one in <see cref="Settle"/>.
+    /// </summary>
+    private static void KeyedWithNotice(SendInfo info, TransmitSliceNotice.Notice? notice)
+    {
+        TransmitSliceNotice.Keyed(notice);
+        // The same chirp switch push to talk's tones obey (ruled 2026-11-04 06:51).
+        bool chirps = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke()?.ChirpEnabled ?? true;
+        if (notice != null && TransmitSliceNotice.PlaysTones(TransmitSliceNotice.Setting, chirps, notice.Announced))
+        {
+            info.KeyedElsewhere = true;
+            EarconPlayer.TxElsewhereStartTone();
+        }
     }
 
     /// <summary>
@@ -788,6 +903,11 @@ internal static class VoiceMessageSender
         bool startsOnKey, Action joinInstead, PieceHolds holds)
     {
         _starting = info;
+        // Say it, then go (#863; Noel, 2026-11-02, "Yes, all of them"): where
+        // this send will transmit, when that is not the selected slice and the
+        // split is new (once per split, ruled 2026-11-03). Said now, so it
+        // plays while VOX is paused; the key waits for it, whole, below.
+        TransmitSliceNotice.Notice? sliceNotice = TransmitSliceNotice.Prepare(rig, "the box send of " + Name(info), mandatory: false);
         // A kill from here on cancels this send's key, whatever route it takes
         // (fix round 1, Codex's follow-up 4). Escape invalidates _starting;
         // a kill moves this generation, and BoxSendOwnedRig.Own refuses.
@@ -822,6 +942,15 @@ internal static class VoiceMessageSender
         while (rig.Transmit && Environment.TickCount64 < until && ReferenceEquals(_starting, info)
                && !OperatorHolds(rig, Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke()))
             await Task.Delay(50);
+        if (!await TransmitSliceNotice.HeardAsync(sliceNotice, () => ReferenceEquals(_starting, info))
+            && ReferenceEquals(_starting, info))
+        {
+            // The reader never got where this would transmit: nothing keys.
+            _starting = null;
+            pause.Dispose();
+            Dialogs.CheckYourAudioDialog.TransmitSliceNotHeard(sliceNotice);
+            return false;
+        }
         if (!ReferenceEquals(_starting, info))
         {
             pause.Dispose();
@@ -871,6 +1000,15 @@ internal static class VoiceMessageSender
             return false;
         }
 
+        // The place it announced, read again at the key (#863, Codex's check,
+        // B2): a slice or frequency changed while it waited is refused.
+        if (!TransmitSliceNotice.StillTheAnnouncedPlace(sliceNotice, out string? changed))
+        {
+            pause.Dispose();
+            Dialogs.CheckYourAudioDialog.RefuseTransmit(changed, sliceNotice);
+            return false;
+        }
+
         info.VoxPause = pause;
         var options = new KeyedSendOptions
         {
@@ -899,6 +1037,7 @@ internal static class VoiceMessageSender
         }
         HandOffNow(info);
         var send = VoiceMessageSend.BeginKeyed(info.Owned, Name(info), Environment.TickCount64, options);
+        KeyedWithNotice(info, sliceNotice);
         Launch(rig, info, send, info.Path ?? "", "box", holds);
         return true;
     }
@@ -998,6 +1137,44 @@ internal static class VoiceMessageSender
         if (t.Dispatcher.CheckAccess()) t.Stop();
         else t.Dispatcher.BeginInvoke(new Action(t.Stop));
     }
+
+    /// <summary>
+    /// The connection dropped or is being torn down (repair round 4, Codex's
+    /// #596 B5). Every send in hand ends NOW, before the push-to-talk release
+    /// and before anything is put back, so nothing it scheduled can act after
+    /// the drop: a send going out ends without touching the key (the drop and
+    /// the teardown own the release of this connection's carrier), its next
+    /// tick never comes, a box send getting ready is cancelled, and a paused
+    /// send ends as a disconnect ends it. Quiet apart from the paused case's
+    /// own sentence: the drop says what happened. Idempotent; UI thread.
+    /// </summary>
+    public static void EndForConnection(string why)
+    {
+        SendInfo? starting = _starting;
+        if (starting != null)
+        {
+            _starting = null;
+            starting.Session.Stop();
+            Tracing.TraceLine("VoiceMessageSender: " + Name(starting) + " ended before it keyed: " + why, TraceLevel.Info);
+        }
+        VoiceMessageSend? send = _send;
+        if (send != null && !send.Finished)
+        {
+            send.EndWithConnection();
+            Tracing.TraceLine("VoiceMessageSender: " + (_current != null ? Name(_current) : "a send")
+                + " ended with its connection (" + why + "); the key is the drop's or the teardown's to release",
+                TraceLevel.Info);
+            _settlingQuietly = true;
+            try { Settle(); }
+            finally { _settlingQuietly = false; }
+        }
+        SendInfo? paused = _paused;
+        if (paused != null) EndPausedOnDisconnect(paused);
+        if (_send == null && _paused == null) StopTimer();
+    }
+
+    /// <summary>True while <see cref="EndForConnection"/> settles a send: it says nothing of its own.</summary>
+    private static bool _settlingQuietly;
 
     /// <summary>
     /// Stop the send going out, the box send getting ready, or the send that
@@ -1302,6 +1479,25 @@ internal static class VoiceMessageSender
         return line;
     }
 
+    /// <summary>What happens to a keyed-elsewhere send's falling tone when it ends.</summary>
+    internal enum ElsewhereStopTone
+    {
+        /// <summary>The send's own carrier is coming down: the tone is owed to the radio's receive report (repair round 4).</summary>
+        OwedToTheRadiosReceive,
+        /// <summary>Taken over: the carrier stays up, and the tone is the real unkey's, carried to the controller (#863 R3).</summary>
+        OwedToTheRealUnkey,
+    }
+
+    /// <summary>
+    /// A send that keyed on another slice ended with <paramref name="outcome"/>.
+    /// Never played at the file's end (ruled by Noel 2026-11-04 22:24): its
+    /// own carrier coming down owes the tone to the radio's receive report,
+    /// and a takeover leaves the carrier up under the operator, so the tone
+    /// is the real unkey's. Pure.
+    /// </summary>
+    internal static ElsewhereStopTone StopToneAtTheEnd(VoiceMessageOutcome? outcome) =>
+        outcome == VoiceMessageOutcome.TakenOver ? ElsewhereStopTone.OwedToTheRealUnkey : ElsewhereStopTone.OwedToTheRadiosReceive;
+
     /// <summary>The send has ended. Stop watching, give VOX back, say how it ended, forget it.</summary>
     private static void Settle()
     {
@@ -1310,6 +1506,31 @@ internal static class VoiceMessageSender
         SendInfo? info = _current;
         _send = null;
         _current = null;
+        if (info != null && info.VoxEdgeTones)
+        {
+            // A VOX send's rising tone VOX never keyed for is not owed now; a
+            // falling one already owed waits for the radio's real receive.
+            info.VoxEdgeTones = false;
+            Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke()?.EndVoxEdgeTones();
+        }
+        if (info != null && info.KeyedElsewhere)
+        {
+            // The key-up of a piece that keyed on another slice (#863). Only
+            // when the send's own carrier came down: a takeover leaves the
+            // carrier up under the operator, and its falling tone is the real
+            // unkey's, carried to the controller (Codex's re-check, R3).
+            info.KeyedElsewhere = false;
+            // Both through the controller, the one owner of every falling
+            // transmit cue (repair round 4): never played here at the file's end.
+            PttSafetyController? owner = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
+            if (StopToneAtTheEnd(send?.Outcome) == ElsewhereStopTone.OwedToTheRadiosReceive)
+                owner?.OweElsewhereStopTone();
+            else
+                owner?.TakeOverElsewhereStopTone();
+            if (owner == null)
+                Tracing.TraceLine("VoiceMessageSender: no push-to-talk controller to own the falling tri-tone, so none is played",
+                    TraceLevel.Info);
+        }
 
         if (_watchedBy != null)
         {
@@ -1361,6 +1582,7 @@ internal static class VoiceMessageSender
                     || send.Outcome == VoiceMessageOutcome.VoxDidNotKey
                     || send.Outcome == VoiceMessageOutcome.RanLong
                     || send.Outcome == VoiceMessageOutcome.SourceStopped;
+        if (_settlingQuietly) return;
         Speak(info, send.Outcome, trouble);
     }
 
@@ -1444,14 +1666,26 @@ internal static class VoiceMessageSender
         private readonly SliceRecorderTarget _target;
         private bool _started, _stopAsked;
         private volatile bool _confirmed, _failed;
+        // The radio and command connection at the press (repair round 4, #596 B5).
+        private readonly object _admission;
 
-        internal SliceSendRig(FlexBase rig, SliceRecorderTarget target) { _rig = rig; _target = target; }
+        internal SliceSendRig(FlexBase rig, SliceRecorderTarget target)
+        {
+            _rig = rig;
+            _target = target;
+            _admission = rig.TransmitAdmissionNow();
+        }
 
         /// <summary>The slice recorder refused or failed the start; its own outcome says why.</summary>
         internal bool Failed => _failed;
         internal RecorderOutcome? Failure { get; private set; }
 
-        public bool Transmit { get => _rig.Transmit; set => _rig.Transmit = value; }
+        public bool Transmit
+        {
+            get => _rig.Transmit;
+            // Carried to the write (repair round 5, #596 B7).
+            set => _rig.TransmitAdmitted(_admission, value, value ? "a slice send's key" : "a slice send's unkey");
+        }
 
         // Playing only once asked and not failed: the recorder marks a slice
         // playing BEFORE the radio confirms, so a refused start reads as

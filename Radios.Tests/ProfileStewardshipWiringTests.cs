@@ -180,11 +180,20 @@ namespace Radios.Tests
             // Disconnect() is the operator's clean disconnect; Dispose is
             // teardown. They are reached independently, and a restore wired to
             // only one of them would work in testing and not in use.
+            //
+            // Changed on purpose (junk box repair round 2, #596 N3): Dispose
+            // used to call the put-back itself BEFORE Disconnect's unkey, so a
+            // profile could be put back under a carrier. It now reaches it
+            // through Disconnect, after the unkey; this asserts that route.
             var text = Read(FlexBase);
-            int occurrences = text.Split(new[] { "PutProfilesBackOnDisconnect()" }, StringSplitOptions.None).Length - 1;
-            Assert.True(occurrences >= 3,
-                "expected the definition plus a call from Disconnect and from Dispose, found "
-                + occurrences);
+            int disconnect = text.IndexOf("public void Disconnect()", StringComparison.Ordinal);
+            int unkey = text.IndexOf("UnkeyBeforePuttingBack(\"Disconnect\"", disconnect, StringComparison.Ordinal);
+            int putBack = text.IndexOf("PutProfilesBackOnDisconnect();", disconnect, StringComparison.Ordinal);
+            Assert.True(disconnect > 0 && unkey > disconnect && putBack > unkey,
+                "Disconnect does not put the profiles back after its unkey");
+            int dispose = text.IndexOf("protected virtual void Dispose(bool disposing)", StringComparison.Ordinal);
+            int calls = text.IndexOf("Disconnect();", dispose, StringComparison.Ordinal);
+            Assert.True(dispose > 0 && calls > dispose, "Dispose no longer reaches Disconnect");
         }
 
         [Fact]

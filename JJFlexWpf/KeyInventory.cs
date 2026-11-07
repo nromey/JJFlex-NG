@@ -237,8 +237,8 @@ public static class KeyInventory
         // surface mentioned the key at all.
         new("Freq.Classic", "Frequency field (Classic tuning)", "Minus", "Reminds you that step entry uses Plus only",
             new[] { "step", "minus", "plus", "multiplier" }),
-        new("Freq.Classic", "Frequency field (Classic tuning)", "F", "Speak the current frequency",
-            new[] { "frequency", "speak", "read" }),
+        new("Freq.Classic", "Frequency field (Classic tuning)", "F", "Speak the current frequency (with a split, choose which slice in Settings, Notifications, F reads)",
+            new[] { "frequency", "speak", "read", "transmit", "split", "slice" }),
         // P carries split in BOTH tuning modes (#344) — the Jim-era S only
         // turned split on, and S means the step picker in Modern, so one
         // letter taught two lessons across a mode boundary.
@@ -270,8 +270,8 @@ public static class KeyInventory
                     "increment", "tuning", "shift" }),
         new("Freq.Modern", "Frequency field (Modern tuning)", "Digits", "Type a frequency, then Enter to apply",
             new[] { "frequency", "enter", "type", "digits" }),
-        new("Freq.Modern", "Frequency field (Modern tuning)", "F", "Speak the current frequency",
-            new[] { "frequency", "speak", "read" }),
+        new("Freq.Modern", "Frequency field (Modern tuning)", "F", "Speak the current frequency (with a split, choose which slice in Settings, Notifications, F reads)",
+            new[] { "frequency", "speak", "read", "transmit", "split", "slice" }),
         new("Freq.Modern", "Frequency field (Modern tuning)", "S", "Choose both step sizes from a list",
             new[] { "step", "steps", "size", "sizes", "coarse", "fine", "choose", "pick", "set",
                     "list", "picker", "tuning" }),
@@ -1304,6 +1304,13 @@ public static class KeyInventory
             new[] { "tune", "step", "size", "logging" }, "Logging", "Logging"),
         new("LoggingPane", "Logging radio pane", "Ctrl+F", "Enter a frequency",
             new[] { "frequency", "enter", "logging" }, "Logging", "Logging"),
+        // #774 (2026-11-02 junk box): Delete on a list presses that list's own
+        // Remove or Delete button. Registered at merge prep so the Command
+        // Finder and the key list can find it.
+        new("Lists", "Lists with a Remove or Delete button", "Delete",
+            "Remove the selected item, the same as the list's Remove or Delete button (it asks first where the button asks)",
+            new[] { "delete", "remove", "list", "item", "memory", "memories", "notch", "preset", "message",
+                    "operator", "group", "profile", "capture", "run" }, "Global", "General"),
     };
 
     // ────────────────────────────────────────────────────────────────

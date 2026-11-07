@@ -620,6 +620,10 @@ public partial class CheckYourAudioDialog
         _iqCancellation?.Cancel();
         // A count still playing stops where it is (#835); one that has ended is left alone.
         _startCountdown?.Cancel();
+        // And this start's own notice, still queued, is taken back; only one
+        // start is ever pending, so no newer attempt's notice can go with it
+        // (repair round 3, Codex's second re-check F1).
+        TransmitSliceNotice.Retire(_transmitSliceNotice, "the check was stopped before it keyed");
     }
 
     /// <summary>
@@ -1481,16 +1485,31 @@ public partial class CheckYourAudioDialog
                 ScreenReaderOutput.Supersede("audio.iq.preparing", "off-air take ready to start");
             _ptt.AudioCheckNarration = true;
             _ptt.PlannedStopSeconds = Records ? FlexBase.SliceRecordBufferSeconds : null;
+            bool placeChanged = false;
+            string? placeRefusal = null;
             bool admitted = start.TryRun(() =>
             {
+                // And the link it set up on must still be up (#596, Codex's
+                // check, B2): a start that outlived a dropped connection keys
+                // nothing, whatever came back.
                 if (_owner._iqClosing || !ReferenceEquals(rig, Rig) || _ptt.IsTransmitting || rig.Transmit
-                    || rig.TeardownInProgress)
+                    || rig.TeardownInProgress || !rig.IsConnected)
                     return false;
+                // And it keys the place it announced, read again now (#863,
+                // Codex's check, B2): a slice or frequency changed during the
+                // count is refused, never keyed unannounced.
+                if (!_owner.StillTheAnnouncedPlace(out placeRefusal))
+                {
+                    placeChanged = true;
+                    return false;
+                }
                 _ptt.KeyForCheck();
                 return true;
             });
+            if (admitted && _ptt.IsTransmitting) _owner.TransmitSliceNoticeKeyed();
             if (!admitted)
             {
+                if (placeChanged) RefuseTransmit(placeRefusal, _owner._transmitSliceNotice);
                 _ptt.AudioCheckNarration = false;
                 _ptt.PlannedStopSeconds = null;
                 if (_method == AudioCheckListenMethods.OffAir) _owner._iqRun?.OwnKeying(false);
@@ -1579,7 +1598,15 @@ public partial class CheckYourAudioDialog
         /// keyed, restores what can be restored, stops playback, ends the
         /// session. Safe to call repeatedly.
         /// </summary>
-        public void ForceEnd(string? reason)
+        /// <param name="reason">Said when the session ends, or null.</param>
+        /// <param name="connectionEnding">
+        /// True when the connection is going (a drop, a disconnect, a radio
+        /// switch, the radio gone): the unkey touches only this client's own
+        /// carrier, checked as it goes out (#596 N1, repair round 3), the
+        /// same release the push-to-talk controller makes at a teardown. A
+        /// check ended by its window closing keeps Escape's ordinary unkey.
+        /// </param>
+        public void ForceEnd(string? reason, bool connectionEnding = false)
         {
             _owner.CancelCheckStart();
             if (!Active)
@@ -1595,7 +1622,13 @@ public partial class CheckYourAudioDialog
                 if (_ptt.IsTransmitting)
                 {
                     if (_method == AudioCheckListenMethods.OffAir) _owner._iqRun?.OwnKeying(false);
-                    _ptt.EscapeUnlock();
+                    // Codex's second re-check, N1: on a drop this ran BEFORE the
+                    // controller's own-carrier release and queued the ordinary
+                    // xmit 0, which then reached whoever transmits on the
+                    // reconnected radio. Every route by which the connection
+                    // ends now releases through the one scoped path.
+                    if (connectionEnding) _ptt.ReleaseForTeardown();
+                    else _ptt.EscapeUnlock();
                 }
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.check.transmit_off"), VerbosityLevel.Critical);
                 if (Records)
@@ -1674,7 +1707,7 @@ public partial class CheckYourAudioDialog
             var rig = Rig;
             if (rig == null)
             {
-                ForceEnd(Lexicon.Get("audio.check.radio_disconnected"));
+                ForceEnd(Lexicon.Get("audio.check.radio_disconnected"), connectionEnding: true);
                 return;
             }
 

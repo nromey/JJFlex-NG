@@ -256,7 +256,7 @@ public partial class CheckYourAudioDialog : JJFlexDialog
                 {
                     inst._tearingDown = true;
                     inst.CancelCheckStart();
-                    inst._session?.ForceEnd("Radio disconnected, audio check ended");
+                    inst._session?.ForceEnd("Radio disconnected, audio check ended", connectionEnding: true);
                     inst._session = null;
                     inst.DisarmTone(speak: false);
                     inst.DisarmReference(speak: false);
@@ -330,6 +330,41 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             if (_instance != null) _instance._tearingDown = false;
             rig.EndCheckTeardown();
         }
+    }
+
+    /// <summary>
+    /// The radio's connection fell (#596, Codex's check, B2): a start that is
+    /// counting down or waiting to key is called off, and a running check is
+    /// ended, so nothing this window started can key the radio again when the
+    /// link comes back without a new press. Its start lease is invalidated
+    /// (<see cref="CancelCheckStart"/>), which every later step of a start
+    /// asks before it keys. Nothing is put back: the link is gone, and a
+    /// put-back after a drop belongs to the next connect. Never throws.
+    /// </summary>
+    public static void EndCheckForDroppedConnection(FlexBase? rig)
+    {
+        var inst = _instance;
+        if (inst == null || rig == null || !ReferenceEquals(inst._rig, rig)) return;
+        void End()
+        {
+            try
+            {
+                JJTrace.Tracing.TraceLine("Check your audio: the radio's connection fell; ending any start and check",
+                    System.Diagnostics.TraceLevel.Info);
+                inst.CancelCheckStart();
+                inst._session?.ForceEnd("Radio connection dropped, audio check ended", connectionEnding: true);
+                inst._session = null;
+                inst.DisarmTone(speak: false);
+                inst.DisarmReference(speak: false);
+            }
+            catch (Exception ex)
+            {
+                JJTrace.Tracing.TraceLine("Check your audio: ending for the fall threw: " + ex.Message,
+                    System.Diagnostics.TraceLevel.Error);
+            }
+        }
+        if (inst.Dispatcher.CheckAccess()) End();
+        else inst.Dispatcher.BeginInvoke(new Action(End));
     }
 
     /// <summary>Said, and nothing started, when a check is asked for while the radio is being torn down.</summary>
@@ -613,7 +648,8 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             // the session only after _rig was null.
             if (oldRig != null)
             {
-                _session?.ForceEnd(rig == null ? "Radio disconnected, audio check ended" : "Radio changed, audio check ended");
+                _session?.ForceEnd(rig == null ? "Radio disconnected, audio check ended" : "Radio changed, audio check ended",
+                    connectionEnding: true);
                 _session = null;
             }
             _iqRecoveryReader = null;

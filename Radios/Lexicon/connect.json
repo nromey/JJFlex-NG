@@ -120,12 +120,29 @@
     "chatty": "JJ Flexible Access disconnected from radio",
     "diagnostic": "Disconnected"
   },
+  "connect.disconnect.mic_left_on": {
+    "text": {
+      "critical": "Mic input still set to {input}. If desired, change it when connecting to this radio.",
+      "terse": "Mic input still set to {input}. If desired, change it when connecting to this radio.",
+      "chatty": "You disconnected while transmitting. Your microphone input is still set to {input}. If you need to make a mic input change, set a new input once you connect to this radio."
+    },
+    "delivery": null
+  },
+  "connect.disconnect.mic_left_on_unconfirmed": {
+    "text": {
+      "critical": "Mic input still set to {input}. The radio did not confirm it stopped transmitting.",
+      "terse": "Mic input still set to {input}. The radio did not confirm it stopped transmitting.",
+      "chatty": "Your microphone input is still set to {input}; the radio did not confirm it had stopped transmitting. If you need to make a mic input change, set a new input once you connect to this radio."
+    },
+    "delivery": null
+  },
   "connect.disconnected_from": "Disconnected from {radioName}",
   "connect.disconnected_plain": "Disconnected from radio",
   "connect.discovery.searching": "Searching for radios.",
   "connect.discovery.still_searching": "Still searching.",
   "connect.disconnecting_from": "Disconnecting from {radioName}",
   "connect.disconnecting_plain": "Disconnecting",
+  "connect.drop.transmit_released": {"text": "The radio connection dropped while you were transmitting. JJ Flexible has released its own transmit key, but cannot tell whether the radio has stopped.", "delivery": null},
   "connect.failure.auth_summary": "SmartLink did not accept the saved sign-in for {email}. Connect from the radio list to sign in again.",
   "connect.failure.radio_not_found_lan": "{radioName} was not found on the local network. It may be powered off or on a different network.",
   "connect.failure.radio_not_found_wan": "{radioName} never appeared in the SmartLink radio list. It may be powered off, offline, or registered to a different account.",
@@ -178,7 +195,12 @@
   "connect.home.entering_logging": "Entering Logging Mode, Call Sign",
   "connect.home.fields_panel_missing": "The field panel is hidden. Press Alt N and choose Show Field Panel to bring it back.",
   "connect.home.frequency": "Frequency {freqText}, slice {slice}",
+  "connect.home.frequency_ended_on": {"text": "{freqText}", "delivery": null},
+  "connect.home.frequency_ended_on_slice": {"text": "Slice {slice}, {freqText}", "delivery": null},
+  "connect.home.frequency_both": {"text": "Frequency {transmitFreq}, slice {transmitSlice}, transmit. Frequency {selectedFreq}, slice {selectedSlice}, selected", "delivery": null},
+  "connect.home.frequency_selected": {"text": "Frequency {freqText}, slice {slice}, selected", "delivery": null},
   "connect.home.frequency_steps": ", coarse {coarse}, fine {fine}",
+  "connect.home.frequency_transmit": {"text": "Frequency {freqText}, slice {slice}, transmit", "delivery": null},
   "connect.home.frequency_unavailable": "Frequency unavailable",
   "connect.home.link_local": "local",
   "connect.home.link_smartlink": "SmartLink",

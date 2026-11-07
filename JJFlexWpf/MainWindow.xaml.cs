@@ -405,6 +405,12 @@ public partial class MainWindow : UserControl
                 // connect, so a session that never connects would otherwise
                 // play every sound at the default whatever was chosen.
                 EarconPlayer.SetAlertBuffer(userConfig.AlertBufferMs, userConfig.AlertBufferCount);
+                // #642 and #863: what F reads and what a door says before it
+                // keys elsewhere are this operator's choices, decided in root.
+                Radios.FrequencyKeyReadout.Setting =
+                    (Radios.FrequencyKeySlices)Math.Clamp(userConfig.FrequencyKeyReads, 0, 2);
+                Radios.TransmitSliceNotice.Setting =
+                    (Radios.TransmitElsewhereNotice)Math.Clamp(userConfig.TransmitElsewhereNotice, 0, 2);
             }
         }
         catch (Exception ex)
@@ -864,6 +870,17 @@ public partial class MainWindow : UserControl
     /// <see cref="Radios.PttHoldFilter"/> for the whole story.
     /// </summary>
     private readonly Radios.PttHoldFilter _pttHoldFilter = BuildPttHoldFilter();
+
+    /// <summary>
+    /// A push-to-talk key held when the radio's connection fell stays dead
+    /// until it is let go (#596): a reconnect never inherits a transmit intent
+    /// from before the drop. Consulted by every door before its own gate, so
+    /// a held key's repeats and a screen reader's synthesised pairs are
+    /// swallowed while the radio is gone and after it comes back alike. Never
+    /// disarmed at teardown, because what it remembers is the operator's
+    /// finger, not the rig.
+    /// </summary>
+    private readonly Radios.PttHeldThroughDrop _pttHeldThroughDrop = new Radios.PttHeldThroughDrop();
 
     /// <summary>
     /// Hand the filter the two things it cannot work out for itself: this
@@ -2254,8 +2271,23 @@ public partial class MainWindow : UserControl
             // While slices are absent the connect flow owns the narration;
             // once they exist, this is real information about where the
             // operator returned to.
+            // Held while a send's transmit notice is due (rulings round three):
+            // it was said ahead of the notice on the second bench.
+            if (Radios.TransmitSliceNotice.NoticeDue)
+            {
+                JJTrace.Tracing.TraceLine("Return status held; a send's transmit notice is due", System.Diagnostics.TraceLevel.Info);
+                return;
+            }
+            // Bound BEFORE it is built (round four, Codex's re-check B3): the
+            // sentence carries the condition that makes it true, its slice, that
+            // slice's frequency, mode and letter, the connection and listening,
+            // and the arbiter asks it before any replay. Its own subject still
+            // lets the rig retire it outright (rulings round three).
+            Func<bool?> stillTrue = rig.BindReturnStatus();
             string status = Radios.RadioStatusBuilder.BuildSpokenStatus(rig);
-            Radios.ScreenReaderOutput.Speak(status, Radios.VerbosityLevel.Chatty);
+            Radios.ScreenReaderOutput.Speak(status, Radios.VerbosityLevel.Chatty, subject: Radios.Speech.SpeechSubject.ReturnStatus,
+                stillValid: stillTrue);
+            rig.NoteReturnStatusSpoken();
         }
         else if (rig == null)
         {
@@ -2756,35 +2788,37 @@ public partial class MainWindow : UserControl
         // same chords (MemoryScan, SpeakFrequency, SearchLog-in-Logging) and
         // were invisible to the Keys surface and Command Finder.
 
-        // 1c. Universal Home keys (M/V/R/X/Q/=) no-radio guard.
+        // 1c. Universal Home keys (M/V/R/X/Q/=) with no radio: one answer for
+        //     the whole no-radio surface (#372, #356, #338).
         //
-        // These keys are field-handler-bound — they only fire when focus is on a
-        // Home field. With no radio, FrequencyDisplay's _fieldDict is empty so
-        // focus can't be on a Home field, and the keys silently do nothing —
-        // a violation of the no-silent-keystrokes rule. Speak no-radio guidance
-        // and consume so the user gets audible feedback at window scope.
+        // These six are the universal Home keys, handled ahead of the field
+        // handlers. With no radio there are two surfaces a Home key can land
+        // on, and this guard answers both, in the field handlers' own words:
         //
-        // Gated on FreqOut.IsKeyboardFocusWithin so we only fire where a Home
-        // field WOULD have focus if a radio were connected; outside Home (menu
-        // bar, settings dialog, command finder) the keys pass through to be
-        // typed normally. With a radio connected, the guard skips and the
-        // normal field-handler routing wins.
+        //  * Home's fields AFTER a disconnect. The fields survive it
+        //    (FrequencyDisplay.Clear blanks their text and keeps them), so
+        //    every other Home key reaches its field handler, which says
+        //    connect.command_needs_radio. These six used to be claimed here
+        //    first and answered "JJ Flexible Home, no radio connected", a
+        //    second sentence for one state. (This comment used to say the
+        //    fields do not exist with no radio, which is true only before the
+        //    first connect.)
+        //  * The rescue page, which is what holds focus BEFORE the first
+        //    connect (and after a disconnect that raised it): the frequency
+        //    display is collapsed, no field exists, and nothing else would
+        //    answer these keys at all.
         //
-        // Shift+M and Shift+, (multi-slice variants) are intentionally NOT in
-        // this list — they're bound in KeyCommands (Radio scope) and the
-        // DoCommand-layer guard at f8c64d57 already covers them.
-        //
-        // Sprint 30 Track A: the rescue page joins the gate. With no radio the
-        // frequency display is collapsed, so FreqOut can never hold focus and
-        // this guard would never fire again — these keys would go back to being
-        // silent in exactly the situation they were written for.
-        if (RigControl == null
-            && Keyboard.Modifiers == ModifierKeys.None
-            && (FreqOut.IsKeyboardFocusWithin
-                || (_rescueMode && RescuePanel.IsKeyboardFocusWithin))
-            && IsUniversalHomeKey(rawKey))
+        // Gated on focus being in one of those two places, so outside Home
+        // (menu bar, dialogs, the Command Finder) the letters are typed as
+        // usual, and on bare presses only: Shift+M and Shift+, are registry
+        // chords, which the DoCommand guard answers with their own action
+        // label. Keys that do nothing anywhere are not claimed.
+        if (ClaimsNoRadioHomeKey(rawKey, Keyboard.Modifiers, haveRig: RigControl != null,
+                focusOnHomeOrRescue: FreqOut.IsKeyboardFocusWithin
+                    || (_rescueMode && RescuePanel.IsKeyboardFocusWithin)))
         {
-            Radios.ScreenReaderOutput.SpeakNoRadioConnected();
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.command_needs_radio"),
+                VerbosityLevel.Critical, true);
             e.Handled = true;
             return;
         }
@@ -2838,6 +2872,21 @@ public partial class MainWindow : UserControl
                 _freqOutHandlers.HandleFilterHotkey(e);
                 if (e.Handled) return;
             }
+        }
+
+        // 2z. A push-to-talk key held through a dropped connection (#596) is
+        //     not a press, with or without a radio: swallowed BEFORE step 3's
+        //     gate, so the stream it keeps sending is seen whole and cannot
+        //     key the radio the moment it comes back.
+        if (rawKey == Key.Space
+            && (Keyboard.Modifiers == ModifierKeys.Control || Keyboard.Modifiers == ModifierKeys.Shift)
+            && PttHeldThroughDrop(down: true))
+        {
+            // Shift+Space too (Codex's check, B3): the lock key's stream must be
+            // seen whole while the radio is gone, or a held lock key's next pair
+            // after the reconnect would read as a fresh press and key.
+            e.Handled = true;
+            return;
         }
 
         // 3. PTT keys — Ctrl+Space (hold), Shift+Space (lock toggle), Escape (unlock)
@@ -2912,6 +2961,14 @@ public partial class MainWindow : UserControl
         || key == Key.Q || key == Key.OemPlus;
 
     /// <summary>
+    /// Does step 1c answer this key with "No radio connected"? Pure, so the
+    /// whole no-radio surface is tested without a window (#372): a bare
+    /// universal Home key, no radio, focus on Home's fields or the rescue page.
+    /// </summary>
+    internal static bool ClaimsNoRadioHomeKey(Key key, ModifierKeys mods, bool haveRig, bool focusOnHomeOrRescue) =>
+        !haveRig && mods == ModifierKeys.None && focusOnHomeOrRescue && IsUniversalHomeKey(key);
+
+    /// <summary>
     /// PreviewKeyUp — handles Ctrl+Space release for PTT hold mode.
     /// Catches Space release regardless of Ctrl state (user may release Ctrl first).
     /// </summary>
@@ -2923,6 +2980,10 @@ public partial class MainWindow : UserControl
         {
             // #778c round three: the measurement trace, see the key-down.
             SpaceKeyTimingTrace.Note(down: false, WpfKeyConverter.ToWinFormsKeys(e), e.IsRepeat, SpaceKeyTimingTrace.HomeDoor);
+            // #596: a key held through a dropped connection has its up seen
+            // whole, before anything else reads it.
+            PttHeldThroughDrop(down: false);
+            NoteLockSpaceUp(Environment.TickCount64);
             // Detection only (#800): a lock release too fast to be human is
             // counted and traced, and changes nothing.
             _lockPairDetector.NoteUp(Environment.TickCount64);
@@ -3089,20 +3150,83 @@ public partial class MainWindow : UserControl
     /// </summary>
     internal void LockKeyDown(bool isRepeat)
     {
+        // #596, Codex's check B3: a key held through a dropped connection is
+        // not a press, repeats included, so its stream is seen whole.
+        if (PttHeldThroughDrop(down: true)) return;
         if (isRepeat) return;   // a held key is one press
+        _lockKeyDown = true;
+        _lockStreamUpMs = long.MinValue;
         _lockPairDetector.NoteDown(Environment.TickCount64);
         _pttController?.ToggleLock();
+    }
+
+    /// <summary>
+    /// Home's lock key is physically down (its first down seen, its Space up
+    /// not yet): read by the drop and the teardown, which remember a key held
+    /// through them (#596, Codex's check, B3).
+    /// </summary>
+    private bool _lockKeyDown;
+
+    /// <summary>
+    /// When the lock key's last up arrived, while its stream may still be
+    /// going (a synthesising reader's next pair), or MinValue (#596 N2).
+    /// </summary>
+    private long _lockStreamUpMs = long.MinValue;
+
+    /// <summary>
+    /// A Space up on Home: a lock key in flight is now "up", but under a
+    /// synthesising reader the same hold's next pair may follow, so the time
+    /// is kept for the drop to read (#596 N2).
+    /// </summary>
+    internal void NoteLockSpaceUp(long nowMs)
+    {
+        if (_lockKeyDown) _lockStreamUpMs = nowMs;
+        _lockKeyDown = false;
+    }
+
+    /// <summary>
+    /// The lock key's stream may still be going: its last up is no older than
+    /// the first gap of a hold on this machine (one and a half repeat delays,
+    /// which covers the gap before a synthesising reader's first pair and
+    /// every gap after it). This only decides whether a drop REMEMBERS the
+    /// key; it never lets a remembered key go (Noel, 2026-11-04 06:56: a hold
+    /// remembered through a drop is not forgotten after silence).
+    /// </summary>
+    private bool LockStreamMayContinue(long nowMs) =>
+        _lockStreamUpMs != long.MinValue && nowMs - _lockStreamUpMs <= _pttHoldFilter.FirstGapDeferMs;
+
+    /// <summary>
+    /// A door that sees one toggle per press and no separate up (the
+    /// system-wide lock's chord, the Transmit button's Space, which clicks on
+    /// release) asks the held-through-drop guard as a press and its release
+    /// together. True when it belongs to a key held through a dropped
+    /// connection and must toggle nothing (#596, Codex's check, B3).
+    /// </summary>
+    private bool ToggleHeldThroughDrop()
+    {
+        var guard = _pttHeldThroughDrop;
+        if (guard == null || !guard.Armed) return false;
+        long now = Environment.TickCount64;
+        bool swallow = guard.SwallowDown(now);
+        if (swallow) guard.NoteUp(now);
+        else Tracing.TraceLine("PTT: the key held through the dropped connection was let go; this toggle acts as usual",
+            TraceLevel.Info);
+        return swallow;
     }
 
     /// <summary>The system-wide transmit lock: what Shift+Space does inside the window.</summary>
     internal void HandleSystemWideLockToggle()
     {
+        if (ToggleHeldThroughDrop()) return;
         if (_pttController == null || !_radioPowerOn)
         {
             Radios.ScreenReaderOutput.SpeakNoRadioConnected();
             return;
         }
         _pttController.ToggleLock();
+        // A toggle is a press and its release at once: its stream may go on
+        // (#596 N2), so a drop in the gap after it remembers the key.
+        _lockStreamUpMs = Environment.TickCount64;
     }
 
     /// <summary>
@@ -3161,12 +3285,215 @@ public partial class MainWindow : UserControl
     /// </summary>
     private void PttEdgeFromOutsideHome(bool down, PttDoor door)
     {
+        // #596, before the gate: a key held through a dropped connection says
+        // nothing and keys nothing, radio or no radio.
+        if (PttHeldThroughDrop(down)) return;
         if (_pttController == null || !_radioPowerOn)
         {
             if (down) Radios.ScreenReaderOutput.SpeakNoRadioConnected();
             return;
         }
+        bool wasIdle = _pttController.State == PttSafetyController.PttState.Idle;
         if (down) PttKeyDownEdge(door); else PttKeyUpEdge();
+
+        // Push to talk inside a dialog keys the transmit slice while the
+        // dialog shows something else (#863). A held key is not delayed for a
+        // sentence: under a reader that synthesises the hold as down/up pairs
+        // (JAWS), a key that waits for speech would be released and pressed
+        // again before the sentence ends and would never key. So the slice and
+        // frequency follow the key-down line instead, queued behind it.
+        if (down && door == PttDoor.Dialog && wasIdle
+            && _pttController.State == PttSafetyController.PttState.PttHold)
+        {
+            // Ruled 2026-11-03 17:55: go, then say. Once per split, by the
+            // operator's setting, queued behind the key-down line.
+            if (RigControl != null)
+                Radios.TransmitSliceNotice.SayAfterKey(RigControl, "push to talk in a dialog");
+        }
+    }
+
+    /// <summary>
+    /// One push-to-talk edge, asked first of <see cref="_pttHeldThroughDrop"/>
+    /// (#596). True when it belongs to a key held through a dropped connection
+    /// and the door must do nothing more with it.
+    /// </summary>
+    private bool PttHeldThroughDrop(bool down)
+    {
+        var guard = _pttHeldThroughDrop;
+        if (guard == null || !guard.Armed) return false;
+        long now = Environment.TickCount64;
+        if (down)
+        {
+            bool swallow = guard.SwallowDown(now);
+            if (!swallow)
+                Tracing.TraceLine("PTT: the key held through the dropped connection was let go; this press keys as usual",
+                    TraceLevel.Info);
+            return swallow;
+        }
+        guard.NoteUp(now);
+        return true;
+    }
+
+    /// <summary>
+    /// The radio's connection fell (#596): raised by the rig on FlexLib's
+    /// thread BEFORE its TransmitChange(false), so this is queued ahead of
+    /// <see cref="TransmitChangeHandler"/> and reads the key input before the
+    /// ordinary unkey path forgets it.
+    /// </summary>
+    private void TransmitDroppedWithConnectionHandler(FlexBase origin, bool radioWasKeyed, bool deliberate)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            // BeginInvoke, never Invoke: FlexLib's transport thread, mid-teardown.
+            Dispatcher.BeginInvoke(() => TransmitDroppedWithConnectionHandler(origin, radioWasKeyed, deliberate));
+            return;
+        }
+        // The fall carries the rig it came from (#596, Codex's follow-up F2):
+        // a late fall from a radio already replaced must not release the new
+        // radio's controller or speak about the new session.
+        if (!ReferenceEquals(origin, RigControl))
+        {
+            Tracing.TraceLine("PTT: a connection fall from a radio that is no longer this window's arrived late; ignored",
+                TraceLevel.Info);
+            return;
+        }
+        ReleaseKeyForDroppedConnection(radioWasKeyed, deliberate);
+    }
+
+    /// <summary>The fall's subscription, kept so it is removed from the rig it was added to.</summary>
+    private Action<bool, bool>? _dropHandler;
+    private FlexBase? _dropHandlerRig;
+
+    private void WireDropHandler(FlexBase rig)
+    {
+        UnwireDropHandler();
+        _dropHandlerRig = rig;
+        _dropHandler = (keyed, deliberate) => TransmitDroppedWithConnectionHandler(rig, keyed, deliberate);
+        rig.TransmitDroppedWithConnection += _dropHandler;
+    }
+
+    private void UnwireDropHandler()
+    {
+        if (_dropHandlerRig != null && _dropHandler != null)
+            _dropHandlerRig.TransmitDroppedWithConnection -= _dropHandler;
+        _dropHandlerRig = null;
+        _dropHandler = null;
+    }
+
+    /// <summary>
+    /// Every teardown route unkeys first (#596, #861; Codex's checks of the
+    /// 2026-11-02 batch). Menu disconnect, a radio switch, exit and connecting
+    /// to another radio all reach <see cref="UnwireRadioEvents"/> through
+    /// <c>globals.CloseTheRadio</c>; the power-off notification reaches
+    /// <see cref="PowerNowOffInternal"/>. Both call this FIRST, before the
+    /// radio's events are unwired and before anything is put back: this
+    /// controller to Idle (held, locked or warning, which also drops its
+    /// command to transmit and stops its timers), the key edges in flight
+    /// forgotten, a key still held remembered so it cannot key the next radio,
+    /// and every source this computer feeds the transmitter stopped. The rig's
+    /// own disconnect then confirms receive before it puts the microphone
+    /// input back (<c>FlexBase.UnkeyBeforePuttingBack</c>).
+    /// </summary>
+    internal void ReleaseKeyForTeardown(string why)
+    {
+        Tracing.TraceLine("PTT: teardown (" + why + "): releasing the key before anything else", TraceLevel.Info);
+        ReleaseKeyForDroppedConnection(radioWasKeyed: false, deliberate: true);
+        try { Radios.TransmitKillSwitch.DisarmSources(RigControl); }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("PTT: teardown (" + why + "): stopping the local transmit sources threw: " + ex.Message,
+                TraceLevel.Error);
+        }
+    }
+
+    /// <summary>
+    /// Our side of the transmission falls with the connection (#596; Noel,
+    /// 2026-10-18: "if the radio drops, so should the key" and "You need to
+    /// know if you're talking into dead air"). Releases the push-to-talk
+    /// controller DIRECTLY, held or locked, rather than through
+    /// <see cref="TransmitChangeHandler"/>: the application's teardown
+    /// unsubscribes that handler, and nothing may depend on it still being
+    /// subscribed when a connection dies. Then remembers a key still held, so
+    /// it cannot key the radio when it comes back, forgets the edges in
+    /// flight, and says why with the warning tone first.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The SystemWideKeyDecider's held-chord memory is deliberately left
+    /// alone: while it holds, the chord's repeats are eaten in the hook and
+    /// never reach a door, and its one up clears it. Forcing it released would
+    /// turn the next repeat into a fresh down at the door.
+    /// </para>
+    /// <para>
+    /// A deliberate disconnect is not a drop: the controller is released the
+    /// ordinary way and nothing extra is said.
+    /// </para>
+    /// </remarks>
+    private void ReleaseKeyForDroppedConnection(bool radioWasKeyed, bool deliberate)
+    {
+        // A lock key held is a key in flight too (#596, Codex's check, B3): a
+        // held Shift+Space whose down/up pairs reach the lock door after a
+        // reconnect would otherwise toggle the lock and key the radio. And so
+        // is a space bar Windows still reports down, whichever door it was
+        // pressed into (the Transmit button's Space, the system-wide lock).
+        bool spaceDown = false;
+        try { spaceDown = _pttHoldFilter.PhysicalKeyDown?.Invoke() == true; } catch { }
+        // The lock key's stream counts as in flight inside the gap after its
+        // last up as well (#596 N2, Codex's re-check): a synthesising reader's
+        // pairs leave the key "up" between pairs, the first gap as long as the
+        // repeat delay, and a drop landing there must still be remembered.
+        bool lockStream = _lockKeyDown || LockStreamMayContinue(Environment.TickCount64);
+        bool keyInFlight = _pttKeyDown || _pttHoldFilter.ReleasePending || lockStream || spaceDown
+            || (_pttController != null && _pttController.State == PttSafetyController.PttState.PttHold);
+        if (keyInFlight)
+        {
+            _pttHeldThroughDrop.Arm(_pttHoldFilter.FirstGapDeferMs);
+            Tracing.TraceLine("PTT: a transmit key was held as the connection " + (deliberate ? "closed" : "fell")
+                + "; it keys nothing until it is let go", TraceLevel.Info);
+        }
+        _lockKeyDown = false;
+        _lockStreamUpMs = long.MinValue;
+
+        // Every send in hand ends with the connection (repair round 4, Codex's
+        // #596 B5), drop or teardown, before anything else: its next tick
+        // could otherwise read a carrier on a returned connection as its own
+        // and unkey it.
+        VoiceMessageSender.EndForConnection(deliberate ? "teardown" : "the connection fell");
+
+        // An unexpected drop ends a check that is counting down or waiting to
+        // key (#596, Codex's check, B2): its start would otherwise key the
+        // radio again when the link came back, with no new press. A
+        // deliberate teardown ends checks its own way (EndCheckBeforeTeardown).
+        if (!deliberate) Dialogs.CheckYourAudioDialog.EndCheckForDroppedConnection(RigControl);
+
+        // DRAFT PROSE (#596), awaiting Noel. Says only what is known: the
+        // connection dropped while transmitting and JJ Flexible released its
+        // own keying. A lost connection cannot show that RF stopped, so the
+        // sentence never claims it (Codex's check, B4).
+        string sentence = Lexicon.Get("connect.drop.transmit_released");
+        bool said = false;
+        // Every falling tone still owed ends with the connection, transmitting
+        // or not (repair round 4): a VOX send's or a hand-mic takeover's debt
+        // leaves the controller idle, and must not outlive its connection.
+        _pttController?.EndEdgeTonesWithConnection();
+        if (_pttController != null && _pttController.IsTransmitting)
+        {
+            // Both unkey this client's own carrier only (#596 N1, #861 B2):
+            // a teardown's release must not send xmit 0 under a carrier that
+            // has passed to another client.
+            if (deliberate) _pttController.ReleaseForTeardown();
+            else said = _pttController.DropWithConnection(sentence);
+        }
+        ResetPttInput();
+
+        if (!deliberate && radioWasKeyed && !said)
+        {
+            // Keyed by something other than our push to talk (a foot switch,
+            // VOX, CW, a send): the operator is still talking into dead air.
+            EarconPlayer.WarningAlarmTone();
+            Radios.ScreenReaderOutput.Speak(sentence, Radios.Speech.SpeechIntent.Urgent, VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.TransmitDroppedWithConnection);
+        }
     }
 
     /// <summary>
@@ -3947,6 +4274,7 @@ public partial class MainWindow : UserControl
         // that path disposed the PTT controller, so a hold after a cut could
         // outlive the radio with VOX still off. The hold ends here and the VOX
         // restore is written immediately, not queued.
+        ReleaseKeyForTeardown("radio events unwired");
         _pttController?.ReleaseRigForTeardown("radio events unwired");
 
         // Then any check in Check your audio (#835), for the same reason: its
@@ -3980,6 +4308,7 @@ public partial class MainWindow : UserControl
             RigControl.FlexAntTunerStartStop -= FlexAntTuneStartStopHandler;
             RigControl.ConnectedEvent -= ConnectedEventHandler;
         }
+        UnwireDropHandler();
 
         FreqOut.Clear();
         _comboControls.Clear();
@@ -4723,9 +5052,23 @@ public partial class MainWindow : UserControl
             // Update title bar with compact status for Insert+T (screen reader reads window title)
             if (UpdateTitleBar != null)
             {
-                string sliceLetter = RigControl.ActiveSliceLetter;
+                // The title names the slice its frequency comes from (#642).
+                // While transmitting, or showing the transmit frequency, the
+                // number is the transmit slice's (as in the Frequency field),
+                // so the letter is too; it used to be the selected slice's
+                // letter over the transmit slice's frequency.
+                // One reading of Transmit and one snapshot of the slices, so
+                // the letter and the number cannot come from two different
+                // moments (a key or an unkey between two reads paired one
+                // slice's letter with the other's frequency for a poll).
+                bool showsTransmit = RigControl.Transmit || RigControl.ShowingXmitFrequency;
+                Radios.SliceRoles titleRoles = Radios.SliceRoles.Of(RigControl);
+                bool titleOnTransmit = showsTransmit && titleRoles.HasTransmit;
+                string sliceLetter = titleOnTransmit ? titleRoles.TransmitLetter
+                    : (titleRoles.HasSelected ? titleRoles.SelectedLetter : RigControl.ActiveSliceLetter);
                 string mode = RigControl.Mode ?? "";
-                double freqMhz = (RigControl.Transmit ? RigControl.TXFrequency : RigControl.VirtualRXFrequency) / 1_000_000.0;
+                double freqMhz = (titleOnTransmit ? titleRoles.TransmitHz
+                    : (titleRoles.HasSelected ? titleRoles.SelectedHz : RigControl.VirtualRXFrequency)) / 1_000_000.0;
                 UpdateTitleBar($"JJ Flexible Radio Access — Slice {sliceLetter}, {freqMhz:F3}, {mode}");
                 _sessionTitle.SliceTitleShown();
             }
@@ -5304,6 +5647,7 @@ public partial class MainWindow : UserControl
         // Wire additional event handlers
         if (RigControl != null)
         {
+            WireDropHandler(RigControl);
             RigControl.TransmitChange += TransmitChangeHandler;
             RigControl.TransmitChange += TuneReminderTransmitEdge;
             RigControl.TuneCarrierFell += TuneCarrierFellHandler;
@@ -5377,6 +5721,18 @@ public partial class MainWindow : UserControl
         if (OpenParms != null)
         {
             CurrentAudioConfig = AudioOutputConfig.Load(OpenParms.ConfigDirectory);
+            // The operator's own choices are decided in root (#642, #863): a
+            // radio's older copy must not undo one made with no radio.
+            try
+            {
+                if (System.IO.Directory.Exists(Radios.RadioConfig.AppDataRoot))
+                    CurrentAudioConfig.TakeOperatorChoicesFrom(
+                        AudioOutputConfig.Load(Radios.RadioConfig.AppDataRoot));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"PowerOn: operator choices from root failed: {ex.Message}");
+            }
             MeterToneEngine.Initialize();
             CurrentAudioConfig.Apply();
             if (RigControl != null)
@@ -5788,7 +6144,23 @@ public partial class MainWindow : UserControl
     private void PowerNowOffInternal()
     {
         Tracing.TraceLine("MainWindow PowerNowOff", TraceLevel.Info);
-        Radios.ConnectBriefing.Current.RadioGone();
+        // A profile import raises this on a live connection (integration fix,
+        // 2026-11-06): it is not a teardown, so the connection's drop handling
+        // stays wired and the teardown's key release does not run for it.
+        bool importing = RigControl?.TakeImportPowerOff() == true;
+        if (importing)
+        {
+            Tracing.TraceLine("MainWindow PowerNowOff: a profile import, not a teardown; the drop handler stays wired",
+                TraceLevel.Info);
+        }
+        else
+        {
+            // Every teardown unkeys first (#596): before the handlers that would
+            // have released it are gone.
+            ReleaseKeyForTeardown("the radio powered off");
+            Radios.ConnectBriefing.Current.RadioGone();
+            UnwireDropHandler();
+        }
 
         if (RigControl != null)
         {
@@ -6000,6 +6372,10 @@ public partial class MainWindow : UserControl
     /// </summary>
     private void ToggleTransmit()
     {
+        // The Transmit button's Space clicks on release, so a held Space under
+        // a reader that sends pairs clicks once a pair: a key held through a
+        // dropped connection toggles nothing (#596, Codex's check, B3).
+        if (ToggleHeldThroughDrop()) return;
         if (!_radioPowerOn || RigControl == null)
         {
             Tracing.TraceLine("toggleTransmit: no power", TraceLevel.Error);
@@ -6010,6 +6386,8 @@ public partial class MainWindow : UserControl
         {
             // Route through PTT safety controller for timeout/warning tracking
             _pttController.ToggleLock();
+            // A click is a press and its release: its stream may go on (#596 N2).
+            _lockStreamUpMs = Environment.TickCount64;
         }
         else
         {
@@ -7112,13 +7490,14 @@ public partial class MainWindow : UserControl
 
         try
         {
-            ulong freq = RigControl.Transmit
-                ? RigControl.TXFrequency
-                : RigControl.VirtualRXFrequency;
-            string freqText = OpenParms.FormatFreq(freq);
-            int slice = RigControl.RXVFO;
-            string speech = Radios.Lexicon.Get("connect.home.frequency",
-                ("freqText", freqText), ("slice", RigControl.VFOToLetter(slice)));
+            // #642: which slice, by the operator's setting, read off the
+            // transmit and selected slices deliberately. Until then this
+            // spoke the transmit frequency while keyed and the radio's active
+            // slice otherwise, under the active slice's letter either way.
+            var formatFreq = OpenParms.FormatFreq;
+            string speech = Radios.FrequencyKeyReadout.Sentence(
+                Radios.FrequencyKeyReadout.Setting, Radios.SliceRoles.Of(RigControl),
+                hz => formatFreq(hz));
 
             // In Modern mode, append both step sizes — tuning unity removed
             // the "current mode" concept, so we report what Up and Shift+Up

@@ -70,9 +70,11 @@ namespace Radios.Tests.StationConnect
         public void EachMuteWrite_TakesTheHoldAndTheValuePcAudioAsksFor(string guard, bool muted)
         {
             string text = FlexBaseSource();
-            int at = text.IndexOf("if (!GuardSkips(\"" + guard + "\"))", StringComparison.Ordinal);
+            // Either form of the guard (round five: the stop's returns early,
+            // and its write is pinned at the bytes, so the window is wider).
+            int at = text.IndexOf("GuardSkips(\"" + guard + "\")", StringComparison.Ordinal);
             Assert.True(at > 0, "the guarded write '" + guard + "' is gone");
-            string body = text.Substring(at, 200);
+            string body = text.Substring(at, 300);
             Assert.Contains("IsMuteLocalAudioWhenRemoteOn = " + (muted ? "true" : "false") + ";", body, StringComparison.Ordinal);
         }
 
@@ -92,8 +94,9 @@ namespace Radios.Tests.StationConnect
                 "IsMuteLocalAudioWhenRemoteOn=false on remote audio stop",
             })
             {
-                int at = text.IndexOf("if (!GuardSkips(\"" + guard + "\"))", StringComparison.Ordinal);
-                string body = text.Substring(at, 200);
+                int at = text.IndexOf("GuardSkips(\"" + guard + "\")", StringComparison.Ordinal);
+                Assert.True(at > 0, "the guarded write '" + guard + "' is gone");
+                string body = text.Substring(at, 300);
                 foreach (var forbidden in new[] { "Roster", "OnlyUs", "Ownership", "OwnerShared" })
                 {
                     Assert.DoesNotContain(forbidden, body, StringComparison.Ordinal);

@@ -46,14 +46,24 @@ namespace Radios.Tests
             Set(slice, "_active", active);
             Set(slice, "_demodMode", mode);
             Set(slice, "_freq", mhz);
+            // A slice from a status is unlocked. FlexLib's own default is
+            // locked, and a tune on a locked slice is refused at the press
+            // since repair round 5 (#642), so these tests of what a tune
+            // leaves behind start from an unlocked slice, as a radio's do.
+            Set(slice, "_lock", false);
             return slice;
         }
 
         private static void Set(object o, string field, object value)
             => o.GetType().GetField(field, Private)!.SetValue(o, value);
 
+        // The frequency caches became properties over one value carrying the
+        // number and its slice (#642, repair round 2), so a name may be either.
         private static object? Field(object o, string field)
-            => typeof(FlexBase).GetField(field, Private)!.GetValue(o);
+            // Property first: AllRadios has protected fields of the same names
+            // that FlexBase hides and never writes.
+            => typeof(FlexBase).GetProperty(field, Private | BindingFlags.DeclaredOnly)?.GetValue(o)
+               ?? typeof(FlexBase).GetField(field, Private)!.GetValue(o);
 
         /// <summary>The real connect path, on a slice that raises nothing.</summary>
         private static void SliceArrives(FlexBase rig, Slice slice)
@@ -73,7 +83,7 @@ namespace Radios.Tests
             // The fields, not the properties: the properties ask the slice when
             // the field is empty, so reading them cannot show the fill.
             Assert.Equal("USB", Field(rig, "_TXMode"));
-            Assert.Equal(21_195_000UL, Field(rig, "_TXFrequency"));
+            Assert.Equal(21_195_000UL, rig.TxCacheHz);
         }
 
         [Fact]
@@ -114,7 +124,7 @@ namespace Radios.Tests
             rig._TXVFO = 0;
 
             Assert.Equal("", Field(rig, "_TXMode"));   // positive control
-            Assert.Equal(0UL, Field(rig, "_TXFrequency"));
+            Assert.Equal(0UL, rig.TxCacheHz);
 
             Assert.Equal("LSB", rig.TXMode);
             Assert.Equal(7_200_000UL, rig.TXFrequency);
@@ -292,7 +302,7 @@ namespace Radios.Tests
 
             AssertNoTransmitFacts(rig);
             Assert.Equal("", Field(rig, "_TXMode"));
-            Assert.Equal(0UL, Field(rig, "_TXFrequency"));
+            Assert.Equal(0UL, rig.TxCacheHz);
             Assert.Equal(1, rig.q.Count); // the write itself still goes, as it always did
         }
 
@@ -329,7 +339,8 @@ namespace Radios.Tests
             string connect = File.ReadAllText(Path.Combine(Repo(), "Radios", "FlexBase.cs"));
             int fresh = connect.IndexOf("_radioReportedAutosave = false;", StringComparison.Ordinal);
             Assert.True(fresh > 0);
-            Assert.Contains("ForgetTransmitCaches(null);", connect.Substring(fresh, 300), StringComparison.Ordinal);
+            // Through the one commit since repair round 11 (CommitSliceFacts).
+            Assert.Contains("ForgetTransmitCaches(null)", connect.Substring(fresh, 400), StringComparison.Ordinal);
         }
 
         private static string Repo()
@@ -348,7 +359,7 @@ namespace Radios.Tests
 
             Assert.Equal("", Field(rig, "_TXMode"));
             Assert.Equal("", Field(rig, "_RXMode"));
-            Assert.Equal(0UL, Field(rig, "_TXFrequency"));
+            Assert.Equal(0UL, rig.TxCacheHz);
         }
 
         [Fact]
@@ -362,7 +373,7 @@ namespace Radios.Tests
             SliceArrives(rig, slice);
 
             Assert.Equal("LSB", rig.RXMode);
-            Assert.Equal(7_200_000UL, Field(rig, "_RXFrequency"));
+            Assert.Equal(7_200_000UL, rig.RxCacheHz);
             Assert.True(rig.RIT.Active);
             Assert.Equal(120, rig.RIT.Value);
             Assert.False(rig.XIT.Active); // the transmit half stays out of it

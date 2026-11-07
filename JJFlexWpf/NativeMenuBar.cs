@@ -3683,6 +3683,8 @@ public class NativeMenuBar : IDisposable
                     audioConfig.TuningHash = rootConfig.TuningHash;
                 if (rootConfig.TypingSound != TypingSoundMode.Beep)
                     audioConfig.TypingSound = rootConfig.TypingSound;
+                // #642, #863: root decides these, with a radio or without.
+                audioConfig.TakeOperatorChoicesFrom(rootConfig);
             }
             _window.CurrentAudioConfig = audioConfig;
         }
@@ -3700,6 +3702,10 @@ public class NativeMenuBar : IDisposable
         }
 
         var dialog = new Dialogs.SettingsDialog(pttConfig, coarseStep, fineStep, licenseConfig, audioConfig);
+        // With no radio the PTT tab edits a throwaway (its settings are saved
+        // per operator beside a radio's configuration); the commit says so
+        // rather than "Settings saved." (the 8600 bench's Fail 3, #496).
+        dialog.PttSettingsHaveAHome = _window.CurrentPttConfig != null;
         dialog.FreqHandlers = _window.FreqHandlers;
         // The Audio tab's device picker needs audioDevices.xml. Prefer the path
         // the connect handed us; fall back to the one globals publishes at

@@ -120,7 +120,7 @@ public sealed class LocalPlaybackVoxTests : IDisposable
         Assert.True(pause!.Holding);
 
         typeof(FlexBase).GetMethod("DisconnectVoxPauses", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(f.Rig, null);
+            .Invoke(f.Rig, new object[] { true });
         Assert.Equal(f.Vendor.Radio.Serial,
             typeof(FlexBase).GetField("_voxPausedAtDisconnectSerial", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .GetValue(f.Rig));

@@ -177,29 +177,7 @@ namespace Radios
                         q_t.QItem_t el = q.Dequeue();
                         try
                         {
-                            if (el.Item is FunctionDel)
-                            {
-                                Tracing.TraceLine("mainLoop:" + el.Name, TraceLevel.Info);
-                                FunctionDel func = (FunctionDel)el.Item;
-                                if (func != null) func();
-                                Tracing.TraceLine("mainLoop:done " + el.Name, TraceLevel.Info);
-                            }
-                            else if (el.Item is cwText)
-                            {
-                                cwText cwt = (cwText)el.Item;
-                                if (cwt.State == cwBufferState.stop)
-                                {
-                                    stopCW();
-                                }
-                                else
-                                {
-                                    sendCWString(cwt.Text);
-                                }
-                            }
-                            else if (el.Item is char)
-                            {
-                                sendCWChar(((char)el.Item));
-                            }
+                            RunQueuedItem(el);
                         }
                         catch (Exception ex)
                         {
@@ -225,7 +203,7 @@ namespace Radios
                     keepAlive = null;
                 }
 #endif
-                q.MainLoop = false;
+                CloseCommandQueue();
 
                 raisePowerEvent(false);
             }
@@ -237,6 +215,63 @@ namespace Radios
                     Tracing.ErrMessageTrace(ex, true);
             }
         }
+        /// <summary>
+        /// One item off the command queue, run as the main loop runs it (repair
+        /// round 3: one method, so a test drains the queue through the
+        /// production dispatch rather than a copy of it). Admitted CW is
+        /// checked against its generation, radio and connection with its send
+        /// as one step (<see cref="SendIfStillAdmitted"/>).
+        /// </summary>
+        /// <summary>
+        /// The main loop's end (integration fixes 1 and 2): the queue stops
+        /// accepting work, and the items it accepted but did not run are
+        /// DROPPED, never run (Codex's B1: an ordinary queued write has no pin
+        /// to its connection, so nothing it would have written may go out after
+        /// close). Each one's caller is told, the way a refusal tells it.
+        /// </summary>
+        internal void CloseCommandQueue()
+        {
+            foreach (var el in q.CloseAndTakeRest())
+            {
+                Tracing.TraceLine("mainLoop (closing): '" + el.Name + "' was accepted but not run, and is dropped",
+                    TraceLevel.Info);
+                try { el.OnDropped?.Invoke(); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("mainLoop (closing): the drop of '" + el.Name + "' threw: " + ex.Message, TraceLevel.Error);
+                }
+            }
+        }
+
+        internal void RunQueuedItem(q_t.QItem_t el)
+        {
+            if (el.Item is FunctionDel)
+            {
+                Tracing.TraceLine("mainLoop:" + el.Name, TraceLevel.Info);
+                FunctionDel func = (FunctionDel)el.Item;
+                if (func != null) func();
+                Tracing.TraceLine("mainLoop:done " + el.Name, TraceLevel.Info);
+            }
+            else if (el.Item is cwText)
+            {
+                cwText cwt = (cwText)el.Item;
+                if (cwt.State == cwBufferState.stop)
+                {
+                    stopCW();
+                    return;
+                }
+                // Admitted before a drop or a teardown, or on another
+                // connection (#596 N4): dropped, not sent.
+                SendIfStillAdmitted(cwt.Generation, cwt.Owner, cwt.Connection, cwt.IsChar ? "CW typing" : "a CW message", () =>
+                {
+                    if (cwt.IsChar && !string.IsNullOrEmpty(cwt.Text)) sendCWChar(cwt.Text[0]);
+                    else sendCWString(cwt.Text);
+                });
+            }
+            // A raw char item (sent without an admission check) is no longer
+            // accepted: characters are admitted cwText items (integration fix).
+        }
+
         public class cfg7620
         {
             public int BreakinDelay = 300;
@@ -847,11 +882,27 @@ namespace Radios
 
         private string importDir;
         private bool wasPCAudio;
+
+        /// <summary>
+        /// The power-off notice being raised right now is a profile import's,
+        /// not a teardown (integration fixes 1 and 2): the UI keeps the
+        /// connection's drop handling wired and does not run the teardown's
+        /// release for it. One-shot and scoped to that notice (Codex's F2): set
+        /// just before the import raises it, taken by the first reader, and
+        /// cleared when the raise returns, whether the import then succeeds,
+        /// fails or throws, and at every new command connection. A later power
+        /// event is never classified by it.
+        /// </summary>
+        public bool TakeImportPowerOff() => System.Threading.Interlocked.Exchange(ref _importPowerOffPending, 0) == 1;
+        private int _importPowerOffPending;
+
         internal void ImportProfile(string name)
         {
             // Save the import temp directory.
             importDir = name.Substring(0, name.LastIndexOf('\\'));
-            raisePowerEvent(false);
+            System.Threading.Interlocked.Exchange(ref _importPowerOffPending, 1);
+            try { raisePowerEvent(false); }
+            finally { System.Threading.Interlocked.Exchange(ref _importPowerOffPending, 0); }
 
             // If remote audio was on, turn it off.
             wasPCAudio = PCAudio;
@@ -871,6 +922,7 @@ namespace Radios
             // send only if in transmit mode or VOX is on
             if (!Transmit & (Vox == OffOnValues.off)) return;
 
+            _cwSentThisConnection = true;
             cwx.Send(c.ToString());
 #if CWMonitor
             if (useCWMon)
@@ -887,6 +939,7 @@ namespace Radios
             // send only if in transmit mode or VOX is on
             if (!Transmit & (Vox == OffOnValues.off)) return;
 
+            _cwSentThisConnection = true;
             cwx.Send(str);
 #if CWMonitor
             //sentChars.Append(str);

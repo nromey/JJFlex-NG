@@ -1203,7 +1203,7 @@ namespace Radios
                 if (!RemoteRig)
                 {
                     // mic_input is station-global and outlives the session (audit 1.7).
-                    r.MicInput = "mic";
+                    SetMicInputTracked(r, "mic");   // echoed to its writer; its echo tied to this write (round six)
                 }
                 // Radio-persistent: an owner who deliberately set either gets it
                 // reset every time we connect (audit 1.4).

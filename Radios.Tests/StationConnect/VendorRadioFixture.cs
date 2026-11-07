@@ -41,10 +41,83 @@ namespace Radios.Tests.StationConnect
             return true;
         }
         public override void Disconnect() { }
+
+        /// <summary>
+        /// The link falls (repair round 4): FlexLib marks the current
+        /// connection Disconnected and KEEPS it as the current one, as the
+        /// real transports do.
+        /// </summary>
+        public void Fall()
+        {
+            var connection = CurrentConnection;
+            if (connection != null) PublishDisconnected(connection);
+        }
+
+        /// <summary>The same transport connects again: a NEW command connection, as a same-Radio reconnect makes.</summary>
+        public void Reconnect()
+        {
+            Fall();
+            var connection = BeginConnection();
+            PublishConnected(connection);
+        }
+
+        /// <summary>
+        /// A line arriving from the radio, as the real transport delivers one:
+        /// to every <c>DataReceived</c> subscriber, with this connection. The
+        /// Radio's own parser is not subscribed to this fake (see above); what
+        /// is, is the app's own reader of the radio's interlock reports (repair
+        /// round 3, <c>Radios.InterlockReports</c>).
+        /// </summary>
+        public void Deliver(string line)
+        {
+            var connection = CurrentConnection;
+            if (connection != null) PublishData(connection, line);
+        }
+
         public Action<string>? CommandWritten;
+
+        /// <summary>
+        /// What the radio sends back to THIS client for a write it took, before
+        /// the reply (round five). Set by <see cref="VendorRadioFixture"/>; see
+        /// its <c>EchoesMicInput</c> for what the 8600 was measured to echo.
+        /// </summary>
+        public Action<string>? EchoToWriter;
+
+        /// <summary>The next admitted write fails before its bytes, as a throwing writer does (repair round 9).</summary>
+        public volatile bool FailNextWrite;
+
+        /// <summary>Every admitted write whose command starts with this fails, until cleared (repair round 10).</summary>
+        public volatile string? FailEveryWriteOf;
         public override void Write(string msg)
         {
-            lock (Written) Written.Add(msg ?? "");
+            // The write-time gate (MIGRATION.md item 21) as the real adapters
+            // apply it: this fake's one attempt is its current connection. And
+            // the outcome, after the "writer" (item 22): a write the test makes
+            // fail is not recorded and refuses its pin, as a throwing writer does.
+            var pin = CurrentPin;
+            if (!AdmitWrite(CurrentConnection)) return;
+            // And the write order (item 25), as the real adapters apply it: the
+            // pin's question at the bytes and the "writer" under the write gate,
+            // the outcome told after it is let go.
+            string? failAll = FailEveryWriteOf;
+            string? refused = null;
+            bool failed = false;
+            EnterWriteGate();
+            try
+            {
+                if (!AdmitAtTheBytes(pin, out refused)) { }
+                else if (FailNextWrite || (failAll != null && CommandText(msg ?? "").StartsWith(failAll, StringComparison.Ordinal)))
+                {
+                    FailNextWrite = false;
+                    failed = true;
+                }
+                else lock (Written) Written.Add(msg ?? "");
+            }
+            finally { ExitWriteGate(); }
+            if (refused != null) { ReportRefusal(pin, refused); return; }
+            if (failed) { ReportWrite(pin, false, "the write failed (test)"); return; }
+            ReportWrite(pin, true);
+            EchoToWriter?.Invoke(CommandText(msg ?? ""));
             CommandWritten?.Invoke(CommandText(msg ?? ""));
         }
 
@@ -103,7 +176,27 @@ namespace Radios.Tests.StationConnect
                 args: new object[] { false }, culture: null)!;
             typeof(Radio).GetProperty(nameof(Radio.Serial))!.GetSetMethod(nonPublic: true)!.Invoke(Radio, new object[] { serial });
             TransportField.SetValue(Radio, Transport);
+            Transport.EchoToWriter = EchoAsThe8600Does;
             typeof(Radio).GetProperty(nameof(Radio.Connected))!.GetSetMethod(nonPublic: true)!.Invoke(Radio, new object[] { true });
+        }
+
+        /// <summary>
+        /// The radio echoes a <c>mic input</c> write to the client that wrote it
+        /// (round five; measured on the 8600 over LAN with a raw client,
+        /// 2026-11-06, micechoprobe.log: the writer got its own
+        /// <c>transmit ... mic_selection=BAL</c> within 8 ms, before the reply).
+        /// It does NOT echo <c>radio set mute_local_audio_when_remote</c>
+        /// (muteechoprobe.log, reply only) or <c>slice tune</c> (bench 1), and
+        /// those get nothing here. Every other write is unmeasured and gets
+        /// nothing. A test that needs the echo late turns this off and delivers
+        /// the status itself.
+        /// </summary>
+        public bool EchoesMicInput = true;
+
+        private void EchoAsThe8600Does(string command)
+        {
+            if (!EchoesMicInput || !command.StartsWith("mic input ", StringComparison.Ordinal)) return;
+            Status("transmit mic_selection=" + command.Substring(10).Trim().ToUpperInvariant());
         }
 
         /// <summary>The radio answers command <paramref name="seq"/> with success.</summary>
@@ -113,8 +206,14 @@ namespace Radios.Tests.StationConnect
         public void Reply(int seq, uint code, string text) =>
             ParseReplyMethod.Invoke(Radio, new object[] { "R" + seq + "|" + code.ToString("X") + "|" + (text ?? "") });
 
-        /// <summary>A status line from the radio, e.g. "profile tx current=K5NER-TX".</summary>
-        public void Status(string body) => ParseStatusMethod.Invoke(Radio, new object[] { "S0|" + body });
+        /// <summary>A status line from the radio, e.g. "profile tx current=K5NER-TX".
+        /// Parsed by FlexLib, and delivered through the transport as the real
+        /// line would be, so the app's own readers of it see it too.</summary>
+        public void Status(string body)
+        {
+            ParseStatusMethod.Invoke(Radio, new object[] { "S0|" + body });
+            Transport.Deliver("S0|" + body);
+        }
 
         /// <summary>The last command written, as text.</summary>
         public string LastCommand => Transport.Commands.Last();
@@ -186,6 +285,12 @@ namespace Radios.Tests.StationConnect
             TheRadioField.SetValue(Rig, Vendor.Radio);
             ClientHandleField.SetValue(Rig, OurHandle);
             Rig.BeginStationAttempt(Vendor.Radio, "vendor fixture");
+            // A connected radio reports its interlock at connect; the app reads
+            // that report itself (repair round 3, #861 R3), so the fixture
+            // starts where a real connect does: watched, and READY reported.
+            // A test of "never reported" builds its own radio.
+            Assert.True(Radios.InterlockReports.Watch(Vendor.Radio), "the interlock report watch did not attach to the fixture's transport");
+            Vendor.Status("interlock state=READY");
             Binding = Rig.BindingFor(Vendor.Radio);
             // The PRODUCTION radio property feed, subscribed the way
             // radioPropertyChangedHandler subscribes it (pinned in

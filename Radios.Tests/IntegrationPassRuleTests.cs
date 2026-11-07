@@ -34,8 +34,8 @@ namespace Radios.Tests
     public class IntegrationPassRuleTests
     {
         // ═══════════════════════════════════════════════════════════════
-        //  Reflected power: three numbers, two of which are required by
-        //  their own comments to agree
+        //  Reflected power: one SWR ladder, and the two consumers of its
+        //  warn rung required by their own comments to agree
         // ═══════════════════════════════════════════════════════════════
 
         /// <summary>
@@ -65,62 +65,226 @@ namespace Radios.Tests
 
         /// <summary>
         /// Every reflected-power threshold in the tree, measured against the
-        /// one the live warning uses.
+        /// diagnostic SWR ladder: each must be one of its rungs.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// Discovery, not a list: any constant in the Radios assembly whose
-        /// name speaks of a reflected fraction or percentage, plus every
+        /// name speaks of a reflected fraction or percentage, any numeric
+        /// constant whose name speaks of SWR, plus every
         /// <c>reflected-percent</c> test in the shipped rule file. A fourth
         /// threshold added tomorrow is found tomorrow.
+        /// </para>
+        /// <para>
+        /// <b>Changed on purpose 2026-11-02 (#237).</b> This rule used to
+        /// require every reflected threshold to EQUAL the live warning's, which
+        /// the ruled ladder contradicts by design: suspect, warn and abort are
+        /// three different numbers with three different jobs. What the ruling
+        /// forbids is a threshold that belongs to NO rung, a free-standing
+        /// literal in either unit, and that is what this now finds. The
+        /// protective cut is in watts and is not on this ladder at all; the
+        /// forward-floor rule below sorts it as a rung of its own.
+        /// </para>
         /// </remarks>
         [Fact]
-        public void Every_reflected_power_threshold_is_the_same_number()
+        public void Every_reflected_power_threshold_derives_from_the_swr_ladder()
         {
-            double canonical = TransmitSafety.ReflectedWarnFraction * 100.0;
-            var seen = new List<(string Where, double Percent)>();
+            double[] rungs = { SwrLadder.Suspect, SwrLadder.Warn, SwrLadder.Abort };
+            var percents = new List<(string Where, double Percent)>();
+            var swrs = new List<(string Where, double Swr)>();
 
             foreach (Type t in typeof(TransmitSafety).Assembly.GetTypes())
             {
+                if (t.IsEnum) continue;
                 foreach (FieldInfo f in t.GetFields(BindingFlags.Public | BindingFlags.NonPublic
                                                     | BindingFlags.Static | BindingFlags.FlattenHierarchy))
                 {
                     if (!f.IsLiteral || f.IsInitOnly) continue;
-                    if (f.Name.IndexOf("Reflected", StringComparison.Ordinal) < 0) continue;
-
-                    bool percent = f.Name.EndsWith("Percent", StringComparison.Ordinal);
-                    bool fraction = f.Name.EndsWith("Fraction", StringComparison.Ordinal);
-                    if (!percent && !fraction) continue;   // Watts and Seconds are other quantities
-
                     object? raw = f.GetRawConstantValue();
-                    if (raw == null) continue;
+                    if (raw == null || raw is string || raw is bool || raw is char) continue;
                     double v = Convert.ToDouble(raw, CultureInfo.InvariantCulture);
-                    seen.Add((t.Name + "." + f.Name, fraction ? v * 100.0 : v));
+                    string where = t.Name + "." + f.Name;
+
+                    switch (ClassifyThreshold(f.Name))
+                    {
+                        case ThresholdUnit.Percent: percents.Add((where, v)); break;
+                        case ThresholdUnit.Fraction: percents.Add((where, v * 100.0)); break;
+                        case ThresholdUnit.Swr: swrs.Add((where, v)); break;
+                    }
                 }
             }
 
-            seen.Add(("tx-chain-rules.txt/power-coming-back", PowerComingBackThresholdPercent()));
+            // Every swr and reflected-percent condition in EVERY rule of the
+            // shipped file, not just power-coming-back's: high-swr sat at SWR 3
+            // for a day after the ladder was ruled because nothing read it.
+            foreach (var (where, fact, value) in ShippedRuleThresholds())
+            {
+                if (fact == "swr") swrs.Add((where, value));
+                else percents.Add((where, value));
+            }
 
-            // POSITIVE CONTROL. If a rename empties this sweep it must say so,
-            // not report that every threshold agrees.
-            Assert.True(seen.Count >= 3,
-                "Only " + seen.Count + " reflected-power threshold(s) were discovered, so this rule "
+            // POSITIVE CONTROLS. If a rename empties this sweep it must say
+            // so, not report that every threshold is on the ladder.
+            Assert.True(percents.Count >= 3,
+                "Only " + percents.Count + " reflected-power percentage(s) were discovered, so this rule "
                 + "is no longer describing the tree it is meant to police. Found: "
-                + string.Join(", ", seen.Select(s => s.Where)));
-            Assert.Contains(seen, s => s.Where == "TransmitSafety.ReflectedWarnFraction");
+                + string.Join(", ", percents.Select(s => s.Where)));
+            Assert.Contains(percents, s => s.Where == "TransmitSafety.ReflectedWarnFraction");
+            Assert.Contains(percents, s => s.Where == "TxTuneProbe.ReflectedAbortPercent");
+            Assert.Contains(swrs, s => s.Where == "TxTuneProbe.SwrAbort");
+            Assert.Contains(percents, s => s.Where == "tx-chain-rules.txt/power-coming-back");
+            Assert.Contains(swrs, s => s.Where == "tx-chain-rules.txt/high-swr");
+            // The name classifier must see an SWR however it is written,
+            // including inside a Reflected name, and must not count watts.
+            Assert.Equal(ThresholdUnit.Swr, ClassifyThreshold("ReflectedSwrAbort"));
+            Assert.Equal(ThresholdUnit.Swr, ClassifyThreshold("SWRUnexpected"));
+            Assert.Equal(ThresholdUnit.Swr, ClassifyThreshold("SwrUnexpected"));
+            Assert.Equal(ThresholdUnit.Percent, ClassifyThreshold("ReflectedWarnPercent"));
+            Assert.Equal(ThresholdUnit.Fraction, ClassifyThreshold("ReflectedWarnFraction"));
+            Assert.Equal(ThresholdUnit.None, ClassifyThreshold("ReflectedCutWatts"));
+            Assert.Equal(ThresholdUnit.None, ClassifyThreshold("SWRNoReading"));
+            // And the matcher must be able to say no: the old free-standing
+            // percentages, 20, 40 and 50, and the old suspect SWR of 3, are
+            // exactly what this rule exists to find.
+            foreach (double old in new[] { 20.0, 40.0, 50.0 })
+                Assert.False(OnLadderPercent(old, rungs), old + " percent reads as a ladder rung");
+            Assert.False(OnLadderSwr(3.0, rungs), "SWR 3 reads as a ladder rung");
 
-            var findings = seen
-                .Where(s => Math.Abs(s.Percent - canonical) >= 0.001)
+            var findings = percents
+                .Where(s => !OnLadderPercent(s.Percent, rungs))
                 .Select(s => new Finding(Rules.ReflectedThreshold, s.Where,
                     s.Where + " fires at " + s.Percent.ToString("0.##", CultureInfo.InvariantCulture)
-                    + " percent while TransmitSafety.ReflectedWarnFraction warns at "
-                    + canonical.ToString("0.##", CultureInfo.InvariantCulture)
-                    + " percent. Nothing connects them, so nothing would notice if one moved."));
+                    + " percent reflected, which is no rung of the SWR ladder ("
+                    + string.Join(", ", rungs.Select(r => "SWR " + r.ToString("0.##", CultureInfo.InvariantCulture)
+                        + " = " + SwrLadder.ReflectedPercentAt(r).ToString("0.##", CultureInfo.InvariantCulture) + " percent"))
+                    + "). Derive it from SwrLadder, or nothing connects it to the others."))
+                .Concat(swrs
+                .Where(s => !OnLadderSwr(s.Swr, rungs))
+                .Select(s => new Finding(Rules.ReflectedThreshold, s.Where,
+                    s.Where + " is SWR " + s.Swr.ToString("0.##", CultureInfo.InvariantCulture)
+                    + ", which is no rung of the SWR ladder. Derive it from SwrLadder.")));
 
             Gate(Rules.ReflectedThreshold,
-                 "Reflected power is one physical quantity. Every threshold on it should trace "
-                 + "back to one constant, or the radio gets judged by two different rulers.",
+                 "Reflected power is one physical quantity. Every threshold on it should be a rung "
+                 + "of the one SWR ladder, or the radio gets judged by two different rulers.",
                  findings);
         }
+
+        internal enum ThresholdUnit { None, Percent, Fraction, Swr }
+
+        /// <summary>
+        /// What a constant's NAME says its number is. A name ending Percent or
+        /// Fraction is a reflected share; otherwise any spelling of SWR is a
+        /// ratio, inside a Reflected name too (the first version of this sweep
+        /// let the Reflected branch win and so skipped <c>ReflectedSwrAbort</c>).
+        /// Watts, seconds and counts are other quantities.
+        /// </summary>
+        internal static ThresholdUnit ClassifyThreshold(string name)
+        {
+            // A sentinel is not a threshold: SWRNoReading (-25) is what the radio
+            // publishes to mean "no reading", and judging it against the ladder
+            // would be judging a non-answer.
+            if (name.IndexOf("NoReading", StringComparison.OrdinalIgnoreCase) >= 0) return ThresholdUnit.None;
+            bool reflected = name.IndexOf("Reflected", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool swr = name.IndexOf("Swr", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (reflected || swr)
+            {
+                if (name.EndsWith("Percent", StringComparison.Ordinal)) return ThresholdUnit.Percent;
+                if (name.EndsWith("Fraction", StringComparison.Ordinal)) return ThresholdUnit.Fraction;
+            }
+            return swr ? ThresholdUnit.Swr : ThresholdUnit.None;
+        }
+
+        /// <summary>
+        /// Every numeric swr and reflected-percent condition, needs and
+        /// broken-when alike, in every rule of the shipped transmit-chain file.
+        /// </summary>
+        private static IEnumerable<(string Where, string Fact, double Value)> ShippedRuleThresholds() =>
+            RuleThresholds(RuleSetLoader.TxChain());
+
+        /// <summary>
+        /// The collector itself, over any rule set (junk box repair round 3,
+        /// Codex's #237 follow-ups): a synthetic rule goes through exactly what
+        /// the shipped file goes through. Fact names compare case-insensitively,
+        /// as production's fact lookup does (<c>DiagnosticFacts.Find</c>), and
+        /// come back lowercase so the unit is chosen the same way.
+        /// </summary>
+        private static IEnumerable<(string Where, string Fact, double Value)> RuleThresholds(DiagnosticRuleSet set)
+        {
+            foreach (DiagnosticRule rule in set.Rules)
+                foreach (Condition c in rule.Needs.Concat(rule.BrokenWhen))
+                {
+                    string fact = (c.FactName ?? "").ToLowerInvariant();
+                    if (fact != "swr" && fact != "reflected-percent") continue;
+                    if (!TryNumberAsParsed(c, out double value)) continue;
+                    yield return ("tx-chain-rules.txt/" + rule.Id, fact, value);
+                }
+        }
+
+        /// <summary>The finding the sweep makes for one collected threshold, by its own unit, or null when it is on the ladder.</summary>
+        private static string? OffLadder((string Where, string Fact, double Value) t, double[] rungs) =>
+            t.Fact == "swr"
+                ? (OnLadderSwr(t.Value, rungs) ? null : t.Where)
+                : (OnLadderPercent(t.Value, rungs) ? null : t.Where);
+
+        [Theory]
+        [InlineData("swr above 4e1", false)]
+        [InlineData("reflected-percent above .36", false)]
+        [InlineData("SWR above 3", false)]
+        [InlineData("REFLECTED-PERCENT above 40", false)]
+        [InlineData("swr above 4", true)]
+        [InlineData("Swr above 5", true)]
+        [InlineData("reflected-percent above 36", true)]
+        public void A_rule_with_any_spelling_goes_through_the_collector_and_is_judged_by_its_own_unit(string condition, bool onLadder)
+        {
+            // Junk box repair round 3, Codex's #237 follow-ups: the theory below
+            // tested the number helper, not the collector that must call it,
+            // and the collector skipped a mixed-case fact name production reads.
+            var set = DiagnosticRuleSet.Parse(
+                "ruleset: test\n\nrule: synthetic\nin-stage: 12\nneeds: transmitting is yes\nbroken-when: " + condition
+                + "\nverdict: test\nfix: test\n", "test");
+            var found = RuleThresholds(set).ToList();
+            Assert.Single(found);
+            var rungs = new[] { SwrLadder.Suspect, SwrLadder.Warn, SwrLadder.Abort };
+            Assert.Equal(onLadder, OffLadder(found[0], rungs) == null);
+        }
+
+        /// <summary>
+        /// The number a numeric condition compares against, AS THE PRODUCTION
+        /// PARSER READ IT (junk box repair round 2, Codex's re-check of #237):
+        /// a regex over the text read "swr above 4e1" as 4 and "reflected-percent
+        /// above .36" as 36, while the rule compares against 40 and 0.36.
+        /// </summary>
+        private static bool TryNumberAsParsed(Condition c, out double value)
+        {
+            const BindingFlags Hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            var op = typeof(Condition).GetField("_op", Hidden)!.GetValue(c)!.ToString();
+            value = (double)typeof(Condition).GetField("_number", Hidden)!.GetValue(c)!;
+            return op is "Below" or "Above" or "AtMost" or "AtLeast";
+        }
+
+        [Theory]
+        [InlineData("swr above 4e1", 40.0)]
+        [InlineData("reflected-percent above .36", 0.36)]
+        [InlineData("swr above 4", 4.0)]
+        [InlineData("reflected-percent above 36", 36.0)]
+        public void The_sweep_reads_each_threshold_as_the_rule_compares_it(string text, double expected)
+        {
+            Condition c = Condition.Parse(text, out string problem);
+            Assert.Null(problem);
+            Assert.True(TryNumberAsParsed(c, out double value));
+            Assert.Equal(expected, value, 6);
+            // And an off-ladder spelling is off the ladder.
+            if (expected is 40.0 or 0.36)
+                Assert.False(OnLadderSwr(value, new[] { SwrLadder.Suspect, SwrLadder.Warn, SwrLadder.Abort })
+                             && OnLadderPercent(value, new[] { SwrLadder.Suspect, SwrLadder.Warn, SwrLadder.Abort }));
+        }
+
+        private static bool OnLadderPercent(double percent, double[] rungs)
+            => rungs.Any(r => Math.Abs(SwrLadder.ReflectedPercentAt(r) - percent) < 0.001);
+
+        private static bool OnLadderSwr(double swr, double[] rungs)
+            => rungs.Any(r => Math.Abs(r - swr) < 0.000001);
 
         // ═══════════════════════════════════════════════════════════════
         //  Forward power: one floor in watts, discovered, never a literal

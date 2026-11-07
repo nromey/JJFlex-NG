@@ -43,6 +43,26 @@ public partial class CheckYourAudioDialog
     private CountdownRun? _startCountdown;
 
     /// <summary>
+    /// What this start decided about where it will transmit (#863): the place
+    /// it read and the sentence it said, if one was owed. Kept until the key,
+    /// where the place is read again (TransmitSliceNotice.StillTheAnnouncedPlace).
+    /// Null for a method that keys nothing.
+    /// </summary>
+    private TransmitSliceNotice.Notice? _transmitSliceNotice;
+
+    /// <summary>
+    /// Whether a method keys the operator's transmit slice, and so owes the
+    /// sentence (#863). The computer microphone check keys nothing. Loopback
+    /// DOES (Codex's check, B4, confirmed): its arrangement moves the transmit
+    /// antenna to a transverter port and adds a listening slice, but the key is
+    /// still KeyForCheck on the transmit slice, at its frequency, and the line
+    /// said to name that frequency (audio.check.loopback_line) is spoken
+    /// nowhere. So it gets the notice like every other door.
+    /// </summary>
+    internal static bool KeysTheTransmitSlice(AudioCheckListenMethods method) =>
+        method != AudioCheckListenMethods.ComputerMic;
+
+    /// <summary>
     /// Begin the count for a start that is about to set up. Nothing when the
     /// operator has turned the countdown off. Called only after the start has
     /// been admitted, so two never overlap.
@@ -51,6 +71,18 @@ public partial class CheckYourAudioDialog
     {
         HookCountdownSkipKeys();
         _startCountdown?.Cancel();
+
+        // Say it, then go (#863; Noel, 2026-11-02): where this will transmit,
+        // when that is not the selected slice. Said FIRST, so a count that is
+        // on is queued behind it, on the notice's own subject, so skipping the
+        // count cannot take it back. Check your audio says it whatever the
+        // setting and every time (mandatory): it keys the radio itself, after a
+        // count, from a window that does not show the slice (ruled 2026-11-03).
+        // CountdownLetsKeyAsync waits for it, whole, count or no count.
+        _transmitSliceNotice = KeysTheTransmitSlice(method)
+            ? TransmitSliceNotice.Prepare(_rig ?? RigSource?.Invoke(), "Check your audio, " + method, mandatory: true)
+            : null;
+
         _countdownStartedTick = Environment.TickCount64;
         var plan = CheckCountdown.PlanFor(method, CountdownSettings.Current,
             EarconPlayer.IsOn(EarconPlayer.EarconCategory.Transmit),
@@ -72,18 +104,72 @@ public partial class CheckYourAudioDialog
     private async Task<bool> CountdownLetsKeyAsync()
     {
         var run = _startCountdown;
-        if (run == null) return true;
-        bool go = await run.ReadyToKeyAsync();
-        if (!go && run.SpeechStalled)
+        if (run != null)
         {
-            // The count's words never got out (Codex round 1, blocker 1), so it
-            // stopped rather than key behind a warning nobody heard. Say why,
-            // with a sound as well, since speech is what just failed.
-            // DRAFT PROSE (#835): awaiting Noel.
-            EarconPlayer.LeaderInvalidTone();
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.countdown.not_heard"), VerbosityLevel.Critical, interrupt: true);
+            bool go = await run.ReadyToKeyAsync();
+            if (!go && run.SpeechStalled)
+            {
+                // The count's words never got out (Codex round 1, blocker 1), so it
+                // stopped rather than key behind a warning nobody heard. Say why,
+                // with a sound as well, since speech is what just failed.
+                // DRAFT PROSE (#835): awaiting Noel.
+                EarconPlayer.LeaderInvalidTone();
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.countdown.not_heard"), VerbosityLevel.Critical, interrupt: true);
+            }
+            if (!go) return false;
         }
-        return go;
+        // The notice holds the key on its OWN gate (#863, Codex's check, B1):
+        // a count that ends, beeps without words, or is skipped with a bare
+        // Control proves nothing about the sentence before it.
+        // A start cancelled while its notice is queued stops waiting at once
+        // (repair round 3, Codex's second re-check F1): the cancel takes the
+        // notice back, and a cancelled start says no refusal of its own.
+        if (await TransmitSliceNotice.HeardAsync(_transmitSliceNotice, () => !_closing && !_checkStarts.IsCancelled))
+            return true;
+        if (!_closing && !_checkStarts.IsCancelled) TransmitSliceNotHeard(_transmitSliceNotice);
+        return false;
+    }
+
+    /// <summary>
+    /// The start's final admission asks this at the moment of keying (#863,
+    /// Codex's check, B2): true when the place is still the one this start
+    /// announced (or one nobody needed telling about). False refuses the key;
+    /// the caller says so.
+    /// </summary>
+    private bool StillTheAnnouncedPlace(out string? refusal)
+    {
+        refusal = null;
+        return _transmitSliceNotice == null || TransmitSliceNotice.StillTheAnnouncedPlace(_transmitSliceNotice, out refusal);
+    }
+
+    /// <summary>The start keyed: what it said is now what the operator knows.</summary>
+    private void TransmitSliceNoticeKeyed()
+    {
+        TransmitSliceNotice.Keyed(_transmitSliceNotice);
+        _transmitSliceNotice = null;
+    }
+
+    /// <summary>
+    /// The sentence naming the transmit slice never reached the reader, so
+    /// nothing keyed (#863). Said with a sound as well, since speech is what
+    /// just failed. Wording ruled by Noel 2026-11-04 06:59.
+    /// </summary>
+    internal static void TransmitSliceNotHeard(TransmitSliceNotice.Notice? notice) =>
+        RefuseTransmit(Lexicon.Get("audio.ptt.transmit_slice_not_heard"), notice);
+
+    /// <summary>
+    /// A door refused to key because the place changed while it waited, with
+    /// the sentence for what changed (<see cref="TransmitSliceNotice.RefusalForChangedPlace"/>).
+    /// </summary>
+    /// <param name="notice">The refused attempt's notice (round seven): retired
+    /// FIRST, with any copy queued or held for salvage, so it can never be said
+    /// after the refusal. Null when there is none.</param>
+    internal static void RefuseTransmit(string? sentence, TransmitSliceNotice.Notice? notice)
+    {
+        if (notice != null) TransmitSliceNotice.Retire(notice, "its key was refused");
+        EarconPlayer.LeaderInvalidTone();
+        ScreenReaderOutput.Speak(sentence ?? Lexicon.Get("audio.ptt.transmit_slice_not_heard"),
+            VerbosityLevel.Critical, interrupt: true);
     }
 
     // ── The bare Control that skips the count ─────────────────────────────
@@ -212,5 +298,10 @@ public partial class CheckYourAudioDialog
     {
         _startCountdown?.Cancel();
         _startCountdown = null;
+        // This start's own notice, if it never keyed: taken back, so it is
+        // not said after the start has ended (repair round 3). A keyed start
+        // has already handed its notice on (TransmitSliceNoticeKeyed).
+        TransmitSliceNotice.Retire(_transmitSliceNotice, "the check ended before it keyed");
+        _transmitSliceNotice = null;
     }
 }

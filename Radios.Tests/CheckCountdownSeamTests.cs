@@ -55,6 +55,24 @@ public sealed class CheckCountdownSeamTests
         Assert.Equal(0, result[3]); // no stale recorder speech
     }
 
+    /// <summary>
+    /// Repair round 1. The real StartAsync, compiled against the inert host:
+    /// a start whose announced place changed during the count is refused and
+    /// says so (#863, Codex's check, B2); one whose connection dropped during
+    /// the count keys nothing (#596, B2). "countdown-holds-key" above is the
+    /// positive control: the same start with nothing changed keys once.
+    /// </summary>
+    [Theory]
+    [InlineData("place-changed-during-count", 1)]
+    [InlineData("link-dropped-during-count", 0)]
+    public async Task A_start_whose_place_changed_or_whose_link_dropped_keys_nothing(string scenario, int said)
+    {
+        int[] result = await RunHost(scenario);
+        Assert.Equal(0, result[0]);
+        Assert.Equal(0, result[1]);
+        Assert.Equal(said, result[3]);
+    }
+
     [Fact]
     public void The_off_air_take_does_not_say_Preparing_while_the_count_speaks_for_it()
     {

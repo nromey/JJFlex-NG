@@ -981,6 +981,15 @@ public partial class FrequencyDisplay : UserControl
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Normal, new System.Action(() =>
         {
             if (!DisplayBox.IsKeyboardFocused) return;
+            // A send's transmit-slice notice is due: it is what the operator
+            // needs to hear now, and this prefix would cut it (rulings round
+            // three, the second 8600 bench).
+            if (Radios.TransmitSliceNotice.NoticeDue)
+            {
+                JJTrace.Tracing.TraceLine("FrequencyDisplay: focus prefix held; a send's transmit notice is due",
+                    System.Diagnostics.TraceLevel.Info);
+                return;
+            }
             if (SuppressFocusPrefix?.Invoke() == true)
             {
                 JJTrace.Tracing.TraceLine(

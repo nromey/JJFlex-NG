@@ -25,36 +25,51 @@ namespace Radios
     public static class TransmitSafety
     {
         /// <summary>
-        /// THE reflected-power threshold, as a percentage of forward power.
-        /// This is the one home; everything that judges reflected share names
-        /// this constant or is tested against it.
+        /// The reflected-power WARNING threshold, as a percentage of forward
+        /// power: the warn rung of the diagnostic SWR ladder, SWR 4, which is
+        /// 36 percent. Derived from <see cref="SwrLadder.Warn"/>, never written
+        /// as a literal.
         /// </summary>
         /// <remarks>
-        /// MEASURED on 2026-08-22, not guessed. The bench 8600 transmitting into
-        /// an EMPTY antenna connector — the dummy load was on the other port —
-        /// sent 76 percent of its power straight back. Minutes later, into the
-        /// load, 0.05 percent. Three orders of magnitude apart, so 40 percent
-        /// sits in an enormous empty gap rather than on a judgement call. For
-        /// scale it is a standing wave ratio near 5 to 1, past anything a
-        /// working antenna presents.
-        /// <para><b>Three consumers, kept in step by a test, not by this
+        /// <para>
+        /// <b>Ruled, not pinned.</b> Noel ruled the diagnostic ladder on
+        /// 2026-08-26 (#237), SWR 2.5 suspect, 4 warn, 5 abort, and on
+        /// 2026-11-02 extended its warn rung to this live warning: "Yes, SWR 4
+        /// everywhere". Until then this constant was 40 percent, about SWR 4.4,
+        /// a round percentage nobody had chosen in the unit hams think in.
+        /// </para>
+        /// <para>
+        /// MEASURED context, 2026-08-22: the bench 8600 transmitting into an
+        /// EMPTY antenna connector sent 76 percent of its power straight back;
+        /// into the dummy load, 0.05 percent. 36 percent sits in that enormous
+        /// empty gap, as 40 did, and past anything a working antenna presents.
+        /// </para>
+        /// <para><b>Three consumers, kept in step by tests, not by this
         /// comment.</b> (1) The live PTT warning, through
-        /// <see cref="ReflectedWarnFraction"/>. (2) The power-coming-back rule
-        /// in tx-chain-rules.txt — a data file that cannot reference this
-        /// constant, so ReflectedThresholdAgreementTests parses the shipped
-        /// file and fails if the two drift. (3) The transmit-check tune probe's
-        /// fallback, <c>TxTuneProbe.ReflectedSuspectPercent</c>, which is
-        /// DELIBERATELY STRICTER and derives from this constant so the
-        /// relationship is visible — see its own remarks. An operator who hears
-        /// the live warning and then runs a check must not be given two
-        /// different answers about the same station.</para>
-        /// <para>History: this invariant was documented for the first two
-        /// consumers, honoured for months, and then quietly broken when the
-        /// probe's fallback was written at 20 without reading the note (#237).
-        /// Hence the test — a comment asked future editors to keep the figures
-        /// in step, and a future editor did not.</para>
+        /// <see cref="ReflectedWarnFraction"/>, and the share rung of the cut,
+        /// which acts only after that warning has fired. (2) The
+        /// power-coming-back rule in tx-chain-rules.txt, a data file that
+        /// cannot reference this constant, so ReflectedThresholdAgreementTests
+        /// parses the shipped file and fails if the two drift. (3) The
+        /// transmit checks' tune probe, whose suspect and abort rungs are the
+        /// SAME ladder's other rungs (<c>TxTuneProbe.ReflectedSuspectPercent</c>,
+        /// <c>TxTuneProbe.ReflectedAbortPercent</c>). An operator who hears the
+        /// live warning and then runs a check must not be given two different
+        /// answers about the same station.</para>
+        /// <para><b>TWO LADDERS, TWO JOBS, TWO UNITS. Do not unify them.</b>
+        /// This warning is on the DIAGNOSTIC ladder, a ratio describing the
+        /// match. The PROTECTIVE ladder is <see cref="ReflectedCutWatts"/>,
+        /// absolute reflected watts describing heat in the finals. They can
+        /// disagree and both be right: 100 W at SWR 2.5 sends 18 W back, over
+        /// the cut but under this warning; 10 W at SWR 5 sends 4.4 W back, over
+        /// this warning but under the cut. Never state one in the other's unit.
+        /// See <see cref="SwrLadder"/>.</para>
+        /// <para>History: when the ladder was percentages, a third consumer
+        /// was written at 20 without reading the note that tied the first two
+        /// together (#237). Hence the tests: a comment asked future editors to
+        /// keep the figures in step, and a future editor did not.</para>
         /// </remarks>
-        public const double ReflectedWarnPercent = 40.0;
+        public const double ReflectedWarnPercent = SwrLadder.WarnReflectedPercent;
 
         /// <summary>
         /// <see cref="ReflectedWarnPercent"/> as a fraction between 0 and 1,
@@ -237,9 +252,9 @@ namespace Radios
         /// <b>Not named <c>...Fraction</c> or <c>...Percent</c> on purpose.</b>
         /// In this assembly those suffixes on a <c>Reflected*</c> constant mean
         /// a share of forward power that is coming BACK, and
-        /// <c>IntegrationPassRuleTests.Every_reflected_power_threshold_is_the_same_number</c>
-        /// discovers them by that convention and requires them all to agree
-        /// with <see cref="ReflectedWarnFraction"/>. This is a share of FORWARD
+        /// <c>IntegrationPassRuleTests.Every_reflected_power_threshold_derives_from_the_swr_ladder</c>
+        /// discovers them by that convention and requires each to be a rung of
+        /// <see cref="SwrLadder"/>. This is a share of FORWARD
         /// power — a different quantity that would have been judged against the
         /// wrong ruler, and rightly so, had it kept the wrong suffix.
         /// </para>
@@ -303,9 +318,9 @@ namespace Radios
         /// <para>
         /// <b>Not named <c>...Fraction</c> on purpose.</b> This is a DIFFERENCE
         /// between two shares, not a share of forward power, and
-        /// <c>IntegrationPassRuleTests.Every_reflected_power_threshold_is_the_same_number</c>
-        /// rightly requires anything with that suffix to equal
-        /// <see cref="ReflectedWarnFraction"/>.
+        /// <c>IntegrationPassRuleTests.Every_reflected_power_threshold_derives_from_the_swr_ladder</c>
+        /// rightly requires anything with that suffix to be a rung of
+        /// <see cref="SwrLadder"/>.
         /// </para>
         /// </remarks>
         public const float ReflectedSettleSpan = 0.10f;
@@ -738,8 +753,9 @@ namespace Radios
         // other's unit. #224 described the cut as firing "above 10 watts" and
         // #237 as "above 10 W reflected" — and the code did NEITHER. What
         // shipped, ShouldCutReflected above, is a RATIO test with a forward
-        // floor: forward over ten watts AND forty percent or more coming
-        // back. So it inherited exactly the defect tier 1 was meant to be
+        // floor: forward over ten watts AND the warning's share or more
+        // coming back (forty percent then; SWR 4, 36 percent, since
+        // 2026-11-02). So it inherited exactly the defect tier 1 was meant to be
         // immune to. The 2026-09-07 run proved the point: reflected never
         // exceeded 0.105 W across 194 samples while the display read 2.96.
         //
@@ -798,7 +814,7 @@ namespace Radios
         /// on an earlier tick, the cut reads this one. The watts rung cannot
         /// borrow that, because it must fire when the share warning never
         /// does: 100 W at a 2.5-to-1 match sends 18 W back at 18 percent,
-        /// which is under the 40-percent warning and over this rung, and
+        /// which is under the 36-percent warning (SWR 4) and over this rung, and
         /// #237 says that cut is correct. So <see cref="ReflectedPowerRun"/>
         /// counts the rung's own streak. Persistence, not smoothing: a single
         /// key-down transient cannot cut, and a second hot sample a quarter
@@ -850,8 +866,9 @@ namespace Radios
             None,
 
             /// <summary>The share rung: the warning had fired and a further
-            /// coherent sample above ten watts forward still had forty
-            /// percent or more coming back. Spoken in percent.</summary>
+            /// coherent sample above ten watts forward still had the
+            /// warning's share or more coming back (SWR 4, 36 percent).
+            /// Spoken in percent.</summary>
             Share,
 
             /// <summary>The watts rung: ten watts or more coming back, on two

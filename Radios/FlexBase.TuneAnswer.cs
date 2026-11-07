@@ -57,8 +57,17 @@ namespace Radios
         /// is taken, and its flag is then up for every door to see, or never.
         /// </summary>
         /// <param name="held">Run instead of the write when an Audio Check teardown holds an ON.</param>
-        private void EnqueueTuneWrite(bool value, string what, Action held)
+        private void EnqueueTuneWrite(bool value, string what, Action held) =>
+            EnqueueTuneWrite(value, what, held, ownCarrierOnly: false);
+
+        /// <param name="ownCarrierOnly">An OFF that must not touch another
+        /// client's carrier (a teardown's, #596 repair round 2): at the write it
+        /// re-reads the radio's transmitting client and its connection, and
+        /// sends nothing when either has changed to someone else's.</param>
+        private void EnqueueTuneWrite(bool value, string what, Action held, bool ownCarrierOnly)
         {
+            Radio owner = theRadio;
+            object connection = owner?.CurrentCommandConnection;
             long gen;
             lock (_tuneWriteGate)
             {
@@ -66,8 +75,26 @@ namespace Radios
                 _tuneOnQueued = value;
             }
             NoteTuneRequest(value);
-            q.Enqueue((FunctionDel)(() =>
+            // A tune carrier is a transmission too (#863 S1, repair round 6).
+            OwnKey tuneKey = null;
+            if (value)
             {
+                long asked = NoteTransmissionAsked(carrier: false);
+                // Our tune, recorded as asked BEFORE anything is written (round 11,
+                // Codex's #596 B17): possibly keyed for every restore until it is
+                // known never to have gone out, or has ended.
+                tuneKey = new OwnKey(asked, System.Threading.Volatile.Read(ref _latestOwnTune),
+                    connection as Flex.Smoothlake.FlexLib.CommandConnection) { What = "tune" };
+                System.Threading.Volatile.Write(ref _latestOwnTune, tuneKey);
+            }
+            // The tune this OFF ends (round 12, Codex's #596 F5): the one current
+            // when it was asked.
+            var tuneOffFor = value ? null : System.Threading.Volatile.Read(ref _latestOwnTune);
+            bool queued = q != null && q.Enqueue((FunctionDel)(() =>
+            {
+                bool tuneWritten = false;
+                try
+                {
                 lock (_tuneWriteGate)
                 {
                     bool latest = gen == _tuneWriteGen;
@@ -82,10 +109,70 @@ namespace Radios
                         held?.Invoke();
                         return;
                     }
-                    theRadio.TXTune = value;
+                    if (!value && ownCarrierOnly)
+                    {
+                        if (!OurCarrierToUnkey(owner, connection, "the " + what + " off")) return;
+                        // The teardown's own tune release, pinned at the transport's
+                        // write with its ownership asked there too (repair round 7,
+                        // Codex's #596 B12). An unkey of ours: contention never
+                        // refuses it, only a positive "not ours".
+                        // Forced (round 8, MIGRATION.md item 22, Codex's #596 B14): a
+                        // tune=0 report that landed while our tune ON was written
+                        // cannot turn this OFF into a no-op.
+                        bool off = false;
+                        long offMark = 0;
+                        string refusedAtWrite = WriteOnPinnedTarget(owner, connection, null,
+                            () => off = WriteOwnOff(owner, r => r.SendTuneOff(), out offMark),
+                            () => ForeignCarrier(owner), unkeyOfOurs: true);
+                        if (refusedAtWrite == null && off) { _ownTuneRequested = false; NoteOwnTuneOffWritten(tuneOffFor, offMark); }
+                        else
+                            JJTrace.Tracing.TraceLine("TuneWrite: the " + what + " off NOT sent at its write - "
+                                + (refusedAtWrite ?? "the transport did not take it"), System.Diagnostics.TraceLevel.Info);
+                        if (latest) _tuneOnQueued = false;
+                        return;
+                    }
+                    var radio = theRadio;
+                    if (value)
+                    {
+                        // Our tune ON goes out when the cache read off; a report may
+                        // clear the cache again at once, so the request is what counts.
+                        bool wasOn = radio.TXTune;
+                        // Whether it really went out (repair round 10, B16): a pin
+                        // with no question of its own, only to read the outcome.
+                        var tuneConnection = radio.CurrentCommandConnection;
+                        using (var pin = tuneConnection != null ? Flex.Smoothlake.FlexLib.CommandWritePin.Pin(tuneConnection) : null)
+                        {
+                            radio.TXTune = true;
+                            tuneWritten = pin != null && pin.Written > 0;
+                        }
+                        if (!wasOn) _ownTuneRequested = true;
+                    }
+                    // An ordinary OFF, the emergency kill's included
+                    // (TransmitKillSwitch.DropCarrier), is forced whenever a tune
+                    // may be up, whatever FlexLib's cache reads (round 8, B14).
+                    else if (radio.TXTune || _ownTuneRequested)
+                    {
+                        if (WriteOwnOff(radio, r => r.SendTuneOff(), out long offMark)) { _ownTuneRequested = false; NoteOwnTuneOffWritten(tuneOffFor, offMark); }
+                        else radio.TXTune = false;
+                    }
                     if (latest) _tuneOnQueued = false;
                 }
-            }), "TXTune");
+                }
+                finally
+                {
+                    // Settle the asked tune (round 11): written, or continuing a
+                    // tune of ours still on (as a key continues one, round 10's
+                    // S6), or never gone out.
+                    if (tuneKey != null)
+                    {
+                        var tc = connection as Flex.Smoothlake.FlexLib.CommandConnection;
+                        if (tuneWritten || tuneKey.Previous?.OffUnwrittenOn(tc) == true) tuneKey.NoteOnWritten(tc);
+                        else tuneKey.NoteNeverWent();
+                    }
+                }
+            }), "TXTune", () => tuneKey?.NoteNeverWent());
+            // Never gone out only on the queue's own answer (round 12, B18).
+            if (!queued) tuneKey?.NoteNeverWent();
         }
 
         /// <summary>The connection is gone: nothing queued for it is ours to count.</summary>

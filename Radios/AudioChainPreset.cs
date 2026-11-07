@@ -110,8 +110,17 @@ public class AudioChainPreset
     /// took of the radio's own settings could not read the radio's EQ — a
     /// setting that cannot be put back must not be changed in the first place.
     /// </summary>
-    public string ApplyTo(FlexBase rig, bool applyEq)
+    public string ApplyTo(FlexBase rig, bool applyEq) => ApplyTo(rig, applyEq, out _);
+
+    /// <summary>
+    /// The same apply, saying whether the equaliser part was queued
+    /// (<paramref name="eqQueued"/>; true when it was not asked for). A
+    /// restore that owes the equaliser and could not queue it is incomplete,
+    /// so its debt must not be discharged (repair round 4, Codex's F2).
+    /// </summary>
+    public string ApplyTo(FlexBase rig, bool applyEq, out bool eqQueued)
     {
+        eqQueued = true;
         rig.MicGain = MicGain;
         rig.MicBoost = MicBoost ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
         rig.MicBias = MicBias ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
@@ -150,6 +159,7 @@ public class AudioChainPreset
                 Hz8000 = TxEq8000,
             }))
             {
+                eqQueued = false;
                 notes.Add("The radio has not reported its TX equalizer yet, so the EQ part was not applied.");
             }
         }

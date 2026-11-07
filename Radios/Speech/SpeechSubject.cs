@@ -676,5 +676,69 @@ namespace Radios.Speech
         /// covers an unheard older one.
         /// </summary>
         public const string FixToolInjectedKeyed = "fix-tool-injected-keyed";
+
+        /// <summary>
+        /// The radio's connection fell while it was transmitting, and our side
+        /// of the transmission was released with it (#596). It says only what
+        /// is known: a lost connection cannot show that RF stopped. True until
+        /// the operator keys again; nothing else covers it.
+        /// </summary>
+        public const string TransmitDroppedWithConnection = "transmit-dropped-with-connection";
+
+        /// <summary>
+        /// Where a door is about to transmit, when that is not the selected
+        /// slice (#863): said before a check or a send keys, and waited for
+        /// WHOLE. Its own subject, not the countdown's, so skipping the count
+        /// cannot take it back. A newer notice covers an unheard older one.
+        /// </summary>
+        public const string TransmitSliceNotice = "transmit-slice-notice";
+
+        /// <summary>
+        /// A deliberate disconnect could not put the radio's mic input back,
+        /// because the radio was still transmitting, so it is left on PC (#861,
+        /// J3, ruled by Noel 2026-11-06). Said once, after the hang-up, queued;
+        /// true until the operator next connects to that radio and chooses an
+        /// input. Nothing else speaks to it.
+        /// </summary>
+        public const string MicInputLeftOnPc = "mic-input-left-on-pc";
+
+        /// <summary>
+        /// The compact status said when Home is returned to ("Listening on 21.260
+        /// megahertz, USB, 15 meter band, slice B"). True only while the selected
+        /// slice and its frequency stay as they were: a change of either retires
+        /// an unheard copy (rulings round three, the bench's 4.1 replay).
+        /// </summary>
+        public const string ReturnStatus = "return-status";
+
+        /// <summary>
+        /// A retried switch to PC (PC audio's start, or the Radio menu's switch
+        /// back) is still not done after five seconds (#861, J20, ruled by Noel
+        /// 2026-11-06 16:34): "Still switching mic to PC", said once per retry.
+        /// </summary>
+        public const string PcMicStillSwitching = "pc-mic-still-switching";
+
+        /// <summary>
+        /// The radio's answer to a frequency typed on Home (#642, J28, ruled by
+        /// Noel 2026-11-06 16:52): "Frequency set to ..." only once the radio
+        /// accepted it, "Unable to tune this frequency" when it refused, and
+        /// "No answer from the radio yet" when it has not answered in time.
+        /// </summary>
+        public const string TypedTuneAnswer = "typed-tune-answer";
+
+        /// <summary>
+        /// Subjects that are stale status: what a sentence that must be heard next
+        /// (the transmit notice) may retire from our own backlog (rulings round
+        /// three, Codex's F1). Required notices and refusals are never in it.
+        /// </summary>
+        public static readonly string[] StaleStatus = { ReturnStatus };
+
+        /// <summary>
+        /// A tune ended somewhere other than the frequency spoken for it (J4,
+        /// ruled by Noel 2026-11-06): refused, clamped, given up, or another
+        /// client's move held back during it. The bare frequency it ended on,
+        /// queued after the step's own readback. A newer correction covers an
+        /// unheard older one.
+        /// </summary>
+        public const string TuneEndedElsewhere = "tune-ended-elsewhere";
     }
 }

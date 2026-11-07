@@ -55,6 +55,15 @@ public class Host
     internal bool EscapeOurTune() => false;
     internal bool OurTuneHolds() => false;
     private static void SayPowerNotReported() { RecorderControls.Spoken++; }
+    // The transmit-slice notice's seams (#863, repair round 1): the place a
+    // start announced is read again at the key; a scenario can move it.
+    public bool PlaceStands = true;
+    private bool StillTheAnnouncedPlace(out string? refusal) { refusal = PlaceStands ? null : "changed"; return PlaceStands; }
+    private void TransmitSliceNoticeKeyed() { }
+    private static void TransmitSliceNotHeard() { RecorderControls.Spoken++; }
+    // Round seven: the refusal takes the refused attempt's notice, to retire it first.
+    private Radios.TransmitSliceNotice.Notice? _transmitSliceNotice = null;
+    private static void RefuseTransmit(string? sentence, Radios.TransmitSliceNotice.Notice? notice) { RecorderControls.Spoken++; }
     /*StartLoopbackCheckAsync*/
     /*StartAudioCheckSessionAsync*/
     public static async Task<int[]> Run(string scenario)
@@ -109,6 +118,21 @@ public class Host
         // The countdown seam (#835, Track C): [keys while the count still
         // plays, keys at the end, 1 if a count was begun without being ended,
         // stale recorder speech].
+        // Repair round 1: the place changed during the count (#863 B2), or the
+        // link dropped during it (#596 B2): [keys while counting, keys, counts, said].
+        if (scenario is "place-changed-during-count" or "link-dropped-during-count")
+        {
+            h.Countdown = new TaskCompletionSource<bool>();
+            var s = new AudioCheckSession(h, h._rig, h.ptt, AudioCheckListenMethods.Monitor, AudioCheckPowerModes.LowPower, 1);
+            var pending = h.StartAudioCheckSessionAsync(s);
+            await Task.Delay(20);
+            int whileCounting = h.ptt.Keys;
+            if (scenario == "place-changed-during-count") h.PlaceStands = false;
+            else h._rig.IsConnected = false;
+            h.Countdown.SetResult(true);
+            await pending;
+            return new[] { whileCounting, h.ptt.Keys, h.CountdownsBegun == h.CountdownsEnded ? 0 : 1, RecorderControls.Spoken };
+        }
         if (scenario is "countdown-holds-key" or "countdown-cancelled")
         {
             h.Countdown = new TaskCompletionSource<bool>();
@@ -243,6 +267,7 @@ public class FlexBase
     public object CaptureListenbackRecoveryReader() => null;
     public Task<FakeRun> StartListenbackAsync(ListenbackOptions options, CancellationToken token) => OffAir.Task;
     public bool LoopbackArranged, Transmit, RemoteRig, LoopbackDriveManaged, TeardownInProgress;
+    public bool IsConnected = true;
     private bool _dummy; private int _dummySaved;
     public bool DummyLoadMode
     {

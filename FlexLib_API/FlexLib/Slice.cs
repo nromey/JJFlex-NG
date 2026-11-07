@@ -351,6 +351,46 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
+        // JJFlex patch (MIGRATION.md item 23): raised for EVERY rf_frequency the radio reports for
+        // this slice, including one equal to the cached value, which the
+        // "Freq" PropertyChanged skips. The app needs to know a report
+        // ARRIVED, not only that the number changed (#642). The bool is true
+        // when the value changed, so the Freq notification follows.
+        public event Action<Slice, double, bool> FrequencyReported;
+
+        // JJFlex patch (MIGRATION.md item 23): each subscriber in isolation, so one that throws can
+        // neither stop the others nor, on a change, the Freq notification.
+        private void OnFrequencyReported(double mhz, bool changed)
+        {
+            var handlers = FrequencyReported;
+            if (handlers == null) return;
+            foreach (Action<Slice, double, bool> handler in handlers.GetInvocationList())
+            {
+                try { handler(this, mhz, changed); }
+                catch (Exception ex) { Debug.WriteLine("Slice::FrequencyReported subscriber threw: " + ex.Message); }
+            }
+        }
+
+        // JJFlex patch (MIGRATION.md item 26): the radio's SUCCESS reply to this
+        // client's own tune is its only receipt. Measured on a FLEX-8600
+        // (2026-11-06 bench, over SmartLink and on LAN): the radio sends a
+        // slice's new rf_frequency to every OTHER client and none to the client
+        // that tuned it, which gets only "R|0|". A tune sent without the Freq
+        // setter (whose cache write before sending stood in for that status)
+        // would otherwise leave this cache on the OLD frequency until another
+        // client connected. The caller passes the value its command asked for,
+        // from its reply callback, which runs on the reader in order with the
+        // radio's statuses: a status the radio sends AFTER the reply (another
+        // client's move) still overwrites it. Raises the Freq notification when
+        // the value changes. Returns whether it changed.
+        public bool AcceptTuneReply(double mhz)
+        {
+            if (_freq == mhz) return false;
+            _freq = mhz;
+            RaisePropertyChanged("Freq");
+            return true;
+        }
+
         private double _freq; // the frequency in MHz
         /// <summary>
         /// The frequency of the Slice in MHz
@@ -2977,9 +3017,15 @@ namespace Flex.Smoothlake.FlexLib
                                 }
 
                                 if (_freq == temp)
+                                {
+                                    // JJFlex patch (MIGRATION.md item 23): an equal report still arrived.
+                                    OnFrequencyReported(temp, false);
                                     continue;
+                                }
 
                                 _freq = temp;
+                                // JJFlex patch (MIGRATION.md item 23): report every arrival, before the Freq notification, so a throwing Freq subscriber cannot hide it.
+                                OnFrequencyReported(temp, true);
                                 RaisePropertyChanged("Freq");
                             }
                             break;

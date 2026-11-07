@@ -20,6 +20,8 @@ namespace JJFlexWpf.Dialogs
         {
             _presets = presets ?? throw new ArgumentNullException(nameof(presets));
             InitializeComponent();
+            // Delete on the list presses this button (#774).
+            DeleteKeyRemoves.SetButton(PresetList, DeleteButton);
 
             foreach (var mode in ModeKeys)
                 ModeCombo.Items.Add(mode);

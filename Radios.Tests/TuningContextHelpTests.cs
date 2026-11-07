@@ -191,7 +191,7 @@ namespace Radios.Tests
                 "K, Round to the nearest kilohertz. " +
                 "Plus then digits, Set a step multiplier for Up and Down. " +
                 "Minus, Reminds you that step entry uses Plus only. " +
-                "F, Speak the current frequency. " +
+                "F, Speak the current frequency (with a split, choose which slice in Settings, Notifications, F reads). " +
                 "P, Toggle split on or off. " +
                 "T, Toggle showing the transmit frequency. " +
                 "Ctrl+Shift+M switches to Modern tuning. " +
@@ -216,7 +216,7 @@ namespace Radios.Tests
                 "K, Round to the nearest kilohertz. " +
                 "Plus then digits, Set a step multiplier for Up and Down. " +
                 "Minus, Reminds you that step entry uses Plus only. " +
-                "F, Speak the current frequency. " +
+                "F, Speak the current frequency (with a split, choose which slice in Settings, Notifications, F reads). " +
                 "P, Toggle split on or off. " +
                 "T, Toggle showing the transmit frequency. " +
                 "Ctrl+Shift+M for Modern tuning.",
@@ -238,7 +238,7 @@ namespace Radios.Tests
                 "Alt+Left / Alt+Right, Make your coarse step smaller or larger. " +
                 "Shift+Left / Shift+Right, Make your fine step smaller or larger. " +
                 "Digits, Type a frequency, then Enter to apply. " +
-                "F, Speak the current frequency. " +
+                "F, Speak the current frequency (with a split, choose which slice in Settings, Notifications, F reads). " +
                 "S, Choose both step sizes from a list. " +
                 "Shift+S, Speak the coarse and fine step sizes. " +
                 "P, Toggle split on or off. " +
@@ -262,7 +262,7 @@ namespace Radios.Tests
                 "Alt+Left / Alt+Right, Make your coarse step smaller or larger. " +
                 "Shift+Left / Shift+Right, Make your fine step smaller or larger. " +
                 "Digits, Type a frequency, then Enter to apply. " +
-                "F, Speak the current frequency. " +
+                "F, Speak the current frequency (with a split, choose which slice in Settings, Notifications, F reads). " +
                 "S, Choose both step sizes from a list. " +
                 "Shift+S, Speak the coarse and fine step sizes. " +
                 "P, Toggle split on or off. " +

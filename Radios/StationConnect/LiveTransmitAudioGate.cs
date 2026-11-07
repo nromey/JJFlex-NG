@@ -26,7 +26,12 @@ namespace Radios.StationConnect
     {
         [ThreadStatic] private static QueuedWriteGate _ambient;
 
+        /// <summary>The gate whose item is running on this thread, if any (repair round 3).</summary>
+        [ThreadStatic] private static QueuedWriteGate _running;
+        [ThreadStatic] private static bool _runningWithheld;
+
         private readonly Func<string> _refusal;
+        private readonly Func<Func<string>, string> _around;
         private readonly QueuedWriteGate _previous;
         private int _ran;
         private int _refused;
@@ -34,19 +39,88 @@ namespace Radios.StationConnect
         private string _firstRefusal;
         private string _firstThrow;
 
-        private QueuedWriteGate(Func<string> refusal)
+        private QueuedWriteGate(Func<string> refusal, Func<Func<string>, string> around)
         {
             _refusal = refusal ?? throw new ArgumentNullException(nameof(refusal));
+            _around = around;
             _previous = _ambient;
             _ambient = this;
         }
 
         /// <summary>Open a gate for the calling thread; everything queued
         /// until Dispose carries it.</summary>
-        public static QueuedWriteGate Open(Func<string> refusal) => new QueuedWriteGate(refusal);
+        public static QueuedWriteGate Open(Func<string> refusal) => new QueuedWriteGate(refusal, null);
+
+        /// <summary>
+        /// <see cref="Open(Func{string})"/>, with each item's question AND its
+        /// work run inside <paramref name="around"/> as one step (repair round
+        /// 6, Codex's #861 N2): the restore family's writes then join the
+        /// pinned-write coordination their radio and connection need. The
+        /// function runs the step and returns its result, or returns why the
+        /// step could not run at all (a target that is no longer the one it
+        /// was pinned to), and then the item counts as refused.
+        /// </summary>
+        public static QueuedWriteGate Open(Func<string> refusal, Func<Func<string>, string> around) =>
+            new QueuedWriteGate(refusal, around);
 
         /// <summary>The gate ambient on this thread, or null.</summary>
         public static QueuedWriteGate Ambient => _ambient;
+
+        /// <summary>
+        /// Called by gated work that decided, itself, not to write (repair
+        /// round 3): the item counts as REFUSED, not as run, so a step whose
+        /// own check withheld it is never mistaken for one that was applied.
+        /// False when no gated item is running on this thread.
+        /// </summary>
+        public static bool WithholdRunning(string why)
+        {
+            var gate = _running;
+            if (gate == null) return false;
+            _runningWithheld = true;
+            Interlocked.CompareExchange(ref gate._firstRefusal, why, null);
+            return true;
+        }
+
+        /// <summary>
+        /// Ask the gate of the item running on this thread again, at ONE write
+        /// inside that item (repair round 4, rule 3): an item that makes
+        /// several writes (the equaliser's ten) re-asks before each, because a
+        /// gate asked once before the first is no gate on the later ones. Null
+        /// means the write may go, and also when no gated item is running. A
+        /// refusal marks the item withheld, so it counts as refused, not run.
+        /// </summary>
+        public static string RefusedNow()
+        {
+            var gate = _running;
+            if (gate == null) return null;
+            string why;
+            try { why = gate._refusal(); }
+            catch (Exception ex) { why = "the gate could not be asked (" + ex.Message + ")"; }
+            if (why == null) return null;
+            _runningWithheld = true;
+            Interlocked.CompareExchange(ref gate._firstRefusal, why, null);
+            return why;
+        }
+
+        /// <summary>
+        /// Nothing queued until the returned scope ends carries any gate: for
+        /// a marker that only waits for the queue (<c>DrainCommandQueueAsync</c>),
+        /// which must never be refused, or a wait for it would never end.
+        /// </summary>
+        public static IDisposable Suspend() => new Suspension();
+
+        private sealed class Suspension : IDisposable
+        {
+            private readonly QueuedWriteGate _saved = _ambient;
+            private bool _done;
+            public Suspension() => _ambient = null;
+            public void Dispose()
+            {
+                if (_done) return;
+                _done = true;
+                _ambient = _saved;
+            }
+        }
 
         /// <summary>Items that ran TO COMPLETION. Counted after the work
         /// returns, not before it starts (Track G2 re-review, step 9: an
@@ -78,6 +152,21 @@ namespace Radios.StationConnect
         /// </summary>
         public Action Wrap(Action work, string name, Action<string, string> onRefused)
         {
+            Action run = RunChecked(work, name, onRefused);
+            if (_around == null) return run;
+            return () =>
+            {
+                bool entered = false;
+                string pinned = _around(() => { entered = true; run(); return null; });
+                if (entered || pinned == null) return;
+                Interlocked.Increment(ref _refused);
+                Interlocked.CompareExchange(ref _firstRefusal, pinned, null);
+                onRefused?.Invoke(name, pinned);
+            };
+        }
+
+        private Action RunChecked(Action work, string name, Action<string, string> onRefused)
+        {
             return () =>
             {
                 string why = _refusal();
@@ -88,6 +177,11 @@ namespace Radios.StationConnect
                     onRefused?.Invoke(name, why);
                     return;
                 }
+                var outerRunning = _running;
+                bool outerWithheld = _runningWithheld;
+                _running = this;
+                _runningWithheld = false;
+                bool withheld;
                 try
                 {
                     work();
@@ -97,6 +191,18 @@ namespace Radios.StationConnect
                     Interlocked.Increment(ref _threw);
                     Interlocked.CompareExchange(ref _firstThrow, name + ": " + ex.Message, null);
                     throw;
+                }
+                finally
+                {
+                    withheld = _runningWithheld;
+                    _running = outerRunning;
+                    _runningWithheld = outerWithheld;
+                }
+                if (withheld)
+                {
+                    Interlocked.Increment(ref _refused);
+                    onRefused?.Invoke(name, _firstRefusal ?? "withheld by its own check");
+                    return;
                 }
                 Interlocked.Increment(ref _ran);
             };

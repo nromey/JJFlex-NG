@@ -60,8 +60,22 @@ namespace Radios
     public sealed class FlexBaseVoiceMessageRig : IVoiceMessageRig
     {
         private readonly FlexBase _rig;
-        public FlexBaseVoiceMessageRig(FlexBase rig) { _rig = rig ?? throw new ArgumentNullException(nameof(rig)); }
-        public bool Transmit { get => _rig.Transmit; set => _rig.Transmit = value; }
+        // The radio and command connection at the press (repair round 4,
+        // #596 B5): a send outlived by its connection keys and unkeys nothing.
+        private readonly object _admission;
+        public FlexBaseVoiceMessageRig(FlexBase rig)
+        {
+            _rig = rig ?? throw new ArgumentNullException(nameof(rig));
+            _admission = rig.TransmitAdmissionNow();
+        }
+        public bool Transmit
+        {
+            get => _rig.Transmit;
+            // The admission travels to the write (repair round 5, #596 B7):
+            // the key-on is pinned to it, and the release is checked when it
+            // runs, not only when it is asked for.
+            set => _rig.TransmitAdmitted(_admission, value, value ? "a send's key" : "a send's unkey");
+        }
         public bool FilePlaying => _rig.TxFilePlaying;
         public bool FileReachedEnd => _rig.TxFilePlayer.ReachedEnd;
         public double FileSeconds => _rig.TxFilePlayer.ContentSeconds;
@@ -722,6 +736,16 @@ namespace Radios
 
         /// <summary>The operator asked for it to stop. Idempotent.</summary>
         public void Stop() => Finish(VoiceMessageOutcome.Stopped);
+
+        /// <summary>
+        /// The connection it went out on has dropped or is being torn down
+        /// (repair round 4, #596 B5): it ends NOW, so no later tick can read
+        /// a carrier on a returned connection as its own and unkey it. The
+        /// recording is released; the key is not touched, because the drop
+        /// and the teardown own the release of whatever this connection keyed.
+        /// Ends as <see cref="VoiceMessageOutcome.Interrupted"/>. Idempotent.
+        /// </summary>
+        public void EndWithConnection() => Finish(VoiceMessageOutcome.Interrupted);
 
         /// <summary>
         /// The operator's push to talk or lock, through the controller, took a

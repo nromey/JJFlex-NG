@@ -188,6 +188,226 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     without enabling telnet tracing. Remove this patch if a later FlexLib release
     exposes the same radio-reported field.
 
+21. **Command write-time gate (2026-11-05, ruled by Noel 23:49)**: keep the
+    comment-marked JJFlex patches ("write-time gate (MIGRATION.md item 21)") in
+    `FlexLib_API/FlexLib/CommandConnection.cs` (the `CommandWritePin` class, and
+    `CommandCommunicationBase.AdmitWrite`), in `TcpCommandCommunication.Write`,
+    `TcpCommandCommunication.WriteAsync` and `TlsCommandCommunication.Write` (each calls `AdmitWrite` with the
+    connection of the attempt or session it is about to write through), and in
+    `Radio.SendCommand` (its not-connected early return tells a pinned caller).
+    - **What it is.** A caller pins its command writes, on its own thread, to the
+      `CommandConnection` it checked, with an optional predicate. A pinned write
+      is admitted only to that connection, still Connected, and only if the
+      predicate still holds AT the write. The predicate is asked under the
+      transport's `ConnectionSync`, the gate the reader dispatches every report
+      under, so a report already dispatched is seen; the bytes go out after the
+      gate is released (no lock is held across I/O). A predicate that cannot get
+      the gate within `CommandWritePin.SerializeBound` (100 ms) fails closed,
+      EXCEPT an unkey of the caller's own carrier (`sendWhenUnconfirmed`, added
+      2026-11-06 after Codex's #596 B11): it then asks its predicate without the
+      gate and is refused only by a positive answer or a connection that is not the
+      pinned one, never by contention. A refused write is not written, and the pin
+      records and reports why. `TcpCommandCommunication.WriteAsync` is covered too
+      (decided before its first await).
+      Unpinned writes (the emergency kill, every ordinary command) are untouched.
+    - **Why.** The check-to-write interval: the app checked its radio, connection,
+      ownership, receive and mic selection, then FlexLib's setter wrote through
+      whatever attempt was current when it actually wrote. Codex's fifth
+      re-checks of the 2026-11-02 junk box batch reproduced it: a writer paused
+      past the app's one-second drain at `SendCommand`'s pre-write point wrote
+      xmit 0, vox_enable=1 and mic input MIC onto a connected replacement (#596
+      B9, #861 N1, also with the real TCP adapter and a memory stream), and a
+      foreign client's carrier, a reported transmit or a newer mic choice
+      arriving after the check was never seen (#596 B10, #861 N3). The app's
+      callers are in `Radios/FlexBase.PinnedWrites.cs` (`StepOnPinnedTarget`).
+    - **Re-apply after an upgrade.** Merge, never blind-copy, the four files.
+      `CommandWritePin` and `AdmitWrite` are additions. Each adapter's `Write`
+      must call `AdmitWrite` with the connection of the exact attempt or session
+      it then writes through, before it writes. `RepairFiveTransmitTests.
+      The_write_time_gate_is_still_patched_into_the_vendor_transport` pins all
+      six sites and this entry; the boundary schedules in that class are its
+      behavioural tests.
+    - **When it could be removed.** If FlexLib ever offers a connection-bound,
+      conditional command write (write this on that connection only if a
+      condition holds when it is written), or if every app write moves to its
+      own per-connection writer.
+
+22. **Forced writes for our unkeys and restores (2026-11-06, Noel 23:54: "fixing
+    flexlib fixes the app")**: keep the comment-marked JJFlex patch in
+    `FlexLib_API/FlexLib/Radio.cs` beside the `Mox` property:
+    `SendCommandForced`, `SendMoxOff`, `SendTuneOff` and `SendMicInput`.
+    - **What it is.** Each always issues its command (`xmit 0`, `transmit tune 0`,
+      `mic input X`), whatever FlexLib's cache reads, and changes the cache (and
+      raises its property) only once the transport has really admitted the write:
+      a `CommandWritePin` (item 21) can refuse it, and then the cache is left as the
+      radio last reported it. Each returns whether the command went out.
+    - **Why.** The vendor setters skip a value equal to their cache, and cache it
+      BEFORE they send. Codex's seventh re-checks of the 2026-11-02 junk box batch
+      (#596 B13 and B14, #861 B1) delivered a real RECEIVE or `tune=0` report
+      while our ON was being written: the cache read OFF, so the send's release, the
+      teardown's own unkey, the tune OFF and the emergency tune drop sent nothing,
+      and the app believed its OFF had gone. A refused setter also left an unsent
+      value in the cache (round 7's F4/T2), which the app had to guess its way back
+      from.
+    - **The app's callers:** every own-carrier unkey, tune OFF and the emergency
+      kill (`FlexBase.TransmitAdmitted`, `UnkeyOwnCarrier`, `EnqueueTuneWrite`, the
+      `Transmit` setter's OFF), and the direct mic put-back (`PutBackNow`).
+      `RepairFiveTransmitTests.The_forced_writes_are_still_patched_into_the_vendor_radio`
+      pins the four members and this entry.
+    - **Re-apply after an upgrade.** Merge, never blind-copy, `Radio.cs`. The
+      members are additions; they use the private `_mox`, `_txTune`, `_micInput`
+      and `SendCommand` and must be updated if those are renamed.
+    - **A write counts only when its writer returned (2026-11-06, Codex's #596
+      B15).** `CommandWritePin.Written` is counted by each adapter AFTER its writer,
+      through `CommandCommunicationBase.ReportWrite`; admission is `Admitted`. A
+      missing writer or a writer that throws refuses the pin. So keep, as JJFlex
+      patches marked "item 22": `ReportWrite` and `CommandWritePin.Delivered` and
+      `Admitted` in `CommandConnection.cs`; the outcome reporting in
+      `TcpCommandCommunication.Write`, `.WriteAsync` and `TlsCommandCommunication.Write`;
+      `SslClientTls12.TryWrite` (its `Write` now calls it); and
+      `SendCommandForced`'s own pin for an unpinned caller. Otherwise a dropped OFF
+      reads as sent, the app retires its outstanding key, and a later kill sends
+      nothing.
+    - **A forced write's cache update loses to a newer report (2026-11-06, Codex's
+      #861 B3).** `SendCommandForced` notes how many reports of its property the
+      parser has made before it writes, and changes the cache after the write only
+      if none came meanwhile. Each count is taken with the cache write it belongs
+      to, under `_reportedCacheSync`: `_moxReports` in the `InterlockState` setter
+      (only a report that updates this client's Mox), `_txTuneReports` at the
+      transmit status's `tune`, `_micInputReports` at its `mic_selection`. Keep
+      those three parser edits with the helper, marked "item 22".
+    - **A pinned write says when it was written (2026-11-06, Codex's #863 F2).**
+      `CommandWritePin.OnWritten` is called from `Delivered` the moment the writer
+      returned without an exception, on the writing thread, before the caller
+      resumes. The app marks its own unkey there, so the radio's first receive
+      report after the bytes left is never dated before them. Keep it with
+      `Delivered`, marked "item 22".
+    - **When it could be removed.** If FlexLib's setters stop skipping equal values
+      for commands, or offer an always-send variant.
+
+23. **Slice frequency report arrival (2026-11-06)**: keep the comment-marked
+    JJFlex patch in `FlexLib_API/FlexLib/Slice.cs`: the public event
+    `FrequencyReported(Slice, double, bool changed)` (declared beside `_freq`),
+    its raiser `OnFrequencyReported`, which calls each subscriber in its own
+    try/catch so a throwing subscriber cannot stop the others or the Freq
+    notification (added 2026-11-06, repair round 10), and its two raises in
+    `StatusUpdate`'s `rf_frequency` case, one before the equal-value `continue`
+    and one just before the changed value's `RaisePropertyChanged("Freq")`
+    (after `_freq` holds it, so a throwing Freq subscriber cannot hide it). Stock
+    FlexLib raises nothing for a frequency status equal to its cached value, so
+    the app could not tell that the radio had reported at all; the tuning guard
+    needs every report's ARRIVAL to know the radio has answered a tune (#642).
+    The Freq notification is unchanged. Pinned by
+    `TuningReceiptTests.The_FlexLib_frequency_report_patch_is_marked_and_in_place`
+    and the behaviour test beside it. (Numbered 23 at the merge of 2026-11-06: items 21 and 22 were
+    added on the batch branch the same week.)
+
+25. **Command write order (2026-11-06, the 2026-11-02 junk box batch; Codex's
+    #596 B4)**: keep the comment-marked JJFlex patches ("write order (MIGRATION.md
+    item 25)") in `FlexLib_API/FlexLib/CommandConnection.cs` (`CommandWritePin.AtTheBytes`
+    and the `atTheBytes` parameter of `CommandWritePin.Pin`; in
+    `CommandCommunicationBase`, the `_writeGate` (a `CommandWriteGate`) with
+    `EnterWriteGate`, `EnterWriteGateAsync`, `ExitWriteGate`, `AdmitAtTheBytes` and
+    `ReportRefusal`; the `CommandWriteGate` class; and `CommandWritePin.UrgentWrites`
+    with `UrgentNow`), in `TcpCommandCommunication.Write` and `.WriteAsync`, in
+    `TlsCommandCommunication.Write`, and in `Radio.cs` the `urgent` parameter of
+    `SendCommandForced`, which `SendMoxOff` and `SendTuneOff` set. (Numbered 25
+    because the other junk box batch holds 24.)
+    - **What it is.** One write at a time per adapter. Each `Write`/`WriteAsync`,
+      after item 21's `AdmitWrite` (whose question waits for the dispatch gate,
+      outside this one), takes the write gate, asks the pin's `AtTheBytes`
+      question, hands its one line to the writer, and lets the gate go; the pin is
+      told the refusal or the outcome after that. Every write takes it, pinned or
+      not, the emergency kill's OFF included (a `StreamWriter` is not safe for two
+      writers anyway).
+    - **What holds it, and for how long.** One write: its in-memory `AtTheBytes`
+      question and the hand-off of one line to the stream (AutoFlush, so the
+      socket send, which returns once the kernel has buffered it). Never the
+      dispatch gate's wait, and nothing else is taken under it. Callers' setters
+      only queue and never take it.
+    - **Who goes next (corrected 2026-11-06, Codex's R2 on the rulings round).**
+      This entry first said every write, the kill included, waits for at most one
+      line. With a plain semaphore that was false: an OFF queued behind ordinary
+      waiters (measured: the line in progress, then `mic input BAL`, then
+      `xmit 0`). Now a forced OFF (`SendMoxOff`, `SendTuneOff`, marked with
+      `CommandWritePin.UrgentWrites`) goes before every ordinary waiter, so **an
+      OFF waits for at most the line in progress when it arrives, plus any other
+      OFF already waiting**. Ordinary writes wait behind waiting OFFs and get no
+      such bound. The OFF still takes the gate (never exempt: that would put two
+      writers into one StreamWriter and reopen B4). An OFF queued on the command
+      loop waits for the loop as before; this gate adds at most one line to that.
+      Only a stalled link makes the line in progress long, and then nothing can go
+      out on that connection anyway.
+      An urgent writer on the async path (`WriteAsync`, through
+      `CommandWriteGate.EnterAsync`) is registered synchronously, on the caller's
+      thread, before its wait is handed to the thread pool (2026-11-06, Codex's F2),
+      so a busy pool cannot let an ordinary writer in ahead of it. Today's forced
+      OFFs use the synchronous path.
+    - **Why.** Two LOCAL writes overtook each other: an immediate VOX or CW
+      break-in restore was admitted, then preempted before its writer; the
+      operator's OFF was queued and written by the command loop meanwhile; then the
+      restore's ON went out. Wire OFF, OFF, ON, cache OFF, nothing owed. Not the
+      accepted interval of a radio change not yet received: no report is involved.
+      The operator's choice is recorded before his write is queued, and his write
+      waits for this gate, so a restore either writes first (and his OFF follows
+      it) or sees his choice at the bytes and refuses.
+    - **The app's callers:** `FlexBase.StepOnPinnedTarget`'s `atTheBytes`, passed by
+      the VOX owner's restore (`VoxPauseOwner`'s operator question) and by both mic
+      put-backs (`PutBackNow`, `WriteSwitchBackPutBack`'s raw send). Restores made ON
+      the command loop are already ordered with the operator's queued writes by the
+      loop itself.
+    - **Pinned by** `TransportWriteOrderTests` (Codex's schedule on the real TCP
+      adapter, its opposite-order control, the at-the-bytes refusal, the forced
+      OFF's three-thread schedule (R2), the J10 retry against a new run (R1), and
+      `The_write_gate_is_still_patched_into_the_vendor_transport`, which also pins
+      this entry).
+    - **Re-apply after an upgrade.** Merge, never blind-copy. Each adapter's write
+      must take the gate after `AdmitWrite` and before its writer, ask
+      `AdmitAtTheBytes` under it, and report to the pin only after releasing it.
+    - **When it could be removed.** If FlexLib serializes its own command writes
+      and offers a conditional write asked at the moment of writing.
+
+26. **A tune's success reply is its receipt (2026-11-06, the 2026-11-02 junk box's
+    rulings round two, from the 8600 bench)**: keep the comment-marked JJFlex patch
+    in `FlexLib_API/FlexLib/Slice.cs`, `Slice.AcceptTuneReply(double mhz)`, declared
+    just above `_freq`.
+    - **What it is.** It puts the value a tune asked for into FlexLib's slice
+      frequency cache and raises the `Freq` notification when the value changes.
+      The app calls it from BOTH replies to its own `slice tune` command
+      (`FlexBase.TuneReplied`, through `PublishReply`), which run on the reader in
+      order with the radio's statuses, so a status the radio sends after the reply
+      still overwrites it:
+      - a success reply: the value the command asked for;
+      - a refusal (non-zero) whose body is a number: that number, the frequency
+        the radio KEPT, read as the vendor's own `Slice.SetFreqReply` reads it
+        (added 2026-11-06, Codex's B2). A non-numeric body leaves the cache as the
+        radio last answered or reported.
+      Either is published only when its reply is newer than every reply already
+      published for that slice (`FrequencyEchoGuard.NewestReply`).
+    - **Why.** Measured on a FLEX-8600 on 2026-11-06 (bench report
+      `2026-11-06-junkbox-1102-bench-report.md`, Fail 1): the radio sends a slice's
+      new `rf_frequency` to every OTHER client and none to the client that tuned
+      it, which gets only `R|0|`. **This is per property, not a rule of the
+      radio:** measured again on 2026-11-06 with a raw LAN client
+      (`bench-2026-11-06-xmit0/micechoprobe.log`, `muteechoprobe.log`), `radio set
+      mute_local_audio_when_remote` likewise gets only its reply, but `mic input`
+      IS echoed to its writer, as `transmit ... mic_selection=`, before the reply.
+      Never generalise one property's measurement to another. The app tunes through the reply-bearing path
+      rather than the `Freq` setter (whose cache write before sending stood in for
+      that status), so FlexLib's cache stayed on the OLD frequency until another
+      client connected, and every reader that asks the slice (F, the title, the
+      transmit notice, `TXFrequencyAsReported`) read the old number.
+    - **Item 23 has no consumer since this change.** The app no longer subscribes
+      to `Slice.FrequencyReported`: it waited for a report of our own tune that
+      never comes. The patch is left in place, harmless; removing it is a separate
+      decision.
+    - **Pinned by** `TuningReceiptTests.The_FlexLib_tune_reply_patch_is_marked_and_in_place`
+      and the reply-only tests beside it.
+    - **Re-apply after an upgrade.** Merge `Slice.cs`; the member is an addition
+      that uses the private `_freq` and `RaisePropertyChanged`.
+    - **When it could be removed.** If the radio starts reporting a tune to the
+      client that sent it, or the app goes back to the `Freq` setter.
+
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 
 FlexLib is not the only vendor code in this repo, and a patch in one of the

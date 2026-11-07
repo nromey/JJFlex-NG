@@ -60,6 +60,8 @@ namespace Radios
         private VoxPauseOwner.Lease? _referenceVoxLease;
         private string? _voxPausedAtDisconnectSerial;
         private object? _voxPauseRadio;
+        /// <summary>The command connection the shared VOX owner belongs to (repair round 4, #596 B6).</summary>
+        private object? _voxPauseConnection;
         private readonly object _voxReplyGate = new object();
         private readonly System.Collections.Generic.Dictionary<VoxSetting, (Radio Radio, bool On, Task<bool> Reply)> _voxReplies = new();
 
@@ -81,31 +83,110 @@ namespace Radios
             {
                 lock (_voxPauseGate)
                 {
-                    if (_voxPauses == null || !ReferenceEquals(_voxPauseRadio, theRadio))
+                    var current = theRadio;
+                    object? currentConnection = current?.CurrentCommandConnection;
+                    if (_voxPauses == null || !ReferenceEquals(_voxPauseRadio, current)
+                        || !ReferenceEquals(_voxPauseConnection, currentConnection))
                     {
-                        // An old lease must never restore its snapshot into
-                        // a different radio now attached to this wrapper.
-                        _voxPauses?.Disconnect();
-                        var radio = theRadio;
-                        _voxPauseRadio = radio;
-                        _voxPauses = new VoxPauseOwner(
-                            which => radio != null && ReferenceEquals(radio, theRadio)
-                                ? (which == VoxSetting.CwBreakIn ? radio.CWBreakIn : radio.SimpleVOXEnable)
-                                : throw new InvalidOperationException("The radio is no longer attached."),
-                            (which, on, immediate) => radio != null && ReferenceEquals(radio, theRadio)
-                                && WriteVoxSetting(which, on, immediate),
-                            action =>
+                        // An old lease must never restore its snapshot into a
+                        // different radio, nor onto another command connection
+                        // of the same radio (repair round 4, Codex's B6): VOX
+                        // debt belongs to the connection that incurred it, and
+                        // writing it onto a new one would turn on autonomous
+                        // keying nobody asked for there. So the old owner is
+                        // abandoned, never flushed, and what it still owed is
+                        // remembered by serial for the next connect's sentence.
+                        if (_voxPauses != null)
+                        {
+                            string? oldSerial = (_voxPauseRadio as Radio)?.Serial;
+                            if (_voxPauses.Abandon() && oldSerial != null)
                             {
-                                if (!q.MainLoop) return false;
-                                q.Enqueue((FunctionDel)(() => action()), "VoxPause");
-                                return true;
-                            });
+                                _voxPausedAtDisconnectSerial = oldSerial;
+                                Tracing.TraceLine("VoxPauses: the radio or its command connection changed with a VOX "
+                                    + "restore still owed; it is NOT written on the new one, and is remembered", TraceLevel.Warning);
+                            }
+                        }
+                        var radio = current;
+                        object? connection = currentConnection;
+                        _voxPauseRadio = radio;
+                        _voxPauseConnection = connection;
+                        bool Ours() => radio != null && ReferenceEquals(radio, theRadio)
+                            && ReferenceEquals(radio.CurrentCommandConnection, connection);
+                        _voxPauses = new VoxPauseOwner(
+                            which => Ours()
+                                ? (which == VoxSetting.CwBreakIn ? radio!.CWBreakIn : radio!.SimpleVOXEnable)
+                                : throw new InvalidOperationException("The radio or its command connection is no longer this one."),
+                            // To THIS owner's radio, never whatever is current at
+                            // the write (repair round 5).
+                            (which, on, immediate) => Ours() && WriteVoxSettingTo(radio!, which, on, immediate),
+                            // The queue's own answer (integration fix).
+                            (action, dropped) => q.Enqueue((FunctionDel)(() => action()), "VoxPause", dropped),
+                            // The family's one question, at every restore write
+                            // (repair round 3), pinned to this owner's radio AND
+                            // command connection (repair round 4).
+                            () => radio == null ? "there is no radio"
+                                : RestoreRefusedAtWrite(radio, (object?)connection ?? NoConnection),
+                            // ...and asked WITH the write, as one step that a new
+                            // command connection waits for (repair round 5,
+                            // Codex's B8): a release whose last check passed
+                            // cannot then go out on a replacement connection.
+                            // Round 6: pinned at the transport's own write, and a
+                            // restore ON asked receive there again, under the
+                            // reader's dispatch gate (Codex's B9/B10 family).
+                            // Integration fix 3 (Codex's #596 B3): and asked there
+                            // first whether the operator has chosen since it was owed.
+                            // Integration fix 4 (Codex's #596 B4): and asked once more
+                            // under the transport's write gate, at the bytes, so an
+                            // operator OFF the command loop writes meanwhile cannot be
+                            // overtaken by this ON (MIGRATION.md item 25).
+                            // Round five (Codex's S1 residual, the class): receive is
+                            // asked at the bytes too, so a carrier reported while the
+                            // ON waits for the write gate refuses it there.
+                            (on, step, operatorOverruled) => StepOnPinnedTarget(radio, connection, step,
+                                on && radio != null
+                                    ? () => operatorOverruled?.Invoke() ?? RestoreRefusedAtWrite(radio, (object?)connection ?? NoConnection)
+                                    : null,
+                                atTheBytes: on && radio != null
+                                    ? () => operatorOverruled?.Invoke() ?? RestoreRefusedAtWrite(radio, (object?)connection ?? NoConnection)
+                                    : null));
                         OperatorChangedRadioSetting -= NoteVoxPauseOperatorChange;
                         OperatorChangedRadioSetting += NoteVoxPauseOperatorChange;
+                        WatchVoxRetry(_voxPauses, connection as CommandConnection);
                     }
                     return _voxPauses;
                 }
             }
+        }
+
+        /// <summary>The watch that retries a withheld VOX restore; null when none.</summary>
+        private Action<CommandConnection>? _voxRetryWatch;
+
+        /// <summary>
+        /// A VOX restore withheld at its write (a carrier, or the report gate not
+        /// had within its bound) is retried when the radio next reports receive
+        /// on that owner's connection (integration fix, 2026-11-06), as the mic
+        /// debt is. Off the reader. Replaced with the owner; ended at disconnect.
+        /// The two debt machines are kept apart this round (register).
+        /// </summary>
+        private void WatchVoxRetry(VoxPauseOwner owner, CommandConnection? connection)
+        {
+            StopVoxRetryWatch();
+            if (connection == null) return;
+            Action<CommandConnection> watch = c =>
+            {
+                if (!ReferenceEquals(c, connection) || !owner.HasWithheld) return;
+                if (InterlockReports.LastOn(c)?.IsReceive != true) return;
+                _ = System.Threading.Tasks.Task.Run(owner.RetryWithheld);
+            };
+            _voxRetryWatch = watch;
+            InterlockReports.Reported += watch;
+        }
+
+        private void StopVoxRetryWatch()
+        {
+            var watch = _voxRetryWatch;
+            _voxRetryWatch = null;
+            if (watch != null) InterlockReports.Reported -= watch;
         }
 
         private void NoteVoxPauseOperatorChange(string what)
@@ -114,7 +195,12 @@ namespace Radios
             _voxPauses?.OperatorChanged(TXModeAsReported == "CW" ? VoxSetting.CwBreakIn : VoxSetting.SimpleVox);
         }
 
-        private void DisconnectVoxPauses()
+        /// <param name="restore">False when the teardown could not confirm
+        /// receive (#596, repair round 2, N3): VOX is NOT written back on under
+        /// a carrier. The pause is abandoned and remembered by serial, so the
+        /// next connect says VOX was paused, as it already does for a pause
+        /// the link took down.</param>
+        private void DisconnectVoxPauses(bool restore)
         {
             // Read slice leases before the VOX gate. Slice status can dispose
             // a lease while holding its own gate; reversing that order here
@@ -131,14 +217,24 @@ namespace Radios
                     _voxPausedAtDisconnectSerial = serial;
                 txToneGen.Stop();
                 TxFileStop();
-                _voxPauses?.Disconnect();
+                if (restore)
+                {
+                    // Each restore asks at its own write; one withheld there
+                    // is remembered, as an abandoned one is (repair round 3).
+                    if (_voxPauses?.Disconnect() == true && theRadio?.Serial is string withheldSerial)
+                        _voxPausedAtDisconnectSerial = withheldSerial;
+                }
+                else if (_voxPauses?.Abandon() == true && theRadio?.Serial is string owedSerial)
+                    _voxPausedAtDisconnectSerial = owedSerial;
                 _localPlaybackVoxLeases.Clear();
                 _referenceVoxLease?.Dispose();
                 _referenceVoxLease = null;
                 _toneVoxLease?.Dispose();
                 _toneVoxLease = null;
                 _voxPauses = null;
+                StopVoxRetryWatch();
                 _voxPauseRadio = null;
+                _voxPauseConnection = null;
             }
         }
 
@@ -194,10 +290,13 @@ namespace Radios
         /// there is no radio, or the queue is not running and the write was
         /// not immediate. Never "applied": nothing here reads the echo.
         /// </returns>
-        public bool WriteVoxSetting(VoxSetting which, bool on, bool immediate)
+        public bool WriteVoxSetting(VoxSetting which, bool on, bool immediate) =>
+            WriteVoxSettingTo(theRadio, which, on, immediate);
+
+        /// <summary><see cref="WriteVoxSetting"/> to a named radio: the VOX owner's own (repair round 5).</summary>
+        private bool WriteVoxSettingTo(Radio? radio, VoxSetting which, bool on, bool immediate)
         {
             if (which == VoxSetting.None) return false;
-            var radio = theRadio;
             if (radio == null)
             {
                 Tracing.TraceLine("WriteVoxSetting: no radio, so " + which + "=" + on + " was NOT issued", TraceLevel.Warning);
@@ -205,6 +304,7 @@ namespace Radios
             }
             using (AppInitiatedSettingChanges())
             {
+                bool wrote = true;
                 FunctionDel write = () =>
                 {
                     using var appWrite = AppInitiatedSettingChanges();
@@ -217,8 +317,18 @@ namespace Radios
                     var reply = new VoxWriteReply(radio, command);
                     try
                     {
+                        // Inside a pinned step its writes are counted (integration
+                        // fix 2, Codex's F1): the setter skips a value its cache
+                        // already holds, and a refused earlier write leaves that
+                        // cache poisoned, so the same command then goes out raw.
+                        int before = PinnedWritesSoFar;
                         if (which == VoxSetting.CwBreakIn) radio.CWBreakIn = on;
                         else radio.SimpleVOXEnable = on;
+                        // Only for a restore (on): an off the cache already reads
+                        // off is the radio's own state, and sends nothing as before.
+                        if (on && t_stepPin != null && PinnedWritesSoFar == before)
+                            SendRadioCommandWithReply(radio, command, null);
+                        if (on && t_stepPin != null) wrote = PinnedWritesSoFar > before;
                         lock (_voxReplyGate) _voxReplies[which] = (radio, on, reply.Result);
                         reply.FinishWrite();
                     }
@@ -232,15 +342,19 @@ namespace Radios
                         Tracing.TraceLine("WriteVoxSetting: immediate " + which + "=" + on + " threw: " + ex.Message, TraceLevel.Error);
                         return false;
                     }
+                    if (!wrote)
+                    {
+                        Tracing.TraceLine("WriteVoxSetting: " + which + "=" + on + " was NOT written", TraceLevel.Warning);
+                        return false;
+                    }
                     Tracing.TraceLine("WriteVoxSetting: " + which + "=" + on + " issued immediately (app-initiated)", TraceLevel.Info);
                     return true;
                 }
-                if (!q.MainLoop)
+                if (!q.Enqueue(write, which == VoxSetting.CwBreakIn ? "BreakIn" : "SimpleVOXEnable"))
                 {
                     Tracing.TraceLine("WriteVoxSetting: command loop not running, so " + which + "=" + on + " was NOT issued", TraceLevel.Warning);
                     return false;
                 }
-                q.Enqueue(write, which == VoxSetting.CwBreakIn ? "BreakIn" : "SimpleVOXEnable");
             }
             Tracing.TraceLine("WriteVoxSetting: " + which + "=" + on + " queued (app-initiated)", TraceLevel.Info);
             return true;

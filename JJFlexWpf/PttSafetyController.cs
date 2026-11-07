@@ -528,6 +528,13 @@ namespace JJFlexWpf
         public void NoteRadioTransmit(bool on)
         {
             _radioReportsTransmit = on;
+            // The radio says it keyed: a VOX send's rising tri-tone, owed to
+            // this edge, plays now (#863, ruled 2026-11-04). Its "off" is NOT
+            // paid here: this notification follows FlexLib's Mox, which falls
+            // the moment our own software key is withdrawn while a hand mic or
+            // foot switch still holds the carrier (Codex's second re-check,
+            // B1). The falling tone waits for real receive instead.
+            if (on) RadioKeyedForOwedStartTone();
             if (!on) { _tuneCarrierOn = false; _atuTuning = false; }
             NoteRf();
         }
@@ -886,8 +893,34 @@ namespace JJFlexWpf
             _rfCommandedOn = on;
             NoteRf();
             var rig = _getRigControl();
-            if (rig != null)
-                rig.Transmit = on;
+            if (rig == null) return;
+            // A release at teardown or at a dropped connection unkeys only
+            // this client's own carrier, checked as the write goes out (#596
+            // N1, #861 B2; Codex's re-check). Every other unkey stays the
+            // unconditional one.
+            if (!on && _unkeyOwnCarrierOnly) rig.UnkeyOwnCarrier("push to talk released at " + _releaseWhy);
+            else rig.Transmit = on;
+        }
+
+        /// <summary>While set, <see cref="SetTx"/>'s unkey is <see cref="FlexBase.UnkeyOwnCarrier"/>.</summary>
+        private bool _unkeyOwnCarrierOnly;
+        private string _releaseWhy = "";
+
+        /// <summary>
+        /// The application is tearing the radio down (a disconnect, a radio
+        /// switch, exit, power-off): to Idle from any state, which drops this
+        /// controller's command to transmit and stops its timers, with an
+        /// unkey that touches only this client's own carrier (#596 N1, #861
+        /// B2). Escape's ordinary unlock is unchanged.
+        /// </summary>
+        public void ReleaseForTeardown()
+        {
+            ForgetEdgeTones();
+            if (State == PttState.Idle) return;
+            _unkeyOwnCarrierOnly = true;
+            _releaseWhy = "teardown";
+            try { GoIdle(ReceivingWords()); }
+            finally { _unkeyOwnCarrierOnly = false; }
         }
 
         /// <summary>
@@ -931,11 +964,16 @@ namespace JJFlexWpf
             {
                 _pttDownTicks = Stopwatch.GetTimestamp();   // #216, see NotePttRelease
                 State = PttState.PttHold;
+                // Every owed falling tone is void BEFORE the key is asked for
+                // (repair round 5, Codex's #863 N2): a payment already under
+                // way finishes first, and none starts after.
+                ForgetEdgeTones();
                 SetTx(true);   // RF off to on: a new transmission, and every sentence about the last one's end is now history
+                NoteKeyOrigin();
                 StartFreshAudioSample();
-                if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
+                KeyDownTone();
                 _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_transmitting"));
-                SpeakKeyDownFirstLine(Lexicon.Get("audio.ptt.announce_transmitting"));
+                SpeakKeyDownFirstLine(TransmittingWords());
                 if (!AudioCheckNarration) SpeakKeyDownExtra();
                 _healthReflectedWarned = false;
                 _reflectedRun.Reset();
@@ -961,7 +999,7 @@ namespace JJFlexWpf
                 // means the screen reader is synthesising pairs (#216). The
                 // release still happens — detection only, no behaviour change.
                 NotePttRelease();
-                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"));
+                GoIdle(ReceivingWords());
             }
             // If locked/warning, key-up does nothing (still locked)
         }
@@ -996,7 +1034,7 @@ namespace JJFlexWpf
             else
             {
                 // Any TX state — unlock
-                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"));
+                GoIdle(ReceivingWords());
             }
         }
 
@@ -1017,13 +1055,464 @@ namespace JJFlexWpf
         private bool _keyingForCheck;
 
         /// <summary>
+        /// The radio's connection fell (#596; Noel, 2026-10-18: "if the radio
+        /// drops, so should the key"). Whatever this controller was doing,
+        /// held, locked or warning, it goes to Idle, and the operator is told
+        /// why with the warning tone first, because they are talking into
+        /// dead air and the key dropping is the only other cue they get. On a
+        /// station with transmit sounds off, that cue is silent and the
+        /// sentence carries it all.
+        /// </summary>
+        /// <param name="sentence">What happened, already worded. The caller
+        /// owns it, because the same sentence is said when the radio was keyed
+        /// by something other than this controller.</param>
+        /// <returns>True when the controller was transmitting and has been
+        /// released, which means the sentence has been said.</returns>
+        /// <remarks>
+        /// <see cref="GoIdle"/>'s unkey write goes to a connection that is
+        /// gone, which is harmless: it is an unkey, and the queue that carries
+        /// it traps a dead radio's exception.
+        /// </remarks>
+        public bool DropWithConnection(string sentence)
+        {
+            ForgetEdgeTones();
+            if (State == PttState.Idle) return false;
+            Tracing.TraceLine($"PTT: the connection fell while {State}; the key drops with it", TraceLevel.Warning);
+            EarconPlayer.WarningAlarmTone();
+            // Its unkey is this client's own carrier only (#596 N4): on a
+            // radio object reused by a reconnect, a queued xmit 0 must not
+            // reach whoever transmits on the new connection.
+            _unkeyOwnCarrierOnly = true;
+            _releaseWhy = "a dropped connection";
+            try
+            {
+                GoIdle(sentence, forceSpeech: true,
+                       subject: Radios.Speech.SpeechSubject.TransmitDroppedWithConnection);
+            }
+            finally { _unkeyOwnCarrierOnly = false; }
+            return true;
+        }
+
+        /// <summary>
+        /// The key-down tone (#863, ruled by Noel 2026-11-03): the three-note
+        /// tone when this transmission goes out on a slice other than the
+        /// selected one and the operator has not turned that notice off, the
+        /// ordinary rising pair otherwise (under the chirp switch, as before).
+        /// The choice is remembered, so the key-up answers in the same family.
+        /// </summary>
+        private void KeyDownTone()
+        {
+            _keyedElsewhere = Radios.TransmitSliceNotice.PlaysTones(_getRigControl(), _config.ChirpEnabled);
+            // This key owns its own key-up tone now, whatever a taken-over
+            // send or a VOX send owed (#863 R3).
+            ForgetEdgeTones();
+            // A key on the selected slice ends a remembered split, whichever
+            // door it came through (#863, Codex's re-check F1).
+            try { Radios.TransmitSliceNotice.KeyedWithoutNotice(_getRigControl()); } catch { }
+            if (_keyedElsewhere) EarconPlayer.TxElsewhereStartTone();
+            else if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
+        }
+
+        /// <summary>
+        /// The key-up in the family the key-down chose, OWED to the radio's own
+        /// report that it is back in receive (ruled by Noel 2026-11-04 22:24 and
+        /// 22:26, before repair round 4): every falling transmit cue, the
+        /// three notes and the ordinary chirp alike, means "really off the
+        /// air". Our release only asks the radio to unkey; the tone waits for
+        /// its answer, with no delay of our own on top.
+        /// </summary>
+        private void KeyUpTone()
+        {
+            bool elsewhere = _keyedElsewhere;
+            _keyedElsewhere = false;
+            // Owed for THIS key (repair round 9): anchored to its own written ON
+            // and OFF, and void once a tune or a send is asked for since. A key
+            // that was never asked (refused) transmitted nothing and owes nothing.
+            var key = _key;
+            _key = null;
+            if (!elsewhere && !_config.ChirpEnabled) return;
+            if (key == null)
+            {
+                Tracing.TraceLine("PTT: no falling " + (elsewhere ? "three-note tone" : "chirp")
+                    + " is owed: this transmission's key was never asked for, so nothing was transmitted", TraceLevel.Info);
+                return;
+            }
+            OweStopToneAtRealReceive(elsewhere ? FallingTone.Elsewhere : FallingTone.Chirp, ownKey: key);
+        }
+
+        /// <summary>Which falling cue a debt plays: the three notes or the ordinary two.</summary>
+        private enum FallingTone { Elsewhere, Chirp }
+
+        /// <summary>This transmission's key-down played the three-note tone.</summary>
+        private bool _keyedElsewhere;
+
+        // ── The tri-tones on the radio's own edges (#863) ──────────────────
+        //
+        // ONE owner for a falling tri-tone this controller did not key for
+        // itself, and for a rising one owed to a radio edge. Two routes reach
+        // it:
+        //
+        // - A send on another slice taken over by a hand mic or foot switch
+        //   (repair round 2, R3). Its carrier stays up under the operator, so
+        //   the falling tone is owed to the REAL unkey. Repair round 3 (Codex's
+        //   second re-check, B1): round 2 paid it on NoteRadioTransmit(false),
+        //   which follows FlexLib's Mox, and Mox falls the moment our own
+        //   software key is withdrawn while the hand mic still holds the
+        //   carrier. "You stopped transmitting" was then false. It is now paid
+        //   only when the radio really receives: our cached Transmit false AND
+        //   the interlock out of transmit, on the same connection
+        //   (FlexBase.WhenReallyReceiving, the wait the monitor and VOX
+        //   releases already use).
+        // - A box-off voice message released to VOX (ruled by Noel 2026-11-04
+        //   before repair round 3): the rising tone when the radio reports it
+        //   keyed, the falling one when it really receives. Nothing waits on
+        //   these tones, so VOX is never delayed.
+        //
+        // A generation voids every older debt: a key this controller makes
+        // (KeyDownTone), a drop and a teardown take the tones over or end them.
+
+        // Repair round 4 (ruled by Noel 2026-11-04 22:24 and 22:26): this owner
+        // now holds EVERY falling transmit cue, both families, including this
+        // controller's own key-up and a send's own end (VoiceMessageSender
+        // hands its debt here). One owner per debt: a debt carries its family
+        // and its generation, and a newer one voids it.
+        //
+        // NO REPORT, NO TONE (the design for Noel's review). A falling cue is
+        // played only on the radio's own receive report on the connection it
+        // was owed on: FlexBase.WhenReallyReceiving, which needs our cached
+        // Transmit false AND a recognised receive report on that still-live
+        // connection. If the report never comes, nothing plays: the connection
+        // ending or being replaced ends the debt silently (traced), a key of
+        // this controller's voids it, and a carrier that never falls keeps it
+        // waiting, silent. Never a timed tone: a tone on a timer would be a
+        // claim the radio has not made.
+
+        private readonly object _edgeToneLock = new();
+        private long _edgeToneGeneration;
+        private bool _edgeStopOwed;
+        private FallingTone _edgeStopFamily;
+        private bool _edgeStartOwed;
+        private int _edgeStopTonesPlayed;
+        private int _chirpStopTonesPlayed;
+        private int _edgeStartTonesPlayed;
+
+        /// <summary>For tests: a falling tri-tone is still owed to the radio's real receive.</summary>
+        internal bool ElsewhereStopOwed { get { lock (_edgeToneLock) return _edgeStopOwed; } }
+
+        /// <summary>For tests: a rising tri-tone is owed to the radio's report that it keyed.</summary>
+        internal bool ElsewhereStartOwed { get { lock (_edgeToneLock) return _edgeStartOwed; } }
+
+        /// <summary>For tests: how many owed falling tri-tones this controller has played.</summary>
+        internal int ElsewhereStopTonesPlayed { get { lock (_edgeToneLock) return _edgeStopTonesPlayed; } }
+
+        /// <summary>For tests: how many owed ordinary falling chirps this controller has played.</summary>
+        internal int ChirpStopTonesPlayed { get { lock (_edgeToneLock) return _chirpStopTonesPlayed; } }
+
+        /// <summary>For tests: an ordinary falling chirp is owed to the radio's real receive.</summary>
+        internal bool ChirpStopOwed { get { lock (_edgeToneLock) return _edgeStopOwed && _edgeStopFamily == FallingTone.Chirp; } }
+
+        /// <summary>
+        /// For tests: when set, every falling tone actually handed to the
+        /// earcon player is added here by its earcon's name, in order, at the
+        /// call itself, so a test sees the submission and not only the
+        /// accounting. Null in production, so nothing grows over a session.
+        /// </summary>
+        internal System.Collections.Generic.List<string>? FallingTonesSubmitted { get; set; }
+
+        /// <summary>For tests: how many owed rising tri-tones this controller has played.</summary>
+        internal int ElsewhereStartTonesPlayed { get { lock (_edgeToneLock) return _edgeStartTonesPlayed; } }
+
+        /// <summary>Every owed edge tone is void: a key of ours, a drop or a teardown has them now.</summary>
+        private void ForgetEdgeTones()
+        {
+            bool unpaid;
+            FallingTone family;
+            lock (_edgeToneLock)
+            {
+                unpaid = _edgeStopOwed;
+                family = _edgeStopFamily;
+                _edgeToneGeneration++;
+                _edgeStopOwed = false;
+                _edgeStartOwed = false;
+            }
+            // No report, no tone, and a line saying so (the design for Noel's
+            // review): the radio never reported receive for that transmission
+            // before a newer key, a drop or a teardown took the tones over.
+            if (unpaid)
+                Tracing.TraceLine("PTT: the falling " + (family == FallingTone.Elsewhere ? "three-note tone" : "chirp")
+                    + " was NOT played: the radio had not reported receive for that transmission before a newer key,"
+                    + " a drop or a teardown", TraceLevel.Info);
+        }
+
+        /// <summary>This controller's own key, read back from the rig right after it was asked (repair round 9); null when the ask was refused.</summary>
+        private Radios.FlexBase.OwnKey? _key;
+
+        private void NoteKeyOrigin()
+        {
+            try { _key = _getRigControl()?.KeyAskedOnThisThread; } catch { _key = null; }
+        }
+
+        /// <summary>A further ask on a transmission already ours: it carries the release's cue, when the rig took it.</summary>
+        private void NoteContinuedKey()
+        {
+            try
+            {
+                var asked = _getRigControl()?.KeyAskedOnThisThread;
+                if (asked != null) _key = asked;
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Owe a falling tone to the radio's real receive. When the radio
+        /// already really receives, it plays now, so a hand-off after the
+        /// carrier fell waits for no further notification.
+        /// </summary>
+        /// <param name="origin">The count of transmissions asked for at the
+        /// ORIGIN of the transmission this debt is about (repair round 7,
+        /// Codex's #863 S2): this controller's own key, or, when null, the
+        /// rig's latest reported carrier rise. Never the count when the debt
+        /// happens to be made: a deferred notification can arrive after a
+        /// newer tune or send was asked for, and must not adopt it.</param>
+        /// <param name="ownKey">A key WE asked for (repair round 9): the debt is
+        /// anchored to its written ON and OFF instead of to report numbers.</param>
+        private void OweStopToneAtRealReceive(FallingTone family, long? generation = null, long? origin = null,
+            Radios.FlexBase.OwnKey? ownKey = null)
+        {
+            long gen;
+            lock (_edgeToneLock)
+            {
+                gen = generation ?? ++_edgeToneGeneration;
+                if (gen != _edgeToneGeneration) return;
+                _edgeStopOwed = true;
+                _edgeStopFamily = family;
+            }
+            FlexBase? rig = null;
+            try { rig = _getRigControl(); } catch { }
+            if (rig == null) { PayStopTone(gen, sameConnection: false, submitIfStillReceiving: null); return; }
+            // Given up quietly once a newer debt replaces this one, so a carrier
+            // held for a long time does not collect waits behind it.
+            if (ownKey != null)
+            {
+                rig.WhenReallyReceiving((same, submitIfStillReceiving) => PayStopTone(gen, same, submitIfStillReceiving, ownKey),
+                    () => StillOwed(gen), ownKey);
+                return;
+            }
+            long from = origin ?? rig.LastCarrierOrigin;
+            rig.WhenReallyReceiving((same, submitIfStillReceiving) => PayStopTone(gen, same, submitIfStillReceiving), () => StillOwed(gen), from);
+        }
+
+        private bool StillOwed(long generation)
+        {
+            lock (_edgeToneLock) return _edgeStopOwed && generation == _edgeToneGeneration;
+        }
+
+        /// <summary>For tests: called when a payment has finished, paid or not, after its submission (repair round 8, Codex's T3).</summary>
+        internal Action? AfterFallingTonePaymentForTests { get; set; }
+
+        /// <summary>
+        /// The radio reported receive on the connection the tone was owed on
+        /// (or that connection went): the owed falling tone plays once, in its
+        /// family, unless something newer took it over. A connection that went
+        /// first ends it silently, with a trace. Any thread.
+        /// </summary>
+        /// <param name="submitIfStillReceiving">The wait's final step (repair
+        /// rounds 5 and 6): it runs the hand-over only if the radio is still
+        /// receiving for this transmission, as one step against every new key
+        /// this process asks for and every report the transport publishes.
+        /// Null when there is no rig.</param>
+        private void PayStopTone(long generation, bool sameConnection, Func<Action, bool>? submitIfStillReceiving,
+            Radios.FlexBase.OwnKey? ownKey = null)
+        {
+            try { PayStopToneCore(generation, sameConnection, submitIfStillReceiving, ownKey); }
+            finally { AfterFallingTonePaymentForTests?.Invoke(); }
+        }
+
+        private void PayStopToneCore(long generation, bool sameConnection, Func<Action, bool>? submitIfStillReceiving,
+            Radios.FlexBase.OwnKey? ownKey)
+        {
+            // Our ON never went out (round 9): nothing was transmitted, no cue is owed.
+            if (ownKey != null && ownKey.NeverWent)
+            {
+                NotPaid(generation, "our key for that transmission never went out, so nothing was transmitted");
+                return;
+            }
+            if (!sameConnection || submitIfStillReceiving == null)
+            {
+                NotPaid(generation, "the connection it was owed on ended before the radio reported receive");
+                return;
+            }
+            // The last check and the hand-over are ONE step (repair round 6,
+            // Codex's #863 S1): under the transport's dispatch gate (the radio's
+            // reports, our record of them, the connection's changes), the
+            // falling cue's gate (every key this process asks for: push to
+            // talk, the lock, sends, checks, tune), and this controller's own
+            // tone lock (a key-down's void, repair round 5's N2). A new
+            // transmission, visible to this process, therefore either fails
+            // that check or comes after the tone was handed to the player.
+            bool stood;
+            try { stood = submitIfStillReceiving(() => HandOverUnderLock(generation)); }
+            catch { stood = false; }
+            if (!stood)
+                NotPaid(generation, "between the radio's receive report and the tone, a new transmission was asked for,"
+                    + " the radio reported a carrier again, or its connection went");
+        }
+
+        /// <summary>Hand the owed tone to the player, if it is still this debt's, under the tone lock.</summary>
+        private void HandOverUnderLock(long generation)
+        {
+            lock (_edgeToneLock)
+            {
+                if (!_edgeStopOwed || generation != _edgeToneGeneration) return;
+                var family = _edgeStopFamily;
+                _edgeStopOwed = false;
+                if (family == FallingTone.Elsewhere) _edgeStopTonesPlayed++;
+                else _chirpStopTonesPlayed++;
+                var submitted = FallingTonesSubmitted;
+                if (submitted != null)
+                    lock (submitted)
+                        submitted.Add(family == FallingTone.Elsewhere ? nameof(EarconPlayer.TxElsewhereStopTone) : nameof(EarconPlayer.TxStopTone));
+                // Handing a tone to the player only queues it to the mixer;
+                // nothing it calls comes back to this controller or the radio.
+                if (family == FallingTone.Elsewhere) EarconPlayer.TxElsewhereStopTone();
+                else EarconPlayer.TxStopTone();
+            }
+        }
+
+        /// <summary>The owed tone, if it is still this debt's, ends unplayed, with a trace saying why.</summary>
+        private void NotPaid(long generation, string why)
+        {
+            FallingTone family;
+            lock (_edgeToneLock)
+            {
+                if (!_edgeStopOwed || generation != _edgeToneGeneration) return;
+                family = _edgeStopFamily;
+                _edgeStopOwed = false;
+            }
+            Tracing.TraceLine("PTT: the falling " + (family == FallingTone.Elsewhere ? "three-note tone" : "chirp")
+                + " was NOT played: " + why, TraceLevel.Info);
+        }
+
+        /// <summary>
+        /// The connection is dropping or being torn down (repair round 4):
+        /// every falling tone still owed ends here, unplayed, whether or not
+        /// this controller was transmitting. A debt must not outlive its
+        /// connection, and the wait pinned to it would end it anyway.
+        /// </summary>
+        public void EndEdgeTonesWithConnection() => ForgetEdgeTones();
+
+        /// <summary>The radio reported it keyed: a rising tri-tone owed to that edge plays, and its falling one is owed.</summary>
+        private void RadioKeyedForOwedStartTone()
+        {
+            long gen;
+            lock (_edgeToneLock)
+            {
+                if (!_edgeStartOwed) return;
+                _edgeStartOwed = false;
+                gen = _edgeToneGeneration;
+                _edgeStartTonesPlayed++;
+            }
+            EarconPlayer.TxElsewhereStartTone();
+            OweStopToneAtRealReceive(FallingTone.Elsewhere, gen);
+        }
+
+        /// <summary>
+        /// A box-off voice message on another slice has been released to VOX
+        /// (#863, ruled by Noel 2026-11-04): its rising tri-tone plays when the
+        /// radio reports it keyed, and its falling one when the radio really
+        /// receives. The caller has already applied the notice setting and the
+        /// chirp switch. Nothing here delays VOX.
+        /// </summary>
+        public void TonesOnVoxEdges()
+        {
+            lock (_edgeToneLock)
+            {
+                _edgeToneGeneration++;
+                _edgeStopOwed = false;
+                _edgeStartOwed = true;
+            }
+            bool keyedAlready = _radioReportsTransmit;
+            if (!keyedAlready)
+            {
+                try { keyedAlready = _getRigControl()?.RadioInterlockReportsTransmit == true; } catch { }
+            }
+            if (keyedAlready) RadioKeyedForOwedStartTone();
+        }
+
+        /// <summary>
+        /// The VOX send has ended: a rising tone VOX never keyed for is not
+        /// owed any more. A falling tone already owed stays owed to the real
+        /// receive.
+        /// </summary>
+        public void EndVoxEdgeTones()
+        {
+            lock (_edgeToneLock) _edgeStartOwed = false;
+        }
+
+        /// <summary>For tests: this transmission's key-up will play the three-note tone.</summary>
+        internal bool KeyedElsewhere => _keyedElsewhere;
+
+        /// <summary>
+        /// A box send that keyed on a slice other than the selected one has
+        /// been taken over and its carrier stays up under the operator (#863,
+        /// Codex's re-check R3). The falling tone belongs to the real unkey:
+        /// this controller's own, when it is the one now keying (a push to
+        /// talk or lock takeover), otherwise the radio's report of receive.
+        /// </summary>
+        public void TakeOverElsewhereStopTone()
+        {
+            if (State != PttState.Idle) { _keyedElsewhere = true; return; }
+            OweStopToneAtRealReceive(FallingTone.Elsewhere);
+        }
+
+        /// <summary>
+        /// A send on another slice ended its OWN carrier (repair round 4, ruled
+        /// by Noel 2026-11-04 22:24): its falling tri-tone is owed to the
+        /// radio's report that it really receives, through this one owner, not
+        /// played at the file's end. A key of this controller's takes it over.
+        /// </summary>
+        public void OweElsewhereStopTone()
+        {
+            // The send's own carrier is the latest key this rig asked for itself
+            // (round 9, Codex's #863 S4): its falling tone is anchored to that
+            // key, never to a report that a newer tune's count could relabel.
+            Radios.FlexBase.OwnKey? key = null;
+            try { key = _getRigControl()?.LatestOwnKey; } catch { }
+            OweStopToneAtRealReceive(FallingTone.Elsewhere, ownKey: key);
+        }
+
+        /// <summary>
+        /// "Play chirp tones on transmit and receive": the one switch both the
+        /// two-tone pair and the three-note tones obey (ruled 2026-11-04 06:51),
+        /// for a send that keys the radio itself.
+        /// </summary>
+        public bool ChirpEnabled => _config.ChirpEnabled;
+
+        // The three announcements, with their slice when the operator has
+        // asked for it (#496). One reading of the slices per sentence.
+        private Radios.SliceRoles CurrentSliceRoles()
+        {
+            try { return Radios.SliceRoles.Of(_getRigControl()); }
+            catch { return default; }
+        }
+
+        private string TransmittingWords() =>
+            Radios.PttSliceWords.Transmitting(CurrentSliceRoles(), _config.AnnounceTransmitSlice);
+
+        private string ReceivingWords() =>
+            Radios.PttSliceWords.Receiving(CurrentSliceRoles(), _config.AnnounceTransmitSlice);
+
+        private string LockedWords() =>
+            Radios.PttSliceWords.Locked(CurrentSliceRoles(), _config.AnnounceTransmitSlice);
+
+        /// <summary>
         /// Escape — unlock TX from any state.
         /// </summary>
         public void EscapeUnlock()
         {
             if (State != PttState.Idle)
             {
-                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"));
+                GoIdle(ReceivingWords());
             }
         }
 
@@ -1099,6 +1588,11 @@ namespace JJFlexWpf
         /// Ctrl+Space was told about a locked transmit from some minutes ago.
         /// Two figures measured over two different windows is exactly the
         /// disagreement the reading is supposed to resolve.
+        ///
+        /// A key-down that does not come through here (a foot switch, the
+        /// radio's own PTT, CW, another client) is restarted by FlexBase at
+        /// the radio's reported rising edge instead, and that edge leaves this
+        /// reset alone when it is only the echo of our own key (#651).
         /// </summary>
         private void StartFreshAudioSample()
         {
@@ -1120,13 +1614,23 @@ namespace JJFlexWpf
 
             bool fromIdle = State == PttState.Idle;
             State = PttState.Locked;
+            // As at PttDown: owed falling tones are void before the key (#863 N2).
+            if (fromIdle) ForgetEdgeTones();
             // From Idle this starts a transmission; from a held PTT it keeps
             // one on, and the episode must NOT change — a reflected-power
             // warning spoken during the hold is still about this RF. SetTx
             // tells the episode what it commanded and the episode decides
             // which of the two this was (Astra's Track IJK2 review, blocker 1).
             SetTx(true);
-            if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
+            // From Idle, this is a new key. From a held press it is the same
+            // transmission (round 10, Codex's #863 S6 sibling): the new ask
+            // continues the held key's carrier, so the release owes its falling
+            // cue to the new ask, which a later count would otherwise supersede.
+            if (fromIdle) NoteKeyOrigin();
+            else NoteContinuedKey();
+            if (fromIdle) KeyDownTone();
+            else if (_keyedElsewhere) EarconPlayer.TxElsewhereStartTone();
+            else if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
             _lockClock.Start(Environment.TickCount64);
             _alcZeroConsecutiveSeconds = 0;
             _healthSilentMicWarned = false;
@@ -1141,9 +1645,9 @@ namespace JJFlexWpf
             StartFreshAudioSample(); // SC_MIC peak-hold and LUFS sample both start here
 
             _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_locked"));
-            if (fromIdle) SpeakKeyDownFirstLine(Lexicon.Get("audio.ptt.announce_locked"));
+            if (fromIdle) SpeakKeyDownFirstLine(LockedWords());
             else if (_config.SpeechEnabled && !AudioCheckNarration)
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.announce_locked"), VerbosityLevel.Critical, interrupt: true);
+                ScreenReaderOutput.Speak(LockedWords(), VerbosityLevel.Critical, interrupt: true);
             if (!AudioCheckNarration) SpeakKeyDownExtra();
             Tracing.TraceLine("PTT: Locked", TraceLevel.Info);
 
@@ -1165,8 +1669,15 @@ namespace JJFlexWpf
             var wasState = State;
             State = PttState.Idle;
             SetTx(false);
+            // Our transmission is over: a restart of the audio sample it made
+            // and no rising edge claimed is retired (#651 follow-up).
+            try { _getRigControl()?.RetireOwnAudioSampleClaim(); } catch { }
             ScreenReaderOutput.Supersede(KeyDownExtraSubject, "transmission ended");
-            if (_config.ChirpEnabled) EarconPlayer.TxStopTone();
+            // A where-it-transmits notice still unsaid is about a transmission
+            // that has ended (#863; Codex's check of #496 noted push to talk's
+            // queued notice outliving a short hold).
+            ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.TransmitSliceNotice, "transmission ended");
+            KeyUpTone();
 
             // Read the transmission's audio verdict BEFORE the counters below
             // are cleared. Only on an ordinary unkey: forceSpeech marks the
@@ -1874,7 +2385,14 @@ namespace JJFlexWpf
         {
             if (State != PttState.Idle)
             {
-                SetTx(false);
+                // Scoped to this client's own carrier (integration fix 2, Codex's
+                // B2): the controller closing is never a reason to unkey another
+                // client's transmission. An import, an exit or a power-off all
+                // reach here.
+                _unkeyOwnCarrierOnly = true;
+                _releaseWhy = "the controller closing";
+                try { SetTx(false); }
+                finally { _unkeyOwnCarrierOnly = false; }
                 State = PttState.Idle;
             }
             StopAllTimers();

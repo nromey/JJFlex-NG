@@ -192,7 +192,7 @@ namespace JJFlexWpf
         /// </summary>
         private static readonly Action[] WarmSet =
         {
-            TxStartTone, TxStopTone, Warning1Beep, Warning2Beep, OhCrapBeep, HardKillTone,
+            TxStartTone, TxStopTone, TxElsewhereStartTone, TxElsewhereStopTone, Warning1Beep, Warning2Beep, OhCrapBeep, HardKillTone,
             TuneOnTone, TuneOffTone, ATUSuccessTone, ATUFailTone,
             CountdownRecordTone, CountdownTransmitTone, FixerStageDoneTone,
             () => { var s = Radios.CountdownSettings.Current; CountdownBeatTone(s.PipHz, s.PipMs, false, s.PipSound); },

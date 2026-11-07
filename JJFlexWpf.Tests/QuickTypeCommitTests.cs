@@ -146,4 +146,103 @@ public sealed class QuickTypeCommitTests
         Assert.Null(elsewhere.Correction);
         Assert.Equal("20 meter band, 14.200 megahertz", elsewhere.Arrival);
     }
+
+    // ---------------- J28: a typed frequency waits for the radio ----------------
+    // Ruled by Noel 2026-11-06 16:52: "Terse should just do an error beep and
+    // say unable to tune this frequency. Heck, maybe both places could say that."
+
+    [Theory]
+    [InlineData(VerbosityLevel.Terse)]
+    [InlineData(VerbosityLevel.Chatty)]
+    public void A_refused_typed_frequency_beeps_and_says_unable_at_terse_and_chatty(VerbosityLevel level)
+    {
+        var said = FreqOutHandlers.TypedTuneSpeech(FlexBase.TuneAnswer.Refused, level);
+        Assert.True(said.Beep);
+        Assert.Equal("Unable to tune this frequency", said.Sentence);
+        Assert.False(said.Arrived);
+    }
+
+    [Fact]
+    public void An_accepted_typed_frequency_says_its_arrival_and_nothing_else()
+    {
+        var said = FreqOutHandlers.TypedTuneSpeech(FlexBase.TuneAnswer.Accepted, VerbosityLevel.Terse);
+        Assert.False(said.Beep);
+        Assert.Null(said.Sentence);
+        Assert.True(said.Arrived);
+    }
+
+    [Fact]
+    public void A_typed_frequency_with_no_answer_says_so_without_the_refusal_beep()
+    {
+        var said = FreqOutHandlers.TypedTuneSpeech(FlexBase.TuneAnswer.NoAnswerYet, VerbosityLevel.Terse);
+        Assert.False(said.Beep);
+        Assert.Equal("No answer from the radio yet", said.Sentence);
+        Assert.False(said.Arrived);
+    }
+
+    [Fact]
+    public void The_commit_no_longer_says_the_frequency_was_set_before_the_radio_answers()
+    {
+        // Read in the source, as this class reads the delivery: the commit
+        // hands its tune to the rig and says nothing about the frequency until
+        // the answer comes; the arrival sentence is said only on Accepted.
+        var dir = new System.IO.DirectoryInfo(System.AppContext.BaseDirectory);
+        while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+        string text = System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, "JJFlexWpf", "FreqOutHandlers.cs"));
+        int commit = text.IndexOf("private void CommitQuickType()", System.StringComparison.Ordinal);
+        int end = text.IndexOf("internal static (SixtyMeterChannels.ModeCorrection? Correction, string Arrival) QuickTypeCommitOutcome(", commit, System.StringComparison.Ordinal);
+        Assert.True(commit > 0 && end > commit);
+        string body = text.Substring(commit, end - commit);
+        Assert.Contains("TuneAwaitingAnswer(freqHz,", body, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("SetRXFrequency?.Invoke(freqHz)", body, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("QuickTypeCommitOutcome(", body.Substring(0, body.IndexOf("TuneAwaitingAnswer(freqHz,", System.StringComparison.Ordinal)), System.StringComparison.Ordinal);
+        int say = text.IndexOf("private void SayTypedTuneAnswer(", System.StringComparison.Ordinal);
+        Assert.True(say > 0, "nothing says the radio's answer to a typed frequency");
+        string sayBody = text.Substring(say, 2500);
+        int speech = text.IndexOf("private static bool SayTypedTuneSpeech(", System.StringComparison.Ordinal);
+        Assert.True(speech > 0);
+        Assert.Contains("EarconPlayer.LeaderInvalidTone();", text.Substring(speech, 800), System.StringComparison.Ordinal);
+        Assert.True(sayBody.IndexOf("if (!said.Arrived) return;", System.StringComparison.Ordinal)
+            < sayBody.IndexOf("QuickTypeCommitOutcome(", System.StringComparison.Ordinal),
+            "the arrival is said before the radio accepted the tune");
+        // Round five (T1): asked first, as the window runs it; and only the typed tune's own rig is acted on.
+        int stale = sayBody.IndexOf("TypedTuneAnswerStale(Rig, tune, answer)", System.StringComparison.Ordinal);
+        Assert.True(stale > 0 && stale < sayBody.IndexOf("TypedTuneSpeech(answer", System.StringComparison.Ordinal),
+            "the answer is said before it is asked whether it is still about the radio");
+        Assert.Contains("var rig = tune.Rig;", sayBody, System.StringComparison.Ordinal);
+        // Round six (T2): the side effects only on the slice it was tuned on.
+        int onSelected = sayBody.IndexOf("if (!tune.TypedOnTheSelectedSlice)", System.StringComparison.Ordinal);
+        Assert.True(onSelected > 0
+            && onSelected < sayBody.IndexOf("CheckBandBoundary(freqHz);", System.StringComparison.Ordinal)
+            && onSelected < sayBody.IndexOf("SixtyMeterModeDelivery.Deliver(", System.StringComparison.Ordinal),
+            "a side effect on the selected slice runs before asking whether that is the slice it was tuned on");
+        Assert.DoesNotContain("var rig = Rig;", sayBody, System.StringComparison.Ordinal);
+    }
+
+    // ---------------- Round five, Codex's re-check T1: the answer's authority ----------------
+
+    private static FlexBase.TypedTune RefusedTuneOn(FlexBase rig)
+    {
+        // A rig with no radio refuses at once, and hands back the tune it was for.
+        FlexBase.TypedTune? got = null;
+        rig.TuneAwaitingAnswer(14_200_000, (answer, tune) => got = tune);
+        Assert.NotNull(got);
+        return got!;
+    }
+
+    [Fact]
+    public void An_answer_for_a_rig_the_window_no_longer_holds_is_not_said_or_acted_on()
+    {
+        // Codex's rig-switch schedule: the answer reached the window after its
+        // rig had been replaced, and the 60 m correction switched the
+        // REPLACEMENT radio to CW.
+        var original = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" }) { SuppressSpeech = true };
+        var replacement = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" }) { SuppressSpeech = true };
+        var tune = RefusedTuneOn(original);
+        Assert.Same(original, tune.Rig);
+        Assert.Null(FreqOutHandlers.TypedTuneAnswerStale(original, tune, FlexBase.TuneAnswer.Refused));   // control
+        Assert.NotNull(FreqOutHandlers.TypedTuneAnswerStale(replacement, tune, FlexBase.TuneAnswer.Refused));
+        Assert.NotNull(FreqOutHandlers.TypedTuneAnswerStale(null, tune, FlexBase.TuneAnswer.Refused));
+    }
 }

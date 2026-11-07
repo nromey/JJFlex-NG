@@ -4788,6 +4788,8 @@ namespace Flex.Smoothlake.FlexLib
             if (_commandCommunication is null || !_commandCommunication.IsConnected)
             {
                 // TODO: handle disconnect
+                // JJFlex patch: write-time gate (MIGRATION.md item 21): a pinned caller is told.
+                CommandWritePin.Current?.Refuse("the command connection is not connected");
                 return 0;
             }
 
@@ -7840,18 +7842,27 @@ namespace Flex.Smoothlake.FlexLib
             get { return _interlockState; }
             internal set
             {
+                // JJFlex patch (MIGRATION.md item 22): the radio's word on Mox,
+                // counted with the cache write under _reportedCacheSync, so a
+                // forced write's own cache update never overwrites a newer
+                // report (Codex's #861 B3, round 9). Only a report that would
+                // update this client's Mox counts.
+                bool reportsOurMox = ShouldUpdateMoxOrTuneState(_txClientHandle);
+                if (reportsOurMox) lock (_reportedCacheSync) _moxReports++;
                 if (_interlockState != value)
                 {
                     _interlockState = value;
                     RaisePropertyChanged("InterlockState");
 
-                    bool new_mox_state = IsInterlockMox(_interlockState) && ShouldUpdateMoxOrTuneState(_txClientHandle);
+                    bool new_mox_state = IsInterlockMox(_interlockState) && reportsOurMox;
 
-                    if (_mox != new_mox_state)
+                    bool moxChanged;
+                    lock (_reportedCacheSync)
                     {
-                        _mox = new_mox_state;
-                        RaisePropertyChanged("Mox");
+                        moxChanged = _mox != new_mox_state;
+                        if (moxChanged) _mox = new_mox_state;
                     }
+                    if (moxChanged) RaisePropertyChanged("Mox");
                 }
             }
         }
@@ -9672,6 +9683,72 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
+        // JJFlex patch: forced writes (MIGRATION.md item 22). The Mox, TXTune and
+        // MicInput setters skip a value equal to their cache, and cache it BEFORE they
+        // send. A receive or tune-off report that lands before our ON is written leaves
+        // the cache reading OFF, so an OFF through the setter sends nothing. These always
+        // issue their command, and change the cache only once the transport has really
+        // admitted the write (a CommandWritePin can refuse it). True when it went out.
+        private bool SendCommandForced(string command, Func<long> reports, Func<bool> applyCache, string property,
+            bool urgent = false)
+        {
+            // A write counts as sent only once its writer returned without an
+            // exception (CommandWritePin.Written, reported by the adapter after the
+            // writer; Codex's #596 B15). An unpinned caller gets a pin of its own,
+            // on the current connection, so its outcome is known too.
+            var pin = CommandWritePin.Current;
+            var current = _commandCommunication?.CurrentConnection;
+            using var own = pin == null && current != null ? CommandWritePin.Pin(current) : null;
+            var watched = pin ?? own;
+            if (watched == null) { SendCommand(command); return false; }
+            int before = watched.Written;
+            long reportsBefore;
+            lock (_reportedCacheSync) reportsBefore = reports();
+            int seq;
+            // JJFlex patch: write order (MIGRATION.md item 25): a forced OFF goes
+            // before every ordinary write waiting at the adapter's gate.
+            using (urgent ? CommandWritePin.UrgentWrites() : null)
+                seq = SendCommand(command);
+            bool sent = seq != 0 && watched.Written > before;
+            if (!sent) return false;
+            // The cache follows our write only while the radio has said nothing
+            // about this property since the write began (Codex's #861 B3, round
+            // 9): a report parsed meanwhile is newer than our write, and stays.
+            bool changed = false;
+            lock (_reportedCacheSync)
+                if (reports() == reportsBefore) changed = applyCache();
+            if (changed) RaisePropertyChanged(property);
+            return true;
+        }
+
+        /// <summary>JJFlex patch (item 22): guards each report of Mox, TXTune and MicInput together with its count.</summary>
+        private readonly object _reportedCacheSync = new object();
+        private long _moxReports, _txTuneReports, _micInputReports;
+
+        /// <summary>JJFlex patch (MIGRATION.md item 22): xmit 0, whatever the cache reads. True when it was written.</summary>
+        public bool SendMoxOff() => SendCommandForced("xmit 0", () => _moxReports, () =>
+        {
+            if (!_mox) return false;
+            _mox = false;
+            return true;
+        }, "Mox", urgent: true);
+
+        /// <summary>JJFlex patch (MIGRATION.md item 22): transmit tune 0, whatever the cache reads. True when it was written.</summary>
+        public bool SendTuneOff() => SendCommandForced("transmit tune 0", () => _txTuneReports, () =>
+        {
+            if (!_txTune) return false;
+            _txTune = false;
+            return true;
+        }, nameof(TXTune), urgent: true);
+
+        /// <summary>JJFlex patch (MIGRATION.md item 22): mic input, whatever the cache reads. True when it was written.</summary>
+        public bool SendMicInput(string input) => SendCommandForced("mic input " + (input ?? "").ToUpper(), () => _micInputReports, () =>
+        {
+            if (string.Equals(_micInput, input, StringComparison.Ordinal)) return false;
+            _micInput = input;
+            return true;
+        }, "MicInput");
+
         private bool _txMonAvailable;
         /// <summary>
         /// True when MOX is avaialble to be used
@@ -10520,7 +10597,8 @@ namespace Flex.Smoothlake.FlexLib
 
                     case "mic_selection":
                         {
-                            _micInput = value.ToUpper();
+                            // JJFlex patch (item 22): the report and its count as one step.
+                            lock (_reportedCacheSync) { _micInput = value.ToUpper(); _micInputReports++; }
                             if (_micInputList.Count > 0)
                             {
                                 if (_micInput == "PC" || !_micInputList.Contains(_micInput))
@@ -11051,9 +11129,17 @@ namespace Flex.Smoothlake.FlexLib
                             }
 
                             bool new_val = Convert.ToBoolean(temp);
-                            if (new_val != _txTune && ShouldUpdateMoxOrTuneState(_txClientHandle))
+                            // JJFlex patch (item 22): the report and its count as one step.
+                            bool tuneChanged = false;
+                            if (ShouldUpdateMoxOrTuneState(_txClientHandle))
+                                lock (_reportedCacheSync)
+                                {
+                                    _txTuneReports++;
+                                    tuneChanged = new_val != _txTune;
+                                    if (tuneChanged) _txTune = new_val;
+                                }
+                            if (tuneChanged)
                             {
-                                _txTune = new_val;
                                 RaisePropertyChanged("TXTune");
                             }
                             break;

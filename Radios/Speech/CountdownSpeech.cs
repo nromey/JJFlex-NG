@@ -102,6 +102,26 @@ namespace Radios.Speech
         }
 
         /// <summary>
+        /// Queue one sentence that only counts as heard WHOLE, on its own
+        /// subject, and return its handle (#863, Codex's check, B3). The
+        /// countdown's own pieces are single numbers, where a piece cut
+        /// part-way was heard; a sentence whose slice name comes after its
+        /// frequency is not heard when it is cut, so a cut here is a failure,
+        /// and on the estimate path it is held for the untracked margin.
+        /// </summary>
+        /// <param name="ahead">Retire our own ordinary backlog first, so this
+        /// sentence goes next (rulings round two, the bench's Fail 2).</param>
+        public Radios.ICountdownWords SayWhole(string text, string subject, bool ahead = false)
+        {
+            if (string.IsNullOrEmpty(text)) return Radios.CountdownWords.Undelivered;
+            if (ahead) _arbiter.RetireOrdinaryBacklog("a transmit notice that must be heard before the key",
+                "CountdownSpeech.SayWhole", subject);
+            var piece = _arbiter.EmitQueued(text, VerbosityLevel.Critical, "CountdownSpeech.SayWhole",
+                subject, additive: false);
+            return piece == null ? Radios.CountdownWords.Undelivered : new Words(this, piece, onlyWarning: true, wholeOnly: true);
+        }
+
+        /// <summary>
         /// Take back every piece not yet handed to the reader: the count was
         /// called off, or its words could not be delivered.
         /// </summary>
@@ -109,25 +129,85 @@ namespace Radios.Speech
         public void Withdraw(string by) =>
             _arbiter.Supersede(SpeechSubject.CheckCountdown, by, "CountdownSpeech.Withdraw");
 
+        /// <summary>
+        /// Take back one piece this class handed out, and nothing else
+        /// (#863, repair round 3): a cancelled attempt's own sentence, never a
+        /// newer attempt's on the same subject. Words from elsewhere (a fixed
+        /// handle) have nothing queued to take back.
+        /// </summary>
+        public void Withdraw(Radios.ICountdownWords words, string by)
+        {
+            if (words is Words w && ReferenceEquals(w.Owner, this))
+                _arbiter.Withdraw(w.Piece, by, "CountdownSpeech.Withdraw(piece)");
+        }
+
+        /// <summary>
+        /// Take back one piece through the speech layer that handed it out,
+        /// whichever instance that was (round seven): a refused key's notice,
+        /// held or queued, is retired by its own arbiter.
+        /// </summary>
+        internal static void WithdrawItsOwn(Radios.ICountdownWords words, string by)
+        {
+            if (words is Words w) w.Owner._arbiter.Withdraw(w.Piece, by, "CountdownSpeech.WithdrawItsOwn");
+        }
+
+        /// <summary>
+        /// Say <paramref name="text"/> whole again through the speech layer that
+        /// handed out <paramref name="words"/>, after taking the old piece back
+        /// (round seven): a notice the reader cut before its first word. Null
+        /// when <paramref name="words"/> is not one of ours.
+        /// </summary>
+        internal static Radios.ICountdownWords SayWholeAgain(Radios.ICountdownWords words, string text, string subject, string why)
+        {
+            if (words is not Words w) return null;
+            w.Owner._arbiter.Withdraw(w.Piece, why, "CountdownSpeech.SayWholeAgain");
+            return w.Owner.SayWhole(text, subject, ahead: true);
+        }
+
         private sealed class Words : Radios.ICountdownWords
         {
             private readonly CountdownSpeech _owner;
             private readonly SpeechArbiter.FollowedPiece _piece;
             private readonly bool _onlyWarning;
+            private readonly bool _wholeOnly;
 
-            public Words(CountdownSpeech owner, SpeechArbiter.FollowedPiece piece, bool onlyWarning)
+            public Words(CountdownSpeech owner, SpeechArbiter.FollowedPiece piece, bool onlyWarning, bool wholeOnly = false)
             {
                 _owner = owner;
                 _piece = piece;
                 _onlyWarning = onlyWarning;
+                _wholeOnly = wholeOnly;
             }
+
+            internal CountdownSpeech Owner => _owner;
+            internal SpeechArbiter.FollowedPiece Piece => _piece;
 
             private SpeechArbiter.FollowedView View => _owner._arbiter.Inspect(_piece);
 
-            public bool Failed => View.Superseded;
+            /// <summary>A whole-only sentence cut part-way was not heard.</summary>
+            private static bool CutPartWay(SpeechArbiter.FollowedView v) =>
+                v.State is SpeechArbiter.Owed.CutByUs or SpeechArbiter.Owed.PausedUnknownCause;
+
+            public bool Failed
+            {
+                get
+                {
+                    var v = View;
+                    return v.Superseded || (_wholeOnly && CutPartWay(v));
+                }
+            }
 
             public System.Threading.Tasks.Task NextNews =>
                 _owner._nextProgress?.Invoke() ?? Radios.CountdownWords.NoNews;
+
+            public bool CutBeforeItsFirstWord
+            {
+                get
+                {
+                    var v = View;
+                    return !v.Superseded && v.InLedger && v.State == SpeechArbiter.Owed.NeverStarted;
+                }
+            }
 
             public bool Started
             {
@@ -154,7 +234,8 @@ namespace Radios.Speech
                     var v = View;
                     if (v.Superseded) return false;
                     if (v.State == SpeechArbiter.Owed.NeverStarted) return false;
-                    if (v.State != SpeechArbiter.Owed.Pending) return true;   // a one-word piece cut part-way was heard
+                    if (v.State != SpeechArbiter.Owed.Pending)
+                        return !_wholeOnly;   // a one-word piece cut part-way was heard; a sentence was not
                     if (v.Tracked) return !v.InLedger;
                     // The estimate path: an expired estimate is not proof. Where
                     // these words are the only warning, hold on for the margin.

@@ -912,6 +912,36 @@ namespace JJFlexWpf
         }
 
         /// <summary>
+        /// Transmitting on a slice other than the selected one, at key-down
+        /// (#863, ruled by Noel 2026-11-03: "a tri tone vs. a two tone for ptt
+        /// start and a tri tone when it turns off"). Three rising notes a
+        /// fifth and a fourth apart, starting above the transmit pair's top
+        /// note, so it reads as a different shape, a different register and a
+        /// different count from the rising pair it replaces. Instant, so push
+        /// to talk's "go, then say" is not delayed. Played by every door that
+        /// keys while the transmit slice is elsewhere, unless the operator has
+        /// turned the notice off.
+        /// </summary>
+        [Earcon("Transmit start, on another slice", EarconCategory.Transmit, Order = 3,
+            Description = "Three rising notes. You are transmitting, on a slice other than the active one.")]
+        public static void TxElsewhereStartTone()
+        {
+            if (!Gate(EarconCategory.Transmit)) return;
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (600, 45), (0, 15), (900, 45), (0, 15), (1200, 60) }, VolumeNormal);
+        }
+
+        /// <summary>The key-up of <see cref="TxElsewhereStartTone"/>: the same three notes, falling.</summary>
+        [Earcon("Transmit stop, on another slice", EarconCategory.Transmit, Order = 7,
+            Description = "Three falling notes. You have stopped transmitting on a slice other than the active one.")]
+        public static void TxElsewhereStopTone()
+        {
+            if (!Gate(EarconCategory.Transmit)) return;
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (1200, 45), (0, 15), (900, 45), (0, 15), (600, 60) }, VolumeNormal);
+        }
+
+        /// <summary>
         /// The Fixer's end-of-test tone: the ding's own octave falling back to
         /// the count's pitch. OFF — the measurement is over.
         /// </summary>

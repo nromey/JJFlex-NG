@@ -51,6 +51,14 @@ namespace Radios
         /// before. News is only a reason to ask: it is never itself proof.
         /// </summary>
         Task NextNews => CountdownWords.NoNews;
+
+        /// <summary>
+        /// The reader took it and cut it before its first word, by something
+        /// that is not us (round seven, the third bench: NVDA's own focus speech
+        /// as a question closed). Nothing was heard, and nothing will re-hand it
+        /// until some later interrupt. False where that cannot be told.
+        /// </summary>
+        bool CutBeforeItsFirstWord => false;
     }
 
     /// <summary>Words handles that need no speech layer.</summary>

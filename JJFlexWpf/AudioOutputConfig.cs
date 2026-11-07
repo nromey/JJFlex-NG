@@ -353,6 +353,41 @@ namespace JJFlexWpf
         /// </summary>
         public int MicVerdictOutput { get; set; } = (int)MicVerdictOutputMode.Both;
 
+        /// <summary>
+        /// Which slice F reads when the transmit slice is not the selected one
+        /// (#642): 0 = both, transmit first (the default), 1 = the transmit
+        /// slice, 2 = the selected slice. Ruled by Noel 2026-10-18, "Active,
+        /// transmit, or both". Stored as int; see
+        /// <see cref="Radios.FrequencyKeySlices"/>.
+        /// </summary>
+        public int FrequencyKeyReads { get; set; } = (int)Radios.FrequencyKeySlices.Both;
+
+        /// <summary>
+        /// What a door says and plays when it keys a transmit slice that is
+        /// not the selected one (#863): 0 = speak and tone (the default),
+        /// 1 = tone only, 2 = off. Ruled by Noel 2026-11-03. Stored as int;
+        /// see <see cref="Radios.TransmitElsewhereNotice"/>. Shown on the PTT
+        /// tab beside "Name the slice when announcing transmit and receive",
+        /// but kept here, with the operator's other speech preferences, so a
+        /// change made with no radio connected is saved like they are.
+        /// </summary>
+        public int TransmitElsewhereNotice { get; set; } = (int)Radios.TransmitElsewhereNotice.SpeakAndTone;
+
+        /// <summary>
+        /// The preferences that describe the OPERATOR rather than a radio and
+        /// were added without a per-radio meaning: copied from the root config
+        /// over a per-radio one, so the root (written by every Settings OK,
+        /// with a radio or without) is the one place they are decided. Without
+        /// this a choice made with no radio connected was saved, and then the
+        /// next connect loaded the radio's own older copy over it (#642).
+        /// </summary>
+        public void TakeOperatorChoicesFrom(AudioOutputConfig root)
+        {
+            if (root == null) return;
+            FrequencyKeyReads = root.FrequencyKeyReads;
+            TransmitElsewhereNotice = root.TransmitElsewhereNotice;
+        }
+
         /// <summary>Per-slot meter tone configurations. LEGACY: retained so old
         /// config files still deserialize, but the live meter list is
         /// <see cref="Meters"/> (Track D2). Anything found here is folded
@@ -728,6 +763,12 @@ namespace JJFlexWpf
             // applied live and was then lost. (Carried in when sound timing
             // moved this list out of the menu bar and met Check your audio on main.)
             rootConfig.Countdown = chosen.Countdown.Clone();
+            // #642 and #863: which slice F reads, and what a door says when it
+            // keys a slice other than the selected one. Both describe what this
+            // operator wants to hear; missing here, a change made with no radio
+            // connected applied live and was gone when Settings reopened.
+            rootConfig.FrequencyKeyReads = chosen.FrequencyKeyReads;
+            rootConfig.TransmitElsewhereNotice = chosen.TransmitElsewhereNotice;
             rootConfig.Save(rootConfigDir);
         }
 
@@ -927,6 +968,16 @@ namespace JJFlexWpf
             // there rather than being looked up four different ways.
             MicAudioReport.VerdictMode =
                 (MicVerdictOutputMode)Math.Clamp(MicVerdictOutput, 0, 2);
+
+            // Which slice F reads (#642), the same way: the readout lives in
+            // Radios, which cannot see this class.
+            Radios.FrequencyKeyReadout.Setting =
+                (Radios.FrequencyKeySlices)Math.Clamp(FrequencyKeyReads, 0, 2);
+
+            // What a door does when it keys a slice other than the selected
+            // one (#863), the same way.
+            Radios.TransmitSliceNotice.Setting =
+                (Radios.TransmitElsewhereNotice)Math.Clamp(TransmitElsewhereNotice, 0, 2);
 
             // #128: restoring saved state is not a toggle. The engine's
             // operator booleans tone in their setters (so every road answers

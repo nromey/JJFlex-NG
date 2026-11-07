@@ -964,6 +964,109 @@ namespace Radios.Tests
             Assert.DoesNotContain("case \"Connected\":", source.Substring(handlerTop), StringComparison.Ordinal);
         }
 
+        // ────────────────────────────────────────────────────────────────
+        //  #596: the key drops with the connection
+        // ────────────────────────────────────────────────────────────────
+
+        private static void RadioMox(FlexBase rig, bool on) =>
+            typeof(FlexBase).GetMethod("noteRadioMox", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(rig, new object[] { on });
+
+        /// <summary>
+        /// The radio was keyed when the link fell. Our transmit state falls
+        /// with it, and the application hears it in the order it needs: the
+        /// drop (so it can read the key input before anything resets it), then
+        /// the radio's unkey, then the connection's state. Goes red if the
+        /// flag is left standing, as it was until #596, or if the drop is
+        /// raised after TransmitChange.
+        /// </summary>
+        [Fact]
+        public void A_drop_while_keyed_drops_the_key_and_says_so_first()
+        {
+            var rig = NewRig();
+            var radio = NewWanRadio(UniqueSerial(), "ours");
+            var heard = new List<string>();
+            try
+            {
+                rig.theRadio = radio;
+                WireAsConnectDoes(rig, radio);
+                MarkLive(radio, rig);
+                RadioMox(rig, true);
+                Assert.True(rig.Transmit, "positive control: the radio's key-down reached the flag");
+
+                rig.TransmitDroppedWithConnection += (keyed, deliberate) => heard.Add("drop keyed=" + keyed + " deliberate=" + deliberate);
+                rig.TransmitChange += (_, on) => heard.Add("transmit " + on);
+                rig.ConnectionStateChanged += on => heard.Add("connected " + on);
+
+                LoseTheTransport(radio);
+
+                AssertTheRigSawTheFall(rig);
+                Assert.False(rig.Transmit, "the radio is gone and the transmit flag still reads keyed");
+                Assert.Equal(new[] { "drop keyed=True deliberate=False", "transmit False", "connected False" }, heard);
+            }
+            finally
+            {
+                Release(rig);
+            }
+        }
+
+        /// <summary>
+        /// Not keyed: the drop is still raised, because the application's own
+        /// push to talk may have keyed a moment before the radio's echo; but
+        /// there is no unkey to report.
+        /// </summary>
+        [Fact]
+        public void A_drop_while_receiving_reports_the_drop_and_no_unkey()
+        {
+            var rig = NewRig();
+            var radio = NewWanRadio(UniqueSerial(), "ours");
+            var heard = new List<string>();
+            try
+            {
+                rig.theRadio = radio;
+                WireAsConnectDoes(rig, radio);
+                MarkLive(radio, rig);
+                rig.TransmitDroppedWithConnection += (keyed, deliberate) => heard.Add("drop keyed=" + keyed + " deliberate=" + deliberate);
+                rig.TransmitChange += (_, on) => heard.Add("transmit " + on);
+
+                LoseTheTransport(radio);
+
+                AssertTheRigSawTheFall(rig);
+                Assert.Equal(new[] { "drop keyed=False deliberate=False" }, heard);
+            }
+            finally
+            {
+                Release(rig);
+            }
+        }
+
+        /// <summary>Our own hang-up is reported as such, so nothing calls it a drop.</summary>
+        [Fact]
+        public void A_deliberate_disconnect_is_not_reported_as_a_drop()
+        {
+            var rig = NewRig();
+            var radio = NewWanRadio(UniqueSerial(), "ours");
+            bool? deliberateSeen = null;
+            try
+            {
+                rig.theRadio = radio;
+                WireAsConnectDoes(rig, radio);
+                MarkLive(radio, rig);
+                RadioMox(rig, true);
+                rig.TransmitDroppedWithConnection += (_, deliberate) => deliberateSeen = deliberate;
+                rig.Disconnecting = true;
+
+                LoseTheTransport(radio);
+
+                Assert.True(deliberateSeen, "our own disconnect was reported as an unasked drop");
+                Assert.False(rig.Transmit);
+            }
+            finally
+            {
+                Release(rig);
+            }
+        }
+
         private static int CountOf(string text, string needle)
         {
             int n = 0;

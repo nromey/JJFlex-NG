@@ -1750,6 +1750,9 @@ namespace Radios
         /// in the code as well as in the comments: the process that must clean
         /// up is the one that dies, so nothing downstream may assume this ran.
         /// </summary>
+        /// <summary>How long one teardown restoration step waits for its writes to run.</summary>
+        internal static readonly TimeSpan TeardownRestoreStepBound = TimeSpan.FromMilliseconds(1500);
+
         private void PutProfilesBackOnDisconnect()
         {
             List<ProfileSessionRecord> record;
@@ -1775,6 +1778,13 @@ namespace Radios
                 return;
             }
 
+            // The receive barrier (#596, repair round 2, N3): with the radio
+            // not positively receiving, nothing is put back and the debt is
+            // KEPT, as an unreadable radio's is above: the restore points stay
+            // on the radio, the live transmit-audio snapshot stays on disk, and
+            // an owed autosave notice stays for the next connect.
+            if (TeardownRefusesRestore("the profiles and the live transmit audio")) return;
+
             var plan = ProfileStewardship.PlanPutBack(situation, record, autosaveOff);
 
             foreach (var skip in plan.Skips)
@@ -1789,8 +1799,26 @@ namespace Radios
 
             foreach (var action in plan.Actions)
             {
-                bool ok = RunProfileAction(action);
-                if (action.Kind == ProfileActionKind.TurnAutosaveOn && ok)
+                // Asked again at each step (repair round 2, N3): something can
+                // key while the plan runs. The rest of the plan is then left
+                // too, autosave included, so nothing commits a half put-back.
+                string label = "the " + ProfileStewardship.Label(action.ProfileType) + " step " + action.Kind;
+                if (TeardownRefusesRestore(label + " and everything after it"))
+                    return;
+                // Repair round 3 (rules 1 and 2): every write the step queues,
+                // through any setter, asks at its RUN under one restore gate,
+                // and the step counts only when every one of them ran. A
+                // selection withheld at its write therefore stops the plan
+                // BEFORE the restore point it stood on is deleted, and before
+                // autosave commits anything; the record is kept.
+                var step = RunRestoreStepAtTheWrite(label, () => RunProfileAction(action), TeardownRestoreStepBound);
+                if (step != RestoreStep.Ran)
+                {
+                    Tracing.TraceLine("ProfileStewardship: " + label + " did not complete (" + step
+                        + "); it and everything after it are kept for the next connect.", TraceLevel.Warning);
+                    return;
+                }
+                if (action.Kind == ProfileActionKind.TurnAutosaveOn)
                 {
                     _autosaveTurnedOffThisSession = false;
                 }
@@ -2522,17 +2550,40 @@ namespace Radios
                 return false;
             }
 
-            try
+            // Repair round 3 (rules 1 and 2): the dozen setters ApplyTo calls
+            // each queue a write, and each asks the radio at its RUN under one
+            // restore gate. The snapshot, on disk and in memory, is the debt:
+            // it is discharged only when every one of those writes ran. A
+            // carrier rising before the queue drains leaves it where the next
+            // connect finds it. Whichever caller asked, teardown or offer.
+            var step = RunRestoreStepAtTheWrite("the live transmit audio", () =>
             {
-                using (AppInitiatedSettingChanges())
-                    // applyEq only when the snapshot actually captured the EQ —
-                    // a band the snapshot never read must not be written.
-                    snapshot.ApplyTo(this, applyEq: snapshot.TxEqCaptured);
-            }
-            catch (Exception ex)
+                try
+                {
+                    bool eqQueued;
+                    using (AppInitiatedSettingChanges())
+                        // applyEq only when the snapshot actually captured the EQ —
+                        // a band the snapshot never read must not be written.
+                        snapshot.ApplyTo(this, applyEq: snapshot.TxEqCaptured, out eqQueued);
+                    // An owed equaliser that could not be queued (the radio
+                    // has not reported one) leaves the restore incomplete, and
+                    // its snapshot kept (repair round 4, Codex's F2).
+                    if (!eqQueued)
+                        Tracing.TraceLine("ProfileStewardship: the snapshot owes the equaliser and the radio has none to write",
+                            TraceLevel.Warning);
+                    return eqQueued;
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("ProfileStewardship: restoring live transmit audio threw: "
+                        + ex.Message, TraceLevel.Error);
+                    return false;
+                }
+            }, TeardownRestoreStepBound);
+            if (step != RestoreStep.Ran)
             {
-                Tracing.TraceLine("ProfileStewardship: restoring live transmit audio threw: "
-                    + ex.Message, TraceLevel.Error);
+                Tracing.TraceLine("ProfileStewardship: the live transmit audio was NOT all put back (" + step
+                    + "); the snapshot is kept, on disk, for the next connect.", TraceLevel.Warning);
                 return false;
             }
 
@@ -2765,12 +2816,20 @@ namespace Radios
             switch (type)
             {
                 case ProfileTypes.global:
-                    q.Enqueue((FunctionDel)(() => radio.ProfileGlobalSelection = name),
-                        "stewardship global selection", true);
+                    q.Enqueue((FunctionDel)(() =>
+                    {
+                        // At the queued write, during a teardown (repair round 2, N3);
+                        // a withheld selection counts as refused, never as run (round 3).
+                        if (TeardownRefusesRestore("the global profile '" + name + "'"))
+                        { StationConnect.QueuedWriteGate.WithholdRunning("the global profile was withheld at its write"); return; }
+                        radio.ProfileGlobalSelection = name;
+                    }), "stewardship global selection", true);
                     break;
                 case ProfileTypes.tx:
                     q.Enqueue((FunctionDel)(() =>
                     {
+                        if (TeardownRefusesRestore("the transmit profile '" + name + "'"))
+                        { StationConnect.QueuedWriteGate.WithholdRunning("the transmit profile was withheld at its write"); return; }
                         if (!radio.ProfileTXList.Contains(name))
                         {
                             if (!mayCreate) return;
@@ -2782,6 +2841,8 @@ namespace Radios
                 case ProfileTypes.mic:
                     q.Enqueue((FunctionDel)(() =>
                     {
+                        if (TeardownRefusesRestore("the microphone profile '" + name + "'"))
+                        { StationConnect.QueuedWriteGate.WithholdRunning("the microphone profile was withheld at its write"); return; }
                         if (!radio.ProfileMICList.Contains(name))
                         {
                             if (!mayCreate) return;

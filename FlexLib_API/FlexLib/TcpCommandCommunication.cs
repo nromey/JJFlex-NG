@@ -134,27 +134,71 @@ public class TcpCommandCommunication : CommandCommunicationBase
         // JJFlex patch: callers can own vendor collection locks. Do not take the
         // reader's dispatch gate while sending; retain only this attempt's writer.
         var attempt = Volatile.Read(ref _attempt);
+        // JJFlex patch: write-time gate (MIGRATION.md item 21), against the attempt written.
+        var pin = CommandWritePin.Current;
+        if (!AdmitWrite(attempt?.Connection)) return;
         var writer = attempt?.Writer;
-        if (attempt?.Connection.State != CommandConnectionState.Connected || writer == null) return;
-        try { writer.Write(msg); }
-        catch (Exception ex)
+        // JJFlex patch: write order (MIGRATION.md item 25). The question at the
+        // bytes and the writer are one step against every other write on this
+        // adapter; the outcome is reported after the gate is let go.
+        string? refused = null, failed = null;
+        bool wrote = false, threw = false;
+        EnterWriteGate();
+        try
         {
-            Debug.WriteLine($"Error writing to radio TCP: {ex}");
-            _ = Task.Run(() => FinishAttempt(attempt));
+            if (!AdmitAtTheBytes(pin, out refused)) { /* refused at the bytes: told after the gate */ }
+            // JJFlex patch: the write's outcome, after the writer (MIGRATION.md item 22).
+            else if (attempt?.Connection.State != CommandConnectionState.Connected || writer == null)
+                failed = "the command connection had no writer";
+            else
+            {
+                try { writer.Write(msg); wrote = true; }
+                catch (Exception ex)
+                {
+                    failed = "the write failed: " + ex.Message;
+                    threw = true;
+                    Debug.WriteLine($"Error writing to radio TCP: {ex}");
+                }
+            }
         }
+        finally { ExitWriteGate(); }
+        if (refused != null) { ReportRefusal(pin, refused); return; }
+        ReportWrite(pin, wrote, failed);
+        if (threw) _ = Task.Run(() => FinishAttempt(attempt!));
     }
 
     public async Task WriteAsync(string msg)
     {
         var attempt = Volatile.Read(ref _attempt);
+        // JJFlex patch: write-time gate (MIGRATION.md item 21), decided before the first await.
+        var pin = CommandWritePin.Current;
+        if (!AdmitWrite(attempt?.Connection)) return;
         var writer = attempt?.Writer;
-        if (attempt?.Connection.State != CommandConnectionState.Connected || writer == null) return;
-        try { await writer.WriteAsync(msg).ConfigureAwait(false); }
-        catch (Exception ex)
+        // JJFlex patch: write order (MIGRATION.md item 25), as Write, on the pin captured above.
+        string? refused = null, failed = null;
+        bool wrote = false, threw = false;
+        await EnterWriteGateAsync().ConfigureAwait(false);
+        try
         {
-            Debug.WriteLine($"Error writing to radio TCP: {ex}");
-            _ = Task.Run(() => FinishAttempt(attempt));
+            if (!AdmitAtTheBytes(pin, out refused)) { /* refused at the bytes: told after the gate */ }
+            // JJFlex patch: the write's outcome, after the writer, on the pin captured above (item 22).
+            else if (attempt?.Connection.State != CommandConnectionState.Connected || writer == null)
+                failed = "the command connection had no writer";
+            else
+            {
+                try { await writer.WriteAsync(msg).ConfigureAwait(false); wrote = true; }
+                catch (Exception ex)
+                {
+                    failed = "the write failed: " + ex.Message;
+                    threw = true;
+                    Debug.WriteLine($"Error writing to radio TCP: {ex}");
+                }
+            }
         }
+        finally { ExitWriteGate(); }
+        if (refused != null) { ReportRefusal(pin, refused); return; }
+        ReportWrite(pin, wrote, failed);
+        if (threw) _ = Task.Run(() => FinishAttempt(attempt!));
     }
 
     public delegate void IsConnectedChangedEventHandler(bool connected);

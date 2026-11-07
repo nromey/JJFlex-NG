@@ -88,13 +88,20 @@ namespace Radios.ChainChecks
         public const double NoPowerWatts = 0.5;
 
         /// <summary>
-        /// Computed SWR at or above this says the load is suspect. Judged on
-        /// SWR because that is the number an operator and a FlexRadio engineer
-        /// both already think in — but on SWR WORKED OUT from forward and
-        /// reflected power, never on the radio's own SWR meter. See
-        /// <see cref="Assess"/>.
+        /// Computed SWR at or above this says the load is suspect: the suspect
+        /// rung of the diagnostic ladder, <see cref="SwrLadder.Suspect"/>.
+        /// Judged on SWR because that is the number an operator and a
+        /// FlexRadio engineer both already think in — but on SWR WORKED OUT
+        /// from forward and reflected power, never on the radio's own SWR
+        /// meter. See <see cref="Assess"/>.
         /// </summary>
-        public const double SwrSuspect = 3.0;
+        /// <remarks>
+        /// Ruled by Noel 2026-08-26 (#237) at 2.5; it was 3.0 until the ladder
+        /// reached the code. The probe has no warn verdict of its own: the
+        /// ladder's warn rung is what the live warning and the
+        /// power-coming-back chain rule fire on.
+        /// </remarks>
+        public const double SwrSuspect = SwrLadder.Suspect;
 
         /// <summary>
         /// Fallback threshold, used only when SWR cannot be derived. Reflected
@@ -103,20 +110,31 @@ namespace Radios.ChainChecks
         /// measured 0.05 percent; into an empty connector on the same radio, 76.
         /// </summary>
         /// <remarks>
-        /// <b>DELIBERATELY STRICTER than the live warning</b> — half of
-        /// <see cref="TransmitSafety.ReflectedWarnPercent"/>, and derived from
-        /// it so the two can only move together. The live warning fires while a
-        /// human is holding the key with intent; this fires during a bounded
-        /// UNATTENDED probe into a load the operator has only declared, and a
-        /// probe that is more cautious than a person is the right way round.
-        /// <para>The RATIO is a pin, not a ruling: whether the probe should sit
-        /// at half, at parity, or somewhere else is an open question for Noel
-        /// (#237). Until it is ruled, the derivation keeps the difference
-        /// visible as a decision rather than leaving it to read as drift —
-        /// which is exactly how this constant came to disagree with the other
-        /// two in the first place.</para>
+        /// <para>
+        /// <b>The suspect rung of the same ladder, in its other unit</b>:
+        /// <see cref="SwrLadder.Suspect"/>, SWR 2.5, which is about 18.4
+        /// percent, derived and never written as a literal. So the fallback
+        /// and <see cref="SwrSuspect"/> are one threshold, and the live
+        /// warning (<see cref="TransmitSafety.ReflectedWarnPercent"/>, the warn
+        /// rung) sits above it on the same ladder: the probe runs UNATTENDED
+        /// into a load the operator has only declared, and a probe more
+        /// cautious than a person holding the key is the right way round.
+        /// </para>
+        /// <para>
+        /// Ruled by Noel 2026-08-26 (#237). Until the ladder reached the code
+        /// this was half the live warning's 40 percent, a ratio pinned while
+        /// the ruling was awaited.
+        /// </para>
+        /// <para>
+        /// <b>Two ladders, two jobs, two units.</b> This is DIAGNOSTIC: a
+        /// ratio, how bad the match is. The PROTECTIVE cut,
+        /// <see cref="TransmitSafety.ReflectedCutWatts"/>, is absolute
+        /// reflected watts, how much heat lands in the finals. They can
+        /// disagree and both be right; see <see cref="SwrLadder"/>. Never state
+        /// one in the other's unit, and never unify them.
+        /// </para>
         /// </remarks>
-        public const double ReflectedSuspectPercent = TransmitSafety.ReflectedWarnPercent / 2.0;
+        public const double ReflectedSuspectPercent = SwrLadder.SuspectReflectedPercent;
 
         /// <summary>Why a tune did not happen. Kept distinct because the
         /// remedies are completely different and an operator told the wrong one
@@ -337,15 +355,22 @@ namespace Radios.ChainChecks
         }
 
         /// <summary>
-        /// Abort above this computed SWR. Higher than <see cref="SwrSuspect"/>
-        /// on purpose: "suspect" is something to report, this is something to
-        /// act on.
+        /// Abort above this computed SWR: the abort rung of the diagnostic
+        /// ladder, <see cref="SwrLadder.Abort"/>. Higher than
+        /// <see cref="SwrSuspect"/> on purpose: "suspect" is something to
+        /// report, this is something to act on.
         /// </summary>
-        public const double SwrAbort = 5.0;
+        public const double SwrAbort = SwrLadder.Abort;
 
-        /// <summary>Fallback abort bar when SWR cannot be derived: half the
-        /// power coming straight back. The empty-connector case measured 76.</summary>
-        public const double ReflectedAbortPercent = 50.0;
+        /// <summary>Fallback abort bar when SWR cannot be derived: the same
+        /// abort rung in its other unit, SWR 5, about 44.4 percent of the power
+        /// coming straight back. The empty-connector case measured 76.</summary>
+        /// <remarks>It was 50 percent until #237's ladder reached the code,
+        /// which is SWR 5.83 against <see cref="SwrAbort"/>'s 5: two abort
+        /// points for one condition that nobody could see disagreed, because
+        /// one was in percent and one in SWR. Derived now, so they are one
+        /// number.</remarks>
+        public const double ReflectedAbortPercent = SwrLadder.AbortReflectedPercent;
 
         /// <summary>
         /// How many consecutive bad samples before dropping the carrier. Two,

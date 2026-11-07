@@ -115,7 +115,13 @@ namespace Radios.Tests
             // Chatty and Terse sentences (2026-10-06).
             // Twenty from the Check your audio Track B fix round (#835): the
             // near miss that names two chords, ruled 2026-10-28 21:25.
-            Assert.Equal(20, ladders);
+            // Twenty-one from the 2026-11-02 junk box rulings round (#861, J3):
+            // the mic input left on PC at a disconnect, Noel's Chatty and Terse.
+            // Twenty-two from its round two (Codex's R5): the neutral form, when
+            // no carrier was established (DRAFT).
+            // Twenty-three from its round four (J28): a typed frequency the radio
+            // refused, Noel's sentence at Terse and Chatty.
+            Assert.Equal(23, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -2098,6 +2104,68 @@ namespace Radios.Tests
                 "audio.tune.refused_rx_only",
                 "audio.tune.refused_no_tx_slice",
                 "audio.tune.refused_amplifier",
+                // Repair round 1 (#596, Codex B4): says only what is known; a lost
+                // connection cannot show that RF stopped. DRAFT prose, awaiting Noel.
+                "connect.drop.transmit_released",
+                // Junk box 2026-11-02 rulings round (#861, J3): a mic input left
+                // on PC at a disconnect. Noel's own wording (2026-11-06 11:02,
+                // 11:03), DRAFT until he hears it assembled.
+                "connect.disconnect.mic_left_on",
+                "connect.disconnect.mic_left_on_unconfirmed",
+                // The same round (#642, J4): a tune that ended elsewhere says the
+                // bare frequency it ended on, Noel's ruling; DRAFT until heard.
+                "connect.home.frequency_ended_on",
+                // Round four (#642, J24): the slice named when it is not yours. DRAFT.
+                "connect.home.frequency_ended_on_slice",
+                // Round four (#861, J20): Noel's own wording, 2026-11-06 16:34.
+                "audio.mic.still_switching_to_pc",
+                // Merge prep (#774): Ctrl+F1 on a list names its Delete key. DRAFT.
+                "settings.lists.delete_button_default",
+                "settings.lists.delete_removes_help",
+                // Round four (#642, J28): Noel's own wording at Terse and Chatty
+                // (2026-11-06 16:52); Chatty's slot DRAFT for the keyboard audit.
+                // And what is said when the radio has not answered: DRAFT prose.
+                "settings.tuning.unable_to_tune",
+                "settings.tuning.tune_no_answer",
+                // Round two (#496, the bench's Fail 3): Settings with no radio
+                // says the PTT changes were not saved. DRAFT prose.
+                "settings.commit.ptt_not_saved",
+                // Junk box 2026-11-02 (#642): F names its slice by role when
+                // the transmit slice is not the selected one, and the setting
+                // that chooses which. DRAFT prose, awaiting Noel.
+                "connect.home.frequency_both",
+                "connect.home.frequency_selected",
+                "connect.home.frequency_transmit",
+                "settings.speech.frequency_key_both",
+                "settings.speech.frequency_key_help",
+                "settings.speech.frequency_key_label",
+                "settings.speech.frequency_key_selected",
+                "settings.speech.frequency_key_transmit",
+                // Junk box 2026-11-02 (#496): the transmit and receive
+                // announcements name their slice, and the switch for it.
+                // DRAFT prose, awaiting Noel.
+                "audio.ptt.announce_locked_on",
+                "audio.ptt.announce_receiving_on",
+                "audio.ptt.announce_transmitting_on",
+                "settings.ptt.announce_slice_help",
+                "settings.ptt.announce_slice_label",
+                // Junk box 2026-11-02 (#863): a door that could not say where it
+                // would transmit keys nothing, and says so. DRAFT prose.
+                "audio.ptt.transmit_slice_not_heard",
+                "audio.ptt.transmit_slice_changed",
+                "audio.ptt.transmit_frequency_changed",
+                // Repair round 3 (#863): the selected slice alone changed. Its
+                // own key; its sentence ruled by Noel 2026-11-04 22:20.
+                "audio.ptt.selected_slice_changed",
+                // Repair round 1 (#863, ruled 2026-11-03): the notice by verbosity and
+                // its three-way setting. DRAFT prose, awaiting Noel.
+                "audio.ptt.transmit_elsewhere_terse",
+                "audio.ptt.transmit_elsewhere",
+                "settings.ptt.transmit_elsewhere_label",
+                "settings.ptt.transmit_elsewhere_speak_and_tone",
+                "settings.ptt.transmit_elsewhere_tone_only",
+                "settings.ptt.transmit_elsewhere_off",
+                "settings.ptt.transmit_elsewhere_help",
                 // Reworded by the JJ Flex naming sweep (#851), so classified.
                 "audio.micprofile.create_reason",
                 "audio.micprofile.load_reason",

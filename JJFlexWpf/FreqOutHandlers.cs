@@ -678,7 +678,9 @@ public class FreqOutHandlers
         ulong newFreq = current + delta;
         if (newFreq > 0 && newFreq < 100_000_000_000UL) // sanity limit
         {
-            SetRXFrequency(newFreq);
+            // Spoken only when the rig admitted the tune (integration fix): a
+            // locked or gone slice did not move, so its number is not said.
+            if (!TuneTo(newFreq)) return;
             if (_freqReadout)
             {
                 SpeakTuningDebounced(FormatFreqForSpeech(newFreq));
@@ -821,7 +823,7 @@ public class FreqOutHandlers
                 ulong newFreq = FreqInt64(newText);
                 if (newFreq > 0)
                 {
-                    SetRXFrequency(newFreq);
+                    if (!TuneTo(newFreq)) return;
                     if (FormatFreq != null)
                         Radios.ScreenReaderOutput.Speak(FormatFreq(newFreq.ToString()), VerbosityLevel.Terse);
                 }
@@ -831,6 +833,17 @@ public class FreqOutHandlers
         // Advance cursor
         if (posInField < fieldLen - 1)
             _window.FreqOut.SelectionStart++;
+    }
+
+    /// <summary>
+    /// Ask the rig for <paramref name="hz"/> and say whether it was admitted
+    /// (integration fix). A rig that reports nothing about it (no answer on
+    /// this thread) counts as admitted, as before.
+    /// </summary>
+    private bool TuneTo(ulong hz)
+    {
+        SetRXFrequency!(hz);
+        return Rig?.TuneAdmittedHere != false;
     }
 
     private void RoundToKHz()
@@ -1034,25 +1047,111 @@ public class FreqOutHandlers
 
         // Convert MHz to Hz (ulong, our internal format)
         ulong freqHz = (ulong)(freqMhz.Value * 1_000_000);
-        SetRXFrequency?.Invoke(freqHz);
-        CheckBandBoundary(freqHz);
 
-        // Typewriter bell in mechanical mode, regular ding otherwise
+        // Typewriter bell in mechanical mode, regular ding otherwise: the
+        // entry is taken. It claims nothing about the radio.
         if (TypingSound == TypingSoundMode.Mechanical)
             EarconPlayer.TypewriterBellTone();
         else
             EarconPlayer.DingTone();
         string display = FormatFreqForSpeech(freqMhz.Value);
-        // No rig, no mode to correct: the correction is only asked for with a
-        // rig, and with one only what is known is said (#312, repair round two).
-        var outcome = QuickTypeCommitOutcome(License?.Country ?? "US", freqHz, Rig?.Mode, display);
+        // J28 (ruled by Noel 2026-11-06 16:52): nothing is said about the
+        // frequency until the radio has answered THIS tune. The second bench
+        // typed 60 MHz and heard "Frequency set to 60.000 megahertz", then the
+        // frequency the radio kept. The tune goes out exactly as before
+        // (VirtualRXFrequency), and the answer is said on the window's thread.
+        // The answer comes with the typed tune it belongs to, and is said only
+        // if that tune is still what the radio is doing when the window gets to
+        // it (round five, Codex's re-check T1).
         var rig = Rig;
+        if (rig == null)
+            SayTypedTuneSpeech(TypedTuneSpeech(FlexBase.TuneAnswer.Refused, Radios.ScreenReaderOutput.CurrentVerbosity));
+        else
+            rig.TuneAwaitingAnswer(freqHz, (answer, tune) =>
+                _window.Dispatcher.BeginInvoke(new Action(() => SayTypedTuneAnswer(answer, tune, display))));
+        CancelQuickType();
+    }
+
+    /// <summary>
+    /// Why an answer to <paramref name="tune"/> must not be said or acted on now,
+    /// or null (round five, Codex's re-check T1). The window's rig must still be
+    /// the one the frequency was typed on, and the tune must still be what that
+    /// rig's radio is doing: its radio, connection, slice and request, and for
+    /// an acceptance, its frequency. Pure but for the tune's own question.
+    /// </summary>
+    internal static string? TypedTuneAnswerStale(FlexBase? windowRig, FlexBase.TypedTune tune, FlexBase.TuneAnswer answer)
+    {
+        if (tune == null) return "it carries no typed tune";
+        if (!ReferenceEquals(windowRig, tune.Rig)) return "the window's radio is no longer the one the frequency was typed on";
+        return tune.WhyNoLongerCurrent(answer);
+    }
+
+    /// <summary>
+    /// What a typed frequency's answer is said as (J28). Pure, so it can be
+    /// tested without a window. Refused: the refusal sound and "Unable to tune
+    /// this frequency" (Terse and Chatty both, Noel's wording; Chatty's slot is
+    /// DRAFT for the keyboard audit). No answer yet: says so, once, without the
+    /// refusal sound, since nothing was refused. Accepted: the arrival, as it
+    /// always was.
+    /// </summary>
+    internal static (bool Beep, string? Sentence, bool Arrived) TypedTuneSpeech(FlexBase.TuneAnswer answer, VerbosityLevel level)
+        => answer switch
+        {
+            FlexBase.TuneAnswer.Accepted => (false, null, true),
+            FlexBase.TuneAnswer.Refused => (true, Lexicon.Get("settings.tuning.unable_to_tune", level), false),
+            _ => (false, Lexicon.Get("settings.tuning.tune_no_answer"), false),
+        };
+
+    /// <summary>The refusal sound and sentence, or the no-answer sentence. True when one was said.</summary>
+    private static bool SayTypedTuneSpeech((bool Beep, string? Sentence, bool Arrived) said)
+    {
+        // The refusal sound the app already uses for a key or command it cannot
+        // carry out (the JJ key's "not recognised"): there is no other error earcon.
+        if (said.Beep) EarconPlayer.LeaderInvalidTone();
+        if (said.Sentence == null) return false;
+        Radios.ScreenReaderOutput.Speak(said.Sentence, VerbosityLevel.Terse, true,
+            subject: Radios.Speech.SpeechSubject.TypedTuneAnswer);
+        return true;
+    }
+
+    /// <summary>
+    /// The radio's answer to a typed frequency, on the window's thread (J28).
+    /// Only an accepted tune says where it landed, crosses a band boundary, or
+    /// asks 60 m for its mode: a refused one changed nothing.
+    /// </summary>
+    private void SayTypedTuneAnswer(FlexBase.TuneAnswer answer, FlexBase.TypedTune tune, string display)
+    {
+        // Asked HERE, as the window runs it (round five, T1): a valid answer to
+        // an old request never describes or reconfigures the radio now.
+        string? stale = TypedTuneAnswerStale(Rig, tune, answer);
+        if (stale != null)
+        {
+            Tracing.TraceLine("CommitQuickType: the radio's " + answer + " is not said - " + stale, TraceLevel.Info);
+            return;
+        }
+        var said = TypedTuneSpeech(answer, Radios.ScreenReaderOutput.CurrentVerbosity);
+        if (SayTypedTuneSpeech(said)) return;
+        if (!said.Arrived) return;
+        ulong freqHz = tune.Hz;
+        // The typed tune's own rig, never whatever the window holds by now
+        // (round five, T1); with no mode known, no correction (#312). And its
+        // side effects act on the SELECTED slice, so they run only when that is
+        // the slice it was tuned on (round six, Codex's re-check T2).
+        var rig = tune.Rig;
+        if (!tune.TypedOnTheSelectedSlice)
+        {
+            Radios.ScreenReaderOutput.Speak(QuickTypeCommitOutcome(License?.Country ?? "US", freqHz, null, display).Arrival,
+                VerbosityLevel.Terse, true, subject: Radios.Speech.SpeechSubject.TypedTuneAnswer);
+            return;
+        }
+        CheckBandBoundary(freqHz);
+        var outcome = QuickTypeCommitOutcome(License?.Country ?? "US", freqHz, rig?.Mode, display);
         if (rig != null && outcome.Correction != null)
             SixtyMeterModeDelivery.Deliver(rig, outcome.Arrival, outcome.Correction,
                 Radios.Speech.SpeechIntent.Interrupt);
         else
-            Radios.ScreenReaderOutput.Speak(outcome.Arrival, VerbosityLevel.Terse, true);
-        CancelQuickType();
+            Radios.ScreenReaderOutput.Speak(outcome.Arrival, VerbosityLevel.Terse, true,
+                subject: Radios.Speech.SpeechSubject.TypedTuneAnswer);
     }
 
     /// <summary>
@@ -2477,39 +2576,64 @@ public class FreqOutHandlers
         var key = RawKey(e);
         var mods = Keyboard.Modifiers;
 
+        switch (DeadHomeKeyAnswerFor(key, mods, haveRig: Rig != null, registryBound: () => IsRegistryBound(e)))
+        {
+            case DeadHomeKeyAnswer.NeedsRadio:
+                // Same sentence, same key, as every registry command that needs a
+                // radio and has none — one vocabulary for one situation.
+                Radios.ScreenReaderOutput.Speak(
+                    Lexicon.Get("connect.command_needs_radio"),
+                    VerbosityLevel.Critical, true);
+                e.Handled = true;
+                return;
+            case DeadHomeKeyAnswer.Unbound:
+                Radios.ScreenReaderOutput.Speak(
+                    Lexicon.Get("settings.home.key_unbound",
+                        ("key", SpokenChord(mods, LetterOf(key))), ("field", field.Label ?? field.Key)),
+                    VerbosityLevel.Terse, true);
+                e.Handled = true;
+                return;
+        }
+    }
+
+    /// <summary>What <see cref="AnnounceDeadHomeKey"/> says, if anything.</summary>
+    internal enum DeadHomeKeyAnswer
+    {
+        /// <summary>Nothing: the key is somebody else's, or not a field key.</summary>
+        None,
+        /// <summary>"No radio connected" (connect.command_needs_radio).</summary>
+        NeedsRadio,
+        /// <summary>"{key} does nothing on the {field} field..." (settings.home.key_unbound).</summary>
+        Unbound,
+    }
+
+    /// <summary>
+    /// The decision behind <see cref="AnnounceDeadHomeKey"/>, pure, so a test
+    /// can hold every case without a window or a key event (#338).
+    /// </summary>
+    /// <param name="registryBound">Asked only when the answer turns on it:
+    /// a chord the registry binds is the window dispatcher's, never declared
+    /// dead here.</param>
+    internal static DeadHomeKeyAnswer DeadHomeKeyAnswerFor(Key key, ModifierKeys mods, bool haveRig,
+        Func<bool> registryBound)
+    {
         // Alt chords are the menu bar's and the mode keys'; the Windows key
         // is the shell's. Neither can be a field key, and claiming either
         // would take it from its owner.
-        if ((mods & (ModifierKeys.Alt | ModifierKeys.Windows)) != 0) return;
+        if ((mods & (ModifierKeys.Alt | ModifierKeys.Windows)) != 0) return DeadHomeKeyAnswer.None;
+
+        if (!haveRig)
+        {
+            if ((mods & ModifierKeys.Control) != 0) return DeadHomeKeyAnswer.None;
+            if (!IsFieldActionKey(key)) return DeadHomeKeyAnswer.None;
+            return registryBound() ? DeadHomeKeyAnswer.None : DeadHomeKeyAnswer.NeedsRadio;
+        }
 
         // Classified from the KEY, not from KeyToChar: a shifted or
         // controlled letter is still a letter for the purpose of naming it
         // back, even though it is no longer a character the field maps use.
-        char letter = LetterOf(key);
-        bool isLetter = letter != '\0';
-
-        if (Rig == null)
-        {
-            if ((mods & ModifierKeys.Control) != 0) return;
-            if (!IsFieldActionKey(key)) return;
-            if (IsRegistryBound(e)) return;
-            // Same sentence, same key, as every registry command that needs a
-            // radio and has none — one vocabulary for one situation.
-            Radios.ScreenReaderOutput.Speak(
-                Lexicon.Get("connect.command_needs_radio"),
-                VerbosityLevel.Critical, true);
-            e.Handled = true;
-            return;
-        }
-
-        if (!isLetter) return;
-        if (IsRegistryBound(e)) return;
-
-        Radios.ScreenReaderOutput.Speak(
-            Lexicon.Get("settings.home.key_unbound",
-                ("key", SpokenChord(mods, letter)), ("field", field.Label ?? field.Key)),
-            VerbosityLevel.Terse, true);
-        e.Handled = true;
+        if (LetterOf(key) == '\0') return DeadHomeKeyAnswer.None;
+        return registryBound() ? DeadHomeKeyAnswer.None : DeadHomeKeyAnswer.Unbound;
     }
 
     /// <summary>

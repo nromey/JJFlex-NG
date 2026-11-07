@@ -78,7 +78,10 @@ public sealed class SignalCapturesDialog : JJFlexDialog
             isDefault: true));
         buttons.Children.Add(MakeButton("_Rename...", "Rename", RenameSelected));
         buttons.Children.Add(MakeButton("_Export...", "Export", ExportSelected));
-        buttons.Children.Add(MakeButton("_Delete...", "Delete", DeleteSelected));
+        var delete = MakeButton("_Delete...", "Delete", DeleteSelected);
+        buttons.Children.Add(delete);
+        // Delete on the list presses this button (#774).
+        DeleteKeyRemoves.SetButton(_list, delete);
         var close = MakeButton("_Close", "Close", () => CloseWithResult(true));
         close.IsCancel = true;
         buttons.Children.Add(close);

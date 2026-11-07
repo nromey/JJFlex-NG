@@ -40,7 +40,7 @@
                     AutomationProperties.Name="Update"
                     AutomationProperties.AcceleratorKey="Alt+U"
                     Click="UpdateButton_Click"/>
-            <Button Content="_Delete" MinWidth="90" Height="28" Margin="0,0,0,8"
+            <Button x:Name="DeleteButton" Content="_Delete" MinWidth="90" Height="28" Margin="0,0,0,8"
                     AutomationProperties.Name="Delete"
                     AutomationProperties.AcceleratorKey="Alt+D"
                     Click="DeleteButton_Click"/>

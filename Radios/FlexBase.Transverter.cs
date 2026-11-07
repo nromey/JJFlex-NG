@@ -66,7 +66,14 @@ namespace Radios
         {
             get
             {
-                double freqMHz = SliceForTransmitSetting()?.Freq ?? 0.0;
+                // The slice's ONE value (#642, repair round 6), the number F
+                // names: a band change still on its way is the band the drive
+                // goes to. FlexLib's own number is only what the radio last
+                // reported, so after a band change is sent it still names the
+                // old band, and drive set then went to the old band's
+                // definition. The drive's own queued write runs after the tune's.
+                Slice txSlice = SliceForTransmitSetting();
+                double freqMHz = txSlice == null ? 0.0 : LongFreqToLibFreq(ValueOf(txSlice));
                 lock (myXvtrs)
                 {
                     if (myXvtrs.Count == 0) return null;

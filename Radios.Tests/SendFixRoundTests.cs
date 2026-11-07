@@ -87,7 +87,9 @@ namespace Radios.Tests
             // of a test reads as a lexicon reference to the coverage scanner.)
             string down = Body(ctl, "public void PttDown()");
             Assert.Contains("SpeakKeyDownFirstLine(", down);
-            Assert.Contains("announce_transmitting", down);
+            // Since #496 the transmitting line is built by PttSliceWords (with
+            // its slice when the operator asks), still as the key-down line.
+            Assert.Contains("SpeakKeyDownFirstLine(TransmittingWords())", down);
             string locked = Body(ctl, "private void EnterLocked()");
             Assert.Contains("bool fromIdle = State == PttState.Idle;", locked);
             Assert.Contains("if (fromIdle) SpeakKeyDownFirstLine(", locked);

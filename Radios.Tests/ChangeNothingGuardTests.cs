@@ -332,7 +332,8 @@ namespace Radios.Tests
             int method = station.IndexOf("private ProfileActionOutcome RunOwnerInitialization(StationOperation operation, Func<string> refusalAtWrite)", StringComparison.Ordinal);
             Assert.True(method >= 0, "RunOwnerInitialization is gone");
             string body = station.Substring(method, 2500);
-            foreach (var write in new[] { "r.MicInput = \"mic\";", "r.SimpleVOXEnable = false;", "r.CWBreakIn = false;", "r.TX1Enabled = true;", "r.TNFEnabled = true;" })
+            // Round six: the mic default goes through SetMicInputTracked, so its echo is tied to this write.
+            foreach (var write in new[] { "SetMicInputTracked(r, \"mic\");", "r.SimpleVOXEnable = false;", "r.CWBreakIn = false;", "r.TX1Enabled = true;", "r.TNFEnabled = true;" })
             {
                 Assert.Contains(write, body, StringComparison.Ordinal);
             }
@@ -361,7 +362,8 @@ namespace Radios.Tests
         [Theory]
         [InlineData("if (!GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on local connect\"))")]
         [InlineData("if (!GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=true on remote audio start\"))")]
-        [InlineData("if (!GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on remote audio stop\"))")]
+        // Round five: the stop's write is GiveShackSpeakerBack's, whose guard returns early.
+        [InlineData("if (GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on remote audio stop\")) return;")]
         // MicInput, VOX/CWBreakIn and TX1 are RunOwnerInitialization since
         // 2026-09-22 (Track G2); see TheOwnerInitialisationWritesLiveBehindTheOrchestratorsGate.
         public void TheConnectPathLiteralIsGuarded(string guardedForm)

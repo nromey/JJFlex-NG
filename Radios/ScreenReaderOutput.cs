@@ -944,7 +944,17 @@ namespace Radios
         /// <param name="message">The message to speak</param>
         /// <param name="level">Verbosity level — Critical always spoken, Terse at Terse+, Chatty at Chatty only</param>
         /// <param name="interrupt">If true, interrupts any current speech</param>
-        public static void Speak(string message, VerbosityLevel level, bool interrupt = false,
+        /// <param name="subject">What it is about, so it can be retired when that changes (optional).</param>
+        /// <param name="stillValid">
+        /// The producer's answer to "is what this says still so", asked before
+        /// any replay of an unheard queued copy (round four, Codex's re-check
+        /// B3). Never waits and never throws on purpose: it is asked inside the
+        /// speech arbiter's lock, and a throw is taken as "no", so the copy is not
+        /// replayed. Null means "cannot say yet" (round five, B3a): it is asked
+        /// again at the arbiter's next window, within a bound.
+        /// </param>
+        public static void Speak(string message, VerbosityLevel level, bool interrupt = false, string? subject = null,
+            Func<bool?>? stillValid = null,
             [CallerFilePath] string callerFile = "",
             [CallerLineNumber] int callerLine = 0,
             [CallerMemberName] string callerMember = "")
@@ -956,7 +966,7 @@ namespace Radios
                 RecordGated(message, level, null, origin);
                 return;
             }
-            _arbiter.Emit(message, interrupt, null, level, origin);
+            _arbiter.Emit(message, interrupt, null, level, origin, subject, additive: false, stillValid: stillValid);
         }
 
         /// <summary>

@@ -122,8 +122,8 @@ namespace Radios
         /// <c>TransmitSafety.JudgeReflectedCut</c>, pure and tested, and it
         /// has TWO rungs since Sprint 47 (#571 tier 1). The share rung,
         /// <c>ShouldCutReflected</c>: the warning has fired and a further
-        /// sample above 10 W forward still has forty percent or more coming
-        /// back. The watts rung, <c>ShouldCutReflectedWatts</c>: ten watts or
+        /// sample above 10 W forward still has the warning's share or more
+        /// coming back (36 percent, SWR 4, since 2026-11-02; it was forty). The watts rung, <c>ShouldCutReflectedWatts</c>: ten watts or
         /// more coming back on two coherent samples in a row, whatever the
         /// share — reflected watts is what heats the finals, and a voice
         /// trough cannot fake it the way it faked the ratio (#453). The ATU
@@ -149,6 +149,23 @@ namespace Radios
         /// When false, speech is muted but tones and safety warnings always play.
         /// </summary>
         public bool SpeechEnabled { get; set; } = true;
+
+        /// <summary>
+        /// When true, the transmit and receive announcements name their slice:
+        /// "Transmitting on slice A", "Receiving on slice B", "Transmitting on
+        /// slice A, locked" (#496; Noel, 2026-09-01: "with a toggle on or in
+        /// verbose 'transmitting on slice a' 'receiving on slice b' ... bingo
+        /// done"). Every time when on, never only when the slices differ, so
+        /// silence is never ambiguous.
+        /// </summary>
+        /// <remarks>
+        /// Its own switch rather than the Chatty level, because verbosity is one
+        /// dial (#322) and a declaration is not a hint; on by default, because
+        /// it is the fact that would have stopped a check keying a slice nobody
+        /// was listening to. Both are the orchestrator's decisions, 2026-11-02,
+        /// not rulings.
+        /// </remarks>
+        public bool AnnounceTransmitSlice { get; set; } = true;
 
         /// <summary>
         /// When true, band jumps save/recall frequency per band+mode.
@@ -204,6 +221,30 @@ namespace Radios
                 return CreateDefault();
             }
         }
+
+        /// <summary>
+        /// This configuration as its saved XML, to tell whether the Settings
+        /// dialog changed it (the 8600 bench's Fail 3, #496).
+        /// </summary>
+        public string Snapshot()
+        {
+            try
+            {
+                using var sw = new StringWriter();
+                new XmlSerializer(typeof(PttConfig)).Serialize(sw, this);
+                return sw.ToString();
+            }
+            catch { return ""; }
+        }
+
+        /// <summary>
+        /// True when Settings changed the PTT tab with nowhere to save it: no
+        /// radio connected, so <paramref name="now"/> is a throwaway and its
+        /// changes are lost (the 8600 bench's Fail 3, #496). The dialog must
+        /// then say so rather than "Settings saved."
+        /// </summary>
+        public static bool ChangesNotKept(string atOpen, PttConfig now, bool hasHome) =>
+            !hasHome && now != null && !string.Equals(atOpen ?? "", now.Snapshot(), StringComparison.Ordinal);
 
         public void Save(string configDirectory, string operatorName)
         {

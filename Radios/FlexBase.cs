@@ -988,6 +988,16 @@ namespace Radios
             if (report.State == CommandConnectionState.Connecting)
             {
                 if (!ReferenceEquals(radio, theRadio)) return;
+                // Before the new attempt can carry a write: nothing admitted or
+                // checked on the old connection reaches this one (repair round
+                // 5, #596 B7/B8, #861 B1). See FlexBase.PinnedWrites.cs.
+                RevokeWorkBeforeNewConnection();
+                // Nothing has been said on this connection yet (integration fix):
+                // a reconnect of the same radio keeps this rig, so the memory of
+                // the last split announced is reset here, not by a new rig.
+                TransmitSliceNotice.ForgetFor(this);
+                // An import that never finished belongs to the old connection.
+                System.Threading.Interlocked.Exchange(ref _importPowerOffPending, 0);
                 _connectionToken = ConnectionLifetime.Bind(report.Connection,
                     radio.Serial + " " + (radio.Nickname ?? ""), out var outcome);
                 var route = _commandRoute;
@@ -2658,7 +2668,7 @@ namespace Radios
             // Fresh connection: what the old one said about its transmit slice
             // describes a connection that has gone (#858), and so does what it
             // said about being allowed to transmit (#447).
-            ForgetTransmitCaches(null);
+            CommitSliceFacts(null, () => ForgetTransmitCaches(null));
             NoteTuneRequest(false);
             ForgetTuneWrites();
             ForgetPowerReports();
@@ -2804,6 +2814,10 @@ namespace Radios
             // connection-fall archive, and a second copy would dispatch it
             // twice.
             wireProducerHandlers(theRadio);
+            // Read what the radio itself says about its interlock from the
+            // first line on (#861 R3, repair round 3): before the connect, so
+            // the connect-time report is seen. FlexLib's cache alone is not it.
+            InterlockReports.Watch(theRadio);
             theRadio.MessageReceived += new Radio.MessageReceivedEventHandler(messageReceivedHandler);
             theRadio.WaterfallRemoved += new Radio.WaterfallRemovedEventHandler(waterfallRemoved);
             theRadio.TNFAdded += new Radio.TNFAddedEventHandler(tnfAdded);
@@ -3010,9 +3024,15 @@ namespace Radios
                     // not between operators, and a remote client cannot know
                     // who is in the room. The hold still applies, because it
                     // applied here before Track G3 too.
+                    // What was found is recorded FIRST (rulings round three, the
+                    // second bench's Fail 6): PC audio started later on this
+                    // connection, and the disconnect, put back the value found
+                    // here, not the 0 this line writes.
+                    NoteSpeakerFoundAtConnect(theRadio);
                     if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=false on local connect"))
                     {
                         theRadio.IsMuteLocalAudioWhenRemoteOn = false;
+                        NoteOwnSpeaker(theRadio, false);   // its repeats are not a choice (round seven)
                     }
                 }
             }
@@ -3414,6 +3434,10 @@ namespace Radios
                 // late callback from the failed one cannot complete a wait on
                 // this one even though the serial is identical.
                 BeginStationAttempt(theRadio, "RetryConnect");
+                // The same Radio, a new connection: a mic input owed on the old
+                // one is not this one's to pay (repair round 5, Codex's #861
+                // B1), as at Connect.
+                ResetPcMicSession("RetryConnect to " + theRadio.Serial);
 
                 bool rv = true;
 
@@ -3949,7 +3973,25 @@ namespace Radios
             // teardown because cancellation came only after it (review
             // section 8).
             BeginTeardownOperation("Disconnect");
-            DisconnectVoxPauses();
+            // A tuning correction is about this connection (R3).
+            RetireTuneCorrection("the connection ending");
+            // Every teardown unkeys FIRST (#596, #861; Codex's checks of the
+            // 2026-11-02 batch): stop what this computer feeds the
+            // transmitter, drop this session's own carriers, let the writes
+            // reach the radio and wait for it to report receive, before a
+            // profile, the microphone input or the speaker is put back and
+            // before the link closes. If receive cannot be confirmed, the
+            // microphone input is not put back at all (FlexBase.TeardownUnkey.cs).
+            //
+            // Its answer is HONOURED (repair round 2, N3): when receive is not
+            // confirmed, nothing in the transmit chain is put back. VOX is not
+            // re-enabled (the next connect says it was paused), the profiles
+            // and the live transmit audio are left, with their restore points
+            // on the radio and the snapshot on disk, for the next connect, and
+            // the microphone input is not switched. The debt is kept, not
+            // replayed: a put-back executor is #590's.
+            bool receiveConfirmed = UnkeyBeforePuttingBack("Disconnect", TeardownUnkeyDrainBound, TeardownReceiveWaitMs);
+            DisconnectVoxPauses(restore: receiveConfirmed && !TeardownRefusesRestore("VOX"));
             // While the link is certainly up: end what a send holds on the
             // radio, the PTT source watch and a monitor it turned on (#835).
             try { RevokeSendHoldsForDisconnect("Disconnect"); }
@@ -3985,6 +4027,54 @@ namespace Radios
                     "Disconnect: putting profiles back threw: " + ex.Message
                     + ". The restore points stay on the radio.", TraceLevel.Error);
             }
+
+            // Stop PC audio, and so put back what it changed, while the
+            // connection still answers (#861, #600). Until this it was stopped
+            // only AFTER theRadio.Disconnect() and the wait for the link to
+            // fall, so the mic input's put-back went into a closed connection,
+            // where FlexLib's send returns without sending, and traced
+            // success; and the shack speaker's unmute, which refuses while
+            // Disconnecting is set, never ran at all, leaving the speaker dead
+            // for whoever is in the room (Noel, 2026-09-22: "mute the shack
+            // speaker if you're going PC audio, unmute it if you're not using
+            // it"). So here: after the profile put-back, which keeps the last
+            // word, and before Disconnecting is set and the link is closed.
+            //
+            // With another client still on the radio, each put-back writes
+            // only what still matches what this session set (Noel, 2026-11-02:
+            // "Put back only what matches"): the mic input only while the
+            // radio still reports the PC we chose (PutBackNow), the speaker
+            // only while the radio still mutes it. Another operator's own
+            // change is left alone.
+            //
+            // A DROPPED connection never reaches this line; putting things
+            // back after a drop is #590's put-back executor, not this.
+            if (PCAudio)
+            {
+                try
+                {
+                    Tracing.TraceLine("Disconnect: stopping PC audio while the connection still answers", TraceLevel.Info);
+                    PCAudio = false;
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("Disconnect: stopping PC audio threw: " + ex.Message, TraceLevel.Error);
+                }
+            }
+
+            // A put-back still OWED from earlier on this connection (withheld
+            // under a carrier, PC audio already stopped) is made now too, paid
+            // or withheld at its own write (#861, J3, 2026-11-06).
+            PayOwedMicPutBackForTeardown("Disconnect");
+
+            // The shack speaker as found at a local connect, if the app unmuted
+            // it and nothing has changed it since (rulings round three).
+            PutBackSpeakerFoundAtConnect("Disconnect");
+
+            // A put-back the switch-back left on the command queue runs NOW,
+            // before the loop is stopped below; joining the audio thread only
+            // proved it was queued (#861, Codex's check, blocker 2).
+            DrainQueuedMicPutBack("Disconnect", TeardownPutBackDrainBound);
 
             // The connection attempt ends here: every wait in the station
             // coordinator sees the cancellation, pending queue work is
@@ -4138,7 +4228,16 @@ namespace Radios
                     Tracing.TraceLine("Disconnect:the radio didn't disconnect", TraceLevel.Info);
                 }
 
-                PCAudio = false;
+                // Normally a no-op: PC audio was stopped above while the link
+                // still answered (#861). If something started it again since,
+                // it is stopped here, and nothing it puts back can reach the
+                // radio any more, so the trace says so rather than claiming it.
+                if (PCAudio)
+                {
+                    Tracing.TraceLine("Disconnect: PC audio was running again after the hang-up; stopping it now,"
+                        + " and nothing it puts back can reach the radio", TraceLevel.Warning);
+                    PCAudio = false;
+                }
 
                 // Sprint 26 Phase 4: SmartLink session is owned by the coordinator
                 // and lives across radio connect/disconnect cycles. FlexBase no
@@ -4169,6 +4268,14 @@ namespace Radios
             }
             else
                 Tracing.TraceLine("Disconnect: the radio still reports connected; its handlers stay until it lets go", TraceLevel.Info);
+
+            // A mic input put-back withheld because the radio was still
+            // transmitting is SAID, now the hang-up is done (#861, J3, ruled by
+            // Noel 2026-11-06), queued so nothing of ours cuts it.
+            SayMicLeftOnPcAfterTeardown("Disconnect");
+
+            // Nothing the unkey withheld outlives this teardown.
+            EndTeardownUnkey();
 
             // Now collect the farewell started at the top of this method. See the
             // long comment there: this path plays SK and suppresses the only
@@ -4396,7 +4503,12 @@ namespace Radios
             // unrecoverable), but it narrows the window where a doomed rig is
             // still the intake from "until someone else engages" to "now".
             resignAsThePresenceIntake();
-            DisconnectVoxPauses();
+            // With a radio still attached, its VOX pauses are given back by
+            // Disconnect below, AFTER its unkey has confirmed receive (#596,
+            // repair round 2, N3): giving them back here wrote VOX on before
+            // anything had unkeyed. With no radio there is nothing to write,
+            // and only the local sources stop.
+            if (theRadio == null) DisconnectVoxPauses(restore: true);
 
             if (!disposed)
             {
@@ -4442,11 +4554,13 @@ namespace Radios
                     try
                     {
                         BeginTeardownOperation("Dispose");
-                        saveNewGlobalProfile(); // if any
-
-                        // Put this radio's own profiles back BEFORE the connection
-                        // goes away, and after saveNewGlobalProfile so the two
-                        // cannot fight over the global selection (#450).
+                        // The deferred global create and the profile put-back
+                        // (#450) run inside Disconnect, in the same order as
+                        // they ran here, but AFTER its unkey has confirmed
+                        // receive (#596, repair round 2, N3). They ran here
+                        // first until then, so a profile or the live transmit
+                        // audio could be put back under a carrier before
+                        // anything had unkeyed.
                         //
                         // BEST-EFFORT, AND NOTHING MAY ASSUME IT RAN. A remote
                         // client cannot guarantee cleanup, because the process
@@ -4456,14 +4570,6 @@ namespace Radios
                         // on the RADIO: the next JJ Flexible client to connect,
                         // ours or anyone's, sees it in the profile list and can
                         // offer to put things right.
-                        try { PutProfilesBackOnDisconnect(); }
-                        catch (Exception ex)
-                        {
-                            Tracing.TraceLine(
-                                "FlexBase.Dispose: putting profiles back threw: " + ex.Message
-                                + ". The restore points stay on the radio.", TraceLevel.Error);
-                        }
-
                         Disconnect();
                     }
                     catch (Exception ex)
@@ -4809,6 +4915,7 @@ namespace Radios
             if (!nowConnected) ForgetPowerReports();
             if (!nowConnected) NoteTuneRequest(false);
             if (!nowConnected) ForgetTuneWrites();
+            if (!nowConnected) dropTransmitWithConnection(trace);
             ConnectionStateChanged?.Invoke(nowConnected);
 #if zero
             bool justReconnected = false;
@@ -4894,9 +5001,18 @@ namespace Radios
                         if ((s != null) && myClient(s.ClientHandle))
                         {
                             Tracing.TraceLine("ActiveSlice:mine " + SliceToVFO(s), TraceLevel.Info);
-                            _RXFrequency = LibFreqtoLong(s.Freq);
-                            _RXMode = s.DemodMode;
-                            _RXVFO = SliceToVFO(s);
+                            // The slice's own number, unless it is the stale
+                            // predecessor of a tune still on its way (repair
+                            // round 3): a step taken while this selection
+                            // settled must not be rewound by the refresh.
+                            // One commit, for a slice still ours (repair round 11).
+                            if (!CommitSliceFacts(s, () =>
+                                {
+                                    SetRxCache(s, ObservedOrPending(s, LibFreqtoLong(s.Freq)));
+                                    _RXMode = s.DemodMode;
+                                    _RXVFO = SliceToVFO(s);
+                                }))
+                                break;
                             s.Panadapter.GetRFGainInfo();
                             FilterObj.RXFreqChange(s);
                             EscStateChanged?.Invoke();
@@ -5342,13 +5458,17 @@ namespace Radios
                     case "DemodMode":
                         {
                             Tracing.TraceLine("DemodMode:slice " + s.Index.ToString() + " " + s.DemodMode.ToString(), TraceLevel.Info);
-                            if (s.Active) _RXMode = s.DemodMode;
-                            if (s.IsTransmitSlice)
+                            // One commit, for a slice still ours (repair round 11).
+                            bool modeOurs = CommitSliceFacts(s, () =>
                             {
-                                FollowTransmitSlice(s);
-                                _TXMode = s.DemodMode;
-                            }
-                            if (s.Active)
+                                if (s.Active) _RXMode = s.DemodMode;
+                                if (s.IsTransmitSlice)
+                                {
+                                    FollowTransmitSlice(s);
+                                    _TXMode = s.DemodMode;
+                                }
+                            });
+                            if (modeOurs && s.Active)
                             {
                                 FilterObj.RXFreqChange(s);
                                 ModeChanged?.Invoke(s.DemodMode);
@@ -5429,10 +5549,47 @@ namespace Radios
                     case "Freq":
                         {
                             Tracing.TraceLine("Freq:slice " + s.Index.ToString() + " " + s.Freq.ToString(), TraceLevel.Verbose);
+                            // A spoken correction about this slice is false once it
+                            // reads another number (round three, Codex's B1); so is
+                            // Home's return status, if this is the selected slice.
+                            RetireCorrectionIfNoLongerTrue(s, null);
+                            if (System.Threading.Volatile.Read(ref _returnStatusLive) != 0 && ReferenceEquals(s, SelectedSliceNow()))
+                                RetireReturnStatus("the selected slice's frequency changed");
                             ulong echoed = LibFreqtoLong(s.Freq);
-                            if (s.Active && _rxFreqEcho.Accept(echoed))
+                            // This slice's own guard, asked ONCE for both
+                            // caches (repair round 3): one slice, one answer.
+                            // Our tunes no longer go through FlexLib's setter
+                            // (repair round 5), so this notification is the
+                            // radio's own report, which FlexLib raises for any
+                            // changed value.
+                            bool accepted = EchoGuardFor(s).Accept(echoed);
+                            // The caches are written only for a slice still in
+                            // the roster, through CommitSliceFacts (#642, repair
+                            // rounds 10 and 11): a removed transmitter's
+                            // frequency, mode and XIT cannot come back. The
+                            // filter and the where-you-are record, which may do
+                            // more, run after the commit, and only for a slice
+                            // that was still ours.
+                            bool ours = CommitSliceFacts(s, () =>
                             {
-                                _RXFrequency = echoed;
+                                if (accepted && (s.Active || ReferenceEquals(_rxCache?.Slice, s)))
+                                    SetRxCache(s, echoed);
+                                if (s.IsTransmitSlice)
+                                {
+                                    if (!ReferenceEquals(s, _txCacheSlice))
+                                    {
+                                        // The caches move over whole, holding a
+                                        // tune still on its way rather than its
+                                        // stale predecessor.
+                                        ulong held = accepted ? echoed
+                                            : EchoGuardFor(s).TryPending(out ulong pending) ? pending : echoed;
+                                        NoteTransmitSliceAsFound(s, held);
+                                    }
+                                    else if (accepted) SetTxCache(s, echoed);
+                                }
+                            });
+                            if (ours && accepted && s.Active)
+                            {
                                 // The filter edges and the where-you-are memory
                                 // are both derived from this number, so a
                                 // rejected echo must not move them either — a
@@ -5444,11 +5601,6 @@ namespace Radios
                                 // click.
                                 NoteOperatorPlace(s);
                             }
-                            if (s.IsTransmitSlice)
-                            {
-                                FollowTransmitSlice(s);
-                                if (_txFreqEcho.Accept(echoed)) _TXFrequency = echoed;
-                            }
                         }
                         break;
                     case "IsTransmitSlice":
@@ -5459,13 +5611,18 @@ namespace Radios
                             {
                                 if (CanTransmit)
                                 {
-                                    _TXVFO = vfo;
-                                    NoteTransmitSliceAsFound(s);
+                                    // One commit, for a slice still ours (repair round 11).
+                                    CommitSliceFacts(s, () =>
+                                    {
+                                        _TXVFO = vfo;
+                                        NoteTransmitSliceAsFound(s);
+                                    });
                                 }
                             }
                             else
                             {
-                                ForgetTransmitCaches(s);
+                                // A forgetting is never a revival: no membership needed.
+                                CommitSliceFacts(null, () => ForgetTransmitCaches(s));
                             }
                         }
                         break;
@@ -5489,37 +5646,25 @@ namespace Radios
                     case "RITOn":
                         {
                             Tracing.TraceLine("RITOn:" + s.RITOn.ToString(), TraceLevel.Info);
-                            lock (_RIT)
-                            {
-                                _RIT.Active = s.RITOn;
-                            }
+                            CommitSliceFacts(s, () => { lock (_RIT) _RIT.Active = s.RITOn; });
                         }
                         break;
                     case "RITFreq":
                         {
                             Tracing.TraceLine("RITFreq:" + s.RITFreq.ToString(), TraceLevel.Info);
-                            lock (_RIT)
-                            {
-                                _RIT.Value = s.RITFreq;
-                            }
+                            CommitSliceFacts(s, () => { lock (_RIT) _RIT.Value = s.RITFreq; });
                         }
                         break;
                     case "XITOn":
                         {
                             Tracing.TraceLine("XITOn:" + s.XITOn.ToString(), TraceLevel.Info);
-                            lock (_XIT)
-                            {
-                                _XIT.Active = s.XITOn;
-                            }
+                            CommitSliceFacts(s, () => { lock (_XIT) _XIT.Active = s.XITOn; });
                         }
                         break;
                     case "XITFreq":
                         {
                             Tracing.TraceLine("XITFreq:" + s.XITFreq.ToString(), TraceLevel.Info);
-                            lock (_XIT)
-                            {
-                                _XIT.Value = s.XITFreq;
-                            }
+                            CommitSliceFacts(s, () => { lock (_XIT) _XIT.Value = s.XITFreq; });
                         }
                         break;
                     // #188 — the antenna report-back, RX and TX kept separate.
@@ -6366,6 +6511,92 @@ namespace Radios
         /// </summary>
         public event Action<bool> ConnectionStateChanged;
 
+        /// <summary>
+        /// Our connection fell, and with it our side of any transmission
+        /// (#596). Raised on every fall of THIS rig's connection, keyed or not,
+        /// BEFORE <see cref="TransmitChange"/>(false) and before
+        /// <see cref="ConnectionStateChanged"/>: the first argument says
+        /// whether the radio had reported itself keyed, the second whether the
+        /// fall was our own deliberate disconnect.
+        /// </summary>
+        /// <remarks>
+        /// Raised first on purpose. The push-to-talk controller and its key
+        /// input live in the application, and the ordinary unkey path that
+        /// <see cref="TransmitChange"/>(false) drives forgets whether a key was
+        /// being held. This event is what lets the application read that, and
+        /// keep a key held through the drop from keying the radio when it
+        /// comes back, before anything else has reset it. Raised on FlexLib's
+        /// transport thread; a subscriber marshals.
+        /// </remarks>
+        public event Action<bool, bool> TransmitDroppedWithConnection;
+
+        /// <summary>
+        /// The connection fell: our side of the transmission falls with it
+        /// (#596; Noel, 2026-10-18: "if the radio drops, so should the key").
+        /// The radio cannot be unkeyed, there is nothing left to send to; what
+        /// collapses is OUR state, so every cue and every guard that asks
+        /// whether we are transmitting is honest from here on, and a reconnect
+        /// starts from receive.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Here, where the Radio's <c>Connected</c> property falls, and not on
+        /// the <c>ConnectionLostOurRadio</c> removal arm: FlexLib never raises
+        /// <c>RadioRemoved</c> for a radio reached only through SmartLink (see
+        /// <see cref="apiRadioRemovedHandler"/>), so that arm would never run
+        /// for exactly the operators furthest from their radio.
+        /// </para>
+        /// <para>
+        /// After the capture archive's claim, so the window the drop flushes
+        /// still records the state the link fell in; before
+        /// <see cref="ConnectionStateChanged"/>, whose subscribers begin the
+        /// application's teardown.
+        /// </para>
+        /// </remarks>
+        private void dropTransmitWithConnection(Action<string, TraceLevel> trace)
+        {
+            // A tuning correction is about this connection (round three, Codex's B1),
+            // and so is Home's return status (round four, B3): its binding reads this.
+            System.Threading.Interlocked.Increment(ref _connectionFalls);
+            RetireTuneWaiters(null, "the connection fell");   // round five, T1
+            RetireTuneCorrection("the connection fell");
+            bool wasKeyed = _Transmit;
+            bool deliberate = Disconnecting || Volatile.Read(ref _selfDisconnects) > 0;
+            // The fall's own line, so bound to the fall's session like the rest.
+            trace("connection fell: our transmit state falls with it (radio "
+                + (wasKeyed ? "was keyed" : "was not keyed") + ", "
+                + (deliberate ? "our own disconnect" : "not asked for") + ")", TraceLevel.Info);
+            // Every source this computer feeds the transmitter stops with the
+            // link (#596, Codex's check, blocker 2): the voice file and test
+            // tone (a VOX send otherwise flows on while the radio is gone, and
+            // keys it the moment it is back), slice playback, a send getting
+            // ready to key (the disarm generation), and CW still buffered. The
+            // kill routes' own stop, reused rather than restated.
+            try
+            {
+                TransmitKillSwitch.DisarmSources(this);
+                lock (cwBuffer) cwBuffer.Text = "";
+                // And work already admitted to the command queue (#596, repair
+                // round 2, N4): a key-on, a tune-on, CW text and characters
+                // queued before the fall are revoked, so none of it can run
+                // against a reconnected radio. The compose buffer above is a
+                // different thing from queued CW.
+                RevokeAdmittedTransmitWork("the connection fell", trace);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("connection fell: stopping the local transmit sources threw: " + ex.Message, TraceLevel.Error);
+            }
+            try { TransmitDroppedWithConnection?.Invoke(wasKeyed, deliberate); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TransmitDroppedWithConnection subscriber threw: " + ex.Message, TraceLevel.Error);
+            }
+            // The radio's own unkey, as if its Mox had fallen: clears the flag
+            // and raises TransmitChange(false) through the one path that does.
+            if (wasKeyed) noteRadioMox(false);
+        }
+
         private void sliceAdded(Slice slc, ObservationBinding binding)
         {
             if (myClient(slc.ClientHandle))
@@ -6419,17 +6650,25 @@ namespace Radios
                 // a connect that delivers four slices produces ONE census
                 // instead of four per-slice announcements.
                 NoteSliceSetChanged(slc, added: true);
+                // Each a commit for a slice still ours (repair round 11): one
+                // removed while it was arriving gets nothing written.
                 if (slc.IsTransmitSlice)
                 {
                     Tracing.TraceLine("sliceAdded:IsTransmitSlice", TraceLevel.Info);
-                    _TXVFO = SliceToVFO(slc);
-                    NoteTransmitSliceAsFound(slc);
+                    CommitSliceFacts(slc, () =>
+                    {
+                        _TXVFO = SliceToVFO(slc);
+                        NoteTransmitSliceAsFound(slc);
+                    });
                 }
                 if (slc.Active)
                 {
                     Tracing.TraceLine("sliceAdded:activeSlice", TraceLevel.Info);
-                    _RXVFO = SliceToVFO(slc);
-                    NoteActiveSliceAsFound(slc);
+                    CommitSliceFacts(slc, () =>
+                    {
+                        _RXVFO = SliceToVFO(slc);
+                        NoteActiveSliceAsFound(slc);
+                    });
                 }
             }
             else Tracing.TraceLine("sliceAdded:not mine " + slc.ToString(), TraceLevel.Info);
@@ -6448,10 +6687,11 @@ namespace Radios
         /// <summary>Fill the transmit caches from the transmit slice as found:
         /// the frequency, the mode and the XIT that the IsTransmitSlice, Freq,
         /// DemodMode, XITOn and XITFreq cases would have written.</summary>
-        private void NoteTransmitSliceAsFound(Slice s)
+        private void NoteTransmitSliceAsFound(Slice s, ulong? hz = null)
         {
-            _txCacheSlice = s;
-            _TXFrequency = LibFreqtoLong(s.Freq);
+            // The number and its slice, as one value; a tune still on its way
+            // keeps its value over the slice's stale own (repair round 3).
+            SetTxCache(s, hz ?? ObservedOrPending(s, LibFreqtoLong(s.Freq)));
             _TXMode = s.DemodMode;
             lock (_XIT)
             {
@@ -6460,13 +6700,11 @@ namespace Radios
             }
         }
 
-        /// <summary>
-        /// The slice the transmit caches describe. Filling them at connect made
-        /// every session one that holds them, so they now have to end with the
-        /// designation they came from: a value kept after the slice has gone is
-        /// a confident answer about nothing (#858).
-        /// </summary>
-        private Slice _txCacheSlice;
+        // The slice the transmit caches describe is _txCache's own (see
+        // FlexBase.SliceFrequencyCache.cs). Filling them at connect made every
+        // session one that holds them, so they have to end with the
+        // designation they came from: a value kept after the slice has gone is
+        // a confident answer about nothing (#858).
 
         /// <summary>
         /// The transmit caches' slice has stopped being the transmit slice, or
@@ -6478,9 +6716,8 @@ namespace Radios
         private void ForgetTransmitCaches(Slice gone)
         {
             if (gone != null && !ReferenceEquals(gone, _txCacheSlice)) return;
-            _txCacheSlice = null;
+            _txCache = null;
             _TXMode = "";
-            _TXFrequency = 0UL;
             lock (_XIT)
             {
                 _XIT.Active = false;
@@ -6510,16 +6747,98 @@ namespace Radios
         /// </summary>
         private Slice DesignatedTransmitSlice()
         {
+            lock (mySlices) return DesignatedTransmitSliceLocked();
+        }
+
+        /// <summary>
+        /// <see cref="DesignatedTransmitSlice"/>'s body, for a caller that
+        /// already holds the roster's lock and wants this answer to agree with
+        /// the rest of what it reads under that lock.
+        /// </summary>
+        private Slice DesignatedTransmitSliceLocked()
+        {
+            // Cleared by us, with the radio's echo still on its way.
+            int vfo = _TXVFO;
+            if (vfo == noVFO) return null;
+            if (vfo >= 0 && vfo < mySlices.Count && mySlices[vfo].IsTransmitSlice) return mySlices[vfo];
+            foreach (Slice s in mySlices)
+                if (s.IsTransmitSlice) return s;
+            return null;
+        }
+
+        /// <summary>
+        /// The selected and transmit slices as one coherent reading, for
+        /// <see cref="SliceRoles.Of"/>: every sentence that names a slice and
+        /// its frequency (F, the title, Transmitting and Receiving, the notice
+        /// before a door keys) reads it here.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Slice objects, not positions, and all under one lock.</b> The
+        /// reading this replaced took RXVFO and TXVFO, tested them, then asked
+        /// for each letter and each frequency in separate calls. A slice
+        /// removed between those calls shifts every position behind it, so a
+        /// letter could be paired with another slice's frequency. Here the two
+        /// slice OBJECTS are taken under the roster's lock and every letter
+        /// and frequency comes from the object it describes.
+        /// </para>
+        /// <para>
+        /// <b>The transmit role is the designation, never a position.</b>
+        /// TXVFO falls back to the first remaining slice when the transmit
+        /// slice goes, and the radio's own "no longer transmit" leaves it
+        /// standing; a valid position therefore proves nothing about which
+        /// slice transmits (<see cref="DesignatedTransmitSlice"/> says the
+        /// same, and <see cref="TXFrequency"/> already reads through it). With
+        /// no designated slice, the reading says there is no transmit slice
+        /// and names none.
+        /// </para>
+        /// <para>
+        /// <b>Each frequency is its own slice's.</b> The transmit frequency is
+        /// the transmit cache only when the cache describes this very slice
+        /// (<see cref="_txCacheSlice"/>), otherwise the slice's own; the
+        /// selected frequency is the receive cache only when the cache was
+        /// written for this very slice (repair round 2; Active alone proved
+        /// nothing, because FlexLib raises it before the cache follows),
+        /// otherwise the slice's own. The caches hold an operator's write the
+        /// moment it is made, which is what Home's Frequency field shows; the
+        /// slice's own value is the fallback that cannot belong to anyone else.
+        /// </para>
+        /// </remarks>
+        internal SliceRoles ReadSliceRoles()
+        {
+            SliceRoles roles;
+            Slice selectedSlice;
             lock (mySlices)
             {
-                // Cleared by us, with the radio's echo still on its way.
-                int vfo = _TXVFO;
-                if (vfo == noVFO) return null;
-                if (vfo >= 0 && vfo < mySlices.Count && mySlices[vfo].IsTransmitSlice) return mySlices[vfo];
-                foreach (Slice s in mySlices)
-                    if (s.IsTransmitSlice) return s;
-                return null;
+                int rx = _RXVFO;
+                Slice selected = (rx >= 0 && rx < mySlices.Count) ? mySlices[rx] : null;
+                Slice transmit = DesignatedTransmitSliceLocked();
+
+                // One slice, one number (repair round 3): each role's slice
+                // reads its ONE value (repair round 8: our request on its way,
+                // else the radio's last report), so a slice both selected and
+                // transmitting has one frequency.
+                string selectedLetter = selected?.Letter ?? "";
+                ulong selectedHz = selected != null ? ValueOf(selected) : 0UL;
+
+                string transmitLetter = transmit?.Letter ?? "";
+                ulong transmitHz = transmit != null ? ValueOf(transmit) : 0UL;
+
+                bool hasTransmit = transmit != null && transmitLetter.Length > 0;
+                roles = new SliceRoles(
+                    selected != null ? selectedLetter : "", selectedHz,
+                    hasTransmit, hasTransmit ? transmitLetter : "", hasTransmit ? transmitHz : 0UL,
+                    hasTransmit && selected != null && ReferenceEquals(selected, transmit));
+                selectedSlice = selected;
             }
+            // A listening slice a check made for itself (outside the roster's
+            // lock: the diagnostic set has its own).
+            bool diagnostic = false;
+            if (selectedSlice != null)
+                lock (_sliceSettleLock) diagnostic = _diagnosticSlices.ContainsKey(selectedSlice);
+            if (!diagnostic) return roles;
+            return new SliceRoles(roles.SelectedLetter, roles.SelectedHz, roles.HasTransmit, roles.TransmitLetter,
+                roles.TransmitHz, roles.Same, selectedIsDiagnostic: true);
         }
 
         /// <summary>The same for the active slice: the frequency and mode the
@@ -6529,7 +6848,7 @@ namespace Radios
         /// the time its active flag is.</summary>
         private void NoteActiveSliceAsFound(Slice s)
         {
-            _RXFrequency = LibFreqtoLong(s.Freq);
+            SetRxCache(s, ObservedOrPending(s, LibFreqtoLong(s.Freq)));
             _RXMode = s.DemodMode;
             lock (_RIT)
             {
@@ -6542,6 +6861,8 @@ namespace Radios
         {
             if (myClient(slc.ClientHandle))
             {
+                RetireCorrectionIfNoLongerTrue(slc, "the slice was removed");
+                RetireTuneWaiters(slc, "slice " + slc.Letter + " was removed");   // round five, T1
                 int ct;
                 if (mySlices != null)
                 {
@@ -6562,7 +6883,7 @@ namespace Radios
 
                         if (removed)
                         {
-                            ForgetTransmitCaches(slc);
+                            CommitSliceFacts(null, () => ForgetTransmitCaches(slc));
                             int oldRX = _RXVFO;
                             int oldTX = _TXVFO;
 
@@ -7286,11 +7607,120 @@ namespace Radios
         public string SwAlcElectionText => _swAlcElection.Describe(System.Environment.TickCount);
         /// <summary>Reset the SC_MIC peak-hold and the since-key-down counts of every
         /// transmit-meter copy. Call at transmit start.</summary>
+        /// <remarks>
+        /// Called by the push-to-talk controller as it keys, which is also
+        /// remembered: the radio reports the same transmission's key-down a
+        /// moment later, and that echo must not reset the sample again (#651,
+        /// see <see cref="ShouldRestartAudioSampleOnRadioKeyDown"/>).
+        /// </remarks>
         public void ResetScMicMax()
+        {
+            Interlocked.Exchange(ref _ownAudioSampleStartMs, Environment.TickCount64);
+            resetTransmitMeterPeaks();
+        }
+
+        private void resetTransmitMeterPeaks()
         {
             _scMicElection.ResetPeaks();
             _swAlcElection.ResetPeaks();
             _scMicRecentDb = -150f;
+        }
+
+        // ------------------------------------------------------------------
+        // #651: the spoken transmit-audio figures start on EVERY key-down
+        // ------------------------------------------------------------------
+        //
+        // The mic peak and the integrated loudness the operator can ask for
+        // describe "this transmission", and until #651 they restarted only
+        // when our own push to talk or lock keyed. A foot switch, the radio's
+        // own PTT, CW or another client keys the radio without that, and the
+        // spoken peak then carried an earlier transmission's level, which is
+        // exactly the kind of wrong number an operator trusts and acts on.
+        //
+        // So the radio's own rising edge restarts them too, UNLESS our own key
+        // already did for this transmission: our controller resets at the
+        // press and the radio's echo arrives some hundreds of milliseconds
+        // later, so a second reset at the echo would throw away the first
+        // syllable's peak. "For this transmission" is an own reset that no
+        // earlier rising edge has claimed and that is recent enough to be the
+        // echo's cause (OwnAudioSampleEchoWindowMs).
+
+        /// <summary>When our own key last restarted the audio sample
+        /// (<see cref="Environment.TickCount64"/>), or 0 once a rising edge
+        /// has claimed it.</summary>
+        private long _ownAudioSampleStartMs;
+
+        /// <summary>How long after our own key the radio's rising edge still
+        /// counts as that key's echo. Generous for SmartLink's latency; an own
+        /// reset older than this belongs to some earlier transmission.</summary>
+        internal const long OwnAudioSampleEchoWindowMs = 3000;
+
+        /// <summary>
+        /// Should the radio's reported key-down restart the transmit-audio
+        /// sample? Pure, so the rule is tested without a radio (#651).
+        /// </summary>
+        /// <param name="ownStartMs">When our own key restarted it, or 0 when
+        /// no unclaimed own restart is pending.</param>
+        /// <param name="nowMs">Now, on the same clock.</param>
+        /// <returns>True for a key-down that came from anywhere but our own
+        /// push to talk or lock: a foot switch, the radio's PTT, CW, another
+        /// client, or our own key so long ago that it cannot be this
+        /// transmission's.</returns>
+        internal static bool ShouldRestartAudioSampleOnRadioKeyDown(long ownStartMs, long nowMs)
+        {
+            if (ownStartMs == 0) return true;
+            long since = nowMs - ownStartMs;
+            return since < 0 || since > OwnAudioSampleEchoWindowMs;
+        }
+
+        /// <summary>
+        /// Our own transmission has ended (the push-to-talk controller's
+        /// unkey): an own restart that no rising edge has claimed belongs to no
+        /// transmission any more, so it is retired here and cannot be claimed
+        /// by the next key-down, a foot switch, say, inside the echo window
+        /// (#651, Codex's follow-ups: a claim that outlived an unkey whose
+        /// rising edge never came, or came before the restart itself).
+        /// </summary>
+        public void RetireOwnAudioSampleClaim()
+        {
+            long was = Interlocked.Exchange(ref _ownAudioSampleStartMs, 0);
+            if (was != 0)
+                Tracing.TraceLine("Mox: our key ended with its audio-sample restart unclaimed; retired, so the next"
+                    + " key-down starts a fresh sample", TraceLevel.Info);
+        }
+
+        /// <summary>The radio reported a key-down: restart the spoken
+        /// transmit-audio figures unless our own key already did (#651).</summary>
+        private void restartAudioSampleOnRadioKeyDown()
+        {
+            // Not a key-down: the radio's status batch for an unkey reads
+            // InterlockState UnkeyRequested, then a momentary Mox:True, Ready,
+            // Mox:False (the 8600 bench of 2026-11-06, Fail 5). Restarting there
+            // threw away the transmission's peak just as it ended. The rule is
+            // narrow on purpose: an ordinary key-down's Mox can arrive before its
+            // own interlock report, so only "the radio says it is unkeying" counts.
+            try
+            {
+                if (theRadio?.InterlockState == Flex.Smoothlake.FlexLib.InterlockState.UnkeyRequested)
+                {
+                    Tracing.TraceLine("Mox: a momentary key-down inside the radio's unkey; the audio sample is kept", TraceLevel.Info);
+                    return;
+                }
+            }
+            catch { }
+            long now = Environment.TickCount64;
+            long own = Interlocked.Exchange(ref _ownAudioSampleStartMs, 0);
+            if (ShouldRestartAudioSampleOnRadioKeyDown(own, now))
+            {
+                resetTransmitMeterPeaks();
+                ResetTxLufsIntegrated();
+                Tracing.TraceLine("Mox: audio sample restarted at the radio's key-down (not keyed by our push to talk)", TraceLevel.Info);
+            }
+            else
+            {
+                Tracing.TraceLine("Mox: audio sample kept; our own key started it "
+                    + (now - own).ToString(System.Globalization.CultureInfo.InvariantCulture) + " ms ago", TraceLevel.Info);
+            }
         }
         private int _meterInventoryCount = -1;
 
@@ -7696,7 +8126,15 @@ namespace Radios
         private void noteRadioMox(bool mox)
         {
             bool oldTransmit = _Transmit;
+            // A carrier rising that we did not ask for through EnqueueKeyOn
+            // (VOX, a hand mic, another client) begins an episode too (#863 N1).
+            if (mox && !oldTransmit) NoteTransmitEpisodeBegins();
+            // And the origin of whatever falling tone this carrier will owe
+            // (repair round 7, #863 S2): recorded here, where the radio reports
+            // the rise, not when a deferred notification of it is handled.
+            if (mox && !oldTransmit) NoteCarrierRose();
             if (mox && !oldTransmit && !_tuneCycleActive) beginTxLineWindow();
+            if (mox && !oldTransmit) restartAudioSampleOnRadioKeyDown();
             if (mox && !oldTransmit && TxReferenceArmed)
                 txFilePlayer.RestartOnNextBuffer();
             _Transmit = mox;
@@ -8162,14 +8600,115 @@ namespace Radios
                 // #835: a key-up is refused while an Audio Check teardown holds
                 // admission, here and again when the queued write runs; an
                 // unkey never is. See FlexBase.CheckRestore.cs for the boundary.
-                if (value && RefusedForCheckTeardown("transmit")) return;
-                if (!value) CancelSlicePlayback();
-                if (value && TxReferenceArmed) txFilePlayer.RestartOnNextBuffer();
+                if (value)
+                {
+                    Radio keyedOn = theRadio;
+                    t_keyAskedHere = null;
+                    EnqueueKeyOn(keyedOn, keyedOn?.CurrentCommandConnection, "a key-on");
+                    return;
+                }
+                CancelSlicePlayback();
+                // The key this OFF ends (round 12, Codex's #596 F5): the one
+                // current when it was asked, not whichever is latest when it runs.
+                var offFor = LatestOwnKey;
+                // An ordinary unkey is unconditional, as the emergency kill's
+                // is (TransmitKillSwitch.DropCarrier comes here). Only a
+                // send's own release is pinned (TransmitAdmitted).
                 q.Enqueue((FunctionDel)(() =>
                 {
-                    if (value && TeardownHeldSilently("transmit")) return;
-                    theRadio.Mox = value;
+                    var radio = theRadio;
+                    if (radio == null) return;
+                    // The OFF is forced whenever a carrier may be up, whatever
+                    // FlexLib's cache reads (repair round 8, MIGRATION.md item 22;
+                    // Codex's #596 B13). The emergency kill comes here
+                    // (TransmitKillSwitch.DropCarrier) and is never swallowed.
+                    if (radio.Mox || _ownKeyRequested || RadioInterlockReportsTransmit)
+                    {
+                        if (WriteOwnOff(radio, r => r.SendMoxOff(), out long offMark)) { _ownKeyRequested = false; NoteOwnOffWritten(offFor, offMark); }
+                        // A link that is down takes nothing: the setter then lets
+                        // the cache fall as it always did, so our side's transmit
+                        // state ends with the connection.
+                        else radio.Mox = false;
+                    }
                 }), "Mox");
+            }
+        }
+
+        /// <summary>
+        /// Queue a key-on admitted on <paramref name="keyedOn"/> and
+        /// <paramref name="keyedConnection"/>: the setter's (the radio and
+        /// connection at the call) and a send's (the ones at its press, repair
+        /// round 5).
+        /// </summary>
+        private void EnqueueKeyOn(Radio keyedOn, object keyedConnection, string what)
+        {
+            t_keyAskedHere = null;
+            if (RefusedForCheckTeardown("transmit")) return;
+            if (TxReferenceArmed) txFilePlayer.RestartOnNextBuffer();
+            // A new transmission, counted under the falling cue's gate before
+            // it is queued (repair round 6, #863 S1): a falling cue being
+            // handed over finishes first, and an older one still owed is void.
+            long origin = NoteTransmissionAsked(carrier: true);
+            // And our own key, whose written ON and OFF anchor its falling cue
+            // (repair round 9). The asking thread can read it back.
+            var key = new OwnKey(origin, LatestOwnKey, keyedConnection as CommandConnection);
+            Volatile.Write(ref _latestOwnKey, key);
+            t_keyAskedHere = key;
+            // The radio's interlock reports so far: a receive report must belong
+            // to this transmission to confirm its end (repair round 5, #863 N1).
+            NoteTransmitEpisodeBegins();
+            // A key-on belongs to the connection it was asked on: a drop, a
+            // teardown or a new connection revokes it while it waits in the
+            // queue (#596, repair rounds 2 and 5), so it cannot key a
+            // reconnected radio. The final check and the write are ONE step
+            // that a revocation waits for (repair round 3), and the identity
+            // check is made with the write (repair round 5).
+            long work = Volatile.Read(ref _transmitWorkGeneration);
+            bool queued = q != null && q.Enqueue((FunctionDel)(() =>
+            {
+                bool on = false;
+                try
+                {
+                    if (TeardownHeldSilently("transmit")) return;
+                    SendIfStillAdmitted(work, keyedOn, keyedConnection, what, () =>
+                    {
+                        // Our ON counts only when it was really written (round 9):
+                        // the setter skips a value its cache already holds.
+                        int before = PinnedWritesSoFar;
+                        keyedOn.Mox = true;
+                        on = PinnedWritesSoFar > before;
+                        _ownKeyRequested = true;
+                    });
+                }
+                finally
+                {
+                    // No ON of its own, but an ON of ours is still outstanding on
+                    // that connection (round 10, Codex's #863 S6): this key
+                    // continues that carrier, so its end is this key's end. Only
+                    // with no ON of ours outstanding did nothing go out.
+                    var keyedOnConnection = keyedConnection as CommandConnection;
+                    bool continues = !on && key.Previous?.OffUnwrittenOn(keyedOnConnection) == true;
+                    if (on || continues ? key.NoteOnWritten(keyedOnConnection) : key.NoteNeverWent())
+                        RaiseOwnKeyChanged();
+                    if (continues)
+                        Tracing.TraceLine("TransmitWork: " + what + " wrote no ON of its own; it continues the carrier"
+                            + " our earlier key put on the air, and that carrier's end is now this key's", TraceLevel.Info);
+                    else if (!on)
+                        Tracing.TraceLine("TransmitWork: " + what + " - our key never went out, so nothing was transmitted"
+                            + " and no falling cue is owed for it", TraceLevel.Info);
+                }
+            }), "Mox", () =>
+            {
+                // Accepted, but the loop ended before it ran (integration fix 2).
+                if (key.NoteNeverWent()) RaiseOwnKeyChanged();
+            });
+            // Settled never gone out only on the queue's own answer that it
+            // dropped the item (round 12, Codex's #596 B18): one fact, so a key
+            // the loop will still write can never be recorded as never gone out.
+            if (!queued)
+            {
+                key.NoteNeverWent();
+                RaiseOwnKeyChanged();
             }
         }
 
@@ -8333,9 +8872,14 @@ namespace Radios
         public string ActiveSliceLetter => theRadio?.ActiveSlice?.Letter ?? "";
 
         /// <summary>
-        /// Letter of the TX slice. Empty if no TX slice.
+        /// Letter of the TX slice. Empty if no TX slice. The DESIGNATED slice,
+        /// not the slice at TXVFO's position (#642/#496, repair round 2):
+        /// TXVFO falls back to the first slice when the transmit slice goes,
+        /// so the position named a receive-only slice as transmitting on the
+        /// status dialog, Home's TX field, the status builder and the chain
+        /// facts.
         /// </summary>
-        public string TXSliceLetter => VFOToSlice(TXVFO)?.Letter ?? "";
+        public string TXSliceLetter => DesignatedTransmitSlice()?.Letter ?? "";
 
         /// <summary>
         /// Convert a VFO index to its slice letter (A, B, C, D...).
@@ -8352,7 +8896,10 @@ namespace Radios
             lock (mySlices)
             {
                 var slice = ValidVFO(vfo) ? mySlices[vfo] : null;
-                return slice?.Freq ?? 0.0;
+                // The slice's one value (repair round 5): FlexLib's own number
+                // is now only what the radio reported, so a tune on its way is
+                // read from the guard and the caches, as F and the title are.
+                return slice == null ? 0.0 : LongFreqToLibFreq(ValueOf(slice));
             }
         }
 
@@ -8767,6 +9314,10 @@ namespace Radios
                     int old = _RXVFO;
                     _RXVFO = value;
                     Tracing.TraceLine($"RXVFO:{old}→{value} valid={ValidVFO(value)} slices={MyNumSlices}", TraceLevel.Info);
+                    // A spoken tuning correction was about the slice left behind (R3),
+                    // and so was Home's return status (round three).
+                    RetireTuneCorrection("a change of selected slice");
+                    RetireReturnStatus("a change of selected slice");
                     if (ValidVFO(value))
                     {
                         // Capture the slice at set time (identity): if the
@@ -8822,7 +9373,7 @@ namespace Radios
             if (s != null)
                 q.Enqueue((FunctionDel)(() => { s.IsTransmitSlice = false; }), "ClearTransmitSlice");
             _TXVFO = noVFO;
-            ForgetTransmitCaches(null);
+            CommitSliceFacts(null, () => ForgetTransmitCaches(null));
             Tracing.TraceLine($"ClearTransmitSlice: was vfo={vfo}", TraceLevel.Info);
         }
 
@@ -8973,7 +9524,13 @@ namespace Radios
             Slice inSlice = VFOToSlice(inv);
             Slice outSlice = VFOToSlice(outv);
             q.Enqueue((FunctionDel)null, "slice copy start");
-            q.Enqueue((FunctionDel)(() => { outSlice.Freq = inSlice.Freq; }));
+            // The tune is a whole tune request (repair round 5): the source's
+            // one value at the press, published to the target and guarded like
+            // any step, so a step just taken on the target cannot refuse the
+            // copy's report, and the next step starts from the copy. Its send
+            // goes through WriteTuneTo (repair round 4), so a slice removed
+            // before the queue runs gets nothing on its reusable index.
+            RequestTune(outSlice, ValueOf(inSlice), selectedTune: false, "CopyVFO");
             q.Enqueue((FunctionDel)(() => { outSlice.DemodMode = inSlice.DemodMode; }));
             q.Enqueue((FunctionDel)(() => { outSlice.AutoPan = inSlice.AutoPan; }));
             q.Enqueue((FunctionDel)(() => { outSlice.RTTYMark = inSlice.RTTYMark; }));
@@ -9023,43 +9580,46 @@ namespace Radios
 
         // #266. Both setters below write the cache before the radio has seen
         // the value, so both need a guard against the radio's own in-flight
-        // report of what the frequency WAS. See FrequencyEchoGuard.
-        private readonly FrequencyEchoGuard _rxFreqEcho = new FrequencyEchoGuard("RX");
-        private readonly FrequencyEchoGuard _txFreqEcho = new FrequencyEchoGuard("TX");
+        // report of what the frequency WAS. See FrequencyEchoGuard. One guard
+        // per SLICE since repair round 3 (EchoGuardFor), armed against that
+        // slice's own value.
 
-        private ulong _RXFrequency;
         public ulong RXFrequency
         {
             get
             {
-                return _RXFrequency;
+                // The cache's number only for the slice it belongs to (repair
+                // round 2): a tuning step taken while a new selection's Active
+                // has arrived and its cache has not must start from the
+                // selected slice's own frequency, never the old slice's.
+                SliceHz cache = _rxCache;
+                Slice selected = SelectedSliceNow();
+                if (selected == null) return cache?.Hz ?? 0UL;
+                return ValueOf(selected);
             }
             set
             {
-                ulong replaced = _RXFrequency;
-                _RXFrequency = value;
-                if (!ValidVFO(RXVFO))
-                {
-                    Tracing.TraceLine("RXFrequency: no valid RX slice", TraceLevel.Warning);
-                    return;
-                }
-                var slice = VFOToSlice(RXVFO);
+                // The slice is taken HERE, at the key (repair round 3): the
+                // queued write goes to this slice whatever is selected by the
+                // time it runs.
+                Slice slice = ValidVFO(RXVFO) ? VFOToSlice(RXVFO) : null;
+                t_tuneAdmitted = false;
                 if (slice == null)
                 {
-                    Tracing.TraceLine("RXFrequency: RX slice missing", TraceLevel.Warning);
+                    CommitSliceFacts(null, () => SetRxCache(null, value));
+                    Tracing.TraceLine(ValidVFO(RXVFO) ? "RXFrequency: RX slice missing" : "RXFrequency: no valid RX slice",
+                        TraceLevel.Warning);
                     return;
                 }
-                double freq = LongFreqToLibFreq(value);
-                // Arm HERE, not at the top of the setter: the early returns
-                // above leave without writing anything to the radio, and a
-                // guard armed for a write that never went out would reject the
-                // radio's perfectly truthful report of where it still is.
-                _rxFreqEcho.Requested(replaced, value);
-                q.Enqueue((FunctionDel)(() =>
-                {
-                    var s = VFOToSlice(RXVFO);
-                    if (s != null) s.Freq = freq;
-                }), "RXFreq");
+                // The whole request, armed HERE rather than at the top of the
+                // setter: the early return above leaves without writing
+                // anything to the radio, and a guard armed for a write that
+                // never went out would reject the radio's perfectly truthful
+                // report of where it still is. What it replaces is THIS
+                // slice's own value, not the raw cache (repair round 3), and
+                // the one helper owns admission, publication and the guard
+                // (repair round 5).
+                t_tuneAdmitted = RequestTune(slice, value, selectedTune: true, "RXFreq");
             }
         }
 
@@ -9107,7 +9667,6 @@ namespace Radios
             }
         }
 
-        private ulong _TXFrequency;
         public ulong TXFrequency
         {
             get
@@ -9115,15 +9674,19 @@ namespace Radios
                 // Zero is "no echo seen", not a frequency: ask the slice the
                 // radio has designated, and only that one. The connect path
                 // fills this now (NoteTransmitSliceAsFound), so this covers a
-                // transmit slice designated some other way.
-                if (_TXFrequency != 0UL && TransmitCachesStand) return _TXFrequency;
+                // transmit slice designated some other way. The cache is read
+                // once, number and slice together, and believed only for the
+                // designated slice it was written for (repair round 2).
+                SliceHz cache = _txCache;
                 Slice s = DesignatedTransmitSlice();
-                return s != null ? LibFreqtoLong(s.Freq) : 0UL;
+                // The designated slice's ONE value (repair rounds 3 and 8).
+                if (s != null) return ValueOf(s);
+                if (cache != null && cache.Hz != 0UL && cache.Slice?.IsTransmitSlice == true)
+                    return cache.Hz;
+                return 0UL;
             }
             set
             {
-                ulong replaced = _TXFrequency;
-                _TXFrequency = value;
 
                 // A REFUSED WRITE MUST NOT LEAVE ITS VALUE BEHIND. Both bails
                 // below used to return with _TXFrequency holding a frequency
@@ -9132,10 +9695,11 @@ namespace Radios
                 // the Fixer's post-change confirmation, whose whole job is to
                 // report radio truth rather than our request (#164). The
                 // operator was told a frequency change applied, and could key
-                // believing they had moved.
+                // believing they had moved. Now nothing is written until the
+                // slice it belongs to is known (repair round 2), so a bail has
+                // nothing to undo.
                 if (!ValidVFO(TXVFO))
                 {
-                    _TXFrequency = replaced;
                     Tracing.TraceLine("TXFrequency: no valid TX slice, so the requested "
                                       + value + " was NOT applied and was not kept",
                                       TraceLevel.Warning);
@@ -9144,7 +9708,6 @@ namespace Radios
                 var slice = VFOToSlice(TXVFO);
                 if (slice == null)
                 {
-                    _TXFrequency = replaced;
                     Tracing.TraceLine("TXFrequency: TX slice missing, so the requested "
                                       + value + " was NOT applied and was not kept",
                                       TraceLevel.Warning);
@@ -9155,27 +9718,21 @@ namespace Radios
                 // stand in the transmit caches: TXVFO can be a position left
                 // over from a removal, on an ordinary receive slice, and that
                 // slice's frequency and mode are not transmit facts. The write
-                // below still goes where it always went; that positional target
-                // is older than this and is on the register.
+                // below goes to the slice at TXVFO NOW, at the key (repair
+                // round 3); that the target is positional is older than this
+                // and is on the register.
                 if (!slice.IsTransmitSlice)
                 {
-                    _TXFrequency = replaced;
                     Tracing.TraceLine("TXFrequency: the slice at TXVFO is not designated for transmit, "
                                       + "so the requested " + value + " is not held as a transmit fact",
                                       TraceLevel.Warning);
                 }
-                else if (!ReferenceEquals(slice, _txCacheSlice))
-                {
-                    _txCacheSlice = slice;
-                    _TXMode = slice.DemodMode;
-                }
-                double freq = LongFreqToLibFreq(value);
-                _txFreqEcho.Requested(replaced, value);
-                q.Enqueue((FunctionDel)(() =>
-                {
-                    var s = VFOToSlice(TXVFO);
-                    if (s != null) s.Freq = freq;
-                }), "TXFreq");
+                // The whole request (repair round 5): what it replaces is this
+                // slice's own value (repair round 3), and the slice's one
+                // value goes in every cache that describes it (PublishTuning
+                // holds it as a transmit fact only when the slice is
+                // designated).
+                RequestTune(slice, value, selectedTune: false, "TXFreq");
             }
         }
 
@@ -9291,13 +9848,14 @@ namespace Radios
                 Tracing.TraceLine("RequestMode: no slice of ours to write, so \"" + value + "\" was NOT requested", TraceLevel.Warning);
                 return ModeRequestOutcome.RefusedNoSlice;
             }
-            if (q == null || !q.MainLoop)
+            // The queue's own answer (integration fix): never MainLoop read apart.
+            // Dropped at the loop's end, nothing is written (integration fix 2).
+            if (q == null || !q.Enqueue((FunctionDel)(() => { s.DemodMode = value; }), "RXDemodMode",
+                    () => Tracing.TraceLine("RequestMode: \"" + value + "\" was dropped when the command loop ended", TraceLevel.Info)))
             {
-                // q.Enqueue would only trace "outside main loop" and drop it.
                 Tracing.TraceLine("RequestMode: the radio's command loop is not running, so \"" + value + "\" was NOT requested", TraceLevel.Warning);
                 return ModeRequestOutcome.RefusedNotRunning;
             }
-            q.Enqueue((FunctionDel)(() => { s.DemodMode = value; }), "RXDemodMode");
             return ModeRequestOutcome.Sent;
         }
 
@@ -10357,6 +10915,16 @@ namespace Radios
                 }
                 if (s != null)
                 {
+                    // The operator's own change voids every restore of this
+                    // setting owed before it (integration fix 3, Codex's #596
+                    // B3), told BEFORE the write is queued so the restore's
+                    // question at the transport sees it. Asked of THIS caller's
+                    // scope, not the rig-wide one, which another thread's VOX
+                    // restore can hold while it waits at the transport and which
+                    // would otherwise swallow the operator's change.
+                    if (!AppScopeOpenOnThisThread)
+                        System.Threading.Volatile.Read(ref _voxPauses)?.OperatorChanged(
+                            s.DemodMode == "CW" ? VoxSetting.CwBreakIn : VoxSetting.SimpleVox);
                     NoteOperatorChangedRadioSetting("Vox");
                     if (s.DemodMode == "CW")
                     {
@@ -11145,19 +11713,39 @@ namespace Radios
             s.Hz8000 = eq.level_8000Hz;
         }
 
+        /// <summary>
+        /// The equaliser's ten writes. Each one re-asks the gate of the item it
+        /// runs in (repair round 4, rule 3; Codex's F1): one item writes every
+        /// band, so a carrier rising after the first band must stop the rest,
+        /// and the item then counts as withheld, not run. Outside a gated
+        /// item every write goes, as before.
+        /// </summary>
         private static void PushEqTo(Equalizer eq, EqSettings s)
         {
             static int Clamp(int v) => Math.Max(EqLevelMin, Math.Min(EqLevelMax, v));
-            eq.level_32Hz = Clamp(s.Hz32);
-            eq.level_63Hz = Clamp(s.Hz63);
-            eq.level_125Hz = Clamp(s.Hz125);
-            eq.level_250Hz = Clamp(s.Hz250);
-            eq.level_500Hz = Clamp(s.Hz500);
-            eq.level_1000Hz = Clamp(s.Hz1000);
-            eq.level_2000Hz = Clamp(s.Hz2000);
-            eq.level_4000Hz = Clamp(s.Hz4000);
-            eq.level_8000Hz = Clamp(s.Hz8000);
-            eq.EQ_enabled = s.Enabled;
+            Action[] writes =
+            {
+                () => eq.level_32Hz = Clamp(s.Hz32),
+                () => eq.level_63Hz = Clamp(s.Hz63),
+                () => eq.level_125Hz = Clamp(s.Hz125),
+                () => eq.level_250Hz = Clamp(s.Hz250),
+                () => eq.level_500Hz = Clamp(s.Hz500),
+                () => eq.level_1000Hz = Clamp(s.Hz1000),
+                () => eq.level_2000Hz = Clamp(s.Hz2000),
+                () => eq.level_4000Hz = Clamp(s.Hz4000),
+                () => eq.level_8000Hz = Clamp(s.Hz8000),
+                () => eq.EQ_enabled = s.Enabled,
+            };
+            foreach (var write in writes)
+            {
+                string refused = StationConnect.QueuedWriteGate.RefusedNow();
+                if (refused != null)
+                {
+                    Tracing.TraceLine("PushEqTo: the rest of the equaliser was NOT written - " + refused, TraceLevel.Warning);
+                    return;
+                }
+                write();
+            }
         }
 
         private void RequestEqualizer(EqualizerSelect which, string traceName)
@@ -11196,7 +11784,13 @@ namespace Radios
             q.Enqueue((FunctionDel)(() =>
             {
                 var eq = theRadio?.FindEqualizerByEQSelect(which);
-                if (eq == null) return;
+                if (eq == null)
+                {
+                    // Gone by the time it ran (repair round 4, Codex's F2): a
+                    // restore step must not count it as written.
+                    StationConnect.QueuedWriteGate.WithholdRunning("the radio's " + which + " equaliser was not there to write");
+                    return;
+                }
                 PushEqTo(eq, s);
             }), traceName);
             return true;
@@ -11285,6 +11879,9 @@ namespace Radios
             get { return theRadio?.MicInput ?? ""; }
             set
             {
+                // A deliberate choice ends any PC retry still armed, at once and
+                // at its bytes (round five, Codex's re-check M1).
+                NoteOperatorMicChoice(value);
                 // An operator choosing a source through JJ Flex is intent, not
                 // drift, so move what checkPcMicSelection expects along with
                 // them: a deliberate switch to the analog mic is then honoured
@@ -11296,10 +11893,12 @@ namespace Radios
                     && string.Equals(value, "PC", StringComparison.OrdinalIgnoreCase);
                 _pcMicDiverged = false;
                 // Inside a check's restore the write carries its own reply (round 1030 repairs).
+                // The radio echoes a mic write to its writer (round five): the
+                // report that follows is this choice coming back, not another's.
                 if (value != null)
-                    EnqueueSettingWrite((FunctionDel)(() => { theRadio.MicInput = value; }),
+                    EnqueueSettingWrite((FunctionDel)(() => SetMicInputTracked(theRadio, value)),
                         RadioWrite("mic-input", "mic input " + value.ToUpperInvariant(), "transmit", "mic_selection", value.ToUpperInvariant()), "MicInput");
-                else q.Enqueue((FunctionDel)(() => { theRadio.MicInput = value; }), "MicInput");
+                else q.Enqueue((FunctionDel)(() => SetMicInputTracked(theRadio, value)), "MicInput");
             }
         }
 
@@ -11587,9 +12186,14 @@ namespace Radios
                     catch (NullReferenceException) { earsInputs = null; }
                     if (!(earsInputs?.Contains(earsAntenna) ?? false))
                         throw new InvalidOperationException("loopback-ears-port-unavailable");
+                    // The ears go to the transmit slice's ONE value (#642,
+                    // repair round 6), a tune still on its way included.
+                    Slice earsTransmit = SliceForTransmitSetting();
+                    double earsMhz = earsTransmit == null ? 0.0
+                        : LongFreqToLibFreq(ValueOf(earsTransmit));
                     if (
                         !resources.Configure(mySlices, arrangementRadio.PanadapterList,
-                            SliceForTransmitSetting(), earsAntenna))
+                            earsTransmit, earsAntenna, earsMhz))
                         throw new InvalidOperationException("loopback-ears-missing");
                     ears = resources.Slice;
                 }
@@ -12817,6 +13421,13 @@ namespace Radios
         {
             public string Text;
             public cwBufferState State;
+            /// <summary>The transmit-work generation it was admitted under (#596 N4).</summary>
+            public long Generation;
+            /// <summary>One typed character, sent as typing is.</summary>
+            public bool IsChar;
+            /// <summary>The radio and command connection it was admitted on (repair round 3).</summary>
+            public Radio Owner;
+            public object Connection;
 
             public cwText() { }
 
@@ -12883,10 +13494,24 @@ namespace Radios
                 }
                 else
                 {
-                    q.Enqueue(new cwText(str), "SendCW");
+                    // Revoked by a drop or a teardown while queued (#596 N4).
+                    q.Enqueue(AdmittedCw(new cwText(str)), "SendCW");
                 }
             }
             return true;
+        }
+
+        /// <summary>
+        /// CW admitted now: it carries this connection's work generation, and
+        /// the radio and command connection it was admitted on (#596 N4,
+        /// repair round 3), all checked again with the send as one step.
+        /// </summary>
+        private cwText AdmittedCw(cwText cw)
+        {
+            cw.Generation = Volatile.Read(ref _transmitWorkGeneration);
+            cw.Owner = theRadio;
+            cw.Connection = cw.Owner?.CurrentCommandConnection;
+            return cw;
         }
 
         public bool SendCW(char c)
@@ -12899,7 +13524,9 @@ namespace Radios
             }
             else
             {
-                q.Enqueue(c);
+                // A character carries its connection's work generation too
+                // (#596 N4), so it rides the queue as a one-character item.
+                q.Enqueue(AdmittedCw(new cwText(c.ToString()) { IsChar = true }));
             }
             return true;
         }
@@ -13174,7 +13801,37 @@ namespace Radios
                 q = new BlockingCollection<object>();
             }
 
-            public bool MainLoop { get; set; }
+            /// <summary>
+            /// Admission and closing share one lock (integration fix, Codex's
+            /// integration finding 5): an item is either added while the loop
+            /// will still run it, or refused.
+            /// </summary>
+            private readonly object _admit = new object();
+            private bool _mainLoop;
+
+            public bool MainLoop
+            {
+                get { lock (_admit) return _mainLoop; }
+                set { lock (_admit) _mainLoop = value; }
+            }
+
+            /// <summary>
+            /// The main loop is ending: refuse every later item, and hand back
+            /// those accepted and not yet run. They are NOT run (integration fix
+            /// 2, Codex's B1): an ordinary queued write carries no pin to its
+            /// connection, so running it at close could write onto a
+            /// replacement. Each one's caller is told through its drop callback.
+            /// </summary>
+            public List<QItem_t> CloseAndTakeRest()
+            {
+                var rest = new List<QItem_t>();
+                lock (_admit)
+                {
+                    _mainLoop = false;
+                    while (q.TryTake(out object o)) rest.Add((QItem_t)o);
+                }
+                return rest;
+            }
 
             public int Count { get { return q.Count; } }
 
@@ -13182,6 +13839,8 @@ namespace Radios
             {
                 public string Name;
                 public object Item;
+                /// <summary>Told when the item was accepted but the loop ended before it ran (integration fix 2).</summary>
+                public Action OnDropped;
                 public QItem_t(string name, object item)
                 {
                     Name = (name == null) ? "unnamed" : name;
@@ -13189,7 +13848,19 @@ namespace Radios
                 }
             }
 
-            public void Enqueue(object o, string name = null, bool beforeMainLoop = false)
+            /// <returns>
+            /// True when the item was ACCEPTED: queued while the loop accepts
+            /// work, or run at once before the main loop. An accepted item either
+            /// runs on the live loop or, if the loop ends first, is dropped and
+            /// its <paramref name="onDropped"/> is called, the same path a
+            /// refusal takes (integration fix 2). False when it was refused now.
+            /// This is the ONE answer: a caller never reads MainLoop itself
+            /// (repair round 12, Codex's #596 B18).
+            /// </returns>
+            public bool Enqueue(object o, string name, Action onDropped) => EnqueueItem(o, name, false, onDropped);
+
+            public bool Enqueue(object o, string name = null, bool beforeMainLoop = false) => EnqueueItem(o, name, beforeMainLoop, null);
+            private bool EnqueueItem(object o, string name, bool beforeMainLoop, Action onDropped)
             {
                 // A write queued under an ambient QueuedWriteGate is asked
                 // again at its RUN whether it may still go out (Track G2,
@@ -13208,9 +13879,16 @@ namespace Radios
                         (n, why) => Tracing.TraceLine("q: refused '" + n + "' at its run — " + why, TraceLevel.Warning));
                     o = (FunctionDel)(() => wrapped());
                 }
-                QItem_t item = new QItem_t(name, o);
+                QItem_t item = new QItem_t(name, o) { OnDropped = onDropped };
 
-                if (!MainLoop)
+                lock (_admit)
+                {
+                    if (_mainLoop)
+                    {
+                        q.Add(item);
+                        return true;
+                    }
+                }
                 {
                     // If can execute before the main loop, do it.
                     if (beforeMainLoop & (o is FunctionDel))
@@ -13219,12 +13897,10 @@ namespace Radios
                         DbgTrace("q.Enqueue:" + name);
                         if (func != null) func();
                         DbgTrace("q.Enqueue:done " + name);
+                        return true;
                     }
-                    else Tracing.TraceLine("q:outside main loop", TraceLevel.Error);
-                }
-                else
-                {
-                    q.Add(item);
+                    Tracing.TraceLine("q:outside main loop", TraceLevel.Error);
+                    return false;
                 }
             }
 

@@ -507,6 +507,13 @@ namespace Radios.Speech
         /// </summary>
         internal const int SalvageCeilingMs = 15000;
 
+        /// <summary>
+        /// How long an ordinary sentence's condition may keep answering "cannot
+        /// say yet" before the copy is dropped (round five, Codex's B3a): asked
+        /// again at each settle window meanwhile, so two or three times.
+        /// </summary>
+        internal const int ConditionBusyBoundMs = 1500;
+
         // ── The salvage settle window (#507) ──
 
         /// <summary>
@@ -737,6 +744,21 @@ namespace Radios.Speech
             /// does not guess.
             /// </summary>
             public Func<bool>? StillValid;
+
+            /// <summary>
+            /// An ORDINARY sentence's own condition (round four, B3; round five,
+            /// B3a): true, false, or null for "cannot say yet" (its producer's
+            /// lock was busy). Null is asked again at the next window, and the
+            /// copy is dropped only on false or once <see cref="ConditionBusyBoundMs"/>
+            /// of "cannot say" has passed.
+            /// </summary>
+            public Func<bool?>? StillValidOrBusy;
+
+            /// <summary>When its condition first said "cannot say" in a row; null when it last answered.</summary>
+            public DateTime? ConditionBusySinceUtc;
+
+            /// <summary>Its condition said "cannot say" at the last judgement: hold it for the next window.</summary>
+            public bool ConditionBusy;
 
             /// <summary>
             /// A PROTECTED obligation whose retry is ready but found a
@@ -1036,11 +1058,11 @@ namespace Radios.Speech
         /// </param>
         public void Emit(string message, bool interrupt,
             SpeechIntent? intent, VerbosityLevel? level, string? origin,
-            string? subject = null, bool additive = false)
+            string? subject = null, bool additive = false, Func<bool?>? stillValid = null)
         {
             lock (_lock)
             {
-                EmitLocked(message, interrupt, intent, level, origin, subject, additive);
+                EmitLocked(message, interrupt, intent, level, origin, subject, additive, stillValid);
             }
         }
 
@@ -1236,6 +1258,69 @@ namespace Radios.Speech
                 PruneLedgerLocked(now);
                 var made = EmitQueuedLocked(message, SpeechIntent.Queue, level, origin, subject, additive, now);
                 return made == null ? null : new FollowedPiece(made);
+            }
+        }
+
+        /// <summary>
+        /// Retire our own STALE STATUS still owed (<see cref="SpeechSubject.StaleStatus"/>,
+        /// narrowed in rulings round three), queued or held, so a
+        /// sentence that must be heard before a key goes next (the 2026-11-02
+        /// junk box's rulings round two, the 8600 bench's Fail 2). On the bench
+        /// the transmit-slice notice queued behind the Home arrival sentence and
+        /// sentences salvaged from the closed dialog, and its gate gave up before
+        /// it said a word, refusing the send over our own backlog. Protected
+        /// (safety) entries and the <paramref name="keepSubject"/> are left
+        /// alone; unsent text is taken back from the pump; a retired entry is
+        /// never salvaged. Whatever the reader is saying right now finishes.
+        /// Returns how many were retired.
+        /// </summary>
+        internal int RetireOrdinaryBacklog(string by, string? origin, string? keepSubject)
+        {
+            lock (_lock)
+            {
+                var now = _clock.UtcNow;
+                int n = 0;
+                foreach (var list in new[] { _believedQueued, _held })
+                    foreach (var e in list)
+                    {
+                        if (e.SupersededBy != null || e.Protected) continue;
+                        if (keepSubject != null && string.Equals(e.Subject, keepSubject, StringComparison.Ordinal)) continue;
+                        // Stale status only (rulings round three, Codex's F1): a
+                        // required notice or refusal at Critical is not Protected,
+                        // and J3's "mic left on PC" went with the chatter. Speech
+                        // that declared no subject is not known to be stale either.
+                        if (e.Subject == null || Array.IndexOf(SpeechSubject.StaleStatus, e.Subject) < 0) continue;
+                        e.SupersededBy = by;
+                        e.SupersededByOrigin = origin;
+                        e.SupersededAtUtc = now;
+                        n++;
+                    }
+                WithdrawSupersededFromPumpLocked(now);
+                return n;
+            }
+        }
+
+        /// <summary>
+        /// Take back ONE followed piece, and only that one (#863, repair round
+        /// 3, Codex's second re-check F1): a cancelled check's own notice must
+        /// not stay queued, and a newer attempt's notice on the same subject
+        /// must not go with it, which a supersession by subject would do. A
+        /// piece already finished, or no longer owed, is left alone, so a
+        /// sentence that was heard is never turned into one that was not.
+        /// </summary>
+        internal void Withdraw(FollowedPiece piece, string by, string? origin)
+        {
+            if (piece == null) return;
+            lock (_lock)
+            {
+                var e = (BelievedQueued)piece.Entry;
+                if (e.SupersededBy != null) return;
+                if (!_believedQueued.Contains(e) && !_held.Contains(e)) return;
+                var now = _clock.UtcNow;
+                e.SupersededBy = by;
+                e.SupersededByOrigin = origin;
+                e.SupersededAtUtc = now;
+                WithdrawSupersededFromPumpLocked(now);
             }
         }
 
@@ -2307,16 +2392,24 @@ namespace Radios.Speech
 
         // ── Internals ──
 
+        /// <param name="stillValid">
+        /// The producer's answer to "is what this sentence states still so",
+        /// asked before any replay of an unheard copy (round four, Codex's
+        /// re-check B3: Home's return status was replayed after its slice had
+        /// gone). Only a QUEUED sentence is ledgered and so can be replayed; an
+        /// interrupting one never is, and has nothing for this to guard.
+        /// </param>
         private void EmitLocked(string message, bool interrupt,
             SpeechIntent? intent, VerbosityLevel? level, string? origin, string? subject,
-            bool additive = false)
+            bool additive = false, Func<bool?>? stillValid = null)
         {
             var now = _clock.UtcNow;
             PruneLedgerLocked(now);
 
             if (!interrupt)
             {
-                EmitQueuedLocked(message, intent, level, origin, subject, additive, now);
+                var made = EmitQueuedLocked(message, intent, level, origin, subject, additive, now);
+                if (made != null && stillValid != null) made.StillValidOrBusy = stillValid;
                 return;
             }
 
@@ -2606,7 +2699,7 @@ namespace Radios.Speech
             catch (Exception ex)
             {
                 Tracing.TraceLine(
-                    $"SpeechArbiter: a SAFETY obligation's producer could not say whether it is still true ({ex.Message}); "
+                    $"SpeechArbiter: {(e.Protected ? "a SAFETY obligation's" : "a sentence's")} producer could not say whether it is still true ({ex.Message}); "
                     + $"it is not replayed: '{Clip(e.Message)}'", TraceLevel.Error);
                 return false;
             }
@@ -2838,6 +2931,7 @@ namespace Radios.Speech
                 foreach (var s in _held) if (!s.Protected) train.Add(s);
                 _held.Clear();
                 int handed = 0;
+                var askAgain = new List<BelievedQueued>();
                 foreach (var s in train)
                 {
                     string? refusal = SalvageRefusalLocked(s, now, atRescue: false);
@@ -2846,6 +2940,9 @@ namespace Radios.Speech
                         TraceDropLocked(s, refusal, now);
                         continue;
                     }
+                    // Its producer could not say yet (round five, B3a): held for
+                    // the next window, not handed over and not dropped.
+                    if (s.ConditionBusy) { askAgain.Add(s); continue; }
 
                     // A protected obligation that has come back saying nothing
                     // at all, over and over, stops chasing interrupts — and is
@@ -2978,6 +3075,15 @@ namespace Radios.Speech
                 _wentFirst.Clear();
                 _holdInterrupts = 0;
                 _holdBehind = string.Empty;
+
+                if (askAgain.Count > 0)
+                {
+                    _held.AddRange(askAgain);
+                    StartHoldTimerLocked();
+                    Tracing.TraceLine(
+                        $"SpeechArbiter: {askAgain.Count} held salvage(s) kept for another {SalvageSettleMs} ms - their producer "
+                        + $"could not say yet whether they are still true: {Quote(askAgain)}", TraceLevel.Info);
+                }
             }
         }
 
@@ -3199,10 +3305,44 @@ namespace Radios.Speech
             // producer whether that state still holds before every replay
             // (blocker 6). "You are no longer on the air" after the operator
             // has keyed again is false, and a false safety sentence is worse
-            // than silence (#617).
-            if (entry.Protected && entry.StillValid != null && !StillTrue(entry))
+            // than silence (#617). An ordinary sentence that declared one is
+            // asked too (round four, Codex's re-check B3): Home's return status
+            // states a slice, its frequency, mode and band, and a replay after
+            // any of them changed tells the operator something false.
+            if (entry.StillValid != null && !StillTrue(entry))
                 return "no longer true: its producer says the state it claimed has changed since, and a replay would "
                     + "tell the operator something false";
+
+            // An ordinary sentence's own condition, three-valued (round five,
+            // Codex's B3a): "cannot say yet" holds it for the next window rather
+            // than dropping a sentence that may well still be true.
+            entry.ConditionBusy = false;
+            if (entry.StillValidOrBusy != null)
+            {
+                bool? answer;
+                try { answer = entry.StillValidOrBusy(); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"SpeechArbiter: a sentence's producer could not say whether it is still true ({ex.Message}); "
+                        + $"it is not replayed: '{Clip(entry.Message)}'", TraceLevel.Error);
+                    answer = false;
+                }
+                if (answer == false)
+                {
+                    entry.ConditionBusySinceUtc = null;
+                    return "no longer true: its producer says the state it claimed has changed since, and a replay would "
+                        + "tell the operator something false";
+                }
+                if (answer == null)
+                {
+                    entry.ConditionBusySinceUtc ??= now;
+                    int busyMs = (int)(now - entry.ConditionBusySinceUtc.Value).TotalMilliseconds;
+                    if (busyMs >= ConditionBusyBoundMs)
+                        return $"its producer could not say whether it is still true for {busyMs} ms";
+                    entry.ConditionBusy = true;
+                }
+                else entry.ConditionBusySinceUtc = null;
+            }
 
             // A safety obligation is exempt from every bound below. Ordinary
             // verbosity, navigation, a timer expiring, queue overflow and a
