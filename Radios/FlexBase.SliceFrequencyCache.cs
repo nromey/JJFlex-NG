@@ -651,7 +651,19 @@ namespace Radios
                 Radio = rig.theRadio;
                 Connection = Radio?.CurrentCommandConnection;
                 Falls = System.Threading.Interlocked.Read(ref rig._connectionFalls);
+                SelectedAtTyping = rig.SelectedSliceNow();
             }
+            /// <summary>The selected slice when it was typed (round six, Codex's re-check T2).</summary>
+            internal Slice SelectedAtTyping { get; }
+            /// <summary>
+            /// The slice it was tuned on is the selected one now (round six, T2).
+            /// The side effects that act on the SELECTED slice (the 60 m mode
+            /// correction, the band boundary) are run only when this is true;
+            /// typed while the transmit frequency is shown, it tunes the transmit
+            /// slice, and they would act on another.
+            /// </summary>
+            public bool TypedOnTheSelectedSlice =>
+                Slice != null && ReferenceEquals(Rig.SelectedSliceNow(), Slice);
             /// <summary>The rig the frequency was typed on. The only one an answer may act on.</summary>
             public FlexBase Rig { get; }
             internal System.Action<TuneAnswer, TypedTune> Answered { get; }
@@ -696,6 +708,10 @@ namespace Radios
             if (!ours) return "the slice it was typed for is gone";
             if (LatestTuneRequest(slice) != t.RequestId) return "a newer tune of the slice has been asked for since";
             if (answer == TuneAnswer.Accepted && LibFreqtoLong(slice.Freq) != t.Hz) return "the slice is no longer on that frequency";
+            // The selection it was typed under (round six, Codex's re-check T2):
+            // an acceptance describes and acts on that context, not another.
+            if (answer == TuneAnswer.Accepted && !ReferenceEquals(SelectedSliceNow(), t.SelectedAtTyping))
+                return "another slice has been selected since it was typed";
             return null;
         }
 

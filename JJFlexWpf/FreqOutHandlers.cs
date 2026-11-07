@@ -1133,10 +1133,18 @@ public class FreqOutHandlers
         if (SayTypedTuneSpeech(said)) return;
         if (!said.Arrived) return;
         ulong freqHz = tune.Hz;
-        CheckBandBoundary(freqHz);
         // The typed tune's own rig, never whatever the window holds by now
-        // (round five, T1); with no mode known, no correction (#312).
+        // (round five, T1); with no mode known, no correction (#312). And its
+        // side effects act on the SELECTED slice, so they run only when that is
+        // the slice it was tuned on (round six, Codex's re-check T2).
         var rig = tune.Rig;
+        if (!tune.TypedOnTheSelectedSlice)
+        {
+            Radios.ScreenReaderOutput.Speak(QuickTypeCommitOutcome(License?.Country ?? "US", freqHz, null, display).Arrival,
+                VerbosityLevel.Terse, true, subject: Radios.Speech.SpeechSubject.TypedTuneAnswer);
+            return;
+        }
+        CheckBandBoundary(freqHz);
         var outcome = QuickTypeCommitOutcome(License?.Country ?? "US", freqHz, rig?.Mode, display);
         if (rig != null && outcome.Correction != null)
             SixtyMeterModeDelivery.Deliver(rig, outcome.Arrival, outcome.Correction,

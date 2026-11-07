@@ -211,6 +211,12 @@ public sealed class QuickTypeCommitTests
         Assert.True(stale > 0 && stale < sayBody.IndexOf("TypedTuneSpeech(answer", System.StringComparison.Ordinal),
             "the answer is said before it is asked whether it is still about the radio");
         Assert.Contains("var rig = tune.Rig;", sayBody, System.StringComparison.Ordinal);
+        // Round six (T2): the side effects only on the slice it was tuned on.
+        int onSelected = sayBody.IndexOf("if (!tune.TypedOnTheSelectedSlice)", System.StringComparison.Ordinal);
+        Assert.True(onSelected > 0
+            && onSelected < sayBody.IndexOf("CheckBandBoundary(freqHz);", System.StringComparison.Ordinal)
+            && onSelected < sayBody.IndexOf("SixtyMeterModeDelivery.Deliver(", System.StringComparison.Ordinal),
+            "a side effect on the selected slice runs before asking whether that is the slice it was tuned on");
         Assert.DoesNotContain("var rig = Rig;", sayBody, System.StringComparison.Ordinal);
     }
 

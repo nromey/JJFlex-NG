@@ -2654,5 +2654,64 @@ namespace Radios.Tests
             clock.Advance(Radios.Speech.SpeechArbiter.SalvageSettleMs + 50);
             Assert.Contains(calls, x => x.Salvaged && x.Message == sentence);         // true: replayed
         }
+    
+
+        // ── Round six, Codex's re-check T2: a typed tune acts on the slice it was typed on ──
+
+        [Fact]
+        public void An_acceptance_is_no_longer_current_once_another_slice_is_selected()
+        {
+            // Codex's typed-slice-switch: typed on A, accepted, then B selected
+            // before the window ran it; the 60 m correction changed B's mode.
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            Add(b, 1, tx: false, active: false, mhz: 14.100);
+            var answers = new Answers();
+            answers.Park(b.Rig);
+            TypedTune(b, 5_357_000, answers);
+            Drain(b.Rig);
+            AckTune(b, 0);
+            Assert.Null(answers.Stale(0, "Accepted"));               // control
+            b.Rig.RXVFO = 1;                                         // B selected
+            Assert.NotNull(answers.Stale(0, "Accepted"));
+        }
+    
+
+        [Fact]
+        public void A_tune_typed_while_the_transmit_frequency_is_shown_is_not_on_the_selected_slice()
+        {
+            // Typed while the transmit frequency is shown, it tunes the transmit
+            // slice; the 60 m correction and the band boundary act on the
+            // selected one, so they must not run for it (round six, T2).
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: false, active: true, mhz: 7.100);
+            Slice bb = Add(b, 1, tx: true, active: false, mhz: 14.100);
+            Set(b.Rig, "_RXVFO", 0);
+            Set(b.Rig, "_TXVFO", 1);
+            b.Rig.ShowingXmitFrequency = true;
+            var answers = new Answers();
+            answers.Park(b.Rig);
+            TypedTune(b, 14_200_000, answers);
+            Drain(b.Rig);
+            AckTune(b, 0);
+            Assert.Equal(new[] { "Accepted" }, answers.Got);
+            Assert.Null(answers.Stale(0, "Accepted"));
+            object tune = answers.Tunes[0];
+            Assert.False((bool)tune.GetType().GetProperty("TypedOnTheSelectedSlice")!.GetValue(tune)!);
+        }
+
+        [Fact]
+        public void A_tune_typed_on_the_selected_slice_says_so()
+        {
+            Bench b = Connected();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            var answers = new Answers();
+            answers.Park(b.Rig);
+            TypedTune(b, 14_200_000, answers);
+            Drain(b.Rig);
+            AckTune(b, 0);
+            object tune = answers.Tunes[0];
+            Assert.True((bool)tune.GetType().GetProperty("TypedOnTheSelectedSlice")!.GetValue(tune)!);
+        }
     }
 }
