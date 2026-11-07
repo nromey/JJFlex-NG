@@ -677,8 +677,12 @@ namespace Radios.Tests
             // the session first observed it. A first observation with
             // NoPriorRecord is retained, listed and held — no grant, no plan,
             // no native call, no receipt — until the owner supplies onset
-            // evidence. Whether such a condition SHOULD speak is Noel's open
-            // question; this test pins the current contract, not a decision.
+            // evidence. Noel ruled 2026-09-26 (#632) that such a condition
+            // IS announced; the operator alarms do that on their own path,
+            // which does not publish here. This test pins the store's contract
+            // for a claim of "nothing on record", which that ruling leaves
+            // alone: on this store the announcement would be a distinct
+            // permission, not this claim.
             using var dir = new TempFactDir();
             var kit = new FactKit();
             var journal = new FactJournal(kit.Store, dir.Path);
