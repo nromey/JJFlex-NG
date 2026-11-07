@@ -1,1 +1,0 @@
-- The app now calls itself by its name. Settings, dialogs and spoken messages that said "JJ Flex" say "JJ Flexible Radio Access".

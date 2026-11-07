@@ -1,1 +1,0 @@
-- The connect tone plays out whole. Connecting used to reopen your sound card even when the alert device hadn't changed, which could cut off whatever was sounding.

@@ -1,1 +1,0 @@
-- Save Station Setup to Radio has moved to the Radio menu, right after Profiles on This Radio, which is where you'd go looking for it. It used to be tucked away under Slice, Selection.

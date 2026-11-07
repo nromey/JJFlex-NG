@@ -31,8 +31,6 @@ Jim Shaffer's changelog for the 1.x, 2.x, and 3.x versions lives in a separate a
 
 ## Unreleased / Foundation Phase — staging for 4.2.0 {#unreleased}
 
-- **DRAFT for review:** The recorder has four quick keys: F11 records the active slice, Ctrl+F11 plays it, Alt+F11 records to a file, and Ctrl+Alt+F11 plays from your computer. The JJ key choices still work. Home's slice line also lets you play or stop a recording with Space.
-
 - **The check you start is the check you can stop.** In Audio Workshop, the Audio Check and Loopback Check buttons each turn into their own Stop button while running. Escape stops a running check and leaves the workshop open, so the way to unkey is always at hand.
 
 - **Full duplex now has its own control.** You can see and toggle it in Home, Transmit, in the Transmit menu, or with the JJ key followed by Ctrl+X. The state comes from the radio; if it has not reported one, the control says so.
@@ -46,6 +44,60 @@ Moving sucks. Full stop. But isn't it awesome when you realize you've stopped us
 This release is about the space where you actually spend your time in the app — formerly announced as "the VFO frequency-and-slice area," which was a mouthful I know. It's got a real name now and it speaks for itself when you land on it. It also does more work per keystroke than it ever had a right to. We also fixed some flaky wiring and janky plumbing around connecting your Flex to the network and allowing inbound connections to your radio. This work has been cooking since the last release, and if you've ever had problems establishing a remote connection to your radio from outside your network, these changes will affect you. We also added a safety check that makes sure you don't accidentally change settings on somebody else's radio when you're not the owner. In short, if you're not at your radio, you won't be able to make serious network-related changes that affect the Flex and SmartLink. These and more as you follow this loopy coax down the line.
 
 ### Foundation Phase Headlines {#unreleased-headlines}
+
+- **Your radio's own recorder has keys and a home now.** F11 records the slice you're on and Ctrl+F11 plays it back, or use the JJ key then Ctrl+R and Ctrl+P; Home's slice row has the controls, with each recording's length, and the Slice menu's Recorder submenu reaches any of your slices. Playback clicks where recording beeps, a recording stops at the recorder's two-minute limit, and slice playback can go out on the air when you ask.
+- **You can record what you hear to your computer, and Recorded QSOs keeps the files.** Alt+F11 records to a file and Ctrl+Alt+F11 plays one back, in stereo or mono, with or without your computer's noise reduction. Recorded QSOs, on Ctrl+Alt+Shift+F11 or the Audio menu, lists the FLAC files: play one, step through it, trim it, save it as MP3, Opus, WAV, FLAC or M4A, or send old ones to the Recycle Bin. While one plays, the radio's audio drops by 12 dB, or as Settings, Audio, Radio audio during playback says.
+- **In the Audio Workshop, the reference recording stays armed from one transmission to the next**, and Escape or Ctrl+Enter stops anything the Workshop is playing.
+- **Play from Computer sends your recording over the air when you're transmitting**; in Recorded QSOs, Enter does the same for the recording you've selected. With the new "Sends key the radio when VOX is on" box, on the PTT tab of Settings, a voice message or a played recording keys the radio itself and goes out whole.
+- **A send longer than three minutes asks first, and after ten minutes on the air it pauses so you can identify**; Play carries it on, and push to talk takes over at once.
+- **A send or a check about to transmit on a slice other than your active one says where first**, "Transmitting on slice B, 14.100", with a three-note tone; Settings, PTT, Transmitting on another slice lets you have tones only, or nothing.
+- **Check your audio is its own window now, holding every way of checking how you sound.** Open it with the JJ key then Alt+C, from the Audio menu, or from Home's Audio and Slice group. It starts with "Is Windows hearing my microphone? No radio involved", which needs no radio, and each method after it goes one step further, up to hearing what you transmitted, received off the air; it offers only what your radio and connection can do. Ctrl+Enter starts the check, Ctrl+F1 on the method explains it, and a Fix tool button is there for a check that fails.
+- **Check your audio counts you in before it transmits**, and the Fix tool uses the same count; Settings, Audio, under Countdown, turns it off or sets its length, pitch and pip length, Control alone skips it and transmits at once, and Escape stops the check without transmitting.
+- **With tune on, Escape in Check your audio turns tune off and the window stays open**, and your tune key works inside the window too.
+- **The off-air comparison, "Tell me how my sound changed compared to my last take", remembers its tick for each radio** and only compares takes of the same kind.
+- **An off-air take plays back from the moment you keyed**, with no seconds of hiss first, and Ctrl+Enter starts the next check straight after a take has played to its end.
+- **On a rig that goes silent at 0 watts, Check your audio runs at Low power from 1 watt**, your own power comes back afterwards, and that rig can't be set to 0 watts anywhere now.
+- **The Fix tool knows your transmit mode the moment you connect**, and a test that refused to start or was stopped early says it could not run instead of reading as passed.
+- **Tune says what the radio did**: "Tune on" when the radio reports it is transmitting, and if it stays off the air, why, for example "Tune refused, out of band".
+- **While tune is on, recording and sends wait**, and Check your audio tells you to turn tune off first.
+- **Tune no longer stays on quietly**: after 25 seconds you hear "Tune is still on", and again every 25 seconds, and the PTT page in Settings can stretch that to half an hour.
+- **On a rig that goes silent at 0 watts, a press that would key tells you so** when the radio really reads 0, whichever key it was.
+- **The reflected power warning speaks up at a standing wave ratio of 4 to 1**, 36 percent of your power coming back, where it used to wait for 40 percent.
+- **After the reflected-power cutoff ends a transmission, the radio won't key again for five seconds**, unless you change your antenna, power, frequency or tuner.
+- **Holding Shift+Space locks or unlocks the transmitter once**, instead of keying the radio on and off as the key repeats.
+- **If the radio's connection drops while you're transmitting, your key drops with it**, and a push to talk or lock key you were still holding won't key the radio again until you press it afresh.
+- **"Transmitting" and "Receiving" name the slice**, "Transmitting on slice A", and Settings, PTT, Name the slice when announcing transmit and receive turns that off.
+- **Disconnecting while you use your computer's audio puts the radio's microphone input and shack speaker back the way it found them**, so whoever is in the room hears the radio again.
+- **When the radio is too busy to switch its microphone input to PC, the app keeps trying**, and says "Still switching mic to PC" after five seconds.
+- **Asking for your microphone peak after keying from a foot switch, the radio's own button or CW** tells you about this transmission, not an earlier one.
+- **Warning sounds play even when alert sounds are off**, unless you clear their own checkbox, "Play warning sounds even when alert sounds are turned off".
+- **Home's slice row has a Mode field**, with Space or Up for the next mode and Down for the previous, and the Mute and Volume fields are on the row in Modern tuning too.
+- **Period and comma make and release slices from anywhere on Home's slice row**; on the Frequency field, once you've typed a digit, they are your decimal point and thousands separator.
+- **Shift+S speaks your coarse and fine step sizes from anywhere on Home's row** in Modern tuning.
+- **F reads your transmit slice**, and when that isn't the slice you're on it tells you both, transmit first; Settings, Notifications, Speech, F reads lets you hear only one.
+- **A frequency you type now waits for the radio**: "Frequency set to" comes once the radio has taken it, and a refusal says "Unable to tune this frequency".
+- **The window title names the slice its frequency belongs to**, and says no radio connected after you disconnect.
+- **With no radio connected, every Home key says "No radio connected"**, M, V, R, X, Q and the equals key included.
+- **A JJ key near miss names the chord you meant**, "Alt+K launches Mic check, not K", and the layer waits so the right chord works without pressing Ctrl+J again.
+- **A JJ key layer you leave open closes when a dialog takes the keyboard**, keeping what you changed.
+- **Heads-up: the DSP menu has moved to Audio, DSP**, off the Slice menu, and Meter Tones has its own row on the Audio menu right below it.
+- **Save Station Setup to Radio has moved to the Radio menu**, right after Profiles on This Radio.
+- **Menu items that need a radio say "connect a radio"** rather than "needs a radio".
+- **The Slice menu tells you how many slices are in use out of how many your radio holds.**
+- **FFT auto-notch tells you when your radio's license doesn't include it**, instead of announcing "on" while the radio does nothing; Legacy NR and Legacy Auto-Notch work on every radio.
+- **You can arrow through every line of the Feature Availability tab in Radio Information.**
+- **The Delete key removes the selected item in every list that has a Remove or Delete button**, asking first where the button asks, one item per press.
+- **Every window plays a rising pair of tones when it opens and a falling pair when it closes**; Settings, Notifications, Dialog open and close tones switches it off.
+- **In the Hotkey Editor, Tab and Shift+Tab move you on while it's waiting for a new key**, and Enter says plainly that it can't be assigned.
+- **Manage Messages says so when you have no messages yet**, and its way out is a Close button, because every change is saved the moment you make it.
+- **Buttons that change their label partway through are announced by the label they show**, so the connection tester's Start says Stop while a test runs.
+- **The offer to save your setup to the radio when you disconnect has a "Don't ask me this again when I disconnect" box.**
+- **Settings, dialogs and spoken messages that said "JJ Flex" now say JJ Flexible Radio Access.**
+- **NVDA says contractions like can't as one word.**
+- **Settings is in proper groups now**, and F6 and Shift+F6 jump between sections.
+- **Logging mode's keys work**: Ctrl+Shift+L returns you to the tuning view you left, Ctrl+Alt+L opens the full log entry form, and focus lands in the Call Sign field when you enter.
+- **With no log file set up, Logging mode offers to open one or create a new one**, instead of opening Log Characteristics on every field jump.
+- **Your meters panel comes back after a reconnect if you left it open.**
 
 - **The Memories dialog can now change a memory, not just read one back.** For a long while the Memories dialog opened, listed every memory correctly, and then quietly ignored you: Add did nothing, Delete did nothing, and a new name, mode, frequency or filter edge went nowhere. Nothing complained, which if you can't see the list is exactly the same as it working. Every one of those edits now reaches the radio. Add puts a new memory where you're sitting, on your current frequency and mode, so you can rename it from there. The FM side of the dialog is filled in too: the tone mode, tone frequency, squelch and repeater offset now show what the memory actually holds and can be changed, where before they read as zero and blank. If you type a frequency the radio can't be set to, the dialog now says so and keeps the old one. **This one wants pressing:** open Memories, add one, rename one, delete one, and check each took.
 - **ATU Memories opens the ATU Memories dialog.** The Radio menu's ATU Memories item used to open the frequency Memories dialog instead, a plausible wrong answer that never announced itself, while the ATU Memories command did nothing at all on a radio that has tuner memories. Both now open the right dialog, where you can switch the tuner's memories on or off and clear them, and Clear tells you it did. On a radio without an antenna tuner the menu still says ATU memories are not available.

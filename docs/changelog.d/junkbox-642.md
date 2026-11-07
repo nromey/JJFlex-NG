@@ -1,7 +1,0 @@
-F now reads your transmit slice on purpose rather than whichever slice the radio last made active. When your transmit slice is not the selected slice, it tells you both, transmit first, and names each one; when they are the same slice you hear one frequency as before. A new choice under Settings, Notifications, Speech, called F reads, lets you hear only the transmit slice or only the selected slice instead. The window title now names the slice its frequency belongs to.
-
-When a tuning step does not land where you asked, because the radio refused it, you now hear the frequency the slice is actually on, just the number, and the slice's name first when it is not the slice you are on, for example "Slice B, 14.205.000". Moves made by other programs, such as satellite Doppler tracking, are never read out.
-
-A frequency you type now waits for the radio. "Frequency set to" comes once the radio has taken it. If the radio refuses, you hear a low thunk and "Unable to tune this frequency", instead of being told it was set and then hearing where you really are. If the radio has not answered within about a second, you hear "No answer from the radio yet", and its answer still follows when it comes. If you have selected another slice by then, a late "Frequency set to" is left unsaid; if you have moved to another radio, the old answer is left unsaid altogether.
-
-Coming back to Home, the "Listening on" sentence is no longer replayed later, after an interruption, describing a slice you have since left, a frequency that has changed or a connection that has dropped.

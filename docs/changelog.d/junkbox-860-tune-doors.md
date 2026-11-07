@@ -1,1 +1,0 @@
-- While tune is on, recording is refused with a word of explanation, because all that could be on the air is a plain carrier. Play active slice and Play from computer still play for you, and tell you the recording won't go out on the air. Voice messages and paused sends wait until tune is off, and Check your audio tells you to turn tune off first.
