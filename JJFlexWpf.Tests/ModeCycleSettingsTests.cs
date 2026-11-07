@@ -56,6 +56,32 @@ public sealed class ModeCycleSettingsTests
     }
 
     [Fact]
+    public void The_page_promises_only_the_routes_that_exist()
+    {
+        // Codex B2 on 908aa3da: the page said a mode left out "is still there
+        // in the Mode menu and on its own key". DSB is offered and is in
+        // neither, and only seven modes have a key. The note now names every
+        // offered mode the Mode menu does not list, worked out from the list
+        // the menu is built from, and nothing promises a key.
+        WithOperatorConfig(null, () =>
+        {
+            var (dialog, list, _, _, _) = Section();
+            string intro = ((TextBlock)Field(dialog, "ModeCycleIntro")).Text;
+            string note = ((TextBlock)Field(dialog, "ModeCycleMenuNote")).Text;
+
+            Assert.DoesNotContain("own key", intro + " " + note);
+            Assert.Contains("DSB", note);
+            foreach (string mode in Rows(list))
+            {
+                bool inMenu = RigCaps.ModeTable.Contains(mode, StringComparer.OrdinalIgnoreCase);
+                Assert.True(inMenu || note.Contains(mode),
+                    mode + " is not in the Mode menu and the note does not say so");
+                if (inMenu) Assert.DoesNotContain(" " + mode + " ", " " + note.Replace(",", " ").Replace(".", " ") + " ");
+            }
+        });
+    }
+
+    [Fact]
     public void Checking_SAM_adds_it_to_the_end_of_the_cycle_and_OK_saves_it()
     {
         WithOperatorConfig(null, () =>
@@ -126,6 +152,7 @@ public sealed class ModeCycleSettingsTests
         var down = new Button();
         Put(dialog, "ModeCycleGroup", new GroupBox());
         Put(dialog, "ModeCycleIntro", new TextBlock());
+        Put(dialog, "ModeCycleMenuNote", new TextBlock());
         Put(dialog, "ModeCycleList", list);
         Put(dialog, "ModeCycleIncludeCheck", check);
         Put(dialog, "ModeCycleMoveUpButton", up);
@@ -202,6 +229,10 @@ public sealed class ModeCycleSettingsTests
         Delegate.CreateDelegate(type, target,
             typeof(SettingsDialog).GetMethod(name, Private)
             ?? throw new InvalidOperationException("SettingsDialog has no " + name));
+
+    private static object Field(object target, string name) =>
+        (typeof(SettingsDialog).GetField(name, Private | BindingFlags.Public)
+            ?? throw new InvalidOperationException("SettingsDialog has no field " + name)).GetValue(target)!;
 
     private static void Put(object target, string name, object? value) =>
         (typeof(SettingsDialog).GetField(name, Private | BindingFlags.Public)

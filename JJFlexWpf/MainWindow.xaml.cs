@@ -7221,9 +7221,8 @@ public partial class MainWindow : UserControl
     /// <remarks>
     /// The cycle is a setting (Settings, Notifications, Mode Cycle), read from
     /// <see cref="Radios.AccessibilityConfig"/>; which mode comes next is
-    /// <see cref="Radios.ModeCycle.Next"/>. A filter on the cycle only: every
-    /// mode stays reachable from the Mode menu and its own key. From a mode the
-    /// cycle leaves out (a slice in SAM, say), a press moves to the nearest
+    /// <see cref="Radios.ModeCycle.Next"/>. A filter on the cycle only: it never
+    /// changes what the radio can do. From a mode the cycle leaves out (a slice in SAM, say), a press moves to the nearest
     /// mode that is in it; this used to jump to an end of a fixed seven-mode
     /// list.
     /// </remarks>

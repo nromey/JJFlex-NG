@@ -21,10 +21,12 @@ namespace Radios
     /// </para>
     /// <para>
     /// <b>A filter on the cycle, never a capability gate.</b> Nothing here
-    /// writes to the radio or changes a slice, and every mode stays reachable
-    /// from the Mode menu and its own key. A slice sitting in a mode that is
-    /// not in the cycle is an ordinary state: the next press moves to the
-    /// nearest mode that is.
+    /// writes to the radio or changes a slice. A slice sitting in a mode that
+    /// is not in the cycle is an ordinary state: the next press moves to the
+    /// nearest mode that is. The other routes to a mode are the Mode menu,
+    /// built from <see cref="RigCaps.ModeTable"/>, and seven direct keys;
+    /// DSB is in neither yet, so for DSB the cycle is the only route, and the
+    /// settings page says so rather than promising otherwise.
     /// </para>
     /// <para>
     /// <b>One definition of the mode list</b> (<see cref="KnownModes"/>): the

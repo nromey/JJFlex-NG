@@ -212,6 +212,30 @@ namespace Radios.Tests
             }
         }
 
+        /// <summary>
+        /// The settings page works out which modes the Mode menu reaches from
+        /// <see cref="RigCaps.ModeTable"/>; that is true only while the menu is
+        /// built from the same list. And no mode cycle sentence promises a key
+        /// of its own, because only seven modes have one (Codex B2 on 908aa3da).
+        /// </summary>
+        [Fact]
+        public void The_menu_is_built_from_the_list_the_page_reads_and_no_sentence_promises_a_key()
+        {
+            string menu = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "NativeMenuBar.cs"));
+            int at = menu.IndexOf("var modeSub = AddSubmenu(slice, \"Mode\");", StringComparison.Ordinal);
+            Assert.True(at >= 0, "the Mode submenu has moved; re-check what the settings page claims about it");
+            Assert.Contains("foreach (string modeName in RigCaps.ModeTable)", menu.Substring(at, 200));
+
+            foreach (string key in new[] { "settings.mode_cycle.intro", "settings.mode_cycle.list_help",
+                                           "settings.mode_cycle.menu_note_all", "settings.mode_cycle.menu_note_except",
+                                           "settings.mode_cycle.menu_note_except_many" })
+            {
+                string text = Lexicon.Get(key);
+                Assert.NotEqual(key, text);
+                Assert.DoesNotContain("own key", text, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
         [Fact]
         public void The_cycle_key_reads_the_setting_and_the_old_fixed_list_is_gone()
         {

@@ -78,6 +78,7 @@ namespace JJFlexWpf.Dialogs
             _modeCycleAtOpen = new List<string>(_modeCycleIn);
             _modeCycleKnown = ModeCycle.KnownModes(null).ToList();
             AddUnknownModes(_modeCycleIn);
+            UpdateModeCycleMenuNote();
             RebuildModeCycleList(_modeCycleIn.Count > 0 ? _modeCycleIn[0] : _modeCycleKnown.FirstOrDefault());
 
             // The radio is handed to this dialog after it is built, so its own
@@ -102,8 +103,38 @@ namespace JJFlexWpf.Dialogs
             if (radio == null || radio.Count == 0) return;
             string? selected = SelectedCycleMode();
             AddUnknownModes(ModeCycle.KnownModes(radio));
+            UpdateModeCycleMenuNote();
             RebuildModeCycleList(selected);
         }
+
+        /// <summary>
+        /// Say which of the modes on offer the Mode menu also reaches, and
+        /// name the ones it does not.
+        /// </summary>
+        /// <remarks>
+        /// The page used to promise that a mode left out of the cycle "is
+        /// still there in the Mode menu and on its own key". DSB is offered
+        /// (ruled 2026-10-19) and is in neither: the menu is built from
+        /// <see cref="RigCaps.ModeTable"/>, which has no DSB, and only seven
+        /// modes have a key of their own. So the page says only what holds,
+        /// worked out from the list the menu itself is built from, and makes
+        /// no promise about keys. When the menu gains a mode, this note
+        /// follows without an edit.
+        /// </remarks>
+        private void UpdateModeCycleMenuNote()
+        {
+            var notInMenu = ModeCyclesNotInMenu(_modeCycleKnown);
+            ModeCycleMenuNote.Text = notInMenu.Count == 0
+                ? Lexicon.Get("settings.mode_cycle.menu_note_all")
+                : Lexicon.Get(notInMenu.Count == 1
+                        ? "settings.mode_cycle.menu_note_except"
+                        : "settings.mode_cycle.menu_note_except_many",
+                    ("modes", string.Join(", ", notInMenu)));
+        }
+
+        /// <summary>The modes on offer that the Mode menu does not list.</summary>
+        internal static List<string> ModeCyclesNotInMenu(IEnumerable<string> offered) =>
+            offered.Where(m => !ModeCycle.Contains(RigCaps.ModeTable, m)).ToList();
 
         private void AddUnknownModes(IEnumerable<string> modes)
         {

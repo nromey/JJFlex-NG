@@ -1013,6 +1013,9 @@ namespace Radios.Tests
                 // delivery null. Every one a DRAFT awaiting Noel.
                 "settings.mode_cycle.header",
                 "settings.mode_cycle.intro",
+                "settings.mode_cycle.menu_note_all",
+                "settings.mode_cycle.menu_note_except",
+                "settings.mode_cycle.menu_note_except_many",
                 "settings.mode_cycle.list_name",
                 "settings.mode_cycle.list_help",
                 "settings.mode_cycle.include",

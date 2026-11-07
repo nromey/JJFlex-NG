@@ -1778,6 +1778,7 @@
                     <GroupBox x:Name="ModeCycleGroup" Margin="0,4,0,8">
                         <StackPanel Margin="4">
                             <TextBlock x:Name="ModeCycleIntro" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                            <TextBlock x:Name="ModeCycleMenuNote" TextWrapping="Wrap" Margin="0,0,0,6"/>
                             <ListBox x:Name="ModeCycleList" Height="140" Margin="0,0,0,6"
                                      SelectionChanged="ModeCycleList_SelectionChanged"/>
                             <CheckBox x:Name="ModeCycleIncludeCheck" Margin="0,0,0,6"
