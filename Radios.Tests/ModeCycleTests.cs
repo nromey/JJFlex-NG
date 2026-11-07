@@ -181,6 +181,55 @@ namespace Radios.Tests
             }
         }
 
+        /// <summary>
+        /// Codex, recheck of 78b6c1fa: start without connecting, choose a
+        /// cycle in Settings, exit before ever connecting, restart, connect:
+        /// the earlier cycle came back, because the choice was held in memory
+        /// for a load that only the first connect ran. The operator file is
+        /// now loaded at launch (globals.vb InitializeApplication, before the
+        /// initial connect), so the choice writes straight to it. This pins
+        /// that launch load from source and then runs the sequence.
+        /// </summary>
+        [Fact]
+        public void A_cycle_chosen_offline_survives_exiting_before_any_connect()
+        {
+            string globals = File.ReadAllText(Path.Combine(RepoRoot(), "globals.vb"));
+            int init = globals.IndexOf("Friend Sub InitializeApplication()", StringComparison.Ordinal);
+            Assert.True(init >= 0, "InitializeApplication has moved; re-check where the launch load sits");
+            int open = globals.IndexOf("openTheRadio(True)", init, StringComparison.Ordinal);
+            int load = globals.IndexOf("Radios.AccessibilityConfig.Load(BaseConfigDir, PersonalData.UniqueOpName(CurrentOp))",
+                                       init, StringComparison.Ordinal);
+            Assert.True(load > init && load < open, "the operator file is not loaded at launch, before the first connect");
+
+            string baseConfigDir = Path.Combine(Path.GetTempPath(), "jjflex-modecycle-offline-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(baseConfigDir);
+            var before = AccessibilityConfig.Current;
+            try
+            {
+                // An earlier session saved a cycle.
+                new AccessibilityConfig { ModeCycleModes = new[] { "CW", "USB" } }.Save(baseConfigDir, "op");
+
+                // Launch: the launch load, which also lets the page show the
+                // saved cycle before any connect.
+                AccessibilityConfig.ForgetHomeForTests();
+                Assert.Equal(new[] { "CW", "USB" }, AccessibilityConfig.Load(baseConfigDir, "op").ModeCycleModes);
+
+                // Settings OK with no radio, then exit without connecting.
+                AccessibilityConfig.ChooseModeCycle(new[] { "CW", "USB", "SAM" });
+                AccessibilityConfig.ForgetHomeForTests();
+
+                // Restart: the launch load, then the first connect's load.
+                Assert.Equal(new[] { "CW", "USB", "SAM" }, AccessibilityConfig.Load(baseConfigDir, "op").ModeCycleModes);
+                Assert.Equal(new[] { "CW", "USB", "SAM" }, AccessibilityConfig.Load(baseConfigDir, "op").ModeCycleModes);
+            }
+            finally
+            {
+                AccessibilityConfig.ForgetHomeForTests();
+                typeof(AccessibilityConfig).GetProperty(nameof(AccessibilityConfig.Current))!.SetValue(null, before);
+                try { Directory.Delete(baseConfigDir, true); } catch { }
+            }
+        }
+
         [Fact]
         public void A_cycle_chosen_before_the_first_connect_survives_that_connect_and_a_restart()
         {

@@ -6051,6 +6051,11 @@ RadioConnected:
         ' Must run BEFORE openTheRadio so auto-connect finds renamed config files.
         If CurrentOp IsNot Nothing Then
             PersonalData.MigrateConfigFiles(CurrentOp, BaseConfigDir)
+            ' The operator's accessibility file, from the settings root, at
+            ' launch rather than only at the first connect. A Settings change
+            ' made before any connect (the mode cycle) then writes straight to
+            ' this file, and the page shows what was saved. One small XML read.
+            Radios.AccessibilityConfig.Load(BaseConfigDir, PersonalData.UniqueOpName(CurrentOp))
         End If
 
         openTheRadio(True)
