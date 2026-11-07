@@ -577,6 +577,20 @@ internal static class DeskRunRules
         return childExit;
     }
 
+    /// <summary>
+    /// The child's exit code as read from Windows, or <see cref="ExitWatchCouldNotMeasure"/>
+    /// when it could not be read. <c>GetExitCodeProcess</c> leaves its out
+    /// value at 0 when it fails, and 0 reads exactly like a passing test run,
+    /// so an unread code must never be taken at face value (Codex's final
+    /// #906 check: a failed read turned a failing test into exit 0). Also
+    /// refuses STILL_ACTIVE (259): a child that has not exited has no result.
+    /// </summary>
+    public static int ChildExitFromRead(bool readSucceeded, uint code)
+        => !readSucceeded || code == StillActive ? ExitWatchCouldNotMeasure : unchecked((int)code);
+
+    /// <summary>Windows' STILL_ACTIVE, what <c>GetExitCodeProcess</c> reports for a running process.</summary>
+    public const uint StillActive = 259;
+
     /// <summary>Null when a COM call succeeded (S_OK); otherwise what failed.</summary>
     public static string? CallFailed(string call, int hresult)
         => hresult == 0 ? null : call + " failed (HRESULT 0x" + hresult.ToString("X8", System.Globalization.CultureInfo.InvariantCulture) + ")";

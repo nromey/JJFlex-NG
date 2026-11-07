@@ -451,6 +451,30 @@ public sealed class DeskRunRulesTests
         Assert.Equal(violation, DeskRunRules.RunExitCode(violation, cleanupComplete: false, timedOut: true, childExit: 0));
     }
 
+    // Codex's final #906 check: GetExitCodeProcess's result was ignored, and
+    // its out value is 0 on failure, so a failed read reported a failing test
+    // run as a pass. An unread or still-running child is unmeasured: 74.
+    [Theory]
+    [InlineData(0u)]
+    [InlineData(1u)]
+    public void AnExitCodeThatCouldNotBeReadIsNeverTakenAsTheResult(uint outValue)
+    {
+        Assert.Equal(74, DeskRunRules.ChildExitFromRead(readSucceeded: false, outValue));
+        Assert.Equal(74, DeskRunRules.RunExitCode(null, cleanupComplete: true, timedOut: false,
+                                                 DeskRunRules.ChildExitFromRead(false, outValue)));
+    }
+
+    [Fact]
+    public void AChildStillRunningWhenReadHasNoResult()
+        => Assert.Equal(74, DeskRunRules.ChildExitFromRead(readSucceeded: true, DeskRunRules.StillActive));
+
+    [Theory]
+    [InlineData(0u, 0)]
+    [InlineData(1u, 1)]
+    [InlineData(0xC0000005u, unchecked((int)0xC0000005u))]
+    public void AnExitCodeThatWasReadIsTheChildsResult(uint code, int expected)
+        => Assert.Equal(expected, DeskRunRules.ChildExitFromRead(readSucceeded: true, code));
+
     [Fact]
     public void WithoutAWatchResultTheRankingIsCleanupThenTimeoutThenTheChild()
     {

@@ -291,8 +291,15 @@ internal static class Program
             }
 
             Native.WaitForSingleObject(pi.hProcess, 30_000);
-            Native.GetExitCodeProcess(pi.hProcess, out uint code);
-            childExit = unchecked((int)code);
+            bool exitRead = Native.GetExitCodeProcess(pi.hProcess, out uint code);
+            int exitReadError = exitRead ? 0 : Marshal.GetLastWin32Error();
+            childExit = DeskRunRules.ChildExitFromRead(exitRead, code);
+            if (!exitRead)
+                Say("FAILED: the child's exit code could not be read (Windows error " + exitReadError
+                    + "), so the run cannot report a result: exit " + DeskRunRules.ExitWatchCouldNotMeasure + ".");
+            else if (code == DeskRunRules.StillActive)
+                Say("FAILED: the child had not exited when its exit code was read, so the run has no result: exit "
+                    + DeskRunRules.ExitWatchCouldNotMeasure + ".");
 
             // The child is gone; anything it left behind is still in the job.
             // Give it a moment to finish on its own, then kill what remains.
