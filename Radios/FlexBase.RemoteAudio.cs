@@ -610,8 +610,9 @@ namespace Radios
                 // five, Codex's S1 residual): a choice delivered while this waits
                 // for the write gate is seen there, not lost behind it.
                 if (GuardSkips("IsMuteLocalAudioWhenRemoteOn=true on disconnect, as found at connect")) return;
-                string refused = StepOnPinnedTarget(radio, r.Connection, () => { radio.IsMuteLocalAudioWhenRemoteOn = true; return null; },
+                string refused = StepOnPinnedTarget(radio, r.Connection, () => { radio.IsMuteLocalAudioWhenRemoteOn = true; NoteOwnSpeaker(radio, true); return null; },
                     () => SpeakerChosenSince(r.ChoiceReportedSince), atTheBytes: () => SpeakerChosenSince(r.ChoiceReportedSince));
+                if (refused != null) InterlockReports.ForgetOwnSpeakerWrite(r.Connection as CommandConnection);
                 Tracing.TraceLine("Speaker (" + why + "): " + (refused == null
                     ? "muted again, as it was found at the connect"
                     : "NOT muted again - " + refused), refused == null ? TraceLevel.Info : TraceLevel.Warning);
@@ -638,9 +639,18 @@ namespace Radios
             if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=true on remote audio start"))
             {
                 theRadio.IsMuteLocalAudioWhenRemoteOn = true;
+                NoteOwnSpeaker(theRadio, true);
                 if (!speakerFoundMuted) _speakerMutedBy = new SpeakerMute(run, theRadio, speakerConnection, speakerChoices);
             }
         }
+
+        /// <summary>
+        /// This app has just written the shack speaker on <paramref name="radio"/>'s
+        /// connection (round seven): the radio's repeats of that value are not
+        /// another station's choice. Called right after each of the four writes.
+        /// </summary>
+        private static void NoteOwnSpeaker(Radio radio, bool muted) =>
+            InterlockReports.NoteOwnSpeakerWrite(radio?.CurrentCommandConnection as CommandConnection, muted);
 
         /// <summary>The pinned speaker writes' question at the write and at the bytes (round five, S1).</summary>
         private static string SpeakerChosenSince(bool chosen) =>
@@ -660,9 +670,13 @@ namespace Radios
             string keep = ShackSpeakerKeepFor(run, speakerRadio);
             if (keep != null) { Tracing.TraceLine("remoteAudioProc: the shack speaker is left as it is - " + keep, TraceLevel.Info); return; }
             if (GuardSkips("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop")) return;
-            string refused = StepOnPinnedTarget(speakerRadio, mutedBy.Connection, () => { speakerRadio.IsMuteLocalAudioWhenRemoteOn = false; return null; },
+            string refused = StepOnPinnedTarget(speakerRadio, mutedBy.Connection, () => { speakerRadio.IsMuteLocalAudioWhenRemoteOn = false; NoteOwnSpeaker(speakerRadio, false); return null; },
                 () => SpeakerChosenSince(mutedBy.ChoiceReportedSince), atTheBytes: () => SpeakerChosenSince(mutedBy.ChoiceReportedSince));
-            if (refused != null) Tracing.TraceLine("remoteAudioProc: the shack speaker was NOT unmuted - " + refused, TraceLevel.Warning);
+            if (refused != null)
+            {
+                InterlockReports.ForgetOwnSpeakerWrite(mutedBy.Connection as CommandConnection);
+                Tracing.TraceLine("remoteAudioProc: the shack speaker was NOT unmuted - " + refused, TraceLevel.Warning);
+            }
         }
 
         /// <summary>

@@ -82,8 +82,42 @@ namespace Radios
 
         private static readonly ConditionalWeakTable<CommandConnection, Record> Reports = new();
 
-        /// <summary>How many shack-speaker settings the radio has reported on each connection (round four, S1).</summary>
-        private static readonly ConditionalWeakTable<CommandConnection, StrongBox<long>> SpeakerChoiceCounts = new();
+        /// <summary>One connection's shack-speaker reports (round four, S1; round seven).</summary>
+        private sealed class SpeakerReports
+        {
+            /// <summary>Reports counted as another station's choice.</summary>
+            public long Choices;
+            /// <summary>The value this app last wrote on the connection, or null.</summary>
+            public bool? OurLast;
+            /// <summary>A value other than <see cref="OurLast"/> has been reported since it was written.</summary>
+            public bool DifferentSince;
+        }
+
+        private static readonly ConditionalWeakTable<CommandConnection, SpeakerReports> SpeakerChoiceCounts = new();
+
+        /// <summary>
+        /// This app has just written the shack speaker as <paramref name="muted"/>
+        /// on <paramref name="connection"/> (round seven, the third bench). The
+        /// radio does not echo this write to its writer (muteechoprobe.log), but
+        /// it does repeat its status: three reports of our own 0 arrived within a
+        /// second of the connect's unmute, with one change on the radio. So a
+        /// report of THIS value, with no different value reported since, is not
+        /// another station's choice. A matching value is ambiguous in general;
+        /// this is the narrow rule, not a general attribution.
+        /// </summary>
+        internal static void NoteOwnSpeakerWrite(CommandConnection? connection, bool muted)
+        {
+            if (connection == null) return;
+            var st = SpeakerChoiceCounts.GetValue(connection, _ => new SpeakerReports());
+            lock (st) { st.OurLast = muted; st.DifferentSince = false; }
+        }
+
+        /// <summary>The write noted by <see cref="NoteOwnSpeakerWrite"/> did not go out.</summary>
+        internal static void ForgetOwnSpeakerWrite(CommandConnection? connection)
+        {
+            if (connection == null || !SpeakerChoiceCounts.TryGetValue(connection, out var st)) return;
+            lock (st) { st.OurLast = null; st.DifferentSince = false; }
+        }
 
         /// <summary>
         /// How many times the radio has reported the shack speaker's setting
@@ -97,8 +131,11 @@ namespace Radios
         /// set. <c>mic input</c> IS echoed, so the mic count does not lean on
         /// this; see <see cref="MicReports"/>.
         /// </summary>
-        internal static long SpeakerChoicesReported(CommandConnection? connection) =>
-            connection != null && SpeakerChoiceCounts.TryGetValue(connection, out var box) ? Interlocked.Read(ref box.Value) : 0;
+        internal static long SpeakerChoicesReported(CommandConnection? connection)
+        {
+            if (connection == null || !SpeakerChoiceCounts.TryGetValue(connection, out var st)) return 0;
+            lock (st) return st.Choices;
+        }
 
         /// <summary>The sequence of the last report read, on any connection; zero before the first.</summary>
         private static long _sequence;
@@ -220,9 +257,19 @@ namespace Radios
                 // four, S1): a radio status carrying mute_local_audio_when_remote=.
                 if (string.CompareOrdinal(text, bar + 1, "radio ", 0, 6) == 0)
                 {
-                    if (text.IndexOf(" mute_local_audio_when_remote=", bar, StringComparison.Ordinal) < 0) return;
-                    var box = SpeakerChoiceCounts.GetValue(data!.Connection, _ => new StrongBox<long>());
-                    Interlocked.Increment(ref box.Value);
+                    int at = text.IndexOf(" mute_local_audio_when_remote=", bar, StringComparison.Ordinal);
+                    if (at < 0) return;
+                    int from = at + 30;
+                    bool? reported = from < text.Length ? text[from] == '1' ? true : text[from] == '0' ? false : null : null;
+                    var st = SpeakerChoiceCounts.GetValue(data!.Connection, _ => new SpeakerReports());
+                    lock (st)
+                    {
+                        // A repeat of the value we last wrote, nothing else in
+                        // between: the radio restating our own write (round seven).
+                        if (st.OurLast is bool ours && reported == ours && !st.DifferentSince) return;
+                        if (st.OurLast is bool our && reported != our) st.DifferentSince = true;
+                        st.Choices++;
+                    }
                     return;
                 }
                 if (string.CompareOrdinal(text, bar + 1, "interlock ", 0, 10) != 0) return;

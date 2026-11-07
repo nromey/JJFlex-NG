@@ -476,11 +476,15 @@ namespace Radios.Tests
         /// is: its handlers may write, and must not wait on a gate this test
         /// thread holds. Returns once <paramref name="recorded"/> holds.
         /// </summary>
-        private Thread DeliverFromTheReader(string status, Func<bool> recorded)
+        private Thread DeliverFromTheReader(string status, Func<bool> recorded) =>
+            DeliverFromTheReader(new[] { status }, recorded);
+
+        /// <summary>Several status lines, in order, from one reader thread.</summary>
+        private Thread DeliverFromTheReader(string[] statuses, Func<bool> recorded)
         {
-            var reader = new Thread(() => Deliver(status)) { IsBackground = true };
+            var reader = new Thread(() => { foreach (var status in statuses) Deliver(status); }) { IsBackground = true };
             reader.Start();
-            WaitFor(recorded, "the report recorded: " + status);
+            WaitFor(recorded, "the report recorded: " + string.Join(", ", statuses));
             return reader;
         }
 
@@ -555,7 +559,12 @@ namespace Radios.Tests
             var giveBack = typeof(FlexBase).GetMethod("GiveShackSpeakerBack", Any);
             Assert.True(giveBack != null, "the run's speaker put-back cannot be reached by itself");
             AgainstTheHeldGate(() => giveBack!.Invoke(_f.Rig, new object[] { run, _f.Vendor.Radio }),
-                anotherStationChooses ? Before(SpeakerReports(), n => DeliverFromTheReader("radio mute_local_audio_when_remote=1", () => SpeakerReports() > n)) : null);
+                // A genuine change, 0 then 1 (round seven): a lone report of the
+                // 1 this run wrote, with nothing different in between, is the
+                // radio restating our own write and is not a choice.
+                anotherStationChooses ? Before(SpeakerReports(), n => DeliverFromTheReader(
+                    new[] { "radio mute_local_audio_when_remote=0", "radio mute_local_audio_when_remote=1" },
+                    () => SpeakerReports() > n + 1)) : null);
             if (anotherStationChooses)
                 Assert.DoesNotContain("radio set mute_local_audio_when_remote=0", SpeakerLines());
             else

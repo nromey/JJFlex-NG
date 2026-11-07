@@ -36,8 +36,18 @@ public sealed class SpeakerFoundAtConnectTests : IDisposable
         var f = new RigOnVendorRadio("speaker-found-at-connect");
         f.Vendor.Status("radio mute_local_audio_when_remote=1");     // found muted, before the app touches it
         Note!.Invoke(f.Rig, new object[] { f.Vendor.Radio });         // recorded first...
-        f.Vendor.Radio.IsMuteLocalAudioWhenRemoteOn = false;          // ...then the local connect's unmute
+        f.Vendor.Radio.IsMuteLocalAudioWhenRemoteOn = false;          // ...then the local connect's unmute,
+        NoteOwnWrite(f, false);                                       // noted as ours, as the connect does (round seven)
         return f;
+    }
+
+    private static readonly MethodInfo? NoteOwn =
+        typeof(FlexBase).GetMethod("NoteOwnSpeaker", BindingFlags.Static | BindingFlags.Instance | BindingFlags.NonPublic);
+
+    private static void NoteOwnWrite(RigOnVendorRadio f, bool muted)
+    {
+        Assert.True(NoteOwn != null, "nothing notes the speaker value this app wrote");
+        NoteOwn!.Invoke(NoteOwn.IsStatic ? null : f.Rig, new object[] { f.Vendor.Radio, muted });
     }
 
     [Fact]
@@ -132,5 +142,68 @@ public sealed class SpeakerFoundAtConnectTests : IDisposable
         Assert.True((bool)FoundForRun!.Invoke(f.Rig, new object[] { f.Vendor.Radio })!);
         PutBack!.Invoke(f.Rig, new object[] { "test" });
         Assert.Equal("radio set mute_local_audio_when_remote=1", Writes(f).Last());
+    }
+
+    // ── Round seven, the third bench: the radio repeating our own unmute ──
+    //
+    // At a local connect the app unmuted to 0 and then received three status
+    // reports of 0 within a second, with ONE change on the radio. They were
+    // counted as another station's choice, so with PC audio off the
+    // disconnect would have skipped putting the found 1 back.
+
+    [Fact]
+    public void Repeats_of_our_own_unmute_are_not_another_stations_choice()
+    {
+        using var f = FoundMutedThenUnmutedAtConnect();
+        for (int i = 0; i < 3; i++) f.Vendor.Status("radio mute_local_audio_when_remote=0");
+        PutBack!.Invoke(f.Rig, new object[] { "test" });
+        Assert.Equal("radio set mute_local_audio_when_remote=1", Writes(f).Last());
+        Assert.True(f.Vendor.Radio.IsMuteLocalAudioWhenRemoteOn);
+    }
+
+    [Fact]
+    public void Our_value_again_after_a_different_one_is_a_choice()
+    {
+        // The narrow rule: a repeat counts as ours only with no different
+        // value in between. 1 then 0 is another station's mute and unmute.
+        using var f = FoundMutedThenUnmutedAtConnect();
+        f.Vendor.Status("radio mute_local_audio_when_remote=0");    // a repeat of ours: not a choice
+        f.Vendor.Status("radio mute_local_audio_when_remote=1");    // another station
+        f.Vendor.Status("radio mute_local_audio_when_remote=0");    // and back: a choice
+        int before = Writes(f).Length;
+        PutBack!.Invoke(f.Rig, new object[] { "test" });
+        Assert.Equal(before, Writes(f).Length);
+    }
+
+    [Fact]
+    public void Every_speaker_write_notes_its_value_right_after_it()
+    {
+        string text = FlexBasePartials.JoinedText();
+        foreach (var (write, note) in new[]
+        {
+            ("theRadio.IsMuteLocalAudioWhenRemoteOn = false;", "NoteOwnSpeaker(theRadio, false);"),
+            ("theRadio.IsMuteLocalAudioWhenRemoteOn = true;", "NoteOwnSpeaker(theRadio, true);"),
+            ("radio.IsMuteLocalAudioWhenRemoteOn = true;", "NoteOwnSpeaker(radio, true);"),
+            ("speakerRadio.IsMuteLocalAudioWhenRemoteOn = false;", "NoteOwnSpeaker(speakerRadio, false);"),
+        })
+        {
+            int at = text.IndexOf(write, StringComparison.Ordinal);
+            Assert.True(at > 0, "write gone: " + write);
+            Assert.Contains(note, text.Substring(at, 120), StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void A_put_back_that_did_not_go_out_leaves_no_value_of_ours_noted()
+    {
+        // Its value was never written, so a later report of it is somebody's choice.
+        using var f = FoundMutedThenUnmutedAtConnect();
+        f.Vendor.Transport.FailEveryWriteOf = "radio set mute_local_audio_when_remote";
+        PutBack!.Invoke(f.Rig, new object[] { "test" });
+        f.Vendor.Transport.FailEveryWriteOf = null;
+        var connection = (Flex.Smoothlake.FlexLib.CommandConnection)f.Vendor.Radio.CurrentCommandConnection!;
+        long before = InterlockReports.SpeakerChoicesReported(connection);
+        f.Vendor.Status("radio mute_local_audio_when_remote=1");
+        Assert.Equal(before + 1, InterlockReports.SpeakerChoicesReported(connection));
     }
 }

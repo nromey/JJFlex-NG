@@ -3032,6 +3032,7 @@ namespace Radios
                     if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=false on local connect"))
                     {
                         theRadio.IsMuteLocalAudioWhenRemoteOn = false;
+                        NoteOwnSpeaker(theRadio, false);   // its repeats are not a choice (round seven)
                     }
                 }
             }
