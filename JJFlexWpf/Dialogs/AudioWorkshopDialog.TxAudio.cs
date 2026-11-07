@@ -272,6 +272,7 @@ public partial class AudioWorkshopDialog
             }
         };
         _txFilterLowControl.SpeaksOnlyTheAppliedResult = true;
+        _txFilterLowControl.AppliedEndStop = atMinimum => _workshopTxFilter.SayEndStop(lowField: true, atMinimum, _txFilterLowControl.Value);
         JJFlexHelp.SetText(_txFilterLowControl,
             "Where your transmitted audio starts, in hertz. One hundred to "
             + "three hundred is the usual range for voice: lower sounds "
@@ -289,6 +290,7 @@ public partial class AudioWorkshopDialog
             }
         };
         _txFilterHighControl.SpeaksOnlyTheAppliedResult = true;
+        _txFilterHighControl.AppliedEndStop = atMinimum => _workshopTxFilter.SayEndStop(lowField: false, atMinimum, _txFilterHighControl.Value);
         JJFlexHelp.SetText(_txFilterHighControl,
             "Where your transmitted audio stops, in hertz. Around twenty-nine "
             + "hundred is the usual voice ceiling: higher sounds airier but "
@@ -528,18 +530,34 @@ public partial class AudioWorkshopDialog
         Radios.Speech.SpeechSubject.ValueField("TX filter, Audio Workshop"),
         "TX Filter Low", "TX Filter High",
         () => _rig, () => _workshopOpenForTxFilter,
-        refresh: applied => Dispatcher.BeginInvoke(() =>
+        refresh: (applied, stillCurrent) => Dispatcher.BeginInvoke(() =>
         {
-            if (!_workshopOpenForTxFilter || _rig == null) return;
+            // Re-checked HERE, when the window gets to it (round eleven).
+            if (!stillCurrent()) return;
             _polling = true;
-            try
-            {
-                if (_txFilterLowControl != null) _txFilterLowControl.Value = applied.Low;
-                if (_txFilterHighControl != null) _txFilterHighControl.Value = applied.High;
-                UpdateFilterWidth();
-            }
+            try { SetWorkshopTxFilterFields(applied.Low, applied.High); }
             finally { _polling = false; }
         }));
+
+    /// <summary>
+    /// The Workshop's two TX filter fields on a pair the radio holds, with
+    /// their bounds the radio's own limits for that pair (#747 round eleven),
+    /// and the width label after.
+    /// </summary>
+    private void SetWorkshopTxFilterFields(int low, int high)
+    {
+        if (_txFilterLowControl != null)
+        {
+            _txFilterLowControl.Max = Math.Max(0, high - 50);
+            _txFilterLowControl.Value = low;
+        }
+        if (_txFilterHighControl != null)
+        {
+            _txFilterHighControl.Min = Math.Min(10000, low + 50);
+            _txFilterHighControl.Value = high;
+        }
+        UpdateFilterWidth();
+    }
 
     private void UpdateFilterWidth()
     {
@@ -578,9 +596,7 @@ public partial class AudioWorkshopDialog
                 if (processorOn) _processorSettingControl.SelectedIndex = (int)_rig.ProcessorSetting;
             }
 
-            if (_txFilterLowControl != null) _txFilterLowControl.Value = _rig.TXFilterLow;
-            if (_txFilterHighControl != null) _txFilterHighControl.Value = _rig.TXFilterHigh;
-            UpdateFilterWidth();
+            SetWorkshopTxFilterFields(_rig.TXFilterLow, _rig.TXFilterHigh);
 
             // Mode-aware monitor header — phone modes only. CW mode keeps
             // today's behavior untouched (CW monitor work is deferred behind

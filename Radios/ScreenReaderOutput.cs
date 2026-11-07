@@ -313,6 +313,15 @@ namespace Radios
             _arbiter.DiscardAll();
         }
 
+        /// <summary>
+        /// Withdraw the value still WAITING on a Latest key, unheard; anything
+        /// already handed over is untouched. For a speaker whose context has
+        /// ended (a surface closed, a rig replaced, a connection changed) while
+        /// its last result was still waiting its turn (#747, round eleven of
+        /// the 2026-11-06 junk box). Returns whether anything was waiting.
+        /// </summary>
+        public static bool RetireLatest(string key) => _arbiter.RetireLatest(key);
+
         // ── The paced delivery (#521) ─────────────────────────────────────
         //
         // Where the reader can say what became of an utterance, text no

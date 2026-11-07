@@ -9456,12 +9456,21 @@ namespace Radios
                 return;
             }
             NoteOperatorChangedRadioSetting("SetFilter");
+            // As SetTXFilter: never run on a replaced command connection (round eleven).
+            var requestRadio = theRadio;
+            object requestConnection = requestRadio?.CurrentCommandConnection;
             q.Enqueue((FunctionDel)(() =>
             {
                 var slice = theRadio?.ActiveSlice;
                 if (slice == null)
                 {
                     Refuse(applied, FilterApplied.Refused("", low, high, low, high), "SetFilter (slice gone at the write)");
+                    return;
+                }
+                if (!ReferenceEquals(theRadio, requestRadio) || !ReferenceEquals(theRadio?.CurrentCommandConnection, requestConnection))
+                {
+                    Refuse(applied, FilterApplied.Refused(slice.DemodMode ?? "", low, high, slice.FilterLow, slice.FilterHigh),
+                        "SetFilter (the command connection was replaced before the write ran)");
                     return;
                 }
                 int beforeLow = slice.FilterLow, beforeHigh = slice.FilterHigh;
@@ -11110,12 +11119,23 @@ namespace Radios
             }
             if (low.HasValue) NoteOperatorChangedRadioSetting("TXFilterLow");
             if (high.HasValue) NoteOperatorChangedRadioSetting("TXFilterHigh");
+            // The connection the request was made on (round eleven, Codex F3):
+            // a write queued on one command connection never runs on its
+            // replacement, silently or otherwise.
+            var requestRadio = theRadio;
+            object requestConnection = requestRadio.CurrentCommandConnection;
             q.Enqueue((FunctionDel)(() =>
             {
                 var r = theRadio;
                 if (r == null)
                 {
                     Refuse(applied, FilterApplied.Refused("TX", low ?? 0, high ?? 0, low ?? 0, high ?? 0), "SetTXFilter (radio gone at the write)");
+                    return;
+                }
+                if (!ReferenceEquals(r, requestRadio) || !ReferenceEquals(r.CurrentCommandConnection, requestConnection))
+                {
+                    Refuse(applied, FilterApplied.Refused("TX", low ?? r.TXFilterLow, high ?? r.TXFilterHigh, r.TXFilterLow, r.TXFilterHigh),
+                        "SetTXFilter (the command connection was replaced before the write ran)");
                     return;
                 }
                 int beforeLow = r.TXFilterLow, beforeHigh = r.TXFilterHigh;

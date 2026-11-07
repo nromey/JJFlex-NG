@@ -820,6 +820,7 @@
   "audio.tx_filter.high_moved": "TX high {newHigh}, width {width}",
   "audio.tx_filter.low_moved": "TX low {newLow}, width {width}",
   "audio.tx_filter.range": "TX filter {low} to {high}",
+  "audio.tx_filter.clause_joiner": {"text": ". ", "delivery": null},
   "audio.tx_filter.not_written": {"text": "TX filter not changed. The radio is not taking changes right now.", "delivery": null},
   "audio.tx_filter.unchanged": {"text": "TX filter unchanged at {low} to {high}, {width}", "delivery": null},
   "audio.tx_tone.armed": "Test tone armed: {freq} hertz at {level} dBFS. It replaces your microphone while you transmit. Control J, Control G disarms.",

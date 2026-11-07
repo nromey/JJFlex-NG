@@ -1195,12 +1195,14 @@ public partial class ScreenFieldsPanel : UserControl
         // #747 round nine: the field never says the number it asked for; its
         // write is said from what FlexLib set, by _homeTxFilter, the one speaker.
         _txFilterLowControl.SpeaksOnlyTheAppliedResult = true;
+        _txFilterLowControl.AppliedEndStop = atMinimum => _homeTxFilter.SayEndStop(lowField: true, atMinimum, _txFilterLowControl.Value);
         _txFilterLowControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _homeTxFilter.Write(lowField: true, v); };
         TxContent.Children.Add(_txFilterLowControl);
 
         // TX Filter High
         _txFilterHighControl = MakeValue(Lexicon.Get("audio.fields.tx_filter_high"), 50, 10000, 50);
         _txFilterHighControl.SpeaksOnlyTheAppliedResult = true;
+        _txFilterHighControl.AppliedEndStop = atMinimum => _homeTxFilter.SayEndStop(lowField: false, atMinimum, _txFilterHighControl.Value);
         _txFilterHighControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _homeTxFilter.Write(lowField: false, v); };
         TxContent.Children.Add(_txFilterHighControl);
 
@@ -1849,17 +1851,29 @@ public partial class ScreenFieldsPanel : UserControl
         Radios.Speech.SpeechSubject.ValueField("TX filter, Home"),
         Lexicon.Get("audio.fields.tx_filter_low"), Lexicon.Get("audio.fields.tx_filter_high"),
         () => _rig, () => true,
-        refresh: applied => Dispatcher.BeginInvoke(() =>
+        refresh: (applied, stillCurrent) => Dispatcher.BeginInvoke(() =>
         {
-            if (_rig == null) return;
+            // Re-checked HERE, when the window gets to it (round eleven).
+            if (!stillCurrent()) return;
             _polling = true;
-            try
-            {
-                _txFilterLowControl.Value = applied.Low;
-                _txFilterHighControl.Value = applied.High;
-            }
+            try { SetTxFilterFields(applied.Low, applied.High); }
             finally { _polling = false; }
         }));
+
+    /// <summary>
+    /// Put Home's two TX filter fields on a pair the radio holds, with their
+    /// bounds the radio's own limits for that pair (#747 round eleven): the
+    /// low edge at most 50 under the high, the high at least 50 over the low,
+    /// within 0 to 10000. So a field's end is the radio's real end, and its
+    /// display cannot run ahead past what the radio will take.
+    /// </summary>
+    private void SetTxFilterFields(int low, int high)
+    {
+        _txFilterLowControl.Max = Math.Max(0, high - 50);
+        _txFilterHighControl.Min = Math.Min(10000, low + 50);
+        _txFilterLowControl.Value = low;
+        _txFilterHighControl.Value = high;
+    }
 
     /// <summary>
     /// #888: one AGC field whose meaning follows the mode the radio reports.
@@ -1962,8 +1976,7 @@ public partial class ScreenFieldsPanel : UserControl
         _processorSettingControl.Visibility = processorOn ? Visibility.Visible : Visibility.Collapsed;
         if (processorOn) _processorSettingControl.SelectedIndex = (int)_rig.ProcessorSetting;
 
-        _txFilterLowControl.Value = _rig.TXFilterLow;
-        _txFilterHighControl.Value = _rig.TXFilterHigh;
+        SetTxFilterFields(_rig.TXFilterLow, _rig.TXFilterHigh);
 
         bool monitorOn = _rig.Monitor == FlexBase.OffOnValues.on;
         _monitorCheck.IsChecked = monitorOn;

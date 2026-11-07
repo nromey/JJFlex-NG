@@ -164,6 +164,15 @@ public partial class ValueFieldControl : UserControl
     public bool SpeaksOnlyTheAppliedResult { get; set; }
 
     /// <summary>
+    /// For a <see cref="SpeaksOnlyTheAppliedResult"/> field: what a press
+    /// against the end says, given whether it is the minimum. The host says
+    /// the APPLIED value with the boundary word (round eleven of the
+    /// 2026-11-06 junk box, Codex's end-stop blocker): the field's own value
+    /// can be optimistic, ahead of what the radio took.
+    /// </summary>
+    public Action<bool>? AppliedEndStop { get; set; }
+
+    /// <summary>
     /// Set to true during poll updates to suppress ValueChanged events and speech.
     /// </summary>
     public bool SuppressEvents
@@ -678,7 +687,11 @@ public partial class ValueFieldControl : UserControl
         //
         // No extra timer needed: the debounce we already have IS the "slight
         // delay after release".
-        AnnounceValue(atLimit: true);
+        //
+        // A field that speaks only the applied result never says its own
+        // value here either: its host says the radio's (#747 round eleven).
+        if (SpeaksOnlyTheAppliedResult) AppliedEndStop?.Invoke(_value <= LowestForOperator);
+        else AnnounceValue(atLimit: true);
 
         // ALWAYS sounds, even with earcons switched off.
         //

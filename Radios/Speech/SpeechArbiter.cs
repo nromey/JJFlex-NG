@@ -3685,6 +3685,23 @@ namespace Radios.Speech
             }
         }
 
+        /// <summary>
+        /// Withdraw the value still waiting on a Latest key, unheard (#747,
+        /// round eleven of the 2026-11-06 junk box): its speaker's context has
+        /// ended. Anything already handed over is untouched; a timer that fires
+        /// anyway finds nothing to flush. Returns whether anything was waiting.
+        /// </summary>
+        public bool RetireLatest(string key)
+        {
+            lock (_lock)
+            {
+                if (!_pending.TryGetValue(key, out var entry)) return false;
+                _pending.Remove(key);
+                try { entry.Timer?.Dispose(); } catch (ObjectDisposedException) { }
+                return true;
+            }
+        }
+
         private void FlushCoalesced(string key)
         {
             lock (_lock)

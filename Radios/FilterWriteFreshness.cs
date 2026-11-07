@@ -17,6 +17,19 @@ namespace Radios
     /// </remarks>
     public static class FilterWriteFreshness
     {
+        /// <summary>
+        /// As <see cref="StillTrue(FlexBase, FilterApplied, bool)"/>, and the
+        /// window must still hold that rig (round eleven, Codex F3): a menu
+        /// sentence about rig A is not said once the window has moved to rig B,
+        /// whatever B's edges are. <paramref name="rig"/> is the rig the request
+        /// was made on, taken from the request, not from the window later.
+        /// </summary>
+        public static Func<bool> StillTrue(FlexBase rig, FilterApplied applied, bool transmit, Func<FlexBase?> windowRig)
+        {
+            var onRig = StillTrue(rig, applied, transmit);
+            return () => ReferenceEquals(windowRig(), rig) && onRig();
+        }
+
         public static Func<bool> StillTrue(FlexBase rig, FilterApplied applied, bool transmit)
         {
             var radio = rig.theRadio;

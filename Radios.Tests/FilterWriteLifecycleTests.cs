@@ -232,6 +232,25 @@ namespace Radios.Tests
             Assert.Equal((100, 2800), (_slice.FilterLow, _slice.FilterHigh));
         }
 
+        /// <summary>
+        /// Round eleven (Codex F3): a receive filter write queued on one command
+        /// connection does not run on its replacement; it reports not written,
+        /// and nothing is sent on the new connection.
+        /// </summary>
+        [Fact]
+        public void A_receive_write_queued_before_a_reconnect_does_not_run_on_the_new_connection()
+        {
+            Rx("USB", 100, 2800);
+            FilterApplied? got = null;
+            _rig.SetFilter(100, 2900, a => got = a);
+            var fresh = new FakeCommandTransport();
+            typeof(Radio).GetField("_commandCommunication", Private)!.SetValue(_vendor.Radio, fresh);
+            Drain();
+            Assert.True(got!.Value.NotWritten);
+            Assert.DoesNotContain(fresh.Commands, c => c.StartsWith("filt", StringComparison.Ordinal));
+            Assert.Equal((100, 2800), (_slice.FilterLow, _slice.FilterHigh));
+        }
+
         [Fact]
         public void A_slice_gone_by_the_write_says_nothing_was_changed()
         {
@@ -258,9 +277,12 @@ namespace Radios.Tests
         {
             string menu = Src("JJFlexWpf", "NativeMenuBar.cs");
             Assert.Contains("if (stillTrue != null && !stillTrue())", menu, StringComparison.Ordinal);
-            Assert.Contains("stillTrue: FilterStillIs(applied)", menu, StringComparison.Ordinal);
-            Assert.Contains("stillTrue: TxFilterStillIs(applied)", menu, StringComparison.Ordinal);
-            Assert.Contains("(said, applied) => SpeakAfterMenuClose(said, stillTrue: FilterStillIs(applied))", menu, StringComparison.Ordinal);
+            // Round eleven: the originating rig comes from the request, and the
+            // window must still hold it.
+            Assert.Contains("stillTrue: FilterStillIs(rig, applied)", menu, StringComparison.Ordinal);
+            Assert.Contains("stillTrue: TxFilterStillIs(rig, applied)", menu, StringComparison.Ordinal);
+            Assert.Contains("(said, applied) => SpeakAfterMenuClose(said, stillTrue: FilterStillIs(rig, applied))", menu, StringComparison.Ordinal);
+            Assert.True(CountOf(menu, "windowRig: () => Rig") == 2);
         }
 
         private static int CountOf(string text, string what)

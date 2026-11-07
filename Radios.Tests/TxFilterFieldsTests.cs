@@ -41,6 +41,7 @@ namespace Radios.Tests
         private readonly SpeechArbiter _arbiter;
         private bool _open = true;
         private readonly TxFilterFields _fields;
+        private readonly List<(FilterApplied applied, Func<bool> stillCurrent)> _refreshes = new();
 
         private const string SurfaceKey = "value-field:TX filter (test surface)";
 
@@ -52,7 +53,10 @@ namespace Radios.Tests
                 (text, interrupt, intent, level, origin, salvaged) => { _heard.Add(text); return true; },
                 () => { }, (_, _, _, _) => { });
             _fields = new TxFilterFields(SurfaceKey, "TX Filter Low", "TX Filter High", () => _rig, () => _open,
-                latest: (text, key) => _arbiter.Latest(key, text, VerbosityLevel.Terse, SpeechCoalesceKind.Value, "test"));
+                latest: (text, key) => _arbiter.Latest(key, text, VerbosityLevel.Terse, SpeechCoalesceKind.Value, "test"),
+                refresh: (applied, stillCurrent) => _refreshes.Add((applied, stillCurrent)),
+                now: () => _clock.UtcNow,
+                retire: key => _arbiter.RetireLatest(key));
         }
 
         public void Dispose()
@@ -133,7 +137,10 @@ namespace Radios.Tests
             Drain();
             Settle();
             Assert.DoesNotContain("TX Filter Low 2800", _heard);
-            Assert.Equal("TX Filter High 2850", _heard.Last());
+            // Round eleven: the high result replaced the unheard low result, so
+            // it covers it (Codex's sixth re-verify: the shared key must not
+            // erase the other edge's news).
+            Assert.Equal("TX Filter Low 2750, at limit. TX Filter High 2850", _heard.Last());
             Assert.Equal((2750, 2850), Actual);
         }
 
@@ -152,20 +159,23 @@ namespace Radios.Tests
             _fields.Write(lowField: false, 2850);
             Drain();
             Settle();
-            Assert.Equal("TX Filter High 2850", _heard.Last());
+            // Round eleven: the low result may not have been heard yet, so the
+            // newer result covers both edges.
+            Assert.Equal("TX Filter Low 2750, at limit. TX Filter High 2850", _heard.Last());
             Assert.DoesNotContain("TX filter 2750 to 2800, at limit", _heard);
             Assert.Equal((2750, 2850), Actual);
         }
 
         /// <summary>
-        /// The same, with the low edge's result WAITING (a result was said just
-        /// before, so the next one on the key waits its turn) when the high
-        /// edge truly changes. Its "at limit" was true against the old high
-        /// edge and would be false by the time it was heard; one key for both
-        /// fields means the newer result replaces it, unheard.
+        /// Codex's sixth re-verify, the erasure schedule. The low edge's result
+        /// is WAITING (a result was said just before, so the next one on the
+        /// key waits its turn) when the high edge changes. The high result
+        /// replaces it on the shared key, so it must carry the low news too:
+        /// round nine's version of this test asserted the low 2750 was never
+        /// heard, which pinned the erasure.
         /// </summary>
         [Fact]
-        public void A_waiting_result_is_replaced_by_a_newer_result_for_the_other_edge()
+        public void A_result_that_replaces_a_waiting_one_covers_it()
         {
             Tx(2600, 2800);
             _fields.Write(lowField: true, 2700);
@@ -176,9 +186,150 @@ namespace Radios.Tests
             _fields.Write(lowField: false, 2850);
             Drain();
             Settle();
-            Assert.DoesNotContain("TX Filter Low 2750, at limit", _heard);
-            Assert.Equal("TX Filter High 2850", _heard.Last());
+            Assert.Equal("TX Filter Low 2750, at limit. TX Filter High 2850", _heard.Last());
             Assert.Equal((2750, 2850), Actual);
+        }
+
+        /// <summary>Codex's positive control: let the low result be heard first, and the high result says only the high.</summary>
+        [Fact]
+        public void Control_a_result_after_the_others_was_heard_says_only_its_own_edge()
+        {
+            Tx(2600, 2800);
+            _fields.Write(lowField: true, 2700);
+            Drain();
+            _clock.Advance(50);
+            _fields.Write(lowField: true, 2800);
+            Drain();
+            Settle();                                  // the low result is heard
+            Assert.Equal("TX Filter Low 2750, at limit", _heard.Last());
+            _fields.Write(lowField: false, 2850);
+            Drain();
+            Settle();
+            Assert.Equal("TX Filter High 2850", _heard.Last());
+        }
+
+        // ------------------------------------------------------------------
+        // Round eleven: end stops, retiring, refreshes, stale writes, menu
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Codex's end-stop schedule: the field's display ran ahead to 9950
+        /// (End, or typed), FlexLib held the write to 2750, and a press against
+        /// the end arrives before the window refreshed. The end stop says the
+        /// APPLIED value, never the field's optimistic one.
+        /// </summary>
+        [Fact]
+        public void An_end_stop_says_the_applied_value_not_the_fields_own()
+        {
+            Tx(2700, 2800);
+            _fields.Write(lowField: true, 9950);
+            Drain();
+            Settle();
+            _fields.SayEndStop(lowField: true, atMinimum: false, shownValue: 9950);
+            Settle();
+            Assert.Equal("TX Filter Low 2750, maximum", _heard.Last());
+            Assert.DoesNotContain("TX Filter Low 9950, maximum", _heard);
+        }
+
+        private void SayLowThenLeaveOneWaiting()
+        {
+            Tx(100, 2800);
+            _fields.Write(lowField: true, 150);
+            Drain();                                   // said at once
+            _clock.Advance(50);
+            _fields.Write(lowField: true, 200);
+            Drain();                                   // waits its turn
+        }
+
+        [Fact]
+        public void Closing_retires_a_result_still_waiting()
+        {
+            SayLowThenLeaveOneWaiting();
+            _open = false;
+            _fields.Invalidate();                      // what the Workshop's Closed handler does
+            Settle();
+            Assert.DoesNotContain("TX Filter Low 200", _heard);
+        }
+
+        [Fact]
+        public void Invalidating_retires_a_result_still_waiting()
+        {
+            SayLowThenLeaveOneWaiting();
+            _fields.Invalidate();                      // Initialize, Detach, SetRig
+            Settle();
+            Assert.DoesNotContain("TX Filter Low 200", _heard);
+        }
+
+        [Fact]
+        public void A_connection_change_retires_a_result_still_waiting()
+        {
+            SayLowThenLeaveOneWaiting();
+            RaiseCommandConnectionChanged(CommandConnectionState.Disconnected);
+            Settle();
+            Assert.DoesNotContain("TX Filter Low 200", _heard);
+        }
+
+        /// <summary>Control: with nothing ended, the waiting result is heard.</summary>
+        [Fact]
+        public void Control_with_nothing_ended_the_waiting_result_is_heard()
+        {
+            SayLowThenLeaveOneWaiting();
+            Settle();
+            Assert.Equal("TX Filter Low 200", _heard.Last());
+        }
+
+        private void RaiseCommandConnectionChanged(CommandConnectionState state)
+        {
+            var report = (CommandConnectionChanged)Activator.CreateInstance(typeof(CommandConnectionChanged), Private, null,
+                new object[] { _vendor.Radio.CurrentCommandConnection!, state }, null)!;
+            var field = typeof(Radio).GetField("CommandConnectionChanged", Private)!;
+            ((Action<CommandConnectionChanged>?)field.GetValue(_vendor.Radio))?.Invoke(report);
+        }
+
+        /// <summary>
+        /// A write queued on one command connection does not run on its
+        /// replacement: it reports not written, and nothing is sent on the new
+        /// connection (Codex's reconnect schedule).
+        /// </summary>
+        [Fact]
+        public void A_write_queued_before_a_reconnect_does_not_run_on_the_new_connection()
+        {
+            Tx(100, 2800);
+            FilterApplied? got = null;
+            _rig.SetTXFilter(300, null, a => got = a);
+            var fresh = new FakeCommandTransport();
+            typeof(Radio).GetField("_commandCommunication", Private)!.SetValue(_vendor.Radio, fresh);
+            Drain();
+            Assert.True(got!.Value.NotWritten);
+            Assert.DoesNotContain(fresh.Commands, c => c.Contains("transmit set filter_"));
+            Assert.Equal(100, _vendor.Radio.TXFilterLow);
+        }
+
+        /// <summary>A window refresh queued before the surface was invalidated does nothing when it runs.</summary>
+        [Fact]
+        public void A_refresh_rechecks_that_it_still_answers_when_it_runs()
+        {
+            Tx(100, 2800);
+            _fields.Write(lowField: true, 300);
+            Drain();
+            var (_, stillCurrent) = Assert.Single(_refreshes);
+            Assert.True(stillCurrent());
+            _fields.Invalidate();
+            Assert.False(stillCurrent());
+        }
+
+        /// <summary>The menu's delayed sentence is not said once the window holds another rig.</summary>
+        [Fact]
+        public void A_menu_sentence_needs_the_window_to_still_hold_the_originating_rig()
+        {
+            Tx(100, 2800);
+            var applied = WriteTx(300);
+            FlexBase? window = _rig;
+            var stillTrue = FilterWriteFreshness.StillTrue(_rig, applied, transmit: true, windowRig: () => window);
+            Assert.True(stillTrue());
+            using var other = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+            window = other;
+            Assert.False(stillTrue());
         }
 
         // ------------------------------------------------------------------
@@ -285,6 +436,20 @@ namespace Radios.Tests
             }
             string panel = System.IO.File.ReadAllText(System.IO.Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Controls", "ScreenFieldsPanel.xaml.cs"));
             Assert.True(CountOf(panel, "_homeTxFilter.Invalidate();") >= 2, "Initialize and Detach invalidate Home's requests");
+
+            // Round eleven: the end stop goes to the one speaker, which says the
+            // applied value; the refresh re-checks when it runs; the bounds are
+            // the radio's own limits for the applied pair.
+            Assert.Contains("if (SpeaksOnlyTheAppliedResult) AppliedEndStop?.Invoke(_value <= LowestForOperator);", field, StringComparison.Ordinal);
+            foreach (var rel in new[] { new[] { "JJFlexWpf", "Controls", "ScreenFieldsPanel.xaml.cs" }, new[] { "JJFlexWpf", "Dialogs", "AudioWorkshopDialog.TxAudio.cs" } })
+            {
+                string host = System.IO.File.ReadAllText(System.IO.Path.Combine(new[] { IntegrationPassTree.Root }.Concat(rel).ToArray()));
+                Assert.True(CountOf(host, ".AppliedEndStop = atMinimum =>") == 2, string.Join("/", rel) + ": both fields route their end stop");
+                Assert.Contains("refresh: (applied, stillCurrent) => Dispatcher.BeginInvoke(() =>", host, StringComparison.Ordinal);
+                Assert.Contains("if (!stillCurrent()) return;", host, StringComparison.Ordinal);
+                Assert.Contains("Control.Max = Math.Max(0, high - 50);", host, StringComparison.Ordinal);
+                Assert.Contains("Control.Min = Math.Min(10000, low + 50);", host, StringComparison.Ordinal);
+            }
             string workshop = System.IO.File.ReadAllText(System.IO.Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs", "AudioWorkshopDialog.TxAudio.cs"));
             Assert.Contains("_workshopTxFilter", workshop, StringComparison.Ordinal);
         }

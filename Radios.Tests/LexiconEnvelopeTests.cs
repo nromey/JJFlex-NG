@@ -2232,6 +2232,9 @@ namespace Radios.Tests
                 // with "preset" after its name and the J15 filter form. DRAFT.
                 "audio.preset.announcement",
                 "audio.preset.announcement_tuned_for",
+                // Round eleven (#747): the transmit filter speaker joins the
+                // edges it must cover into one sentence. DRAFT.
+                "audio.tx_filter.clause_joiner",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

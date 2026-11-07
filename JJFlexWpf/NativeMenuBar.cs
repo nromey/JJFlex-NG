@@ -581,10 +581,11 @@ public class NativeMenuBar : IDisposable
         int current = lowEdge ? Rig.TXFilterLow : Rig.TXFilterHigh;
         int wanted = lowEdge ? Math.Clamp(current + step, 0, 9950) : Math.Clamp(current + step, 50, 10000);
         string label = lowEdge ? "TX filter low" : "TX filter high";
-        Rig.SetTXFilter(lowEdge ? wanted : (int?)null, lowEdge ? (int?)null : wanted, applied =>
+        var rig = Rig;   // the originating rig, from the request (round eleven)
+        rig.SetTXFilter(lowEdge ? wanted : (int?)null, lowEdge ? (int?)null : wanted, applied =>
             SpeakAfterMenuClose(Radios.FilterReadouts.Tx(applied,
                 (l, h) => Radios.Lexicon.Get("audio.value.adjusted", ("label", label), ("value", lowEdge ? l : h), ("suffix", "")),
-                Radios.ScreenReaderOutput.CurrentVerbosity), stillTrue: TxFilterStillIs(applied)));
+                Radios.ScreenReaderOutput.CurrentVerbosity), stillTrue: TxFilterStillIs(rig, applied)));
     }
 
     /// <summary>
@@ -1123,7 +1124,8 @@ public class NativeMenuBar : IDisposable
                     string currentMode = Rig.Mode ?? "USB";
                     // The preset's one announcement, as Alt with a bracket says
                     // it, from what the filter became (#747 rounds four and five).
-                    Rig.ApplyFilterPreset(preset, currentMode, (said, applied) => SpeakAfterMenuClose(said, stillTrue: FilterStillIs(applied)));
+                    var rig = Rig;   // the originating rig, from the request (round eleven)
+                    rig.ApplyFilterPreset(preset, currentMode, (said, applied) => SpeakAfterMenuClose(said, stillTrue: FilterStillIs(rig, applied)));
                 });
             }
         }
@@ -1149,9 +1151,10 @@ public class NativeMenuBar : IDisposable
     /// </summary>
     private void SayFilterWrite(int low, int high, Func<int, int, string> readout)
     {
-        Rig?.SetFilter(low, high, applied => SpeakAfterMenuClose(Radios.FilterReadouts.Said(
+        var rig = Rig;   // the originating rig, from the request (round eleven)
+        rig?.SetFilter(low, high, applied => SpeakAfterMenuClose(Radios.FilterReadouts.Said(
             applied, readout, Radios.FilterReadouts.RangeAtLimit, Radios.ScreenReaderOutput.CurrentVerbosity),
-            stillTrue: FilterStillIs(applied)));
+            stillTrue: FilterStillIs(rig, applied)));
     }
 
     /// <summary>
@@ -3481,12 +3484,12 @@ public class NativeMenuBar : IDisposable
     /// then; a refusal is retired by a later write that ran (#747 round nine,
     /// <see cref="Radios.FilterWriteFreshness"/>).
     /// </summary>
-    private Func<bool>? FilterStillIs(Radios.FilterApplied applied)
-        => Rig == null ? null : Radios.FilterWriteFreshness.StillTrue(Rig, applied, transmit: false);
+    private Func<bool> FilterStillIs(FlexBase originatingRig, Radios.FilterApplied applied)
+        => Radios.FilterWriteFreshness.StillTrue(originatingRig, applied, transmit: false, windowRig: () => Rig);
 
     /// <summary>As <see cref="FilterStillIs"/>, for the transmit filter.</summary>
-    private Func<bool>? TxFilterStillIs(Radios.FilterApplied applied)
-        => Rig == null ? null : Radios.FilterWriteFreshness.StillTrue(Rig, applied, transmit: true);
+    private Func<bool> TxFilterStillIs(FlexBase originatingRig, Radios.FilterApplied applied)
+        => Radios.FilterWriteFreshness.StillTrue(originatingRig, applied, transmit: true, windowRig: () => Rig);
 
     /// <summary>
     /// Radio ▸ Radio Rescue — Noel's name, and his reason: the rescue page
