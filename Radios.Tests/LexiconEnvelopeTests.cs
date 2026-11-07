@@ -2318,13 +2318,18 @@ namespace Radios.Tests
                 // refused during the silence after a reference's end.
                 "audio.check.reference_end_silence_busy",
                 "audio.check.fixer_reference_in_the_way",
+                // Part 7n-1 (task 903, ruled C6): Play's refusal names whose key is up,
+                // replacing the legacy audio.check.still_transmitting.
+                "audio.check.play_after_check",
+                "audio.check.play_after_transmit",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
             // 3,133: main's junk box classified two (3,140 to 3,138) and Check
             // your audio five (3,140 to 3,135); the two sets are disjoint.
             // 3094: Unified takes round three reworded audio.reference.finished.
-            Assert.Equal(3094, unclassified);
+            // 3093: part 7n-1 retired audio.check.still_transmitting (task 903).
+            Assert.Equal(3093, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

@@ -602,7 +602,10 @@ public sealed class ReferenceEndSpeechTests : IDisposable
     // "Receiving"), and the distinct-controller control. Each beside the
     // ordinary check with nothing pressed, which must not change.
 
-    private static readonly string StillTransmitting = Lexicon.Get("audio.check.still_transmitting");
+    // The retired sentence, by its words: its key left the Lexicon with part
+    // 7n-1 (task 903), so a lookup would now return the key and the absence
+    // checks below would pass for nothing.
+    private const string StillTransmitting = "Still transmitting. Stop the check first.";
     private static string Locked => Lexicon.Get("audio.ptt.announce_locked");
 
     private static object Phase(object session) => SessionField("_phase").GetValue(session)!;
@@ -729,6 +732,124 @@ public sealed class ReferenceEndSpeechTests : IDisposable
             var said = Said();
             Assert.DoesNotContain(Receiving, said);
             Assert.DoesNotContain(StillTransmitting, said);
+        }
+        finally { EndCheck(session); }
+    }
+
+    // ── Play's refusal names whose key is up (part 7n-1, task 903) ──
+    //
+    // Ruled by Noel 2026-11-06 17:42 (C6): the check's own key up, "Press play
+    // to hear your take once the check completes."; anything else the session
+    // sees transmitting, "The radio is transmitting. Press play to hear your
+    // take once it stops." Each row is the state itself, made through the real
+    // keying and stop paths, then Play's real refusal.
+
+    private static string PlayAfterCheck => Lexicon.Get("audio.check.play_after_check");
+    private static string PlayAfterTransmit => Lexicon.Get("audio.check.play_after_transmit");
+
+    /// <summary>The radio's own transmit report, as FlexBase caches it from the radio's status.</summary>
+    private void TheRadioReportsTransmit(bool on)
+    {
+        var f = typeof(FlexBase).GetField("_Transmit", Any);
+        Assert.True(f != null, "production field FlexBase._Transmit is missing");
+        f!.SetValue(_rig, on);
+        Assert.Equal(on, _rig.Transmit);
+    }
+
+    /// <summary>Play pressed: its refusal, and every sentence it said.</summary>
+    private (bool Refused, List<string> Said) PlayIsPressed()
+    {
+        Listen();
+        bool refused = _dialog.RefusePlayWhileTransmitting();
+        return (refused, Said());
+    }
+
+    /// <summary>The check's own key is up: Play waits for the check to complete.</summary>
+    [Fact]
+    public void Play_over_the_checks_own_key_waits_for_the_check()
+    {
+        AssertTheDeskIsSafe();
+        var session = TheCheckKeys(AudioCheckListenMethods.RecordPlayback, 5);
+        try
+        {
+            var (refused, said) = PlayIsPressed();
+            Assert.True(refused);
+            Assert.Equal(1, said.Count(x => x == PlayAfterCheck));
+            Assert.DoesNotContain(PlayAfterTransmit, said);
+            Assert.DoesNotContain(StillTransmitting, said);
+            Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);   // a refusal changes nothing
+        }
+        finally { EndCheck(session); }
+    }
+
+    /// <summary>
+    /// The operator unlocked the check's key and locked again: their own lock is
+    /// up, not the check's, before the watcher has seen it and after. Play
+    /// waits for the radio to stop.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Play_over_the_operators_own_lock_waits_for_the_radio(bool watcherSawItFirst)
+    {
+        AssertTheDeskIsSafe();
+        var session = TheCheckKeys(AudioCheckListenMethods.RecordPlayback, 5);
+        try
+        {
+            TheOperatorRelocks();
+            if (watcherSawItFirst)
+            {
+                TheWatcherTicks(session);
+                Assert.True(Is(session, "AwaitPlayback"), "the watcher did not see the check's key end");
+            }
+            var (refused, said) = PlayIsPressed();
+            Assert.True(refused);
+            Assert.Equal(1, said.Count(x => x == PlayAfterTransmit));
+            Assert.DoesNotContain(PlayAfterCheck, said);
+            Assert.DoesNotContain(StillTransmitting, said);
+        }
+        finally { EndCheck(session); }
+    }
+
+    /// <summary>
+    /// Stop has let go of the check's key and the radio has not yet reported
+    /// receive: a hardware line, VOX, or the radio's own lag. No key of the
+    /// app's is up. Play waits for the radio to stop.
+    /// </summary>
+    [Fact]
+    public void Play_while_the_radio_still_reports_transmit_after_stop_waits_for_the_radio()
+    {
+        AssertTheDeskIsSafe();
+        var session = TheCheckKeys(AudioCheckListenMethods.RecordPlayback, 5);
+        try
+        {
+            StopIsPressed(session);
+            Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
+            Assert.True(Is(session, "AwaitPlayback"));
+            TheRadioReportsTransmit(true);
+            var (refused, said) = PlayIsPressed();
+            Assert.True(refused);
+            Assert.Equal(1, said.Count(x => x == PlayAfterTransmit));
+            Assert.DoesNotContain(PlayAfterCheck, said);
+        }
+        finally { TheRadioReportsTransmit(false); EndCheck(session); }
+    }
+
+    /// <summary>The control: the same stop with the radio receiving. Play is not refused and says nothing.</summary>
+    [Fact]
+    public void Play_with_nothing_transmitting_is_not_refused()
+    {
+        AssertTheDeskIsSafe();
+        var session = TheCheckKeys(AudioCheckListenMethods.RecordPlayback, 5);
+        try
+        {
+            StopIsPressed(session);
+            Assert.True(Is(session, "AwaitPlayback"));
+            var (refused, said) = PlayIsPressed();
+            Assert.False(refused);
+            Assert.Null(_dialog.PlayRefusalKey());
+            Assert.DoesNotContain(PlayAfterCheck, said);
+            Assert.DoesNotContain(PlayAfterTransmit, said);
         }
         finally { EndCheck(session); }
     }

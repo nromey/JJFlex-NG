@@ -970,12 +970,7 @@ public partial class CheckYourAudioDialog
             return;
         }
 
-        if (_session != null && _session.EscapeStopsTransmit)
-        {
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.still_transmitting"),
-                VerbosityLevel.Critical, interrupt: true);
-            return;
-        }
+        if (RefusePlayWhileTransmitting()) return;
 
         var selected = SelectTakeForPlayback();
         switch (selected.Choice)
@@ -996,6 +991,40 @@ public partial class CheckYourAudioDialog
                 else if (selected.Method == AudioCheckListenMethods.OffAir) SayNoTake("off-air");
                 return;
         }
+    }
+
+    /// <summary>
+    /// Play refuses while the check's session reads transmitting, and says
+    /// what to wait for. True when it refused.
+    /// </summary>
+    /// <remarks>
+    /// Ruled by Noel 2026-11-06 17:42 (question C6, task 903). The refusal
+    /// stays; the sentence asks whose key is up. Until then it said "Still
+    /// transmitting. Stop the check first." whenever the session read
+    /// transmitting, which was false over the operator's own lock, a hardware
+    /// push to talk line or VOX, and the moment after Stop before the radio
+    /// reports receive: none of those is the check.
+    /// </remarks>
+    internal bool RefusePlayWhileTransmitting()
+    {
+        string? key = PlayRefusalKey();
+        if (key == null) return false;
+        ScreenReaderOutput.Speak(Lexicon.Get(key), Radios.Speech.SpeechIntent.Interrupt,
+            VerbosityLevel.Critical, subject: Radios.Speech.SpeechSubject.CheckPlayRefused);
+        return true;
+    }
+
+    /// <summary>
+    /// The sentence Play refuses with, or null when it may play: the check's
+    /// own key up (<c>AudioCheckSession.OwnKeyUp</c>, the one authority for
+    /// that question since part 7j) waits for the check to complete; any
+    /// other transmission the session sees waits for the radio to stop.
+    /// </summary>
+    internal string? PlayRefusalKey()
+    {
+        var session = _session;
+        if (session == null || !session.EscapeStopsTransmit) return null;
+        return session.OwnKeyUp ? "audio.check.play_after_check" : "audio.check.play_after_transmit";
     }
 
     private (AudioCheckListenMethods Method, TakePlaybackChoice Choice,

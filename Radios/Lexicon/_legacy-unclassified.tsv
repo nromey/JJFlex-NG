@@ -336,7 +336,6 @@ audio.check.recorder_already_running	ae65b438d414b9a8
 audio.check.recording_plays_back	f422a16f2883ddbf
 audio.check.remote_monitor_advice	7576c56e90335e64
 audio.check.remote_monitor_note	baf2e8bfa34aa9ef
-audio.check.still_transmitting	bbf0b73fedf51980
 audio.check.stop_current_first	28daa9023a010098
 audio.check.transmit_off	1b999dc3762ff1a1
 audio.check.transmitter_released	c1f13d74fcacb19e

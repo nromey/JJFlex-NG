@@ -600,6 +600,13 @@ namespace Radios.Speech
         /// </summary>
         public const string PlaybackTake = "playback-take";
         /// <summary>
+        /// Check your audio's Play refusing while something transmits (task
+        /// 903): wait for the check to complete, or for the radio to stop. One
+        /// of them is true at a time, and the next refused press replaces an
+        /// unheard earlier one.
+        /// </summary>
+        public const string CheckPlayRefused = "check-play-refused";
+        /// <summary>
         /// The reference recording's own notices in Check your audio (Unified
         /// takes, round three): that it played to its end, which since Noel's
         /// 2026-11-04 ruling also ends the transmission, and that it was not
