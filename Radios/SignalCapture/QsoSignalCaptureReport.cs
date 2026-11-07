@@ -104,11 +104,15 @@ namespace Radios.SignalCapture
                 return s;
             }
 
+            // Named before the numbers, and only when it happened (#452).
+            if (a.CoverageDegraded)
+                s.Para(CoverageSentence(a));
+
             if (!a.HasStats)
             {
                 s.Para("Only " + Count(a.AnalyzedCount) + " usable "
                      + (a.AnalyzedCount == 1 ? "reading" : "readings") + " over "
-                     + SpokenDuration.English(a.AnalyzedSpanSeconds)
+                     + SpokenDuration.English(a.ReceiveSeconds)
                      + " of receive time — too little to characterize a signal. Nothing "
                      + "under " + WholeSeconds(QsoSignalAnalysis.MinSecondsForStats)
                      + " seconds of receive time can be. Peak, trough, average, fading "
@@ -119,7 +123,7 @@ namespace Radios.SignalCapture
             s.Bullet("Peaked at " + Display(a.PeakDbm, band) + " — the highest single reading.");
             s.Bullet("Fell to " + Display(a.TroughDbm, band) + " — the lowest two-second average.");
             s.Bullet("Averaged " + Display(a.MeanDbm, band) + " across "
-                   + SpokenDuration.English(a.AnalyzedSpanSeconds) + " of receive time.");
+                   + SpokenDuration.English(a.ReceiveSeconds) + " of receive time.");
             s.Bullet(a.SwingSUnits < 1
                 ? "Total swing under one S-unit (" + WholeDb(a.SwingDb) + " dB)."
                 : "Total swing about " + SUnits(a.SwingSUnits)
@@ -130,6 +134,30 @@ namespace Radios.SignalCapture
             return s;
         }
 
+        /// <summary>
+        /// DRAFT PROSE (#452). The gaps in the readings, stated before any
+        /// figure they qualify. A gap is readings that never arrived, most
+        /// often a network stall; it says nothing about the signal.
+        /// </summary>
+        private static string CoverageSentence(QsoSignalAnalysisResult a)
+        {
+            // "were missing", not "stopped arriving": a gap can be at the
+            // start, before readings ever arrived (repair round one).
+            string text = "Readings were missing at "
+                + (a.GapCount == 1 ? "one point" : Count(a.GapCount) + " points")
+                + " in this capture, for " + SpokenDuration.English(a.MissingSeconds)
+                + " in all; the longest gap was " + SpokenDuration.English(a.LongestGapSeconds)
+                + ". Only " + QsoSignalHeadline.CoveragePercent(a.Coverage)
+                + " percent of the window was measured. A gap is missing data, most often "
+                + "a network stall, not something the signal did, so nothing below treats "
+                + "one as a fade.";
+            if (a.FadesSetAsideAtGaps > 0)
+                text += " " + (a.FadesSetAsideAtGaps == 1
+                    ? "One apparent fade fell at a gap and was not counted."
+                    : Count(a.FadesSetAsideAtGaps) + " apparent fades fell at gaps and were not counted.");
+            return text;
+        }
+
         private static string QsbSentence(QsoSignalAnalysisResult a)
         {
             switch (a.Qsb)
@@ -138,7 +166,7 @@ namespace Radios.SignalCapture
                     return "Fading was not assessed: that needs at least "
                          + WholeSeconds(QsoSignalAnalysis.MinSecondsForQsb)
                          + " seconds of receive time, and this capture had "
-                         + SpokenDuration.English(a.AnalyzedSpanSeconds) + ".";
+                         + SpokenDuration.English(a.ReceiveSeconds) + " of it.";
 
                 case QsbVerdict.NoSignificantFading:
                     return "No significant fading: the smoothed signal stayed within one "
@@ -182,7 +210,7 @@ namespace Radios.SignalCapture
                     return "The overall trend was not assessed: that needs at least "
                          + WholeSeconds(QsoSignalAnalysis.MinSecondsForTrend)
                          + " seconds of receive time, and this capture had "
-                         + SpokenDuration.English(a.AnalyzedSpanSeconds) + ".";
+                         + SpokenDuration.English(a.ReceiveSeconds) + " of it.";
 
                 case TrendVerdict.Steady:
                     return "No overall trend: fades aside, the fitted change across the "
@@ -296,6 +324,22 @@ namespace Radios.SignalCapture
                  + "whichever is larger; the fading rhythm is the average spacing "
                  + "between fade bottoms.");
             s.Para("The trend is a least-squares line through the smoothed readings.");
+            if (a.CoverageDegraded)
+                // DRAFT PROSE (#452).
+                s.Para("A gap is any stretch between readings longer than "
+                     + QsoSignalAnalysis.GapSpacingMultiple.ToString("0", CultureInfo.InvariantCulture) + " times this "
+                     + "capture's own usual spacing, which was about "
+                     + Math.Round(a.TypicalSpacingSeconds * 1000.0).ToString("0", CultureInfo.InvariantCulture)
+                     + " milliseconds, and the time before the first reading and after the last "
+                     + "counts the same way. "
+                     + (a.GapExclusionApplied
+                         ? "The trough and the fading measurements leave out the smoothed readings within "
+                           + SpokenDuration.English(QsoSignalAnalysis.SmoothingWindowSeconds)
+                           + " of a gap, and no fade spacing is measured across one."
+                         : "Every reading in this capture was within "
+                           + SpokenDuration.English(QsoSignalAnalysis.SmoothingWindowSeconds)
+                           + " of a gap, so the trough and the swing use all of them; a fade at a "
+                           + "gap is still not counted, and no fade spacing is measured across one."));
             return s;
         }
 

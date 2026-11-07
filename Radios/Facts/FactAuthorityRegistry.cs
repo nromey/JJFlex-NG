@@ -259,10 +259,11 @@ namespace Radios.Facts
     /// structural; what it means is the registered owner's responsibility.
     /// The one first observation that needs no evidence is an application
     /// activity's, because there is no station it could already have been
-    /// true on. Ruled 2026-09-24 (Astra's first-onset design). Whether a
-    /// condition found already active at first connect should speak or sound
-    /// is an operator-policy question filed with Noel, and would be a distinct
-    /// permission if he grants it, never this claim.
+    /// true on. Ruled 2026-09-24 (Astra's first-onset design). Noel ruled
+    /// 2026-09-26 (#632) that a condition found already active at first
+    /// connect IS announced, tone and all; the operator alarms honour that on
+    /// their own path today, and on this store it would be a distinct
+    /// permission the owner requests, never this claim.
     /// </para>
     /// </remarks>
     public enum ContinuityClaim

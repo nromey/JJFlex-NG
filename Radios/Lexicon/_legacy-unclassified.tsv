@@ -1866,16 +1866,7 @@ logging.capture.dropped.copied	31c6feaff0773e4f
 logging.capture.dropped.copy_button	7fc6107f1fede6bd
 logging.capture.dropped.copy_failed	b7987ab43170406a
 logging.capture.dropped.path_label	fa27d04d3b2f404f
-logging.capture.dropped.saved	a3defddf3b7e3d82
-logging.capture.dropped.saved_tail_uncertain	bf0c219fe11c4865
-logging.capture.dropped.tail_uncertain	224b9245d2875b7c
-logging.capture.dropped.tail_uncertain_earlier	0fd992bbfbe64434
 logging.capture.dropped.title	9fe618254eb50dd7
-logging.capture.dropped.what_named	13f18f7ed5b0405a
-logging.capture.dropped.what_plain	54ff42bc96b8ad15
-logging.capture.dropped.what_to_do	9a1e9c39fa023383
-logging.capture.dropped.what_to_do_not_recording	5264b0fca824357d
-logging.capture.dropped.what_to_do_stopped_since	6e0cff1505de2f0d
 logging.capture.not_running	6018a3e835ff024e
 logging.capture.save_problem	d5a29f5ed885ff2f
 logging.capture.saved	246f6dbd8ed79e57

@@ -187,6 +187,13 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     take's length after reconnect and logs the raw value for bench validation
     without enabling telnet tracing. Remove this patch if a later FlexLib release
     exposes the same radio-reported field.
+    **Stock FlexLib lists `case "dax_clients":` and `case "record_time":` as
+    stacked, empty labels.** When re-applying, give `dax_clients` its own
+    comment-marked `break;` BEFORE putting the body under `record_time`.
+    Until 2026-11-07 the body sat directly under both labels, so C# fell through
+    and any slice status carrying `dax_clients=N` was stored as a record time of
+    N seconds. `Radios.Tests/SliceDaxClientsStatusTests` pins the break in the
+    source and in behaviour.
 
 21. **Command write-time gate (2026-11-05, ruled by Noel 23:49)**: keep the
     comment-marked JJFlex patches ("write-time gate (MIGRATION.md item 21)") in

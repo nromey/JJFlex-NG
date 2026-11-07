@@ -166,10 +166,9 @@ document.addEventListener('keydown', function (e) {
         try
         {
             // Shares AboutDialog's user-data folder deliberately: one folder means
-            // one browser process for all of the app's document views.
-            var userDataFolder = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "JJFlexRadio", "WebView2");
+            // one browser process for all of the app's document views. It
+            // follows the settings root when JJFLEX_CONFIG_DIR moves it (#909).
+            var userDataFolder = Radios.LocalDataRoot.DocumentViewsWebView2;
 
             var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, null);
             await _web.EnsureCoreWebView2Async(env);

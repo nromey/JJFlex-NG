@@ -626,10 +626,18 @@ namespace Radios.Facts
                     // followed by the same hot reading. So no grant and no
                     // receipt — the owner's onset path (NewOccurrence, with
                     // positive evidence) is what a first occurrence needs.
-                    // Ruled by Astra's first-onset design, 2026-09-24. Whether
-                    // a condition found already active at first connect should
-                    // speak or sound is Noel's question, filed and open; when
-                    // he rules, that is a distinct permission, not this branch.
+                    // Ruled by Astra's first-onset design, 2026-09-24.
+                    //
+                    // Noel RULED 2026-09-26 (#632, option A): a condition found
+                    // already active at first connect is announced, tone and
+                    // all. That is honoured today by the operator alarms' own
+                    // path, which does not publish here: AlarmMonitor fires on
+                    // an already-high first sample with no prior low reading,
+                    // and AlarmDelivery sounds and speaks it. When alarms move
+                    // onto this store, the ruling is a DISTINCT permission the
+                    // owner requests for that case — not this branch, which
+                    // stays the contract for a first observation that claims
+                    // nothing.
                     decision.Pause = PauseCause.OnsetNotEstablished;
                     return null;
 

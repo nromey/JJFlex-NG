@@ -95,8 +95,18 @@ namespace Radios.SignalCapture
         /// <summary>Approximate seconds of the window spent transmitting, excluded from every statistic.</summary>
         public double TransmitSeconds { get; internal set; }
 
-        /// <summary>First to last analyzed reading, in seconds.</summary>
+        /// <summary>First to last analyzed reading, in seconds. INCLUDES any
+        /// over that falls between them; see <see cref="ReceiveSeconds"/>.</summary>
         public double AnalyzedSpanSeconds { get; internal set; }
+
+        /// <summary>
+        /// Receive time: the analyzed span less the transmit time inside it.
+        /// Everything the report or headline calls "receive time", and every
+        /// minimum length a verdict needs, uses this (#452, repair round two).
+        /// A 19-second capture with a 5-second over in it has about 14 seconds
+        /// of receive time, not 19: the bench found the report saying 19.
+        /// </summary>
+        public double ReceiveSeconds { get; internal set; }
 
         /// <summary>True when peak, trough and mean are meaningful.</summary>
         public bool HasStats { get; internal set; }
@@ -148,6 +158,44 @@ namespace Radios.SignalCapture
         /// readings were not kept. Named in the report — a report that quietly
         /// covered less than its window would look authoritative and not be.</summary>
         public bool BufferFilled { get; internal set; }
+
+        // -------- coverage (#452) --------
+
+        /// <summary>The capture's own usual spacing between readings: the
+        /// median gap between consecutive receive readings, in seconds. Zero
+        /// when there were too few readings to tell. Never assumed: the meter
+        /// stream's rate is whatever this capture shows it to be.</summary>
+        public double TypicalSpacingSeconds { get; internal set; }
+
+        /// <summary>Gaps between receive readings longer than
+        /// <see cref="QsoSignalAnalysis.GapSpacingMultiple"/> times the typical
+        /// spacing: readings that never arrived, most often a network stall.</summary>
+        public int GapCount { get; internal set; }
+
+        /// <summary>Seconds of the window with no readings beyond the usual
+        /// spacing, summed over every gap.</summary>
+        public double MissingSeconds { get; internal set; }
+
+        /// <summary>The longest single gap, seconds.</summary>
+        public double LongestGapSeconds { get; internal set; }
+
+        /// <summary>The fraction of the window that readings covered, 0 to 1.
+        /// One when there were no gaps.</summary>
+        public double Coverage { get; internal set; } = 1.0;
+
+        /// <summary>True when at least one gap was found. A clean capture says
+        /// nothing about coverage at all.</summary>
+        public bool CoverageDegraded => GapCount > 0;
+
+        /// <summary>Fade bottoms that fell on or beside a gap and were not
+        /// counted as fades: a hole in the readings is not the signal.</summary>
+        public int FadesSetAsideAtGaps { get; internal set; }
+
+        /// <summary>True when readings beside a gap were left out of the trough
+        /// and swing. False when there was no gap, or when every reading sat
+        /// beside one, in which case all of them were used rather than none,
+        /// and the report says so.</summary>
+        public bool GapExclusionApplied { get; internal set; }
     }
 
     /// <summary>
@@ -196,6 +244,15 @@ namespace Radios.SignalCapture
         public const double IrregularCv = 0.6;
 
         /// <summary>
+        /// A gap between receive readings longer than this many times the
+        /// capture's own typical spacing is a gap in the data (#452). Ten
+        /// times: at the bench's 15 to 20 readings a second that is about half
+        /// a second, well clear of ordinary jitter, and far shorter than any
+        /// fade. Relative on purpose, so no sample rate is assumed.
+        /// </summary>
+        public const double GapSpacingMultiple = 10.0;
+
+        /// <summary>
         /// Analyze one capture. <paramref name="samples"/> must be in time
         /// order (the buffer appends, so it is).
         /// </summary>
@@ -237,6 +294,10 @@ namespace Radios.SignalCapture
 
             r.AnalyzedSpanSeconds =
                 analyzed[analyzed.Count - 1].OffsetSeconds - analyzed[0].OffsetSeconds;
+            r.ReceiveSeconds = Math.Max(0.0, r.AnalyzedSpanSeconds - TransmitWithin(samples,
+                analyzed[0].OffsetSeconds, analyzed[analyzed.Count - 1].OffsetSeconds));
+
+            List<(double Start, double End)> gaps = FindGaps(r, samples);
 
             // Raw statistics.
             double peak = double.MinValue, sum = 0.0;
@@ -247,12 +308,22 @@ namespace Radios.SignalCapture
             }
 
             bool enough = analyzed.Count >= MinSamplesForStats
-                          && r.AnalyzedSpanSeconds >= MinSecondsForStats;
+                          && r.ReceiveSeconds >= MinSecondsForStats;
 
             double[] smoothed = Smooth(analyzed);
+
+            // The trough and the swing come from smoothed readings clear of any
+            // gap: beside a hole, the two-second average is built from one side
+            // only, and a low there is the hole, not the signal (#452). If
+            // every reading sits beside a gap, use them all rather than nothing.
+            bool[] besideGap = BesideGaps(analyzed, gaps);
             double smoothMin = double.MaxValue, smoothMax = double.MinValue;
-            foreach (double v in smoothed)
+            bool anyClear = Array.IndexOf(besideGap, false) >= 0;
+            r.GapExclusionApplied = gaps.Count > 0 && anyClear;
+            for (int i = 0; i < smoothed.Length; i++)
             {
+                if (anyClear && besideGap[i]) continue;
+                double v = smoothed[i];
                 if (v < smoothMin) smoothMin = v;
                 if (v > smoothMax) smoothMax = v;
             }
@@ -273,9 +344,139 @@ namespace Radios.SignalCapture
                 return r;
             }
 
-            AssessQsb(r, analyzed, smoothed, smoothMax - smoothMin);
+            AssessQsb(r, analyzed, smoothed, smoothMax - smoothMin, gaps);
             AssessTrend(r, analyzed, smoothed);
             return r;
+        }
+
+        // -------- coverage (#452) --------
+
+        /// <summary>
+        /// The transmit time between two moments: each inter-sample gap whose
+        /// left reading was taken while transmitting, the same attribution
+        /// <see cref="QsoSignalAnalysisResult.TransmitSeconds"/> uses, counted
+        /// only where it lies inside the span.
+        /// </summary>
+        private static double TransmitWithin(IReadOnlyList<QsoSignalSample> samples, double from, double to)
+        {
+            double tx = 0.0;
+            for (int i = 1; i < samples.Count; i++)
+            {
+                if (!samples[i - 1].LocalTransmit) continue;
+                double start = Math.Max(from, samples[i - 1].OffsetSeconds);
+                double end = Math.Min(to, samples[i].OffsetSeconds);
+                if (end > start) tx += end - start;
+            }
+            return tx;
+        }
+
+        /// <summary>
+        /// Find the holes in the readings: gaps between consecutive receive
+        /// readings longer than <see cref="GapSpacingMultiple"/> times the
+        /// capture's own median spacing. Fills the coverage fields of
+        /// <paramref name="r"/> and returns the gaps.
+        /// </summary>
+        /// <remarks>
+        /// A gap with a transmit reading at either end is not counted: that
+        /// time is the operator's own over, already attributed to transmit.
+        /// </remarks>
+        private static List<(double Start, double End)> FindGaps(
+            QsoSignalAnalysisResult r, IReadOnlyList<QsoSignalSample> samples)
+        {
+            var gaps = new List<(double Start, double End)>();
+            var spacings = new List<double>();
+            for (int i = 1; i < samples.Count; i++)
+            {
+                if (samples[i].LocalTransmit || samples[i - 1].LocalTransmit) continue;
+                double d = samples[i].OffsetSeconds - samples[i - 1].OffsetSeconds;
+                if (d > 0.0) spacings.Add(d);
+            }
+            if (spacings.Count < 2) return gaps;
+
+            spacings.Sort();
+            int mid = spacings.Count / 2;
+            double typical = spacings.Count % 2 == 1
+                ? spacings[mid]
+                : (spacings[mid - 1] + spacings[mid]) / 2.0;
+            r.TypicalSpacingSeconds = typical;
+            if (typical <= 0.0) return gaps;
+
+            double limit = typical * GapSpacingMultiple;
+            double missing = 0.0, longest = 0.0;
+            for (int i = 1; i < samples.Count; i++)
+            {
+                if (samples[i].LocalTransmit || samples[i - 1].LocalTransmit) continue;
+                double start = samples[i - 1].OffsetSeconds, end = samples[i].OffsetSeconds;
+                double d = end - start;
+                if (d <= limit) continue;
+                gaps.Add((start, end));
+                missing += d - typical;
+                if (d > longest) longest = d;
+            }
+
+            // The capture's EDGES, judged by the same cadence (repair round
+            // one, Codex's blocker). Readings between start and the first
+            // reading, and between the last reading and stop, were never
+            // observed either: a capture started while the stream was stalled,
+            // or stopped before it recovered, used to report full coverage and
+            // "Steady" over time nothing was measured in. An edge whose reading
+            // was taken while transmitting is the operator's own over, as above.
+            if (samples.Count > 0)
+            {
+                QsoSignalSample first = samples[0], last = samples[samples.Count - 1];
+                double head = first.OffsetSeconds;
+                if (!first.LocalTransmit && head > limit)
+                {
+                    gaps.Insert(0, (0.0, head));
+                    missing += head - typical;
+                    if (head > longest) longest = head;
+                }
+                double tail = r.CaptureSeconds - last.OffsetSeconds;
+                if (!last.LocalTransmit && tail > limit)
+                {
+                    gaps.Add((last.OffsetSeconds, r.CaptureSeconds));
+                    missing += tail - typical;
+                    if (tail > longest) longest = tail;
+                }
+            }
+
+            r.GapCount = gaps.Count;
+            r.MissingSeconds = missing;
+            r.LongestGapSeconds = longest;
+            double window = r.CaptureSeconds > 0.0 ? r.CaptureSeconds : r.AnalyzedSpanSeconds;
+            r.Coverage = window > 0.0 ? Math.Clamp(1.0 - missing / window, 0.0, 1.0) : 1.0;
+            return gaps;
+        }
+
+        /// <summary>
+        /// Whether a moment falls in or beside a gap: inside it, or within one
+        /// smoothing window of either edge. Half a window is where the smoothed
+        /// value is built from one side of the hole only; the other half is the
+        /// reach of the readings at the hole's very edge, which arrive as the
+        /// stream stalls and recovers and are the least trustworthy of all.
+        /// </summary>
+        private static bool NearGap(double t, List<(double Start, double End)> gaps)
+        {
+            double margin = SmoothingWindowSeconds;
+            foreach ((double start, double end) in gaps)
+                if (t >= start - margin && t <= end + margin) return true;
+            return false;
+        }
+
+        private static bool[] BesideGaps(List<QsoSignalSample> analyzed, List<(double Start, double End)> gaps)
+        {
+            var near = new bool[analyzed.Count];
+            if (gaps.Count == 0) return near;
+            for (int i = 0; i < analyzed.Count; i++)
+                near[i] = NearGap(analyzed[i].OffsetSeconds, gaps);
+            return near;
+        }
+
+        private static bool GapBetween(double a, double b, List<(double Start, double End)> gaps)
+        {
+            foreach ((double start, double end) in gaps)
+                if (start >= a && end <= b) return true;
+            return false;
         }
 
         // -------- fading --------
@@ -284,9 +485,10 @@ namespace Radios.SignalCapture
             QsoSignalAnalysisResult r,
             List<QsoSignalSample> analyzed,
             double[] smoothed,
-            double smoothedSwing)
+            double smoothedSwing,
+            List<(double Start, double End)> gaps)
         {
-            if (r.AnalyzedSpanSeconds < MinSecondsForQsb)
+            if (r.ReceiveSeconds < MinSecondsForQsb)
             {
                 r.Qsb = QsbVerdict.TooShortToAssess;
                 return;
@@ -302,40 +504,61 @@ namespace Radios.SignalCapture
             List<(double Time, double Value, bool IsTrough)> extremes =
                 ZigZag(analyzed, smoothed, hysteresis);
 
+            // A fade bottom on or beside a gap in the readings is not counted
+            // as a fade at all (#452): one phantom trough corrupts the rhythm
+            // for the whole capture, so it is set aside rather than reported
+            // with a caveat. The peak-to-trough moves either side of it go too.
+            int setAside = 0;
+            var counted = new bool[extremes.Count];
+            for (int i = 0; i < extremes.Count; i++)
+            {
+                counted[i] = !(gaps.Count > 0 && NearGap(extremes[i].Time, gaps));
+                if (!counted[i] && extremes[i].IsTrough) setAside++;
+            }
+            r.FadesSetAsideAtGaps = setAside;
+
             // Depth: mean move between adjacent committed extremes.
-            if (extremes.Count >= 2)
+            double depthSum = 0.0;
+            int depthMoves = 0;
+            for (int i = 1; i < extremes.Count; i++)
             {
-                double depthSum = 0.0;
-                for (int i = 1; i < extremes.Count; i++)
-                    depthSum += Math.Abs(extremes[i].Value - extremes[i - 1].Value);
-                r.FadeDepthDb = depthSum / (extremes.Count - 1);
+                if (!counted[i] || !counted[i - 1]) continue;
+                depthSum += Math.Abs(extremes[i].Value - extremes[i - 1].Value);
+                depthMoves++;
             }
-            else
+            r.FadeDepthDb = depthMoves > 0 ? depthSum / depthMoves : smoothedSwing;
+
+            // Trough-to-trough spacings, only between consecutive counted fade
+            // bottoms with no gap between them: across a hole, a real fade may
+            // have gone unseen, which would double the spacing.
+            var spacings = new List<double>();
+            double? previousTrough = null;
+            for (int i = 0; i < extremes.Count; i++)
             {
-                r.FadeDepthDb = smoothedSwing;
+                if (!extremes[i].IsTrough) continue;
+                if (!counted[i]) { previousTrough = null; continue; }
+                double t = extremes[i].Time;
+                if (previousTrough is double p && !GapBetween(p, t, gaps))
+                    spacings.Add(t - p);
+                previousTrough = t;
             }
 
-            var troughTimes = new List<double>();
-            foreach ((double time, _, bool isTrough) in extremes)
-                if (isTrough) troughTimes.Add(time);
-
-            int intervals = troughTimes.Count - 1;
+            int intervals = spacings.Count;
             if (intervals < 2)
             {
-                r.QsbCycleCount = Math.Max(0, intervals);
+                r.QsbCycleCount = intervals;
                 r.Qsb = QsbVerdict.TooFewCycles;
                 return;
             }
 
             double meanInterval = 0.0;
-            for (int i = 1; i < troughTimes.Count; i++)
-                meanInterval += troughTimes[i] - troughTimes[i - 1];
+            foreach (double s in spacings) meanInterval += s;
             meanInterval /= intervals;
 
             double variance = 0.0;
-            for (int i = 1; i < troughTimes.Count; i++)
+            foreach (double s in spacings)
             {
-                double d = (troughTimes[i] - troughTimes[i - 1]) - meanInterval;
+                double d = s - meanInterval;
                 variance += d * d;
             }
             double cv = meanInterval > 0.0 ? Math.Sqrt(variance / intervals) / meanInterval : 0.0;
@@ -413,7 +636,7 @@ namespace Radios.SignalCapture
         private static void AssessTrend(
             QsoSignalAnalysisResult r, List<QsoSignalSample> analyzed, double[] smoothed)
         {
-            if (r.AnalyzedSpanSeconds < MinSecondsForTrend)
+            if (r.ReceiveSeconds < MinSecondsForTrend)
             {
                 r.Trend = TrendVerdict.TooShortToAssess;
                 return;

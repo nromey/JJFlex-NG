@@ -1,0 +1,1 @@
+- A slice recording keeps its real length when a digital-mode program is listening to that slice through DAX. Before, the take could read as zero or one second long.

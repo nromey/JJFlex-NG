@@ -1598,6 +1598,8 @@ Module globals
             outcome.RecoveryRecordFailed = result.PendingRecordFailed
             outcome.TailUncertain = result.TailUncertain
             outcome.SinkFailedBeforeDrop = result.SinkFailedBeforeArchive
+            ' Which kind of recording this was, for the window's wording (#625).
+            outcome.EndedDetailedCapture = result.EndedDetailedCapture
             outcome.Refused = Not result.Owned
             outcome.RefusalReason = If(result.Owned, Nothing, result.Explanation)
 

@@ -137,7 +137,9 @@ public partial class AudioWorkshopDialog
         SetMeterText(_fwdPowerBox, $"Forward Power: {_rig.PowerDBM:F1} dBm"
             + $" ({FlexBase.FormatForwardPowerSpoken(_rig.ForwardPowerWatts)})");
 
-        SetMeterText(_swrBox, $"SWR: {_rig.SWRValue:F1}");
+        // ComputedSWR, not the raw SWRValue meter (see SwrReadout): a number
+        // when there is one, "SWR not measured" when there is not.
+        SetMeterText(_swrBox, SwrReadout.MeterBoxText(_rig.ComputedSWR));
 
         // TX drive is SW ALC, not HWALC (the external-amp jack the old readout
         // showed — always ~0). Mic audio is SC_MIC, honest for PC audio AND the

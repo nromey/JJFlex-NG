@@ -3335,6 +3335,10 @@ namespace Flex.Smoothlake.FlexLib
                             break;
 
                         case "dax_clients":
+                            // JJFlex patch: discarded, as stock FlexLib does. This label sat directly
+                            // above record_time's patched body and fell into it, so a DAX client count
+                            // was stored as the recorder's record time. Keep this break (MIGRATION.md item 20).
+                            break;
                         case "record_time":
                             // JJFlex patch: FlexLib previously discarded this radio-reported field.
                             if (!string.Equals(_recordTimeRaw, value, StringComparison.Ordinal))

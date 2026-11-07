@@ -109,12 +109,29 @@ namespace JJTrace
     {
         /// <summary>
         /// The words every self-describing line begins with, after the trace
-        /// prefix. The reading guide tells the operator to search for them,
-        /// which is how a blind reader of a large text file lists what it
-        /// holds — so this phrase is the whole navigation scheme, and a
-        /// change to it changes what the guide must say.
+        /// prefix — except the reading guide at the top, which is the one
+        /// <see cref="OpeningMarker"/> line. The reading guide tells the
+        /// operator to search for <see cref="SearchPhrase"/>, which is how a
+        /// blind reader of a large text file lists what it holds — so this
+        /// phrase is the whole navigation scheme, and a change to it changes
+        /// what the guide must say.
         /// </summary>
-        public const string Marker = "About this file:";
+        /// <remarks>
+        /// Until 2026-11-07 every self-describing line, the guide included,
+        /// began "About this file:". Noel's approved wording (#625, 2026-09-29)
+        /// keeps that phrase for the opening only, so a search for the notes
+        /// finds the notes and not the guide nine times over.
+        /// </remarks>
+        public const string Marker = "JJ Flexible Access Capture Note:";
+
+        /// <summary>The words the reading guide tells the reader to search
+        /// for. Part of <see cref="Marker"/>, so the search finds every
+        /// note.</summary>
+        public const string SearchPhrase = "Capture Note";
+
+        /// <summary>The words the reading guide begins with, and the only
+        /// line in a part that carries them (#625).</summary>
+        public const string OpeningMarker = "About this file:";
 
         /// <summary>
         /// The reading guide written at the top of every part, after the
@@ -150,16 +167,30 @@ namespace JJTrace
         /// </remarks>
         public static IReadOnlyList<string> PartPreamble() => new[]
         {
-            Marker + " this is a JJ Flexible Radio Access diagnostic recording. It is plain text, in the order"
-                   + " it was written. Most lines begin with the milliseconds since the program started and, in"
-                   + " square brackets, the thread that wrote it. Some do not: for example a line passed straight"
-                   + " through from the radio library, or the second and later lines of a long message such as"
-                   + " an error report.",
-            Marker + " some kinds of line explain themselves the first time they appear in this file, on a line"
-                   + " that begins like this one. To find those explanations, search for the words 'About this"
-                   + " file'. That finds only the kinds that have explained themselves; the file can also hold"
-                   + " lines that carry no explanation. If the recording was able to say how it ended, that is on"
-                   + " its last lines.",
+            // Noel's approved opening (#625, 2026-09-29), changed only where
+            // it claims more than H17 established and the guide test enforces
+            // (The_reading_guide_claims_only_what_the_sink_guarantees):
+            // "one event per line" is left out; "Each line begins" reads
+            // "Most lines begin"; "Each kind of measurement in this file
+            // introduces itself" reads "Kinds of measurement introduce
+            // themselves"; and "To list what this file carries, search for"
+            // becomes a search sentence that says the search finds only what
+            // has introduced itself. DRAFT where it departs from the approved
+            // words; the approved text is quoted in the batch report.
+            //
+            // Repair round one: the last sentence is H17's conditional again.
+            // The approved "the reason it ended early and whatever data
+            // survived are at the end of the file" is false when the sink
+            // itself fails: a closed sink refuses the closing line
+            // (RotatingTraceListener.WriteTerminalLine), so the file that
+            // most needs the reason is the one that cannot carry it.
+            OpeningMarker + " this is a JJ Flexible Radio Access diagnostic recording. It is plain text, oldest"
+                   + " first. Most lines begin with the number of milliseconds since the PROGRAM started — not"
+                   + " since this capture started — and, in square brackets, the thread that wrote it. Kinds of"
+                   + " measurement introduce themselves the first time they appear, on a line beginning \"" + Marker.TrimEnd(':')
+                   + "\". To find those notes, search for \"" + SearchPhrase + "\"; that finds only the kinds that"
+                   + " have introduced themselves, and the file can also hold lines that carry no note. If the"
+                   + " recording was able to say how it ended, that is on its last lines.",
         };
 
         /// <summary>The introduction line for a kind, as the sink writes it (without the trace prefix).</summary>
@@ -190,9 +221,29 @@ namespace JJTrace
         /// recording carries on in the next part, so a reader of this part
         /// knows it is not the end of the session.
         /// </summary>
-        /// <remarks>DRAFT for Noel.</remarks>
+        /// <param name="part">The part being frozen. Deliberately NOT named in
+        /// the sentence: naming the exact next part promises a file that may
+        /// never be written (Noel, 2026-09-29), so the numbering is
+        /// described generically.</param>
+        /// <remarks>Noel's approved wording (#625, 2026-09-29).</remarks>
         public static string CheckpointClosing(int part) =>
-            Marker + " this part ends here because a problem report took a snapshot of it. The recording"
-                   + " was not stopped; it continues in part " + (part + 1).ToString("D3") + ".";
+            Marker + " this part of your capture ends here because a problem report took a snapshot of it."
+                   + ContinuesInTheNextPart;
+
+        /// <summary>
+        /// The line written when a part reaches its size limit and the
+        /// recording carries on in a fresh part. A different cause from
+        /// <see cref="CheckpointClosing"/>, and the program always knows which,
+        /// so it is a different sentence (#625). Never written to a file that
+        /// has only one part: it is written at the rotation itself.
+        /// </summary>
+        /// <remarks>Noel's approved wording (#625, 2026-09-29).</remarks>
+        public static string SizeLimitClosing() =>
+            Marker + " this part of your capture ends here because it reached its size limit, so a long"
+                   + " recording is split into smaller, more manageable files." + ContinuesInTheNextPart;
+
+        private const string ContinuesInTheNextPart =
+            " The capture has not stopped. It continues in the next numbered part: if this is part 001, the"
+            + " next is 002, and so on.";
     }
 }

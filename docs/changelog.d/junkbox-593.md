@@ -1,0 +1,1 @@
+- When two alarms go off on the same reading, a failing supply pulling the PA temperature and the voltage over their lines together for example, you now hear one warning tone and one announcement that says how many alarms there are and gives each one, instead of two tones and two announcements back to back.

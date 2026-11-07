@@ -231,6 +231,15 @@ internal static class Press
                 SendStep(chord.Steps[i]);
             }
         }
+        catch (SendInputFailedException ex)
+        {
+            // Windows refused the keystroke (#914). That is an error about the
+            // probe, never a silent press: nothing about the app can be
+            // concluded, so no settle, no diff, no verdict on the app.
+            result.Verdict = "not-sent";
+            result.Error = ex.Message;
+            return result;
+        }
         finally
         {
             // Unconditional. If anything above threw mid-chord, a modifier is

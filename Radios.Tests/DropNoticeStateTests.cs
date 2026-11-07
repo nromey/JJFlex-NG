@@ -214,6 +214,7 @@ namespace Radios.Tests
                     SuccessorRecording = archiveResult.TracingOn,
                     TailUncertain = archiveResult.TailUncertain,
                     SinkFailedBeforeDrop = archiveResult.SinkFailedBeforeArchive,
+                    EndedDetailedCapture = archiveResult.EndedDetailedCapture,
                 };
                 // As globals.vb does: the operator is only ever offered a path
                 // that exists, so wait for the archive here, on the worker.
@@ -336,12 +337,18 @@ namespace Radios.Tests
         private static void AssertIntroducedOnceBeforeFirst(string text, TraceRecordKind kind, string lineHead)
         {
             string[] lines = text.Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
-            string intro = TraceSelfDescription.Introduction(kind);
-            int[] introAt = lines.Select((l, i) => (l, i)).Where(p => p.l.Contains(intro, StringComparison.Ordinal)).Select(p => p.i).ToArray();
+            // An introduction may run over several lines: a meter list puts one
+            // field per line (#625). Its first line carries the marker and is
+            // found once; the rest follow it exactly; and the LAST of them sits
+            // immediately before the first record.
+            string[] intro = TraceSelfDescription.Introduction(kind).Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
+            int[] introAt = lines.Select((l, i) => (l, i)).Where(p => p.l.Contains(intro[0], StringComparison.Ordinal)).Select(p => p.i).ToArray();
             Assert.True(introAt.Length == 1, kind.Key + " introduced " + introAt.Length + " times; expected once");
+            for (int k = 1; k < intro.Length; k++)
+                Assert.Equal(intro[k], lines[introAt[0] + k]);
             int firstRecord = Array.FindIndex(lines, l => l.Contains("] " + lineHead, StringComparison.Ordinal));
             Assert.True(firstRecord > 0, "no " + lineHead + " line in the file");
-            Assert.Equal(firstRecord - 1, introAt[0]);
+            Assert.Equal(firstRecord - 1, introAt[0] + intro.Length - 1);
         }
 
         /// <summary>
@@ -399,7 +406,11 @@ namespace Radios.Tests
             // Which sentence it is, by key, is RecordingHealthNoticeTests'
             // business: that class sits in the statics collection the lexicon
             // store requires, and this one does not.
-            Assert.Contains("The recording has been closed and saved.", receiveOnly.WhatWasSaved, StringComparison.Ordinal);
+            // These drops run on the standing log (Begin with asDetailedCapture:
+            // false), so the window speaks of the log, not of a capture
+            // (#625, repair round two): the real fact, carried end to end.
+            Assert.Contains("The diagnostic log has been closed and saved.", receiveOnly.WhatWasSaved, StringComparison.Ordinal);
+            Assert.False(receiveOnly.DetailedCapture);
 
             // The file: each kind that was written introduces itself, once,
             // directly ahead of its first line; a kind that was not written is
@@ -490,10 +501,10 @@ namespace Radios.Tests
                 Assert.True(n.TailUncertain);
                 Assert.True(n.SinkFailedBeforeDrop);
                 AssertNoContentClaim(n);
-                Assert.Contains("had already stopped taking new lines before the connection went", n.TailCaveat, StringComparison.Ordinal);
+                Assert.Contains("had already stopped taking new lines before the connection was lost", n.TailCaveat, StringComparison.Ordinal);
                 Assert.DoesNotContain("came before that failure", n.Explanation, StringComparison.Ordinal);
                 Assert.DoesNotContain("including the last readings the radio sent, is missing", n.Explanation, StringComparison.Ordinal);
-                Assert.DoesNotContain("It holds everything up to the moment", n.Explanation, StringComparison.Ordinal);
+                Assert.DoesNotContain("It holds the complete set of data up to and including the moment", n.Explanation, StringComparison.Ordinal);
             }
             Assert.Equal(readingKept.Explanation, readingRefused.Explanation);
         }
@@ -536,7 +547,7 @@ namespace Radios.Tests
                 Assert.False(n.SinkFailedBeforeDrop, "the sink was alive when the archive read it");
                 AssertNoContentClaim(n);
                 Assert.Contains("as the recording was being closed", n.TailCaveat, StringComparison.Ordinal);
-                Assert.Contains("lines written just before it may be missing as well", n.TailCaveat, StringComparison.Ordinal);
+                Assert.Contains("lines written just before that may be missing", n.TailCaveat, StringComparison.Ordinal);
                 Assert.DoesNotContain("Everything before that point is in the file above", n.Explanation, StringComparison.Ordinal);
             }
             Assert.Equal(buffered.Explanation, empty.Explanation);
@@ -572,10 +583,10 @@ namespace Radios.Tests
             Assert.True(notice.SuccessorOpened, "the archive's own fact is kept: a successor did open");
             Assert.False(notice.RecordingNow);
             string text = notice.Explanation;
-            Assert.DoesNotContain("has already started recording again", text, StringComparison.Ordinal);
-            Assert.DoesNotContain("is being kept too", text, StringComparison.Ordinal);
+            Assert.Contains("is not being kept", text, StringComparison.Ordinal);
+            Assert.Contains("is not being kept", text, StringComparison.Ordinal);
             Assert.DoesNotContain("has not started recording again", text, StringComparison.Ordinal);
-            Assert.Contains("did start recording again after the connection went, but it is not recording now", text, StringComparison.Ordinal);
+            Assert.Contains("did start recording again after the connection was lost, but it is not recording now", text, StringComparison.Ordinal);
             Assert.Contains("what happens next is not being kept", text, StringComparison.Ordinal);
             Assert.Contains("Control J then Alt R", text, StringComparison.Ordinal);
         }
@@ -600,7 +611,7 @@ namespace Radios.Tests
 
             Assert.True(notice.SuccessorOpened);
             Assert.False(notice.RecordingNow);
-            Assert.DoesNotContain("is being kept too", notice.Explanation, StringComparison.Ordinal);
+            Assert.Contains("is not being kept", notice.Explanation, StringComparison.Ordinal);
             Assert.Contains("but it is not recording now", notice.Explanation, StringComparison.Ordinal);
         }
 
@@ -620,7 +631,7 @@ namespace Radios.Tests
 
             Assert.True(notice.SuccessorOpened);
             Assert.True(notice.RecordingNow);
-            Assert.Contains("has already started recording again, so the next thing that happens is being kept too",
+            Assert.DoesNotContain("is not being kept",
                             notice.Explanation, StringComparison.Ordinal);
             Assert.DoesNotContain("not recording now", notice.Explanation, StringComparison.Ordinal);
             Assert.DoesNotContain("Control J then Alt R", notice.Explanation, StringComparison.Ordinal);
@@ -651,7 +662,7 @@ namespace Radios.Tests
             // what H10 froze, and what a window built now would say.
             Assert.True(TraceRecordingHealth.Snapshot().SinkState == TraceSinkState.Recording);
             string atTheWorker = notice.Explanation;
-            Assert.Contains("has already started recording again, so the next thing that happens is being kept too",
+            Assert.DoesNotContain("is not being kept",
                             atTheWorker, StringComparison.Ordinal);
 
             // The queued Settings action runs first: exactly what
@@ -678,9 +689,9 @@ namespace Radios.Tests
             Assert.NotEqual(atTheWorker, atTheWindow);
             Assert.False(notice.RecordingNow);
             Assert.True(notice.SuccessorOpened, "the archive's own fact is kept: a successor did open");
-            Assert.DoesNotContain("is being kept too", atTheWindow, StringComparison.Ordinal);
+            Assert.Contains("is not being kept", atTheWindow, StringComparison.Ordinal);
             Assert.DoesNotContain("has not started recording again", atTheWindow, StringComparison.Ordinal);
-            Assert.Contains("did start recording again after the connection went, but it is not recording now", atTheWindow, StringComparison.Ordinal);
+            Assert.Contains("did start recording again after the connection was lost, but it is not recording now", atTheWindow, StringComparison.Ordinal);
             Assert.Contains("what happens next is not being kept", atTheWindow, StringComparison.Ordinal);
             Assert.Contains("Control J then Alt R", atTheWindow, StringComparison.Ordinal);
         }
@@ -694,7 +705,7 @@ namespace Radios.Tests
         public void A_successor_that_fails_after_the_worker_composed_the_notice_is_not_called_a_running_log_at_the_window()
         {
             CaptureArchiveNotice notice = OneDrop(duringTheWait: () => { });
-            Assert.Contains("is being kept too", notice.Explanation, StringComparison.Ordinal);   // the worker's moment
+            Assert.DoesNotContain("is not being kept", notice.Explanation, StringComparison.Ordinal);   // the worker's moment
 
             BreakTheLiveSink();
             Tracing.TraceLine("the write that fails", TraceLevel.Warning);
@@ -707,7 +718,7 @@ namespace Radios.Tests
             _out.WriteLine(atTheWindow);
             Assert.False(notice.RecordingNow);
             Assert.True(notice.SuccessorOpened);
-            Assert.DoesNotContain("is being kept too", atTheWindow, StringComparison.Ordinal);
+            Assert.Contains("is not being kept", atTheWindow, StringComparison.Ordinal);
             Assert.Contains("but it is not recording now", atTheWindow, StringComparison.Ordinal);
         }
 
@@ -730,7 +741,7 @@ namespace Radios.Tests
         public void A_successor_whose_file_has_closed_is_not_called_recording_while_its_retirement_is_still_queued()
         {
             CaptureArchiveNotice notice = OneDrop(duringTheWait: () => { });
-            Assert.Contains("is being kept too", notice.Explanation, StringComparison.Ordinal);   // the worker's moment
+            Assert.DoesNotContain("is not being kept", notice.Explanation, StringComparison.Ordinal);   // the worker's moment
             RotatingTraceListener successorSink = Tracing.LiveListener;
             Assert.NotNull(successorSink);
 
@@ -754,7 +765,7 @@ namespace Radios.Tests
                 Assert.False(notice.RecordingNow);
                 Assert.False(CaptureArchiveNotice.LiveRecordingState());
                 Assert.True(notice.SuccessorOpened);
-                Assert.DoesNotContain("is being kept too", atTheWindow, StringComparison.Ordinal);
+                Assert.Contains("is not being kept", atTheWindow, StringComparison.Ordinal);
                 Assert.Contains("but it is not recording now", atTheWindow, StringComparison.Ordinal);
             }
 
@@ -839,7 +850,7 @@ namespace Radios.Tests
             string atTheWindow = notice.Explanation;
             Assert.Equal(atTheWorker, atTheWindow);
             Assert.True(notice.RecordingNow);
-            Assert.Contains("so the next thing that happens is being kept too", atTheWindow, StringComparison.Ordinal);
+            Assert.DoesNotContain("is not being kept", atTheWindow, StringComparison.Ordinal);
         }
     }
 }

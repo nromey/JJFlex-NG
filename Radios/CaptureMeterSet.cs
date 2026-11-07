@@ -120,23 +120,45 @@ namespace Radios
         /// </remarks>
         public static readonly TraceRecordKind TxMetersRecord = new TraceRecordKind(
             "txMeters",
-            "lines that begin 'txMeters: state=' are JJ Flexible's transmit meter snapshots. One is written"
+            // One field per line, name: what it is (#625, Noel's approved
+            // wording of 2026-09-29). The field lines are his; the opening
+            // sentences keep H17's rate and H18's window, which the approved
+            // draft predates, so those sentences are DRAFT. No aligned
+            // columns: an aligned block is a table.
+            "lines that begin 'txMeters: state=' are JJ Flexible Access's transmit readings. One is written"
             + " when a meter reading arrives while the radio is transmitting or tuning, at most once a second"
-            + " while transmitting and at most four times a second while tuning. state says whether the radio"
-            + " was transmitting, tuning, or both. Every value on the line comes from the current transmission"
-            + " or tune, which starts when the radio reports that it is transmitting or when a tune begins, and"
-            + " starts again on a new connection; nothing the radio sent before that is used. SC_MIC is the"
-            + " latest mic level in dB, and 'via' names the copy of that meter JJ Flexible believes. The figure"
-            + " in brackets is the highest SC_MIC reading from that copy so far in this transmission or tune; if"
-            + " the believed copy changes, it starts again. SWALC is the latest software ALC reading. fwd and"
-            + " refl are the latest forward and reflected power in dBm, fwdW and reflW the same in watts, back"
-            + " the share of power coming back, SWRraw the latest SWR the radio reports and SWRcalc the SWR"
-            + " computed from the two powers. A value written as '" + NoSample + "' is one the radio has not"
-            + " reported during this transmission or tune, so there is no reading to give; a value worked out"
-            + " from it is '" + NoSample + "' too. 'n/a' means both powers had arrived but the value could not"
-            + " honestly be worked out from them, for example because there was too little forward power. A"
-            + " 'txMeters:' line that instead counts the copies of a meter, or names a copy as elected or"
-            + " re-elected, records which copy of a duplicated meter is being read; it is not a reading.");
+            + " while transmitting and at most four times a second while tuning. Every value on the line comes"
+            + " from the current transmission or tune, which starts when the radio reports that it is"
+            + " transmitting or when a tune begins, and starts again on a new connection; nothing the radio sent"
+            + " before that is used. The fields:"
+            + Environment.NewLine + "state: transmitting (tx), tuning (tune), or both at once (tune+tx). Read this one"
+            + " first — SC_MIC and SWALC mean nothing during a tune, because nobody is speaking into the microphone."
+            + Environment.NewLine + "SC_MIC: your microphone level, in dB. The figure in brackets is the highest SC_MIC"
+            + " reading from that copy so far in this transmission or tune, the copy via names; if that copy"
+            + " changes, it starts again."
+            + Environment.NewLine + "via: which copy of the microphone meter was read. Some radios publish the same meter"
+            + " more than once, and a spare copy can sit dead at its lowest reading forever. Naming the copy is"
+            + " what lets a genuinely quiet microphone be told apart from a meter that never works."
+            + Environment.NewLine + "SWALC: the radio's software automatic level control, in dB."
+            + Environment.NewLine + "fwd: forward power, in dBm."
+            + Environment.NewLine + "refl: reflected power, in dBm."
+            + Environment.NewLine + "fwdW: the same forward power, in watts."
+            + Environment.NewLine + "reflW: the same reflected power, in watts."
+            // DRAFT (repair round one): the writer divides the latest forward
+            // and reflected readings, each kept by its own callback, once both
+            // have arrived in this transmission or tune. It does not check that
+            // they came from one moment, so the note must not say they did.
+            + Environment.NewLine + "back: the percentage of your transmit power coming back to the radio, worked out"
+            + " from the latest forward and reflected readings. It is given only when both have been reported during"
+            + " this transmission or tune; the two readings can have arrived at slightly different moments."
+            + Environment.NewLine + "SWRraw: the SWR the radio reports itself."
+            + Environment.NewLine + "SWRcalc: the SWR worked out from the forward and reflected power above."
+            + Environment.NewLine + "A value written as '" + NoSample + "' is one the radio has not reported during"
+            + " this transmission or tune, so there is no reading to give; a value worked out from it is '"
+            + NoSample + "' too. That is not a reading of zero. 'n/a' means both powers had arrived but the value"
+            + " could not honestly be worked out from them, for example because there was too little forward"
+            + " power. A 'txMeters:' line that instead counts the copies of a meter, or names a copy as elected"
+            + " or re-elected, records which copy of a duplicated meter is being read; it is not a reading.");
 
         /// <summary>
         /// What a <c>txMeters:</c> field says in place of a number when the
@@ -155,17 +177,24 @@ namespace Radios
         /// </summary>
         public static readonly TraceRecordKind CaptureMetersRecord = new TraceRecordKind(
             "captureMeters",
+            // One field per line (#625, Noel's approved wording of
+            // 2026-09-29), plus the two cases the code gained after it,
+            // 'not-selected' and 'partial=recorded_set_changed' (DRAFT).
             "lines that begin 'captureMeters:' are the amplifier temperature and the supply voltage as the radio"
-            + " reported them. paTemp gives the lowest, highest and last temperature in degrees C over the window"
-            + " and n the number of samples; 'paTemp none n=0' means the radio sent no temperature in that window,"
+            + " reported them. One line a second while transmitting or tuning, one every thirty seconds"
+            + " otherwise. The fields:"
+            + Environment.NewLine + "paTemp: the lowest, highest and last power-amplifier temperature in degrees C"
+            + " across the window. 'paTemp none n=0' means the radio sent no temperature at all in that window,"
             + " and 'paTemp not-selected' means the operator took PA temperature out of the recorded meters, so"
-            + " none was asked for. volts is the supply voltage at the moment the line was written, or the reason there is none, and"
-            + " voltsAge says how old that reading was when it is older than the window. state says whether the"
-            + " window was taken while transmitting or tuning (tx) or at rest. One line a second while"
-            + " transmitting or tuning, one every thirty seconds otherwise. A line that ends"
-            + " 'partial=connection_dropped' is a window cut short because the connection to the radio was lost; one"
-            + " that ends 'partial=recorded_set_changed' is a window cut short because the operator changed the recorded"
-            + " meters, and it describes the window under the selection it was taken with.");
+            + " none was asked for."
+            + Environment.NewLine + "n: how many samples were counted across the window."
+            + Environment.NewLine + "volts: the supply voltage at the moment the line was written, or the reason there is none."
+            + Environment.NewLine + "voltsAge: how old that voltage reading was, given only when it is older than the window."
+            + Environment.NewLine + "state: whether the window was taken while transmitting or tuning (tx), or at rest."
+            + Environment.NewLine + "A line ending 'partial=connection_dropped' is a window cut short because the"
+            + " connection to the radio was lost; one ending 'partial=recorded_set_changed' is a window cut"
+            + " short because the operator changed the recorded meters, and it describes the window under the"
+            + " selection it was taken with.");
 
         /// <summary>
         /// The radio's own name for its PA temperature meter — the one meter

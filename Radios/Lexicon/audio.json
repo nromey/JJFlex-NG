@@ -613,6 +613,7 @@
   "audio.power.range_dbm": "Range {min} to {max} dBm, hundredths of a dB. Arrows adjust by 0.1 dB, Shift plus arrows by 0.01. Type digits, minus, and point, then Enter.",
   "audio.power.range_watts": "Range 0 to 100 watts, whole watts only — the radio's power control is an integer. Arrows adjust by 1, type digits then Enter for an exact value.",
   "audio.qso.all_transmit": "You were transmitting the whole time, so the other station could not be measured.",
+  "audio.qso.coverage_gaps": {"text": "Readings were missing for {missing}, the longest gap {longest}, so only {coverage} percent of the capture was measured.", "delivery": null},
   "audio.qso.failed": "The signal analyzer could not do that. The details are in the diagnostic log.",
   "audio.qso.falling": "Falling overall.",
   "audio.qso.nothing": "No meter readings arrived. Nothing was measured.",

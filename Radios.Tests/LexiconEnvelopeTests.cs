@@ -2305,6 +2305,50 @@ namespace Radios.Tests
                 // Round eleven (#747): the transmit filter speaker joins the
                 // edges it must cover into one sentence. DRAFT.
                 "audio.tx_filter.clause_joiner",
+                // Junk box #570 (2026-11-07): the braille status line's short
+                // SWR cell when there is no reading, on displays under 80
+                // cells. A cell of the display, never spoken on the
+                // application's own account: TextOnly. DRAFT PROSE.
+                "connect.home.braille_swr_no_reading",
+                // Junk box #452 (2026-11-07): the capture headline's coverage
+                // sentence, spoken only when readings went missing, as a part
+                // of the headline the operator's own stop press asked for. A
+                // FRAGMENT of that utterance, so TextOnly (the #777
+                // reasoning). DRAFT PROSE.
+                "audio.qso.coverage_gaps",
+                // Junk box #625 (2026-11-07): the drop window, reworded to
+                // Noel's approved text of 2026-09-29, so the nine reworded
+                // keys leave the freeze list and are classified (#629). The
+                // window's body prose, read when focus lands in it and never
+                // said on the application's own account: TextOnly, on the
+                // connect.ownership.reason reasoning. what_plain and the two
+                // not-recording endings are DRAFTS; the rest are approved.
+                "logging.capture.dropped.saved",
+                "logging.capture.dropped.saved_tail_uncertain",
+                "logging.capture.dropped.tail_uncertain",
+                "logging.capture.dropped.tail_uncertain_earlier",
+                "logging.capture.dropped.what_named",
+                "logging.capture.dropped.what_plain",
+                "logging.capture.dropped.what_to_do",
+                // Repair round two (2026-11-07): the window's standing-log
+                // variants, the complete-capture next steps, and the two
+                // not-recording endings split out of the retired combined
+                // keys what_to_do_not_recording and what_to_do_stopped_since.
+                // Same TextOnly reasoning. All DRAFT PROSE.
+                "logging.capture.dropped.ending_not_recording",
+                "logging.capture.dropped.ending_stopped_since",
+                "logging.capture.dropped.saved_log",
+                "logging.capture.dropped.saved_tail_uncertain_log",
+                "logging.capture.dropped.tail_uncertain_log",
+                "logging.capture.dropped.what_named_log",
+                "logging.capture.dropped.what_plain_log",
+                "logging.capture.dropped.what_to_do_complete",
+                "logging.capture.dropped.what_to_do_log",
+                // Junk box #593 (2026-11-07): the frame that carries several
+                // alarm warnings in one utterance. A FRAGMENT around the
+                // member sentences, which keep their own keys and
+                // classification, so TextOnly (the #777 reasoning). DRAFT PROSE.
+                "alarms.coalesced",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
@@ -2321,7 +2365,9 @@ namespace Radios.Tests
             // "Filter edge mode ended" (#748; every exit says off).
             // 3079 since round four replaced the preset announcement's two
             // wrappers and reworded the active-preset status (#747).
-            Assert.Equal(3079, unclassified);
+            // And nine more (3079 to 3070 on the merge): junk box 2026-11-07 (#625) reworded and classified nine
+            // logging.capture.dropped.* keys.
+            Assert.Equal(3070, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

@@ -34,7 +34,7 @@ namespace JJTrace
         public static readonly TraceRecordKind Record = new TraceRecordKind(
             "CaptureState",
             "lines that begin 'CaptureState:' record whether a detailed capture was on, the detail level being"
-            + " recorded, which copy of JJ Flexible wrote this file and where the file was. The last such line in"
+            + " recorded, which copy of JJ Flexible Access wrote this file and where the file was. The last such line in"
             + " a finished file marks the capture off and the level Off: it is written as the recording is closed.");
 
         /// <summary>

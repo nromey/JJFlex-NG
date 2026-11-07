@@ -372,8 +372,47 @@ internal sealed class ActivityWatcher : IDisposable
 /// </summary>
 internal static class TraceLog
 {
+    /// <summary>
+    /// The settings root jjprobe reads traces from (#914): <c>--config-dir</c>
+    /// when given, else this process's own <c>JJFLEX_CONFIG_DIR</c>, else the
+    /// ordinary <c>%AppData%\JJFlexRadio</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>Until 2026-11-07 this was the ordinary folder only, so an app run
+    /// under <c>JJFLEX_CONFIG_DIR</c> (every isolated bench run) wrote its
+    /// trace where jjprobe never looked, and jjprobe said "no trace file
+    /// found". The app names its settings location only INSIDE that trace, so
+    /// the trace cannot be the source: the bench that set the variable for the
+    /// app sets it for jjprobe too, or passes <c>--config-dir</c>.</para>
+    /// <para>A relative path is refused, as the app refuses it: it would
+    /// resolve against whatever directory jjprobe was started in.</para>
+    /// </remarks>
     public static string AppDataDir =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "JJFlexRadio");
+        ResolveAppDataDir(ConfigDirOption, Environment.GetEnvironmentVariable(ConfigDirVariable),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "JJFlexRadio"));
+
+    /// <summary>The app's own variable for a throwaway settings tree.</summary>
+    public const string ConfigDirVariable = "JJFLEX_CONFIG_DIR";
+
+    /// <summary>The <c>--config-dir</c> option, set once by Program.</summary>
+    public static string? ConfigDirOption { get; set; }
+
+    internal static string ResolveAppDataDir(string? option, string? environment, string standard)
+    {
+        foreach (string? candidate in new[] { option, environment })
+        {
+            if (string.IsNullOrWhiteSpace(candidate)) continue;
+            string trimmed = candidate.Trim();
+            if (!Path.IsPathRooted(trimmed))
+            {
+                Console.Error.WriteLine("jjprobe: ignoring the settings folder \"" + trimmed
+                    + "\" because it is a relative path; give a full path.");
+                continue;
+            }
+            return Path.GetFullPath(trimmed);
+        }
+        return standard;
+    }
 
     /// <summary>Whether a detailed capture is writing a file, as the file's own
     /// CaptureState line states it. Unknown means the build predates the line —

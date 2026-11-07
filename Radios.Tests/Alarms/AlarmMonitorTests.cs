@@ -130,6 +130,24 @@ namespace Radios.Tests.Alarms
             Assert.Equal(AlarmDataState.Fresh, m.Data);
         }
 
+        /// <summary>
+        /// #632, ruled by Noel 2026-09-26: an alarm already hot when you
+        /// connect is announced. On the live path a connection starts a new
+        /// generation and the first sample of it, already over the line, is a
+        /// Fired warning, which AlarmDelivery sounds and speaks like any other.
+        /// </summary>
+        [Fact]
+        public void An_alarm_already_hot_at_first_connect_fires_on_the_connections_first_sample()
+        {
+            var m = new AlarmMonitor(Level(60));
+            m.NewConnection(2, 0);
+            var feed = new Feed { Generation = 2 };
+            var events = m.Observe(feed.At(1000, 63.5f), 1000);
+            AlarmEvent fired = Assert.Single(events, e => e.Kind == AlarmEventKind.Fired);
+            Assert.True(fired.IsWarning);
+            Assert.Equal(AlarmConditionState.Active, m.Condition);
+        }
+
         // ── out-of-range finite values ──
 
         [Fact]

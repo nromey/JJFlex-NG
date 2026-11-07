@@ -1,0 +1,1 @@
+- The Fixer's audio check now gives a DirectSound microphone the same note it gives MME: it records fine, but read the levels in that run as approximate. The note names the audio subsystem you actually have open.

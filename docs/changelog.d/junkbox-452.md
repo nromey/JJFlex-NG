@@ -1,0 +1,1 @@
+- When readings stop arriving during a signal capture, usually because the network stalled, the capture now says so first: how long readings were missing and how much of the capture was really measured. A stall is no longer reported as a fade in the signal.

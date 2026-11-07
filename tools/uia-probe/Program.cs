@@ -65,6 +65,9 @@ internal static class Program
 
         string command = args[0].ToLowerInvariant();
         var opt = new Args(args.Skip(1));
+        // Where the app's traces are: --config-dir, else JJFLEX_CONFIG_DIR in
+        // jjprobe's own environment, else the ordinary folder (#914).
+        TraceLog.ConfigDirOption = opt.Str("config-dir");
 
         return command switch
         {
@@ -126,6 +129,10 @@ jjprobe — drive and observe a running JJ Flexible from outside the process.
                     [--risk safe,mutates,transmits] [--max N] [--no-capture] [--digest]
                     [--transmit-clearance FILE] [--exclude "Comma,Period"] [--dry-run]
                     [--out FILE] [--json]
+
+Every command that reads the app's trace looks in --config-dir DIR when given,
+else in JJFLEX_CONFIG_DIR from jjprobe's own environment, else in
+%AppData%\JJFlexRadio. Run jjprobe with the same JJFLEX_CONFIG_DIR as the app.
 
 Default process name is 'jjflexible'. --window takes a title substring, a class
 substring, or an index from `jjprobe windows`.
@@ -244,8 +251,10 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
         string? appDir = a.Str("appdir") ?? Inventory.AppDirOf(pid);
         TraceLog.TraceHeader? header = appDir != null ? TraceLog.FindForApp(appDir) : null;
         if (header == null)
-            Console.Error.WriteLine("jjprobe: no trace file found for that process — routing and speech "
-                + "cannot be observed. Run `jjprobe trace --all` to see what is on disk.");
+            Console.Error.WriteLine("jjprobe: no trace file found for that process in " + TraceLog.AppDataDir
+                + " — routing and speech cannot be observed. If the app runs under JJFLEX_CONFIG_DIR, give "
+                + "jjprobe the same folder (--config-dir or the variable). Run `jjprobe trace --all` to see "
+                + "what is on disk.");
 
         // Observe the live file, not the file the header happens to sit in —
         // on pre-CaptureState builds those differ for every post-boot session,
@@ -380,7 +389,7 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
             var all = TraceLog.AllHeaders()
                 .OrderByDescending(h => h.StartedAt)
                 .ToList();
-            Console.WriteLine($"{all.Count} trace file(s) with a readable session header, newest session first:");
+            Console.WriteLine($"{all.Count} trace file(s) in {TraceLog.AppDataDir} with a readable session header, newest session first:");
             foreach (var h in all)
             {
                 string captureNote = h.Capture switch
@@ -401,8 +410,10 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
         TraceLog.TraceHeader? found = TraceLog.FindForApp(appDir);
         if (found == null)
         {
-            Console.WriteLine("NO TRACE FILE for that build. Routing and speech are both unobservable, so a "
-                + "sweep would report every key as silent regardless of whether it works.");
+            Console.WriteLine("NO TRACE FILE for that build in " + TraceLog.AppDataDir + ". Routing and speech "
+                + "are both unobservable, so a sweep would report every key as silent regardless of whether it "
+                + "works. If the app runs under JJFLEX_CONFIG_DIR, give jjprobe the same folder (--config-dir or "
+                + "the variable).");
             Console.WriteLine("Run `jjprobe trace --all` to see whose sessions are on disk.");
             return 1;
         }

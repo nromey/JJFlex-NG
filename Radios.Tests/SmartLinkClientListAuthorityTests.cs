@@ -41,6 +41,11 @@ namespace Radios.Tests
         private const string Account = "executed@example.test";
         private const string OtherAccount = "someone-else@example.test";
         private const string Requested = "K5TEST";
+        // The other stations on the radio. Clearly fictional: a four-letter
+        // suffix is not a valid amateur call anywhere. Sentences asserted
+        // below spell the call out, so each reads as the exact words shown.
+        private const string GuestStation = "W2TEST";
+        private const string SecondGuestStation = "N9TEST";
 
         private static readonly FieldInfo AddedFlag =
             typeof(FlexBase).GetField("_clientAddedDuringStart", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -147,7 +152,7 @@ namespace Radios.Tests
         }
 
         private static GUIClient Own(string station = Requested) => new GUIClient(7, null, "JJFlex", station, false);
-        private static GUIClient Don() => new GUIClient(9, null, "SmartSDR", "WA2IWC", false);
+        private static GUIClient Guest() => new GUIClient(9, null, "SmartSDR", GuestStation, false);
 
         private static void OurClientIsEstablished(Bench b)
         {
@@ -168,31 +173,31 @@ namespace Radios.Tests
             OurClientIsEstablished(b);
             b.Refreshes = 0;
 
-            // SmartLink's list says Don is on the radio. Displayed and
+            // SmartLink's list says the guest is on the radio. Displayed and
             // labelled; not spoken; the retry flags untouched.
-            b.ListSays(Account, Own(), Don());
+            b.ListSays(Account, Own(), Guest());
             Assert.Equal(0, b.ConnectedEarcons);
             Assert.True(b.Added);
             Assert.False(b.Removed);
-            var don = b.Row(9);
-            Assert.NotNull(don);
-            Assert.False(don.Value.ConfirmedByRadio);
-            Assert.False(don.Value.MayHaveLeft);
-            Assert.Contains("Reported by SmartLink", ClientRowPhrase.Line(don.Value), StringComparison.Ordinal);
+            var guest = b.Row(9);
+            Assert.NotNull(guest);
+            Assert.False(guest.Value.ConfirmedByRadio);
+            Assert.False(guest.Value.MayHaveLeft);
+            Assert.Contains("Reported by SmartLink", ClientRowPhrase.Line(guest.Value), StringComparison.Ordinal);
             Assert.Equal(1, b.Refreshes);
 
             // The same list again: the answer did not change, so the display
             // is not told again (the signature gate, #634's second caller).
-            b.ListSays(Account, Own(), Don());
+            b.ListSays(Account, Own(), Guest());
             Assert.Equal(1, b.Refreshes);
 
             // The radio's own word: announced, and the row is confirmed.
-            b.RadioSays("S0|client 9 connected client_id=don program=SmartSDR station=WA2IWC local_ptt=0");
+            b.RadioSays("S0|client 9 connected client_id=guest program=SmartSDR station=W2TEST local_ptt=0");
             Assert.Equal(1, b.ConnectedEarcons);
             Assert.True(b.Row(9).Value.ConfirmedByRadio);
             Assert.DoesNotContain("Reported by SmartLink", ClientRowPhrase.Line(b.Row(9).Value), StringComparison.Ordinal);
 
-            // The list stops mentioning Don. Not a departure: kept, marked,
+            // The list stops mentioning the guest. Not a departure: kept, marked,
             // not spoken, and not a reason to retry.
             b.ListSays(Account, Own());
             Assert.Equal(0, b.DisconnectedEarcons);
@@ -216,7 +221,7 @@ namespace Radios.Tests
 
             // The list omits our own record — the stale-list shape that used
             // to abort a live connect for a retry.
-            b.ListSays(Account, Don());
+            b.ListSays(Account, Guest());
             Assert.False(b.Removed, "a SmartLink list omitting our record armed the retry (#634)");
             Assert.True(b.Added);
 
@@ -226,7 +231,7 @@ namespace Radios.Tests
 
             // And a list re-adding our record does not clear it; the radio's
             // own report does.
-            b.ListSays(Account, Own(), Don());
+            b.ListSays(Account, Own(), Guest());
             Assert.True(b.Removed, "a SmartLink list re-adding our record read as the radio saying we were back (#634)");
             b.RadioSays("S0|client 7 connected client_id=me program=JJFlex station=" + Requested + " local_ptt=1");
             Assert.False(b.Removed);
@@ -238,7 +243,7 @@ namespace Radios.Tests
         {
             using var b = new Bench();
             OurClientIsEstablished(b);
-            b.ListSays(Account, Own(), Don());
+            b.ListSays(Account, Own(), Guest());
 
             Assert.False(b.Rig.RadioHasConfirmedClient(9));
             Assert.False(b.Rig.DisconnectGuiClient(9),
@@ -246,15 +251,15 @@ namespace Radios.Tests
             // Named as company that may be affected — and NOT in the definite
             // claim. L6 asserted the opposite here, pinning the false claim
             // Sol's review of L6 found (#634, Track L7).
-            Assert.DoesNotContain("WA2IWC", b.Rig.OtherConnectedStations);
-            Assert.Equal(new[] { "WA2IWC" }, b.Rig.UnconfirmedOtherStations);
-            Assert.Equal(Lexicon.Get("connect.client.unconfirmed_affected", ("clients", "WA2IWC")), b.Rig.UnconfirmedCompanyCaveat);
+            Assert.DoesNotContain(GuestStation, b.Rig.OtherConnectedStations);
+            Assert.Equal(new[] { GuestStation }, b.Rig.UnconfirmedOtherStations);
+            Assert.Equal(Lexicon.Get("connect.client.unconfirmed_affected", ("clients", GuestStation)), b.Rig.UnconfirmedCompanyCaveat);
 
             // The radio identifies him: named as connected, no caveat, and
             // the row is his to disconnect.
-            b.RadioSays("S0|client 9 connected client_id=don program=SmartSDR station=WA2IWC local_ptt=0");
+            b.RadioSays("S0|client 9 connected client_id=guest program=SmartSDR station=W2TEST local_ptt=0");
             Assert.True(b.Rig.RadioHasConfirmedClient(9));
-            Assert.Equal(new[] { "WA2IWC" }, b.Rig.OtherConnectedStations);
+            Assert.Equal(new[] { GuestStation }, b.Rig.OtherConnectedStations);
             Assert.Empty(b.Rig.UnconfirmedOtherStations);
             Assert.Null(b.Rig.UnconfirmedCompanyCaveat);
             Assert.True(ClientRowPhrase.MayDisconnect(b.Row(9)));
@@ -336,14 +341,14 @@ namespace Radios.Tests
 
             // Another account's list names the same radio. It was not the
             // path this connection took, so its roster stays out.
-            b.ListSays(OtherAccount, Own(), Don());
+            b.ListSays(OtherAccount, Own(), Guest());
             Assert.Null(b.Radio.FindGUIClientByClientHandle(7));
             Assert.Null(b.Radio.FindGUIClientByClientHandle(9));
             Assert.Empty(b.Rig.GetGuiClients());
             Assert.False(b.Rig.StationNameWaitDecision(b.Radio.FindGUIClientByClientHandle(7)?.Station, Requested).Finished);
 
             // Positive control: the brokered account's list writes it.
-            b.ListSays(Account, Own(), Don());
+            b.ListSays(Account, Own(), Guest());
             Assert.NotNull(b.Radio.FindGUIClientByClientHandle(7));
             Assert.NotNull(b.Row(9));
         }
@@ -356,7 +361,7 @@ namespace Radios.Tests
             Assert.Null(b.Rig.CurrentConnectionBinding.AccountId);
 
             // Null is not an account, and is not inferred to be one.
-            b.ListSays(Account, Own(), Don());
+            b.ListSays(Account, Own(), Guest());
             Assert.Null(b.Radio.FindGUIClientByClientHandle(7));
             Assert.Empty(b.Rig.GetGuiClients());
         }
@@ -382,23 +387,23 @@ namespace Radios.Tests
             using var b = new Bench(lan: true);
             OurClientIsEstablished(b);
 
-            b.BroadcastSays(Own(), Don(), new GUIClient(10, null, "SmartSDR", "", false));
+            b.BroadcastSays(Own(), Guest(), new GUIClient(10, null, "SmartSDR", "", false));
 
-            var don = b.Row(9);
-            Assert.NotNull(don);
-            Assert.Equal(ClientRowSource.LocalDiscovery, don.Value.Source);
-            Assert.False(don.Value.ConfirmedByRadio);
-            string line = ClientRowPhrase.Line(don.Value);
-            Assert.Equal("WA2IWC. Reported on the local network; not yet confirmed.", line);
+            var guest = b.Row(9);
+            Assert.NotNull(guest);
+            Assert.Equal(ClientRowSource.LocalDiscovery, guest.Value.Source);
+            Assert.False(guest.Value.ConfirmedByRadio);
+            string line = ClientRowPhrase.Line(guest.Value);
+            Assert.Equal("W2TEST. Reported on the local network; not yet confirmed.", line);
             Assert.DoesNotContain("SmartLink", line, StringComparison.Ordinal);
             Assert.Equal("A client with no station name was reported on the local network and it's currently not confirmed.",
                 ClientRowPhrase.Line(b.Row(10).Value));
             Assert.False(ClientRowPhrase.MayDisconnect(b.Row(9)));
 
             // The radio's own word outranks the broadcast.
-            b.RadioSays("S0|client 9 connected client_id=don program=SmartSDR station=WA2IWC local_ptt=0");
+            b.RadioSays("S0|client 9 connected client_id=guest program=SmartSDR station=W2TEST local_ptt=0");
             Assert.Equal(ClientRowSource.Radio, b.Row(9).Value.Source);
-            Assert.Equal("SmartSDR on WA2IWC", ClientRowPhrase.Line(b.Row(9).Value));
+            Assert.Equal("SmartSDR on W2TEST", ClientRowPhrase.Line(b.Row(9).Value));
         }
 
         /// <summary>
@@ -423,7 +428,7 @@ namespace Radios.Tests
             {
                 OurClientIsEstablished(lan);
                 lan.BroadcastSays(Own());
-                lan.ListSays(Account, Own(), Don());
+                lan.ListSays(Account, Own(), Guest());
                 Assert.Equal(ClientRowSource.SmartLinkList, lan.Row(9).Value.Source);
                 Assert.Contains("Reported by SmartLink", ClientRowPhrase.Line(lan.Row(9).Value), StringComparison.Ordinal);
             }
@@ -431,7 +436,7 @@ namespace Radios.Tests
             using (var wan = new Bench())
             {
                 OurClientIsEstablished(wan);
-                wan.BroadcastSays(Own(), Don());
+                wan.BroadcastSays(Own(), Guest());
                 Assert.Equal(ClientRowSource.LocalDiscovery, wan.Row(9).Value.Source);
                 Assert.Contains("Reported on the local network", ClientRowPhrase.Line(wan.Row(9).Value), StringComparison.Ordinal);
             }
@@ -458,34 +463,34 @@ namespace Radios.Tests
         {
             using var b = new Bench(alreadyOnTheObject: new[]
             {
-                new GUIClient(9, "don-id", "SmartSDR", "WA2IWC", false),
+                new GUIClient(9, "guest-id", "SmartSDR", GuestStation, false),
                 new GUIClient(10, "quiet-id", "SmartSDR", "", false),
             });
             OurClientIsEstablished(b);
 
-            var don = b.Row(9);
-            Assert.NotNull(don);
-            Assert.Equal(ClientRowSource.Unknown, don.Value.Source);
-            Assert.False(don.Value.ConfirmedByRadio);
-            Assert.True(don.Value.Uncertain);
-            Assert.True(don.Value.AwaitingRadio);
-            string line = ClientRowPhrase.Line(don.Value);
-            Assert.Equal("WA2IWC. Not yet confirmed.", line);
+            var guest = b.Row(9);
+            Assert.NotNull(guest);
+            Assert.Equal(ClientRowSource.Unknown, guest.Value.Source);
+            Assert.False(guest.Value.ConfirmedByRadio);
+            Assert.True(guest.Value.Uncertain);
+            Assert.True(guest.Value.AwaitingRadio);
+            string line = ClientRowPhrase.Line(guest.Value);
+            Assert.Equal("W2TEST. Not yet confirmed.", line);
             Assert.DoesNotContain("SmartLink", line, StringComparison.Ordinal);
             Assert.DoesNotContain("local network", line, StringComparison.Ordinal);
             Assert.Equal("A client with no station name is currently not confirmed.",
                 ClientRowPhrase.Line(b.Row(10).Value));
-            Assert.False(ClientRowPhrase.MayDisconnect(don));
+            Assert.False(ClientRowPhrase.MayDisconnect(guest));
 
             // The caveat, not the claim: no source is still not the radio.
             var company = ClientRowPhrase.Company(b.Rig.GetGuiClients());
-            Assert.Contains("WA2IWC", company.Reported);
-            Assert.DoesNotContain("WA2IWC", company.Confirmed);
+            Assert.Contains(GuestStation, company.Reported);
+            Assert.DoesNotContain(GuestStation, company.Confirmed);
 
             // The radio's own word replaces the unknown with the radio.
-            b.RadioSays("S0|client 9 connected client_id=don-id program=SmartSDR station=WA2IWC local_ptt=0");
+            b.RadioSays("S0|client 9 connected client_id=guest-id program=SmartSDR station=W2TEST local_ptt=0");
             Assert.Equal(ClientRowSource.Radio, b.Row(9).Value.Source);
-            Assert.Equal("SmartSDR on WA2IWC", ClientRowPhrase.Line(b.Row(9).Value));
+            Assert.Equal("SmartSDR on W2TEST", ClientRowPhrase.Line(b.Row(9).Value));
         }
 
         // ------------------------------------------------------------------
@@ -512,46 +517,46 @@ namespace Radios.Tests
         [Fact]
         public void A_disconnect_outcome_stays_on_the_line_until_the_operator_moves_or_the_radio_reports_the_client_gone()
         {
-            var don = new ClientRow("SmartSDR", "WA2IWC", 9, false, "", ClientRowSource.Radio, false);
-            var justin = new ClientRow("SmartSDR", "KD2XYZ", 10, false, "", ClientRowSource.SmartLinkList, false);
-            string sent = Lexicon.Get("connect.multiflex.disconnect_requested", ("station", don.NameForSentence));
+            var guest = new ClientRow("SmartSDR", GuestStation, 9, false, "", ClientRowSource.Radio, false);
+            var secondGuest = new ClientRow("SmartSDR", SecondGuestStation, 10, false, "", ClientRowSource.SmartLinkList, false);
+            string sent = Lexicon.Get("connect.multiflex.disconnect_requested", ("station", guest.NameForSentence));
             string unavailable = Lexicon.Get("connect.multiflex.disconnect_unavailable");
 
             var line = new DisconnectOutcomeLine();
-            Assert.Null(line.TextFor(don));
-            Assert.Equal(unavailable, line.TextFor(justin));
+            Assert.Null(line.TextFor(guest));
+            Assert.Equal(unavailable, line.TextFor(secondGuest));
 
             line.Record(9, sent);
             // The timed refresh half a second later: same rows, same row
             // selected. L6's refresh cleared the line here.
-            Assert.Equal(sent, line.TextFor(don));
-            // Another client leaves; Don is still selected.
-            Assert.Equal(sent, line.TextFor(don));
-            // A list stops mentioning Don. The radio has not spoken, so the
+            Assert.Equal(sent, line.TextFor(guest));
+            // Another client leaves; the guest is still selected.
+            Assert.Equal(sent, line.TextFor(guest));
+            // A list stops mentioning the guest. The radio has not spoken, so the
             // row stays — marked — and so does the outcome, instead of the
             // row's "unavailable" reason.
-            var donMaybeGone = don with { MayHaveLeft = true };
-            Assert.Equal(sent, line.TextFor(donMaybeGone));
+            var guestMaybeGone = guest with { MayHaveLeft = true };
+            Assert.Equal(sent, line.TextFor(guestMaybeGone));
 
             // The operator moves to another row: that row's reason, and the
             // outcome is finished — coming back does not bring it back.
-            Assert.Equal(unavailable, line.TextFor(justin));
-            Assert.Null(line.TextFor(don));
+            Assert.Equal(unavailable, line.TextFor(secondGuest));
+            Assert.Null(line.TextFor(guest));
 
             // The radio reports the client gone: the roster drops the row, so
             // the list selects another row or none, and the outcome goes.
             line.Record(9, sent);
-            Assert.Equal(sent, line.TextFor(don));
-            Assert.Equal(unavailable, line.TextFor(justin));
+            Assert.Equal(sent, line.TextFor(guest));
+            Assert.Equal(unavailable, line.TextFor(secondGuest));
             line.Record(9, sent);
             Assert.Null(line.TextFor(null));
 
             // A failed request is held the same way.
             string failed = Lexicon.Get("connect.multiflex.disconnect_failed");
             line.Record(9, failed);
-            Assert.Equal(failed, line.TextFor(don));
-            Assert.Equal(failed, line.TextFor(don));
-            Assert.Equal(unavailable, line.TextFor(justin));
+            Assert.Equal(failed, line.TextFor(guest));
+            Assert.Equal(failed, line.TextFor(guest));
+            Assert.Equal(unavailable, line.TextFor(secondGuest));
         }
 
         // ------------------------------------------------------------------
@@ -586,26 +591,26 @@ namespace Radios.Tests
             Assert.True(IsConnectedField != null, "FlexBase._IsConnected is not where this test sets it, so the preflight would refuse before the company lines.");
             IsConnectedField.SetValue(b.Rig, true);
 
-            // All unconfirmed: a list names Don and Justin, the radio neither.
-            var justin = new GUIClient(10, null, "SmartSDR", "KD2XYZ", false);
-            b.ListSays(Account, Own(), Don(), justin);
+            // All unconfirmed: a list names both guests, the radio neither.
+            var secondGuest = new GUIClient(10, null, "SmartSDR", SecondGuestStation, false);
+            b.ListSays(Account, Own(), Guest(), secondGuest);
             Assert.Empty(b.Rig.OtherConnectedStations);
-            Assert.Equal(new[] { "WA2IWC", "KD2XYZ" }, b.Rig.UnconfirmedOtherStations);
+            Assert.Equal(new[] { GuestStation, SecondGuestStation }, b.Rig.UnconfirmedOtherStations);
             var allReported = b.Rig.PreflightStaticIp("192.0.2.1", "192.0.2.254", "255.255.255.0");
             Assert.True(allReported.CanProceed, allReported.BlockReason);
             Assert.DoesNotContain(allReported.Warnings, w => w.Contains("are connected", StringComparison.Ordinal));
-            Assert.Equal(new[] { Lexicon.Get("connect.client.unconfirmed_affected", ("clients", "WA2IWC, KD2XYZ")) }, allReported.Warnings);
+            Assert.Equal(new[] { Lexicon.Get("connect.client.unconfirmed_affected", ("clients", GuestStation + ", " + SecondGuestStation)) }, allReported.Warnings);
 
-            // Mixed: the radio confirms Don. He moves to the definite claim
-            // and out of the caveat; Justin stays reported.
-            b.RadioSays("S0|client 9 connected client_id=don program=SmartSDR station=WA2IWC local_ptt=0");
-            Assert.Equal(new[] { "WA2IWC" }, b.Rig.OtherConnectedStations);
-            Assert.Equal(new[] { "KD2XYZ" }, b.Rig.UnconfirmedOtherStations);
+            // Mixed: the radio confirms the guest, who moves to the definite claim
+            // and out of the caveat; the second guest stays reported.
+            b.RadioSays("S0|client 9 connected client_id=guest program=SmartSDR station=W2TEST local_ptt=0");
+            Assert.Equal(new[] { GuestStation }, b.Rig.OtherConnectedStations);
+            Assert.Equal(new[] { SecondGuestStation }, b.Rig.UnconfirmedOtherStations);
             var mixed = b.Rig.PreflightStaticIp("192.0.2.1", "192.0.2.254", "255.255.255.0");
             Assert.Equal(new[]
             {
-                "Other stations are connected and will need to reconnect: WA2IWC",
-                Lexicon.Get("connect.client.unconfirmed_affected", ("clients", "KD2XYZ")),
+                "Other stations are connected and will need to reconnect: W2TEST",
+                Lexicon.Get("connect.client.unconfirmed_affected", ("clients", SecondGuestStation)),
             }, mixed.Warnings);
         }
 
@@ -620,20 +625,20 @@ namespace Radios.Tests
         public void The_company_split_puts_each_client_in_exactly_one_list()
         {
             var ours = new ClientRow("JJFlex", "K5TEST", 7, true, "", ClientRowSource.Radio, false);
-            var don = new ClientRow("SmartSDR", "WA2IWC", 9, false, "", ClientRowSource.Radio, false);
+            var guest = new ClientRow("SmartSDR", GuestStation, 9, false, "", ClientRowSource.Radio, false);
             var nameless = new ClientRow("Maestro", "", 11, false, "", ClientRowSource.Radio, false);
-            var justin = new ClientRow("SmartSDR", "KD2XYZ", 10, false, "", ClientRowSource.SmartLinkList, false);
+            var secondGuest = new ClientRow("SmartSDR", SecondGuestStation, 10, false, "", ClientRowSource.SmartLinkList, false);
             var lan = new ClientRow("SmartSDR", "N0LAN", 12, false, "", ClientRowSource.LocalDiscovery, false);
             var maybeGone = new ClientRow("SmartSDR", "W1GONE", 13, false, "", ClientRowSource.Radio, true);
             var anonymous = new ClientRow("Unknown", "", 14, false, "", ClientRowSource.SmartLinkList, false);
 
-            var mixed = ClientRowPhrase.Company(new[] { ours, don, nameless, justin, lan, maybeGone, anonymous });
-            Assert.Equal(new[] { "WA2IWC", "Maestro" }, mixed.Confirmed);
-            Assert.Equal(new[] { "KD2XYZ", "N0LAN", "W1GONE", Lexicon.Get("connect.client.unknown_added") }, mixed.Reported);
+            var mixed = ClientRowPhrase.Company(new[] { ours, guest, nameless, secondGuest, lan, maybeGone, anonymous });
+            Assert.Equal(new[] { GuestStation, "Maestro" }, mixed.Confirmed);
+            Assert.Equal(new[] { SecondGuestStation, "N0LAN", "W1GONE", Lexicon.Get("connect.client.unknown_added") }, mixed.Reported);
 
-            var noneConfirmed = ClientRowPhrase.Company(new[] { ours, justin, lan });
+            var noneConfirmed = ClientRowPhrase.Company(new[] { ours, secondGuest, lan });
             Assert.Empty(noneConfirmed.Confirmed);
-            Assert.Equal(new[] { "KD2XYZ", "N0LAN" }, noneConfirmed.Reported);
+            Assert.Equal(new[] { SecondGuestStation, "N0LAN" }, noneConfirmed.Reported);
         }
 
         // ------------------------------------------------------------------
@@ -658,16 +663,16 @@ namespace Radios.Tests
         [Fact]
         public void A_client_the_radio_identified_that_may_have_left_is_never_said_to_be_waiting_for_the_radio()
         {
-            var radioMaybeGone = new ClientRow("SmartSDR", "WA2IWC", 9, false, "", ClientRowSource.Radio, true);
+            var radioMaybeGone = new ClientRow("SmartSDR", GuestStation, 9, false, "", ClientRowSource.Radio, true);
             var namelessRadioMaybeGone = new ClientRow("Maestro", "", 11, false, "", ClientRowSource.Radio, true);
-            var listMaybeGone = new ClientRow("SmartSDR", "KD2XYZ", 10, false, "", ClientRowSource.SmartLinkList, true);
-            var listed = new ClientRow("SmartSDR", "KD2XYZ", 10, false, "", ClientRowSource.SmartLinkList, false);
-            var broadcast = new ClientRow("SmartSDR", "KD2XYZ", 12, false, "", ClientRowSource.LocalDiscovery, false);
-            var unknown = new ClientRow("SmartSDR", "KD2XYZ", 13, false, "", ClientRowSource.Unknown, false);
+            var listMaybeGone = new ClientRow("SmartSDR", SecondGuestStation, 10, false, "", ClientRowSource.SmartLinkList, true);
+            var listed = new ClientRow("SmartSDR", SecondGuestStation, 10, false, "", ClientRowSource.SmartLinkList, false);
+            var broadcast = new ClientRow("SmartSDR", SecondGuestStation, 12, false, "", ClientRowSource.LocalDiscovery, false);
+            var unknown = new ClientRow("SmartSDR", SecondGuestStation, 13, false, "", ClientRowSource.Unknown, false);
             const string awaitingRadio = "Unable to disconnect this client until the radio identifies it.";
 
             Assert.False(ClientRowPhrase.MayDisconnect(radioMaybeGone));
-            Assert.Equal("Unable to disconnect WA2IWC; the client may have disconnected already.",
+            Assert.Equal("Unable to disconnect W2TEST; the client may have disconnected already.",
                 ClientRowPhrase.DisconnectReason(radioMaybeGone));
             Assert.Equal("Unable to disconnect Maestro; the client may have disconnected already.",
                 ClientRowPhrase.DisconnectReason(namelessRadioMaybeGone));
@@ -685,8 +690,8 @@ namespace Radios.Tests
 
             // One text at both tiers.
             Assert.Equal(
-                Lexicon.Get("connect.multiflex.disconnect_unavailable_may_have_left", VerbosityLevel.Terse, ("station", "WA2IWC")),
-                Lexicon.Get("connect.multiflex.disconnect_unavailable_may_have_left", VerbosityLevel.Chatty, ("station", "WA2IWC")));
+                Lexicon.Get("connect.multiflex.disconnect_unavailable_may_have_left", VerbosityLevel.Terse, ("station", GuestStation)),
+                Lexicon.Get("connect.multiflex.disconnect_unavailable_may_have_left", VerbosityLevel.Chatty, ("station", GuestStation)));
         }
 
         /// <summary>
@@ -709,9 +714,9 @@ namespace Radios.Tests
         public void The_summary_says_some_entries_are_unconfirmed_only_when_the_radio_has_not_confirmed_one()
         {
             var ours = new ClientRow("JJFlex", "K5TEST", 7, true, "A", ClientRowSource.Radio, false);
-            var confirmed = new ClientRow("SmartSDR", "WA2IWC", 9, false, "", ClientRowSource.Radio, false);
-            var radioMaybeGone = new ClientRow("SmartSDR", "KD2XYZ", 10, false, "", ClientRowSource.Radio, true);
-            var listMaybeGone = new ClientRow("SmartSDR", "KD2XYZ", 11, false, "", ClientRowSource.SmartLinkList, true);
+            var confirmed = new ClientRow("SmartSDR", GuestStation, 9, false, "", ClientRowSource.Radio, false);
+            var radioMaybeGone = new ClientRow("SmartSDR", SecondGuestStation, 10, false, "", ClientRowSource.Radio, true);
+            var listMaybeGone = new ClientRow("SmartSDR", SecondGuestStation, 11, false, "", ClientRowSource.SmartLinkList, true);
             var broadcast = new ClientRow("SmartSDR", "N0CALL", 12, false, "", ClientRowSource.LocalDiscovery, false);
             var unknown = new ClientRow("SmartSDR", "N0CALL", 13, false, "", ClientRowSource.Unknown, false);
             string someUnconfirmed = Lexicon.Get("connect.multiflex.some_unconfirmed");
@@ -738,8 +743,8 @@ namespace Radios.Tests
             // What a confirmation may say is unchanged: the may-have-left
             // client is reported, not named as connected.
             var (definite, reported) = ClientRowPhrase.Company(new[] { ours, confirmed, radioMaybeGone });
-            Assert.Equal(new[] { "WA2IWC" }, definite);
-            Assert.Equal(new[] { "KD2XYZ" }, reported);
+            Assert.Equal(new[] { GuestStation }, definite);
+            Assert.Equal(new[] { SecondGuestStation }, reported);
         }
 
         /// <summary>
@@ -754,38 +759,38 @@ namespace Radios.Tests
         public void The_rows_say_how_we_know_and_the_summary_says_when_some_are_only_reported()
         {
             var ours = new ClientRow("JJFlex", "K5TEST", 7, true, "A", ClientRowSource.Radio, false);
-            var confirmed = new ClientRow("SmartSDR", "WA2IWC", 9, false, "B", ClientRowSource.Radio, false);
-            var reported = new ClientRow("SmartSDR", "WA2IWC", 9, false, "", ClientRowSource.SmartLinkList, false);
+            var confirmed = new ClientRow("SmartSDR", GuestStation, 9, false, "B", ClientRowSource.Radio, false);
+            var reported = new ClientRow("SmartSDR", GuestStation, 9, false, "", ClientRowSource.SmartLinkList, false);
             var nameless = new ClientRow("SmartSDR", "", 10, false, "", ClientRowSource.SmartLinkList, false);
-            var broadcast = new ClientRow("SmartSDR", "WA2IWC", 9, false, "", ClientRowSource.LocalDiscovery, false);
+            var broadcast = new ClientRow("SmartSDR", GuestStation, 9, false, "", ClientRowSource.LocalDiscovery, false);
             var namelessBroadcast = new ClientRow("SmartSDR", "", 10, false, "", ClientRowSource.LocalDiscovery, false);
-            var unknown = new ClientRow("SmartSDR", "WA2IWC", 9, false, "", ClientRowSource.Unknown, false);
+            var unknown = new ClientRow("SmartSDR", GuestStation, 9, false, "", ClientRowSource.Unknown, false);
             var namelessUnknown = new ClientRow("SmartSDR", "", 10, false, "", ClientRowSource.Unknown, false);
-            var maybeGone = new ClientRow("SmartSDR", "WA2IWC", 9, false, "", ClientRowSource.Radio, true);
+            var maybeGone = new ClientRow("SmartSDR", GuestStation, 9, false, "", ClientRowSource.Radio, true);
 
             Assert.Equal("JJFlex on K5TEST — Slices: A (This client)", ClientRowPhrase.Line(ours));
-            Assert.Equal("SmartSDR on WA2IWC — Slices: B", ClientRowPhrase.Line(confirmed));
+            Assert.Equal("SmartSDR on W2TEST — Slices: B", ClientRowPhrase.Line(confirmed));
             // Chatty, which is also what the level-less overload reads.
-            Assert.Equal("WA2IWC. Reported by SmartLink; not yet confirmed.", ClientRowPhrase.Line(reported));
-            Assert.Equal("WA2IWC. Reported by SmartLink; not yet confirmed.", ClientRowPhrase.Line(reported, VerbosityLevel.Chatty));
+            Assert.Equal("W2TEST. Reported by SmartLink; not yet confirmed.", ClientRowPhrase.Line(reported));
+            Assert.Equal("W2TEST. Reported by SmartLink; not yet confirmed.", ClientRowPhrase.Line(reported, VerbosityLevel.Chatty));
             Assert.Equal("A client with no station name was reported by SmartLink and it's currently not confirmed.", ClientRowPhrase.Line(nameless));
-            Assert.Equal("WA2IWC. Reported on the local network; not yet confirmed.", ClientRowPhrase.Line(broadcast));
+            Assert.Equal("W2TEST. Reported on the local network; not yet confirmed.", ClientRowPhrase.Line(broadcast));
             Assert.Equal("A client with no station name was reported on the local network and it's currently not confirmed.", ClientRowPhrase.Line(namelessBroadcast));
-            Assert.Equal("WA2IWC. Not yet confirmed.", ClientRowPhrase.Line(unknown));
+            Assert.Equal("W2TEST. Not yet confirmed.", ClientRowPhrase.Line(unknown));
             Assert.Equal("A client with no station name is currently not confirmed.", ClientRowPhrase.Line(namelessUnknown));
-            Assert.Equal("Heads up: WA2IWC was reported earlier, but may have disconnected.", ClientRowPhrase.Line(maybeGone));
+            Assert.Equal("Heads up: W2TEST was reported earlier, but may have disconnected.", ClientRowPhrase.Line(maybeGone));
 
             // Terse. Noel's own capitalisation and punctuation, kept.
-            Assert.Equal("WA2IWC SmartLink Responded; unconfirmed.", ClientRowPhrase.Line(reported, VerbosityLevel.Terse));
+            Assert.Equal("W2TEST SmartLink Responded; unconfirmed.", ClientRowPhrase.Line(reported, VerbosityLevel.Terse));
             Assert.Equal("station reporting via SmartLink, unconfirmed", ClientRowPhrase.Line(nameless, VerbosityLevel.Terse));
-            Assert.Equal("WA2IWC local network; unconfirmed.", ClientRowPhrase.Line(broadcast, VerbosityLevel.Terse));
-            Assert.Equal("WA2IWC unconfirmed.", ClientRowPhrase.Line(unknown, VerbosityLevel.Terse));
-            Assert.Equal("Heads up: WA2IWC was reported earlier, but may have disconnected.", ClientRowPhrase.Line(maybeGone, VerbosityLevel.Terse));
+            Assert.Equal("W2TEST local network; unconfirmed.", ClientRowPhrase.Line(broadcast, VerbosityLevel.Terse));
+            Assert.Equal("W2TEST unconfirmed.", ClientRowPhrase.Line(unknown, VerbosityLevel.Terse));
+            Assert.Equal("Heads up: W2TEST was reported earlier, but may have disconnected.", ClientRowPhrase.Line(maybeGone, VerbosityLevel.Terse));
             Assert.Equal("station reporting via local network, unconfirmed", ClientRowPhrase.Line(namelessBroadcast, VerbosityLevel.Terse));
             Assert.Equal("station unconfirmed", ClientRowPhrase.Line(namelessUnknown, VerbosityLevel.Terse));
             Assert.Equal("A client with no station name was reported on the local network and it's currently not confirmed.", ClientRowPhrase.Line(namelessBroadcast, VerbosityLevel.Chatty));
             Assert.Equal("A client with no station name is currently not confirmed.", ClientRowPhrase.Line(namelessUnknown, VerbosityLevel.Chatty));
-            Assert.Equal("SmartSDR on WA2IWC — Slices: B", ClientRowPhrase.Line(confirmed, VerbosityLevel.Terse));
+            Assert.Equal("SmartSDR on W2TEST — Slices: B", ClientRowPhrase.Line(confirmed, VerbosityLevel.Terse));
 
             // The approved row sentences name the station only; the drafts'
             // program lead-in is gone. A nameless client that may have left
@@ -814,13 +819,13 @@ namespace Radios.Tests
             Assert.Equal("Unable to disconnect this client until the radio identifies it.", ClientRowPhrase.DisconnectReason(reported));
             // The radio identified this one; its reason is that it may have
             // left, never that the radio has not identified it (Track L11).
-            Assert.Equal("Unable to disconnect WA2IWC; the client may have disconnected already.", ClientRowPhrase.DisconnectReason(maybeGone));
+            Assert.Equal("Unable to disconnect W2TEST; the client may have disconnected already.", ClientRowPhrase.DisconnectReason(maybeGone));
 
             // Sentences 7 and 8, which the dialog reads straight from the
             // lexicon; one text at both tiers.
             Assert.Equal("Info about the client changed while you were using this dialog. Please select the client again to see currently available status about this client.",
                 Lexicon.Get("connect.multiflex.changed_while_confirming"));
-            Assert.Equal("Disconnect requested for WA2IWC.",
+            Assert.Equal("Disconnect requested for W2TEST.",
                 Lexicon.Get("connect.multiflex.disconnect_requested", ("station", confirmed.NameForSentence)));
         }
     }

@@ -22,7 +22,7 @@ namespace JJFlex.UiaProbe;
 /// SendInput is the only method that presses the key the way an operator
 /// does — which is the entire premise of this tool.</para>
 /// </summary>
-internal static class Native
+internal static partial class Native
 {
     // ─────────────────────────── windows ───────────────────────────
 
@@ -176,21 +176,8 @@ internal static class Native
 
     // ─────────────────────────── keyboard ───────────────────────────
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct INPUT { public uint type; public InputUnion U; }
-
-    [StructLayout(LayoutKind.Explicit)]
-    private struct InputUnion { [FieldOffset(0)] public KEYBDINPUT ki; }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct KEYBDINPUT
-    {
-        public ushort wVk; public ushort wScan; public uint dwFlags;
-        public uint time; public IntPtr dwExtraInfo;
-    }
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern uint SendInput(uint n, INPUT[] inputs, int size);
+    // INPUT, its union and SendInput live in NativeInput.cs, at their real
+    // layouts, where a test compiles and measures them (#914).
 
     [DllImport("user32.dll")] private static extern IntPtr GetMessageExtraInfo();
     [DllImport("user32.dll")] private static extern uint MapVirtualKey(uint uCode, uint uMapType);
@@ -223,22 +210,8 @@ internal static class Native
         uint flags = up ? KEYEVENTF_KEYUP : 0;
         if (IsExtended(vk)) flags |= KEYEVENTF_EXTENDEDKEY;
 
-        var inp = new INPUT
-        {
-            type = INPUT_KEYBOARD,
-            U = new InputUnion
-            {
-                ki = new KEYBDINPUT
-                {
-                    wVk = vk,
-                    wScan = (ushort)MapVirtualKey(vk, MAPVK_VK_TO_VSC),
-                    dwFlags = flags,
-                    time = 0,
-                    dwExtraInfo = GetMessageExtraInfo(),
-                },
-            },
-        };
-        SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
+        // Throws SendInputFailedException when Windows does not take it.
+        SendKeyboardInput(vk, (ushort)MapVirtualKey(vk, MAPVK_VK_TO_VSC), flags, GetMessageExtraInfo());
     }
 
     /// <summary>
@@ -277,7 +250,15 @@ internal static class Native
         {
             // Only release what is actually down: sending a spurious keyup for
             // Alt on its own opens the menu bar of whatever is focused.
-            if ((GetAsyncKeyState(vk) & 0x8000) != 0) SendKeyEvent(vk, up: true);
+            if ((GetAsyncKeyState(vk) & 0x8000) == 0) continue;
+            // Never throws: this runs from finally blocks and exit handlers,
+            // where an exception would hide the one that mattered. A modifier
+            // Windows would not release is still said, loudly.
+            try { SendKeyEvent(vk, up: true); }
+            catch (SendInputFailedException ex)
+            {
+                Console.Error.WriteLine("jjprobe: COULD NOT RELEASE a held modifier — " + ex.Message);
+            }
         }
     }
 

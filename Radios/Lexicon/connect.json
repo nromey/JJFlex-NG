@@ -191,6 +191,7 @@
   "connect.home.arrival_no_radio": "JJ Flexible Home, no radio connected, {modeName} tuning mode",
   "connect.home.braille_off": "Braille status off",
   "connect.home.braille_on": "Braille status on",
+  "connect.home.braille_swr_no_reading": {"text": "SW--", "delivery": null},
   "connect.home.calibration_accepted": "Calibration reference accepted",
   "connect.home.classic_tuning_mode": "Classic tuning mode",
   "connect.home.connected": "Connected to {model}, {connType}",

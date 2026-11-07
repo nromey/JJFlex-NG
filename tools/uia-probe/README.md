@@ -153,6 +153,16 @@ it.
 Chord syntax: modifiers with `+`, sequence steps with `,`. So `Shift+F6` is one
 keystroke and `Ctrl+J, V, H` is three.
 
+## Where jjprobe looks for the trace
+
+In `--config-dir DIR` when given, else in the `JJFLEX_CONFIG_DIR` of jjprobe's
+own environment, else in `%AppData%\JJFlexRadio`. **An app started under
+`JJFLEX_CONFIG_DIR` writes its trace inside that tree**, so run jjprobe with
+the same variable, or pass the same folder as `--config-dir`; otherwise it
+says "no trace file found" and every press reads as silent, because it is
+watching no log. Added 2026-11-07 (#914). The app names its settings location
+only inside the trace itself, which is why jjprobe cannot learn it from there.
+
 ## The two trace channels
 
 ### Routing — the strong one, and it is free

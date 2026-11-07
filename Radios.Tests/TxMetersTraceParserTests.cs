@@ -105,6 +105,11 @@ namespace Radios.Tests
                 "3600 [T12] txMeters: SC_MIC 3 copies ([17] TX-:8, [21] TX-:8, [43] TX-:9)",
                 "3700 [T12] txMeters: SC_MIC elected [43] TX-:9 — the only copy the radio publishes. SC_MIC: 1 copy",
                 "3800 [T12] About this file: lines that begin 'txMeters: state=' are JJ Flexible's transmit meter snapshots.",
+                // The note as written since 2026-11-07 (#625): the marker, and
+                // one field per line, the later lines unprefixed.
+                "3900 [T12] JJ Flexible Access Capture Note: lines that begin 'txMeters: state=' are JJ Flexible Access's transmit readings. The fields:",
+                "state: transmitting (tx), tuning (tune), or both at once (tune+tx).",
+                "SC_MIC: your microphone level, in dB.",
             };
             TraceMeters.Reading r = ReadLines(lines);
 

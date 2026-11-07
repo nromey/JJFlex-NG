@@ -290,10 +290,11 @@ namespace Radios.Tests
             int micLine = Array.FindIndex(lines, l => l.Contains("] micData: min=-120 max=-118 last=-118 n=2", StringComparison.Ordinal));
             Assert.True(micLine > 0, "the meter stream wrote nothing");
             Assert.Equal(micLine - 1, Only(lines, TraceSelfDescription.Introduction(MeterTraceStream.Record), "the meter stream's introduction"));
-            // Ordinary lines introduce nothing: the guide, plus exactly the two
-            // kinds written, and no more.
-            Assert.Equal(TraceSelfDescription.PartPreamble().Count + 2,
-                         lines.Count(l => l.Contains("] " + TraceSelfDescription.Marker, StringComparison.Ordinal)));
+            // Ordinary lines introduce nothing: exactly the two kinds written
+            // carry the note marker, and the guide is the one "About this
+            // file" line (#625: that phrase appears once, at the top).
+            Assert.Equal(2, lines.Count(l => l.Contains("] " + TraceSelfDescription.Marker, StringComparison.Ordinal)));
+            Assert.Equal(1, lines.Count(l => l.Contains("] " + TraceSelfDescription.OpeningMarker, StringComparison.Ordinal)));
         }
 
         /// <summary>
@@ -501,9 +502,10 @@ namespace Radios.Tests
                 }
             }
             Assert.Contains(guide, l => l.Contains("Most lines begin", StringComparison.Ordinal));
-            string searchPhrase = TraceSelfDescription.Marker.TrimEnd(':');
-            string searchLine = Assert.Single(guide, l => l.Contains("search for the words '" + searchPhrase + "'", StringComparison.Ordinal));
+            string searchLine = Assert.Single(guide, l => l.Contains("search for \"" + TraceSelfDescription.SearchPhrase + "\"", StringComparison.Ordinal));
             Assert.Contains(" only ", searchLine, StringComparison.Ordinal);
+            // The search finds every note: the phrase is part of the marker.
+            Assert.Contains(TraceSelfDescription.SearchPhrase, TraceSelfDescription.Marker, StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -625,16 +627,16 @@ namespace Radios.Tests
             }
             Assert.Equal(ProductionKinds.Length, ProductionKinds.Select(k => k.Kind.Key).Distinct(StringComparer.Ordinal).Count());
 
+            // #625: the guide is ONE line, and the only one that says "About
+            // this file"; every other self-describing line is a Capture Note.
             IReadOnlyList<string> guide = TraceSelfDescription.PartPreamble();
-            Assert.True(guide.Count >= 2);
-            string searchPhrase = TraceSelfDescription.Marker.TrimEnd(':');
-            foreach (string line in guide)
-            {
-                _out.WriteLine(line);
-                Assert.StartsWith(TraceSelfDescription.Marker + " ", line, StringComparison.Ordinal);
-                Assert.EndsWith(".", line, StringComparison.Ordinal);
-            }
-            Assert.Contains(guide, l => l.Contains("search for the words '" + searchPhrase + "'", StringComparison.Ordinal));
+            string opening = Assert.Single(guide);
+            _out.WriteLine(opening);
+            Assert.StartsWith(TraceSelfDescription.OpeningMarker + " ", opening, StringComparison.Ordinal);
+            Assert.DoesNotContain(TraceSelfDescription.OpeningMarker, TraceSelfDescription.Marker, StringComparison.Ordinal);
+            Assert.EndsWith(".", opening, StringComparison.Ordinal);
+            Assert.Contains("search for \"" + TraceSelfDescription.SearchPhrase + "\"", opening, StringComparison.Ordinal);
+            Assert.Contains("since the PROGRAM started", opening, StringComparison.Ordinal);
 
             string closing = TraceSelfDescription.Closing(TraceSessionOutcome.ConnectionDropped, "The connection to 6300inshack dropped while this session was running.");
             _out.WriteLine(closing);
@@ -695,6 +697,62 @@ namespace Radios.Tests
             Assert.False(File.Exists(Path.Combine(root, "JJTrace", "TraceFileFacts.cs")), "TraceFileFacts.cs is back");
             Assert.DoesNotContain("TraceFileFacts", coordinator, StringComparison.Ordinal);
             Assert.DoesNotContain("TraceFileFacts", File.ReadAllText(Path.Combine(root, "Radios", "CaptureArchiveNotice.cs")), StringComparison.Ordinal);
+        }
+        // ────────────────────────────────────────────────────────────────
+        //  #625: why a part ends, in the two approved sentences
+        // ────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Noel's approved wording (2026-09-29): one sentence per cause, the
+        /// numbering generic so it never promises a part that may not be
+        /// written, and each a Capture Note.
+        /// </summary>
+        [Fact]
+        public void The_two_part_endings_are_the_approved_sentences_and_promise_no_particular_part()
+        {
+            Assert.Equal("JJ Flexible Access Capture Note: this part of your capture ends here because a problem report"
+                + " took a snapshot of it. The capture has not stopped. It continues in the next numbered part: if this"
+                + " is part 001, the next is 002, and so on.", TraceSelfDescription.CheckpointClosing(1));
+            Assert.Equal(TraceSelfDescription.CheckpointClosing(1), TraceSelfDescription.CheckpointClosing(7));
+            Assert.Equal("JJ Flexible Access Capture Note: this part of your capture ends here because it reached its"
+                + " size limit, so a long recording is split into smaller, more manageable files. The capture has not"
+                + " stopped. It continues in the next numbered part: if this is part 001, the next is 002, and so on.",
+                TraceSelfDescription.SizeLimitClosing());
+        }
+
+        /// <summary>
+        /// A size-limit rotation ends the part it closes with the size-limit
+        /// sentence, as its last line; the fresh part does not carry it; and a
+        /// file that never rotated never mentions parts at all.
+        /// </summary>
+        [Fact]
+        public void A_size_limit_rotation_ends_its_part_with_its_own_sentence_and_one_part_never_says_part()
+        {
+            string partPath = null;
+            using (var sink = new RotatingTraceListener(_livePath, rotationThresholdBytes: 4096,
+                                                        resolvePartPath: n => partPath = Path.Combine(_dir, "part-" + n.ToString("D3") + ".txt"),
+                                                        onPartClosed: null))
+            {
+                sink.WriteLine("1 [T1] an ordinary line");
+                sink.Flush();
+                string[] single = Lines(ReadLive(_livePath));
+                Assert.DoesNotContain(single, l => l.Contains("this part of your capture ends here", StringComparison.Ordinal));
+
+                for (int i = 0; i < 400 && sink.PartNumber < 2; i++) sink.WriteLine(i + " [T1] filler " + new string('x', 80));
+                Assert.Equal(2, sink.PartNumber);
+                sink.WriteLine("2 [T1] after the rotation");
+                sink.Flush();
+
+                string[] moved = Lines(File.ReadAllText(partPath));
+                _out.WriteLine(moved[moved.Length - 1]);
+                Assert.EndsWith(TraceSelfDescription.SizeLimitClosing(), moved[moved.Length - 1], StringComparison.Ordinal);
+                Assert.Matches(@"^\d+ \[T\d+[^\]]*\] " + System.Text.RegularExpressions.Regex.Escape(TraceSelfDescription.Marker), moved[moved.Length - 1]);
+                Assert.Equal(1, moved.Count(l => l.Contains("this part of your capture ends here", StringComparison.Ordinal)));
+                Assert.DoesNotContain(moved, l => l.Contains("a problem report took a snapshot", StringComparison.Ordinal));
+
+                string[] part2 = Lines(ReadLive(_livePath));
+                Assert.DoesNotContain(part2, l => l.Contains("this part of your capture ends here", StringComparison.Ordinal));
+            }
         }
     }
 }

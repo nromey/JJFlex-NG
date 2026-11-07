@@ -863,10 +863,9 @@ public sealed class FixerDialog : JJFlexDialog
         try
         {
             // Shares the app's one WebView2 user-data folder, so every document
-            // view runs in a single browser process.
-            string userData = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "JJFlexRadio", "WebView2");
+            // view runs in a single browser process. It follows the settings
+            // root when JJFLEX_CONFIG_DIR moves it (#909).
+            string userData = LocalDataRoot.DocumentViewsWebView2;
 
             CoreWebView2Environment env =
                 await CoreWebView2Environment.CreateAsync(null, userData, null);
