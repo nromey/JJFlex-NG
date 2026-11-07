@@ -95,8 +95,18 @@ namespace Radios.SignalCapture
         /// <summary>Approximate seconds of the window spent transmitting, excluded from every statistic.</summary>
         public double TransmitSeconds { get; internal set; }
 
-        /// <summary>First to last analyzed reading, in seconds.</summary>
+        /// <summary>First to last analyzed reading, in seconds. INCLUDES any
+        /// over that falls between them; see <see cref="ReceiveSeconds"/>.</summary>
         public double AnalyzedSpanSeconds { get; internal set; }
+
+        /// <summary>
+        /// Receive time: the analyzed span less the transmit time inside it.
+        /// Everything the report or headline calls "receive time", and every
+        /// minimum length a verdict needs, uses this (#452, repair round two).
+        /// A 19-second capture with a 5-second over in it has about 14 seconds
+        /// of receive time, not 19: the bench found the report saying 19.
+        /// </summary>
+        public double ReceiveSeconds { get; internal set; }
 
         /// <summary>True when peak, trough and mean are meaningful.</summary>
         public bool HasStats { get; internal set; }
@@ -284,6 +294,8 @@ namespace Radios.SignalCapture
 
             r.AnalyzedSpanSeconds =
                 analyzed[analyzed.Count - 1].OffsetSeconds - analyzed[0].OffsetSeconds;
+            r.ReceiveSeconds = Math.Max(0.0, r.AnalyzedSpanSeconds - TransmitWithin(samples,
+                analyzed[0].OffsetSeconds, analyzed[analyzed.Count - 1].OffsetSeconds));
 
             List<(double Start, double End)> gaps = FindGaps(r, samples);
 
@@ -296,7 +308,7 @@ namespace Radios.SignalCapture
             }
 
             bool enough = analyzed.Count >= MinSamplesForStats
-                          && r.AnalyzedSpanSeconds >= MinSecondsForStats;
+                          && r.ReceiveSeconds >= MinSecondsForStats;
 
             double[] smoothed = Smooth(analyzed);
 
@@ -338,6 +350,25 @@ namespace Radios.SignalCapture
         }
 
         // -------- coverage (#452) --------
+
+        /// <summary>
+        /// The transmit time between two moments: each inter-sample gap whose
+        /// left reading was taken while transmitting, the same attribution
+        /// <see cref="QsoSignalAnalysisResult.TransmitSeconds"/> uses, counted
+        /// only where it lies inside the span.
+        /// </summary>
+        private static double TransmitWithin(IReadOnlyList<QsoSignalSample> samples, double from, double to)
+        {
+            double tx = 0.0;
+            for (int i = 1; i < samples.Count; i++)
+            {
+                if (!samples[i - 1].LocalTransmit) continue;
+                double start = Math.Max(from, samples[i - 1].OffsetSeconds);
+                double end = Math.Min(to, samples[i].OffsetSeconds);
+                if (end > start) tx += end - start;
+            }
+            return tx;
+        }
 
         /// <summary>
         /// Find the holes in the readings: gaps between consecutive receive
@@ -457,7 +488,7 @@ namespace Radios.SignalCapture
             double smoothedSwing,
             List<(double Start, double End)> gaps)
         {
-            if (r.AnalyzedSpanSeconds < MinSecondsForQsb)
+            if (r.ReceiveSeconds < MinSecondsForQsb)
             {
                 r.Qsb = QsbVerdict.TooShortToAssess;
                 return;
@@ -605,7 +636,7 @@ namespace Radios.SignalCapture
         private static void AssessTrend(
             QsoSignalAnalysisResult r, List<QsoSignalSample> analyzed, double[] smoothed)
         {
-            if (r.AnalyzedSpanSeconds < MinSecondsForTrend)
+            if (r.ReceiveSeconds < MinSecondsForTrend)
             {
                 r.Trend = TrendVerdict.TooShortToAssess;
                 return;

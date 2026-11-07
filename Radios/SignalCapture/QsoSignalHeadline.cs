@@ -64,7 +64,7 @@ namespace Radios.SignalCapture
             if (!a.HasStats)
             {
                 Append(sb, Lexicon.Get("audio.qso.too_short",
-                    ("duration", SpokenDuration.English(a.AnalyzedSpanSeconds))));
+                    ("duration", SpokenDuration.English(a.ReceiveSeconds))));
                 return sb.ToString();
             }
 

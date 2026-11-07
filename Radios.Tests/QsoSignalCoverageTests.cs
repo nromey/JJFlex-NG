@@ -259,5 +259,53 @@ namespace Radios.Tests
             Assert.Equal(2, a.GapCount);
             Assert.InRange(a.Coverage, 0.57, 0.60);
         }
+        // ── Repair round two: receive time leaves the over out ──
+
+        private static string ReportText(QsoSignalAnalysisResult a, double seconds) =>
+            Radios.Fixer.Evidence.EvidenceReportDocument.PlainText(QsoSignalCaptureReport.Build(
+                new QsoSignalCaptureRecord { CaptureId = "AAA-224", CaptureSeconds = seconds }, a));
+
+        [Fact]
+        public void A_capture_with_an_over_inside_calls_only_the_receive_part_receive_time()
+        {
+            // The bench's shape: 19 seconds, about 5 of them transmitting, the
+            // S-meter arriving through the over at its usual cadence (and
+            // flagged as transmit, so left out of every statistic).
+            var samples = Trace(19, 8, _ => -100.0)
+                .Select(s => new QsoSignalSample(s.OffsetSeconds, s.Dbm, s.OffsetSeconds >= 7.0 && s.OffsetSeconds < 12.0))
+                .ToList();
+            var a = QsoSignalAnalysis.Analyze(samples, 19);
+            Assert.InRange(a.TransmitSeconds, 4.9, 5.1);
+            Assert.InRange(a.AnalyzedSpanSeconds, 18.9, 19.1);
+            Assert.InRange(a.ReceiveSeconds, 13.9, 14.1);
+
+            string text = ReportText(a, 19);
+            Assert.Contains("across 14 seconds of receive time", text, StringComparison.Ordinal);
+            Assert.Contains("this capture had 14 seconds of it.", text, StringComparison.Ordinal);   // the trend rule
+            Assert.DoesNotContain("19 seconds of receive time", text, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void With_no_over_receive_time_is_the_whole_span()
+        {
+            // Control: the same capture without the over keeps all 19 seconds.
+            var a = QsoSignalAnalysis.Analyze(Trace(19, 8, _ => -100.0), 19);
+            Assert.Equal(0.0, a.TransmitSeconds);
+            Assert.InRange(a.ReceiveSeconds, 18.9, 19.1);
+            Assert.Contains("across 19 seconds of receive time", ReportText(a, 19), StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void The_minimum_lengths_are_judged_on_receive_time()
+        {
+            // 22 seconds in all with a 5-second over: over the 20-second trend
+            // minimum by span, under it by receive time, so the trend is not
+            // assessed. The control with no over is assessed.
+            var withOver = Trace(22, 8, t => -100.0 + t)
+                .Select(s => new QsoSignalSample(s.OffsetSeconds, s.Dbm, s.OffsetSeconds >= 8.0 && s.OffsetSeconds < 13.0))
+                .ToList();
+            Assert.Equal(TrendVerdict.TooShortToAssess, QsoSignalAnalysis.Analyze(withOver, 22).Trend);
+            Assert.NotEqual(TrendVerdict.TooShortToAssess, QsoSignalAnalysis.Analyze(Trace(22, 8, t => -100.0 + t), 22).Trend);
+        }
     }
 }

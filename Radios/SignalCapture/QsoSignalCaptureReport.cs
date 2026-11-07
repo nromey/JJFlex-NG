@@ -112,7 +112,7 @@ namespace Radios.SignalCapture
             {
                 s.Para("Only " + Count(a.AnalyzedCount) + " usable "
                      + (a.AnalyzedCount == 1 ? "reading" : "readings") + " over "
-                     + SpokenDuration.English(a.AnalyzedSpanSeconds)
+                     + SpokenDuration.English(a.ReceiveSeconds)
                      + " of receive time — too little to characterize a signal. Nothing "
                      + "under " + WholeSeconds(QsoSignalAnalysis.MinSecondsForStats)
                      + " seconds of receive time can be. Peak, trough, average, fading "
@@ -123,7 +123,7 @@ namespace Radios.SignalCapture
             s.Bullet("Peaked at " + Display(a.PeakDbm, band) + " — the highest single reading.");
             s.Bullet("Fell to " + Display(a.TroughDbm, band) + " — the lowest two-second average.");
             s.Bullet("Averaged " + Display(a.MeanDbm, band) + " across "
-                   + SpokenDuration.English(a.AnalyzedSpanSeconds) + " of receive time.");
+                   + SpokenDuration.English(a.ReceiveSeconds) + " of receive time.");
             s.Bullet(a.SwingSUnits < 1
                 ? "Total swing under one S-unit (" + WholeDb(a.SwingDb) + " dB)."
                 : "Total swing about " + SUnits(a.SwingSUnits)
@@ -166,7 +166,7 @@ namespace Radios.SignalCapture
                     return "Fading was not assessed: that needs at least "
                          + WholeSeconds(QsoSignalAnalysis.MinSecondsForQsb)
                          + " seconds of receive time, and this capture had "
-                         + SpokenDuration.English(a.AnalyzedSpanSeconds) + ".";
+                         + SpokenDuration.English(a.ReceiveSeconds) + " of it.";
 
                 case QsbVerdict.NoSignificantFading:
                     return "No significant fading: the smoothed signal stayed within one "
@@ -210,7 +210,7 @@ namespace Radios.SignalCapture
                     return "The overall trend was not assessed: that needs at least "
                          + WholeSeconds(QsoSignalAnalysis.MinSecondsForTrend)
                          + " seconds of receive time, and this capture had "
-                         + SpokenDuration.English(a.AnalyzedSpanSeconds) + ".";
+                         + SpokenDuration.English(a.ReceiveSeconds) + " of it.";
 
                 case TrendVerdict.Steady:
                     return "No overall trend: fades aside, the fitted change across the "
