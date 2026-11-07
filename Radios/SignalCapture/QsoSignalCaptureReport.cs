@@ -141,9 +141,11 @@ namespace Radios.SignalCapture
         /// </summary>
         private static string CoverageSentence(QsoSignalAnalysisResult a)
         {
-            string text = "Readings stopped arriving "
-                + (a.GapCount == 1 ? "once" : Count(a.GapCount) + " times")
-                + " during this capture, for " + SpokenDuration.English(a.MissingSeconds)
+            // "were missing", not "stopped arriving": a gap can be at the
+            // start, before readings ever arrived (repair round one).
+            string text = "Readings were missing at "
+                + (a.GapCount == 1 ? "one point" : Count(a.GapCount) + " points")
+                + " in this capture, for " + SpokenDuration.English(a.MissingSeconds)
                 + " in all; the longest gap was " + SpokenDuration.English(a.LongestGapSeconds)
                 + ". Only " + QsoSignalHeadline.CoveragePercent(a.Coverage)
                 + " percent of the window was measured. A gap is missing data, most often "
@@ -328,11 +330,16 @@ namespace Radios.SignalCapture
                      + QsoSignalAnalysis.GapSpacingMultiple.ToString("0", CultureInfo.InvariantCulture) + " times this "
                      + "capture's own usual spacing, which was about "
                      + Math.Round(a.TypicalSpacingSeconds * 1000.0).ToString("0", CultureInfo.InvariantCulture)
-                     + " milliseconds. The trough and the fading measurements leave out "
-                     + "the smoothed readings within "
-                     + SpokenDuration.English(QsoSignalAnalysis.SmoothingWindowSeconds)
-                     + " of a gap, and no fade "
-                     + "spacing is measured across one.");
+                     + " milliseconds, and the time before the first reading and after the last "
+                     + "counts the same way. "
+                     + (a.GapExclusionApplied
+                         ? "The trough and the fading measurements leave out the smoothed readings within "
+                           + SpokenDuration.English(QsoSignalAnalysis.SmoothingWindowSeconds)
+                           + " of a gap, and no fade spacing is measured across one."
+                         : "Every reading in this capture was within "
+                           + SpokenDuration.English(QsoSignalAnalysis.SmoothingWindowSeconds)
+                           + " of a gap, so the trough and the swing use all of them; a fade at a "
+                           + "gap is still not counted, and no fade spacing is measured across one."));
             return s;
         }
 

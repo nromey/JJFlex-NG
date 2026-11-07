@@ -180,6 +180,12 @@ namespace Radios.SignalCapture
         /// <summary>Fade bottoms that fell on or beside a gap and were not
         /// counted as fades: a hole in the readings is not the signal.</summary>
         public int FadesSetAsideAtGaps { get; internal set; }
+
+        /// <summary>True when readings beside a gap were left out of the trough
+        /// and swing. False when there was no gap, or when every reading sat
+        /// beside one, in which case all of them were used rather than none,
+        /// and the report says so.</summary>
+        public bool GapExclusionApplied { get; internal set; }
     }
 
     /// <summary>
@@ -301,6 +307,7 @@ namespace Radios.SignalCapture
             bool[] besideGap = BesideGaps(analyzed, gaps);
             double smoothMin = double.MaxValue, smoothMax = double.MinValue;
             bool anyClear = Array.IndexOf(besideGap, false) >= 0;
+            r.GapExclusionApplied = gaps.Count > 0 && anyClear;
             for (int i = 0; i < smoothed.Length; i++)
             {
                 if (anyClear && besideGap[i]) continue;
@@ -374,6 +381,32 @@ namespace Radios.SignalCapture
                 gaps.Add((start, end));
                 missing += d - typical;
                 if (d > longest) longest = d;
+            }
+
+            // The capture's EDGES, judged by the same cadence (repair round
+            // one, Codex's blocker). Readings between start and the first
+            // reading, and between the last reading and stop, were never
+            // observed either: a capture started while the stream was stalled,
+            // or stopped before it recovered, used to report full coverage and
+            // "Steady" over time nothing was measured in. An edge whose reading
+            // was taken while transmitting is the operator's own over, as above.
+            if (samples.Count > 0)
+            {
+                QsoSignalSample first = samples[0], last = samples[samples.Count - 1];
+                double head = first.OffsetSeconds;
+                if (!first.LocalTransmit && head > limit)
+                {
+                    gaps.Insert(0, (0.0, head));
+                    missing += head - typical;
+                    if (head > longest) longest = head;
+                }
+                double tail = r.CaptureSeconds - last.OffsetSeconds;
+                if (!last.LocalTransmit && tail > limit)
+                {
+                    gaps.Add((last.OffsetSeconds, r.CaptureSeconds));
+                    missing += tail - typical;
+                    if (tail > longest) longest = tail;
+                }
             }
 
             r.GapCount = gaps.Count;

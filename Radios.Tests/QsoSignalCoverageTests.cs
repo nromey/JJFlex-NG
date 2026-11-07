@@ -155,7 +155,7 @@ namespace Radios.Tests
             string text = Radios.Fixer.Evidence.EvidenceReportDocument.PlainText(
                 QsoSignalCaptureReport.Build(record, a));
 
-            int gaps = text.IndexOf("Readings stopped arriving 3 times", StringComparison.Ordinal);
+            int gaps = text.IndexOf("Readings were missing at 3 points", StringComparison.Ordinal);
             int peak = text.IndexOf("Peaked at", StringComparison.Ordinal);
             Assert.True(gaps >= 0, text);
             Assert.True(peak > gaps);
@@ -169,6 +169,95 @@ namespace Radios.Tests
         {
             Assert.Equal("99", QsoSignalHeadline.CoveragePercent(0.9999));
             Assert.Equal("87", QsoSignalHeadline.CoveragePercent(0.879));
+        }
+        // ── Repair round one: the capture's edges count too ──
+
+        private static string Headline(QsoSignalAnalysisResult a) =>
+            QsoSignalHeadline.Compose(a, "AAA-222", saved: true, SMeterReading.Band.Hf);
+
+        [Fact]
+        public void Stopping_before_the_stream_recovers_is_not_full_coverage()
+        {
+            // Codex's reproduction: 60 seconds, readings only to second 40.
+            var a = QsoSignalAnalysis.Analyze(Trace(40, 20, _ => -73.0), 60);
+            Assert.Equal(1, a.GapCount);
+            Assert.InRange(a.MissingSeconds, 19.9, 20.0);
+            Assert.InRange(a.LongestGapSeconds, 19.99, 20.01);
+            Assert.InRange(a.Coverage, 0.66, 0.67);
+            Assert.True(a.CoverageDegraded);
+            Assert.Contains("only 66 percent of the capture was measured", Headline(a), StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void Starting_during_a_stall_is_not_full_coverage()
+        {
+            var samples = Trace(60, 20, _ => -73.0).Where(s => s.OffsetSeconds >= 20.0).ToList();
+            var a = QsoSignalAnalysis.Analyze(samples, 60);
+            Assert.Equal(1, a.GapCount);
+            Assert.InRange(a.Coverage, 0.66, 0.67);
+            Assert.Contains("percent of the capture was measured", Headline(a), StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void An_interior_hole_and_a_missing_tail_are_both_counted()
+        {
+            // Codex: with a hole from 20 to 25 as well, it reported 91 percent
+            // where about 35 of 60 seconds were observed.
+            var a = QsoSignalAnalysis.Analyze(Trace(40, 20, _ => -73.0, (20.0, 25.0)), 60);
+            Assert.Equal(2, a.GapCount);
+            Assert.InRange(a.MissingSeconds, 24.8, 25.0);
+            Assert.InRange(a.Coverage, 0.58, 0.59);
+            Assert.Contains("only 58 percent of the capture was measured", Headline(a), StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void A_tail_shorter_than_the_gap_threshold_is_ordinary_spacing()
+        {
+            // Positive control for the edge rule's threshold: a stop a quarter
+            // second after the last reading is cadence, not a stall.
+            var a = QsoSignalAnalysis.Analyze(Trace(60, 20, _ => -73.0), 60.25);
+            Assert.Equal(0, a.GapCount);
+            Assert.False(a.CoverageDegraded);
+        }
+
+        [Fact]
+        public void The_method_paragraph_says_what_was_done_when_every_reading_sits_beside_a_gap()
+        {
+            var record = new QsoSignalCaptureRecord { CaptureId = "AAA-222", CaptureSeconds = 10 };
+            var all = QsoSignalAnalysis.Analyze(Trace(2, 20, _ => -73.0), 10);
+            Assert.True(all.CoverageDegraded);
+            Assert.False(all.GapExclusionApplied);
+            string text = Radios.Fixer.Evidence.EvidenceReportDocument.PlainText(QsoSignalCaptureReport.Build(record, all));
+            Assert.Contains("so the trough and the swing use all of them", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("leave out the smoothed readings", text, StringComparison.Ordinal);
+
+            // Control: an ordinary degraded capture does leave them out, and says so.
+            var some = QsoSignalAnalysis.Analyze(Trace(40, 20, _ => -73.0), 60);
+            Assert.True(some.GapExclusionApplied);
+            string other = Radios.Fixer.Evidence.EvidenceReportDocument.PlainText(
+                QsoSignalCaptureReport.Build(new QsoSignalCaptureRecord { CaptureId = "AAA-223", CaptureSeconds = 60 }, some));
+            Assert.Contains("leave out the smoothed readings", other, StringComparison.Ordinal);
+        }
+        [Fact]
+        public void A_real_session_stopped_during_a_stall_reports_the_tail_as_missing()
+        {
+            // Codex's reachability control, through the public session and
+            // its injected clock: readings every 50 ms to second 40, none from
+            // 20 to 25, then Stop at second 60.
+            DateTime t0 = new DateTime(2026, 11, 7, 1, 0, 0, DateTimeKind.Utc);
+            DateTime now = t0;
+            var session = new QsoSignalCaptureSession(() => now, new Random(7));
+            for (int i = 0; i <= 800; i++)
+            {
+                double t = i * 0.05;
+                if (t >= 20.0 && t <= 25.0) continue;
+                now = t0.AddSeconds(t);
+                session.Add(-73.0, transmitting: false);
+            }
+            now = t0.AddSeconds(60);
+            QsoSignalAnalysisResult a = session.Stop("stopped by you").Analysis;
+            Assert.Equal(2, a.GapCount);
+            Assert.InRange(a.Coverage, 0.57, 0.60);
         }
     }
 }
