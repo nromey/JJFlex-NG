@@ -301,7 +301,9 @@ internal static class Sweep
         report.TraceLogPath = traceLog;
         if (header == null)
         {
-            report.AbortedBecause = $"no trace file belongs to the build at {appDir}. Neither routing nor "
+            report.AbortedBecause = $"no trace file in {TraceLog.AppDataDir} belongs to the build at {appDir}. "
+                + "If the app runs under JJFLEX_CONFIG_DIR, give jjprobe the same folder (--config-dir or the "
+                + "variable). Neither routing nor "
                 + "speech can be observed, so every key would be reported silent whether it works or not. "
                 + "Nothing was pressed. Run `jjprobe trace --all` to see whose sessions are on disk.";
             return report;
