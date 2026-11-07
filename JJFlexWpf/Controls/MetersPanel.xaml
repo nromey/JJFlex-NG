@@ -54,11 +54,23 @@
                           SelectionChanged="CategoryCombo_SelectionChanged" />
 
                 <TextBlock Text="Source:" Margin="0,2,0,2" />
+                <!-- First letters search the meter's own name (SearchText:
+                     FWDPWR, LEVEL), not the start of the entry, which is the
+                     hardware group ("TX-: ...") and would make every letter
+                     but T useless. Each entry is still read in full: its
+                     accessible name is bound to the whole line. -->
                 <ComboBox x:Name="SourceCombo" Width="420"
                           HorizontalAlignment="Left" Margin="0,0,0,2"
+                          TextSearch.TextPath="SearchText"
                           AutomationProperties.Name="Meter source"
                           local:JJFlexHelp.Text="Which of the radio's own meters this tone follows. The short list holds the ones most operators want; tick Show every meter to reach all of them, grouped by where they come from."
-                          SelectionChanged="SourceCombo_SelectionChanged" />
+                          SelectionChanged="SourceCombo_SelectionChanged">
+                    <ComboBox.ItemContainerStyle>
+                        <Style TargetType="ComboBoxItem">
+                            <Setter Property="AutomationProperties.Name" Value="{Binding ListDisplay}" />
+                        </Style>
+                    </ComboBox.ItemContainerStyle>
+                </ComboBox>
 
                 <CheckBox x:Name="AllMetersCheck"
                           Content="Show every meter this radio reports"

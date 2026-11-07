@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading;
@@ -87,6 +88,92 @@ public sealed class MeterCategoryPickerTests
             category.SelectedIndex = 0;
             Assert.Equal(8, Items(source).Length);
         });
+
+    /// <summary>
+    /// Codex B1 on f05fc1f2: inside a category, a first letter must find the
+    /// meter by its own name. Live entries start with their hardware group
+    /// ("TX-: FWDPWR ..."), so matching the entry text made F find nothing.
+    /// Live-shaped entries are put into the panel's own list and the same
+    /// rebuild the inventory change runs is called; the search is WPF's own
+    /// (TextSearch, the code a typed letter reaches), with a plain combo as
+    /// the positive control that the call really searches.
+    /// </summary>
+    [Fact]
+    public void A_first_letter_finds_the_meter_by_its_own_name_inside_a_category()
+        => Run(panel =>
+        {
+            Assert.Empty(MeterToneEngine.Slots);   // a search must not retarget a configured meter
+            var control = new ComboBox();
+            control.Items.Add("Forward power");
+            Search(control, "F");
+            Assert.Equal(0, control.SelectedIndex);
+
+            LiveShaped(panel,
+                ("TX-", "FWDPWR", "Forward power", MeterCategory.PowerAndSwr),
+                ("TX-", "REFPWR", "Reflected power", MeterCategory.PowerAndSwr),
+                ("TX-", "SWR", "SWR", MeterCategory.PowerAndSwr),
+                ("RAD", "PATEMP", "PA temperature", MeterCategory.TemperatureAndVoltage));
+            var category = Combo(panel, "CategoryCombo");
+            var source = Combo(panel, "SourceCombo");
+            category.SelectedIndex = Items(category).ToList().FindIndex(x => x.StartsWith("Power and SWR"));
+            Assert.Equal(3, source.Items.Count);
+            Assert.All(Items(source), x => Assert.StartsWith("TX-: ", x));   // read in full, group first
+
+            Search(source, "F");
+            Assert.Contains("FWDPWR", Items(source)[source.SelectedIndex]);
+            Search(source, "S");
+            Assert.Contains("SWR", Items(source)[source.SelectedIndex]);
+            Search(source, "R");
+            Assert.Contains("REFPWR", Items(source)[source.SelectedIndex]);
+
+            // Each entry's accessible name is still the whole line.
+            var style = source.ItemContainerStyle;
+            var name = style.Setters.OfType<System.Windows.Setter>()
+                .Single(x => x.Property == System.Windows.Automation.AutomationProperties.NameProperty);
+            Assert.Equal("ListDisplay", ((System.Windows.Data.Binding)name.Value).Path.Path);
+        });
+
+    private const System.Reflection.BindingFlags Private =
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+
+    private static void Invoke(MetersPanel panel, string name) =>
+        typeof(MetersPanel).GetMethod(name, Private)!.Invoke(panel, null);
+
+    /// <summary>WPF's own first-letter search, the code a typed letter reaches.</summary>
+    private static void Search(ItemsControl control, string text)
+    {
+        var flags = System.Reflection.BindingFlags.NonPublic;
+        object search = typeof(TextSearch).GetMethod("EnsureInstance", flags | System.Reflection.BindingFlags.Static)!
+            .Invoke(null, new object[] { control })!;
+        // A fresh prefix each time, as after the search's own timeout.
+        typeof(TextSearch).GetMethod("ResetState", flags | System.Reflection.BindingFlags.Instance)?
+            .Invoke(search, null);
+        typeof(TextSearch).GetMethod("DoSearch", flags | System.Reflection.BindingFlags.Instance)!
+            .Invoke(search, new object[] { text });
+    }
+
+    /// <summary>
+    /// Put entries shaped like a live radio's into the panel's own list, as
+    /// FromReading builds them ("group: name, description"), and rebuild the
+    /// categories and the source list the way an inventory change does.
+    /// </summary>
+    private static void LiveShaped(MetersPanel panel,
+        params (string Group, string Name, string Description, MeterCategory Category)[] meters)
+    {
+        var choiceType = typeof(MetersPanel).GetNestedType("SourceChoice", System.Reflection.BindingFlags.NonPublic)!;
+        var all = (System.Collections.IList)typeof(MetersPanel).GetField("_allChoices", Private)!.GetValue(panel)!;
+        all.Clear();
+        foreach (var m in meters)
+        {
+            object c = Activator.CreateInstance(choiceType)!;
+            choiceType.GetProperty("Key")!.SetValue(c, m.Name);
+            choiceType.GetProperty("Display")!.SetValue(c, m.Group + ": " + m.Name + ", " + m.Description);
+            choiceType.GetProperty("Category")!.SetValue(c, m.Category);
+            all.Add(c);
+        }
+        Invoke(panel, "RefreshCategoryChoices");
+        Invoke(panel, "ShowCategory");
+    }
 
     private static ComboBox Combo(MetersPanel panel, string name) => (ComboBox)panel.FindName(name);
 

@@ -377,6 +377,14 @@ public partial class MetersPanel : UserControl
         public string ListDisplay { get; set; } = "";
 
         /// <summary>
+        /// What a first letter in the source list matches: the meter's own
+        /// name as the radio gives it (FWDPWR, LEVEL), which the entry text
+        /// starts with only after its hardware group. Wired by the combo's
+        /// <c>TextSearch.TextPath</c>.
+        /// </summary>
+        public string SearchText => Key;
+
+        /// <summary>
         /// What to CALL the meter once it is chosen, as opposed to how to list
         /// it. The list entry carries the radio's description so you can tell
         /// two unfamiliar meters apart while browsing; the slot is then named
