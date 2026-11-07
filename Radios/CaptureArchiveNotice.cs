@@ -362,10 +362,10 @@ namespace Radios
                 // and "even if it is incomplete". A complete capture and the
                 // standing log get their own DRAFT paragraphs.
                 string nextSteps = !DetailedCapture
-                    ? Lexicon.Get("logging.capture.dropped.what_to_do_log", ("address", SendAddress))
+                    ? Lexicon.Get("logging.capture.dropped.what_to_do_log")
                     : TailUncertain
-                        ? Lexicon.Get("logging.capture.dropped.what_to_do", ("address", SendAddress))
-                        : Lexicon.Get("logging.capture.dropped.what_to_do_complete", ("address", SendAddress));
+                        ? Lexicon.Get("logging.capture.dropped.what_to_do")
+                        : Lexicon.Get("logging.capture.dropped.what_to_do_complete");
                 if (RecordingNow) return nextSteps;
                 return nextSteps + " " + (SuccessorOpened
                     ? Lexicon.Get("logging.capture.dropped.ending_stopped_since")
@@ -373,14 +373,6 @@ namespace Radios
             }
         }
 
-        /// <summary>
-        /// Where the window asks the operator to email the capture. ONE
-        /// lexicon string, so it changes in one place (#625): the approved
-        /// wording names a personal address, and the moment the problem-report
-        /// send wiring lands this sentence should send the file there instead
-        /// (#646).
-        /// </summary>
-        public static string SendAddress => Lexicon.Get("logging.capture.dropped.send_address");
 
         /// <summary>
         /// The extra paragraph when <see cref="TailUncertain"/>: that the

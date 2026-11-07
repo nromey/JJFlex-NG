@@ -159,9 +159,9 @@ namespace Radios.Tests
                 + "even if it is incomplete. You made it to describe a problem you were experiencing, and "
                 + "the fact that the capture itself failed part way through may also help us find a "
                 + "possible fault in the application. Use the button below to copy the path to this file, "
-                + "attach it to an email to " + CaptureArchiveNotice.SendAddress + ", and we will process it.",
+                + "then send the file to the developer.",
                 shortCapture.WhatToDo);
-            Assert.Contains("@", CaptureArchiveNotice.SendAddress, StringComparison.Ordinal);
+            Assert.DoesNotContain("@", shortCapture.WhatToDo, StringComparison.Ordinal);   // J37: no address
             Assert.DoesNotContain("{address}", Named().WhatToDo, StringComparison.Ordinal);
         }
 

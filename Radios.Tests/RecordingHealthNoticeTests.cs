@@ -341,7 +341,7 @@ namespace Radios.Tests
                 // A capture's next steps: the approved paragraph only when the
                 // file may be short (repair round two).
                 Assert.Equal(recordingNow, n.WhatToDo == Lexicon.Get(
-                    tail ? "logging.capture.dropped.what_to_do" : "logging.capture.dropped.what_to_do_complete", ("address", CaptureArchiveNotice.SendAddress)));
+                    tail ? "logging.capture.dropped.what_to_do" : "logging.capture.dropped.what_to_do_complete"));
                 Assert.Equal(tail, text.Contains("failed part way through", StringComparison.Ordinal));
                 Assert.Equal(!recordingNow, text.Contains("what happens next is not being kept", StringComparison.Ordinal));
                 Assert.Equal(!recordingNow && !successor, text.Contains("has not started recording again", StringComparison.Ordinal));
@@ -412,7 +412,7 @@ namespace Radios.Tests
             string before = n.Explanation;
             _out.WriteLine("--- composed while recording");
             _out.WriteLine(before);
-            Assert.Equal(Lexicon.Get("logging.capture.dropped.what_to_do_complete", ("address", CaptureArchiveNotice.SendAddress)), n.WhatToDo);
+            Assert.Equal(Lexicon.Get("logging.capture.dropped.what_to_do_complete"), n.WhatToDo);
             Assert.DoesNotContain("is not being kept", before, StringComparison.Ordinal);
             Assert.True(asked >= 1);
 
@@ -426,7 +426,7 @@ namespace Radios.Tests
             Assert.NotEqual(before, after);
             Assert.False(n.RecordingNow);
             Assert.True(n.SuccessorOpened, "the archive's own fact does not move");
-            Assert.Equal(Lexicon.Get("logging.capture.dropped.what_to_do_complete", ("address", CaptureArchiveNotice.SendAddress))
+            Assert.Equal(Lexicon.Get("logging.capture.dropped.what_to_do_complete")
                          + " " + Lexicon.Get("logging.capture.dropped.ending_stopped_since"), n.WhatToDo);
             Assert.Contains("is not being kept", after, StringComparison.Ordinal);
             Assert.Contains("did start recording again after the connection was lost, but it is not recording now", after, StringComparison.Ordinal);
@@ -506,7 +506,7 @@ namespace Radios.Tests
                 Assert.EndsWith(".", paragraph.TrimEnd(), StringComparison.Ordinal);
                 Assert.DoesNotContain("logging.capture", paragraph, StringComparison.Ordinal);
             }
-            Assert.Equal(Lexicon.Get("logging.capture.dropped.what_to_do_complete", ("address", CaptureArchiveNotice.SendAddress)), n.WhatToDo);
+            Assert.Equal(Lexicon.Get("logging.capture.dropped.what_to_do_complete"), n.WhatToDo);
         }
 
         /// <summary>

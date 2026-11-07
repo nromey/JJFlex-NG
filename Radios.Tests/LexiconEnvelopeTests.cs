@@ -2155,10 +2155,8 @@ namespace Radios.Tests
                 // said on the application's own account: TextOnly, on the
                 // connect.ownership.reason reasoning. what_plain and the two
                 // not-recording endings are DRAFTS; the rest are approved.
-                // send_address is new: the one place the address lives.
                 "logging.capture.dropped.saved",
                 "logging.capture.dropped.saved_tail_uncertain",
-                "logging.capture.dropped.send_address",
                 "logging.capture.dropped.tail_uncertain",
                 "logging.capture.dropped.tail_uncertain_earlier",
                 "logging.capture.dropped.what_named",

@@ -29,7 +29,7 @@ namespace Radios.Tests
             Assert.Contains("You made it to describe a problem you were experiencing", text, StringComparison.Ordinal);
             Assert.DoesNotContain("failed part way through", text, StringComparison.Ordinal);
             Assert.DoesNotContain("even if it is incomplete", text, StringComparison.Ordinal);
-            Assert.Contains(CaptureArchiveNotice.SendAddress, text, StringComparison.Ordinal);
+            Assert.Contains("send the file to the developer", text, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -41,9 +41,9 @@ namespace Radios.Tests
             Assert.DoesNotContain("capture", text, StringComparison.Ordinal);   // lower case: the file's "Capture Note" marker is a name, not a claim
             Assert.DoesNotContain("You made it", text, StringComparison.Ordinal);
             Assert.DoesNotContain("failed part way through", text, StringComparison.Ordinal);
-            // Still where the file is and the one address.
+            // Still where the file is and who to send it to.
             Assert.Contains("copy the path to this file", text, StringComparison.Ordinal);
-            Assert.Contains(CaptureArchiveNotice.SendAddress, text, StringComparison.Ordinal);
+            Assert.Contains("send the file to the developer", text, StringComparison.Ordinal);
             Assert.DoesNotContain(PathZ, text, StringComparison.Ordinal);   // the path has its own control
             Assert.Contains(PathZ, n.AsText(), StringComparison.Ordinal);
 
