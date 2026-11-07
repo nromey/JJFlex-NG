@@ -177,14 +177,20 @@ namespace JJTrace
             // becomes a search sentence that says the search finds only what
             // has introduced itself. DRAFT where it departs from the approved
             // words; the approved text is quoted in the batch report.
+            //
+            // Repair round one: the last sentence is H17's conditional again.
+            // The approved "the reason it ended early and whatever data
+            // survived are at the end of the file" is false when the sink
+            // itself fails: a closed sink refuses the closing line
+            // (RotatingTraceListener.WriteTerminalLine), so the file that
+            // most needs the reason is the one that cannot carry it.
             OpeningMarker + " this is a JJ Flexible Radio Access diagnostic recording. It is plain text, oldest"
                    + " first. Most lines begin with the number of milliseconds since the PROGRAM started — not"
                    + " since this capture started — and, in square brackets, the thread that wrote it. Kinds of"
                    + " measurement introduce themselves the first time they appear, on a line beginning \"" + Marker.TrimEnd(':')
                    + "\". To find those notes, search for \"" + SearchPhrase + "\"; that finds only the kinds that"
                    + " have introduced themselves, and the file can also hold lines that carry no note. If the"
-                   + " recording could not be written in full, the reason it ended early and whatever data survived"
-                   + " are at the end of the file.",
+                   + " recording was able to say how it ended, that is on its last lines.",
         };
 
         /// <summary>The introduction line for a kind, as the sink writes it (without the trace prefix).</summary>

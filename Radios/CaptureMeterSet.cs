@@ -144,8 +144,13 @@ namespace Radios
             + Environment.NewLine + "refl: reflected power, in dBm."
             + Environment.NewLine + "fwdW: the same forward power, in watts."
             + Environment.NewLine + "reflW: the same reflected power, in watts."
-            + Environment.NewLine + "back: the percentage of your transmit power coming back to the radio. Written only"
-            + " when forward and reflected power were both measured at the same moment."
+            // DRAFT (repair round one): the writer divides the latest forward
+            // and reflected readings, each kept by its own callback, once both
+            // have arrived in this transmission or tune. It does not check that
+            // they came from one moment, so the note must not say they did.
+            + Environment.NewLine + "back: the percentage of your transmit power coming back to the radio, worked out"
+            + " from the latest forward and reflected readings. It is given only when both have been reported during"
+            + " this transmission or tune; the two readings can have arrived at slightly different moments."
             + Environment.NewLine + "SWRraw: the SWR the radio reports itself."
             + Environment.NewLine + "SWRcalc: the SWR worked out from the forward and reflected power above."
             + Environment.NewLine + "A value written as '" + NoSample + "' is one the radio has not reported during"
