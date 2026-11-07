@@ -3382,25 +3382,22 @@ public class FreqOutHandlers
 
         string mode = Rig.Mode ?? "USB";
         int direction = key == Key.OemCloseBrackets ? 1 : -1;
-        var preset = FilterPresets.CyclePreset(mode, Rig.FilterLow, Rig.FilterHigh, direction);
 
-        if (preset == null)
-        {
-            string boundary = direction > 0
-                ? Lexicon.Get("settings.filter.preset_widest")
-                : Lexicon.Get("settings.filter.preset_narrowest");
-            Radios.ScreenReaderOutput.Speak(boundary, VerbosityLevel.Terse, true);
-        }
-        else
-        {
-            // The preset's one announcement, made once the write has run, from
-            // what the filter BECAME (#747 rounds four and five): FM refuses a
-            // preset and other modes may hold it back, so the edges asked for
-            // are never what is said.
-            Rig.ApplyFilterPreset(preset, mode, said => Radios.ScreenReaderOutput.Speak(said, VerbosityLevel.Terse, true));
-        }
+        // The cursor steps by the operator's own position in the list, so a
+        // preset the radio refused (FM refuses them all) still moves the next
+        // press on to the next name (bench item 7, 2026-11-06). Each preset's
+        // one announcement is made once the write has run, from what the
+        // filter BECAME (#747 rounds four and five), so a refusal says
+        // "unchanged".
+        _presetCursor.Cycle(Rig, FilterPresets, mode, direction,
+            said => Radios.ScreenReaderOutput.Speak(said, VerbosityLevel.Terse, true),
+            widest => Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get(widest ? "settings.filter.preset_widest" : "settings.filter.preset_narrowest"),
+                VerbosityLevel.Terse, true));
         e.Handled = true;
     }
+
+    private readonly Radios.PresetCycleCursor _presetCursor = new Radios.PresetCycleCursor();
 
     // Lazily build the StickyAnnouncedMode wrapping the filter-edge state. We
     // can't construct it eagerly because _window.Dispatcher isn't available

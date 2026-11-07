@@ -207,10 +207,13 @@ namespace Radios.Tests
         public void Both_selection_routes_and_the_status_use_the_applied_path()
         {
             string handlers = Src("JJFlexWpf", "FreqOutHandlers.cs");
-            Assert.Contains("Rig.ApplyFilterPreset(preset, mode,", handlers, StringComparison.Ordinal);
+            // Round eleven: Alt with a bracket goes through the cursor, which
+            // applies through the same applied path.
+            Assert.Contains("_presetCursor.Cycle(Rig, FilterPresets, mode, direction,", handlers, StringComparison.Ordinal);
+            Assert.Contains("rig.ApplyFilterPreset(preset, mode, (said, applied) =>", Src("Radios", "PresetCycleCursor.cs"), StringComparison.Ordinal);
             Assert.Contains("FilterPresets.ActiveStatus(mode, low, high, Radios.ScreenReaderOutput.CurrentVerbosity)", handlers, StringComparison.Ordinal);
             string menu = Src("JJFlexWpf", "NativeMenuBar.cs");
-            Assert.Contains("Rig.ApplyFilterPreset(preset, currentMode, (said, applied) => SpeakAfterMenuClose(said, stillTrue: FilterStillIs(applied)));", menu, StringComparison.Ordinal);
+            Assert.Contains("rig.ApplyFilterPreset(preset, currentMode, (said, applied) => SpeakAfterMenuClose(said, stillTrue: FilterStillIs(rig, applied)));", menu, StringComparison.Ordinal);
             Assert.Contains("string label = preset.FormatForDisplay();", menu, StringComparison.Ordinal);
             Assert.DoesNotContain("preset.Announcement(", handlers + menu, StringComparison.Ordinal);
         }
