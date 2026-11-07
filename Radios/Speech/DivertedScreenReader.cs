@@ -40,7 +40,11 @@ namespace Radios.Speech
         // Braille is the exception: HasBraille is false, so claiming delivery
         // would assert a display that is not there.
         public SpeechDelivery Braille(string message) => SpeechDelivery.NotAttempted;
-        public void Silence() { }
+
+        // Accepted, for the reason Speak is: production's answer, so the
+        // layers above behave here as they do there. Accepted is a request
+        // taken, never speech stopped.
+        public SpeechDelivery Silence() => SpeechDelivery.Accepted;
         public void Dispose() { }
     }
 }

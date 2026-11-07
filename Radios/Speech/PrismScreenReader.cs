@@ -743,10 +743,19 @@ namespace Radios.Speech
             }
         }
 
-        public void Silence()
+        /// <summary>
+        /// The stop call, with Prism's answer kept rather than dropped. Ok
+        /// means the reader ACCEPTED the request, not that it has gone quiet;
+        /// see <see cref="IScreenReader.Silence"/>.
+        /// </summary>
+        public SpeechDelivery Silence()
         {
-            if (_backend == IntPtr.Zero || !_supportsStop) return;
-            try { PrismNative.prism_backend_stop(_backend); } catch { /* best effort */ }
+            if (_backend == IntPtr.Zero || !_supportsStop) return SpeechDelivery.NotAttempted;
+            try { return Report(PrismNative.prism_backend_stop(_backend), "stop"); }
+            catch (Exception ex)
+            {
+                return SpeechDelivery.Failed($"prism_backend_stop threw: {ex.Message}");
+            }
         }
 
         public void Dispose() => Cleanup();

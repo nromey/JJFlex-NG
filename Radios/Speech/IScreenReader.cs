@@ -56,8 +56,24 @@
         /// </summary>
         SpeechDelivery Braille(string message);
 
-        /// <summary>Stop speech immediately. Best-effort.</summary>
-        void Silence();
+        /// <summary>
+        /// Ask the reader to stop speaking now, and say whether it took the
+        /// request.
+        ///
+        /// <para><b>An accepted answer means the REQUEST was accepted, never
+        /// that speech has stopped.</b> No backend we support can say when
+        /// speaking has actually ended: <see cref="SpeechDelivery.Delivered"/>
+        /// true here means the reader took the stop call, and something
+        /// already queued inside it may still start. No caller may read it as
+        /// quiescence or release anything on it. Before this returned an
+        /// answer, Prism's error from the stop call was dropped in a void
+        /// method; now a refusal can at least be traced.</para>
+        ///
+        /// <para><see cref="SpeechDelivery.NotAttempted"/> when there is no
+        /// backend or it cannot stop speech; a failure names the call, the
+        /// reader and the error.</para>
+        /// </summary>
+        SpeechDelivery Silence();
 
         /// <summary>True when this backend can currently produce speech.</summary>
         bool HasSpeech { get; }
