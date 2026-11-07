@@ -83,6 +83,70 @@ namespace Radios.Tests
             Assert.Empty(_handed);
         }
 
+        /// <summary>
+        /// Round thirteen (Codex's API probe): a plain Latest replacing a
+        /// waiting composed entry on the same key is what gets handed over.
+        /// </summary>
+        [Fact]
+        public void A_plain_value_replacing_a_waiting_composition_is_what_is_handed_over()
+        {
+            _arbiter.LatestComposed("k", () => new SpeechComposition("composed lead", null), VerbosityLevel.Terse, "t");
+            _arbiter.LatestComposed("k", () => new SpeechComposition("old composition", null), VerbosityLevel.Terse, "t");
+            _arbiter.Latest("k", "new plain value", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");
+            _clock.Advance(5000);
+            Assert.Equal(new[] { "composed lead", "new plain value" }, _handed);
+        }
+
+        /// <summary>
+        /// Round thirteen (Codex's API probe): a composer that throws says
+        /// nothing for its entry and never throws out, at once or on the
+        /// clock's callback; later speech still works.
+        /// </summary>
+        [Fact]
+        public void A_throwing_composer_says_nothing_and_throws_nothing()
+        {
+            System.Func<SpeechComposition?> broken = () => throw new System.InvalidOperationException("composer fault");
+            _arbiter.LatestComposed("k", broken, VerbosityLevel.Terse, "t");                    // immediate
+            _arbiter.LatestComposed("j", () => new SpeechComposition("lead", null), VerbosityLevel.Terse, "t");
+            _arbiter.LatestComposed("j", broken, VerbosityLevel.Terse, "t");                    // at the flush
+            _clock.Advance(5000);
+            _arbiter.LatestComposed("j", () => new SpeechComposition("after", null), VerbosityLevel.Terse, "t");
+            _clock.Advance(5000);
+            Assert.Equal(new[] { "lead", "after" }, _handed);
+        }
+
+        /// <summary>
+        /// Round thirteen (Codex's re-entrant case): a reader that reports a cut
+        /// synchronously, while the arbiter is mid-emission, does not run the
+        /// producer's callback under the arbiter's lock; it runs after.
+        /// </summary>
+        [Fact]
+        public void An_outcome_reported_mid_emission_reaches_the_producer_outside_the_lock()
+        {
+            SpeechArbiter? arbiter = null;
+            long next = 1;
+            long? speaking = null;
+            arbiter = new SpeechArbiter(_clock, () => VerbosityLevel.Chatty,
+                (text, interrupt, intent, level, origin, salvaged) =>
+                {
+                    if (interrupt && speaking is long cut)
+                    {
+                        speaking = null;
+                        arbiter!.OnOutcome(cut, "first", SpeechOutcome.Cancelled(0, 1, byUs: true, elapsedMs: 5));
+                    }
+                    long mine = next++;
+                    speaking = mine;
+                    return SpeechHandoff.TrackedAs(mine);
+                },
+                () => { }, (_, _, _, _) => { });
+            object gate = typeof(SpeechArbiter).GetField("_lock", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(arbiter)!;
+            var heldWhenCalled = new List<bool>();
+            arbiter.LatestComposed("k", () => new SpeechComposition("first", o => heldWhenCalled.Add(System.Threading.Monitor.IsEntered(gate))), VerbosityLevel.Terse, "t");
+            arbiter.Emit("other", interrupt: true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t", subject: "other");
+            _clock.Advance(1);
+            Assert.Equal(new[] { false }, heldWhenCalled);
+        }
+
         /// <summary>The plain Latest path is unchanged: a repeat of the key's last value is still skipped.</summary>
         [Fact]
         public void Control_a_plain_latest_repeat_is_still_skipped()

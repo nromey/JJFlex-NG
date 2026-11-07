@@ -732,6 +732,103 @@ namespace Radios.Tests
             Assert.Equal(2, _heard.Count(h => h == "TX Filter Low 2750, at limit"));
         }
 
+        // ------------------------------------------------------------------
+        // Round thirteen: the words are as fresh as the numbers (Codex's
+        // eighth re-verify, the two wording follow-ups)
+        // ------------------------------------------------------------------
+
+        private void HearLow150ThenWait(int high)
+        {
+            Tx(100, high);
+            _fields.Write(lowField: true, 150);
+            Drain();
+            Finish();                                  // "TX Filter Low 150", heard
+            _clock.Advance(50);                        // the next sentence waits its turn
+        }
+
+        /// <summary>
+        /// The boundary word is decided when the sentence is composed: High's
+        /// maximum end stop is waiting when another door sets High 9000, so the
+        /// edge is no longer at its maximum and the word is not said.
+        /// </summary>
+        [Fact]
+        public void An_end_stop_says_its_boundary_only_if_the_edge_is_still_there()
+        {
+            HearLow150ThenWait(high: 10000);
+            _fields.SayEndStop(lowField: false, atMinimum: false, shownValue: 10000);
+            _rig.SetTXFilter(null, 9000, _ => { });   // another door
+            Drain();
+            Settle();
+            Assert.Equal("TX Filter High 9000", _heard.Last());
+        }
+
+        /// <summary>Codex's control: with no other door, the end stop keeps its word.</summary>
+        [Fact]
+        public void Control_with_no_other_door_the_end_stop_keeps_its_boundary_word()
+        {
+            HearLow150ThenWait(high: 10000);
+            _fields.SayEndStop(lowField: false, atMinimum: false, shownValue: 10000);
+            Settle();
+            Assert.Equal("TX Filter High 10000, maximum", _heard.Last());
+        }
+
+        private void HearHigh2850ThenPressLowMinimum()
+        {
+            Tx(0, 2800);
+            _fields.Write(lowField: false, 2850);
+            Drain();
+            Finish();                                  // "TX Filter High 2850", heard
+            _clock.Advance(50);
+            _fields.SayEndStop(lowField: true, atMinimum: true, shownValue: 0);   // waits its turn
+        }
+
+        /// <summary>The same for the low edge's minimum: another door sets Low 300 first.</summary>
+        [Fact]
+        public void A_low_end_stop_says_minimum_only_if_the_edge_is_still_there()
+        {
+            HearHigh2850ThenPressLowMinimum();
+            WriteTx(300);                              // another door
+            Settle();
+            Assert.Equal("TX Filter Low 300", _heard.Last());
+        }
+
+        [Fact]
+        public void Control_with_no_other_door_the_low_end_stop_keeps_its_boundary_word()
+        {
+            HearHigh2850ThenPressLowMinimum();
+            Settle();
+            Assert.Equal("TX Filter Low 0, minimum", _heard.Last());
+        }
+
+        /// <summary>
+        /// A refusal waiting to be said is dropped once another door has
+        /// changed the filter: "not taking changes right now" is no longer true.
+        /// </summary>
+        [Fact]
+        public void A_waiting_refusal_is_dropped_once_another_door_changed_the_filter()
+        {
+            HearLow150ThenWait(high: 2800);
+            _rig.q.MainLoop = false;
+            _fields.Write(lowField: false, 3000);      // refused; waits its turn
+            _rig.q.MainLoop = true;
+            _rig.SetTXFilter(null, 2900, _ => { });   // another door succeeds
+            Drain();
+            Settle();
+            Assert.Equal("TX Filter High 2900", _heard.Last());
+            Assert.DoesNotContain(_heard, h => h.Contains("not changed"));
+        }
+
+        /// <summary>Codex's control: with no other door, the waiting refusal is said.</summary>
+        [Fact]
+        public void Control_with_no_other_door_the_waiting_refusal_is_said()
+        {
+            HearLow150ThenWait(high: 2800);
+            _rig.q.MainLoop = false;
+            _fields.Write(lowField: false, 3000);
+            Settle();
+            Assert.Equal("TX filter not changed. The radio is not taking changes right now.", _heard.Last());
+        }
+
         /// <summary>Codex's control: Low 150 Completed, and High 2850 says only the high.</summary>
         [Fact]
         public void Control_a_completed_sentence_is_not_repeated()

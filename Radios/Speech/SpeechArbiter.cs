@@ -1328,6 +1328,7 @@ namespace Radios.Speech
                 if (_pending.TryGetValue(key, out var existing))
                 {
                     existing.Message = message;
+                    existing.Compose = null;   // a plain value replaces a waiting composition outright (#747 round thirteen)
                     existing.Level = level;
                     existing.Kind = kind;
                     existing.Origin = origin;
@@ -3548,14 +3549,7 @@ namespace Radios.Speech
                 if (ticket != 0 && _composedOutcomes.Remove(ticket, out var callback)) composed = callback;
             }
             OnOutcomeCore(ticket, message, outcome);
-            if (composed != null)
-            {
-                try { composed(outcome); }
-                catch (Exception ex)
-                {
-                    Tracing.TraceLine("SpeechArbiter: a composed entry's outcome callback threw: " + ex.Message, TraceLevel.Error);
-                }
-            }
+            if (composed != null) DeliverComposedOutcome(composed, outcome);
         }
 
         private void OnOutcomeCore(long ticket, string message, SpeechOutcome outcome)
@@ -3738,11 +3732,17 @@ namespace Radios.Speech
         /// verbosity gate are a Value entry's, unchanged. The one difference is
         /// that a composed entry is never skipped as a repeat of the key's
         /// last sentence; the composer decides what is owed. The outcome
-        /// callback is called once, outside the lock, and only for a tracked
-        /// hand-over; an untracked or refused hand-over never reports
-        /// Completed, which is the conservative answer. No other caller's
-        /// behaviour changes.</para>
-        /// <para>The composer must not call back into this arbiter.</para>
+        /// callback is called once, and only for a tracked hand-over; an
+        /// untracked or refused hand-over never reports Completed, which is
+        /// the conservative answer. No other caller's behaviour changes.</para>
+        /// <para>The composer runs UNDER the arbiter's lock: it must be quick,
+        /// must not block, and must not call back into this arbiter. A
+        /// composer that throws says nothing for its entry. The outcome
+        /// callback never runs under the lock: when a reader reports
+        /// synchronously from inside an emission, it is deferred to the clock
+        /// (round thirteen).</para>
+        /// <para>A plain <see cref="Latest"/> on the same key replaces a
+        /// waiting composition outright.</para>
         /// </summary>
         public void LatestComposed(string key, Func<SpeechComposition?> compose, VerbosityLevel level,
             string? origin, string? subject = null)
@@ -3769,7 +3769,7 @@ namespace Radios.Speech
 
                 if (!sweeping && gapWait == 0)
                 {
-                    var composed = compose();
+                    var composed = SafeComposeLocked(compose, key);
                     if (composed == null || string.IsNullOrEmpty(composed.Value.Text)) return;
                     EmitComposedLocked(key, composed.Value, level, origin, subject);
                     return;
@@ -3785,6 +3785,47 @@ namespace Radios.Speech
                 };
                 _pending[key] = entry;
                 entry.Timer = _clock.StartTimer(CoalesceMs, () => FlushCoalesced(key));
+            }
+        }
+
+        /// <summary>
+        /// Run a composer, and treat a fault as "nothing to say" (#747 round
+        /// thirteen): it runs on the clock's callback at a flush, where an
+        /// escaping exception would be unhandled.
+        /// </summary>
+        private static SpeechComposition? SafeComposeLocked(Func<SpeechComposition?> compose, string key)
+        {
+            try { return compose(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"SpeechArbiter: the composer for '{key}' threw, so nothing is said for it: {ex.Message}", TraceLevel.Error);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Tell a composed entry's producer its outcome, never under this
+        /// arbiter's lock (#747 round thirteen). A reader can report a cut
+        /// synchronously from inside an emission (the paced delivery does, on
+        /// an interrupt), when an outer call still holds the lock; then the
+        /// callback goes to the clock and runs once the lock is released.
+        /// </summary>
+        private void DeliverComposedOutcome(Action<SpeechOutcome> callback, SpeechOutcome outcome)
+        {
+            if (System.Threading.Monitor.IsEntered(_lock))
+            {
+                ISpeechTimer? timer = null;
+                timer = _clock.StartTimer(0, () =>
+                {
+                    timer?.Dispose();
+                    DeliverComposedOutcome(callback, outcome);
+                });
+                return;
+            }
+            try { callback(outcome); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("SpeechArbiter: a composed entry's outcome callback threw: " + ex.Message, TraceLevel.Error);
             }
         }
 
@@ -3840,7 +3881,7 @@ namespace Radios.Speech
                         catch (ObjectDisposedException) { _pending.Remove(key); }
                     }
                     entry.Timer?.Dispose();
-                    var composed = entry.Compose();
+                    var composed = SafeComposeLocked(entry.Compose, key);
                     if (composed == null || string.IsNullOrEmpty(composed.Value.Text)) return;
                     EmitComposedLocked(key, composed.Value, entry.Level, entry.Origin, entry.Subject);
                     return;

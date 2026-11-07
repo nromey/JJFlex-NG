@@ -26,6 +26,11 @@ namespace Radios
     /// (<see cref="SpeechArbiter.LatestComposed"/>) from the radio's pair at
     /// that moment. History decides WHICH edges to state; the radio supplies
     /// every value.</para>
+    /// <para><b>The words are as fresh as the numbers (round thirteen).</b>
+    /// An end stop's "maximum" or "minimum" is said only if the edge is still
+    /// at that limit when the sentence is composed, and a waiting refusal is
+    /// dropped once another door has moved the filter. The outcome callback
+    /// takes only this class's own gate.</para>
     /// <para><b>Owed until the reader says it finished.</b> An edge is owed
     /// when its newest result has not been said, when its value differs from
     /// the last value a sentence stated and the reader reported COMPLETED, or
@@ -61,6 +66,7 @@ namespace Radios
         private long _lowAsked, _highAsked;      // an unsaid newest result for that edge
         private int? _lowLimitAt, _highLimitAt;  // the value that edge's newest result was held back to
         private long _notWritten;                // an unsaid refusal
+        private (int Low, int High)? _refusedPair; // the radio's pair when it was refused; another door moving it retires the refusal
         private long _endStopSeq;                // an unsaid end stop
         private bool _endStopLow, _endStopAtMinimum;
         private int _endStopShown;
@@ -112,6 +118,7 @@ namespace Radios
             _heardLow = _heardHigh = null;
             _lowAsked = _highAsked = _notWritten = _endStopSeq = 0;
             _lowLimitAt = _highLimitAt = null;
+            _refusedPair = null;
         }
 
         /// <summary>
@@ -165,6 +172,7 @@ namespace Radios
                     if (applied.NotWritten)
                     {
                         _notWritten = s;
+                        _refusedPair = rig.theRadio == null ? null : (rig.TXFilterLow, rig.TXFilterHigh);
                     }
                     else
                     {
@@ -268,17 +276,27 @@ namespace Radios
                 {
                     int low = rig.TXFilterLow, high = rig.TXFilterHigh;
                     bool lowEnd = _endStopSeq != 0 && _endStopLow, highEnd = _endStopSeq != 0 && !_endStopLow;
+                    // The boundary word is decided NOW (round thirteen): an end
+                    // stop says "maximum" or "minimum" only if the edge is still
+                    // at that limit, FlexLib's own (low 0 to high minus 50, high
+                    // low plus 50 to 10000). Otherwise it says the value plainly.
+                    bool lowAtBoundary = lowEnd && (_endStopAtMinimum ? low <= 0 : low >= high - 50);
+                    bool highAtBoundary = highEnd && (_endStopAtMinimum ? high <= low + 50 : high >= 10000);
+                    // A refusal is about the pair it was refused against: once
+                    // another door has moved the filter, "not taking changes
+                    // right now" is no longer true, so it is dropped.
+                    if (_notWritten != 0 && _refusedPair.HasValue && _refusedPair.Value != (low, high)) _notWritten = 0;
                     if (lowEnd || _lowAsked != 0 || low != _heardLow)
                     {
-                        clauses.Add(lowEnd ? EndClause(_lowLabel, low, _endStopAtMinimum)
-                                           : Clause(_lowLabel, low, _lowAsked != 0 && _lowLimitAt == low));
+                        clauses.Add(lowAtBoundary ? EndClause(_lowLabel, low, _endStopAtMinimum)
+                                                  : Clause(_lowLabel, low, _lowAsked != 0 && _lowLimitAt == low));
                         statedLow = low;
                         paidLow = _lowAsked;
                     }
                     if (highEnd || _highAsked != 0 || high != _heardHigh)
                     {
-                        clauses.Add(highEnd ? EndClause(_highLabel, high, _endStopAtMinimum)
-                                            : Clause(_highLabel, high, _highAsked != 0 && _highLimitAt == high));
+                        clauses.Add(highAtBoundary ? EndClause(_highLabel, high, _endStopAtMinimum)
+                                                   : Clause(_highLabel, high, _highAsked != 0 && _highLimitAt == high));
                         statedHigh = high;
                         paidHigh = _highAsked;
                     }
