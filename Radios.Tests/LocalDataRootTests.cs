@@ -10,6 +10,7 @@ namespace Radios.Tests
     /// viewer, the Fixer) follows the settings root when JJFLEX_CONFIG_DIR moves
     /// it, and stays where it always was otherwise.
     /// </summary>
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class LocalDataRootTests
     {
         private const string Roaming = @"C:\Users\op\AppData\Roaming";
