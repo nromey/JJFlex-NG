@@ -898,38 +898,53 @@ partial class BenchApp
     static CwMask RankedGaps(CwMask m) => m;
 
     /// <summary>
-    /// The figures an engine may be ranked on, Noel's ruling of 2026-11-06 (S19, option a): element
-    /// survival (kept of those scored, the weakest third against the strongest half, the station's
-    /// own change and key-down level) and the noise in the rest of the passband, more than 100 Hz from
-    /// the station, where a fade of the station cannot reach. NaN where the passband leaves no room.
-    /// The at-pitch gap figures are never here: a fade inside an element is the same signal as a gap.
+    /// The figures an engine may be ranked on, Noel's ruling of 2026-11-06 (S19, option a), as he put
+    /// it: "the noise across the rest of the band plus how many dots and dashes survive". So COUNTS:
+    /// the elements kept and the elements erased, out of those the reference scores, and the noise in
+    /// the rest of the passband, more than 100 Hz from the station (NaN where the passband leaves no
+    /// room). Round 6 took the dB survival figures out (weakest third against strongest half, the
+    /// station's own change, its key-down level): Codex showed deleting faded tone and turning strong
+    /// elements down each raise them. They are shown, labelled, never ranked; so are the at-pitch gap
+    /// figures. KNOWN LIMIT, found in round 6 and not fixed (no redesign without Noel): the counts
+    /// themselves can move under the same two triggers, because "kept" is judged against the strongest
+    /// half's own change and every element's detection subtracts noise read from at-pitch gaps. See the
+    /// round 6 report. ExtraDb is empty: the mutations below put a dB figure back to show the controls
+    /// see it.
     /// </summary>
-    sealed record CwRanked(int Kept, int Measured, double StationChangeDb, double WeakAgainstStrongDb, double StationLevelDb, double RestFellDb);
+    sealed record CwRanked(int Kept, int Erased, int Measured, double RestFellDb, double[] ExtraDb);
 
     static CwRanked Ranked(CwReading file, CwReading reference)
     {
         var s = Survival(file.Ranked, reference.Ranked);
-        double weak = s.WeakAgainstStrongDb, rest = file.Ranked.RestBelowStation - reference.Ranked.RestBelowStation;
-        // The controls that ranking at the pitch is load-bearing: an at-pitch figure back in the ranking.
+        var rs = reference.Ranked.ElementSignal; var fs = file.Ranked.ElementSignal;
+        int erased = Enumerable.Range(0, rs.Length).Count(i => rs[i] > 0 && !(fs[i] > 0));
+        double rest = file.Ranked.RestBelowStation - reference.Ranked.RestBelowStation;
+        var extra = new List<double>();
+        // The controls that ranking only counts and the rest of the band is load-bearing: a dB figure back in.
         if (Mutation == "cw-rank-gaps-fell") rest = file.AtPitch.Separation - reference.AtPitch.Separation;
-        if (Mutation == "cw-rank-weak-at-pitch") weak = file.AtPitch.WeakSeparation - reference.AtPitch.WeakSeparation;
-        return new(s.Kept, s.Measured, s.StationChangeDb, weak, file.Ranked.KeyDown - reference.Ranked.KeyDown, rest);
+        if (Mutation == "cw-rank-weak-at-pitch") extra.Add(file.AtPitch.WeakSeparation - reference.AtPitch.WeakSeparation);
+        return new(s.Kept, erased, s.Measured, rest, extra.ToArray());
     }
 
     static string CwLine(string name, CwReading file, CwReading reference)
     {
         var f = file.Ranked; var w = file.AtPitch; var rw = reference.AtPitch;
         var r = Ranked(file, reference);
-        string rest = double.IsNaN(r.RestFellDb) ? "no rest-of-passband figure (the passband leaves no room beside the tone), so only the elements rank this file"
+        var sv = Survival(f, reference.Ranked);
+        string rest = double.IsNaN(r.RestFellDb) ? "no rest-of-passband figure (the passband leaves no room beside the tone), so only the counts rank this file"
             : $"the rest of the passband, more than 100 Hz from the station, {f.RestBelowStation:0.0} dB below the station between elements ({r.RestFellDb:+0.0;-0.0;0.0} dB against the capture)";
-        string elements = double.IsNaN(r.StationChangeDb) ? "too few elements to follow one by one"
-            : $"elements kept {r.Kept} of the {r.Measured} it could score; the weakest third of those {r.WeakAgainstStrongDb:+0.0;-0.0;0.0} dB against the strongest half";
+        string counts = r.Measured < 6 ? "too few elements to follow one by one"
+            : $"elements kept {r.Kept} and erased {r.Erased}, of the {r.Measured} it could score";
+        string dB = double.IsNaN(sv.StationChangeDb) ? "" :
+            $"the weakest third of the scored elements {sv.WeakAgainstStrongDb:+0.0;-0.0;0.0} dB against the strongest half (a ratio: turning the strong elements down raises it, and it reads its noise from gaps near each element, which cannot tell fading from noise); " +
+            $"the station's own change {sv.StationChangeDb:+0.0;-0.0;0.0} dB (also reads its noise from those gaps); ";
         string missing = f.UncoveredShare > 0 ? $"{100 * f.UncoveredShare:0.#} percent of the span not in this file, and its {f.UncoveredElements} elements there counted lost; " : "";
         return $"{name}: {100 * f.UnscoredShare:0} percent of the span unscorable, and no figure here covers it; {missing}" +
-               $"ranked: {elements}; station level {r.StationLevelDb:+0.0;-0.0;0.0} dB against the capture; {rest}. " +
-               $"Not ranked, because at the station's own pitch a fade inside an element is the same signal as a gap: key-down {w.Separation:0.0} dB above the quiet time near its keying " +
-               $"({100 * w.UnscoredShare:0} percent of the span unscorable for this), which fell {(w.Separation - rw.Separation):+0.0;-0.0;0.0} dB against the capture, relative to the station; " +
-               $"weakest third of key-down {w.WeakSeparation:0.0} dB above it" +
+               $"ranked: {counts}; {rest}. " +
+               $"Not ranked, each with its limit: {dB}key-down level {(f.KeyDown - reference.Ranked.KeyDown):+0.0;-0.0;0.0} dB against the capture (a level: any gain change moves it); " +
+               $"at the station's own pitch, where a fade inside an element is the same signal as a gap, key-down {w.Separation:0.0} dB above the quiet time near its keying " +
+               $"({100 * w.UnscoredShare:0} percent of the span unscorable for this), which fell {(w.Separation - rw.Separation):+0.0;-0.0;0.0} dB against the capture, relative to the station, " +
+               $"and the weakest third of key-down {w.WeakSeparation:0.0} dB above it" +
                (f.Lag != 0 ? $"; aligned {LagMs(f.Lag)} ms late" : "") + ".";
     }
 

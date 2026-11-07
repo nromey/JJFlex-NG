@@ -175,9 +175,10 @@ partial class BenchApp
         var s = Survival(file, reference, mainChangeDb);
         if (double.IsNaN(s.StationChangeDb)) return $"  the station at {st.Spec.Words}: too few of its elements seen to follow ({s.Measured}).";
         string missing = file.UncoveredShare > 0 ? $"{100 * file.UncoveredShare:0.#} percent of the span not in this file, and its {file.UncoveredElements} elements there counted lost; " : "";
-        return $"  the station at {st.Spec.Words}: {100 * file.UnscoredShare:0} percent of the span unscorable for it (outside its span included); {missing}ranked: {s.StationChangeDb - mainChangeDb:+0.0;-0.0;0.0} dB against the main station; elements kept {s.Kept} of the {s.Measured} it could score; " +
-               $"its weakest third of elements {s.WeakAgainstStrongDb:+0.0;-0.0;0.0} dB against its strongest half. " +
-               $"Not ranked (at its own pitch a fade is the same signal as a gap): key-down {reading.AtPitch.Separation:0.0} dB above the quiet time near its keying ({reading.AtPitch.Separation - referenceReading.AtPitch.Separation:+0.0;-0.0;0.0} dB against the capture).";
+        int erased = Enumerable.Range(0, reference.ElementSignal.Length).Count(i => reference.ElementSignal[i] > 0 && !(file.ElementSignal[i] > 0));
+        return $"  the station at {st.Spec.Words}: {100 * file.UnscoredShare:0} percent of the span unscorable for it (outside its span included); {missing}ranked: elements kept {s.Kept} and erased {erased}, of the {s.Measured} it could score. " +
+               $"Not ranked, each with its limit: {s.StationChangeDb - mainChangeDb:+0.0;-0.0;0.0} dB against the main station and its weakest third of elements {s.WeakAgainstStrongDb:+0.0;-0.0;0.0} dB against its strongest half (they read their noise from gaps near each element, which cannot tell fading from noise; the second is a ratio); " +
+               $"at its own pitch, where a fade is the same signal as a gap, key-down {reading.AtPitch.Separation:0.0} dB above the quiet time near its keying ({reading.AtPitch.Separation - referenceReading.AtPitch.Separation:+0.0;-0.0;0.0} dB against the capture).";
     }
 
     static string SegmentLine(CwFigures file, CwFigures reference) =>

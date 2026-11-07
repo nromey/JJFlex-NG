@@ -5,7 +5,8 @@ namespace NrBench;
 //   cw-ranked-deletion  three fade constructions: Codex's round-3 dips inside dashes (a dash faded in
 //                       its middle is the same signal there as dot-space-dot; 3 seeds, 15 to 35 dB),
 //                       round 2's short fades (64 scenes) and round 1's deep half fades (18 scenes).
-//                       Deleting the faded tone must never improve a RANKED figure; real noise reduction
+//                       Deleting the faded tone must never improve a RANKED figure (round 6: the kept and
+//                       erased counts and the rest of the passband, nothing else); real noise reduction
 //                       (the noise a further 10 dB down) must read about 10 dB on the ranked noise
 //                       figure and keep the elements. The at-pitch figure is reported, not asserted:
 //                       it is known to be fooled here, which is why it is not ranked.
@@ -81,18 +82,20 @@ partial class BenchApp
                 var del = Ranked(e, r);
                 var clean = Ranked(c, r);
                 var bad = new List<string>();
-                // Deletion: nothing ranked may improve. (Kept cannot exceed what the reference scores.)
-                if (del.StationChangeDb > .05) bad.Add($"station change {del.StationChangeDb:+0.00;-0.00;0.00} dB");
-                if (del.WeakAgainstStrongDb > .05) bad.Add($"weakest third {del.WeakAgainstStrongDb:+0.00;-0.00;0.00} dB");
-                if (del.StationLevelDb > .05) bad.Add($"station level {del.StationLevelDb:+0.00;-0.00;0.00} dB");
+                // Deletion: nothing ranked may improve: no more kept, no fewer erased, no quieter rest of the
+                // band, and no dB figure a mutation put back.
+                var refCounts = Ranked(r, r);
+                if (del.Kept > refCounts.Kept) bad.Add($"kept {refCounts.Kept} to {del.Kept}");
+                if (del.Erased < refCounts.Erased) bad.Add($"erased {refCounts.Erased} to {del.Erased}");
                 if (double.IsNaN(del.RestFellDb) || del.RestFellDb > .05) bad.Add($"rest of the passband {del.RestFellDb:+0.00;-0.00;0.00} dB");
+                foreach (double x in del.ExtraDb) if (x > .05) bad.Add($"a ranked dB figure {x:+0.00;-0.00;0.00} dB");
                 // Real noise reduction must read as improvement on the ranked noise figure, and keep.
                 if (double.IsNaN(clean.RestFellDb) || Math.Abs(clean.RestFellDb - 10) > 1) bad.Add($"real noise reduction read {clean.RestFellDb:+0.0;-0.0;0.0} dB on the rest of the passband");
                 if (clean.Kept < clean.Measured * .9) bad.Add($"real noise reduction kept {clean.Kept} of {clean.Measured}");
                 if (bad.Count > 0) failures.Add($"{name}: deletion improved a ranked figure or the control failed: " + string.Join("; ", bad));
                 double atPitch = e.AtPitch.Separation - r.AtPitch.Separation;
                 if (atPitch > .05) Interlocked.Increment(ref atPitchFooled);
-                info.Add((k, $"{name}: ranked on deletion rest {del.RestFellDb:+0.00;-0.00;0.00}, weakest third {del.WeakAgainstStrongDb:+0.00;-0.00;0.00}, station {del.StationChangeDb:+0.00;-0.00;0.00}, level {del.StationLevelDb:+0.00;-0.00;0.00}; real noise reduction rest {clean.RestFellDb:+0.0;-0.0;0.0}; not ranked, at the pitch, deletion {atPitch:+0.00;-0.00;0.00} dB"));
+                info.Add((k, $"{name}: ranked on deletion kept {del.Kept}, erased {del.Erased} of {del.Measured}, rest {del.RestFellDb:+0.00;-0.00;0.00}; real noise reduction rest {clean.RestFellDb:+0.0;-0.0;0.0}; not ranked, at the pitch, deletion {atPitch:+0.00;-0.00;0.00} dB"));
                 if (k == 1) sampleLine = CwLine("deleted", e, r);
             });
             Console.WriteLine("INFO cw-ranked-deletion: " + string.Join("; ", info.OrderBy(i => i.Order).Select(i => i.Text)) + ".");
