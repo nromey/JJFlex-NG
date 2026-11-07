@@ -379,7 +379,20 @@ partial class BenchApp
     /// Key-down (true), gap (false) or neither (null: within the edge guard, outside the span, or
     /// where the keying is too faint to tell from noise), from the reference's tone at the pitch.
     /// </summary>
-    sealed record CwMask(bool?[] Key, double ThresholdDb, double[] ReferenceTone, CwElement[] Elements, int UncertainBlocks, int ShortElements, double MinContrastDb);
+    sealed record CwMask(bool?[] Key, double ThresholdDb, double[] ReferenceTone, CwElement[] Elements, int UncertainBlocks, int ShortElements, double MinContrastDb)
+    {
+        /// <summary>
+        /// Round 5: round 2's wider gap set, every quiet block near strong keying, without round 3's cap
+        /// on the quiet stretch. The same key-down blocks and elements as Key; only gaps differ. It
+        /// carries the labelled, unranked at-pitch figure (see WideGaps), which no gap rule can certify
+        /// against fading, so it is read on the set closest to the hiss an operator hears.
+        /// </summary>
+        public bool?[]? WideKey { get; init; }
+        public int WideUncertainBlocks { get; init; }
+    }
+
+    /// <summary>The mask with round 2's wider gap set in place of Key's (cw-at-pitch-capped: left on the capped set).</summary>
+    static CwMask WideGaps(CwMask m) => m.WideKey == null || Mutation == "cw-at-pitch-capped" ? m : m with { Key = m.WideKey, UncertainBlocks = m.WideUncertainBlocks };
 
     static double Percentile(double[] sorted, double p) => sorted[Math.Clamp((int)(sorted.Length * p), 0, sorted.Length - 1)];
 
@@ -602,7 +615,18 @@ partial class BenchApp
             for (int j = s; j < i; j++) measured |= key[j] == true;
             if (measured) elements.Add(new(s, i)); else shortOnes++;
         }
-        return new(key, reported, smooth, elements.ToArray(), raw.Count(r => r == null), shortOnes, minContrast);
+        // Round 2's wider gap set: the gaps the cap removed, under the same edge guard.
+        var wideKey = (bool?[])key.Clone();
+        for (int i = 0; i < n; i++)
+        {
+            if (raw[i] != null || !quietUnscored[i]) continue;
+            bool clear = true;
+            for (int j = Math.Max(0, i - g); j <= Math.Min(n - 1, i + g); j++) clear &= raw[j] != true;
+            if (clear) wideKey[i] = false;
+        }
+        int nulls = raw.Count(r => r == null);
+        return new(key, reported, smooth, elements.ToArray(), nulls, shortOnes, minContrast)
+        { WideKey = wideKey, WideUncertainBlocks = nulls - quietUnscored.Count(q => q) };
     }
 
     /// <summary>
@@ -632,6 +656,15 @@ partial class BenchApp
     /// element lengthens it rather than splitting it. Stretches too short to hold a gap block clear
     /// of the edge guard are dips inside an element, not spacing, and do not set q. With fewer than
     /// five spacings to read, no gap is scored at all.
+    ///
+    /// Round 4 refuted the premise above. A fade inside one element splits it into two seen fragments,
+    /// and that split can itself supply the "shortest common spacing", so the cap can keep false gaps
+    /// inside keyed fades and drop real character spaces (Codex: 60 ms dips mid-dash, deletion +5.7 dB).
+    /// No gap rule can prevent it: once a dip is about 30 dB deep, even a near-optimal detector given
+    /// the answer is at chance. So nothing here claims its gaps are empty. Since Noel's ruling (S19,
+    /// option a), no at-pitch gap figure is ranked; this set still carries the ranked figures (element
+    /// survival and the rest of the passband), which cw-ranked-deletion holds against all three fade
+    /// constructions.
     /// </summary>
     static void CapGapRuns(bool?[] raw, bool[] quietUnscored)
     {
@@ -731,7 +764,26 @@ partial class BenchApp
     static CwFigures Measure(float[] file, CwMask mask, double pitch, double passLo, double passHi, IReadOnlyList<double>? others = null, int? knownLag = null)
     {
         var blocks = Blocks(file, pitch, passLo, passHi, others);
+        return Evaluate(blocks, mask, knownLag ?? BlockLag(mask.ReferenceTone, blocks.Tone));
+    }
+
+    /// <summary>
+    /// Round 5, Noel's ruling (S19, option a): one file's two readings. Ranked: element survival and the
+    /// rest of the passband, measured with the mask's own gap set (see RankedGaps). AtPitch: the noise
+    /// at the station's pitch between elements, on round 2's wider gap set, shown labelled and never
+    /// ranked, because a fade inside an element is the same signal there as a gap.
+    /// </summary>
+    sealed record CwReading(CwFigures Ranked, CwFigures AtPitch);
+
+    static CwReading MeasureBoth(float[] file, CwMask mask, double pitch, double passLo, double passHi, IReadOnlyList<double>? others = null, int? knownLag = null)
+    {
+        var blocks = Blocks(file, pitch, passLo, passHi, others);
         int lag = knownLag ?? BlockLag(mask.ReferenceTone, blocks.Tone);
+        return new(Evaluate(blocks, RankedGaps(mask), lag), Evaluate(blocks, WideGaps(mask), lag));
+    }
+
+    static CwFigures Evaluate(CwBlocks blocks, CwMask mask, int lag)
+    {
         var key = new List<double>(); var gap = new List<double>(); var restKey = new List<double>(); var restGap = new List<double>();
         var keyRef = new List<(double Ref, double File)>();
         int outside = 0;
@@ -837,18 +889,47 @@ partial class BenchApp
         return f.Length == 0 ? double.NaN : f[f.Length / 2];
     }
 
-    static string CwLine(string name, CwFigures f, CwFigures reference)
+    /// <summary>
+    /// The gap set the ranked figures are measured on: the mask's own (round 3's capped set), as in the
+    /// proposal Noel ruled on. In round 5's controls the wider set also passed (station change on
+    /// deletion at most +0.04 dB against +0.03 here) and would keep more faint elements in the count;
+    /// that choice is his, so it is not made here.
+    /// </summary>
+    static CwMask RankedGaps(CwMask m) => m;
+
+    /// <summary>
+    /// The figures an engine may be ranked on, Noel's ruling of 2026-11-06 (S19, option a): element
+    /// survival (kept of those scored, the weakest third against the strongest half, the station's
+    /// own change and key-down level) and the noise in the rest of the passband, more than 100 Hz from
+    /// the station, where a fade of the station cannot reach. NaN where the passband leaves no room.
+    /// The at-pitch gap figures are never here: a fade inside an element is the same signal as a gap.
+    /// </summary>
+    sealed record CwRanked(int Kept, int Measured, double StationChangeDb, double WeakAgainstStrongDb, double StationLevelDb, double RestFellDb);
+
+    static CwRanked Ranked(CwReading file, CwReading reference)
     {
-        string rest = double.IsNaN(f.RestGap) ? "the passband leaves no room beside the tone"
-            : $"the rest of the passband between elements {f.RestBelowStation:0.0} dB below the station ({(f.RestBelowStation - reference.RestBelowStation):+0.0;-0.0;0.0} dB against the capture)";
-        var s = Survival(f, reference);
-        string elements = double.IsNaN(s.StationChangeDb) ? "too few elements to follow one by one"
-            : $"elements kept {s.Kept} of the {s.Measured} it could score; the weakest third of those {s.WeakAgainstStrongDb:+0.0;-0.0;0.0} dB against the strongest half";
+        var s = Survival(file.Ranked, reference.Ranked);
+        double weak = s.WeakAgainstStrongDb, rest = file.Ranked.RestBelowStation - reference.Ranked.RestBelowStation;
+        // The controls that ranking at the pitch is load-bearing: an at-pitch figure back in the ranking.
+        if (Mutation == "cw-rank-gaps-fell") rest = file.AtPitch.Separation - reference.AtPitch.Separation;
+        if (Mutation == "cw-rank-weak-at-pitch") weak = file.AtPitch.WeakSeparation - reference.AtPitch.WeakSeparation;
+        return new(s.Kept, s.Measured, s.StationChangeDb, weak, file.Ranked.KeyDown - reference.Ranked.KeyDown, rest);
+    }
+
+    static string CwLine(string name, CwReading file, CwReading reference)
+    {
+        var f = file.Ranked; var w = file.AtPitch; var rw = reference.AtPitch;
+        var r = Ranked(file, reference);
+        string rest = double.IsNaN(r.RestFellDb) ? "no rest-of-passband figure (the passband leaves no room beside the tone), so only the elements rank this file"
+            : $"the rest of the passband, more than 100 Hz from the station, {f.RestBelowStation:0.0} dB below the station between elements ({r.RestFellDb:+0.0;-0.0;0.0} dB against the capture)";
+        string elements = double.IsNaN(r.StationChangeDb) ? "too few elements to follow one by one"
+            : $"elements kept {r.Kept} of the {r.Measured} it could score; the weakest third of those {r.WeakAgainstStrongDb:+0.0;-0.0;0.0} dB against the strongest half";
         string missing = f.UncoveredShare > 0 ? $"{100 * f.UncoveredShare:0.#} percent of the span not in this file, and its {f.UncoveredElements} elements there counted lost; " : "";
-        return $"{name}: {100 * f.UnscoredShare:0} percent of the span unscorable, and no figure here covers it; {missing}key-down {f.Separation:0.0} dB above the short gaps at the pitch (the one-unit spaces it can prove empty; not the background between characters); those gaps fell " +
-               $"{(f.Separation - reference.Separation):+0.0;-0.0;0.0} dB against the capture, relative to the station; " +
-               $"weakest third of key-down {f.WeakSeparation:0.0} dB above those gaps; {elements}; {rest}; " +
-               $"station level {(f.KeyDown - reference.KeyDown):+0.0;-0.0;0.0} dB against the capture" +
+        return $"{name}: {100 * f.UnscoredShare:0} percent of the span unscorable, and no figure here covers it; {missing}" +
+               $"ranked: {elements}; station level {r.StationLevelDb:+0.0;-0.0;0.0} dB against the capture; {rest}. " +
+               $"Not ranked, because at the station's own pitch a fade inside an element is the same signal as a gap: key-down {w.Separation:0.0} dB above the quiet time near its keying " +
+               $"({100 * w.UnscoredShare:0} percent of the span unscorable for this), which fell {(w.Separation - rw.Separation):+0.0;-0.0;0.0} dB against the capture, relative to the station; " +
+               $"weakest third of key-down {w.WeakSeparation:0.0} dB above it" +
                (f.Lag != 0 ? $"; aligned {LagMs(f.Lag)} ms late" : "") + ".";
     }
 

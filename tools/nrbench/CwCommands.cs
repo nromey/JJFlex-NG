@@ -161,22 +161,23 @@ partial class BenchApp
     const double MinPassbandHz = 40;
 
     /// <summary>A second station's figures, or null where too little of it can be classified to measure.</summary>
-    static CwFigures? TryMeasure(float[] x, CwMask mask, double pitch, double lo, double hi, IReadOnlyList<double> others, int lag)
+    static CwReading? TryMeasure(float[] x, CwMask mask, double pitch, double lo, double hi, IReadOnlyList<double> others, int lag)
     {
-        try { return Measure(x, mask, pitch, lo, hi, others, lag); }
+        try { return MeasureBoth(x, mask, pitch, lo, hi, others, lag); }
         catch (InvalidOperationException) { return null; }
     }
 
-    static string StationLine(CwStation st, CwFigures? file, CwFigures? reference, double mainChangeDb)
+    static string StationLine(CwStation st, CwReading? reading, CwReading? referenceReading, double mainChangeDb)
     {
-        if (file == null || reference == null)
+        if (reading == null || referenceReading == null)
             return $"  the station at {st.Spec.Words}: too little of it can be classified element by element to measure (see cwband for a long-average reading).";
+        var file = reading.Ranked; var reference = referenceReading.Ranked;
         var s = Survival(file, reference, mainChangeDb);
         if (double.IsNaN(s.StationChangeDb)) return $"  the station at {st.Spec.Words}: too few of its elements seen to follow ({s.Measured}).";
         string missing = file.UncoveredShare > 0 ? $"{100 * file.UncoveredShare:0.#} percent of the span not in this file, and its {file.UncoveredElements} elements there counted lost; " : "";
-        return $"  the station at {st.Spec.Words}: {100 * file.UnscoredShare:0} percent of the span unscorable for it (outside its span included); {missing}{s.StationChangeDb - mainChangeDb:+0.0;-0.0;0.0} dB against the main station; elements kept {s.Kept} of the {s.Measured} it could score; " +
-               $"its weakest third of elements {s.WeakAgainstStrongDb:+0.0;-0.0;0.0} dB against its strongest half; " +
-               $"key-down {file.Separation:0.0} dB above its short gaps ({file.Separation - reference.Separation:+0.0;-0.0;0.0} dB against the capture).";
+        return $"  the station at {st.Spec.Words}: {100 * file.UnscoredShare:0} percent of the span unscorable for it (outside its span included); {missing}ranked: {s.StationChangeDb - mainChangeDb:+0.0;-0.0;0.0} dB against the main station; elements kept {s.Kept} of the {s.Measured} it could score; " +
+               $"its weakest third of elements {s.WeakAgainstStrongDb:+0.0;-0.0;0.0} dB against its strongest half. " +
+               $"Not ranked (at its own pitch a fade is the same signal as a gap): key-down {reading.AtPitch.Separation:0.0} dB above the quiet time near its keying ({reading.AtPitch.Separation - referenceReading.AtPitch.Separation:+0.0;-0.0;0.0} dB against the capture).";
     }
 
     static string SegmentLine(CwFigures file, CwFigures reference) =>
@@ -229,9 +230,9 @@ partial class BenchApp
         Console.WriteLine($"{name}: pitch {pitch:0.0} Hz{(pitchHz != null ? $" (given; {choice.FinderWords})" : "")}; passband {pass.Lo:0} to {pass.Hi:0} Hz.");
 
         Directory.CreateDirectory(outDir);
-        var renders = new List<(int Number, CwEngine Engine, string Kind, float[] Audio, CwFigures Figures, double KeyDb, List<CwFigures?> Stations)>();
-        CwFigures? wideRef = null, narrowRef = null;
-        var stationRefs = new List<CwFigures?>();
+        var renders = new List<(int Number, CwEngine Engine, string Kind, float[] Audio, CwReading Figures, double KeyDb, List<CwReading?> Stations)>();
+        CwReading? wideRef = null, narrowRef = null;
+        var stationRefs = new List<CwReading?>();
         var refused = new List<string>();
         int number = 0;
         foreach (string id in order)
@@ -255,7 +256,7 @@ partial class BenchApp
             {
                 number++;
                 // Every render here has its delay removed, so it is aligned by construction: no search.
-                var f = Measure(audio, mask, pitch, lo, hi, others, 0);
+                var f = MeasureBoth(audio, mask, pitch, lo, hi, others, 0);
                 var st = stations.Select(s => TryMeasure(audio, s.Mask, s.Spec.Hz, lo, hi, new[] { pitch }.Concat(others.Where(o => o != s.Spec.Hz)).ToArray(), 0)).ToList();
                 if (engine.Stage == null && kind == "wide") { wideRef = f; stationRefs = st; }
                 if (engine.Stage == null && kind == "narrow") narrowRef = f;
@@ -287,9 +288,9 @@ partial class BenchApp
             lines.AppendLine(CwLine(file, r.Figures, reference) + $" Scaled {gain:+0.0;-0.0;0.0} dB.");
             if (r.Kind == "wide")
             {
-                double mainChange = Survival(r.Figures, reference).StationChangeDb;
+                double mainChange = Survival(r.Figures.Ranked, reference.Ranked).StationChangeDb;
                 for (int s = 0; s < stations.Count; s++) lines.AppendLine(StationLine(stations[s], r.Stations[s], stationRefs[s], mainChange));
-                if (segments) lines.AppendLine(SegmentLine(r.Figures, reference));
+                if (segments) lines.AppendLine(SegmentLine(r.Figures.Ranked, reference.Ranked));
             }
         }
         foreach (string r in refused) lines.AppendLine(r);
@@ -336,12 +337,12 @@ partial class BenchApp
                           $"{mask.Key.Count(k => k == true)} key-down and {mask.Key.Count(k => k == false)} gap blocks, {mask.Elements.Length} elements, " +
                           $"{100.0 * mask.UncertainBlocks / mask.Key.Length:0} percent unscorable (too faint; a quiet stretch with no strong keying near it, or longer than the station's own spacing between elements, so a faded element could hide in it; or contaminated by a named station).");
         foreach (var s in stations) Console.WriteLine($"Also followed: the station at {s.Spec.Words}, {s.Mask.Elements.Length} elements seen.");
-        CwFigures? StationFigures(float[] x, CwStation s, double lo, double hi) =>
+        CwReading? StationFigures(float[] x, CwStation s, double lo, double hi) =>
             TryMeasure(x, s.Mask, s.Spec.Hz, lo, hi, new[] { pitch }.Concat(others.Where(o => o != s.Spec.Hz)).ToArray(), lag ?? 0);
-        var wideRef = Measure(capture, mask, pitch, pass.Lo, pass.Hi, others, 0);
+        var wideRef = MeasureBoth(capture, mask, pitch, pass.Lo, pass.Hi, others, 0);
         var stationRefs = stations.Select(s => StationFigures(capture, s, pass.Lo, pass.Hi)).ToList();
         var narrowCapture = NarrowBand(capture, pitch, width);
-        var narrowRef = Measure(narrowCapture, mask, pitch, pitch - width / 2, pitch + width / 2, others, 0);
+        var narrowRef = MeasureBoth(narrowCapture, mask, pitch, pitch - width / 2, pitch + width / 2, others, 0);
         Console.WriteLine(CwLine("reference", wideRef, wideRef));
         if (narrow) Console.WriteLine(CwLine("reference then the narrow filter", narrowRef, narrowRef));
         int refusedFiles = 0;
@@ -359,12 +360,12 @@ partial class BenchApp
                 refusedFiles++;
                 continue;
             }
-            var f = Measure(x, mask, pitch, pass.Lo, pass.Hi, others, lag);
+            var f = MeasureBoth(x, mask, pitch, pass.Lo, pass.Hi, others, lag);
             Console.WriteLine(CwLine(Path.GetFileName(path), f, wideRef));
-            double mainChange = Survival(f, wideRef).StationChangeDb;
+            double mainChange = Survival(f.Ranked, wideRef.Ranked).StationChangeDb;
             for (int s = 0; s < stations.Count; s++) Console.WriteLine(StationLine(stations[s], StationFigures(x, stations[s], pass.Lo, pass.Hi), stationRefs[s], mainChange));
-            if (segments) Console.WriteLine(SegmentLine(f, wideRef));
-            if (narrow) Console.WriteLine(CwLine(Path.GetFileName(path) + " then the narrow filter", Measure(NarrowBand(x, pitch, width), mask, pitch, pitch - width / 2, pitch + width / 2, others, lag), narrowRef));
+            if (segments) Console.WriteLine(SegmentLine(f.Ranked, wideRef.Ranked));
+            if (narrow) Console.WriteLine(CwLine(Path.GetFileName(path) + " then the narrow filter", MeasureBoth(NarrowBand(x, pitch, width), mask, pitch, pitch - width / 2, pitch + width / 2, others, lag), narrowRef));
         }
         return refusedFiles == 0 ? 0 : 1;
     }

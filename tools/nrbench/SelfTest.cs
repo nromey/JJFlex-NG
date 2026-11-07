@@ -118,6 +118,7 @@ partial class BenchApp
         AddCwFadeChecks(tests);
         AddCwRound2Checks(tests);
         AddCwRound3Checks(tests);
+        AddCwRound5Checks(tests);
         // --only: a named subset, for working on a few checks; the summary says so, so it is never read as the full selftest.
         int skipped=0;
         if(SelfTestOnly!=null){skipped=tests.Count(t=>!SelfTestOnly.Contains(t.Name));tests=tests.Where(t=>SelfTestOnly.Contains(t.Name)).ToList();}

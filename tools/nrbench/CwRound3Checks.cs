@@ -196,7 +196,7 @@ partial class BenchApp
             var sv = Survival(f, r);
             int scorable = r.ElementSignal.Count(v => v > 0);
             int beyond = Enumerable.Range(0, mask.Elements.Length).Count(e => r.ElementSignal[e] > 0 && mask.Elements[e].Start * CwHop + CwWindow >= prefix.Length);
-            string line = CwLine("first 4 s", f, r);
+            string line = CwLine("first 4 s", MeasureBoth(prefix, mask, 700, 200, 3000, null, 0), MeasureBoth(reference, mask, 700, 200, 3000, null, 0));
             Console.WriteLine($"INFO cw-truncated: the 4 s prefix {(refused ? "refused" : "ACCEPTED")} by cwmeasure; measured directly, {sv.Kept} of {sv.Measured} kept, {beyond} of the {scorable} scorable elements beyond its end.");
             Assert(refused, "cwmeasure accepted a file 16 s shorter than its reference");
             Assert(sv.Measured == scorable && sv.Kept <= scorable - beyond,
