@@ -873,20 +873,23 @@ namespace Radios
         /// never replayed.
         /// </para>
         /// </summary>
-        public System.Func<bool> BindReturnStatus()
+        public System.Func<bool?> BindReturnStatus()
         {
             var radio = theRadio;
             var connection = radio?.CurrentCommandConnection;
             long falls = System.Threading.Interlocked.Read(ref _connectionFalls);
             Slice slice = SelectedSliceNow();
-            if (radio == null || slice == null || _Transmit) return () => false;
+            if (radio == null || slice == null || _Transmit) return () => (bool?)false;
             ulong hz = RXFrequency;
             string mode = RXMode;
             string letter = slice.Letter;
             return () => ReturnStatusStillTrue(radio, connection, falls, slice, hz, mode, letter);
         }
 
-        private bool ReturnStatusStillTrue(Radio radio, CommandConnection connection, long falls, Slice slice,
+        /// <returns>True, false, or null for "cannot say yet": the roster's lock
+        /// was busy (round five, Codex's B3a). The arbiter asks again at its next
+        /// window, and drops the copy only on false or once its bound passes.</returns>
+        private bool? ReturnStatusStillTrue(Radio radio, CommandConnection connection, long falls, Slice slice,
             ulong hz, string mode, string letter)
         {
             if (!ReferenceEquals(theRadio, radio) || !_IsConnected || _Transmit) return false;
@@ -894,7 +897,8 @@ namespace Radios
             var now = radio.CurrentCommandConnection;
             if (!ReferenceEquals(now, connection) || now == null || now.State != CommandConnectionState.Connected) return false;
             var slices = mySlices;
-            if (slices == null || !System.Threading.Monitor.TryEnter(slices)) return false;
+            if (slices == null) return false;
+            if (!System.Threading.Monitor.TryEnter(slices)) return null;   // busy: ask again (B3a)
             try
             {
                 int rx = _RXVFO;

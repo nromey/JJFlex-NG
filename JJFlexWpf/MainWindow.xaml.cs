@@ -2283,7 +2283,7 @@ public partial class MainWindow : UserControl
             // slice's frequency, mode and letter, the connection and listening,
             // and the arbiter asks it before any replay. Its own subject still
             // lets the rig retire it outright (rulings round three).
-            Func<bool> stillTrue = rig.BindReturnStatus();
+            Func<bool?> stillTrue = rig.BindReturnStatus();
             string status = Radios.RadioStatusBuilder.BuildSpokenStatus(rig);
             Radios.ScreenReaderOutput.Speak(status, Radios.VerbosityLevel.Chatty, subject: Radios.Speech.SpeechSubject.ReturnStatus,
                 stillValid: stillTrue);

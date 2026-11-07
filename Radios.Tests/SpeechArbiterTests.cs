@@ -1431,5 +1431,41 @@ namespace Radios.Tests
             _clock.Advance(Settle);
             Assert.DoesNotContain(_calls, x => x.Salvaged && x.Message == "Listening on 14.100 megahertz");
         }
+    
+
+        // ── Round five, Codex's re-check B3a: "cannot say yet" is asked again, within a bound ──
+
+        [Fact]
+        public void An_ordinary_sentence_whose_producer_is_busy_is_asked_again_and_replayed_once_it_says_yes()
+        {
+            var a = NewArbiter();
+            bool? answer = null;
+            a.Emit("Listening on 14.100 megahertz", false, null, VerbosityLevel.Chatty, "home",
+                SpeechSubject.ReturnStatus, additive: false, stillValid: () => answer);
+            _clock.Advance(50);
+            a.Emit("Something new", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "probe");
+            _clock.Advance(Settle);
+            Assert.DoesNotContain(_calls, x => x.Salvaged);                       // busy: kept, not dropped
+            answer = true;
+            _clock.Advance(Settle);
+            Assert.Contains(_calls, x => x.Salvaged && x.Message == "Listening on 14.100 megahertz");
+        }
+
+        [Fact]
+        public void An_ordinary_sentence_whose_producer_stays_busy_is_dropped_once_the_bound_passes()
+        {
+            var a = NewArbiter();
+            bool? answer = null;
+            a.Emit("Listening on 14.100 megahertz", false, null, VerbosityLevel.Chatty, "home",
+                SpeechSubject.ReturnStatus, additive: false, stillValid: () => answer);
+            _clock.Advance(50);
+            a.Emit("Something new", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "probe");
+            for (int i = 0; i < 8; i++) _clock.Advance(Settle);
+            Assert.DoesNotContain(_calls, x => x.Salvaged);
+            answer = true;                                         // too late: it was dropped, not held forever
+            for (int i = 0; i < 2; i++) _clock.Advance(Settle);
+            Assert.DoesNotContain(_calls, x => x.Salvaged);
+            Assert.True(SpeechArbiter.ConditionBusyBoundMs >= Settle, "the bound must allow at least one more ask");
+        }
     }
 }

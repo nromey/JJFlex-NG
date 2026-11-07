@@ -2278,11 +2278,11 @@ namespace Radios.Tests
             return (b, a, second);
         }
 
-        private static Func<bool> Bound(Bench b)
+        private static Func<bool?> Bound(Bench b)
         {
             var bind = typeof(FlexBase).GetMethod("BindReturnStatus", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
             Assert.True(bind != null, "Home's return status carries no condition of its own");
-            return (Func<bool>)bind!.Invoke(b.Rig, null)!;
+            return (Func<bool?>)bind!.Invoke(b.Rig, null)!;
         }
 
         /// <summary>
@@ -2297,7 +2297,7 @@ namespace Radios.Tests
             var arbiter = new Radios.Speech.SpeechArbiter(clock, () => VerbosityLevel.Chatty,
                 (message, interrupt, intent, level, origin, salvaged) => { calls.Add((message, salvaged)); return true; },
                 () => { }, (message, level, intent, origin) => { });
-            Func<bool> stillTrue = Bound(b);
+            Func<bool?> stillTrue = Bound(b);
             sentence = RadioStatusBuilder.BuildSpokenStatus(b.Rig);
             arbiter.Emit(sentence, false, null, VerbosityLevel.Chatty, "home", Radios.Speech.SpeechSubject.ReturnStatus,
                 additive: false, stillValid: stillTrue);
@@ -2374,7 +2374,7 @@ namespace Radios.Tests
             while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
             Assert.NotNull(dir);
             string text = System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, "JJFlexWpf", "MainWindow.xaml.cs"));
-            int bind = text.IndexOf("Func<bool> stillTrue = rig.BindReturnStatus();", StringComparison.Ordinal);
+            int bind = text.IndexOf("Func<bool?> stillTrue = rig.BindReturnStatus();", StringComparison.Ordinal);
             int build = text.IndexOf("string status = Radios.RadioStatusBuilder.BuildSpokenStatus(rig);", StringComparison.Ordinal);
             Assert.True(bind > 0 && build > bind, "Home's return status is not bound before it is built");
             int speak = text.IndexOf("subject: Radios.Speech.SpeechSubject.ReturnStatus", build, StringComparison.Ordinal);
@@ -2619,6 +2619,40 @@ namespace Radios.Tests
             typeof(FlexBase).GetMethod("dropTransmitWithConnection", Private)!
                 .Invoke(b.Rig, new object[] { (Action<string, System.Diagnostics.TraceLevel>)((_, _) => { }) });
             Assert.NotNull(answers.Stale(0, "Accepted"));
+        }
+    
+
+        // ── Round five, Codex's re-check B3a: a busy roster is "ask again", not "false" ──
+
+        [Fact]
+        public void Homes_return_status_is_still_replayed_when_the_roster_is_busy_at_the_first_ask()
+        {
+            // Codex's busy-roster probe: the facts unchanged, the roster's lock
+            // held through the replay attempt. It was dropped for good.
+            var (b, _, _) = HomeOnSliceA();
+            var clock = new FakeSpeechClock();
+            var calls = new List<(string Message, bool Salvaged)>();
+            var arbiter = new Radios.Speech.SpeechArbiter(clock, () => VerbosityLevel.Chatty,
+                (message, interrupt, intent, level, origin, salvaged) => { calls.Add((message, salvaged)); return true; },
+                () => { }, (message, level, intent, origin) => { });
+            Func<bool?> stillTrue = Bound(b);
+            string sentence = RadioStatusBuilder.BuildSpokenStatus(b.Rig);
+            arbiter.Emit(sentence, false, null, VerbosityLevel.Chatty, "home", Radios.Speech.SpeechSubject.ReturnStatus,
+                additive: false, stillValid: stillTrue);
+            clock.Advance(50);
+            object roster = typeof(FlexBase).GetField("mySlices", Private)!.GetValue(b.Rig)!;
+            using var release = new ManualResetEventSlim();
+            using var held = new ManualResetEventSlim();
+            var holder = new Thread(() => { lock (roster) { held.Set(); release.Wait(5000); } }) { IsBackground = true };
+            holder.Start();
+            Assert.True(held.Wait(2000));
+            arbiter.Emit("A new state supersedes the old one", true, Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Terse, "probe");
+            clock.Advance(Radios.Speech.SpeechArbiter.SalvageSettleMs + 50);
+            Assert.DoesNotContain(calls, x => x.Salvaged && x.Message == sentence);   // busy: asked again later
+            release.Set();
+            Assert.True(holder.Join(2000));
+            clock.Advance(Radios.Speech.SpeechArbiter.SalvageSettleMs + 50);
+            Assert.Contains(calls, x => x.Salvaged && x.Message == sentence);         // true: replayed
         }
     }
 }

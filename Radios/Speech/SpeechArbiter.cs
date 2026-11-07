@@ -507,6 +507,13 @@ namespace Radios.Speech
         /// </summary>
         internal const int SalvageCeilingMs = 15000;
 
+        /// <summary>
+        /// How long an ordinary sentence's condition may keep answering "cannot
+        /// say yet" before the copy is dropped (round five, Codex's B3a): asked
+        /// again at each settle window meanwhile, so two or three times.
+        /// </summary>
+        internal const int ConditionBusyBoundMs = 1500;
+
         // ── The salvage settle window (#507) ──
 
         /// <summary>
@@ -737,6 +744,21 @@ namespace Radios.Speech
             /// does not guess.
             /// </summary>
             public Func<bool>? StillValid;
+
+            /// <summary>
+            /// An ORDINARY sentence's own condition (round four, B3; round five,
+            /// B3a): true, false, or null for "cannot say yet" (its producer's
+            /// lock was busy). Null is asked again at the next window, and the
+            /// copy is dropped only on false or once <see cref="ConditionBusyBoundMs"/>
+            /// of "cannot say" has passed.
+            /// </summary>
+            public Func<bool?>? StillValidOrBusy;
+
+            /// <summary>When its condition first said "cannot say" in a row; null when it last answered.</summary>
+            public DateTime? ConditionBusySinceUtc;
+
+            /// <summary>Its condition said "cannot say" at the last judgement: hold it for the next window.</summary>
+            public bool ConditionBusy;
 
             /// <summary>
             /// A PROTECTED obligation whose retry is ready but found a
@@ -1036,7 +1058,7 @@ namespace Radios.Speech
         /// </param>
         public void Emit(string message, bool interrupt,
             SpeechIntent? intent, VerbosityLevel? level, string? origin,
-            string? subject = null, bool additive = false, Func<bool>? stillValid = null)
+            string? subject = null, bool additive = false, Func<bool?>? stillValid = null)
         {
             lock (_lock)
             {
@@ -2379,7 +2401,7 @@ namespace Radios.Speech
         /// </param>
         private void EmitLocked(string message, bool interrupt,
             SpeechIntent? intent, VerbosityLevel? level, string? origin, string? subject,
-            bool additive = false, Func<bool>? stillValid = null)
+            bool additive = false, Func<bool?>? stillValid = null)
         {
             var now = _clock.UtcNow;
             PruneLedgerLocked(now);
@@ -2387,7 +2409,7 @@ namespace Radios.Speech
             if (!interrupt)
             {
                 var made = EmitQueuedLocked(message, intent, level, origin, subject, additive, now);
-                if (made != null && stillValid != null) made.StillValid = stillValid;
+                if (made != null && stillValid != null) made.StillValidOrBusy = stillValid;
                 return;
             }
 
@@ -2909,6 +2931,7 @@ namespace Radios.Speech
                 foreach (var s in _held) if (!s.Protected) train.Add(s);
                 _held.Clear();
                 int handed = 0;
+                var askAgain = new List<BelievedQueued>();
                 foreach (var s in train)
                 {
                     string? refusal = SalvageRefusalLocked(s, now, atRescue: false);
@@ -2917,6 +2940,9 @@ namespace Radios.Speech
                         TraceDropLocked(s, refusal, now);
                         continue;
                     }
+                    // Its producer could not say yet (round five, B3a): held for
+                    // the next window, not handed over and not dropped.
+                    if (s.ConditionBusy) { askAgain.Add(s); continue; }
 
                     // A protected obligation that has come back saying nothing
                     // at all, over and over, stops chasing interrupts — and is
@@ -3049,6 +3075,15 @@ namespace Radios.Speech
                 _wentFirst.Clear();
                 _holdInterrupts = 0;
                 _holdBehind = string.Empty;
+
+                if (askAgain.Count > 0)
+                {
+                    _held.AddRange(askAgain);
+                    StartHoldTimerLocked();
+                    Tracing.TraceLine(
+                        $"SpeechArbiter: {askAgain.Count} held salvage(s) kept for another {SalvageSettleMs} ms - their producer "
+                        + $"could not say yet whether they are still true: {Quote(askAgain)}", TraceLevel.Info);
+                }
             }
         }
 
@@ -3277,6 +3312,37 @@ namespace Radios.Speech
             if (entry.StillValid != null && !StillTrue(entry))
                 return "no longer true: its producer says the state it claimed has changed since, and a replay would "
                     + "tell the operator something false";
+
+            // An ordinary sentence's own condition, three-valued (round five,
+            // Codex's B3a): "cannot say yet" holds it for the next window rather
+            // than dropping a sentence that may well still be true.
+            entry.ConditionBusy = false;
+            if (entry.StillValidOrBusy != null)
+            {
+                bool? answer;
+                try { answer = entry.StillValidOrBusy(); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"SpeechArbiter: a sentence's producer could not say whether it is still true ({ex.Message}); "
+                        + $"it is not replayed: '{Clip(entry.Message)}'", TraceLevel.Error);
+                    answer = false;
+                }
+                if (answer == false)
+                {
+                    entry.ConditionBusySinceUtc = null;
+                    return "no longer true: its producer says the state it claimed has changed since, and a replay would "
+                        + "tell the operator something false";
+                }
+                if (answer == null)
+                {
+                    entry.ConditionBusySinceUtc ??= now;
+                    int busyMs = (int)(now - entry.ConditionBusySinceUtc.Value).TotalMilliseconds;
+                    if (busyMs >= ConditionBusyBoundMs)
+                        return $"its producer could not say whether it is still true for {busyMs} ms";
+                    entry.ConditionBusy = true;
+                }
+                else entry.ConditionBusySinceUtc = null;
+            }
 
             // A safety obligation is exempt from every bound below. Ordinary
             // verbosity, navigation, a timer expiring, queue overflow and a
