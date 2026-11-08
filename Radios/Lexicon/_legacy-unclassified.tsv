@@ -2267,8 +2267,6 @@ settings.diagnostics.problems_summary	5a6e406e90a60703
 settings.diagnostics.saved_logs_open_failed	0104534d29aac4c2
 settings.diagnostics.saved_logs_unavailable	94ed8d150fdfc6a7
 settings.diagnostics.setting_not_saved	99be6b94c1f74a37
-settings.diagnostics.transcript_off	4b4cbd790d45e694
-settings.diagnostics.transcript_on	28b49866465bbf25
 settings.diagnostics.word_file	c37a02e42f23dab0
 settings.diagnostics.word_files	d7741cd31b8ccaec
 settings.diagnostics.word_report	841f738cb57e56ab

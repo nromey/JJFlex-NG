@@ -698,7 +698,7 @@ Module globals
             ' Cheap on disk and still Notable: it persists, it records
             ' everything the operator heard, and nothing else in the app says
             ' it is on.
-            Dim transcript As New Radios.RunningCost("spoken-transcript", "Spoken transcript recording")
+            Dim transcript As New Radios.RunningCost("spoken-transcript", "Spoken transcript")
             transcript.IsRunning = Function() Radios.OutputChannelRecorder.RecordEnabled
             transcript.DescribeCost = Function() DescribeFileBytes(Radios.OutputChannelRecorder.TranscriptPath)
             transcript.Stop = Sub() ApplySpokenTranscriptSetting(False)
@@ -1378,7 +1378,7 @@ Module globals
             Radios.OutputChannelRecorder.RenderEnabled, record, Nothing)
         If Not DiagnosticsSettings.Save(BaseConfigDir) Then
             Radios.OperationFailure.Report(Radios.FailureKind.SettingNotSaved,
-                "Your transcript setting could not be saved",
+                "Your spoken transcript setting could not be saved",
                 "The change is in effect right now, but it will not be there the next time you start JJ Flexible Radio Access. " &
                 "Something stopped the settings file from being written.")
         End If

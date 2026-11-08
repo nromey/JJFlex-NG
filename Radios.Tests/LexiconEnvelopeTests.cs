@@ -1070,6 +1070,15 @@ namespace Radios.Tests
                 "settings.meter_category.audio",
                 "settings.meter_category.other",
 
+                // Junk box #944 (2026-11-07, third batch): the spoken
+                // transcript has one name everywhere (Noel, 2026-11-07
+                // 05:58). Rewording a frozen key takes it off the manifest,
+                // so both are classified here. delivery: null - TextOnly -
+                // because each is spoken only in answer to the operator's own
+                // tick of the Diagnostics checkbox. DRAFT PROSE.
+                "settings.diagnostics.transcript_on",
+                "settings.diagnostics.transcript_off",
+
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note
                 // that VOX was switched off for it. Classified rather than
@@ -2414,7 +2423,9 @@ namespace Radios.Tests
             // wrappers and reworded the active-preset status (#747).
             // And nine more (3079 to 3070 on the merge): junk box 2026-11-07 (#625) reworded and classified nine
             // logging.capture.dropped.* keys.
-            Assert.Equal(3070, unclassified);
+            // Two fewer (3070 to 3068): junk box #944 (2026-11-07, third batch)
+            // reworded and classified settings.diagnostics.transcript_on and _off.
+            Assert.Equal(3068, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

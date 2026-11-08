@@ -2236,9 +2236,9 @@
                                  evidence when the complaint is about what the
                                  app said. Cheap to keep and cheap to send. -->
                             <CheckBox x:Name="DiagTranscriptCheck"
-                                      Content="Record what the app says (for reporting a problem)"
+                                      Content="Record a spoken transcript (for reporting a problem)"
                                       Margin="0,4,0,4"
-                                      AutomationProperties.Name="Record what the app says, for reporting a problem"
+                                      AutomationProperties.Name="Record a spoken transcript, for reporting a problem"
                    local:JJFlexHelp.Text="Writes down every message the app speaks, every sound it plays and every C W notification it sends, alongside the diagnostic log. The log says what the program did; this says what you heard, which is the part that matters when the problem is something it said, or did not say. It only writes things down — it never changes what you hear. Small enough to include in a problem report."
                                       Checked="DiagTranscriptCheck_Changed"
                                       Unchecked="DiagTranscriptCheck_Changed"/>
