@@ -106,7 +106,36 @@ namespace JJFlexWpf
         public static bool SpeechEnabled { get; set; } = true;
 
         /// <summary>Speech interval in seconds (1-10). How often batched meter values are spoken.</summary>
-        public static int SpeechIntervalSeconds { get; set; } = 3;
+        public static int SpeechIntervalSeconds
+        {
+            get => _speechIntervalSeconds;
+            set
+            {
+                if (_speechIntervalSeconds == value) return;
+                _speechIntervalSeconds = value;
+                RaisePanelSettingsChanged();
+            }
+        }
+        private static int _speechIntervalSeconds = 3;
+
+        /// <summary>
+        /// One of the meters panel's four panel-wide settings changed:
+        /// <see cref="AutoEnableOnTune"/>, <see cref="SpeechTimerActive"/>,
+        /// <see cref="SpeechIntervalSeconds"/> or <see cref="PeakWatcherEnabled"/>.
+        /// </summary>
+        /// <remarks>
+        /// The panel is built with Home, at start, before any connect; the saved
+        /// values reach these properties later, when the config is applied at
+        /// power-on, and Peak Watcher has two other roads (the Home field panel
+        /// and the Meter Tones menu). A panel that read them once showed the
+        /// start-time defaults for the rest of the session, and its interval box
+        /// wrote that stale 3 back to disk on the next focus loss. Raised on
+        /// whichever thread made the change; a listener marshals.
+        /// </remarks>
+        public static event EventHandler? PanelSettingsChanged;
+
+        private static void RaisePanelSettingsChanged() =>
+            PanelSettingsChanged?.Invoke(null, EventArgs.Empty);
 
         /// <summary>
         /// #128: config restore must not chime. The three operator booleans
@@ -141,6 +170,7 @@ namespace JJFlexWpf
                 else StopSpeechTimer();
                 // #128: every operator road answers back; see QuietStateRestore.
                 if (!QuietStateRestore) EarconPlayer.ToggleTone(value);
+                RaisePanelSettingsChanged();
             }
         }
         private static bool _speechTimerActive;
@@ -156,6 +186,7 @@ namespace JJFlexWpf
                 _autoEnableOnTune = value;
                 // #128: every operator road answers back; see QuietStateRestore.
                 if (!QuietStateRestore) EarconPlayer.ToggleTone(value);
+                RaisePanelSettingsChanged();
             }
         }
         private static bool _autoEnableOnTune;
@@ -222,6 +253,7 @@ namespace JJFlexWpf
                 if (_peakWatcherEnabled == value) return;
                 _peakWatcherEnabled = value;
                 if (!QuietStateRestore) EarconPlayer.ToggleTone(value);
+                RaisePanelSettingsChanged();
             }
         }
         private static bool _peakWatcherEnabled = true;

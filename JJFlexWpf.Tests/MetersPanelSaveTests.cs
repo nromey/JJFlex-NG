@@ -125,7 +125,7 @@ public sealed class MetersPanelSaveTests
     public void The_panels_own_three_switches_save_both_ways()
     {
         NoiseReductionPerChannelTests.AssertWindowless();
-        string body = MethodBody(PanelSource(), "private void LoadGlobalsFromEngine(");
+        string body = MethodBody(PanelSource(), "private void WireGlobals(");
         Assert.Equal(6, Regex.Matches(body, @"PersistMeterChoices\(\);").Count);
     }
 

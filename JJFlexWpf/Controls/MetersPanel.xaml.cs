@@ -115,6 +115,7 @@ public partial class MetersPanel : UserControl
         AutomationProperties.SetName(CategoryCombo, Lexicon.Get("settings.meter_category.combo_name"));
         JJFlexHelp.SetText(CategoryCombo, Lexicon.Get("settings.meter_category.help"));
 
+        WireGlobals();
         LoadGlobalsFromEngine();
 
         SubscribeToEngine();
@@ -141,6 +142,7 @@ public partial class MetersPanel : UserControl
     private void OnPanelLoaded(object sender, RoutedEventArgs e)
     {
         SubscribeToEngine();
+        LoadGlobalsFromEngine();
         RefreshSourceChoices();
         RefreshSlotList();
     }
@@ -157,6 +159,7 @@ public partial class MetersPanel : UserControl
         if (_subscribedToEngine) return;
         MeterToneEngine.SlotsChanged += OnEngineSlotsChanged;
         MeterToneEngine.RadioChanged += OnEngineRadioChanged;
+        MeterToneEngine.PanelSettingsChanged += OnEnginePanelSettingsChanged;
         _subscribedToEngine = true;
         HookInventory();
     }
@@ -166,6 +169,7 @@ public partial class MetersPanel : UserControl
         if (!_subscribedToEngine) return;
         MeterToneEngine.SlotsChanged -= OnEngineSlotsChanged;
         MeterToneEngine.RadioChanged -= OnEngineRadioChanged;
+        MeterToneEngine.PanelSettingsChanged -= OnEnginePanelSettingsChanged;
         _subscribedToEngine = false;
         UnhookInventory();
     }
@@ -185,6 +189,9 @@ public partial class MetersPanel : UserControl
     /// </remarks>
     public void ShowPanel()
     {
+        // The four panel-wide controls show the engine as it is NOW, before
+        // focus can land on one of them and its handler can write.
+        LoadGlobalsFromEngine();
         Visibility = Visibility.Visible;
         MetersExpander.IsExpanded = true;
         ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.panel.opened"), VerbosityLevel.Terse);
@@ -234,6 +241,9 @@ public partial class MetersPanel : UserControl
 
     private void OnEngineSlotsChanged(object? sender, EventArgs e) =>
         Dispatcher.BeginInvoke(new Action(RefreshSlotList));
+
+    private void OnEnginePanelSettingsChanged(object? sender, EventArgs e) =>
+        Dispatcher.BeginInvoke(new Action(LoadGlobalsFromEngine));
 
     private void OnEngineRadioChanged(object? sender, EventArgs e) =>
         Dispatcher.BeginInvoke(new Action(() =>
@@ -1280,14 +1290,32 @@ public partial class MetersPanel : UserControl
 
     private void SpeechIntervalBox_LostFocus(object sender, RoutedEventArgs e)
     {
-        if (int.TryParse(SpeechIntervalBox.Text, out int val))
+        if (_loading) return;
+        int current = MeterToneEngine.SpeechIntervalSeconds;
+        if (IntervalToSave(SpeechIntervalBox.Text, current) is not int val)
         {
-            val = Math.Clamp(val, 1, 10);
-            SpeechIntervalBox.Text = val.ToString(CultureInfo.CurrentCulture);
-            MeterToneEngine.SpeechIntervalSeconds = val;
-            MeterToneEngine.UpdateSpeechTimerInterval();
-            PersistMeterChoices();
+            // Left alone, or not a number: show what is in force and write
+            // nothing. Tabbing past the box is not a change.
+            SpeechIntervalBox.Text = current.ToString(CultureInfo.CurrentCulture);
+            return;
         }
+        SpeechIntervalBox.Text = val.ToString(CultureInfo.CurrentCulture);
+        MeterToneEngine.SpeechIntervalSeconds = val;
+        MeterToneEngine.UpdateSpeechTimerInterval();
+        PersistMeterChoices();
+    }
+
+    /// <summary>
+    /// What leaving the speech interval box should write: the typed number,
+    /// clamped to 1 to 10, when it differs from the interval in force; null
+    /// when it is the same or is not a number, so an untouched box writes
+    /// nothing.
+    /// </summary>
+    internal static int? IntervalToSave(string? text, int current)
+    {
+        if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.CurrentCulture, out int val)) return null;
+        val = Math.Clamp(val, 1, 10);
+        return val == current ? null : val;
     }
 
     /// <summary>
@@ -1315,21 +1343,56 @@ public partial class MetersPanel : UserControl
 
     #region Panel-wide settings
 
+    /// <summary>
+    /// Show the engine's four panel-wide settings in their controls, with
+    /// <see cref="_loading"/> set so no handler writes them back.
+    /// </summary>
+    /// <remarks>
+    /// <para>This used to run once, in the constructor. The panel is built with
+    /// Home at start, before any connect, and the saved values reach the engine
+    /// only when the config is applied at power-on, so after every restart the
+    /// four controls showed the start-time defaults, and Tabbing past the
+    /// interval box wrote 3 seconds over the saved interval. It now runs at
+    /// construction, on Loaded, when the panel is shown, and whenever the
+    /// engine reports one of the four changed
+    /// (<see cref="MeterToneEngine.PanelSettingsChanged"/>), which also covers
+    /// Peak Watcher's other roads.</para>
+    /// <para>The interval box is left alone while it has the keyboard focus, so
+    /// a number being typed is not replaced under the operator.</para>
+    /// </remarks>
     private void LoadGlobalsFromEngine()
     {
-        AutoTuneCheck.IsChecked = MeterToneEngine.AutoEnableOnTune;
-        SpeechTimerCheck.IsChecked = MeterToneEngine.SpeechTimerActive;
-        SpeechIntervalBox.Text = MeterToneEngine.SpeechIntervalSeconds.ToString(CultureInfo.CurrentCulture);
-        PeakWatcherCheck.IsChecked = MeterToneEngine.PeakWatcherEnabled;
+        bool wasLoading = _loading;
+        _loading = true;
+        try
+        {
+            AutoTuneCheck.IsChecked = MeterToneEngine.AutoEnableOnTune;
+            SpeechTimerCheck.IsChecked = MeterToneEngine.SpeechTimerActive;
+            if (!SpeechIntervalBox.IsKeyboardFocusWithin)
+                SpeechIntervalBox.Text = MeterToneEngine.SpeechIntervalSeconds.ToString(CultureInfo.CurrentCulture);
+            PeakWatcherCheck.IsChecked = MeterToneEngine.PeakWatcherEnabled;
+        }
+        finally
+        {
+            _loading = wasLoading;
+        }
+    }
 
-        AutoTuneCheck.Checked += (s, e) => { MeterToneEngine.AutoEnableOnTune = true; PersistMeterChoices(); };
-        AutoTuneCheck.Unchecked += (s, e) => { MeterToneEngine.AutoEnableOnTune = false; PersistMeterChoices(); };
+    /// <summary>
+    /// The three panel-wide switches' handlers, attached once. Each returns
+    /// while the controls are being loaded, so showing the engine's state
+    /// never writes it.
+    /// </summary>
+    private void WireGlobals()
+    {
+        AutoTuneCheck.Checked += (s, e) => { if (_loading) return; MeterToneEngine.AutoEnableOnTune = true; PersistMeterChoices(); };
+        AutoTuneCheck.Unchecked += (s, e) => { if (_loading) return; MeterToneEngine.AutoEnableOnTune = false; PersistMeterChoices(); };
 
-        SpeechTimerCheck.Checked += (s, e) => { MeterToneEngine.SpeechTimerActive = true; PersistMeterChoices(); };
-        SpeechTimerCheck.Unchecked += (s, e) => { MeterToneEngine.SpeechTimerActive = false; PersistMeterChoices(); };
+        SpeechTimerCheck.Checked += (s, e) => { if (_loading) return; MeterToneEngine.SpeechTimerActive = true; PersistMeterChoices(); };
+        SpeechTimerCheck.Unchecked += (s, e) => { if (_loading) return; MeterToneEngine.SpeechTimerActive = false; PersistMeterChoices(); };
 
-        PeakWatcherCheck.Checked += (s, e) => { MeterToneEngine.PeakWatcherEnabled = true; PersistMeterChoices(); };
-        PeakWatcherCheck.Unchecked += (s, e) => { MeterToneEngine.PeakWatcherEnabled = false; PersistMeterChoices(); };
+        PeakWatcherCheck.Checked += (s, e) => { if (_loading) return; MeterToneEngine.PeakWatcherEnabled = true; PersistMeterChoices(); };
+        PeakWatcherCheck.Unchecked += (s, e) => { if (_loading) return; MeterToneEngine.PeakWatcherEnabled = false; PersistMeterChoices(); };
     }
 
     /// <summary>
