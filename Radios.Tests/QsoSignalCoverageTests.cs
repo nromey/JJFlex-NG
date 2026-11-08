@@ -137,14 +137,64 @@ namespace Radios.Tests
             var a = QsoSignalAnalysis.Analyze(Trace(60, 20, SteadyWithSaggingEdges(ThreeStalls), ThreeStalls), 60);
             string headline = QsoSignalHeadline.Compose(a, "AAA-222", saved: true, SMeterReading.Band.Hf);
 
+            // The longest gap is spoken as missing time, the measure the total
+            // sums (#939); this said LongestGapSeconds, the raw interval, until
+            // that measure could read above the total.
             string coverage = Lexicon.Get("audio.qso.coverage_gaps",
                 ("coverage", QsoSignalHeadline.CoveragePercent(a.Coverage)),
                 ("missing", SpokenDuration.English(a.MissingSeconds)),
-                ("longest", SpokenDuration.English(a.LongestGapSeconds)));
+                ("longest", SpokenDuration.English(a.LongestGapMissingSeconds)));
             Assert.Contains(coverage, headline);
             int at = headline.IndexOf(coverage, StringComparison.Ordinal);
             int steady = headline.IndexOf("Steady at", StringComparison.Ordinal);
             Assert.True(steady > at, "the qualifier must be heard before the figure it qualifies");
+        }
+
+        [Fact]
+        public void One_gap_is_said_once_and_never_reads_above_its_own_total()
+        {
+            // The case the plain reading found: one gap of 1.5 seconds at ten
+            // readings a second is 1.4 seconds missing. Spoken against the raw
+            // interval it read "missing for 1 second, the longest gap 2 seconds".
+            var a = QsoSignalAnalysis.Analyze(Trace(60, 10, _ => -73.0, (30.0, 31.5)), 60);
+            Assert.Equal(1, a.GapCount);
+            Assert.InRange(a.MissingSeconds, 1.35, 1.45);
+
+            string headline = QsoSignalHeadline.Compose(a, "AAA-222", saved: true, SMeterReading.Band.Hf);
+            Assert.Contains("Readings were missing for 1 second, so only", headline, StringComparison.Ordinal);
+            Assert.DoesNotContain("longest", headline, StringComparison.Ordinal);
+
+            string page = ReportText(a, 60);
+            Assert.Contains("for 1 second in all. Only", page, StringComparison.Ordinal);
+            Assert.DoesNotContain("longest gap", page, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void The_total_never_reads_below_the_longest_gap()
+        {
+            // Every pair of gaps from half a second to three seconds, at two
+            // reading rates: the spoken total is never fewer seconds than the
+            // spoken longest gap, on the headline or the page.
+            foreach (double rate in new[] { 10.0, 20.0 })
+                for (double g1 = 0.5; g1 <= 3.0; g1 += 0.1)
+                    for (double g2 = 0.5; g2 <= 3.0; g2 += 0.3)
+                    {
+                        var a = QsoSignalAnalysis.Analyze(
+                            Trace(60, rate, _ => -73.0, (20.0, 20.0 + g1), (40.0, 40.0 + g2)), 60);
+                        if (a.GapCount == 0) continue;
+                        bool once = QsoSignalHeadline.GapFigures(a, out string missing, out string longest);
+                        Assert.True(Seconds(missing) >= Seconds(longest),
+                            $"rate {rate}, gaps {g1:0.0} and {g2:0.0}: missing {missing}, longest {longest}");
+                        if (a.GapCount == 1) Assert.True(once);
+                    }
+        }
+
+        private static int Seconds(string spoken)
+        {
+            if (spoken == "under a second") return 0;
+            string[] words = spoken.Split(' ');
+            Assert.True(words.Length == 2 && words[1].StartsWith("second", StringComparison.Ordinal), spoken);
+            return int.Parse(words[0], System.Globalization.CultureInfo.InvariantCulture);
         }
 
         [Fact]

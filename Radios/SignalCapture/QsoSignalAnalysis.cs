@@ -179,6 +179,17 @@ namespace Radios.SignalCapture
         /// <summary>The longest single gap, seconds.</summary>
         public double LongestGapSeconds { get; internal set; }
 
+        /// <summary>
+        /// The longest single gap measured the way <see cref="MissingSeconds"/>
+        /// measures every gap: its length less the usual spacing. What the
+        /// headline and the report speak beside the total, so the two figures
+        /// are one measure and the longest can never exceed the total. Spoken
+        /// against the raw <see cref="LongestGapSeconds"/>, one gap of 1.5
+        /// seconds read "missing for 1 second, the longest gap 2 seconds".
+        /// </summary>
+        public double LongestGapMissingSeconds =>
+            Math.Min(MissingSeconds, Math.Max(0.0, LongestGapSeconds - TypicalSpacingSeconds));
+
         /// <summary>The fraction of the window that readings covered, 0 to 1.
         /// One when there were no gaps.</summary>
         public double Coverage { get; internal set; } = 1.0;

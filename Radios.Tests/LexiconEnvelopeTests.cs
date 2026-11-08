@@ -2462,6 +2462,9 @@ namespace Radios.Tests
                 // FRAGMENT of that utterance, so TextOnly (the #777
                 // reasoning). DRAFT PROSE.
                 "audio.qso.coverage_gaps",
+                // Junk box 2026-11-08 (#939): the same sentence for one gap,
+                // which says its figure once. Same reasoning. DRAFT PROSE.
+                "audio.qso.coverage_gap_once",
                 // Junk box #625 (2026-11-07): the drop window, reworded to
                 // Noel's approved text of 2026-09-29, so the nine reworded
                 // keys leave the freeze list and are classified (#629). The

@@ -143,10 +143,13 @@ namespace Radios.SignalCapture
         {
             // "were missing", not "stopped arriving": a gap can be at the
             // start, before readings ever arrived (repair round one).
+            // The figures come from the headline's one rule, so the page and
+            // the spoken line never disagree, and one gap is said once.
+            bool once = QsoSignalHeadline.GapFigures(a, out string missing, out string longest);
             string text = "Readings were missing at "
                 + (a.GapCount == 1 ? "one point" : Count(a.GapCount) + " points")
-                + " in this capture, for " + SpokenDuration.English(a.MissingSeconds)
-                + " in all; the longest gap was " + SpokenDuration.English(a.LongestGapSeconds)
+                + " in this capture, for " + missing
+                + (once ? " in all" : " in all; the longest gap was " + longest)
                 + ". Only " + QsoSignalHeadline.CoveragePercent(a.Coverage)
                 + " percent of the window was measured. A gap is missing data, most often "
                 + "a network stall, not something the signal did, so nothing below treats "
