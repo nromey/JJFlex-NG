@@ -78,8 +78,21 @@ public sealed class SliceOverwriteWarningTests : IDisposable
     private void SliceHolds(bool recording, bool backedUp = false, bool warn = true)
     {
         string folder = Path.Combine(Path.GetTempPath(), "jjflex-999-" + Guid.NewGuid().ToString("N"));
-        if (backedUp) Directory.CreateDirectory(folder);
+        if (backedUp) WriteATake(folder);
         _facts = new SliceOverwriteFacts(Serial, "B", recording, recording ? 30 : null, backedUp ? Stamp(folder) : null, warn);
+    }
+
+    /// <summary>A real, complete take: the live backup test now reads the take file, not just the folder.</summary>
+    private static void WriteATake(string folder)
+    {
+        using var writer = new AudioTakeWriter(folder, TakeKind.SliceRecording,
+            new[] { new KeyValuePair<string, string>("serial", Serial) });
+        var audio = new float[AudioTakeFields.Rate];
+        for (int i = 0; i < audio.Length; i++) audio[i] = 0.1f * (float)Math.Sin(i * 0.05);
+        writer.BeginPlayback();
+        writer.Write(audio, audio.Length);
+        writer.EndPlayback();
+        writer.Close(true, "observed-stop");
     }
 
     private RecorderOutcome PressF11() =>

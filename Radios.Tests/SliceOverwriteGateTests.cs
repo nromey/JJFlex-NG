@@ -100,14 +100,40 @@ public sealed class SliceOverwriteGateTests : IDisposable
         Assert.False(SliceOverwriteGate.IsBackedUp(BackedUpStamp(), 30, _ => throw new IOException("gone")));
 
     [Fact]
-    public void The_real_disk_is_asked_for_the_folder()
+    public void The_real_disk_is_asked_for_a_readable_complete_take()
     {
-        string folder = Path.Combine(_scope.PathTo("takes"), "backup");
-        Directory.CreateDirectory(folder);
+        string folder = UnifiedTakeFixtures.AudioTake(_scope.PathTo("takes"), Radios.Listenback.TakeKind.SliceRecording);
         var facts = new SliceOverwriteFacts(Serial, "B", true, 30, BackedUpStamp(folder: folder), true);
         Assert.Equal(SliceOverwriteDecision.WarnBackedUp, SliceOverwriteGate.Decide(facts));
-        Directory.Delete(folder);
+        // Its take file damaged: the folder is there and protects nothing (repair round 1).
+        File.WriteAllText(Path.Combine(folder, "take.txt"), "format=nothing");
         Assert.Equal(SliceOverwriteDecision.WarnNotBackedUp, SliceOverwriteGate.Decide(facts));
+        Directory.Delete(folder, recursive: true);
+        Assert.Equal(SliceOverwriteDecision.WarnNotBackedUp, SliceOverwriteGate.Decide(facts));
+    }
+
+    [Fact]
+    public void An_empty_folder_is_not_a_backup()
+    {
+        string folder = Path.Combine(_scope.PathTo("takes"), "empty");
+        Directory.CreateDirectory(folder);
+        Assert.False(SliceOverwriteGate.BackupTakeReadable(folder));
+        Assert.Equal(SliceOverwriteDecision.WarnNotBackedUp,
+            SliceOverwriteGate.Decide(new SliceOverwriteFacts(Serial, "B", true, 30, BackedUpStamp(folder: folder), true)));
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(0.0)]
+    [InlineData(-30.0)]
+    [InlineData(double.PositiveInfinity)]
+    public void A_stamp_whose_length_is_not_a_real_length_is_not_backed_up(double stampSeconds)
+    {
+        var stamp = BackedUpStamp(seconds: stampSeconds);
+        Assert.False(SliceOverwriteGate.IsBackedUp(stamp, 0.05, Present));
+        Assert.False(SliceOverwriteGate.IsBackedUp(stamp, 30, Present));
+        var config = new RadioConfig { SliceTakeStamps = { stamp } };
+        Assert.Null(config.TrustedSliceTakeStamp("B", 0.05));
     }
 
     [Fact]

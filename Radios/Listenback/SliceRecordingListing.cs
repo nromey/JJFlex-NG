@@ -34,7 +34,7 @@ public static class SliceRecordingListing
     public static IReadOnlyList<SliceRecordingRow> Rows(FlexBase? rig, DateTime nowLocal, Func<string, bool>? folderExists = null)
     {
         if (rig == null) return Array.Empty<SliceRecordingRow>();
-        folderExists ??= Directory.Exists;
+        folderExists ??= SliceOverwriteGate.BackupTakeReadable;
         var rows = new List<SliceRecordingRow>();
         foreach (string letter in rig.SliceRecorderLetters())
         {

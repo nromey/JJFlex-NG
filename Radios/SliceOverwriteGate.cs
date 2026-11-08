@@ -49,6 +49,8 @@ public static class SliceOverwriteGate
     public static bool IsBackedUp(SliceTakeStamp stamp, double? radioSeconds, Func<string, bool> folderExists)
     {
         if (stamp == null || radioSeconds is not double seconds || !double.IsFinite(seconds) || seconds <= 0) return false;
+        // A damaged stamp's length can match nothing (repair round 1).
+        if (!double.IsFinite(stamp.RecordedSeconds) || stamp.RecordedSeconds <= 0) return false;
         if (Math.Abs(stamp.RecordedSeconds - seconds) > RadioConfig.SliceTakeLengthTolerance) return false;
         if (string.IsNullOrWhiteSpace(stamp.BackupTakeDirectory)) return false;
         try { return folderExists?.Invoke(stamp.BackupTakeDirectory) == true; }
@@ -72,7 +74,27 @@ public static class SliceOverwriteGate
     /// <summary>The decision for the facts a radio reported, against the real disk.</summary>
     public static SliceOverwriteDecision Decide(SliceOverwriteFacts facts) =>
         facts == null ? SliceOverwriteDecision.RecordNow
-            : Decide(facts.HasRecording, facts.RadioSeconds, facts.Stamp, Directory.Exists, facts.Warn);
+            : Decide(facts.HasRecording, facts.RadioSeconds, facts.Stamp, BackupTakeReadable, facts.Warn);
+
+    /// <summary>
+    /// The live disk test for a backup (repair round 1): the take folder exists
+    /// AND holds a readable, complete take, cleanly closed and playable. A folder
+    /// whose take file is missing or damaged protects nothing.
+    /// </summary>
+    public static bool BackupTakeReadable(string folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder)) return false;
+        if (!File.Exists(Path.Combine(folder, "take.txt"))) return false;
+        try
+        {
+            var take = Listenback.TakeReader.Inspect(folder);
+            return take.State == "clean" && take.CanPlay;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
+        {
+            return false;
+        }
+    }
 }
 
 /// <summary>

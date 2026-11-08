@@ -100,8 +100,7 @@ public sealed class SliceRecordingStampTests : IDisposable
         Assert.Equal(12.5, facts.RadioSeconds);
         Assert.Equal(SliceOverwriteDecision.WarnNotBackedUp, SliceOverwriteGate.Decide(facts));
 
-        string folder = Path.Combine(_scope.PathTo("takes"), "slice-b");
-        Directory.CreateDirectory(folder);
+        string folder = UnifiedTakeFixtures.AudioTake(_scope.PathTo("takes"), Radios.Listenback.TakeKind.SliceRecording);
         Assert.True(RadioConfig.RecordSliceTakeBackup(Serial, "B", 12.5, folder));
         Assert.Equal(SliceOverwriteDecision.WarnBackedUp,
             SliceOverwriteGate.Decide(c.F.Rig.SliceOverwriteFactsFor(SliceRecorderTarget.ActiveSlice)!));

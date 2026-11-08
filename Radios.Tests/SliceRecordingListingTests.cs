@@ -74,13 +74,12 @@ public sealed class SliceRecordingListingTests : IDisposable
         Assert.Contains("USB", row.Sentence);
         Assert.Contains(TakeListing.When(made, Now), row.Sentence);
 
-        string folder = _scope.PathTo("takes", "a-backup");
-        Directory.CreateDirectory(folder);
+        string folder = UnifiedTakeFixtures.AudioTake(_scope.PathTo("takes"), TakeKind.SliceRecording);
         Assert.True(RadioConfig.RecordSliceTakeBackup(Serial, "A", 30.0, folder));
         row = Assert.Single(SliceRecordingListing.Rows(c.F.Rig, Now));
         Assert.True(row.BackedUp);
         Assert.Contains(Lexicon.Get("audio.takes.slice_backed_up"), row.Sentence);
-        Directory.Delete(folder);
+        Directory.Delete(folder, recursive: true);
         Assert.False(Assert.Single(SliceRecordingListing.Rows(c.F.Rig, Now)).BackedUp);
     }
 

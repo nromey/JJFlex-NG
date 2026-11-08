@@ -603,7 +603,8 @@ namespace Radios
                 return null;
             var stamp = SliceTakeStamps?.LastOrDefault(s =>
                 string.Equals(s.Letter, letter, StringComparison.OrdinalIgnoreCase));
-            return stamp != null && Math.Abs(stamp.RecordedSeconds - seconds) <= SliceTakeLengthTolerance ? stamp : null;
+            return stamp != null && double.IsFinite(stamp.RecordedSeconds) && stamp.RecordedSeconds > 0
+                && Math.Abs(stamp.RecordedSeconds - seconds) <= SliceTakeLengthTolerance ? stamp : null;
         }
 
         /// <summary>
