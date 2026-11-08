@@ -114,6 +114,22 @@
                               AutomationProperties.Name="Show this account's SmartLink radios"/>
                 </ContextMenu>
             </ListBox.ContextMenu>
+            <!-- One source for a row's printed text and its accessible name:
+                 DisplayText, through a binding that follows the row's changes
+                 (#1008). The default presentation printed ToString() once,
+                 when the row's container was made, and never again, while the
+                 accessible name re-read it every time; so a sighted helper
+                 and a screen reader user saw different lists. -->
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding DisplayText, Mode=OneWay}"/>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="AutomationProperties.Name" Value="{Binding DisplayText, Mode=OneWay}"/>
+                </Style>
+            </ListBox.ItemContainerStyle>
         </ListBox>
 
         <!-- Action buttons -->
