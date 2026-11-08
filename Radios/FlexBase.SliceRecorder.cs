@@ -943,6 +943,43 @@ public partial class FlexBase
         return WithRecorderAsync(target, state => (state.Playing || state.Slice.PlayOn) ? StopPlayLockedAsync(state, target, owner) : StartPlayLockedAsync(state, target, intent, owner));
     }
 
+    /// <summary>
+    /// Play the target slice's recording to the LISTENER only, never into a
+    /// transmission (#999, repair round 1): Play takes' Play and the slice
+    /// recording backup. Additive beside <see cref="StartSlicePlayAsync"/>, whose
+    /// callers are unchanged.
+    /// </summary>
+    /// <remarks>
+    /// Refused at the press while the radio reports transmit, a hardware key or a
+    /// tune. Otherwise the intent is fixed as LOCAL at the press, so a key that
+    /// starts afterwards cannot turn it into a send:
+    /// <see cref="PlaybackIntentIsCurrent"/> refuses a local intent while keyed,
+    /// and is read again on the radio queue just before <c>play=1</c> leaves, and
+    /// a transmit edge during the playback stops it, as for every local listen.
+    /// </remarks>
+    public Task<RecorderOutcome> StartSliceListenAsync(SliceRecorderTarget target, object owner = null)
+    {
+        var intent = CapturePlaybackIntent();
+        if (intent.OnAir || intent.UnderTune || RadioInterlockReportsTransmit)
+            return Task.FromResult(ListenRefusedWhileTransmitting(target));
+        return WithRecorderAsync(target, state => StartPlayLockedAsync(state, target, intent, owner));
+    }
+
+    /// <summary>
+    /// <see cref="StartSliceListenAsync"/>, or stop the playback running on the
+    /// slice. Stopping is always allowed, keyed or not.
+    /// </summary>
+    public Task<RecorderOutcome> ToggleSliceListenAsync(SliceRecorderTarget target, object owner = null) =>
+        IsSlicePlaying(target) ? StopSlicePlayAsync(target, owner) : StartSliceListenAsync(target, owner);
+
+    // PLACEHOLDER: Codex writes (#999).
+    private RecorderOutcome ListenRefusedWhileTransmitting(SliceRecorderTarget target)
+    {
+        string letter = SliceRecorderLetter(target);
+        return new(false, Lexicon.Get("audio.recorder.listen_refused_transmitting", ("letter", letter)),
+            Speech.SpeechSubject.SliceRecorder(letter));
+    }
+
     private void ReleasePlaybackVox(SliceRecorderState state)
     {
         // The on-air playback's transmit monitor goes with it. Its put-back is

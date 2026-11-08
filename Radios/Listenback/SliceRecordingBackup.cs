@@ -159,7 +159,9 @@ public sealed class SliceRecordingBackup
         if (!await run.ArmAsync(root, startCapture, muteOthers: true).ConfigureAwait(false))
             return Ended(SliceBackupResult.NotSaved);
 
-        var play = await rig.StartSlicePlayAsync(slice, owner: this).ConfigureAwait(false);
+        // Local only, fixed at this press and read again at the radio command:
+        // a key during the arming above refuses it rather than sending it.
+        var play = await rig.StartSliceListenAsync(slice, owner: this).ConfigureAwait(false);
         if (!play.Success || play.AlreadyInState)
         {
             run.End("play-refused");

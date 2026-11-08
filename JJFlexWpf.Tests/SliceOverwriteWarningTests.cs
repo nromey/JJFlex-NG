@@ -261,8 +261,32 @@ public sealed class SliceOverwriteWarningTests : IDisposable
             Assert.Contains(hidden, branch.Substring(branch.IndexOf("new[] {", StringComparison.Ordinal)));
         // No radio, no slice rows: only the radio can say what it holds.
         Assert.Contains("_rig?.IsConnected == true ? SliceRecordingListing.Rows(_rig, DateTime.Now)", dialog);
-        // Play is a tagged door, so it never becomes a send to the air.
-        Assert.Contains("RecorderControls.ToggleSlicePlayAsync(_rig, sliceRow.Target, owner: this)", dialog);
+        // Play goes through the listen-only door; what that door does with the
+        // radio keyed is the behaviour test below, not this line.
+        Assert.Contains("RecorderControls.ToggleSliceListenAsync(_rig, sliceRow.Target, owner: this)", dialog);
+        Assert.DoesNotContain("ToggleSlicePlayAsync(_rig, sliceRow.Target", dialog);
+    }
+
+    /// <summary>Key this class's rig as the radio's own MOX report does, with no radio object behind it.</summary>
+    private void KeyTheRig(bool keyed) =>
+        typeof(FlexBase).GetMethod("noteRadioMox", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(_rig, new object[] { keyed });
+
+    [Fact]
+    public void Play_takes_slice_Play_is_refused_with_the_radio_already_keyed()
+    {
+        KeyTheRig(true);
+        Assert.True(_rig.Transmit);
+        var refused = RecorderControls.ToggleSliceListenAsync(_rig, SliceRecorderTarget.Letter('B'), speak: _ => { }, owner: this)
+            .GetAwaiter().GetResult();
+        Assert.False(refused.Success);
+        Assert.Equal(Lexicon.Get("audio.recorder.listen_refused_transmitting", ("letter", "")), refused.Message);
+        // Positive control: unkeyed, the same press goes on to the recorder, which
+        // on this unconnected rig answers that no radio is connected.
+        KeyTheRig(false);
+        var reached = RecorderControls.ToggleSliceListenAsync(_rig, SliceRecorderTarget.Letter('B'), speak: _ => { }, owner: this)
+            .GetAwaiter().GetResult();
+        Assert.True(ReachedTheRecorder(reached));
     }
 
     [Fact]

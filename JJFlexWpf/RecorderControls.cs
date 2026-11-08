@@ -354,6 +354,25 @@ public static class RecorderControls
     }
 
     /// <summary>
+    /// Listen to the target slice's recording, never as a send (#999, repair
+    /// round 1): Play takes' slice rows. Refused while the radio transmits; the
+    /// local intent is carried to the radio command, so a key after the press
+    /// cannot put it on the air. Stopping a running playback is always allowed.
+    /// </summary>
+    public static async Task<RecorderOutcome> ToggleSliceListenAsync(FlexBase? rig, SliceRecorderTarget target,
+        Action<RecorderOutcome>? speak = null, object? owner = null)
+    {
+        Observe(rig);
+        bool starting = rig != null && !rig.IsSlicePlaying(target);
+        if (starting && !(rig!.Transmit || rig.RadioInterlockReportsTransmit || TuneDoors.Up(rig))) PlayStartClick();
+        var outcome = rig == null
+            ? NoRadio(SpeechSubject.SliceRecorder(""))
+            : await Guarded(() => rig.ToggleSliceListenAsync(target, owner), SpeechSubject.SliceRecorder(""));
+        (speak ?? Speak)(outcome);
+        return outcome;
+    }
+
+    /// <summary>
     /// The slice's playback into a transmission the operator is holding, as
     /// Play did before the box (#835): the box send hands back to this when it
     /// finds the radio held by someone other than VOX once VOX is off.

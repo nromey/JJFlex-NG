@@ -345,10 +345,11 @@ public sealed class PlayTakesDialog : JJFlexDialog
         var sliceRow = CurrentSlice;
         if (sliceRow != null)
         {
-            // The radio plays its own recording, as the Audio Workshop's listen
-            // button does: a tagged door, so never a send (#999).
+            // The radio plays its own recording to the listener only (#999,
+            // repair round 1): refused while the radio transmits, and a key
+            // after the press cannot turn it into a send. Stopping is allowed.
             if (RecordingPlayer.IsPlaying) RecordingPlayer.StopWithoutSpeaking();
-            try { await RecorderControls.ToggleSlicePlayAsync(_rig, sliceRow.Target, owner: this); }
+            try { await RecorderControls.ToggleSliceListenAsync(_rig, sliceRow.Target, owner: this); }
             catch (Exception ex) { Fail("play slice", ex); }
             return;
         }
