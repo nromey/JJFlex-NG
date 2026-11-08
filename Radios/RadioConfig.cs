@@ -630,6 +630,19 @@ namespace Radios
         }
 
         /// <summary>
+        /// "Warn before a recording on the radio is overwritten" (#999): F11,
+        /// and anything else that starts a slice recording, asks first when the
+        /// slice already holds one. On by default and saved per radio; the
+        /// warning's "don't show this again" box turns this same setting off.
+        /// A config written before it reads on.
+        /// </summary>
+        public bool WarnBeforeSliceRecordingOverwritten { get; set; } = true;
+
+        /// <summary>Save <see cref="WarnBeforeSliceRecordingOverwritten"/> for this radio, changing nothing else.</summary>
+        public static bool RecordWarnBeforeSliceRecordingOverwritten(string radioId, bool warn) =>
+            Update(radioId, cfg => { cfg.WarnBeforeSliceRecordingOverwritten = warn; });
+
+        /// <summary>
         /// A take on this computer now holds a copy of the recording in this
         /// slice's buffer (#999). When the stamp still describes that recording
         /// (the radio reports its length), the take folder is written into it.

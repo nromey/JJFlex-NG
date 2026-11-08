@@ -243,6 +243,26 @@ public partial class FlexBase
                 state.TakeSource = source;
     }
 
+    /// <summary>
+    /// The facts <see cref="SliceOverwriteGate"/> decides on, for the slice a
+    /// recorder target resolves to now; null when there is no such slice of
+    /// ours, so nothing can be overwritten from here.
+    /// </summary>
+    public SliceOverwriteFacts SliceOverwriteFactsFor(SliceRecorderTarget target)
+    {
+        var slice = ResolveSliceRecorderTarget(target);
+        if (!SliceRecorderTargetIsOurs(slice)) return null;
+        string serial = theRadio?.Serial ?? "";
+        string letter = LetterOf(slice);
+        bool has = slice.PlayEnabled;
+        double? seconds = ReportedSliceRecordingSeconds(slice);
+        if (string.IsNullOrEmpty(serial)) return new(serial, letter, has, seconds, null, true);
+        var config = RadioConfig.LoadForRadio(serial);
+        var stamp = config.SliceTakeStamps?.LastOrDefault(s =>
+            string.Equals(s.Letter, letter, StringComparison.OrdinalIgnoreCase));
+        return new(serial, letter, has, seconds, stamp, config.WarnBeforeSliceRecordingOverwritten);
+    }
+
     /// <summary>The radio's recorded duration, with local timing as fallback.</summary>
     public double? SliceRecordingSeconds(SliceRecorderTarget target)
     {

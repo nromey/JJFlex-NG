@@ -83,6 +83,34 @@ public sealed class SliceRecordingStampTests : IDisposable
     }
 
     [Fact]
+    public async Task The_gate_sees_the_radio_the_stamp_and_the_backup_folder()
+    {
+        using var c = new RadioCase(Serial);
+        c.F.Rig.AttachSliceRecorderStatus(c.F.Vendor.Radio);
+        c.F.Vendor.Status("slice 1 play=disabled");
+        // Nothing on the slice: nothing to overwrite.
+        Assert.Equal(SliceOverwriteDecision.RecordNow,
+            SliceOverwriteGate.Decide(c.F.Rig.SliceOverwriteFactsFor(SliceRecorderTarget.ActiveSlice)!));
+        Assert.True((await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        Assert.True((await c.Pump(c.F.Rig.StopSliceRecordAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        c.F.Vendor.Status("slice 1 record_time=12.5 play=0");
+        Assert.True(await c.Pump(WaitUntil(() => Stamp("B", 12.5) != null)));
+        var facts = c.F.Rig.SliceOverwriteFactsFor(SliceRecorderTarget.ActiveSlice)!;
+        Assert.Equal("B", facts.Letter);
+        Assert.Equal(12.5, facts.RadioSeconds);
+        Assert.Equal(SliceOverwriteDecision.WarnNotBackedUp, SliceOverwriteGate.Decide(facts));
+
+        string folder = Path.Combine(_scope.PathTo("takes"), "slice-b");
+        Directory.CreateDirectory(folder);
+        Assert.True(RadioConfig.RecordSliceTakeBackup(Serial, "B", 12.5, folder));
+        Assert.Equal(SliceOverwriteDecision.WarnBackedUp,
+            SliceOverwriteGate.Decide(c.F.Rig.SliceOverwriteFactsFor(SliceRecorderTarget.ActiveSlice)!));
+        Assert.True(RadioConfig.RecordWarnBeforeSliceRecordingOverwritten(Serial, false));
+        Assert.Equal(SliceOverwriteDecision.RecordNow,
+            SliceOverwriteGate.Decide(c.F.Rig.SliceOverwriteFactsFor(SliceRecorderTarget.ActiveSlice)!));
+    }
+
+    [Fact]
     public void Marking_a_slice_that_is_not_recording_changes_nothing()
     {
         using var c = new RadioCase(Serial);
