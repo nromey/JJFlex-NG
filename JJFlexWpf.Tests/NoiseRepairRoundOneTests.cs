@@ -135,6 +135,23 @@ public sealed class NoiseRepairRoundOneTests
         Assert.Equal(new[] { "radio_nb=off" }, f.Radio.Writes);
     }
 
+    // ── B5: a choice made with the slot off is remembered per mode ──
+
+    [Fact]
+    public void B5_an_engine_chosen_while_its_slot_is_off_is_what_the_mode_comes_back_to()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Toggle("rnnoise", "test");
+        f.Noise.Toggle("rnnoise", "test");                       // off
+        f.Noise.ChooseSlotEngine(DenoiseFamily.Neural, "deepfilternet3", "test");
+        f.Clock.RunAll();
+        Assert.Equal("deepfilternet3", f.Pipeline.NeuralSlot.ChosenEngineId);
+        f.Noise.OnModeChanged("CW");
+        f.Noise.OnModeChanged("USB");
+        Assert.Equal("deepfilternet3", f.Pipeline.NeuralSlot.ChosenEngineId);
+        Assert.False(f.Pipeline.NeuralSlot.Enabled);
+    }
+
     private sealed class MemoryPresets : INoisePresetStore
     {
         public AudioChainPresets Data = new() { BalancedCaptureOffered = true };

@@ -524,8 +524,12 @@ namespace JJFlexWpf
                 return;
             }
             // Off: remembered for when it is turned on. Selecting builds, so a
-            // choice is only selected once it has settled.
+            // choice is only selected once it has settled. The mode group
+            // remembers it too (repair round 1, B5): a choice made with the
+            // slot off is still this group's choice, and leaving and coming
+            // back must not put the older engine back.
             slot.Select(id, out _);
+            RememberModeState();
             _persist();
         }
 
