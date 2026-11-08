@@ -562,6 +562,23 @@ namespace Radios
         public Func<Keys, bool>? HostKeys;
 
         /// <summary>
+        /// Shift+Alt chords the HOST takes for this layer, asked before the
+        /// engine lets Alt chords pass through; true means handled. Null (every
+        /// shipped layer but the noise layer) leaves the engine exactly as it
+        /// was: every Alt chord passes through. Plain Alt chords are never
+        /// offered here, so the menu bar's Alt keys always reach the menu bar
+        /// (ruled by Noel 2026-10-21 06:29, "keep them"), and nothing with F4
+        /// is offered either, so Alt+F4 and Shift+Alt+F4 always pass.
+        /// </summary>
+        /// <remarks>
+        /// Sprint 49 Track E (#518): the noise layer's favourite, defaults,
+        /// preset and Legacy Auto-Notch keys are Shift+Alt chords (Noel,
+        /// 2026-11-07 21:07 to 21:08), so they need a way in that does not
+        /// touch the Alt pass-through for any other chord or any other layer.
+        /// </remarks>
+        public Func<Keys, bool>? ShiftAltKeys;
+
+        /// <summary>
         /// The keys that ACT IN PLACE: the host's list of keys that do their
         /// normal job while the layer stays live. Returning true lets the key
         /// travel on unconsumed (<see cref="ValueLayerKeyResult.PassThrough"/>)
@@ -1123,6 +1140,9 @@ namespace Radios
             // (Alt+F4, menu accelerators) and F1 help — the volume-mode rule.
             // Ruled by Noel 2026-10-21 06:29 ("keep them"): the menu bar and
             // help keep working inside a layer. Not a question any more.
+            if ((k & Keys.Alt) != 0 && mods == (Keys.Alt | Keys.Shift) && code != Keys.F4
+                && _def.ShiftAltKeys != null && _def.ShiftAltKeys(k))
+                return ValueLayerKeyResult.Handled;
             if ((k & Keys.Alt) != 0 || code == Keys.F1)
                 return ValueLayerKeyResult.PassThrough;
 

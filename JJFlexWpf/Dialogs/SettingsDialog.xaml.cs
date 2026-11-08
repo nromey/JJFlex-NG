@@ -212,6 +212,8 @@ namespace JJFlexWpf.Dialogs
 
             // Radio output levels — live-apply, see SettingsDialog.Audio.cs.
             InitializeAudioTab();
+            InitializeNoiseSettings();
+            InitializeAdvancedTab();
 
             // The warning duck and per-sound trims (#116, #384) — live-apply
             // for the same reason the radio output levels are.

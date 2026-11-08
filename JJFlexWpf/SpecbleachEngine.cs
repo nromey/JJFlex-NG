@@ -91,7 +91,8 @@ namespace JJFlexWpf
         public static Func<string?>? LibraryLocator { get; set; }
 
         // The live settings, in this order. Index into _pending.
-        private const int ReductionDb = 0, Smoothing = 1, Whitening = 2, MaskingDepth = 3, Suppression = 4;
+        private const int ReductionDb = 0, Smoothing = 1, Whitening = 2, MaskingDepth = 3, Suppression = 4,
+            Estimator = 5, TransientProtection = 6, TonalReductionDb = 7;
 
         /// <summary>
         /// The settings an operator surface may offer. Names are stable keys,
@@ -105,13 +106,59 @@ namespace JJFlexWpf
             new EngineSettingDescriptor("reduction_db", "audio.denoise.reduction_db", EngineSettingKind.Number,
                 new EngineSettingValue(20), 0, 40, 1, "audio.denoise.db"),
             new EngineSettingDescriptor("smoothing", "audio.denoise.smoothing", EngineSettingKind.Number,
-                new EngineSettingValue(0.5), 0, 1, 0.05),
+                new EngineSettingValue(0.5), 0, 1, 0.05, Advanced: true),
             new EngineSettingDescriptor("whitening", "audio.denoise.whitening", EngineSettingKind.Number,
-                new EngineSettingValue(0), 0, 1, 0.05),
+                new EngineSettingValue(0), 0, 1, 0.05, Advanced: true),
             new EngineSettingDescriptor("masking_depth", "audio.denoise.masking_depth", EngineSettingKind.Number,
-                new EngineSettingValue(0.5), 0, 1, 0.05),
+                new EngineSettingValue(0.5), 0, 1, 0.05, Advanced: true),
             new EngineSettingDescriptor("suppression", "audio.denoise.suppression", EngineSettingKind.Number,
-                new EngineSettingValue(1), 0, 1, 0.05),
+                new EngineSettingValue(1), 0, 1, 0.05, Advanced: true),
+            // Sprint 49 Track E (ruled 2026-11-07, question 14): three levers the
+            // library had and this binding did not offer. The estimator is fixed
+            // for an instance's life (changing it frees and re-creates the
+            // library's estimator and throws away the learned noise), so it is a
+            // REBUILD: the slot builds a new instance under the warm-up
+            // cross-fade. It does not change the delay, so it is not marked
+            // ChangesLatency.
+            new EngineSettingDescriptor("noise_estimator", "audio.denoise.nr4.noise_estimator", EngineSettingKind.Choice,
+                new EngineSettingValue(0, "spp_mmse"), Rebuilds: true, Advanced: true, Options: new[] {
+                    new EngineSettingOption("spp_mmse", "audio.denoise.nr4.noise_estimator.spp_mmse"),
+                    new EngineSettingOption("brandt", "audio.denoise.nr4.noise_estimator.brandt"),
+                    new EngineSettingOption("martin", "audio.denoise.nr4.noise_estimator.martin"),
+                }),
+            // transient_protection_enable: the library's default is false.
+            new EngineSettingDescriptor("transient_protection", "audio.denoise.nr4.transient_protection", EngineSettingKind.Choice,
+                new EngineSettingValue(0, "off"), Advanced: true, Options: new[] {
+                    new EngineSettingOption("off", "audio.denoise.nr4.transient_protection.off"),
+                    new EngineSettingOption("on", "audio.denoise.nr4.transient_protection.on"),
+                }),
+            // tonal_reduction_gain, shown in decibels like reduction_db: the
+            // library's default gain floor 0.1 is 20 dB.
+            new EngineSettingDescriptor("tonal_reduction_db", "audio.denoise.nr4.tonal_reduction_db", EngineSettingKind.Number,
+                new EngineSettingValue(20), 0, 40, 1, "audio.denoise.db", Advanced: true),
+        };
+
+        /// <summary>
+        /// The estimator a starting-values dictionary names, for the catalog's
+        /// factory; the library's default when it names none or one this build
+        /// does not know.
+        /// </summary>
+        public static SpecbleachNoiseEstimator EstimatorFrom(IReadOnlyDictionary<string, EngineSettingValue>? initial)
+        {
+            if (initial == null || !initial.TryGetValue("noise_estimator", out var v)) return SpecbleachNoiseEstimator.SppMmse;
+            return v.Choice switch
+            {
+                "brandt" => SpecbleachNoiseEstimator.Brandt,
+                "martin" => SpecbleachNoiseEstimator.Martin,
+                _ => SpecbleachNoiseEstimator.SppMmse,
+            };
+        }
+
+        private static string EstimatorName(SpecbleachNoiseEstimator e) => e switch
+        {
+            SpecbleachNoiseEstimator.Brandt => "brandt",
+            SpecbleachNoiseEstimator.Martin => "martin",
+            _ => "spp_mmse",
         };
 
         private readonly string? _libraryPath;
@@ -121,7 +168,7 @@ namespace JJFlexWpf
 
         // Written by any thread through TrySetSetting; read by the audio
         // thread at a frame boundary when _dirty says something changed.
-        private readonly double[] _pending = new double[5];
+        private readonly double[] _pending = new double[8];
         private int _dirty;
 
         private Api? _api;
@@ -151,9 +198,11 @@ namespace JJFlexWpf
             for (int i = 0; i < SettingDescriptors.Count; i++)
             {
                 var d = SettingDescriptors[i];
-                _pending[i] = initial != null && initial.TryGetValue(d.Name, out var v) && d.Accepts(v)
-                    ? v.Number : d.Default.Number;
+                var value = initial != null && initial.TryGetValue(d.Name, out var v) && d.Accepts(v) ? v : d.Default;
+                _pending[i] = ToNumber(i, value);
             }
+            // The estimator is the constructor's, whatever the dictionary said.
+            _pending[Estimator] = (int)estimator;
             Start();
         }
 
@@ -183,7 +232,13 @@ namespace JJFlexWpf
         {
             int index = IndexOf(name);
             if (index < 0) throw new ArgumentException("Unknown setting", nameof(name));
-            return new EngineSettingValue(Volatile.Read(ref _pending[index]));
+            double number = Volatile.Read(ref _pending[index]);
+            return index switch
+            {
+                Estimator => new EngineSettingValue(0, EstimatorName(_estimator)),
+                TransientProtection => new EngineSettingValue(0, number != 0 ? "on" : "off"),
+                _ => new EngineSettingValue(number),
+            };
         }
 
         /// <summary>
@@ -195,8 +250,12 @@ namespace JJFlexWpf
         {
             int index = IndexOf(name);
             if (index < 0 || !SettingDescriptors[index].Accepts(value)) return false;
-            if (Volatile.Read(ref _pending[index]) == value.Number) return true;
-            Volatile.Write(ref _pending[index], value.Number);
+            // The estimator cannot change on a live instance: true only for
+            // the one it was built with, as a latency setting is on the helper.
+            if (index == Estimator) return value.Choice == EstimatorName(_estimator);
+            double number = ToNumber(index, value);
+            if (Volatile.Read(ref _pending[index]) == number) return true;
+            Volatile.Write(ref _pending[index], number);
             Volatile.Write(ref _dirty, 1);
             return true;
         }
@@ -313,6 +372,14 @@ namespace JJFlexWpf
         internal bool LoadParametersForTest(SpecbleachDenoiserParameters block, uint size)
             => _state != IntPtr.Zero && _api!.Load(_state, ref block, size) != 0;
 
+        /// <summary>A setting's value as the number it is held as: a choice's index, a switch's 0 or 1.</summary>
+        private static double ToNumber(int index, EngineSettingValue value) => index switch
+        {
+            Estimator => value.Choice switch { "brandt" => 1, "martin" => 2, _ => 0 },
+            TransientProtection => value.Choice == "on" ? 1 : 0,
+            _ => value.Number,
+        };
+
         private static int IndexOf(string name)
         {
             for (int i = 0; i < SettingDescriptors.Count; i++)
@@ -328,6 +395,8 @@ namespace JJFlexWpf
             _parameters.WhiteningFactor = (float)Volatile.Read(ref _pending[Whitening]);
             _parameters.MaskingDepth = (float)Volatile.Read(ref _pending[MaskingDepth]);
             _parameters.SuppressionStrength = (float)Volatile.Read(ref _pending[Suppression]);
+            _parameters.TransientProtectionEnable = (byte)(Volatile.Read(ref _pending[TransientProtection]) != 0 ? 1 : 0);
+            _parameters.TonalReductionGain = (float)Math.Pow(10, -Volatile.Read(ref _pending[TonalReductionDb]) / 20.0);
         }
 
         private bool LoadParameters()

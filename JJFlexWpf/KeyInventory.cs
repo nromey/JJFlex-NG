@@ -641,9 +641,9 @@ public static class KeyInventory
         // DSP controls track (2026-08-11) — Q for "quiet": capture what the
         // band sounds like with nobody talking, so Spectral NR can subtract it.
         // #515 names this chord as the Alt tier's own example.
-        new("Leader", "JJ key", "Ctrl+J, Alt+Q", "Capture a noise profile for PC Spectral NR (press Alt+Q again to cancel)",
+        new("Leader", "JJ key", "Ctrl+J, Alt+Q", "Capture a noise profile for Captured noise (press Alt+Q again to cancel)",
             new[] { "noise", "profile", "capture", "quiet", "qrn", "sample", "spectral", "sub",
-                    "subtraction", "baseline", "leader" }, "Radio", "DSP"),
+                    "subtraction", "baseline", "leader", "captured", "pc spectral nr" }, "Radio", "DSP"),
         // Sprint 33 Track F (#153). E for echo, and E is a single dit — the
         // smallest character in Morse, for the one chord that only ever answers
         // in Morse. Shift+E is slice E and Ctrl+E the earcons: three verbs on
@@ -1134,53 +1134,86 @@ public static class KeyInventory
     };
 
     // ────────────────────────────────────────────────────────────────
-    //  The noise layer — Sprint 48 Track F, #518. JJ key N. Truth source:
-    //  KeyCommands.EnterNoiseLayer; the H list, the explorer, the Hotkey
-    //  Editor's Built-in keys view and the near-miss all read THIS table,
-    //  so a switch missing here is a switch nobody can find (#702, #524).
+    //  The noise layer — JJ key N. Truth source: NoiseLayerKeys (the chords)
+    //  and KeyCommands.EnterNoiseLayer (the wiring); the H list, the
+    //  explorer, the Hotkey Editor's Built-in keys view and the near miss
+    //  all read THIS table, so a key missing here is a key nobody can find
+    //  (#702, #524). NoiseLayerKeysTests holds this table and
+    //  NoiseLayerKeys.EngineKeys to the same chords, both directions.
     //
-    //  Every key is a switch: one press flips it and says which way it
-    //  went. There is nothing to pick, so the arrows have no job here.
-    //
-    //  THE LETTERS ARE PROVISIONAL — Noel has not walked them (#518). Where
-    //  the initial is unique the letter is derived; the three residents that
-    //  share N by nature sit on N, R and Ctrl+N, and the two PC-side twins
-    //  on Ctrl+R and Ctrl+S, by the in-layer rule for a letter already
-    //  spoken for (#514). #518 proposes a side-selector for the twins
-    //  instead; its letter is Noel's. When he rules, the letters change
-    //  here, in EnterNoiseLayer and in the two help pages, and nowhere else.
+    //  Rebuilt in Sprint 49 Track E on the ruled list (2026-11-07, questions
+    //  1 and 7; Shift+Alt for Legacy Auto-Notch, favourite, defaults and
+    //  presets, 21:07 to 21:08). A description is the NAME and the ACTION
+    //  only: no trade-off, no advice. Help is written separately.
+    //  Each engine row's keywords carry its name, its subject, "radio" or
+    //  "computer", and any name it used to go by, so the Command Finder
+    //  finds it by the old name too.
     // ────────────────────────────────────────────────────────────────
     private static readonly FixedKeyEntry[] NoiseLayerCommands =
     {
-        new(NoiseLayerContext, "Noise layer", "A", "Auto Notch on or off — the radio finds a steady carrier and notches it for you",
-            new[] { "auto", "notch", "anf", "carrier", "heterodyne", "tone", "whistle", "toggle", "switch" }, "Radio", "DSP"),
-        new(NoiseLayerContext, "Noise layer", "B", "Noise Blanker on or off — for pulse noise such as ignition and power-line crackle",
-            new[] { "noise", "blanker", "nb", "pulse", "crackle", "ignition", "toggle", "switch" }, "Radio", "DSP"),
-        new(NoiseLayerContext, "Noise layer", "W", "Wideband Noise Blanker on or off — the blanker that works across the whole passband",
-            new[] { "wideband", "noise", "blanker", "wnb", "pulse", "toggle", "switch" }, "Radio", "DSP"),
-        new(NoiseLayerContext, "Noise layer", "N", "Noise Reduction on or off — the radio's standard NR, for hiss",
-            new[] { "noise", "reduction", "nr", "hiss", "static", "toggle", "switch" }, "Radio", "DSP"),
-        new(NoiseLayerContext, "Noise layer", "R", "On-Radio Neural Noise Reduction on or off — the radio's own RNN; model-specific",
-            new[] { "neural", "rnn", "noise", "reduction", "on-radio", "radio", "toggle", "switch" }, "Radio", "DSP"),
-        new(NoiseLayerContext, "Noise layer", "S", "On-Radio Spectral Noise Reduction on or off — the radio's own NRS; model-specific",
-            new[] { "spectral", "nrs", "noise", "reduction", "on-radio", "radio", "toggle", "switch" }, "Radio", "DSP"),
-        new(NoiseLayerContext, "Noise layer", "Ctrl+N", "NR Filter on or off — model-specific; Ctrl because plain N is noise reduction itself",
-            new[] { "nr", "filter", "nrf", "noise", "toggle", "switch" }, "Radio", "DSP"),
-        new(NoiseLayerContext, "Noise layer", "P", "Audio Peak Filter on or off — CW only; a narrow peak on the tone you are listening to",
-            new[] { "audio", "peak", "filter", "apf", "cw", "toggle", "switch" }, "Radio", "DSP"),
-        new(NoiseLayerContext, "Noise layer", "Ctrl+R", "PC Neural Noise Reduction on or off — runs on this computer, every radio; the radio's own is R",
-            new[] { "pc", "neural", "noise", "reduction", "computer", "rnnoise", "toggle", "switch" }, "Radio", "DSP"),
-        new(NoiseLayerContext, "Noise layer", "Ctrl+S", "PC Spectral Noise Reduction on or off — runs on this computer, every radio; the radio's own is S, and Ctrl+J, Alt+Q captures its noise profile",
-            new[] { "pc", "spectral", "noise", "reduction", "computer", "profile", "subtraction", "toggle", "switch" }, "Radio", "DSP"),
-        new(NoiseLayerContext, "Noise layer", "Shift+A through Shift+H", "Jump to that slice without leaving the layer — the radio's switches follow you to it",
+        new(NoiseLayerContext, "Noise layer", "N", "Standard NR on or off",
+            new[] { "standard", "nr", "noise", "reduction", "radio", "reducer", "hiss", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "L", "Legacy NR on or off",
+            new[] { "legacy", "nr", "lms", "noise", "reduction", "radio", "reducer", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "R", "Neural NR on or off",
+            new[] { "neural", "nr", "rnn", "noise", "reduction", "radio", "reducer", "on-radio", "on-radio neural nr", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "S", "Spectral NR on or off",
+            new[] { "spectral", "nr", "nrs", "noise", "reduction", "radio", "reducer", "on-radio", "on-radio spectral nr", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "F", "NR Filter on or off",
+            new[] { "nr", "filter", "nrf", "noise", "reduction", "radio", "reducer", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "B", "Noise Blanker on or off",
+            new[] { "noise", "blanker", "nb", "radio", "blankers", "notches", "pulse", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "W", "Wideband NB on or off",
+            new[] { "wideband", "noise", "blanker", "wnb", "radio", "blankers", "notches", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "A", "FFT Auto-Notch on or off",
+            new[] { "fft", "auto", "notch", "anft", "radio", "blankers", "notches", "auto notch", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Shift+Alt+A", "Legacy Auto-Notch on or off",
+            new[] { "legacy", "auto", "notch", "anfl", "lms", "radio", "blankers", "notches", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "O", "Standard Auto-Notch on or off",
+            new[] { "standard", "auto", "notch", "anf", "basic", "radio", "blankers", "notches", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "P", "Audio Peak Filter on or off",
+            new[] { "audio", "peak", "filter", "apf", "cw", "radio", "blankers", "notches", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Ctrl+R", "RNNoise on or off",
+            new[] { "rnnoise", "neural", "computer", "pc", "noise", "reduction", "pc neural nr", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Ctrl+D", "DeepFilterNet3 on or off",
+            new[] { "deepfilternet3", "deepfilter", "dfn", "neural", "computer", "pc", "noise", "reduction", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Ctrl+N", "NNR on or off",
+            new[] { "nnr", "neural", "wdsp", "computer", "pc", "noise", "reduction", "cw", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Ctrl+2", "NR2 on or off",
+            new[] { "nr2", "spectral", "wdsp", "emnr", "computer", "pc", "noise", "reduction", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Ctrl+4", "NR4 on or off",
+            new[] { "nr4", "spectral", "specbleach", "computer", "pc", "noise", "reduction", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Ctrl+S", "Captured noise on or off",
+            new[] { "captured", "noise", "spectral", "capture", "profile", "subtraction", "computer", "pc", "pc spectral nr", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Ctrl+G", "NVIDIA NR on or off",
+            new[] { "nvidia", "nr", "gpu", "graphics", "neural", "computer", "pc", "noise", "reduction", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Up / Down", "Adjust the lever you are on",
+            new[] { "up", "down", "level", "strength", "lever", "adjust", "more", "less" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Tab / Shift+Tab", "Next or previous lever of the engine you are on",
+            new[] { "tab", "lever", "next", "previous", "setting", "depth", "model", "limit" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Home / End", "The lever you are on to its least or most",
+            new[] { "home", "end", "minimum", "maximum", "least", "most", "lever" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "] / [", "Next or previous favourite on",
+            new[] { "bracket", "favourite", "favorite", "step", "next", "previous", "compare" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Shift+Alt+F", "Add or remove the engine you are on from favourites",
+            new[] { "favourite", "favorite", "add", "remove", "mark", "star" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Shift+Alt+R", "Return the engine you are on to its defaults",
+            new[] { "defaults", "default", "reset", "return", "factory" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Shift+Alt+] / Shift+Alt+[", "Next or previous noise preset",
+            new[] { "preset", "presets", "next", "previous", "step", "apply" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "0", "Every computer engine off, and back",
+            new[] { "zero", "computer", "off", "back", "bypass", "compare", "helping" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Space", "Say what noise reduction is active",
+            new[] { "space", "active", "say", "what", "status", "which" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Shift+A through Shift+H", "Jump to that slice without leaving the layer",
             new[] { "slice", "jump", "letter" }, "Radio", "DSP"),
         new(NoiseLayerContext, "Noise layer", "Enter", "Keep every change and leave the noise layer",
             new[] { "enter", "keep", "accept", "confirm", "done", "leave" }, "Radio", "DSP"),
-        new(NoiseLayerContext, "Noise layer", "Escape", "Put back every switch you flipped and leave the noise layer",
+        new(NoiseLayerContext, "Noise layer", "Escape", "Put back every change and leave the noise layer",
             new[] { "escape", "cancel", "revert", "undo", "restore", "back", "leave" }, "Radio", "DSP"),
         new(NoiseLayerContext, "Noise layer", "H", "List the noise layer's keys",
             new[] { "help", "keys", "list", "what" }, "Radio", "help"),
-        new(NoiseLayerContext, "Noise layer", "?", "Open the JJ key explorer on this layer — the whole map as a tree, this branch open",
+        new(NoiseLayerContext, "Noise layer", "?", "Open the JJ key explorer on this layer",
             new[] { "help", "explorer", "explore", "tree", "map", "keys", "slash", "question", "shift slash" }, "Radio", "help")
             { KeySpoken = "Shift slash" },
     };

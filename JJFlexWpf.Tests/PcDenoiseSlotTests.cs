@@ -246,7 +246,10 @@ public sealed class PcDenoiseSlotTests
     }
 
     [Theory]
-    [InlineData(false)] [InlineData(true)]
+    // The heldByMode=true row is gone since Sprint 49 Track E: no mode holds a
+    // slot any more (the gate is retired, ruled 2026-11-07, question 4), so a
+    // slot on in DIGU processes like a slot on in SSB. The disabled row stands.
+    [InlineData(false)]
     public void Disabled_or_mode_held_slot_waits_for_real_audio_before_warming_or_announcing(bool heldByMode)
     {
         using var rig = new Rig(); var p = rig.Pipeline;
@@ -545,7 +548,11 @@ public sealed class PcDenoiseSlotTests
         var catalog = new DenoiseEngineCatalog();
         var neural = new PcDenoiseSlot(DenoiseFamily.Neural, "absent", 48000, 2, catalog);
         var spectral = new PcDenoiseSlot(DenoiseFamily.Spectral, "absent", 48000, 2, catalog);
-        foreach (var row in catalog.Entries.Where(e => e.Factory != null)) {
+        // The helper rows are left out since Sprint 49 Track E: their catalog
+        // descriptors are a static MIRROR of the helper's offer, and an engine
+        // built here with no helper has had no handshake, so it holds none.
+        // NoiseCatalogTests pins the mirror against Track A's documented offer.
+        foreach (var row in catalog.Entries.Where(e => e.Factory != null && DenoiseEngineCatalog.HelperMirror(e.Id) == null)) {
             using var engine = row.Factory!(row.Settings.ToDictionary(d => d.Name, d => d.Default));
             Assert.Equal(row.Settings, engine.Settings);
             var slot = row.Family == DenoiseFamily.Spectral ? spectral : neural;

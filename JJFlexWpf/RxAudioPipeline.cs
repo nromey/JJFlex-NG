@@ -34,9 +34,7 @@ namespace JJFlexWpf
         private int _processMark; // 0 idle, 1 inside Process, 2 permanently closed
         private int _disposed;
         private string _mode = "";
-        private bool _voiceModesOnly = true;
         public event EventHandler<DenoiseSelectionResult>? SelectionResult;
-        public bool VoiceModesOnly { get => Volatile.Read(ref _voiceModesOnly); set => Volatile.Write(ref _voiceModesOnly, value); }
         public string CurrentMode => Volatile.Read(ref _mode);
         public bool SelectPcEngine(string id, out string? refusal)
         {
@@ -46,20 +44,21 @@ namespace JJFlexWpf
             return (row.Family == DenoiseFamily.Spectral ? SpectralSlot : NeuralSlot).Select(id, out refusal);
         }
         public bool SelectPcEngine(string id) => SelectPcEngine(id, out _);
-        public static bool ModePermits(DenoiseFamily family, string mode, bool voiceModesOnly)
-        {
-            if (!voiceModesOnly) return true;
-            if (mode.StartsWith("DIG", StringComparison.OrdinalIgnoreCase) ||
-                mode.StartsWith("FDM", StringComparison.OrdinalIgnoreCase) || mode.Equals("RTTY", StringComparison.OrdinalIgnoreCase)) return false;
-            return family != DenoiseFamily.Neural || !mode.StartsWith("CW", StringComparison.OrdinalIgnoreCase);
-        }
+        // THE MODE GATE IS RETIRED (Sprint 49 Track E; ruled by Noel 2026-11-07,
+        // question 4: "retire the switch"). "PC Neural NR Voice Modes Only" held
+        // the neural slot off in CW and both slots off in digital modes. Per-mode
+        // memory replaced it: no engine is locked out of any mode, and each mode
+        // group remembers what the operator last used in it (NoiseController).
+        // So the slots run whatever is on, in every mode.
         private void ForwardSelection(object? sender, DenoiseSelectionResult result) => SelectionResult?.Invoke(this, result);
-        public string CaptureFinishKey() => CaptureFinishKey(SpectralEnabled, SpectralSlot.ChosenEngineId, CurrentMode, VoiceModesOnly);
-        public static string CaptureFinishKey(bool on, string selection, string mode, bool voiceModesOnly)
-        {
-            if (!ModePermits(DenoiseFamily.Spectral, mode, voiceModesOnly)) return "audio.noise.capture.held_by_mode";
-            return on && selection == "spectral_capture" ? "audio.noise.capture.spectral_is_using_it" : "audio.noise.capture.turn_spectral_on";
-        }
+        public string CaptureFinishKey() => CaptureFinishKey(SpectralEnabled, SpectralSlot.ChosenEngineId);
+        /// <summary>
+        /// What the capture's finish sentence says next. No mode holds the
+        /// spectral slot back any more, so the "held by mode" fragment is gone:
+        /// it would now be untrue.
+        /// </summary>
+        public static string CaptureFinishKey(bool on, string selection) =>
+            on && selection == "spectral_capture" ? "audio.noise.capture.spectral_is_using_it" : "audio.noise.capture.turn_spectral_on";
         private readonly int _channels;
 
         /// <summary>Kept for the duck's ramp, which has to convert a time
@@ -100,13 +99,6 @@ namespace JJFlexWpf
         {
             get => NeuralSlot.GetStrength("rnnoise");
             set => NeuralSlot.SetStrength("rnnoise", value);
-        }
-
-        /// <summary>Auto-disable RNNoise for CW/digital modes (it's speech-trained).</summary>
-        public bool RnnAutoDisableNonVoice
-        {
-            get => VoiceModesOnly;
-            set => VoiceModesOnly = value;
         }
 
         // --- Spectral subtraction properties ---
@@ -212,9 +204,8 @@ namespace JJFlexWpf
                 bool capturing = capture.IsSampling;
                 capture.ProcessInPlace(buffer, 0, count, _channels); // capture only, never enabled
                 _processingCapture = capture;
-                SpectralSlot.Process(buffer, ModePermits(DenoiseFamily.Spectral, CurrentMode, VoiceModesOnly),
-                    capture.HasProfile, capturing, _prepareSpectral);
-                NeuralSlot.Process(buffer, ModePermits(DenoiseFamily.Neural, CurrentMode, VoiceModesOnly), true, false, null);
+                SpectralSlot.Process(buffer, true, capture.HasProfile, capturing, _prepareSpectral);
+                NeuralSlot.Process(buffer, true, true, false, null);
                 ApplyDuck(buffer, count);
                 ApplyPlaybackLevel(buffer, count);
             }

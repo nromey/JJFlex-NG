@@ -79,10 +79,31 @@ namespace Radios.Tests
             AssertUniqueWithin("internal void EnterFilterLayer");
         }
 
+        // Since Sprint 49 Track E the noise layer's chords are a table,
+        // NoiseLayerKeys.EngineKeys, not SwitchTarget calls. A dictionary
+        // index initializer does not refuse a repeated key: the later entry
+        // silently replaces the earlier, which is #539's failure in a new
+        // shape. So the table is read as source and every chord must be unique.
+        private static readonly Regex EngineKeyEntry = new Regex(
+            @"\[(?<key>[A-Za-z0-9_.| ]+)\]\s*=\s*""(?<id>[a-z0-9_]+)""", RegexOptions.Compiled);
+
+        private static List<(string Id, string Key)> NoiseLayerChords()
+        {
+            string path = Path.Combine(RepoRoot(), "JJFlexWpf", "NoiseLayerKeys.cs");
+            string source = File.ReadAllText(path);
+            int at = source.IndexOf("EngineKeys = new Dictionary<Keys, string>", StringComparison.Ordinal);
+            Assert.True(at >= 0, "the noise layer's EngineKeys table was not found");
+            int end = source.IndexOf("};", at, StringComparison.Ordinal);
+            return EngineKeyEntry.Matches(source.Substring(at, end - at))
+                .Select(m => (m.Groups["id"].Value, Regex.Replace(m.Groups["key"].Value, @"\s+", ""))).ToList();
+        }
+
         [Fact]
         public void No_two_switches_in_the_noise_layer_claim_the_same_chord()
         {
-            AssertUniqueWithin("internal void EnterNoiseLayer");
+            var chords = NoiseLayerChords();
+            var repeated = chords.GroupBy(c => c.Key).Where(g => g.Count() > 1).Select(g => g.Key + ": " + string.Join(", ", g.Select(x => x.Id))).ToList();
+            Assert.True(repeated.Count == 0, "two noise layer engines on one chord: " + string.Join("; ", repeated));
         }
 
         /// <summary>
@@ -93,13 +114,16 @@ namespace Radios.Tests
         [Fact]
         public void The_scanner_actually_finds_the_noise_layer_switches()
         {
-            var found = KeysIn(BodyOf("internal void EnterNoiseLayer"));
+            // Eighteen engine keys since Sprint 49 Track E (the ruled list,
+            // minus the held T, Ctrl+B and Ctrl+W). It found ten SwitchTarget
+            // calls in EnterNoiseLayer until then.
+            var found = NoiseLayerChords();
 
-            Assert.True(found.Count >= 10,
-                "expected at least ten switches in the noise layer, found "
-                + found.Count + ": " + Describe(found));
-            Assert.Contains(found, f => f.Id == "auto-notch");
-            Assert.Contains(found, f => f.Id == "pc-spectral");
+            Assert.True(found.Count >= 18,
+                "expected eighteen engine keys in the noise layer, found " + found.Count + ": "
+                + string.Join(", ", found.Select(f => f.Id + "=" + f.Key)));
+            Assert.Contains(found, f => f.Id == "radio_anft");
+            Assert.Contains(found, f => f.Id == "spectral_capture");
         }
 
         /// <summary>

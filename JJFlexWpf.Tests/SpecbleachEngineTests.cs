@@ -387,11 +387,15 @@ public sealed class SpecbleachEngineTests
     }
 
     [Theory]
+    // Sprint 49 Track E: the mode gate is retired (ruled 2026-11-07, question
+    // 4), so NR4 now runs in every mode. This theory asserted that digital
+    // modes held it off while "Voice Modes Only" was on; with the switch gone
+    // that is no longer the behaviour, and every row now expects it to run.
     [InlineData("CW", true, true)]
     [InlineData("CWL", true, true)]
-    [InlineData("DIGU", true, false)]
+    [InlineData("DIGU", true, true)]
     [InlineData("DIGU", false, true)]
-    [InlineData("RTTY", true, false)]
+    [InlineData("RTTY", true, true)]
     public void TheModePolicyKeepsItInCwAndHoldsItInDigitalModes(string mode, bool voiceModesOnly, bool runs)
     {
         using var p = new RxAudioPipeline(catalog: CatalogWithRealNr4(new ConcurrentBag<SpecbleachEngine>()));
@@ -399,7 +403,7 @@ public sealed class SpecbleachEngineTests
         p.SetCurrentMode("USB");
         Assert.True(p.SelectPcEngine("nr4"));
         Until(() => p.SpectralSlot.RunningEngineId == "nr4", () => p.Process(Stereo(0)));
-        p.VoiceModesOnly = voiceModesOnly;
+        _ = voiceModesOnly; // the retired switch: nothing to set
         p.SetCurrentMode(mode);
         bool changed = false;
         for (int i = 1; i <= 20; i++)

@@ -559,7 +559,7 @@ public class KeyCommands
             // ── ScreenFields expanders ──
             new(CommandValues.ToggleDspExpander, KeyTypes.Command, () => _context.GetMainWindow()?.ToggleScreenFieldsCategory(0),
                 "Toggle DSP expander in ScreenFields panel", "DSP Expander", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "dsp", "noise", "reduction", "expander", "screenfields", "panel" }, ShortActionLabel = "toggle D S P expander" },
+                { Keywords = new[] { "dsp", "noise", "reduction", "expander", "screenfields", "panel", "blanker", "notch", "standard nr", "legacy nr", "rnnoise", "deepfilternet3", "nnr", "nr2", "nr4", "captured", "favourite", "preset" }, ShortActionLabel = "toggle D S P expander" },
             new(CommandValues.ToggleAudioExpander, KeyTypes.Command, () => _context.GetMainWindow()?.ToggleScreenFieldsCategory(1),
                 "Toggle Audio expander in ScreenFields panel", "Audio Expander", false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "audio", "expander", "screenfields", "panel" }, ShortActionLabel = "toggle audio expander" },
@@ -5560,226 +5560,81 @@ public class KeyCommands
     }
 
     // ────────────────────────────────────────────────────────────────
-    //  The noise layer — Sprint 48 Track F, #518. JJ key N: ruled by Noel
-    //  2026-10-05 (free, the subject's own initial, no exception to
-    //  remember), and "no second door" on 2026-10-10. Ten switches that had
-    //  spent eight plain letters and all four tiers at the top level live in
-    //  one room: auto notch, the noise blanker, the wideband blanker, noise
-    //  reduction, the radio's neural and spectral reducers, the NR filter,
-    //  the audio peak filter, and the two PC-side reducers. The layer is
-    //  where the infrequent lives (Noel's frequency ruling, #515), and the
-    //  move frees Ctrl+N at the top level for #628's notifications buffer.
+    //  The noise layer — JJ key N (ruled by Noel 2026-10-05; "no second
+    //  door" 2026-10-10). Built in Sprint 48 Track F (#518) as ten switches;
+    //  REBUILT in Sprint 49 Track E as the noise surface's layer, on the
+    //  ruled letter list (2026-11-07, questions 1 and 7, "accepted, I like
+    //  it"; Shift+Alt for the rest, 21:07 to 21:08).
     //
-    //  EVERY KEY IN HERE IS A SWITCH. One press flips it and says which way
-    //  it went; there is nothing to pick, so the arrows have no job and an
-    //  arrow answers with the switches-only hint and stays. Enter keeps,
-    //  Escape puts back every switch you flipped, out loud, and Shift+letter
-    //  jumps to a slice with the layer live (#515). The radio-side switches
-    //  are per slice, so a jump re-reads them from the new slice and keeps
-    //  what you did on the old one — the audio layer's own rule.
+    //  THIS METHOD IS WIRING ONLY. Every key's meaning is in NoiseLayerKeys
+    //  and every rule — the replace rule, levers, favourites, the brackets,
+    //  defaults, presets, the 0 key, what is said — is in NoiseController,
+    //  which the Audio menu and the Home expander call too. So a key and its
+    //  menu row say the same sentence because there is one place that says
+    //  it (E4), not because somebody kept two copies in step.
     //
-    //  THE LETTERS ARE PROVISIONAL. NOEL HAS NOT WALKED THEM (#518: "Do not
-    //  let a track pick these letters"). Where the initial is unique it is
-    //  derived and he vetoes by ear: A auto notch, B blanker, W wideband, P
-    //  peak filter, S spectral. THREE RESIDENTS SHARE N BY NATURE — noise
-    //  reduction, the radio's neural NR and the NR filter — and that is a
-    //  question for him, not a derivation: they sit on N, R (for RNN, the
-    //  chord the top level had already derived) and Ctrl+N, by the in-layer
-    //  rule for a letter already spoken for (#514, ruling two). The two
-    //  PC-side twins differ from the radio's by WHERE they run, not by what
-    //  they do, so they sit on Ctrl+R and Ctrl+S by the same rule — these
-    //  two are PLACEHOLDERS, chosen so the layer compiles. #518 proposes a
-    //  side-selector instead (pick radio or computer, then the same letters
-    //  for both), which would be the first nested layer and the first thing
-    //  Backspace pops (#514); its letter is Noel's and it is not built here.
+    //  The four tiers: a plain letter is a radio engine; Ctrl and a letter a
+    //  computer engine; Shift and a letter jumps to a slice (LayerSliceJump,
+    //  every layer's); Shift with Alt is the rest. No plain Alt chord is
+    //  taken: Alt+A, Alt+F, Alt+R, Alt+brackets and Alt+F4 pass through
+    //  exactly as in every other layer.
     //
-    //  The compander is NOT here: it is voice shaping, and its switch is in
-    //  the audio layer beside its level (ruled 2026-10-05, #518). Alt+N (the
-    //  tracking notch manager) and Alt+Q (the profile capture) are actions
-    //  and stay on the top level's Alt tier. Two residents have a contested
-    //  home — #516 leaves whether the notches and the audio peak filter
-    //  belong here or in the filter layer to Noel; both are here because
-    //  #515 and #518 list them as noise residents, and either moves in one
-    //  line.
-    //
-    //  ONE NAME CORRECTED ON THE WAY IN. The top-level chord called
-    //  rig.NoiseReduction "Legacy Noise Reduction". FlexBase says otherwise:
-    //  NoiseReduction is the slice's NROn — the radio's standard NR — and
-    //  NoiseReductionLegacy (NRLOn, "Legacy LMS Noise Reduction") is a
-    //  different switch that the DSP menu calls "Legacy NR" and no chord
-    //  reaches. The layer calls N "Noise Reduction"; the Track F report
-    //  names the discrepancy for Noel.
+    //  ESCAPE PUTS EVERYTHING BACK through the definition's Snapshot: every
+    //  switch, lever, preset applied and favourite changed since the layer
+    //  opened, written back only where it differs. Listen to what was removed
+    //  is cleared on every way out.
     // ────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Enter the noise layer: ten switches, a chord each, nothing to pick.
-    /// See the region comment for the letters and why they are provisional.
-    /// A switch the radio or the PC chain cannot honour is refused — the
-    /// refusal tone and the reason, as the top-level chords gave them — and
-    /// writes nothing.
+    /// Enter the noise layer. See the region comment: the keys are
+    /// <see cref="NoiseLayerKeys"/>, the rules are <see cref="NoiseController"/>.
     /// </summary>
     internal void EnterNoiseLayer()
     {
         var rig = _context.GetRigControl();
         if (rig == null) { LeaderNoRadio(); return; }
+        var noise = _context.GetMainWindow()?.Noise;
+        if (noise == null) { LeaderNoRadio(); return; }
 
-        // The PC chain is captured once, at entry. Null means the pipeline
-        // is not up, and both PC switches say so instead of flipping.
-        var win = _context.GetMainWindow();
-        var pipeline = win?.FieldsPanel.AudioPipeline;
+        noise.BeginSession();
+        var keys = new NoiseLayerKeys(noise, ToggleFeedback.LayerTone);
+        bool restoredSomething = false;
 
-        // A gate that is not met sounds the refusal and hands back the reason.
-        // It runs from `describe`, the one hook ToggleSlot speaks through, so
-        // the tone sounds exactly once per refused press and never on
-        // Escape's silent restore of a switch that was refused on the way in.
-        string? Refused(string? why)
-        {
-            if (why != null) EarconPlayer.LeaderInvalidTone();
-            return why;
-        }
-
-        // THE GATED THREE, DECLARED ONCE. The refusals and the H list both read
-        // these pairs, so they cannot disagree about which keys are shut - which
-        // is the whole lesson of #725, where three surfaces each answered the
-        // question separately and the newest one answered it wrongly.
+        // THE GATED THREE, DECLARED ONCE: the radio's advanced reducers. H's
+        // closing sentence reads these, and only these.
         var gatedSwitches = new[]
         {
             (Key: "R", Capability: Radios.RadioCapability.NoiseReductionNeural),
             (Key: "S", Capability: Radios.RadioCapability.NoiseReductionSpectral),
-            (Key: "Ctrl+N", Capability: Radios.RadioCapability.NoiseReductionFilter),
+            (Key: "F", Capability: Radios.RadioCapability.NoiseReductionFilter),
         };
 
-        // These three tested the MODEL STRING and never the licence, so an
-        // 8600 whose subscription does not include advanced NR heard "On-Radio
-        // Neural NR on" while the radio ignored the command (#725). One ladder
-        // answers hardware and licence now, hardware first so a 6300 owner is
-        // told their model cannot do it and is never invited to buy a licence
-        // that would do nothing for them.
-        string? NeuralGate() => rig.CapabilityWriteRefusal(Radios.RadioCapability.NoiseReductionNeural);
-        string? SpectralGate() => rig.CapabilityWriteRefusal(Radios.RadioCapability.NoiseReductionSpectral);
-        string? FilterGate() => rig.CapabilityWriteRefusal(Radios.RadioCapability.NoiseReductionFilter);
-        string? ApfGate()
+        // The engine needs one target to stand on; every key the layer has is
+        // the host's (HostKeys runs before the engine's own arrows, Home, End
+        // and 0), so this one is never picked, never toggled, never named.
+        var placeholder = new Radios.ValueTarget
         {
-            string? mode = rig.Mode;
-            return mode != null && !mode.StartsWith("CW", StringComparison.OrdinalIgnoreCase)
-                ? Radios.Lexicon.Get("audio.apf.cw_only") : null;
-        }
-        string? PipelineGate() => pipeline == null ? Radios.Lexicon.Get("audio.pc_pipeline.not_ready") : null;
-
-        // A radio-side switch. The words are the ones the top-level toggles
-        // said — "{label} on", "{label} off" — with the layer's own name for
-        // the switch, so a subject keeps one name through the move. A gated
-        // switch writes nothing while its gate is shut; the shadow still
-        // flips, so Escape's restore calls Apply with the entry value and
-        // the gate swallows that too.
-        Radios.ValueTarget RadioSwitch(string id, Keys chord, string nameKey,
-            Func<FlexBase.OffOnValues> read, Action<FlexBase.OffOnValues> write, Func<string?>? gate = null)
-        {
-            string name = Radios.Lexicon.Get(nameKey);
-            string Say(bool on) => Radios.Lexicon.Get(on ? "audio.dsp.toggled_on" : "audio.dsp.toggled_off", ("label", name));
-            return SwitchTarget(id, chord,
-                () => read() == FlexBase.OffOnValues.on,
-                on =>
-                {
-                    if (gate?.Invoke() != null) return;
-                    write(on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off);
-                    ToggleFeedback.LayerTone(on);
-                },
-                Say,
-                perSlice: true,
-                describe: gate == null ? null : on => Refused(gate()) ?? Say(on));
-        }
-
-        // #746: auto notch is FFT auto-notch, licensed on noise_reduction. The
-        // setter refuses the write by itself; this gate is what makes A SAY
-        // so, instead of "Auto Notch on" for a command that was never sent.
-        // It is deliberately NOT in gatedSwitches: H's closing sentence calls
-        // those the radio's advanced noise reduction with a PC-side twin, and
-        // auto notch is neither. Its place in H is #752's wording to settle.
-        var autoNotch = RadioSwitch("auto-notch", Keys.A, "audio.noise_layer.name_auto_notch",
-            () => rig.AutoNotchFFT, v => rig.AutoNotchFFT = v,
-            () => rig.CapabilityWriteRefusal(Radios.RadioCapability.AutoNotchFft));
-        var noiseBlanker = RadioSwitch("noise-blanker", Keys.B, "audio.noise_layer.name_noise_blanker",
-            () => rig.NoiseBlanker, v => rig.NoiseBlanker = v);
-        var widebandNb = RadioSwitch("wideband-nb", Keys.W, "audio.noise_layer.name_wideband_nb",
-            () => rig.WidebandNoiseBlanker, v => rig.WidebandNoiseBlanker = v);
-        var noiseReduction = RadioSwitch("noise-reduction", Keys.N, "audio.noise_layer.name_noise_reduction",
-            () => rig.NoiseReduction, v => rig.NoiseReduction = v);
-        var neuralNr = RadioSwitch("neural-nr", Keys.R, "audio.noise_layer.name_neural_nr",
-            () => rig.NeuralNoiseReduction, v => rig.NeuralNoiseReduction = v, NeuralGate);
-        var spectralNr = RadioSwitch("spectral-nr", Keys.S, "audio.noise_layer.name_spectral_nr",
-            () => rig.SpectralNoiseReduction, v => rig.SpectralNoiseReduction = v, SpectralGate);
-        var nrFilter = RadioSwitch("nr-filter", Keys.N | Keys.Control, "audio.noise_layer.name_nr_filter",
-            () => rig.NoiseReductionFilter, v => rig.NoiseReductionFilter = v, FilterGate);
-        var apf = RadioSwitch("apf", Keys.P, "audio.noise_layer.name_apf",
-            () => rig.APF, v => rig.APF = v, ApfGate);
-
-        // The PC-side twins. Not per slice: the pipeline is this computer's,
-        // not the radio's. Persisted the way the menu and the Home checkbox
-        // persist them, so the four roads into one state stay one state. The
-        // spectral reducer's "on" sentence says when no profile is loaded and
-        // names the capture chord, exactly as the top-level chord did.
-        string PcNeural(bool on) => Radios.Lexicon.Get(on ? "audio.pc_nr.neural_on" : "audio.pc_nr.neural_off");
-        string PcSpectral(bool on) => !on ? Radios.Lexicon.Get("audio.pc_nr.spectral_off")
-            : pipeline?.HasNoiseProfile == true ? Radios.Lexicon.Get("audio.pc_nr.spectral_on")
-            : Radios.Lexicon.Get("audio.pc_nr.spectral_on_no_profile");
-
-        var pcNeural = SwitchTarget("pc-neural", Keys.R | Keys.Control,
-            () => pipeline?.RnnEnabled == true,
-            on =>
-            {
-                if (pipeline == null) return;
-                pipeline.RnnEnabled = on;
-                ToggleFeedback.LayerTone(on);
-                win?.PersistDspSettings();
-            },
-            PcNeural,
-            describe: on => Refused(PipelineGate()) ?? PcNeural(on));
-        var pcSpectral = SwitchTarget("pc-spectral", Keys.S | Keys.Control,
-            () => pipeline?.SpectralEnabled == true,
-            on =>
-            {
-                if (pipeline == null) return;
-                pipeline.SpectralEnabled = on;
-                ToggleFeedback.LayerTone(on);
-                win?.PersistDspSettings();
-            },
-            PcSpectral,
-            describe: on => Refused(PipelineGate()) ?? PcSpectral(on));
+            Id = "noise",
+            Name = Radios.Lexicon.Get("audio.noise_layer.name"),
+            Read = () => 0,
+            Apply = _ => { },
+            Number = _ => "",
+        };
 
         var def = new Radios.ValueSubLayerDefinition
         {
             Id = "noise",
             Selection = Radios.ValueLayerSelection.ByLetter,
-            Targets = new List<Radios.ValueTarget>
-            {
-                autoNotch, noiseBlanker, widebandNb, noiseReduction, neuralNr, spectralNr, nrFilter, apf,
-                pcNeural, pcSpectral,
-            },
+            Targets = new List<Radios.ValueTarget> { placeholder },
             InitialTarget = -1,
-            // Entry says where you are and stops; H does the rest (#519, #524
-            // — the audio layer's 175-character entry is the thing not to
-            // repeat). Nothing is picked in a layer of switches, so there is
-            // no "what is picked" half to say.
             DescribeLayerEntry = layer => Radios.Lexicon.Get("audio.noise_layer.entered",
                 Radios.ScreenReaderOutput.CurrentVerbosity),
-            // H lists the keys this radio can actually use, and names the gated
-            // ones together in one closing sentence - ruled by Noel 2026-10-17
-            // over marking each gated row in place. The keys stay bound,
-            // pressable and self-explaining; only where they are named changes.
             DescribeLayerHelp = layer =>
             {
                 var closed = gatedSwitches.Where(g => rig.CapabilityIsClosedOnThisRadio(g.Capability)).ToList();
                 if (closed.Count == 0) return KeyLayerHelp.SpokenList(KeyInventory.NoiseLayerContext);
-
-                // Hardware and subscription are different sentences, and the
-                // honest one depends on why. If a radio somehow has both
-                // reasons across the three, hardware wins: it is the permanent
-                // fact, and telling somebody about a subscription for a feature
-                // their radio cannot run is the actively harmful error.
                 bool anyHardware = closed.Any(g =>
                     rig.CapabilityClosedReason(g.Capability) == Radios.CapabilityBlock.Hardware);
-
                 string sentence = Radios.Lexicon.Get(
                     anyHardware
                         ? "audio.noise_layer.gated_keys_unavailable"
@@ -5789,38 +5644,34 @@ public class KeyCommands
                             .Distinct(StringComparer.Ordinal)
                             .ToList()),
                     ("keys", KeyLayerHelp.SpeakKeyList(closed.Select(g => g.Key).ToList())));
-
                 return KeyLayerHelp.SpokenList(
                     KeyInventory.NoiseLayerContext,
                     closed.Select(g => g.Key).ToHashSet(StringComparer.OrdinalIgnoreCase),
                     sentence);
             },
             DescribeClosed = () => Radios.Lexicon.Get("audio.noise_layer.closed"),
-            // #536's rule, as the audio layer applies it: say that everything
-            // went back, not what each switch went back to.
+            Snapshot = () =>
+            {
+                var snap = noise.TakeSnapshot();
+                return () => restoredSomething = noise.RestoreSnapshot(snap, "noise layer escape");
+            },
             DescribeLayerRestored = (layer, restored) => Radios.Lexicon.Get(
-                restored.Count == 0
-                    ? "audio.noise_layer.restored_nothing"
-                    : "audio.noise_layer.restored"),
-            // Arrows, Home, End and 0 have nothing to act on here: one hint,
-            // and the layer stays.
+                restoredSomething ? "audio.noise_layer.restored" : "audio.noise_layer.restored_nothing"),
             PickTargetHint = () => Radios.Lexicon.Get("audio.noise_layer.switches_only"),
             WrongAxisHint = () => Radios.Lexicon.Get("audio.noise_layer.switches_only"),
             PassThroughKeys = ActsInPlaceInsideALayer,
             DescribeUnavailableHere = LayerKeyUnavailableHere,
-            HostKeys = LayerSliceJump,
-            // #547, the same rule as the other two layers: a letter that means
-            // nothing out there and sits one modifier from a chord in here is
-            // a slip, named from this layer's own rows.
+            HostKeys = k => LayerSliceJump(k) || keys.Handle(k),
+            ShiftAltKeys = keys.HandleShiftAlt,
             MeansSomethingOutside = MeansSomethingOutsideTheLayer,
             DescribeNearMiss = key => LayerNearMiss(KeyInventory.NoiseLayerContext, key),
-            // #778: nothing is picked in a switch-only layer, so the engine
-            // answers an unknown key with the switches_only line above first;
-            // this is the fallback should that ever be null.
             DescribeUnknownKey = (key, why) => LayerUnknownKey(KeyInventory.NoiseLayerContext, key, why),
             DescribeFineStep = LayerFineStep,
             ListCommands = () => TryShowLayerCommandList(KeyInventory.NoiseLayerContext),
             OpenExplorer = () => TryOpenLayerExplorer(KeyInventory.NoiseLayerContext),
+            // Listen to what was removed is never left on, and the 0 key's
+            // "back" belongs to this session only.
+            Exited = why => { noise.ClearListening(); noise.ForgetZero(); },
             Cues = new Radios.ValueLayerCues
             {
                 Entered = EarconPlayer.LeaderEnterTone,

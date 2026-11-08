@@ -45,27 +45,18 @@ public partial class ScreenFieldsPanel : UserControl
 
     #region DSP Controls
 
-    private CheckBox _neuralNrCheck = null!;
-    private CheckBox _spectralNrCheck = null!;
-    private CheckBox _nrfCheck = null!;
-    private CheckBox _legacyNrCheck = null!;
-    private ValueFieldControl _nrLevelControl = null!;
     private CheckBox _nbCheck = null!;
     private ValueFieldControl _nbLevelControl = null!;
+    private StackPanel _radioNoiseExtras = null!;
+    private StackPanel _apfLevelHolder = null!;
     private CheckBox _wnbCheck = null!;
     private ValueFieldControl _wnbLevelControl = null!;
     private CheckBox _fftNotchCheck = null!;
     private CheckBox _legacyNotchCheck = null!;
     private CheckBox _apfCheck = null!;
     // PC-side NR controls (work on ALL radios, processing runs on PC)
-    private CheckBox _pcRnnCheck = null!;
-    private CheckBox _pcSpectralCheck = null!;
     // DSP controls track (2026-08-11) — the engine knobs finally get buttons:
     // strengths, floor, voice-only, noise capture, and the profile readout.
-    private ValueFieldControl _pcRnnStrengthControl = null!;
-    private CheckBox _pcRnnVoiceOnlyCheck = null!;
-    private ValueFieldControl _pcSpectralStrengthControl = null!;
-    private ValueFieldControl _pcSpectralFloorControl = null!;
     private Button _captureNoiseButton = null!;
     private Button _noiseProfilesButton = null!;
     private Button _rxEqButton = null!;
@@ -176,6 +167,8 @@ public partial class ScreenFieldsPanel : UserControl
         BuildControls();
 
         _expanders.Add(DspExpander);
+        // Listen to what was removed is never left on (E13).
+        DspExpander.Collapsed += (s, e) => OnDspExpanderCollapsed();
         _expanders.Add(AudioExpander);
         _expanders.Add(ReceiverExpander);
         _expanders.Add(TxExpander);
@@ -226,27 +219,10 @@ public partial class ScreenFieldsPanel : UserControl
         if (rxAnts.Length > 0) _rxAntennaControl.SetOptions(rxAnts);
         if (txAnts.Length > 0) _txAntennaControl.SetOptions(txAnts);
 
-        // NRF, NRS and RNN need 8000-series/Aurora DSP hardware, and a
-        // subscription on top of it.
-        //
-        // THEY STAY ON SCREEN NOW, MARKED IN TEXT (#726 item 6). All three used
-        // to be Visibility.Collapsed when the hardware test failed, so on a
-        // 6000-series radio they were simply gone - and a control that is gone
-        // is indistinguishable from a control that was never built. Noel's rule
-        // is that an unavailable feature stays present, marked in text,
-        // invocable and self-explaining, and a collapsed checkbox is none of
-        // those four things.
-        //
-        // Not grayed either: IsEnabled = false would take them out of the tab
-        // order and leave the screen reader saying "unavailable" with no way to
-        // ask why. They remain live, and ToggleGatedRig speaks the reason when
-        // one is pressed.
-        _neuralNrCheck.Visibility = Visibility.Visible;
-        _spectralNrCheck.Visibility = Visibility.Visible;
-        _nrfCheck.Visibility = Visibility.Visible;
+        // The noise fields follow the new radio: its engines, markers and
+        // levels (Sprint 49 Track E). Gated engines stay listed and marked
+        // in text, never collapsed (#726 item 6).
         RefreshCapabilityMarkers();
-        // Legacy NR is always available — no license required
-        _nrLevelControl.Visibility = Visibility.Collapsed; // shown only when Legacy NR is on
 
         // Hide ATU controls if radio has no ATU hardware
         bool hasATU = rig.HasATU;
@@ -277,6 +253,10 @@ public partial class ScreenFieldsPanel : UserControl
         _audioPipeline?.Dispose();
         _audioPipeline = new RxAudioPipeline();
         rig.AudioPostProcessor = _audioPipeline.Process;
+        // The noise controller is the first listener for a slot's result
+        // (Sprint 49 Track E, E5). Raised on a pool thread; spoken on the UI's.
+        _audioPipeline.SelectionResult += (s, r) =>
+            Dispatcher.BeginInvoke(() => FindMainWindow()?.Noise.OnSelectionResult(r));
         // Feed current mode so RNNoise auto-disables for CW/digital
         _audioPipeline.SetCurrentMode(rig.Mode ?? "");
 
@@ -295,6 +275,9 @@ public partial class ScreenFieldsPanel : UserControl
 
         Dispatcher.BeginInvoke(() =>
         {
+            // Per-mode memory (Sprint 49 Track E, E6): the noise controller
+            // applies the new mode group's remembered state or starting point.
+            FindMainWindow()?.Noise.OnModeChanged(newMode ?? "");
             if (_rig != null && DspExpander.IsExpanded)
                 PollDSP();
         });
@@ -332,78 +315,26 @@ public partial class ScreenFieldsPanel : UserControl
 
     private void BuildDSPControls()
     {
-        // "On-Radio" prefix (DSP controls track, 2026-08-11): these two run in
-        // the radio's own DSP hardware and have PC-side namesakes below —
-        // without the prefix, "Spectral NR" and "PC Spectral NR" sat in one
-        // list daring an operator to guess which was which. Same vocabulary
-        // as On-Radio Headphone Level vs PC Output Volume.
-        // The licensed switches go through ToggleGatedRig, which asks the
-        // capability ladder before it speaks: the advanced three here, and FFT
-        // auto-notch below (#746, measured: an unlicensed 8600 refused anft).
-        // Legacy NR, Legacy Auto-Notch, the blankers and the peak filter stay
-        // on plain ToggleRig on purpose: the same radio accepted lms_nr and
-        // lms_anf and applied them, and gating what does not need gating is
-        // how a gate stops meaning anything.
-        _neuralNrCheck = MakeToggle(Lexicon.Get("audio.fields.neural_nr"));
-        _neuralNrCheck.Checked += (s, e) => ToggleGatedRig(_neuralNrCheck,
-            RadioCapability.NoiseReductionNeural, Lexicon.Get("audio.fields.neural_nr_spoken"),
-            v => { if (_rig != null) _rig.NeuralNoiseReduction = v; }, true);
-        _neuralNrCheck.Unchecked += (s, e) => ToggleGatedRig(_neuralNrCheck,
-            RadioCapability.NoiseReductionNeural, Lexicon.Get("audio.fields.neural_nr_spoken"),
-            v => { if (_rig != null) _rig.NeuralNoiseReduction = v; }, false);
-        DspContent.Children.Add(_neuralNrCheck);
-
-        _spectralNrCheck = MakeToggle(Lexicon.Get("audio.fields.spectral_nr"));
-        _spectralNrCheck.Checked += (s, e) => ToggleGatedRig(_spectralNrCheck,
-            RadioCapability.NoiseReductionSpectral, Lexicon.Get("audio.fields.spectral_nr_spoken"),
-            v => { if (_rig != null) _rig.SpectralNoiseReduction = v; }, true);
-        _spectralNrCheck.Unchecked += (s, e) => ToggleGatedRig(_spectralNrCheck,
-            RadioCapability.NoiseReductionSpectral, Lexicon.Get("audio.fields.spectral_nr_spoken"),
-            v => { if (_rig != null) _rig.SpectralNoiseReduction = v; }, false);
-        DspContent.Children.Add(_spectralNrCheck);
-
-        _nrfCheck = MakeToggle(Lexicon.Get("audio.fields.nr_filter"));
-        _nrfCheck.Checked += (s, e) => ToggleGatedRig(_nrfCheck,
-            RadioCapability.NoiseReductionFilter, Lexicon.Get("audio.fields.nr_filter_spoken"),
-            v => { if (_rig != null) _rig.NoiseReductionFilter = v; }, true);
-        _nrfCheck.Unchecked += (s, e) => ToggleGatedRig(_nrfCheck,
-            RadioCapability.NoiseReductionFilter, Lexicon.Get("audio.fields.nr_filter_spoken"),
-            v => { if (_rig != null) _rig.NoiseReductionFilter = v; }, false);
-        DspContent.Children.Add(_nrfCheck);
-
-        _legacyNrCheck = MakeToggle(Lexicon.Get("audio.fields.legacy_nr"));
-        _legacyNrCheck.Checked += (s, e) =>
-        {
-            ToggleRig(Lexicon.Get("audio.fields.legacy_nr"), v => { if (_rig != null) _rig.NoiseReductionLegacy = v; }, true);
-            _nrLevelControl.Visibility = Visibility.Visible;
-        };
-        _legacyNrCheck.Unchecked += (s, e) =>
-        {
-            ToggleRig(Lexicon.Get("audio.fields.legacy_nr"), v => { if (_rig != null) _rig.NoiseReductionLegacy = v; }, false);
-            _nrLevelControl.Visibility = Visibility.Collapsed;
-        };
-        DspContent.Children.Add(_legacyNrCheck);
-
-        _nrLevelControl = MakeValue(Lexicon.Get("audio.fields.nr_level"), 1, 15, 1);
-        _nrLevelControl.Visibility = Visibility.Collapsed;
-        _nrLevelControl.ValueChanged += (s, v) => { if (_rig != null) _rig.NoiseReductionLegacyLevel = v; };
-        DspContent.Children.Add(_nrLevelControl);
+        // Sprint 49 Track E (E9): the radio's reducers and the computer's two
+        // slots are no longer a column of checkboxes. One Side field, one
+        // Engine field, then that engine's own controls, all through the noise
+        // controller (ScreenFieldsPanel.Noise.cs). The blankers, notches and
+        // the Audio Peak Filter below stay where they were (their move is
+        // held work), with the three rows this build newly exposes beside them.
+        BuildNoiseFields();
 
         _nbCheck = MakeToggle(Lexicon.Get("audio.fields.noise_blanker"));
         _nbCheck.Checked += (s, e) =>
         {
             ToggleRig(Lexicon.Get("audio.fields.noise_blanker"), v => { if (_rig != null) _rig.NoiseBlanker = v; }, true);
-            _nbLevelControl.Visibility = Visibility.Visible;
         };
         _nbCheck.Unchecked += (s, e) =>
         {
             ToggleRig(Lexicon.Get("audio.fields.noise_blanker"), v => { if (_rig != null) _rig.NoiseBlanker = v; }, false);
-            _nbLevelControl.Visibility = Visibility.Collapsed;
         };
         DspContent.Children.Add(_nbCheck);
 
         _nbLevelControl = MakeValue(Lexicon.Get("audio.fields.nb_level"), 1, 100, 5);
-        _nbLevelControl.Visibility = Visibility.Collapsed;
         _nbLevelControl.ValueChanged += (s, v) => { if (_rig != null) _rig.NoiseBlankerLevel = v; };
         DspContent.Children.Add(_nbLevelControl);
 
@@ -411,17 +342,14 @@ public partial class ScreenFieldsPanel : UserControl
         _wnbCheck.Checked += (s, e) =>
         {
             ToggleRig(Lexicon.Get("audio.fields.wideband_nb"), v => { if (_rig != null) _rig.WidebandNoiseBlanker = v; }, true);
-            _wnbLevelControl.Visibility = Visibility.Visible;
         };
         _wnbCheck.Unchecked += (s, e) =>
         {
             ToggleRig(Lexicon.Get("audio.fields.wideband_nb"), v => { if (_rig != null) _rig.WidebandNoiseBlanker = v; }, false);
-            _wnbLevelControl.Visibility = Visibility.Collapsed;
         };
         DspContent.Children.Add(_wnbCheck);
 
         _wnbLevelControl = MakeValue(Lexicon.Get("audio.fields.wnb_level"), 1, 100, 5);
-        _wnbLevelControl.Visibility = Visibility.Collapsed;
         _wnbLevelControl.ValueChanged += (s, v) => { if (_rig != null) _rig.WidebandNoiseBlankerLevel = v; };
         DspContent.Children.Add(_wnbLevelControl);
 
@@ -434,126 +362,18 @@ public partial class ScreenFieldsPanel : UserControl
         _legacyNotchCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.legacy_auto_notch"), v => { if (_rig != null) _rig.AutoNotchLegacy = v; }, true);
         _legacyNotchCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.legacy_auto_notch"), v => { if (_rig != null) _rig.AutoNotchLegacy = v; }, false);
         DspContent.Children.Add(_legacyNotchCheck);
+        // Sprint 49 Track E: the levels this build newly exposes, and the basic
+        // auto-notch's first door anywhere ("Standard Auto-Notch"), beside
+        // their siblings, through the noise controller. Never collapsed.
+        _radioNoiseExtras = new StackPanel();
+        DspContent.Children.Add(_radioNoiseExtras);
 
         _apfCheck = MakeToggle(Lexicon.Get("audio.fields.apf"));
         _apfCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.apf_spoken"), v => { if (_rig != null) _rig.APF = v; }, true);
         _apfCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.apf_spoken"), v => { if (_rig != null) _rig.APF = v; }, false);
         DspContent.Children.Add(_apfCheck);
-
-        // PC-side noise reduction (runs on computer, works on ALL radios).
-        // DSP controls track (2026-08-11): the engine was finished in Sprint
-        // 25 Phase 20; these are the buttons it never had. Strength/floor
-        // follow the house pattern (level fields appear when the toggle is
-        // on); capture and the profile readout stay visible always — they
-        // are the doorway into making Spectral NR work at all.
-        _pcRnnCheck = MakeToggle(Lexicon.Get("audio.fields.pc_neural_nr"));
-        _pcRnnCheck.Checked += (s, e) =>
-        {
-            if (_polling || _audioPipeline == null) return;
-            _audioPipeline.RnnEnabled = true;
-            _pcRnnStrengthControl.Visibility = Visibility.Visible;
-            _pcRnnVoiceOnlyCheck.Visibility = Visibility.Visible;
-            ToggleFeedback.Announce("PC Neural NR", true,
-                sentence: Lexicon.Get("audio.fields.pc_neural_nr_on"));
-            FindMainWindow()?.PersistDspSettings();
-        };
-        _pcRnnCheck.Unchecked += (s, e) =>
-        {
-            if (_polling || _audioPipeline == null) return;
-            _audioPipeline.RnnEnabled = false;
-            _pcRnnStrengthControl.Visibility = Visibility.Collapsed;
-            _pcRnnVoiceOnlyCheck.Visibility = Visibility.Collapsed;
-            ToggleFeedback.Announce("PC Neural NR", false,
-                sentence: Lexicon.Get("audio.fields.pc_neural_nr_off"));
-            FindMainWindow()?.PersistDspSettings();
-        };
-        DspContent.Children.Add(_pcRnnCheck);
-
-        // Strength is a wet/dry mix (0.0-1.0 in the engine) surfaced as a
-        // percentage — "80 percent" speaks better than "zero point eight".
-        _pcRnnStrengthControl = new ValueFieldControl();
-        _pcRnnStrengthControl.Setup(Lexicon.Get("audio.fields.pc_neural_nr_strength"), 0, 100, 5, 80, 0, Lexicon.Get("audio.fields.unit_percent"));
-        _pcRnnStrengthControl.Visibility = Visibility.Collapsed;
-        _pcRnnStrengthControl.ValueChanged += (s, v) =>
-        {
-            if (_audioPipeline == null || _polling) return;
-            _audioPipeline.RnnStrength = v / 100f;
-            FindMainWindow()?.PersistDspSettings();
-        };
-        DspContent.Children.Add(_pcRnnStrengthControl);
-
-        // Checked = the engine steps aside for CW and digital modes (it is
-        // speech-trained and chews on data tones).
-        _pcRnnVoiceOnlyCheck = MakeToggle(Lexicon.Get("audio.fields.pc_neural_nr_voice_only"));
-        _pcRnnVoiceOnlyCheck.Visibility = Visibility.Collapsed;
-        _pcRnnVoiceOnlyCheck.Checked += (s, e) =>
-        {
-            if (_polling || _audioPipeline == null) return;
-            _audioPipeline.RnnAutoDisableNonVoice = true;
-            ToggleFeedback.Announce("Voice only", true,
-                sentence: Lexicon.Get("audio.fields.pc_neural_nr_voice_only_on"));
-            FindMainWindow()?.PersistDspSettings();
-        };
-        _pcRnnVoiceOnlyCheck.Unchecked += (s, e) =>
-        {
-            if (_polling || _audioPipeline == null) return;
-            _audioPipeline.RnnAutoDisableNonVoice = false;
-            ToggleFeedback.Announce("Voice only", false,
-                sentence: Lexicon.Get("audio.fields.pc_neural_nr_voice_only_off"));
-            FindMainWindow()?.PersistDspSettings();
-        };
-        DspContent.Children.Add(_pcRnnVoiceOnlyCheck);
-
-        _pcSpectralCheck = MakeToggle(Lexicon.Get("audio.fields.pc_spectral_nr"));
-        _pcSpectralCheck.Checked += (s, e) =>
-        {
-            if (_polling || _audioPipeline == null) return;
-            _audioPipeline.SpectralEnabled = true;
-            _pcSpectralStrengthControl.Visibility = Visibility.Visible;
-            _pcSpectralFloorControl.Visibility = Visibility.Visible;
-            // The no-profile message now names the exit — before this track
-            // it announced a dead end no surface in the app could resolve.
-            ToggleFeedback.Announce("PC Spectral NR", true, sentence: _audioPipeline.HasNoiseProfile
-                ? Lexicon.Get("audio.fields.pc_spectral_nr_on")
-                : Lexicon.Get("audio.fields.pc_spectral_nr_on_no_profile"));
-            FindMainWindow()?.PersistDspSettings();
-        };
-        _pcSpectralCheck.Unchecked += (s, e) =>
-        {
-            if (_polling || _audioPipeline == null) return;
-            _audioPipeline.SpectralEnabled = false;
-            _pcSpectralStrengthControl.Visibility = Visibility.Collapsed;
-            _pcSpectralFloorControl.Visibility = Visibility.Collapsed;
-            ToggleFeedback.Announce("PC Spectral NR", false,
-                sentence: Lexicon.Get("audio.fields.pc_spectral_nr_off"));
-            FindMainWindow()?.PersistDspSettings();
-        };
-        DspContent.Children.Add(_pcSpectralCheck);
-
-        _pcSpectralStrengthControl = new ValueFieldControl();
-        _pcSpectralStrengthControl.Setup(Lexicon.Get("audio.fields.pc_spectral_nr_strength"), 0, 100, 5, 70, 0, Lexicon.Get("audio.fields.unit_percent"));
-        _pcSpectralStrengthControl.Visibility = Visibility.Collapsed;
-        _pcSpectralStrengthControl.ValueChanged += (s, v) =>
-        {
-            if (_audioPipeline == null || _polling) return;
-            _audioPipeline.SpectralStrength = v / 100f;
-            FindMainWindow()?.PersistDspSettings();
-        };
-        DspContent.Children.Add(_pcSpectralStrengthControl);
-
-        // Floor: how much of the original audio always survives subtraction —
-        // the guard against watery "musical noise". Engine range is 0-1 but
-        // useful values are single-digit percent, so the field runs 0-20%.
-        _pcSpectralFloorControl = new ValueFieldControl();
-        _pcSpectralFloorControl.Setup(Lexicon.Get("audio.fields.pc_spectral_nr_floor"), 0, 20, 1, 2, 0, Lexicon.Get("audio.fields.unit_percent"));
-        _pcSpectralFloorControl.Visibility = Visibility.Collapsed;
-        _pcSpectralFloorControl.ValueChanged += (s, v) =>
-        {
-            if (_audioPipeline == null || _polling) return;
-            _audioPipeline.SpectralFloor = v / 100f;
-            FindMainWindow()?.PersistDspSettings();
-        };
-        DspContent.Children.Add(_pcSpectralFloorControl);
+        _apfLevelHolder = new StackPanel();
+        DspContent.Children.Add(_apfLevelHolder);
 
         // Capture — always visible, and honest about its second job: while a
         // capture runs, this same button cancels it (label follows along).
@@ -589,7 +409,7 @@ public partial class ScreenFieldsPanel : UserControl
         {
             var mw = FindMainWindow();
             new Dialogs.NoiseProfilesDialog(_rig, _audioPipeline,
-                () => mw?.CurrentAudioConfig, () => mw?.PersistDspSettings()).ShowDialog();
+                () => mw?.CurrentAudioConfig, () => mw?.PersistDspSettings(), mw?.Noise).ShowDialog();
             UpdateNoiseProfileDisplay();
         };
         DspContent.Children.Add(_noiseProfilesButton);
@@ -1291,49 +1111,12 @@ public partial class ScreenFieldsPanel : UserControl
     /// </remarks>
     public void RefreshCapabilityMarkers()
     {
-        MarkGatedToggle(_neuralNrCheck, RadioCapability.NoiseReductionNeural,
-            Lexicon.Get("audio.fields.neural_nr"));
-        MarkGatedToggle(_spectralNrCheck, RadioCapability.NoiseReductionSpectral,
-            Lexicon.Get("audio.fields.spectral_nr"));
-        MarkGatedToggle(_nrfCheck, RadioCapability.NoiseReductionFilter,
-            Lexicon.Get("audio.fields.nr_filter"));
-    }
-
-    /// <summary>
-    /// Put a textual marker on a gated toggle's label, or take it off again
-    /// when the gate opens.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Content and AutomationProperties.Name are both set, and that is not
-    /// belt-and-braces.</b> <see cref="MakeToggle"/> sets both from one string
-    /// precisely so they agree; updating only one would leave the screen reader
-    /// and the screen saying different things about the same control, which is a
-    /// worse state than either being wrong on its own.
-    /// </para>
-    /// <para>
-    /// <b>The no-marker branch matters as much as the marked ones.</b> A
-    /// subscription can arrive mid-session, and a label that acquired "needs
-    /// subscription" and never lost it would be a permanent lie about a feature
-    /// that now works.
-    /// </para>
-    /// </remarks>
-    private void MarkGatedToggle(CheckBox box, RadioCapability capability, string plainLabel)
-    {
-        var reason = _rig?.CapabilityClosedReason(capability) ?? CapabilityBlock.None;
-
-        string label = reason switch
-        {
-            CapabilityBlock.Hardware =>
-                Lexicon.Get("audio.nr.marker_not_on_this_radio", ("label", plainLabel)),
-            CapabilityBlock.LicenceDisabled =>
-                Lexicon.Get(Radios.FlexBase.NrLicenceMarkerKey(
-                    _rig?.CapabilityLicenceReasonCode(capability)), ("label", plainLabel)),
-            _ => plainLabel,
-        };
-
-        box.Content = label;
-        AutomationProperties.SetName(box, label);
+        // Sprint 49 Track E: the noise fields recompute their markers from the
+        // controller (the engine list's "needs subscription" and the rest),
+        // and the radio rows beside the blankers are rebuilt for this radio.
+        if (_noiseEngine == null) return;
+        ShowNoiseSide(CurrentNoiseEngine);
+        BuildRadioNoiseExtras();
     }
 
     private static ValueFieldControl MakeValue(string label, int min, int max, int step)
@@ -1441,6 +1224,10 @@ public partial class ScreenFieldsPanel : UserControl
     {
         if (_rig == null) return;
 
+        // The four unreadable noise levels are per slice: a slice change
+        // writes the held intents to the new one (Sprint 49 Track E, E2).
+        FindMainWindow()?.Noise.NoteActiveSlice(_rig.RXVFO);
+
         _polling = true;
         try
         {
@@ -1465,72 +1252,26 @@ public partial class ScreenFieldsPanel : UserControl
     {
         if (_rig == null) return;
 
-        // The advanced NR controls are ALWAYS on screen as of #726 item 6, so
-        // this condition is now always true and is kept only because the block
-        // also polls Legacy NR and its level.
-        //
-        // It said "Only poll NR controls if license is available" until
-        // 2026-10-17, and the visibility it tested was set from
-        // NeuralNRHardwareSupported - it named the wrong one of the two
-        // conditions this whole area confuses. Worth leaving the correction
-        // visible: the comment was wrong for as long as it was, because
-        // nothing reads a comment back.
-        if (_neuralNrCheck.Visibility == Visibility.Visible)
-        {
-            _neuralNrCheck.IsChecked = _rig.NeuralNoiseReduction == FlexBase.OffOnValues.on;
-            _spectralNrCheck.IsChecked = _rig.SpectralNoiseReduction == FlexBase.OffOnValues.on;
-            _nrfCheck.IsChecked = _rig.NoiseReductionFilter == FlexBase.OffOnValues.on;
+        // Sprint 49 Track E: the noise fields read the controller.
+        PollNoise();
 
-            bool legacyNrOn = _rig.NoiseReductionLegacy == FlexBase.OffOnValues.on;
-            _legacyNrCheck.IsChecked = legacyNrOn;
-            _nrLevelControl.Visibility = legacyNrOn ? Visibility.Visible : Visibility.Collapsed;
-            if (legacyNrOn) _nrLevelControl.Value = _rig.NoiseReductionLegacyLevel;
-        }
+        // A level is never collapsed when its engine is off (S6): settings are intents.
+        _nbCheck.IsChecked = _rig.NoiseBlanker == FlexBase.OffOnValues.on;
+        _nbLevelControl.Value = _rig.NoiseBlankerLevel;
 
-        bool nbOn = _rig.NoiseBlanker == FlexBase.OffOnValues.on;
-        _nbCheck.IsChecked = nbOn;
-        _nbLevelControl.Visibility = nbOn ? Visibility.Visible : Visibility.Collapsed;
-        if (nbOn) _nbLevelControl.Value = _rig.NoiseBlankerLevel;
-
-        bool wnbOn = _rig.WidebandNoiseBlanker == FlexBase.OffOnValues.on;
-        _wnbCheck.IsChecked = wnbOn;
-        _wnbLevelControl.Visibility = wnbOn ? Visibility.Visible : Visibility.Collapsed;
-        if (wnbOn) _wnbLevelControl.Value = _rig.WidebandNoiseBlankerLevel;
+        _wnbCheck.IsChecked = _rig.WidebandNoiseBlanker == FlexBase.OffOnValues.on;
+        _wnbLevelControl.Value = _rig.WidebandNoiseBlankerLevel;
 
         _fftNotchCheck.IsChecked = _rig.AutoNotchFFT == FlexBase.OffOnValues.on;
         _legacyNotchCheck.IsChecked = _rig.AutoNotchLegacy == FlexBase.OffOnValues.on;
         _apfCheck.IsChecked = _rig.APF == FlexBase.OffOnValues.on;
 
-        // APF only visible in CW modes
-        string mode = _rig.Mode?.ToUpperInvariant() ?? "";
-        bool isCW = mode == "CW" || mode == "CWL" || mode == "CWU";
-        _apfCheck.Visibility = isCW ? Visibility.Visible : Visibility.Collapsed;
+        // The Audio Peak Filter stays on screen in every mode now (Sprint 49
+        // Track E; ruling 5, #726: nothing is hidden because it cannot run).
+        // Outside CW its refusal says so.
+        PollRadioNoiseExtras();
 
-        // PC-side NR (pipeline state, not rig state)
-        if (_audioPipeline != null)
-        {
-            bool rnnOn = _audioPipeline.RnnEnabled;
-            _pcRnnCheck.IsChecked = rnnOn;
-            _pcRnnStrengthControl.Visibility = rnnOn ? Visibility.Visible : Visibility.Collapsed;
-            _pcRnnVoiceOnlyCheck.Visibility = rnnOn ? Visibility.Visible : Visibility.Collapsed;
-            if (rnnOn)
-            {
-                _pcRnnStrengthControl.Value = (int)Math.Round(_audioPipeline.RnnStrength * 100);
-                _pcRnnVoiceOnlyCheck.IsChecked = _audioPipeline.RnnAutoDisableNonVoice;
-            }
-
-            bool subOn = _audioPipeline.SpectralEnabled;
-            _pcSpectralCheck.IsChecked = subOn;
-            _pcSpectralStrengthControl.Visibility = subOn ? Visibility.Visible : Visibility.Collapsed;
-            _pcSpectralFloorControl.Visibility = subOn ? Visibility.Visible : Visibility.Collapsed;
-            if (subOn)
-            {
-                _pcSpectralStrengthControl.Value = (int)Math.Round(_audioPipeline.SpectralStrength * 100);
-                _pcSpectralFloorControl.Value = (int)Math.Round(_audioPipeline.SpectralFloor * 100);
-            }
-
-            UpdateNoiseProfileDisplay();
-        }
+        if (_audioPipeline != null) UpdateNoiseProfileDisplay();
 
         // Meter tones (engine state, not rig state)
         _meterToneCheck.IsChecked = MeterToneEngine.Enabled;

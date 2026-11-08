@@ -26,18 +26,23 @@ namespace JJFlexWpf
                 // Dual-write the legacy fields for builds that know only these.
                 config.RNNoiseEnabled = pipeline.RnnEnabled;
                 config.RNNoiseStrength = pipeline.RnnStrength;
-                config.RNNoiseAutoDisableNonVoice = pipeline.VoiceModesOnly;
                 config.SpectralSubEnabled = pipeline.SpectralEnabled;
                 config.SpectralSubStrength = pipeline.SpectralStrength;
                 config.SpectralSubFloor = pipeline.SpectralFloor;
-                config.ReceiveVoiceModesOnly = pipeline.VoiceModesOnly;
+                // ReceiveVoiceModesOnly and RNNoiseAutoDisableNonVoice are no
+                // longer written: the switch is retired (Sprint 49 Track E), and
+                // leaving the loaded values as they are means an older build
+                // reading this file behaves exactly as it did before.
                 return;
             }
+            // The cross-fade switch (#873; Settings, Advanced) is app-wide.
+            PcDenoiseSlot.CrossFadeEnabled = config.NoiseCrossFade;
             if (config.ReceiveDenoiseVersion >= 1)
             {
                 Restore(pipeline, pipeline.NeuralSlot, config.ReceiveNeural);
                 Restore(pipeline, pipeline.SpectralSlot, config.ReceiveSpectral);
-                pipeline.VoiceModesOnly = config.ReceiveVoiceModesOnly;
+                // ReceiveVoiceModesOnly is read nowhere: per-mode memory has
+                // replaced the gate it controlled (ruled 2026-11-07, question 4).
             }
             else
             {
@@ -46,7 +51,6 @@ namespace JJFlexWpf
                 pipeline.SpectralFloor = config.SpectralSubFloor;
                 pipeline.RnnEnabled = config.RNNoiseEnabled;
                 pipeline.SpectralEnabled = config.SpectralSubEnabled;
-                pipeline.VoiceModesOnly = config.RNNoiseAutoDisableNonVoice;
             }
         }
         private static ReceiveDenoiseSlotConfig Export(PcDenoiseSlot slot) => new() {

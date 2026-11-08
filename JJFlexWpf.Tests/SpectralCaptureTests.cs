@@ -113,11 +113,15 @@ public sealed class SpectralCaptureTests
     [InlineData(true, "spectral_capture", "SSB", true, "spectral_is_using_it")]
     [InlineData(false, "spectral_capture", "SSB", true, "turn_spectral_on")]
     [InlineData(true, "nr2", "SSB", true, "turn_spectral_on")]
-    [InlineData(true, "spectral_capture", "DIGU", true, "held_by_mode")]
-    [InlineData(false, "spectral_capture", "DIGU", true, "held_by_mode")]
+    // Sprint 49 Track E: no mode holds the spectral slot back any more (the
+    // gate is retired, ruled 2026-11-07, question 4), so the two DIGU rows that
+    // expected "held_by_mode" now expect what an SSB row expects.
+    [InlineData(true, "spectral_capture", "DIGU", true, "spectral_is_using_it")]
+    [InlineData(false, "spectral_capture", "DIGU", true, "turn_spectral_on")]
     [InlineData(true, "spectral_capture", "DIGU", false, "spectral_is_using_it")]
     public void Finish_fragment_is_derived_from_intent_and_mode(bool on, string selection, string mode, bool voiceOnly, string suffix)
     {
-        Assert.Equal("audio.noise.capture." + suffix, RxAudioPipeline.CaptureFinishKey(on, selection, mode, voiceOnly));
+        _ = mode; _ = voiceOnly;
+        Assert.Equal("audio.noise.capture." + suffix, RxAudioPipeline.CaptureFinishKey(on, selection));
     }
 }

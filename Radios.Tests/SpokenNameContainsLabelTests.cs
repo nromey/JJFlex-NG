@@ -123,7 +123,6 @@ namespace Radios.Tests
             [("JJFlexWpf/Dialogs/AudioWorkshopDialog.MicProfiles.cs", "Apply Setup")] = Fuller, // announced "Apply microphone setup"
             [("JJFlexWpf/Dialogs/AudioWorkshopDialog.MicProfiles.cs", "Save Setup...")] = Fuller, // announced "Save microphone setup"
             [("JJFlexWpf/Dialogs/AudioWorkshopDialog.MicProfiles.cs", "Delete Setup")] = Fuller, // announced "Delete microphone setup"
-            [("JJFlexWpf/Dialogs/NoiseProfilesDialog.cs", "Apply Recommended Levels")] = Fuller, // announced "Set strength and floor to the recommended values for the stages that are on"
             [("JJFlexWpf/Dialogs/NoiseProfilesDialog.cs", "Capture Noise Profile")] = Fuller, // announced "Capture a noise profile from the current audio"
             [("JJFlexWpf/Dialogs/NoiseProfilesDialog.cs", "Load Selected Profile")] = Fuller, // announced "Load the selected noise profile into PC Spectral NR"
             [("JJFlexWpf/Dialogs/NoiseProfilesDialog.cs", "Save Current As")] = Fuller, // announced "Save the current noise profile under the name in the profile name box"

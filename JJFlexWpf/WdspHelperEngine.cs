@@ -385,6 +385,11 @@ namespace JJFlexWpf
         internal void AdoptDescriptorsLocked(IReadOnlyList<EngineSettingDescriptor> offered)
         {
             if (_slots != null) return;
+            // The catalog mirrors these descriptors so a lever can be held before
+            // the helper has ever started (Sprint 49 Track E). The offer is the
+            // truth for this session; a disagreement is traced, never refused.
+            string? drift = DenoiseEngineCatalog.MirrorDisagreement(Id, offered);
+            if (drift != null) Trace.WriteLine($"WdspHelperEngine: {Id}'s offer differs from the catalog's mirror ({drift}); the helper's offer governs this engine");
             var slots = new Slot[offered.Count];
             for (int i = 0; i < slots.Length; i++) slots[i] = new Slot(offered[i]);
             if (_starting != null)

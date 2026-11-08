@@ -110,10 +110,14 @@ namespace JJFlexWpf
         public Unavailability Unavailability { get; private set; }
         public string UnavailabilityDetail { get; private set; } = "";
         public static IReadOnlyList<EngineSettingDescriptor> SettingDescriptors { get; } = new[] {
+            // Stops, not a step (Sprint 49 Track E): fine at the gentle end, where
+            // Noel heard the difference (2026-10-17), coarse above. 100 is spoken
+            // as "unlimited". A stored value between stops snaps to the nearest
+            // one on load (PcDenoiseSlot.RestoreSettings), never to the default.
             new EngineSettingDescriptor("attenuation_limit_db", "audio.denoise.attenuation_limit_db", EngineSettingKind.Number,
-                new EngineSettingValue(9), 0, 100, 1, "audio.denoise.db"),
+                new EngineSettingValue(9), 0, 100, 1, "audio.denoise.db", Stops: DenoiseEngineCatalog.DeepFilterLimitStops),
             new EngineSettingDescriptor("post_filter_beta", "audio.denoise.post_filter_beta", EngineSettingKind.Number,
-                new EngineSettingValue(0), 0, 0.05, 0.001)
+                new EngineSettingValue(0), 0, 0.05, 0.001, Advanced: true)
         };
         public IReadOnlyList<EngineSettingDescriptor> Settings => SettingDescriptors;
         public EngineSettingValue GetSetting(string name) => name switch {

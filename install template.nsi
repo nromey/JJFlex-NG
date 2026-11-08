@@ -87,12 +87,14 @@ Section "MYPGM (required)"
   ; pre-package sweep deleted them from bin\release\, a path that no longer
   ; exists. Excluded here instead — the app reads no .xml from its install
   ; directory (its config XMLs live in AppData).
-  ; deepfilter.* and DeepFilterNet3_onnx.tar.gz are a second PC-side noise
-  ; reducer that nothing an operator can reach selects yet. They stay in the
-  ; build tree for debug builds and the offline bench, and are held out of
-  ; the release installer until the noise layer can offer them (#731,
-  ; ruled 2026-10-17). Remove these two exclusions when it can.
-  File /r /x "*.pdb" /x "*.xml" /x "runPgm.bat" /x "deepfilter.*" /x "DeepFilterNet3_onnx.tar.gz" /x "specbleach.*" /x "jjflex-wdsp-helper.*" /x "libfftw3*.dll" "MYOUTDIR\*.*"
+  ; DeepFilterNet3 (deepfilter.*, DeepFilterNet3_onnx.tar.gz) and NR4
+  ; (specbleach.*) ship now: the noise surface offers them (Sprint 49 Track E,
+  ; the plan's "remove the release-installer exclusions for DeepFilterNet3
+  ; and NR4 when this merges"). The WDSP helper (jjflex-wdsp-helper.*) and
+  ; its FFTW (libfftw3*.dll) stay held out of the release installer until
+  ; the public repository holds the exact source of the shipped helper; they
+  ; remain in the build tree for debug builds and the offline bench.
+  File /r /x "*.pdb" /x "*.xml" /x "runPgm.bat" /x "jjflex-wdsp-helper.*" /x "libfftw3*.dll" "MYOUTDIR\*.*"
 
   ; Include changelog
   File "docs\CHANGELOG.md"

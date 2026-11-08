@@ -323,7 +323,7 @@
             <!-- Audio Tab (merged: alerts, meters, master volume) -->
             <TabItem Header="Audio" AutomationProperties.Name="Audio settings">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <StackPanel Margin="8">
+                <StackPanel x:Name="AudioTabPanel" Margin="8">
                     <!-- Master Volume -->
                     <controls:ValueFieldControl x:Name="MasterVolumeControl"
                         Margin="0,0,0,8"
