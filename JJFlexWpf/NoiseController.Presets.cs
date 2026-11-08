@@ -167,13 +167,17 @@ namespace JJFlexWpf
                 }
             }
             // A preset that changes only settings changes something, and says
-            // what (B3): one journal change and one phrase per setting moved.
+            // what (B3): one journal change per setting moved, always, and one
+            // phrase per setting moved on an engine whose switch this preset
+            // left alone. An engine it turns on or off is already named, and
+            // reading every lever after "RNNoise on" would bury the switch.
+            var switched = changes.Where(c => c.Setting.Length == 0).Select(c => c.EngineId).ToHashSet(StringComparer.Ordinal);
             foreach (var (engineId, was) in before)
                 foreach (var (name, now) in SettingValues(slot, engineId))
                 {
                     if (was.TryGetValue(name, out string? old) && old == now) continue;
                     changes.Add(new(engineId, name, old ?? "", now));
-                    if (SettingPhrase(slot, engineId, name) is string phrase) phrases.Add(phrase);
+                    if (!switched.Contains(engineId) && SettingPhrase(slot, engineId, name) is string phrase) phrases.Add(phrase);
                 }
         }
 

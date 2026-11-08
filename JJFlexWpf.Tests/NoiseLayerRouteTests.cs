@@ -68,7 +68,6 @@ public sealed class NoiseLayerRouteTests : IDisposable
         {
             GetRigControl = () => _rig,
             GetPower = () => true,
-            GetNoise = () => _noise.Noise,
         }, setDefault: true);
     }
 
@@ -83,7 +82,7 @@ public sealed class NoiseLayerRouteTests : IDisposable
     public void Home_offers_a_bracket_to_the_noise_layer_first_and_the_layer_steps_a_favourite_with_it()
     {
         var commands = Commands();
-        commands.EnterNoiseLayer();
+        commands.EnterNoiseLayer(_noise.Noise);
         Assert.NotNull(commands.LiveValueLayer);
         Assert.Null(_noise.Noise.Current);
 
@@ -102,7 +101,7 @@ public sealed class NoiseLayerRouteTests : IDisposable
     public void A_bracket_form_the_noise_layer_does_not_bind_goes_back_to_Home_untouched()
     {
         var commands = Commands();
-        commands.EnterNoiseLayer();
+        commands.EnterNoiseLayer(_noise.Noise);
         _noise.Spoken.Clear();
         foreach (var k in new[] { Keys.OemOpenBrackets | Keys.Shift, Keys.OemCloseBrackets | Keys.Control })
         {

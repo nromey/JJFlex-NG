@@ -5625,11 +5625,18 @@ public class KeyCommands
     /// Enter the noise layer. See the region comment: the keys are
     /// <see cref="NoiseLayerKeys"/>, the rules are <see cref="NoiseController"/>.
     /// </summary>
-    internal void EnterNoiseLayer()
+    internal void EnterNoiseLayer() => EnterNoiseLayer(_context.GetMainWindow()?.Noise);
+
+    /// <summary>
+    /// Enter the noise layer over a given controller: the app's one
+    /// (<c>MainWindow.Noise</c>) from the overload above, or, in a windowless
+    /// test, one over fakes, because the main window cannot be built on the
+    /// live desk (Sprint 49 Track E repair round 1, B2's route test).
+    /// </summary>
+    internal void EnterNoiseLayer(NoiseController? noise)
     {
         var rig = _context.GetRigControl();
         if (rig == null) { LeaderNoRadio(); return; }
-        var noise = _context.GetNoise?.Invoke() ?? _context.GetMainWindow()?.Noise;
         if (noise == null) { LeaderNoRadio(); return; }
 
         noise.BeginSession();
