@@ -815,7 +815,7 @@ public partial class FrequencyDisplay : UserControl
     /// active slice letter; volume value is announced on adjustment, not
     /// on focus landing).
     /// </summary>
-    private static string FormatFieldAnnouncement(DisplayField field)
+    internal static string FormatFieldAnnouncement(DisplayField field)
     {
         string value = GetSpeechText(field);
 
@@ -899,6 +899,12 @@ public partial class FrequencyDisplay : UserControl
         // slice keys the radio. "Dash" as speech would be meaningless.
         if (key == "TXSlice")
             return raw == "-" ? Radios.Lexicon.Get("settings.home.value_none") : raw;
+
+        // The mode as every announcement says it (#942 repair one, Codex B1):
+        // the display and braille keep the radio's letters, the speech says
+        // the ones a synthesizer mangles in words, from the one vocabulary.
+        if (key == "Mode")
+            return Radios.ModeWords.Spoken(raw);
 
         return raw;
     }

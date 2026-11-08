@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using JJFlexWpf.Controls;
 using JJFlexWpf.Dialogs;
 using Xunit;
 
@@ -132,6 +133,39 @@ public sealed class JunkboxRepairOneTests
         Assert.True(add.IndexOf("TNFList.Focus();", StringComparison.Ordinal) is int f && (f < 0 || f > add.IndexOf("if (display == null)", StringComparison.Ordinal) && f < rebuild),
             "the list must not take focus before the rebuild on a successful add");
         Assert.Contains("FocusRow(TNFList.SelectedIndex);", Body(src, "private void RemoveButton_Click("));
+    }
+
+    // ------------------------------------------------------------------
+    // Home's Mode field says the mode as every other announcement does
+    // ------------------------------------------------------------------
+
+    private static FrequencyDisplay.DisplayField ModeField(string shown) =>
+        new("Mode", 4, " ", "") { Label = "Mode", Text = shown };
+
+    [Theory]
+    [InlineData("DIGU")]
+    [InlineData("DIGL")]
+    [InlineData("SAM")]
+    [InlineData("NFM")]
+    public void Homes_mode_field_says_a_mangled_mode_in_words_and_keeps_its_letters_on_display(string mode)
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var field = ModeField(mode);
+        string heard = FrequencyDisplay.FormatFieldAnnouncement(field);
+        Assert.Contains(Radios.ModeWords.Spoken(mode), heard);
+        Assert.NotEqual(mode, Radios.ModeWords.Spoken(mode));   // positive control: this mode has words
+        Assert.DoesNotContain(mode, heard);
+        Assert.Equal(mode, field.Text);                          // display and braille unchanged
+    }
+
+    [Theory]
+    [InlineData("USB")]
+    [InlineData("CW")]
+    [InlineData("RTTY")]
+    public void Homes_mode_field_keeps_the_letters_for_the_others(string mode)
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Assert.Contains(mode, FrequencyDisplay.FormatFieldAnnouncement(ModeField(mode)));
     }
 
     private static string Body(string src, string signature)
