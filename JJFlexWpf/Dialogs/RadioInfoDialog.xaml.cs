@@ -84,15 +84,14 @@ namespace JJFlexWpf.Dialogs
         private string _shownCallsign = "";
         private string _shownNickname = "";
 
-        // The text each box last had REFUSED (no radio, or the change-nothing
-        // hold), or null. Leaving the box with that same text in it does not
-        // send it again, so the refusal is not said again on every focus loss
-        // (#983); pressing Enter does, which is how the operator tries again.
-        // Chosen over putting the box back to the radio's value because the
-        // typed edit stays there to retry once the hold is lifted, and a box
-        // that changed itself under the operator would be a second surprise.
-        private string? _refusedCallsign;
-        private string? _refusedNickname;
+        // After a REFUSED edit (no radio, or the change-nothing hold) the box
+        // shows the radio's value again, and so does its baseline (#983,
+        // repair one). Leaving the box then sends nothing, so the refusal is
+        // not said again on every focus loss; and the box never shows a name
+        // or callsign the radio does not have. The first build remembered
+        // the refused text instead and left it in the box, which read as
+        // though the radio had taken it (Codex B2); the brief allowed either
+        // shape, and only this one keeps the box true.
 
         /// <summary>
         /// The text a commit had refused, or null: the box held an edit, and
@@ -103,11 +102,21 @@ namespace JJFlexWpf.Dialogs
                 ? inBox : null;
 
         /// <summary>
-        /// Whether leaving a box commits it: not when it still holds the very
-        /// text that was just refused. Enter always commits.
+        /// One commit of an identity box, and what the box shows after it:
+        /// the edit when the radio took it, and the radio's own value when it
+        /// was refused. The radio's value is read through
+        /// <paramref name="heldNow"/>; with none (no radio), the last value
+        /// shown stays.
         /// </summary>
-        internal static bool CommitsOnFocusLoss(string? refused, string inBox)
-            => refused == null || !string.Equals(refused, inBox ?? "", StringComparison.Ordinal);
+        internal static (string Shown, string InBox) CommitAndShow(string shown, string inBox,
+            Action<string> send, Func<string> heldNow, Func<string, string> asTheRadioKeepsIt)
+        {
+            string after = CommitIdentity(shown, inBox, send, heldNow, asTheRadioKeepsIt);
+            if (RefusedEdit(shown, inBox, after) == null) return (after, inBox);
+            string radio = heldNow() ?? "";
+            if (radio.Length == 0) radio = shown ?? "";
+            return (radio, radio);
+        }
 
         /// <summary>
         /// The text to send for an identity box, or null when the operator has
@@ -136,22 +145,18 @@ namespace JJFlexWpf.Dialogs
                 ? edited : shown;
         }
 
-        private void CommitCallsignIfEdited(bool deliberate)
+        private void CommitCallsignIfEdited()
         {
-            if (!deliberate && !CommitsOnFocusLoss(_refusedCallsign, CallBox.Text)) return;
-            string before = _shownCallsign;
-            _shownCallsign = CommitIdentity(_shownCallsign, CallBox.Text,
+            (_shownCallsign, string box) = CommitAndShow(_shownCallsign, CallBox.Text,
                 _callbacks.SetCallsign, _callbacks.GetCallsign, Radios.FlexBase.CallsignAsTheRadioKeepsIt);
-            _refusedCallsign = RefusedEdit(before, CallBox.Text, _shownCallsign);
+            if (!string.Equals(CallBox.Text, box, StringComparison.Ordinal)) CallBox.Text = box;
         }
 
-        private void CommitNicknameIfEdited(bool deliberate)
+        private void CommitNicknameIfEdited()
         {
-            if (!deliberate && !CommitsOnFocusLoss(_refusedNickname, NameBox.Text)) return;
-            string before = _shownNickname;
-            _shownNickname = CommitIdentity(_shownNickname, NameBox.Text,
+            (_shownNickname, string box) = CommitAndShow(_shownNickname, NameBox.Text,
                 name => _callbacks.SetNickname(name), _callbacks.GetNickname, Radios.FlexBase.NicknameAsTheRadioKeepsIt);
-            _refusedNickname = RefusedEdit(before, NameBox.Text, _shownNickname);
+            if (!string.Equals(NameBox.Text, box, StringComparison.Ordinal)) NameBox.Text = box;
         }
 
         public RadioInfoDialog(RadioInfoCallbacks callbacks, RadioInfoTab initialTab = RadioInfoTab.General)
@@ -200,18 +205,18 @@ namespace JJFlexWpf.Dialogs
             Close();
         }
 
-        private void CallBox_LostFocus(object sender, RoutedEventArgs e) => CommitCallsignIfEdited(deliberate: false);
+        private void CallBox_LostFocus(object sender, RoutedEventArgs e) => CommitCallsignIfEdited();
 
         private void CallBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
         {
-            if (e.Key == Key.Return) CommitCallsignIfEdited(deliberate: true);
+            if (e.Key == Key.Return) CommitCallsignIfEdited();
         }
 
-        private void NameBox_LostFocus(object sender, RoutedEventArgs e) => CommitNicknameIfEdited(deliberate: false);
+        private void NameBox_LostFocus(object sender, RoutedEventArgs e) => CommitNicknameIfEdited();
 
         private void NameBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
         {
-            if (e.Key == Key.Return) CommitNicknameIfEdited(deliberate: true);
+            if (e.Key == Key.Return) CommitNicknameIfEdited();
         }
 
         private void DisplayCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)

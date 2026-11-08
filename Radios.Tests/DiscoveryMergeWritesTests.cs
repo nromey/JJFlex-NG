@@ -317,18 +317,18 @@ namespace Radios.Tests
             string show = Body(dialog, "private void ShowValues(");
             Assert.Contains("CallBox.Text = _shownCallsign = ", show, StringComparison.Ordinal);
             Assert.Contains("NameBox.Text = _shownNickname = ", show, StringComparison.Ordinal);
-            // The commit helpers take whether the commit was deliberate since
-            // #983 (a refused edit is not re-sent on focus loss), so the
-            // statement is found from the assignment, not the signature.
+            // Since #983's repair the commit also says what the box shows (the
+            // radio's value after a refusal), through CommitAndShow, which
+            // runs CommitIdentity; the statement is found from the assignment.
             string call = dialog.Substring(dialog.IndexOf("private void CommitCallsignIfEdited(", StringComparison.Ordinal));
-            call = call.Substring(call.IndexOf("_shownCallsign = CommitIdentity(", StringComparison.Ordinal));
+            call = call.Substring(call.IndexOf("(_shownCallsign, string box) = CommitAndShow(", StringComparison.Ordinal));
             call = call.Substring(0, call.IndexOf(';') + 1);
-            Assert.Contains("_shownCallsign = CommitIdentity(_shownCallsign, CallBox.Text,", call, StringComparison.Ordinal);
+            Assert.Contains("(_shownCallsign, string box) = CommitAndShow(_shownCallsign, CallBox.Text,", call, StringComparison.Ordinal);
             Assert.Contains("_callbacks.SetCallsign, _callbacks.GetCallsign, Radios.FlexBase.CallsignAsTheRadioKeepsIt", call, StringComparison.Ordinal);
             string name = dialog.Substring(dialog.IndexOf("private void CommitNicknameIfEdited(", StringComparison.Ordinal));
-            name = name.Substring(name.IndexOf("_shownNickname = CommitIdentity(", StringComparison.Ordinal));
+            name = name.Substring(name.IndexOf("(_shownNickname, string box) = CommitAndShow(", StringComparison.Ordinal));
             name = name.Substring(0, name.IndexOf(';') + 1);
-            Assert.Contains("_shownNickname = CommitIdentity(_shownNickname, NameBox.Text,", name, StringComparison.Ordinal);
+            Assert.Contains("(_shownNickname, string box) = CommitAndShow(_shownNickname, NameBox.Text,", name, StringComparison.Ordinal);
             Assert.Contains("_callbacks.SetNickname(name), _callbacks.GetNickname, Radios.FlexBase.NicknameAsTheRadioKeepsIt", name, StringComparison.Ordinal);
             Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(dialog, @"_callbacks\.Set(Callsign|Nickname)\b").Count);
         }

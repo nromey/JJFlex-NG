@@ -83,12 +83,20 @@ public partial class TNFDialog : JJFlexDialog
         // Delete on the list presses this button (#774).
         DeleteKeyRemoves.SetButton(TNFList, RemoveButton);
         // The list's name carries the count; it is brought up to date on the
-        // way in, where a rename cannot be heard as a second announcement.
+        // way in, where a rename cannot be heard as a second announcement,
+        // and a name owed while the list itself held focus is paid the
+        // moment that focus moves on (#941 repair one).
         TNFList.GotKeyboardFocus += (_, _) =>
         {
             _namingOnFocus = true;
             try { NameTheList(); }
             finally { _namingOnFocus = false; }
+        };
+        TNFList.LostKeyboardFocus += (_, e) =>
+        {
+            if (!ReferenceEquals(e.OriginalSource, TNFList) || !_nameOwed) return;
+            _nameOwed = false;
+            AutomationProperties.SetName(TNFList, ListName(TNFList.Items.Count));
         };
         Loaded += TNFDialog_Loaded;
     }
@@ -104,17 +112,58 @@ public partial class TNFDialog : JJFlexDialog
         : Radios.Lexicon.Get("settings.tnf.list_name_count", ("count", count));
 
     /// <summary>
-    /// Rename the list only while it does not have keyboard focus, or on the
-    /// way into it: renaming a focused control makes the screen reader say it
-    /// unprompted, on top of "Notch added" or "Notch removed".
+    /// Keep the list's name true after every rebuild (#941 repair one, Codex
+    /// B1). Until then the list was not renamed at all while focus was
+    /// anywhere inside it, so Add or Delete from the list left the old count
+    /// in its name until focus next came in from outside.
     /// </summary>
+    /// <remarks>
+    /// <para>A screen reader speaks a rename of the object it is focused ON,
+    /// and that is the one case held back: the list element itself has
+    /// keyboard focus while it has rows, a passing state that Add and Remove
+    /// end by putting focus on a row. The name is then owed, and paid when
+    /// the list's own focus moves (to its row, or away). When focus is on a
+    /// row, the list is the row's container and the rename is made at once:
+    /// the reader is on the row, not the list.</para>
+    /// <para>An EMPTY list holding focus is renamed at once: "none on this
+    /// radio" is the news after the last notch goes, said once.</para>
+    /// </remarks>
     private void NameTheList()
     {
-        if (TNFList.IsKeyboardFocusWithin && !_namingOnFocus) return;
+        if (!RenameNow(TNFList.IsKeyboardFocused, _namingOnFocus, TNFList.Items.Count))
+        {
+            _nameOwed = true;
+            return;
+        }
+        _nameOwed = false;
         AutomationProperties.SetName(TNFList, ListName(TNFList.Items.Count));
     }
 
+    /// <summary>
+    /// Whether the list may be renamed now: always, except while the list
+    /// element itself (not one of its rows) holds keyboard focus with rows in
+    /// it, outside the way in.
+    /// </summary>
+    internal static bool RenameNow(bool listItselfFocused, bool namingOnFocus, int rows)
+        => !listItselfFocused || namingOnFocus || rows == 0;
+
     private bool _namingOnFocus;
+    private bool _nameOwed;
+
+    /// <summary>
+    /// Put focus on a row, so the reader lands on it and the list itself does
+    /// not keep focus with a name owed; the list when there is no row.
+    /// </summary>
+    private void FocusRow(int index)
+    {
+        if (index >= 0 && index < TNFList.Items.Count)
+        {
+            TNFList.UpdateLayout();
+            if (TNFList.ItemContainerGenerator.ContainerFromIndex(index) is ListBoxItem row && row.Focus())
+                return;
+        }
+        TNFList.Focus();
+    }
 
     private void TNFDialog_Loaded(object sender, RoutedEventArgs e)
     {
@@ -377,12 +426,18 @@ public partial class TNFDialog : JJFlexDialog
     private void AddButton_Click(object sender, RoutedEventArgs e)
     {
         string? display = AddTNF?.Invoke();
-        TNFList.Focus();
-        if (display == null) return;
+        if (display == null)
+        {
+            TNFList.Focus();
+            return;
+        }
 
+        // Rebuilt and renamed BEFORE focus goes in, so the way in hears the
+        // new count (#941 repair one); focus then lands on the new row.
         RefreshList();
         if (TNFList.Items.Count > 0)
             TNFList.SelectedIndex = TNFList.Items.Count - 1;
+        FocusRow(TNFList.SelectedIndex);
     }
 
     /// <summary>
@@ -407,7 +462,7 @@ public partial class TNFDialog : JJFlexDialog
             TNFList.SelectedIndex = Math.Min(idx, TNFList.Items.Count - 1);
         else
             UpdateTNFProperties();
-        TNFList.Focus();
+        FocusRow(TNFList.SelectedIndex);
     }
 
     private void DoneButton_Click(object sender, RoutedEventArgs e)

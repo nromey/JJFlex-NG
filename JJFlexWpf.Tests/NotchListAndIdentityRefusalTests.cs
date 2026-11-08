@@ -58,54 +58,59 @@ public sealed class NotchListAndIdentityRefusalTests
         }
     }
 
-    /// <summary>The dialog's commit, as RadioInfoDialog runs it.</summary>
-    private static (string Shown, string? Refused) Commit(Radio radio, string shown, string? refused, string inBox, bool deliberate)
-    {
-        if (!deliberate && !RadioInfoDialog.CommitsOnFocusLoss(refused, inBox)) return (shown, refused);
-        string after = RadioInfoDialog.CommitIdentity(shown, inBox, radio.Send, () => radio.Held,
+    /// <summary>The dialog's commit, through the decision RadioInfoDialog
+    /// runs: the new baseline and what the box shows. Enter and focus loss
+    /// commit the same way.</summary>
+    private static (string Shown, string Box) Commit(Radio radio, string shown, string inBox)
+        => RadioInfoDialog.CommitAndShow(shown, inBox, radio.Send, () => radio.Held,
             Radios.FlexBase.CallsignAsTheRadioKeepsIt);
-        return (after, RadioInfoDialog.RefusedEdit(shown, inBox, after));
-    }
 
     [Fact]
-    public void A_refused_edit_is_said_once_not_on_every_focus_loss()
+    public void A_refused_edit_is_said_once_and_the_box_goes_back_to_the_radios_value()
     {
         NoiseReductionPerChannelTests.AssertWindowless();
         var radio = new Radio { Refusing = true };
-        var (shown, refused) = Commit(radio, "W0OLD", null, "k0abc", deliberate: true);   // Enter: refused
+        var (shown, box) = Commit(radio, "W0OLD", "k0abc");            // Enter or Tab: refused
         Assert.Single(radio.Sent);
-        (shown, refused) = Commit(radio, shown, refused, "k0abc", deliberate: false);       // Tab away
-        (shown, refused) = Commit(radio, shown, refused, "k0abc", deliberate: false);       // and again
-        Assert.Single(radio.Sent);
+        Assert.Equal("W0OLD", box);                                   // the box says what the radio has
         Assert.Equal("W0OLD", shown);
+        (shown, box) = Commit(radio, shown, box);                     // Tab away again
+        (shown, box) = Commit(radio, shown, box);                     // and again
+        Assert.Single(radio.Sent);                                    // nothing more sent, nothing more said
     }
 
     [Fact]
-    public void Enter_still_tries_a_refused_edit_again_and_a_new_edit_is_sent_on_focus_loss()
+    public void A_refused_box_shows_the_radios_value_even_when_it_moved_underneath()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var radio = new Radio { Refusing = true, Held = "W0NEW" };   // the radio changed since the dialog filled
+        var (shown, box) = Commit(radio, "W0OLD", "k0abc");
+        Assert.Equal("W0NEW", box);
+        Assert.Equal("W0NEW", shown);
+    }
+
+    [Fact]
+    public void A_taken_edit_stays_and_a_new_edit_after_a_refusal_is_sent()
     {
         NoiseReductionPerChannelTests.AssertWindowless();
         var radio = new Radio { Refusing = true };
-        var (shown, refused) = Commit(radio, "W0OLD", null, "k0abc", deliberate: false);   // focus loss: refused
-        radio.Refusing = false;                                                             // the hold is lifted
-        (shown, refused) = Commit(radio, shown, refused, "k0abc", deliberate: true);        // Enter tries again
+        var (shown, box) = Commit(radio, "W0OLD", "k0abc");           // refused, box back to W0OLD
+        radio.Refusing = false;                                       // the hold is lifted
+        (shown, box) = Commit(radio, shown, "k0abc");                 // typed again
         Assert.Equal(new[] { "k0abc", "k0abc" }, radio.Sent);
+        Assert.Equal("k0abc", box);
         Assert.Equal("k0abc", shown);
-        Assert.Null(refused);
-
-        radio.Refusing = true;
-        (shown, refused) = Commit(radio, shown, refused, "k0xyz", deliberate: false);       // a different edit is sent
-        Assert.Equal(3, radio.Sent.Count);
     }
 
     [Fact]
-    public void The_dialog_commits_on_focus_loss_only_through_the_refusal_check()
+    public void The_dialog_commits_through_the_decision_and_shows_what_it_returns()
     {
         NoiseReductionPerChannelTests.AssertWindowless();
         string src = File.ReadAllText(Path.Combine(Repo(), "JJFlexWpf", "Dialogs", "RadioInfoDialog.xaml.cs"));
-        Assert.Contains("CallBox_LostFocus(object sender, RoutedEventArgs e) => CommitCallsignIfEdited(deliberate: false);", src);
-        Assert.Contains("NameBox_LostFocus(object sender, RoutedEventArgs e) => CommitNicknameIfEdited(deliberate: false);", src);
-        Assert.Contains("if (!deliberate && !CommitsOnFocusLoss(_refusedCallsign, CallBox.Text)) return;", src);
-        Assert.Contains("if (!deliberate && !CommitsOnFocusLoss(_refusedNickname, NameBox.Text)) return;", src);
+        Assert.Contains("CallBox_LostFocus(object sender, RoutedEventArgs e) => CommitCallsignIfEdited();", src);
+        Assert.Contains("NameBox_LostFocus(object sender, RoutedEventArgs e) => CommitNicknameIfEdited();", src);
+        Assert.Contains("if (!string.Equals(CallBox.Text, box, StringComparison.Ordinal)) CallBox.Text = box;", src);
+        Assert.Contains("if (!string.Equals(NameBox.Text, box, StringComparison.Ordinal)) NameBox.Text = box;", src);
     }
 
     private static string Repo()

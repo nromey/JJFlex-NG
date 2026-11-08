@@ -93,6 +93,47 @@ public sealed class JunkboxRepairOneTests
         }
     }
 
+    // ------------------------------------------------------------------
+    // Tracking notches: the list's count stays true after Add and Delete
+    // ------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(false, false, 3, true)]    // focus elsewhere: rename
+    [InlineData(false, false, 0, true)]
+    [InlineData(true, true, 3, true)]      // on the way in: rename
+    [InlineData(true, false, 0, true)]     // the list itself focused and empty: "none" is the news
+    [InlineData(true, false, 3, false)]    // the list itself focused with rows: owed, paid as focus moves
+    public void The_notch_list_is_renamed_at_once_unless_the_reader_is_on_the_list_itself(
+        bool listItselfFocused, bool namingOnFocus, int rows, bool now)
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Assert.Equal(now, TNFDialog.RenameNow(listItselfFocused, namingOnFocus, rows));
+    }
+
+    [Fact]
+    public void A_focused_row_never_holds_back_the_lists_name_and_an_owed_name_is_paid_when_focus_moves()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        string src = File.ReadAllText(Path.Combine(Repo(), "JJFlexWpf", "Dialogs", "TNFDialog.xaml.cs"));
+        string name = Body(src, "private void NameTheList()");
+        Assert.Contains("RenameNow(TNFList.IsKeyboardFocused, _namingOnFocus, TNFList.Items.Count)", name);
+        Assert.DoesNotContain("IsKeyboardFocusWithin", name);   // the guard that kept a stale count (Codex B1)
+        int lost = src.IndexOf("TNFList.LostKeyboardFocus +=", StringComparison.Ordinal);
+        Assert.True(lost > 0, "nothing pays an owed name when the list's own focus moves");
+        string paid = src.Substring(lost, 300);
+        Assert.Contains("_nameOwed", paid);
+        Assert.Contains("AutomationProperties.SetName(TNFList, ListName(TNFList.Items.Count));", paid);
+
+        // Add rebuilds, and so renames, before focus goes in; Add and Remove
+        // then put focus on a row, which ends any owed state.
+        string add = Body(src, "private void AddButton_Click(");
+        int rebuild = add.IndexOf("RefreshList();", StringComparison.Ordinal);
+        Assert.True(rebuild > 0 && add.IndexOf("FocusRow(", StringComparison.Ordinal) > rebuild);
+        Assert.True(add.IndexOf("TNFList.Focus();", StringComparison.Ordinal) is int f && (f < 0 || f > add.IndexOf("if (display == null)", StringComparison.Ordinal) && f < rebuild),
+            "the list must not take focus before the rebuild on a successful add");
+        Assert.Contains("FocusRow(TNFList.SelectedIndex);", Body(src, "private void RemoveButton_Click("));
+    }
+
     private static string Body(string src, string signature)
     {
         int at = src.IndexOf(signature, StringComparison.Ordinal);
