@@ -1171,6 +1171,8 @@
   "audio.recorder.overwrite.help.cancel": {"text": "Records nothing and keeps the recording on this slice.", "delivery": null},
   "audio.recorder.overwrite.help.dont_show": {"text": "Stops this warning for this radio when you record or back up. Turn it back on in Settings.", "delivery": null},
   "audio.recorder.overwrite.cancelled": {"text": "Not recorded.", "delivery": null},
+  "audio.recorder.overwrite.setting": {"text": "Warn before a recording on the radio is overwritten", "delivery": null},
+  "audio.recorder.overwrite.setting_help": {"text": "When a slice already holds a recording, recording on it asks first. Saved for this radio.", "delivery": null},
   "audio.takes.slice_row": {"text": "Slice {letter} recording on the radio, {seconds} seconds, {made}. {backup}", "delivery": null},
   "audio.takes.slice_made": {"text": "made {when}", "delivery": null},
   "audio.takes.slice_made_at": {"text": "made {when} on {frequency} megahertz {mode}", "delivery": null},

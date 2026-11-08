@@ -266,6 +266,21 @@ public sealed class SliceOverwriteWarningTests : IDisposable
     }
 
     [Fact]
+    public void The_setting_sits_under_Recorder_and_is_saved_on_OK_and_Apply()
+    {
+        string xaml = Source("JJFlexWpf", "Dialogs", "SettingsDialog.xaml");
+        int group = xaml.IndexOf("<GroupBox Header=\"Recorder\"", StringComparison.Ordinal);
+        int panel = xaml.IndexOf("x:Name=\"RecorderPanel\"", StringComparison.Ordinal);
+        Assert.True(group > 0 && panel > group && panel - group < 600);
+        string part = Source("JJFlexWpf", "Dialogs", "SettingsDialog.SliceOverwrite.cs");
+        Assert.Contains("RecorderPanel.Children.Insert(", part);
+        Assert.Contains("RadioConfig.RecordWarnBeforeSliceRecordingOverwritten(_warnOverwriteSerial, warn)", part);
+        string settings = Source("JJFlexWpf", "Dialogs", "SettingsDialog.xaml.cs");
+        Assert.Contains("InitializeSliceOverwriteSetting();", settings);
+        Assert.Contains("CommitSliceOverwriteSetting();", settings);
+    }
+
+    [Fact]
     public void The_warning_puts_Record_first_and_default_and_swallows_F11()
     {
         string dialog = Source("JJFlexWpf", "Dialogs", "SliceOverwriteWarningDialog.cs");

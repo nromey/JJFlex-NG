@@ -2619,6 +2619,8 @@ namespace Radios.Tests
                 "audio.recorder.overwrite.help.cancel",
                 "audio.recorder.overwrite.help.dont_show",
                 "audio.recorder.overwrite.cancelled",
+                "audio.recorder.overwrite.setting",
+                "audio.recorder.overwrite.setting_help",
                 "audio.takes.slice_row",
                 "audio.takes.slice_made",
                 "audio.takes.slice_made_at",

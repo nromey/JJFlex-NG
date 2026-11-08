@@ -614,7 +614,9 @@
                          after these sat under Frequency Entry. -->
                     <GroupBox Header="Recorder" Margin="0,4,0,8"
                               AutomationProperties.Name="Recorder">
-                        <StackPanel Margin="4">
+                        <!-- #999: "warn before a recording on the radio is overwritten"
+                             is added to this panel in code, per radio (SettingsDialog.SliceOverwrite.cs). -->
+                        <StackPanel x:Name="RecorderPanel" Margin="4">
                             <!-- DRAFT PROSE (#787): settings help awaits Noel. -->
                             <CheckBox x:Name="RecorderBeepsCheck" Content="Recorder beeps" Margin="0,0,0,4"
                                       AutomationProperties.Name="Recorder beeps"

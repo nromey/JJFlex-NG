@@ -168,6 +168,7 @@ namespace JJFlexWpf.Dialogs
 
             RefreshRadioAudioAdvisory();
             RefreshPcAudioStatus();
+            RefreshSliceOverwriteSetting();
         }
 
         /// <summary>
