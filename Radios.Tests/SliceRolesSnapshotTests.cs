@@ -263,6 +263,43 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// Push to talk in a dialog drops its own key-down line when the longer
+        /// notice follows (ruled by Noel 2026-11-06, J12), so it asks, before
+        /// the key, whether the notice would be said. The answer is the
+        /// notice's own rule, and asking says and remembers nothing.
+        /// </summary>
+        [Fact]
+        public void Would_the_notice_speak_is_the_notices_own_rule_asked_without_saying_anything()
+        {
+            FlexBase rig = Rig();
+            var setting = TransmitSliceNotice.Setting;
+            try
+            {
+                TransmitSliceNotice.Setting = TransmitElsewhereNotice.SpeakAndTone;
+                SliceArrives(rig, ReadySlice(0, tx: true, active: false, mhz: 14.100));
+                SliceArrives(rig, ReadySlice(1, tx: false, active: true, mhz: 7.150));
+
+                Assert.True(TransmitSliceNotice.WouldSpeak(rig));                  // a new split
+                Assert.Null(TransmitSliceNotice.LastSpoken(rig));                  // asking remembered nothing
+                Assert.False(TransmitSliceNotice.NoticeDue);                       // and said nothing
+
+                TransmitSliceNotice.Setting = TransmitElsewhereNotice.ToneOnly;
+                Assert.False(TransmitSliceNotice.WouldSpeak(rig));                 // the setting says no sentence
+                TransmitSliceNotice.Setting = TransmitElsewhereNotice.SpeakAndTone;
+
+                TransmitSliceNotice.Keyed(new TransmitSliceNotice.Notice(rig, "test", SliceRoles.Of(rig), false, true, null));
+                Assert.False(TransmitSliceNotice.WouldSpeak(rig));                 // said on this split already
+
+                Assert.False(TransmitSliceNotice.WouldSpeak(null!));
+            }
+            finally
+            {
+                TransmitSliceNotice.ForgetFor(rig);
+                TransmitSliceNotice.Setting = setting;
+            }
+        }
+
+        /// <summary>
         /// #863, repair round 2 (Codex's re-check R2, its probe made a test).
         /// Push to talk in a dialog keys first and says after, so its notice
         /// is remembered when it keys; but "spoke" meant REQUESTED. A short

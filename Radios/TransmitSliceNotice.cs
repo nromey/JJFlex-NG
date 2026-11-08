@@ -320,6 +320,43 @@ namespace Radios
 
         internal static void ClearDue() => System.Threading.Interlocked.Exchange(ref _dueUntil, 0);
 
+        // ── A send's own sentence (the fourth bench of the 2026-11-02 batch) ──
+        //
+        // The hold above covered only a send that owes a notice. On a plain
+        // split send, Home's arrival prefix ("JJ Flexible Home, slice,
+        // 21.275.000", an interrupt) cut "Sending cq, 15 minutes." 2 ms after
+        // it began, so the operator heard where Home was instead of what was
+        // going out and for how long. The send's sentence holds Home's arrival
+        // speech the same way, for about as long as the sentence takes to say.
+        // Speech only: the key has already gone out when the sentence is said,
+        // and nothing here waits.
+
+        private static long _sendSentenceUntil;
+
+        /// <summary>A send's own sentence ("Sending cq, 15 minutes.") is being said.</summary>
+        public static bool SendSentenceDue =>
+            Environment.TickCount64 < System.Threading.Interlocked.Read(ref _sendSentenceUntil);
+
+        /// <summary>
+        /// Home's arrival speech (its focus prefix and the return status) holds:
+        /// a send's notice is due, or a send's own sentence is being said.
+        /// </summary>
+        public static bool HomeArrivalHeld => NoticeDue || SendSentenceDue;
+
+        /// <summary>
+        /// Call just before a send speaks its own sentence: Home's arrival
+        /// speech holds for about as long as <paramref name="sentence"/> takes
+        /// to say, at the reader's reference rate, bounded. Never waits.
+        /// </summary>
+        public static void HoldHomeForSendSentence(string sentence)
+        {
+            if (string.IsNullOrEmpty(sentence)) return;
+            int ms = Speech.SpeechArbiter.EstimateSpokenMs(sentence);
+            System.Threading.Interlocked.Exchange(ref _sendSentenceUntil, Environment.TickCount64 + ms);
+        }
+
+        internal static void ClearSendSentence() => System.Threading.Interlocked.Exchange(ref _sendSentenceUntil, 0);
+
         private static async Task<bool> HeardCoreAsync(ICountdownWords words, Func<bool> stillWanted,
             Func<int, Task> delay, int ceilingMs, int queuedCeilingMs, Notice notice = null)
         {
@@ -575,11 +612,35 @@ namespace Radios
         /// the key-down line; the split is remembered only once that sentence
         /// has been heard whole (<see cref="Keyed"/>).
         /// </summary>
-        public static void SayAfterKey(FlexBase rig, string door)
+        /// <returns>True when the notice was said (handed to the reader, not
+        /// refused or undelivered at the hand-over), so a door that dropped
+        /// its own key-down line for it knows whether to say that line after
+        /// all.</returns>
+        public static bool SayAfterKey(FlexBase rig, string door)
         {
             Notice notice = Prepare(rig, door, mandatory: false);
-            if (notice == null) return;
+            if (notice == null) return false;
             Keyed(notice);
+            return notice.Spoke && notice.Words != null && !notice.Words.Failed;
+        }
+
+        /// <summary>
+        /// Would a door that keys now say the notice? The same decision
+        /// <see cref="Prepare"/> makes (the setting, this split, whether it has
+        /// been said on this connection), asked without saying anything. For
+        /// push to talk in a dialog, which drops its own short key-down line
+        /// when the longer notice follows (ruled by Noel 2026-11-06, J12).
+        /// False with no rig or when the slices cannot be read. Never throws.
+        /// </summary>
+        public static bool WouldSpeak(FlexBase rig)
+        {
+            if (rig == null) return false;
+            SliceRoles roles;
+            try { roles = SliceRoles.Of(rig); }
+            catch { return false; }
+            SliceRoles? last;
+            lock (MemoryLock) last = MemoryOf(rig).Spoken;
+            return Speaks(Setting, false, roles, last);
         }
 
         /// <summary>

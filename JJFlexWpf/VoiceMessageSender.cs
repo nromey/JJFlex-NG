@@ -1135,6 +1135,10 @@ internal static class VoiceMessageSender
                 ? Lexicon.Get("settings.cw.voice_sending", ("label", info.Label), ("length", length))
                 : Lexicon.Get("audio.send.sending", ("what", info.What), ("length", length));
         info.Resuming = false;
+        // Home's arrival speech holds while this is said: on a plain split
+        // send its prefix cut this sentence at its first word. Speech only;
+        // the key has already gone out and nothing waits on this.
+        Radios.TransmitSliceNotice.HoldHomeForSendSentence(line);
         ScreenReaderOutput.Speak(line, SpeechIntent.Interrupt, VerbosityLevel.Terse,
             subject: SpeechSubject.MessageKey);
 

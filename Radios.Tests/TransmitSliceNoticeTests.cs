@@ -355,12 +355,66 @@ public sealed class TransmitSliceNoticeTests
         // The bench: as the long-recording question closed, Home's arrival
         // prefix cut the notice at its first word, and "Listening on ... slice B"
         // was said ahead of it; every notice-bearing send keyed 11 s after Send.
+        // Both sites ask HomeArrivalHeld, which is NoticeDue or a send's own
+        // sentence: this pinned NoticeDue alone until the fourth bench found
+        // a plain split send's "Sending cq, 15 minutes." cut the same way.
         string display = Source("JJFlexWpf/Controls/FrequencyDisplay.xaml.cs");
         string main = Source("JJFlexWpf/MainWindow.xaml.cs");
         string notice = Source("Radios/TransmitSliceNotice.cs");
-        Assert.Contains("if (Radios.TransmitSliceNotice.NoticeDue)", display);
-        Assert.Contains("if (Radios.TransmitSliceNotice.NoticeDue)", main);
+        Assert.Contains("if (Radios.TransmitSliceNotice.HomeArrivalHeld)", display);
+        Assert.Contains("if (Radios.TransmitSliceNotice.HomeArrivalHeld)", main);
+        Assert.Contains("public static bool HomeArrivalHeld => NoticeDue || SendSentenceDue;", notice);
         Assert.Contains("MarkDue();", notice);
+    }
+
+    [Fact]
+    public void A_sends_own_sentence_holds_Homes_arrival_speech_and_nothing_else()
+    {
+        TransmitSliceNotice.ClearSendSentence();
+        Assert.False(TransmitSliceNotice.HomeArrivalHeld);
+        TransmitSliceNotice.HoldHomeForSendSentence("Sending cq, 15 minutes.");
+        try
+        {
+            Assert.True(TransmitSliceNotice.SendSentenceDue);
+            Assert.True(TransmitSliceNotice.HomeArrivalHeld);
+            Assert.False(TransmitSliceNotice.NoticeDue);       // a send's sentence is not a notice
+        }
+        finally { TransmitSliceNotice.ClearSendSentence(); }
+        Assert.False(TransmitSliceNotice.HomeArrivalHeld);
+
+        TransmitSliceNotice.HoldHomeForSendSentence("");      // nothing said, nothing held
+        Assert.False(TransmitSliceNotice.SendSentenceDue);
+    }
+
+    [Fact]
+    public void The_send_holds_Home_just_before_it_says_its_sentence_and_after_it_keyed()
+    {
+        string sender = Source("JJFlexWpf/VoiceMessageSender.cs");
+        int hold = sender.IndexOf("Radios.TransmitSliceNotice.HoldHomeForSendSentence(line);", StringComparison.Ordinal);
+        Assert.True(hold >= 0, "the send does not hold Home's arrival speech for its sentence");
+        int speak = sender.IndexOf("ScreenReaderOutput.Speak(line, SpeechIntent.Interrupt", hold, StringComparison.Ordinal);
+        Assert.True(speak > hold && speak - hold < 200, "the hold must sit immediately before the sentence");
+        // After the key: the trace line that names how the radio was keyed
+        // comes first, so nothing about the sentence can delay the key.
+        int keyed = sender.LastIndexOf("VoiceMessageSender: sending ", hold, StringComparison.Ordinal);
+        Assert.True(keyed >= 0 && keyed < hold);
+    }
+
+    [Fact]
+    public void Push_to_talk_in_a_dialog_drops_its_key_down_line_only_for_a_notice_and_gets_it_back_if_the_notice_fails()
+    {
+        string main = Source("JJFlexWpf/MainWindow.xaml.cs");
+        int door = main.IndexOf("private void PttEdgeFromOutsideHome(bool down, PttDoor door)", StringComparison.Ordinal);
+        string body = main.Substring(door, main.IndexOf("private bool PttHeldThroughDrop(bool down)", door, StringComparison.Ordinal) - door);
+        int decide = body.IndexOf("bool noticeTakesTheLine = down && door == PttDoor.Dialog && wasIdle", StringComparison.Ordinal);
+        int ask = body.IndexOf("Radios.TransmitSliceNotice.WouldSpeak(RigControl)", StringComparison.Ordinal);
+        int set = body.IndexOf("_pttController.QuietNextKeyingLine = noticeTakesTheLine;", StringComparison.Ordinal);
+        int key = body.IndexOf("if (down) PttKeyDownEdge(door); else PttKeyUpEdge();", StringComparison.Ordinal);
+        int clear = body.IndexOf("_pttController.QuietNextKeyingLine = false;", StringComparison.Ordinal);
+        int say = body.IndexOf("Radios.TransmitSliceNotice.SayAfterKey(RigControl, \"push to talk in a dialog\")", StringComparison.Ordinal);
+        int back = body.IndexOf("if (noticeTakesTheLine && !said) _pttController.SpeakKeyingLineLate();", StringComparison.Ordinal);
+        Assert.True(decide >= 0 && ask > decide && set > ask && key > set && clear > key && say > clear && back > say,
+            "decide before the key, key, then say the notice, and say the line after all if the notice was not said");
     }
 
     [Fact]

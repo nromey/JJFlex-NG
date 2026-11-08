@@ -2313,10 +2313,13 @@ public partial class MainWindow : UserControl
             // once they exist, this is real information about where the
             // operator returned to.
             // Held while a send's transmit notice is due (rulings round three):
-            // it was said ahead of the notice on the second bench.
-            if (Radios.TransmitSliceNotice.NoticeDue)
+            // it was said ahead of the notice on the second bench. And while a
+            // send's own sentence is being said: it cut "Sending cq, 15
+            // minutes." on the fourth.
+            if (Radios.TransmitSliceNotice.HomeArrivalHeld)
             {
-                JJTrace.Tracing.TraceLine("Return status held; a send's transmit notice is due", System.Diagnostics.TraceLevel.Info);
+                JJTrace.Tracing.TraceLine("Return status held; a send's transmit notice is due or its sentence is being said",
+                    System.Diagnostics.TraceLevel.Info);
                 return;
             }
             // Bound BEFORE it is built (round four, Codex's re-check B3): the
@@ -3445,7 +3448,16 @@ public partial class MainWindow : UserControl
             return;
         }
         bool wasIdle = _pttController.State == PttSafetyController.PttState.Idle;
+        // Push to talk in a dialog, the first time on a new split: only the
+        // longer notice is said, "Transmitting on slice B, 14.100" (ruled by
+        // Noel 2026-11-06, J12), so the key-down line is dropped at this door
+        // for this one key. Decided before the key, by the notice's own rule;
+        // the key itself is not touched.
+        bool noticeTakesTheLine = down && door == PttDoor.Dialog && wasIdle
+            && RigControl != null && Radios.TransmitSliceNotice.WouldSpeak(RigControl);
+        _pttController.QuietNextKeyingLine = noticeTakesTheLine;
         if (down) PttKeyDownEdge(door); else PttKeyUpEdge();
+        _pttController.QuietNextKeyingLine = false;   // a down that keyed nothing does not carry it to the next
 
         // Push to talk inside a dialog keys the transmit slice while the
         // dialog shows something else (#863). A held key is not delayed for a
@@ -3457,9 +3469,13 @@ public partial class MainWindow : UserControl
             && _pttController.State == PttSafetyController.PttState.PttHold)
         {
             // Ruled 2026-11-03 17:55: go, then say. Once per split, by the
-            // operator's setting, queued behind the key-down line.
-            if (RigControl != null)
-                Radios.TransmitSliceNotice.SayAfterKey(RigControl, "push to talk in a dialog");
+            // operator's setting, queued behind the key-down line, or in its
+            // place when the line was dropped for it. A notice that could not
+            // be said after all gets the key-down line back, so this key is
+            // never silent.
+            bool said = RigControl != null
+                && Radios.TransmitSliceNotice.SayAfterKey(RigControl, "push to talk in a dialog");
+            if (noticeTakesTheLine && !said) _pttController.SpeakKeyingLineLate();
         }
     }
 

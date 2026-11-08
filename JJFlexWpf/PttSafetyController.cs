@@ -124,7 +124,28 @@ namespace JJFlexWpf
         /// let go. The takeover part is spoken even with push to talk's own
         /// speech off, because it is about the send, not about keying.
         /// </summary>
-        private void SpeakKeyDownFirstLine(string keyingLine)
+        /// <summary>
+        /// Set by a door just before it presses push to talk, for that one
+        /// key: the key-down line ("Transmitting on slice B") is not said,
+        /// because the door says the longer transmit-slice notice instead
+        /// (push to talk in a dialog on a new split; ruled by Noel 2026-11-06,
+        /// J12). Tones, keying and everything else are unchanged. Consumed by
+        /// the next <see cref="PttDown"/> whether or not it keys.
+        /// </summary>
+        internal bool QuietNextKeyingLine { get; set; }
+
+        /// <summary>
+        /// The key-down line, said now: for a door that dropped it for a
+        /// notice which then could not be said, so its key is never silent.
+        /// Only while a held push to talk is still keyed.
+        /// </summary>
+        internal void SpeakKeyingLineLate()
+        {
+            if (State != PttState.PttHold || !_config.SpeechEnabled || CheckNarratesThisKeying) return;
+            ScreenReaderOutput.Speak(TransmittingWords(), VerbosityLevel.Critical, interrupt: false);
+        }
+
+        private void SpeakKeyDownFirstLine(string keyingLine, bool quietKeyingLine = false)
         {
             string? takeover = null;
             try { takeover = VoiceMessageSender.TakeOverAtKeyDown(); }
@@ -134,7 +155,7 @@ namespace JJFlexWpf
                 // tick still takes it over a moment later.
                 Tracing.TraceLine("PTT: send takeover at key-down failed: " + ex.Message, TraceLevel.Warning);
             }
-            bool speakKeying = _config.SpeechEnabled && !CheckNarratesThisKeying;
+            bool speakKeying = _config.SpeechEnabled && !CheckNarratesThisKeying && !quietKeyingLine;
             if (string.IsNullOrEmpty(takeover))
             {
                 if (speakKeying)
@@ -998,6 +1019,10 @@ namespace JJFlexWpf
         /// </summary>
         public void PttDown()
         {
+            // One key only, whatever happens below: a press refused here does
+            // not leave the next press quiet.
+            bool quietLine = QuietNextKeyingLine;
+            QuietNextKeyingLine = false;
             if (!CanTransmit()) return;
             if (State == PttState.Idle && RefusedForTeardown()) return;
 
@@ -1031,7 +1056,7 @@ namespace JJFlexWpf
                 StartFreshAudioSample();
                 KeyDownTone();
                 _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_transmitting"));
-                SpeakKeyDownFirstLine(TransmittingWords());
+                SpeakKeyDownFirstLine(TransmittingWords(), quietLine);
                 if (!CheckNarratesThisKeying) SpeakKeyDownExtra();
                 _healthReflectedWarned = false;
                 _reflectedRun.Reset();
