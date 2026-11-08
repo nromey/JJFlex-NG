@@ -26,7 +26,7 @@ public sealed class ReceiveDenoiseMigrationTests
             ReceiveDenoiseConfig.Map(AudioOutputConfig.Load(dir), pipeline, false);
             Assert.Equal(neural, pipeline.RnnEnabled); Assert.Equal(spectral, pipeline.SpectralEnabled);
             Assert.Equal(0.3f, pipeline.RnnStrength); Assert.Equal(0.6f, pipeline.SpectralStrength);
-            Assert.Equal(0.07f, pipeline.SpectralFloor); Assert.False(pipeline.VoiceModesOnly);
+            Assert.Equal(0.07f, pipeline.SpectralFloor); // VoiceModesOnly retired (Sprint 49 Track E): nothing to assert
             var next = AudioOutputConfig.Load(dir);
             ReceiveDenoiseConfig.Map(next, pipeline, true); next.Save(dir);
             var loaded = AudioOutputConfig.Load(dir);
@@ -39,7 +39,6 @@ public sealed class ReceiveDenoiseMigrationTests
             ReceiveDenoiseConfig.Map(loaded, restored, false);
             Assert.Equal(neural, restored.RnnEnabled); Assert.Equal(spectral, restored.SpectralEnabled);
             Assert.Equal(0.3f, restored.RnnStrength); Assert.Equal(0.6f, restored.SpectralStrength);
-            Assert.False(restored.VoiceModesOnly);
             // Simulate the old XML serializer: unknown new fields disappear on save.
             var xmlPath = Path.Combine(dir, "audioConfig.xml");
             var xml = XDocument.Load(xmlPath);

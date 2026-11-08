@@ -202,29 +202,29 @@ namespace Radios
             new("on-radio-levels", "On-Radio Levels (the radio's own jacks)",
                 AudioMenuEntryKind.Command, true, "Ctrl+J, V"),
 
-            // #836: the DSP submenu - noise reduction, noise blankers, PC noise
-            // reduction, auto notch and the audio peak filter. It
-            // sat only under the Slice menu from Sprint 23, when the Operations
-            // menu that used to hold it was deleted, and nobody noticed for
-            // seven months. Noel, 2026-10-27: "This should not be in slice ...
-            // this needs to be moved to audio."
+            // The noise surface (Sprint 49 Track E, E8), replacing #836's DSP
+            // submenu: "Say what noise reduction is active", then the two
+            // subjects, Noise Reduction and Noise Blankers and Notches (ruled
+            // 2026-11-07, question 2). Flat, four deep: Audio, the subject, the
+            // engine, its controls.
             //
-            // TOP-LEVEL ONLY, the one place the two menus built from this
-            // layout differ. He ruled it OFF the Slice menu, and the Slice
-            // menu's Audio submenu is built from this same list, so without the
-            // flag it would come straight back under Slice, Audio. Per-slice
-            // DSP inside each slice's own submenu is #586's, later.
+            // TOP-LEVEL ONLY, as DSP was: Noel ruled DSP off the Slice menu
+            // (2026-10-27), and the Slice menu's Audio submenu is built from
+            // this same list. Per-slice noise inside each slice's own submenu
+            // is #586's, later.
             //
-            // Every item acts on the active slice, as it did under Slice. The
-            // row itself needs no radio, because some of what is inside works
-            // without one (PC noise reduction's switches and its folder); the
-            // rows inside that do need one are greyed and say so in their own
-            // labels, through MarkNeedsRadio, exactly as the rows above do.
-            // D is a first letter no other row on this menu claims.
-            new("sep-dsp", "", AudioMenuEntryKind.Separator, false, topLevelOnly: true),
-            new("dsp", "DSP", AudioMenuEntryKind.Submenu, false, topLevelOnly: true),
+            // Every engine acts on the active slice (the radio's) or on this
+            // computer (the computer's). None of the three rows needs a radio
+            // itself; the rows inside that do say so through MarkNeedsRadio.
+            // First letters now collide (S, N, N): #838's defect 3 records that
+            // listing everything costs that, and the JJ key's chords are the
+            // fast path.
+            new("sep-noise", "", AudioMenuEntryKind.Separator, false, topLevelOnly: true),
+            new("noise-active", "Say what noise reduction is active", AudioMenuEntryKind.Command, false, "Ctrl+J, N, Space", topLevelOnly: true),
+            new("noise-reduction", "Noise Reduction", AudioMenuEntryKind.Submenu, false, topLevelOnly: true),
+            new("noise-blankers", "Noise Blankers and Notches", AudioMenuEntryKind.Submenu, false, topLevelOnly: true),
 
-            // Meter tones came along inside DSP in that move and get their own
+            // Meter tones came along inside DSP in #836's move and get their own
             // row instead (Noel, 2026-10-27 20:41: "I think it gets its own
             // row"). They are not signal processing and do not act on a slice.
             // Top-level only for the same reason as DSP: before #836 their one

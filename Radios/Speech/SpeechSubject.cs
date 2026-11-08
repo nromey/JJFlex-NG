@@ -677,5 +677,60 @@ namespace Radios.Speech
         /// covers an unheard older one.
         /// </summary>
         public const string FixToolInjectedKeyed = "fix-tool-injected-keyed";
+
+        // ── The noise surface, receive (Sprint 49 Track E). Every road into
+        //    noise reduction — the Audio menu, the Home expander, the JJ key's
+        //    noise layer — speaks through NoiseController, under these. ──
+
+        /// <summary>
+        /// One noise engine turned on or off, or replacing another in its
+        /// slot ("NR4 on, replacing NR2"). The newest switch sentence covers
+        /// an unheard older one: only the latest state of the noise chain is
+        /// worth hearing.
+        /// </summary>
+        public const string NoiseEngineSwitch = "noise-engine-switch";
+
+        /// <summary>
+        /// A noise lever's value: a radio level, a strength, a depth, a model,
+        /// the Advanced switch, Listen to what was removed. Each value covers
+        /// an unheard older one, as an arrowed value does.
+        /// </summary>
+        public const string NoiseLevel = "noise-level";
+
+        /// <summary>
+        /// Why a noise engine cannot run here, or why a choice is refused
+        /// (hardware first, then what is missing, then what to do). The next
+        /// such answer covers an unheard older one.
+        /// </summary>
+        public const string NoiseUnavailable = "noise-unavailable";
+
+        /// <summary>
+        /// The noise reduction helper's state, or a computer engine that could
+        /// not start: could not start, stopped, back. Not asked for, so it is
+        /// its own subject: a switch sentence must not retire the news that
+        /// the audio is now unprocessed. The newest helper state covers an
+        /// unheard older one.
+        /// </summary>
+        public const string NoiseHelperState = "noise-helper-state";
+
+        /// <summary>The answer to "say what noise reduction is active". A newer answer covers an unheard older one.</summary>
+        public const string NoiseActiveSummary = "noise-active-summary";
+
+        /// <summary>
+        /// Something JJ Flexible did on its own on a mode change: a mode
+        /// group's starting point the first time, a remembered state coming
+        /// back, NNR's CW model swap. The next such saying covers an unheard
+        /// older one.
+        /// </summary>
+        public const string NoiseModeStart = "noise-mode-start";
+
+        /// <summary>A noise preset applied, saved, renamed or deleted. The newest covers an unheard older one.</summary>
+        public const string NoisePreset = "noise-preset";
+
+        /// <summary>A noise favourite added or removed. The newest covers an unheard older one.</summary>
+        public const string NoiseFavourite = "noise-favourite";
+
+        /// <summary>An engine returned to its defaults, or told there is no default to return to. The newest covers an unheard older one.</summary>
+        public const string NoiseDefaults = "noise-defaults";
     }
 }

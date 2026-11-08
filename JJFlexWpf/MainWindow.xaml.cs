@@ -913,6 +913,52 @@ public partial class MainWindow : UserControl
     /// </summary>
     public AudioOutputConfig? CurrentAudioConfig { get; set; }
 
+    private NoiseController? _noise;
+    private FlexNoiseRadio? _noiseRadio;
+    private FlexBase? _noiseRadioRig;
+
+    /// <summary>
+    /// The one noise reduction controller (Sprint 49 Track E, E4): the Audio
+    /// menu, the Home expander and the JJ key's noise layer all call this,
+    /// so the four roads agree. Created once and kept for the app's life; it
+    /// reaches the radio, the pipeline and the config through these lambdas,
+    /// so it never holds a stale one.
+    /// </summary>
+    public NoiseController Noise => _noise ??= CreateNoiseController();
+
+    private NoiseController CreateNoiseController()
+    {
+        var noise = new NoiseController(new DenoiseEngineCatalog(),
+            () =>
+            {
+                var rig = RigControl;
+                if (rig == null) return null;
+                if (!ReferenceEquals(rig, _noiseRadioRig)) { _noiseRadio = new FlexNoiseRadio(rig); _noiseRadioRig = rig; }
+                return _noiseRadio;
+            },
+            () => FieldsPanel?.AudioPipeline,
+            () => CurrentAudioConfig,
+            PersistDspSettings,
+            new ScreenReaderNoiseSpeaker(),
+            new RadioConfigNoiseIntents(),
+            new TimerNoiseScheduler(a => Dispatcher.BeginInvoke(a)));
+        noise.PresetStore = new FilePresetStore(() => OpenParms == null ? null : (OpenParms.ConfigDirectory, OpenParms.GetOperatorName()));
+        noise.TransmitChain = new RigTransmitChain(() => RigControl);
+        WdspHost.Default.StateChanged += (s, e) =>
+            Dispatcher.BeginInvoke(() => noise.OnHelperStateChanged(e.Change, e.Engines));
+        return noise;
+    }
+
+    /// <summary>The transmit chain's half of a preset, through the live radio.</summary>
+    private sealed class RigTransmitChain : ITransmitChainAccess
+    {
+        private readonly Func<FlexBase?> _rig;
+        public RigTransmitChain(Func<FlexBase?> rig) => _rig = rig;
+        public void Apply(Radios.AudioChainPreset preset) { if (_rig() is { } rig) preset.ApplyTo(rig); }
+        public Radios.AudioChainPreset Capture(string name) =>
+            _rig() is { } rig ? Radios.AudioChainPreset.CaptureFrom(rig, name) : new Radios.AudioChainPreset(name);
+    }
+
     /// <summary>
     /// Persist the current PC output volume (Audio Arc Track A). Called by the
     /// menu handler and the leader volume mode after an adjustment so the
@@ -2830,6 +2876,18 @@ public partial class MainWindow : UserControl
             }
             if (rawKey == Key.OemOpenBrackets || rawKey == Key.OemCloseBrackets)
             {
+                // A live value layer gets first refusal on its own keys
+                // (Sprint 49 Track E repair round 1, B2; "a layer's own key
+                // always wins", Noel 2026-10-21 14:36): the noise layer's
+                // brackets step favourites. A layer that binds no bracket
+                // passes it straight back, and with no layer live nothing
+                // is asked, so the filter keys are exactly as they were.
+                if (KeyCommands.AValueLayerIsLive &&
+                    KeyCommands.LiveLayerTakesKeyFirst(WpfKeyConverter.ToWinFormsKeys(e)))
+                {
+                    e.Handled = true;
+                    return;
+                }
                 _freqOutHandlers.HandleFilterHotkey(e);
                 if (e.Handled) return;
             }
@@ -5408,6 +5466,10 @@ public partial class MainWindow : UserControl
             // the last noise profile back. This is what makes "PC Spectral
             // NR on, no noise profile loaded" stop greeting every session.
             FieldsPanel.ApplyDspConfig(CurrentAudioConfig);
+            // The noise controller enters the current mode's group (a starting
+            // point the first time, per-mode memory after) and writes the held
+            // levels the radio never reports back (Sprint 49 Track E).
+            Noise.Attach(RigControl?.Mode ?? "");
 
             // Apply braille config
             _brailleEngine.Enabled = CurrentAudioConfig.BrailleEnabled;
@@ -5818,6 +5880,7 @@ public partial class MainWindow : UserControl
 
         // Detach screen fields panel (Sprint 14)
         FieldsPanel.Detach();
+        _noise?.Detach();
 
         // Sprint 28 Phase 3.6 — unsubscribe from mode changes to avoid leaking
         // handler references across radio reconnects.
@@ -6392,7 +6455,10 @@ public partial class MainWindow : UserControl
             },
             GetCurrentDisplayMode = () => rig.FrontPanelDisplayMode,
             SetDisplayMode = mode => rig.FrontPanelDisplayMode = mode?.ToString() ?? "",
-            GetFeatureAvailabilityText = () => rig.BuildFeatureAvailabilityText(),
+            // The computer's engines follow the radio's rows (Sprint 49 Track E,
+            // E12): Radios cannot see the catalog, so the app appends them.
+            GetFeatureAvailabilityText = () => rig.BuildFeatureAvailabilityText() + Environment.NewLine
+                + string.Join(Environment.NewLine, Noise.ComputerAvailabilityLines()),
             RefreshLicense = () => rig.RefreshLicenseState(),
         };
 

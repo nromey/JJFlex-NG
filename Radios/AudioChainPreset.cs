@@ -25,9 +25,14 @@ public class AudioChainPreset
     /// perfectly legal band level, so the absence is not visible in the
     /// number. <see cref="ApplyTo"/> therefore reads the radio's own 32 Hz
     /// and writes it back unchanged on a version 1 file, rather than flatten
-    /// a band the file never had an opinion about.
+    /// a band the file never had an opinion about. Version 3 (Sprint 49
+    /// Track E): a preset holds SECTIONS — <see cref="ReceiveNoise"/>
+    /// (optional) and the transmit chain (<see cref="HoldsTransmitChain"/>) —
+    /// and applies only the sections it holds. A version 1 or 2 file holds the
+    /// transmit chain and no receive noise reduction, which is exactly what
+    /// it held before.
     /// </summary>
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     /// <summary>Written-by schema version. 0 = a pre-versioning file.
     /// Deliberately NOT defaulted to current: absence must stay detectable.</summary>
@@ -35,6 +40,25 @@ public class AudioChainPreset
     public int SchemaVersion { get; set; }
 
     public string Name { get; set; } = "";
+
+    /// <summary>
+    /// The receive noise reduction section (schema 3), or null when the
+    /// preset holds none. An older build's XmlSerializer skips the element
+    /// it does not know, so a full-chain preset with a noise section still
+    /// loads there as the transmit chain it always was.
+    /// </summary>
+    public ReceiveNoisePresetSection? ReceiveNoise { get; set; }
+
+    /// <summary>
+    /// Whether this preset holds the transmit chain (mic gain to TX EQ). True
+    /// for every file before schema 3 and for every preset saved with the
+    /// transmit chain ticked; false for a noise-only preset, which never
+    /// touches the transmit chain. A noise-only preset is also kept out of
+    /// <see cref="AudioChainPresets.Presets"/> (see
+    /// <see cref="AudioChainPresets.NoisePresets"/>), so an older build,
+    /// which knows nothing of this flag, can never apply it.
+    /// </summary>
+    public bool HoldsTransmitChain { get; set; } = true;
     public string Description { get; set; } = "";
     public int MicGain { get; set; } = 50;
     public bool MicBoost { get; set; } = false;
@@ -112,6 +136,9 @@ public class AudioChainPreset
     /// </summary>
     public string ApplyTo(FlexBase rig, bool applyEq)
     {
+        // A preset that does not hold the transmit chain never touches it
+        // (schema 3, Sprint 49 Track E).
+        if (!HoldsTransmitChain) return "";
         rig.MicGain = MicGain;
         rig.MicBoost = MicBoost ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
         rig.MicBias = MicBias ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
@@ -325,6 +352,19 @@ public class AudioChainPresets
     public List<AudioChainPreset> Presets { get; set; } = new();
 
     /// <summary>
+    /// Presets that hold receive noise reduction and NOT the transmit chain
+    /// (Sprint 49 Track E). Kept in their own element on purpose: an older
+    /// build reads only <see cref="Presets"/>, and would otherwise apply a
+    /// noise-only preset as a transmit chain of class defaults (mic gain 50,
+    /// compander level 50, TX filter 100 to 2900 Hz, monitor level and pan
+    /// 50, every switch off), changing what goes out on the air.
+    /// </summary>
+    public List<AudioChainPreset> NoisePresets { get; set; } = new();
+
+    /// <summary>True once "Balanced capture" has been offered to this store, so deleting it sticks.</summary>
+    public bool BalancedCaptureOffered { get; set; }
+
+    /// <summary>
     /// Built-in default presets.
     /// </summary>
     public static AudioChainPresets CreateDefaults()
@@ -455,4 +495,34 @@ public class AudioChainPresets
     {
         return Path.Combine(configDirectory, $"{operatorName}_audioPresets.xml");
     }
+}
+
+/// <summary>
+/// A preset's receive noise reduction section (schema 3, Sprint 49 Track E):
+/// both computer slots and the radio's noise engines, as one picture of what
+/// you hear. Values only: no catalog, no slot, no radio.
+/// </summary>
+public class ReceiveNoisePresetSection
+{
+    public NoisePresetSlot Spectral { get; set; } = new();
+    public NoisePresetSlot Neural { get; set; } = new();
+    /// <summary>Every radio noise engine the preset sets: its switch and, where it has one, its intended level.</summary>
+    public List<NoisePresetRadioEngine> Radio { get; set; } = new();
+}
+
+/// <summary>One computer slot in a preset: on or off, its engine, and that engine's strength and settings.</summary>
+public class NoisePresetSlot
+{
+    public bool On { get; set; }
+    public string EngineId { get; set; } = "";
+    public DenoiseEngineSettings? Settings { get; set; }
+}
+
+/// <summary>One radio noise engine in a preset.</summary>
+public class NoisePresetRadioEngine
+{
+    public string EngineId { get; set; } = "";
+    public bool On { get; set; }
+    /// <summary>The intended level, or null when the engine has no level.</summary>
+    public int? Level { get; set; }
 }

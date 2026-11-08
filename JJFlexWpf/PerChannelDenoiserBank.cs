@@ -112,6 +112,19 @@ namespace JJFlexWpf
             }
         }
 
+        /// <summary>
+        /// When true, <see cref="Process"/> writes what the engine REMOVED —
+        /// the dry signal, already delayed by the engine's own latency to the
+        /// sample, minus the wet one — instead of the blend (Sprint 49 Track
+        /// E, E13). One mechanism for every engine, computed where the
+        /// aligned dry history already exists for the Strength blend, rather
+        /// than one engine's native residual and something else for the rest.
+        /// A frame that fell back to the dry signal has removed nothing, so
+        /// it is silence here. Set by the slot from the audio thread; no
+        /// allocation, no lock.
+        /// </summary>
+        public bool ListenToRemoved { get; set; }
+
         /// <summary>Interleaved channel count this bank was built for.</summary>
         public int Channels => _engines.Length;
 
@@ -236,8 +249,12 @@ namespace JJFlexWpf
                 }
 
                 // Proved in the class remarks: there are always n ready here.
-                for (int i = 0; i < n; i++)
-                    interleaved[i * channels + ch] = dry[i] * dryMix + wet[i] * strength;
+                if (ListenToRemoved)
+                    for (int i = 0; i < n; i++)
+                        interleaved[i * channels + ch] = dry[i] - wet[i];
+                else
+                    for (int i = 0; i < n; i++)
+                        interleaved[i * channels + ch] = dry[i] * dryMix + wet[i] * strength;
 
                 int remaining = outCount - n;
                 if (remaining > 0)

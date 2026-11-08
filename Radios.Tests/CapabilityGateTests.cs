@@ -389,8 +389,8 @@ namespace Radios.Tests
                 // unsubscribed, or tied to the licence at all.
                 string[] lines = rig.BuildFeatureAvailabilityText()
                     .Split(new[] { Environment.NewLine }, StringSplitOptions.None);
-                string nrl = Assert.Single(lines.Where(l => l.StartsWith("Noise Reduction (NRL):", StringComparison.Ordinal)));
-                string anfl = Assert.Single(lines.Where(l => l.StartsWith("Auto Notch (ANFL):", StringComparison.Ordinal)));
+                string nrl = Assert.Single(lines.Where(l => l.StartsWith("Legacy NR:", StringComparison.Ordinal)));
+                string anfl = Assert.Single(lines.Where(l => l.StartsWith("Legacy Auto-Notch:", StringComparison.Ordinal)));
                 Assert.DoesNotContain("unsubscribed", nrl, StringComparison.OrdinalIgnoreCase);
                 Assert.DoesNotContain("unsubscribed", anfl, StringComparison.OrdinalIgnoreCase);
                 Assert.DoesNotContain("SmartSDR", nrl, StringComparison.Ordinal);
@@ -398,33 +398,28 @@ namespace Radios.Tests
 
                 // Positive control: the same radio and the same text DO call
                 // ANFT unsubscribed, so the absence above is not a blind spot.
-                Assert.Contains(lines, l => l.StartsWith("Auto Notch (ANFT): unsubscribed", StringComparison.Ordinal));
+                Assert.Contains(lines, l => l.StartsWith("FFT Auto-Notch: unsubscribed", StringComparison.Ordinal));
             }
             finally
             {
                 DisposeOfflineRig(rig);
             }
 
-            // And no presentation road asks a ladder about them.
-            string menu = ReadRepoFile("JJFlexWpf/NativeMenuBar.cs");
-            foreach (string label in new[] { "Legacy NR", "Legacy Auto-Notch" })
-            {
-                int at = menu.IndexOf("ToggleDSP(\"" + label + "\"", StringComparison.Ordinal);
-                Assert.True(at >= 0, "no ToggleDSP call for " + label);
-                int end = menu.IndexOf(");", at, StringComparison.Ordinal);
-                Assert.DoesNotContain("RadioCapability.", menu.Substring(at, end - at));
-            }
+            // And no presentation road asks a ladder about them. Since Sprint
+            // 49 Track E every noise road (the menu, Home, the noise layer)
+            // gates through the catalog row's Capability, so the catalog is the
+            // one place a gate could be added: neither row has one.
+            Assert.DoesNotContain("Capability:", CatalogRow("radio_nrl"));
+            Assert.DoesNotContain("Capability:", CatalogRow("radio_anfl"));
 
+            // Home's Legacy Auto-Notch checkbox stays where it was, ungated.
             string panel = ReadRepoFile("JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs");
-            foreach (string control in new[] { "_legacyNrCheck", "_legacyNotchCheck" })
+            foreach (string handler in new[] { ".Checked +=", ".Unchecked +=" })
             {
-                foreach (string handler in new[] { ".Checked +=", ".Unchecked +=" })
-                {
-                    int at = panel.IndexOf(control + handler, StringComparison.Ordinal);
-                    Assert.True(at >= 0, control + handler + " not found");
-                    int end = panel.IndexOf(");", at, StringComparison.Ordinal);
-                    Assert.DoesNotContain("ToggleGatedRig", panel.Substring(at, end - at));
-                }
+                int at = panel.IndexOf("_legacyNotchCheck" + handler, StringComparison.Ordinal);
+                Assert.True(at >= 0, "_legacyNotchCheck" + handler + " not found");
+                int end = panel.IndexOf(");", at, StringComparison.Ordinal);
+                Assert.DoesNotContain("ToggleGatedRig", panel.Substring(at, end - at));
             }
         }
 
@@ -458,10 +453,10 @@ namespace Radios.Tests
             var lineToCapability = new Dictionary<string, RadioCapability>(StringComparer.Ordinal)
             {
                 ["ESC"] = RadioCapability.Esc,
-                ["Noise Reduction (RNN)"] = RadioCapability.NoiseReductionNeural,
-                ["Noise Reduction (NRF)"] = RadioCapability.NoiseReductionFilter,
-                ["Noise Reduction (NRS)"] = RadioCapability.NoiseReductionSpectral,
-                ["Auto Notch (ANFT)"] = RadioCapability.AutoNotchFft,
+                ["Neural NR"] = RadioCapability.NoiseReductionNeural,
+                ["NR Filter"] = RadioCapability.NoiseReductionFilter,
+                ["Spectral NR"] = RadioCapability.NoiseReductionSpectral,
+                ["FFT Auto-Notch"] = RadioCapability.AutoNotchFft,
             };
 
             var divEsc = new Feature("div_esc", false, FeatureStatusReason.Plus);
@@ -992,9 +987,12 @@ namespace Radios.Tests
         /// </para>
         /// </remarks>
         [Theory]
-        [InlineData("JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs", "_neuralNrCheck", "NoiseReductionNeural")]
-        [InlineData("JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs", "_spectralNrCheck", "NoiseReductionSpectral")]
-        [InlineData("JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs", "_nrfCheck", "NoiseReductionFilter")]
+        // The rows for _neuralNrCheck, _spectralNrCheck and _nrfCheck went with
+        // those checkboxes (Sprint 49 Track E): the radio's reducers are now one
+        // Engine field on Home, through the noise controller, which asks the
+        // catalog row's capability before it speaks (see
+        // TheNoiseControllerAsksTheLadderBeforeItSpeaks). FFT Auto-Notch's
+        // checkbox stays where it was, gated as before.
         [InlineData("JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs", "_fftNotchCheck", "AutoNotchFft")]
         public void TheExpandersCheckboxesAskTheLadderBeforeTheySpeak(
             string relativePath, string control, string capability)
@@ -1043,34 +1041,48 @@ namespace Radios.Tests
         [Fact]
         public void TheRadioMenuGatesExactlyTheSwitchesThatNeedIt()
         {
-            string source = ReadRepoFile("JJFlexWpf/NativeMenuBar.cs");
-
-            foreach (var (label, capability) in new[]
+            // Since Sprint 49 Track E the menu's noise rows act only through the
+            // noise controller, which gates by the catalog row's Capability, so
+            // the catalog is where this is held now. It read the menu's
+            // ToggleDSP calls until then; the gated and ungated sets are
+            // unchanged.
+            Assert.DoesNotContain("ToggleDSP(", MenuNoiseBuilder());
+            foreach (var (id, capability) in new[]
                      {
-                         ("On-Radio Neural NR", "NoiseReductionNeural"),
-                         ("On-Radio Spectral NR", "NoiseReductionSpectral"),
-                         ("NR Filter", "NoiseReductionFilter"),
-                         ("FFT Auto-Notch", "AutoNotchFft"),
+                         ("radio_rnn", "NoiseReductionNeural"),
+                         ("radio_nrs", "NoiseReductionSpectral"),
+                         ("radio_nrf", "NoiseReductionFilter"),
+                         ("radio_anft", "AutoNotchFft"),
                      })
-            {
-                int at = source.IndexOf("ToggleDSP(\"" + label + "\"", StringComparison.Ordinal);
-                Assert.True(at >= 0, "no ToggleDSP call for " + label);
-                int end = source.IndexOf(");", at, StringComparison.Ordinal);
-                Assert.True(end > at, "unterminated ToggleDSP call for " + label);
-
-                Assert.Contains("RadioCapability." + capability, source.Substring(at, end - at));
-            }
+                Assert.Contains("Capability: RadioCapability." + capability, CatalogRow(id));
 
             // The noise blankers, Legacy NR and Legacy Auto-Notch run on every
             // model with no licence (the last two measured, #746), and are
-            // deliberately ungated.
-            foreach (string ungated in new[] { "Noise Blanker", "Wideband NB", "Legacy NR", "Legacy Auto-Notch" })
-            {
-                int at = source.IndexOf("ToggleDSP(\"" + ungated + "\"", StringComparison.Ordinal);
-                Assert.True(at >= 0, "no ToggleDSP call for " + ungated);
-                int end = source.IndexOf(");", at, StringComparison.Ordinal);
-                Assert.DoesNotContain("RadioCapability.", source.Substring(at, end - at));
-            }
+            // deliberately ungated; so are Standard NR, the basic auto-notch
+            // and the Audio Peak Filter (CW only, checked app-side).
+            foreach (string ungated in new[] { "radio_nb", "radio_wnb", "radio_nrl", "radio_anfl", "radio_nr", "radio_anf", "radio_apf" })
+                Assert.DoesNotContain("Capability:", CatalogRow(ungated));
+        }
+
+        /// <summary>One catalog row's whole <c>yield return</c> statement, by id.</summary>
+        private static string CatalogRow(string id)
+        {
+            string source = ReadRepoFile("JJFlexWpf/DenoiseEngineCatalog.cs");
+            int at = source.IndexOf("yield return new(\"" + id + "\"", StringComparison.Ordinal);
+            Assert.True(at >= 0, "no catalog row for " + id);
+            // To the next row (or the end of the method): one row's whole text.
+            int end = source.IndexOf("yield return", at + 1, StringComparison.Ordinal);
+            if (end < 0) end = source.IndexOf("private static Unavailability", at, StringComparison.Ordinal);
+            return source.Substring(at, end - at);
+        }
+
+        private static string MenuNoiseBuilder()
+        {
+            string source = ReadRepoFile("JJFlexWpf/NativeMenuBar.cs");
+            int at = source.IndexOf("private void BuildNoiseItems(", StringComparison.Ordinal);
+            Assert.True(at >= 0, "no BuildNoiseItems in NativeMenuBar.cs");
+            int end = source.IndexOf("private const string MenuSource", at, StringComparison.Ordinal);
+            return source.Substring(at, end - at);
         }
 
         /// <summary>
@@ -1087,14 +1099,23 @@ namespace Radios.Tests
         [Fact]
         public void TheNoiseLayersAutoNotchKeyAsksTheLadderBeforeItSpeaks()
         {
-            string source = ReadRepoFile("JJFlexWpf/KeyCommands.cs");
-            int at = source.IndexOf("RadioSwitch(\"auto-notch\"", StringComparison.Ordinal);
-            Assert.True(at >= 0, "no RadioSwitch for auto-notch in KeyCommands.cs");
-            int end = source.IndexOf(");", at, StringComparison.Ordinal);
-            Assert.True(end > at, "unterminated RadioSwitch for auto-notch");
+            // Since Sprint 49 Track E the layer's A key is NoiseLayerKeys'
+            // ("radio_anft") and every radio switch, on every road, goes through
+            // NoiseController.ToggleRadio, which asks the ladder (RefuseRadio)
+            // before it writes or speaks. The controller's tests prove it
+            // behaviourally (NoiseControllerTests, NoiseMenuTests).
+            Assert.Contains("[Keys.A] = \"radio_anft\"", ReadRepoFile("JJFlexWpf/NoiseLayerKeys.cs"));
+            Assert.Contains("Capability: RadioCapability.AutoNotchFft", CatalogRow("radio_anft"));
 
-            Assert.Contains("CapabilityWriteRefusal(Radios.RadioCapability.AutoNotchFft)",
-                source.Substring(at, end - at));
+            string controller = ReadRepoFile("JJFlexWpf/NoiseController.cs");
+            int at = controller.IndexOf("private void ToggleRadio(", StringComparison.Ordinal);
+            Assert.True(at >= 0, "no ToggleRadio in NoiseController.cs");
+            string body = controller.Substring(at, controller.IndexOf("private void WriteRadioSwitch(", at, StringComparison.Ordinal) - at);
+            int refuse = body.IndexOf("RefuseRadio(", StringComparison.Ordinal);
+            int write = body.IndexOf("WriteRadioSwitch(", StringComparison.Ordinal);
+            int say = body.IndexOf("Say(", StringComparison.Ordinal);
+            Assert.True(refuse >= 0 && refuse < write && refuse < say, "ToggleRadio must ask the ladder before it writes or speaks");
+            Assert.Contains("r.CapabilityRefusal(cap)", controller);
         }
 
         /// <summary>

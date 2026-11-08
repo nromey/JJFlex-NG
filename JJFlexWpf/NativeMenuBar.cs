@@ -637,258 +637,189 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
-    /// A menu label with a textual marker when this radio cannot use the
-    /// capability behind it. Every capability-gated row in the DSP submenu
-    /// goes through it: the three On-Radio NR rows and, since #838, FFT
-    /// Auto-Notch.
+    /// Build one noise subject's submenu on the top-level Audio menu (Sprint
+    /// 49 Track E, E8): Noise Reduction, or Noise Blankers and Notches. Ruled
+    /// shape (S2 to S5, 2026-11-07 question 2): flat, four deep — Audio, the
+    /// subject, the engine, its controls — the radio's engines first, then
+    /// the computer's.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>The marker goes before the tab, which is load-bearing.</b> A menu
-    /// label is "Name\tAccelerator"; appending to the whole string would put
-    /// the marker after the chord, so a screen reader would read "On-Radio
-    /// Neural NR, Ctrl+J N R, needs subscription" and the operator would hear
-    /// the condition attached to the keystroke rather than to the feature.
+    /// <b>Every row calls <see cref="NoiseController"/></b>, the one rule
+    /// book the noise layer and the Home expander use too, so a row and a key
+    /// that do the same thing say the same thing. Nothing here decides
+    /// anything: it lays out what the controller lists.
     /// </para>
     /// <para>
-    /// <b>A TEXTUAL marker, not a visual or a disabled state.</b> Graying is
-    /// the thing this replaces: a grayed item cannot be invoked, so it cannot
-    /// explain itself, and a screen reader announces only "unavailable". Text
-    /// in the label is the house convention for exactly this reason.
+    /// <b>Nothing is greyed for availability</b> (#726, ruling 5): an engine
+    /// this radio or computer cannot run stays listed and live, with a short
+    /// marker BEFORE the tab ("Spectral NR, needs subscription") and the full
+    /// reason when chosen. Rows that need a radio keep
+    /// <see cref="Radios.AudioMenuLayout.MarkNeedsRadio"/>.
     /// </para>
     /// <para>
-    /// Hardware and subscription get different markers because they are
-    /// different facts and only one of them is worth money. Wording is
-    /// proposed, not ruled (#720); both are one-line lexicon edits.
+    /// <b>Speech follows the menu's close.</b> Each action runs half a second
+    /// after the click, as <see cref="SpeakAfterMenuClose"/> does, so the
+    /// controller's sentence is not cut off by the screen reader's own
+    /// menu-closing announcement.
     /// </para>
     /// </remarks>
-    private string NrItemLabel(string label, Radios.RadioCapability capability)
-    {
-        var reason = Rig?.CapabilityClosedReason(capability) ?? Radios.CapabilityBlock.None;
-        if (reason == Radios.CapabilityBlock.None) return label;
-
-        string key = reason == Radios.CapabilityBlock.Hardware
-            ? "audio.nr.marker_not_on_this_radio"
-            : Radios.FlexBase.NrLicenceMarkerKey(
-                Rig?.CapabilityLicenceReasonCode(capability));
-
-        int tab = label.IndexOf('\t');
-        if (tab < 0) return Radios.Lexicon.Get(key, ("label", label));
-
-        string name = label.Substring(0, tab);
-        string accelerator = label.Substring(tab);
-        return Radios.Lexicon.Get(key, ("label", name)) + accelerator;
-    }
-
-    /// <summary>
-    /// Build the DSP submenu, which lives on the top-level Audio menu (#836)
-    /// and acts on the active slice.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Built whether or not a radio is connected.</b> It used to return
-    /// empty with no radio, which was invisible while the submenu sat inside
-    /// the Slice menu's own "if (Rig != null)". On the Audio menu it would be
-    /// an empty submenu, and the Audio menu's rule is that its shape never
-    /// depends on connection state (#214, <see cref="Radios.AudioMenuLayout"/>).
-    /// </para>
-    /// <para>
-    /// So the rows are the same in both states, and a row that needs the radio
-    /// is greyed and carries " - connect a radio" in its own label when there is
-    /// none, through <see cref="Radios.AudioMenuLayout.MarkNeedsRadio"/>: the
-    /// Audio menu's existing treatment, not a new one. Rows whose work happens
-    /// on this computer stay live (PC noise reduction's two switches and the
-    /// Noise Profiles folder); the PC switches already speak their own refusal
-    /// when the computer's audio pipeline is not up. The Noise Profiles dialog
-    /// is marked, because its switches drive that pipeline too.
-    /// The submenus keep their rows and their first letters in both states.
-    /// </para>
-    /// <para>
-    /// Every handler keeps its own no-radio guard (ToggleDSP, AdjustValue and
-    /// the lambdas below), for the reason BuildAudioItems gives.
-    /// </para>
-    /// </remarks>
-    private void BuildDSPItems(IntPtr parent)
+    private void BuildNoiseItems(IntPtr parent, DenoiseGroup group)
     {
         bool radio = Rig != null;
         string R(string text) => Radios.AudioMenuLayout.MarkNeedsRadio(text, radio);
+        var noise = _window.Noise;
 
-        // === Noise Reduction submenu ===
-        var nrSub = AddSubmenu(parent, "Noise Reduction");
-        // NRF, NRS, RNN all require 8000-series/Aurora DSP hardware, and a
-        // subscription on top of it.
-        //
-        // THE THREE ITEMS ARE NOW ALWAYS PRESENT, MARKED IN TEXT (#726 item 6).
-        // Sprint 30 Track A replaced an absent family with one stand-in item,
-        // which was a real improvement on absence - absence reads exactly like
-        // a missing feature. But a stand-in is still three controls the
-        // operator cannot find: it answers "why can I not have this family"
-        // and never "what happened to NR Filter". Noel's rule is that an
-        // unavailable feature stays PRESENT, marked in text, invocable and
-        // self-explaining, and three marked items satisfy it where one stand-in
-        // did not.
-        //
-        // Nothing is grayed, deliberately. A grayed item cannot be invoked, so
-        // it cannot say why it is shut or name the alternative - the screen
-        // reader says "unavailable" and the operator learns nothing. These stay
-        // live: pressing one speaks the reason, because ToggleDSP asks the
-        // ladder before it speaks.
-        //
-        // "On-Radio" prefix (DSP controls track, 2026-08-11): these run in
-        // the radio's own DSP and have PC-side namesakes two submenus
-        // down — the names now say which side of the wire each one is.
-        // Accelerator text names the noise layer's chords (Sprint 48 Track
-        // F, #518): JJ key N, then the switch's letter. Its letters are
-        // provisional until Noel walks them; when they change, they change
-        // here too.
+        foreach (var e in noise.Engines(group))
         {
-            AddChecked(nrSub, R(NrItemLabel("On-Radio Neural NR (RNN)\tCtrl+J, N, R",
-                    Radios.RadioCapability.NoiseReductionNeural)), () =>
-                ToggleDSP("On-Radio Neural NR", () => Rig.NeuralNoiseReduction, v => Rig.NeuralNoiseReduction = v,
-                    Radios.RadioCapability.NoiseReductionNeural),
-                () => Rig?.NeuralNoiseReduction == FlexBase.OffOnValues.on, radio);
-            AddChecked(nrSub, R(NrItemLabel("On-Radio Spectral NR (NRS)\tCtrl+J, N, S",
-                    Radios.RadioCapability.NoiseReductionSpectral)), () =>
-                ToggleDSP("On-Radio Spectral NR", () => Rig.SpectralNoiseReduction, v => Rig.SpectralNoiseReduction = v,
-                    Radios.RadioCapability.NoiseReductionSpectral),
-                () => Rig?.SpectralNoiseReduction == FlexBase.OffOnValues.on, radio);
-            AddChecked(nrSub, R(NrItemLabel("NR Filter (NRF)\tCtrl+J, N, Ctrl+N",
-                    Radios.RadioCapability.NoiseReductionFilter)), () =>
-                ToggleDSP("NR Filter", () => Rig.NoiseReductionFilter, v => Rig.NoiseReductionFilter = v,
-                    Radios.RadioCapability.NoiseReductionFilter),
-                () => Rig?.NoiseReductionFilter == FlexBase.OffOnValues.on, radio);
-        }
-        // Legacy NR is available on every radio, licensed or not: an
-        // unlicensed 8600 accepted it and applied it (measured 2026-10-27,
-        // #746), so it passes no capability and needs no gate.
-        AddChecked(nrSub, R("Legacy NR"), () =>
-            ToggleDSP("Legacy NR", () => Rig.NoiseReductionLegacy, v => Rig.NoiseReductionLegacy = v),
-            () => Rig?.NoiseReductionLegacy == FlexBase.OffOnValues.on, radio);
-        // QB Track I menu parity — the level under the toggle (matches the
-        // ScreenFields NR Level field that appears when Legacy NR is on).
-        AddWired(nrSub, R("NR Level Up"), () =>
-            AdjustValue("NR Level", () => Rig.NoiseReductionLegacyLevel, v => Rig.NoiseReductionLegacyLevel = v, 1, 1, 15), radio);
-        AddWired(nrSub, R("NR Level Down"), () =>
-            AdjustValue("NR Level", () => Rig.NoiseReductionLegacyLevel, v => Rig.NoiseReductionLegacyLevel = v, -1, 1, 15), radio);
+            string id = e.Id;
+            string name = Radios.Lexicon.Get(e.LabelKey);
+            string named = NoiseMarked(name, id);
+            string chord = NoiseChordText(id);
+            bool isRadio = e.Side == DenoiseSide.Radio;
 
-        // === Noise Blankers submenu ===
-        var nbSub = AddSubmenu(parent, "Noise Blankers");
-        AddChecked(nbSub, R("Noise Blanker (NB)\tCtrl+J, N, B"), () =>
-            ToggleDSP("Noise Blanker", () => Rig.NoiseBlanker, v => Rig.NoiseBlanker = v),
-            () => Rig?.NoiseBlanker == FlexBase.OffOnValues.on, radio);
-        AddWired(nbSub, R("NB Level Up"), () =>
-            AdjustValue("NB Level", () => Rig.NoiseBlankerLevel, v => Rig.NoiseBlankerLevel = v, 5, 1, 100), radio);
-        AddWired(nbSub, R("NB Level Down"), () =>
-            AdjustValue("NB Level", () => Rig.NoiseBlankerLevel, v => Rig.NoiseBlankerLevel = v, -5, 1, 100), radio);
-        AddChecked(nbSub, R("Wideband NB (WNB)\tCtrl+J, N, W"), () =>
-            ToggleDSP("Wideband NB", () => Rig.WidebandNoiseBlanker, v => Rig.WidebandNoiseBlanker = v),
-            () => Rig?.WidebandNoiseBlanker == FlexBase.OffOnValues.on, radio);
-        AddWired(nbSub, R("WNB Level Up"), () =>
-            AdjustValue("WNB Level", () => Rig.WidebandNoiseBlankerLevel, v => Rig.WidebandNoiseBlankerLevel = v, 5, 1, 100), radio);
-        AddWired(nbSub, R("WNB Level Down"), () =>
-            AdjustValue("WNB Level", () => Rig.WidebandNoiseBlankerLevel, v => Rig.WidebandNoiseBlankerLevel = v, -5, 1, 100), radio);
-
-        // === PC-side noise reduction (runs on the computer, ALL radios) ===
-        // QB Track I menu parity — these existed only as ScreenFields
-        // checkboxes; the menu is the addressable second door.
-        var pcSub = AddSubmenu(parent, "PC Noise Reduction");
-        AddChecked(pcSub, "PC Neural NR\tCtrl+J, N, Ctrl+R", () =>
-        {
-            var p = _window.FieldsPanel?.AudioPipeline;
-            if (p == null) { SpeakAfterMenuClose(Radios.Lexicon.Get("audio.pc_pipeline.unavailable")); return; }
-            p.RnnEnabled = !p.RnnEnabled;
-            _window.PersistDspSettings();
-            // #128 sweep audit (2026-08-21): this was the one silent road of
-            // four — the Home panel, the Noise Profiles dialog and the Ctrl+J
-            // chord all toned, and an operator who learned the sound from any
-            // of those reads this menu's silence as the command failing.
-            EarconPlayer.ToggleTone(p.RnnEnabled);
-            SpeakAfterMenuClose(p.RnnEnabled
-                ? Radios.Lexicon.Get("audio.pc_nr.neural_on")
-                : Radios.Lexicon.Get("audio.pc_nr.neural_off"));
-        }, () => _window.FieldsPanel?.AudioPipeline?.RnnEnabled == true);
-        AddChecked(pcSub, "PC Spectral NR\tCtrl+J, N, Ctrl+S", () =>
-        {
-            var p = _window.FieldsPanel?.AudioPipeline;
-            if (p == null) { SpeakAfterMenuClose(Radios.Lexicon.Get("audio.pc_pipeline.unavailable")); return; }
-            p.SpectralEnabled = !p.SpectralEnabled;
-            _window.PersistDspSettings();
-            // #128 sweep audit (2026-08-21): same as PC Neural NR above — the
-            // menu was the one silent road of four into this state.
-            EarconPlayer.ToggleTone(p.SpectralEnabled);
-            SpeakAfterMenuClose(
-                !p.SpectralEnabled ? Radios.Lexicon.Get("audio.pc_nr.spectral_off")
-                : p.HasNoiseProfile ? Radios.Lexicon.Get("audio.pc_nr.spectral_on")
-                : Radios.Lexicon.Get("audio.pc_nr.spectral_on_no_profile"));
-        }, () => _window.FieldsPanel?.AudioPipeline?.SpectralEnabled == true);
-
-        // DSP controls track (2026-08-11) — the capture and the profile
-        // room. The capture start is deferred past the menu close so its
-        // spoken countdown isn't trampled by NVDA's menu-dismiss chatter
-        // (same reasoning as SpeakAfterMenuClose's 500 ms).
-        AddWired(pcSub, R("Capture Noise Profile\tCtrl+J, Alt+Q"), () =>
-        {
-            if (Rig == null) { SpeakNoRadio(); return; }
-            var p = _window.FieldsPanel?.AudioPipeline;
-            if (p == null) { SpeakAfterMenuClose(Radios.Lexicon.Get("audio.pc_pipeline.unavailable")); return; }
-            if (NoiseCaptureNarrator.IsRunning) { NoiseCaptureNarrator.Cancel(); return; }
-            var rig = Rig;
-            _window.Dispatcher.BeginInvoke(async () =>
+            if (e.IsSwitchOnly)
             {
-                await System.Threading.Tasks.Task.Delay(500);
-                NoiseCaptureNarrator.Start(rig, p,
-                    _window.CurrentAudioConfig?.SpectralSubSampleDuration ?? 3);
-            });
-        }, radio);
-        // Needs a radio like Capture: the dialog's switches and strengths drive
-        // the PC audio pipeline, which exists only while connected, and with no
-        // pipeline they would accept a change and do nothing. The folder row
-        // below stays live.
-        AddWired(pcSub, R("Noise Profiles..."), () =>
-        {
-            if (Rig == null) { SpeakNoRadio(); return; }
-            new Dialogs.NoiseProfilesDialog(Rig, _window.FieldsPanel?.AudioPipeline,
-                () => _window.CurrentAudioConfig, () => _window.PersistDspSettings())
-                .ShowDialog();
-        }, radio);
-        AddWired(pcSub, "Open Noise Profiles Folder", () =>
-        {
-            SpeakAfterMenuClose(NoiseProfileStore.OpenFolder()
-                ? Radios.Lexicon.Get("audio.noise_profiles.folder_opened")
-                : Radios.Lexicon.Get("audio.noise_profiles.folder_open_failed"));
-        });
-
-        // === Auto Notch ===
-        var anfSub = AddSubmenu(parent, "Auto Notch");
-        // FFT auto-notch is licensed on noise_reduction (#746, measured: an
-        // unlicensed 8600 refused anft with its licence code), so the ladder
-        // answers before the speech. Legacy Auto-Notch is NOT: the same radio
-        // accepted lms_anf and applied it, so it passes no capability.
-        // Its label carries the same textual marker as the On-Radio NR rows,
-        // from the same capability check (#838 defect 6): until then it read
-        // "FFT Auto-Notch, Ctrl+J N A: Off" on an unlicensed radio, and the
-        // operator learned it was shut only by pressing it.
-        AddChecked(anfSub, R(NrItemLabel("FFT Auto-Notch\tCtrl+J, N, A",
-                Radios.RadioCapability.AutoNotchFft)), () =>
-            ToggleDSP("FFT Auto-Notch", () => Rig.AutoNotchFFT, v => Rig.AutoNotchFFT = v,
-                Radios.RadioCapability.AutoNotchFft),
-            () => Rig?.AutoNotchFFT == FlexBase.OffOnValues.on, radio);
-        AddChecked(anfSub, R("Legacy Auto-Notch"), () =>
-            ToggleDSP("Legacy Auto-Notch", () => Rig.AutoNotchLegacy, v => Rig.AutoNotchLegacy = v),
-            () => Rig?.AutoNotchLegacy == FlexBase.OffOnValues.on, radio);
-
-        // === Audio Peak Filter (CW only) ===
-        AddChecked(parent, R("Audio Peak Filter (APF)\tCtrl+J, N, P"), () =>
-        {
-            if (Rig == null) { SpeakNoRadio(); return; }
-            string? mode = Rig.Mode;
-            if (mode != null && !mode.StartsWith("CW", StringComparison.OrdinalIgnoreCase))
-            {
-                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.apf.cw_only"));
-                return;
+                // A plain check item, and its favourite as a second item below
+                // it, since a check item has no submenu to hold one (D4).
+                AddChecked(parent, R(named + chord), () => AfterMenu(n => n.Toggle(id, MenuSource)),
+                    () => _window.Noise.IsOn(id), radio);
+                AddChecked(parent, R(Radios.Lexicon.Get("audio.noise_menu.engine_favourite", ("engine", name))),
+                    () => AfterMenu(n => n.ToggleFavourite(id, MenuSource)), () => _window.Noise.IsFavourite(id));
+                continue;
             }
-            ToggleDSP("Audio Peak Filter", () => Rig.APF, v => Rig.APF = v);
-        }, () => Rig?.APF == FlexBase.OffOnValues.on, radio);
+
+            var sub = AddSubmenu(parent, isRadio ? R(named) : named);
+            AddChecked(sub, isRadio ? R(Radios.Lexicon.Get("audio.noise_menu.on") + chord) : Radios.Lexicon.Get("audio.noise_menu.on") + chord,
+                () => AfterMenu(n => n.Toggle(id, MenuSource)), () => _window.Noise.IsOn(id), !isRadio || radio);
+
+            foreach (var lever in noise.Levers(id, includeAdvanced: false))
+            {
+                var l = lever;
+                if (l.Descriptor is { Kind: EngineSettingKind.Choice })
+                {
+                    // A choice lever is a single-choice sub-submenu; in CW, NNR's
+                    // model lists only the CW models (the controller decides).
+                    var choices = AddSubmenu(sub, noise.LeverName(l));
+                    foreach (var option in noise.OptionsFor(l))
+                    {
+                        var o = option;
+                        AddRadioChecked(choices, Radios.Lexicon.Get(o.LabelKey),
+                            () => AfterMenu(n => n.Set(l, null, o.Name, MenuSource)),
+                            () => _window.Noise.ChoiceOf(l) == o.Name);
+                    }
+                    continue;
+                }
+                string leverName = noise.LeverName(l);
+                AddWired(sub, isRadio ? R(Radios.Lexicon.Get("audio.noise_menu.up", ("lever", leverName))) : Radios.Lexicon.Get("audio.noise_menu.up", ("lever", leverName)),
+                    () => AfterMenu(n => n.Adjust(l, +1, MenuSource)), !isRadio || radio);
+                AddWired(sub, isRadio ? R(Radios.Lexicon.Get("audio.noise_menu.down", ("lever", leverName))) : Radios.Lexicon.Get("audio.noise_menu.down", ("lever", leverName)),
+                    () => AfterMenu(n => n.Adjust(l, -1, MenuSource)), !isRadio || radio);
+            }
+
+            if (!isRadio && e.Settings.Any(d => d.Advanced))
+                AddWired(sub, Radios.Lexicon.Get("audio.noise_menu.advanced"),
+                    () => _window.OpenNoiseOnHome(id, advanced: true));
+
+            // Return to defaults is on every engine with a level (D4); on a radio
+            // engine it says why it cannot act (no factory level is known).
+            AddWired(sub, isRadio ? R(Radios.Lexicon.Get("audio.noise_menu.defaults")) : Radios.Lexicon.Get("audio.noise_menu.defaults"),
+                () => AfterMenu(n => n.ReturnToDefaults(id, MenuSource)), !isRadio || radio);
+            AddChecked(sub, Radios.Lexicon.Get("audio.noise_menu.favourite"),
+                () => AfterMenu(n => n.ToggleFavourite(id, MenuSource)), () => _window.Noise.IsFavourite(id));
+            BuildNoisePresetItems(AddSubmenu(sub, Radios.Lexicon.Get("audio.noise_menu.presets")), id);
+
+            if (id == "spectral_capture")
+            {
+                AddWired(sub, R(Radios.Lexicon.Get("audio.noise_menu.capture") + "\tCtrl+J, Alt+Q"), () =>
+                {
+                    if (Rig == null) { SpeakNoRadio(); return; }
+                    var p = _window.FieldsPanel?.AudioPipeline;
+                    if (p == null) { SpeakAfterMenuClose(Radios.Lexicon.Get("audio.pc_pipeline.unavailable")); return; }
+                    if (NoiseCaptureNarrator.IsRunning) { NoiseCaptureNarrator.Cancel(); return; }
+                    var rig = Rig;
+                    _window.Dispatcher.BeginInvoke(async () =>
+                    {
+                        await System.Threading.Tasks.Task.Delay(500);
+                        NoiseCaptureNarrator.Start(rig, p, _window.CurrentAudioConfig?.SpectralSubSampleDuration ?? 3);
+                    });
+                }, radio);
+                AddWired(sub, R(Radios.Lexicon.Get("audio.noise_menu.profiles")), () =>
+                {
+                    if (Rig == null) { SpeakNoRadio(); return; }
+                    new Dialogs.NoiseProfilesDialog(Rig, _window.FieldsPanel?.AudioPipeline,
+                        () => _window.CurrentAudioConfig, () => _window.PersistDspSettings(), _window.Noise)
+                        .ShowDialog();
+                }, radio);
+                AddWired(sub, Radios.Lexicon.Get("audio.noise_menu.profiles_folder"), () =>
+                {
+                    SpeakAfterMenuClose(NoiseProfileStore.OpenFolder()
+                        ? Radios.Lexicon.Get("audio.noise_profiles.folder_opened")
+                        : Radios.Lexicon.Get("audio.noise_profiles.folder_open_failed"));
+                });
+            }
+        }
+
+        if (group == DenoiseGroup.NoiseReduction)
+        {
+            BuildNoisePresetItems(AddSubmenu(parent, Radios.Lexicon.Get("audio.noise_menu.presets")), null);
+            AddWired(parent, Radios.Lexicon.Get("audio.noise_menu.settings_on_home"),
+                () => _window.OpenNoiseOnHome(null, advanced: false));
+        }
+        else
+        {
+            AddWired(parent, Radios.Lexicon.Get("audio.noise_menu.blanker_settings_on_home"),
+                () => _window.OpenNoiseOnHome("radio_nb", advanced: false));
+        }
+    }
+
+    /// <summary>The source name every menu row journals under.</summary>
+    private const string MenuSource = "audio menu";
+
+    /// <summary>
+    /// A preset list: every preset holding receive noise reduction (or, for
+    /// an engine, those whose main engine it is), each applying, then Save
+    /// and Manage.
+    /// </summary>
+    private void BuildNoisePresetItems(IntPtr parent, string? engineId)
+    {
+        var noise = _window.Noise;
+        IReadOnlyList<Radios.AudioChainPreset> presets;
+        try { presets = engineId == null ? noise.NoisePresets() : noise.PresetsFor(engineId); }
+        catch (Exception ex) { Tracing.TraceLine("NativeMenuBar: presets unreadable: " + ex.Message, TraceLevel.Warning); presets = Array.Empty<Radios.AudioChainPreset>(); }
+        foreach (var preset in presets)
+        {
+            string presetName = preset.Name;
+            AddWired(parent, presetName, () => AfterMenu(n => n.ApplyPreset(presetName, MenuSource)));
+        }
+        AddWired(parent, Radios.Lexicon.Get("audio.noise_menu.preset_save"), () => _window.ShowNoisePresetSave(fromNoise: true));
+        AddWired(parent, Radios.Lexicon.Get("audio.noise_menu.preset_manage"), () => _window.ShowNoisePresetManager());
+    }
+
+    /// <summary>An engine's name with its availability marker, before any tab: "Spectral NR, needs subscription".</summary>
+    private string NoiseMarked(string name, string id) => _window.Noise.MarkedName(id);
+
+    /// <summary>The engine's JJ key chord for the accelerator column, from the noise layer's own inventory row.</summary>
+    private static string NoiseChordText(string id)
+    {
+        foreach (var (chord, engine) in NoiseLayerKeys.EngineKeys)
+        {
+            if (engine != id) continue;
+            var row = KeyInventory.LayerCommands(KeyInventory.NoiseLayerContext)
+                .FirstOrDefault(r => Radios.LeaderChordParser.TryParseChord(r.KeyDisplay, out var k) && k == chord);
+            return row == null ? "" : "\tCtrl+J, N, " + row.KeyDisplay;
+        }
+        return "";
+    }
+
+    /// <summary>Run a controller action after the menu has closed, so its sentence is heard (see <see cref="SpeakAfterMenuClose"/>).</summary>
+    private void AfterMenu(Action<NoiseController> act)
+    {
+        _window.Dispatcher.BeginInvoke(async () =>
+        {
+            await System.Threading.Tasks.Task.Delay(500);
+            act(_window.Noise);
+        });
     }
 
     /// <summary>
@@ -1206,11 +1137,16 @@ public class NativeMenuBar : IDisposable
                 case "audio-workshop":
                     AddWired(parent, label, MenuAudioWorkshop, enabled);
                     break;
-                case "dsp":
-                    // #836: the DSP submenu's one home. It acts on the active
-                    // slice; with no radio its rows stay present and the ones
-                    // that need a radio say so (see BuildDSPItems).
-                    BuildDSPItems(AddSubmenu(parent, label));
+                case "noise-active":
+                    // Changes nothing: the summary every road speaks (E8).
+                    AddWired(parent, label, () => AfterMenu(n => n.SpeakActive()), enabled);
+                    break;
+                case "noise-reduction":
+                    // Sprint 49 Track E: the subject submenus' one home each.
+                    BuildNoiseItems(AddSubmenu(parent, label), DenoiseGroup.NoiseReduction);
+                    break;
+                case "noise-blankers":
+                    BuildNoiseItems(AddSubmenu(parent, label), DenoiseGroup.BlankersAndNotches);
                     break;
                 case "meter-tones":
                     BuildMeterToneItems(AddSubmenu(parent, label));
@@ -3701,6 +3637,7 @@ public class NativeMenuBar : IDisposable
 
         var dialog = new Dialogs.SettingsDialog(pttConfig, coarseStep, fineStep, licenseConfig, audioConfig);
         dialog.FreqHandlers = _window.FreqHandlers;
+        dialog.Noise = _window.Noise;
         // The Audio tab's device picker needs audioDevices.xml. Prefer the path
         // the connect handed us; fall back to the one globals publishes at
         // startup, so the picker still works with no radio connected.

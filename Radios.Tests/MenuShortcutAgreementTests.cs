@@ -91,7 +91,11 @@ namespace Radios.Tests
         /// find at least this many, so a reader that quietly stops seeing a
         /// shape of row cannot pass by finding fewer.
         /// </summary>
-        private const int ShortcutFloor = 57;
+        // Sprint 49 Track E: 48 (it was 57). The noise rows' chords moved out
+        // of literals: BuildNoiseItems reads each engine's chord from the noise
+        // layer's own inventory row (NoiseChordText), so the menu and the layer
+        // cannot disagree, and this reader has nothing literal to hold there.
+        private const int ShortcutFloor = 48;
 
         /// <summary>
         /// Real disagreements whose right meaning is NOT ruled in the register,
@@ -170,7 +174,10 @@ namespace Radios.Tests
         {
             var menu = ReadMenuShortcuts(Source(MenuFile));
             Assert.True(menu.Count >= ShortcutFloor, "only " + menu.Count + " menu shortcuts found — the reader is broken");
-            Assert.Contains(menu, m => m.ChordText.StartsWith("Ctrl+J, N, ", StringComparison.Ordinal));
+            // The noise rows carried the only "Ctrl+J, N, " literals until
+            // Sprint 49 Track E; they are generated from the layer's inventory
+            // now (see ShortcutFloor), so they are held there instead.
+            Assert.Contains("NoiseChordText(", Source(MenuFile));
             Assert.Contains(menu, m => m.Command != null);
             Assert.Contains(menu, m => m.Bound.Count > 0);   // the Mode submenu's switch shape
 
@@ -179,7 +186,7 @@ namespace Radios.Tests
                      {
                          "Next Mode\tAlt+M", "Previous Mode\tAlt+Shift+M", "USB\tAlt+U",
                          "Antenna\tCtrl+Shift+A", "Speak Status\tCtrl+Shift+S", "Status Dialog\tCtrl+Alt+S",
-                         "On-Radio Neural NR (RNN)\tCtrl+J, N, R", "Log Statistics\tCtrl+J, Alt+L",
+                         "Log Statistics\tCtrl+J, Alt+L",
                          "Speak Current Step\tShift+S",
                      })
             {
@@ -198,8 +205,6 @@ namespace Radios.Tests
                 AddChecked(parent, ""160m\tF3"", () => _window.BandJump(Bands.BandNames.m80), () => true);
                 AddWired(screenFields, ""Antenna\tCtrl+Shift+A"", () => _window.FieldsPanel.ToggleCategory(3));
                 AddWired(tools, ""Status Dialog\tCtrl+Alt+S"", () => _window.SpeakStatusCallback?.Invoke());
-                AddChecked(nbSub, ""Noise Blanker (NB)\tCtrl+J, N, B"", () =>
-                    ToggleDSP(""Noise Blanker"", () => Rig.WidebandNoiseBlanker, v => Rig.WidebandNoiseBlanker = v), () => true);
                 AddWired(tuningSub, ""Speak Current Step\tShift+S"", () => _window.SpeakFrequency());
                 AddWired(tuningSub, ""Speak Current Step\tShift+Q"", () => _window.TuningMenuSpeakStep());
             }
@@ -211,7 +216,13 @@ namespace Radios.Tests
                     AddRadioChecked(modeSub, m + accel, () => { Rig.Mode = m; }, () => true);
                 }
             } }");
-            Assert.Equal(13, planted.Count);
+            // 12 since Sprint 49 Track E (was 13): the Noise Blanker plant
+            // pair went, because the noise layer's builder no longer names its
+            // keys (they are NoiseLayerKeys' table) and the menu's noise rows
+            // generate their chords from the layer's inventory, so the reader
+            // has no layer statement to resolve "Ctrl+J, N, B" through. The
+            // unbound layer chord plant ("Ghost layer") still reads as drift.
+            Assert.Equal(12, planted.Count);
             Assert.All(planted, p => Assert.False(keys.Judge(p).Agrees, p.Id + " was read as agreeing: " + keys.Judge(p).Describe()));
 
             // And the same plants written correctly agree, so the reds above
@@ -221,8 +232,6 @@ namespace Radios.Tests
                 AddWired(parent, ""Band Up\tAlt+Up"", () => _window.BandNavigate(1));
                 AddChecked(parent, ""160m\tF3"", () => _window.BandJump(Bands.BandNames.m160), () => true);
                 AddWired(screenFields, ""Antenna\tCtrl+Shift+A"", () => _window.FieldsPanel.ToggleCategory(4));
-                AddChecked(nbSub, ""Noise Blanker (NB)\tCtrl+J, N, B"", () =>
-                    ToggleDSP(""Noise Blanker"", () => Rig.NoiseBlanker, v => Rig.NoiseBlanker = v), () => true);
             }
             void C() {
                 foreach (string modeName in RigCaps.ModeTable)
@@ -232,7 +241,7 @@ namespace Radios.Tests
                     AddRadioChecked(modeSub, m + accel, () => { Rig.Mode = m; }, () => true);
                 }
             } }");
-            Assert.Equal(6, right.Count);
+            Assert.Equal(5, right.Count); // 6 until the Noise Blanker plant went (see above)
             Assert.All(right, p => Assert.True(keys.Judge(p).Agrees, p.Id + " was read as a drift: " + keys.Judge(p).Describe()));
         }
 

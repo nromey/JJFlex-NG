@@ -268,6 +268,13 @@ namespace Radios
         SomeoneElses = 2,
     }
 
+    /// <summary>One held intent for a radio noise level the radio never reports back (Sprint 49 Track E).</summary>
+    public class NoiseLevelIntent
+    {
+        public string EngineId { get; set; } = "";
+        public int Level { get; set; }
+    }
+
     /// <summary>
     /// Per-radio configuration, keyed by radio serial (or, for future non-Flex
     /// rigs, whatever stable identifier the backend provides). Stored at
@@ -546,6 +553,57 @@ namespace Radios
         /// <summary>App-made slice take times. A time is usable only while the radio
         /// reports the same recorded duration; another client can replace a take.</summary>
         public List<SliceTakeStamp> SliceTakeStamps { get; set; } = new();
+
+        /// <summary>
+        /// The operator's intended level for each radio noise level the radio
+        /// never reports back (Legacy NR, Spectral NR, NR Filter, Legacy
+        /// Auto-Notch), by catalog engine id (Sprint 49 Track E; ruled by Noel
+        /// 2026-11-07, question 16). JJ Flexible writes each on connect and
+        /// when the slice changes, because it cannot otherwise make a level it
+        /// cannot read true. An engine with no entry has never been set, and
+        /// nothing is written for it, so a radio nobody touched keeps what it
+        /// had. Per radio by serial, never per profile.
+        /// </summary>
+        public List<NoiseLevelIntent> NoiseLevelIntents { get; set; } = new();
+
+        /// <summary>The intended level for one engine on a radio, or null when never set. Never throws.</summary>
+        public static int? NoiseLevelIntentOf(string radioId, string engineId)
+        {
+            if (string.IsNullOrEmpty(radioId)) return null;
+            try
+            {
+                return LoadForRadio(radioId).NoiseLevelIntents?
+                    .LastOrDefault(i => string.Equals(i.EngineId, engineId, StringComparison.Ordinal))?.Level;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("RadioConfig.NoiseLevelIntentOf: " + ex.Message, System.Diagnostics.TraceLevel.Warning);
+                return null;
+            }
+        }
+
+        /// <summary>Record the operator's intended level for one engine on a radio. Skips the write when unchanged. Never throws.</summary>
+        public static bool RecordNoiseLevelIntent(string radioId, string engineId, int level)
+        {
+            if (string.IsNullOrEmpty(radioId) || string.IsNullOrEmpty(engineId)) return false;
+            try
+            {
+                return Update(radioId, cfg =>
+                {
+                    cfg.NoiseLevelIntents ??= new();
+                    var existing = cfg.NoiseLevelIntents.FirstOrDefault(i => string.Equals(i.EngineId, engineId, StringComparison.Ordinal));
+                    if (existing != null && existing.Level == level) return false;
+                    if (existing == null) cfg.NoiseLevelIntents.Add(new NoiseLevelIntent { EngineId = engineId, Level = level });
+                    else existing.Level = level;
+                    return true;
+                });
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("RadioConfig.RecordNoiseLevelIntent: " + ex.Message, System.Diagnostics.TraceLevel.Warning);
+                return false;
+            }
+        }
 
         public DateTime? TrustedSliceTakeTime(string letter, double? radioSeconds)
         {

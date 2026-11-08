@@ -66,7 +66,11 @@ namespace JJFlexWpf
         public DenoiseDirection Direction => DenoiseDirection.Receive;
         public string ChosenEngineId => Volatile.Read(ref _choice).Id;
         public string RunningEngineId => Volatile.Read(ref _runningId);
-        public bool HasBeenEnabled { get; private set; }
+        /// <summary>What the running bank delays the audio by, in samples (engine plus any frame carry); 0 with nothing running. For the Delay readout only.</summary>
+        public int RunningLatencySamples => Volatile.Read(ref _running)?.LatencySamples ?? 0;
+        private int _hasBeenEnabled;
+        /// <summary>True once the slot has been turned on, or restored with a remembered choice. Read by the audio thread (E5's hold), so volatile.</summary>
+        public bool HasBeenEnabled { get => Volatile.Read(ref _hasBeenEnabled) != 0; private set => Volatile.Write(ref _hasBeenEnabled, value ? 1 : 0); }
         internal void RememberUse() => HasBeenEnabled = true;
         public bool Enabled
         {
@@ -74,6 +78,34 @@ namespace JJFlexWpf
             set { if (value) HasBeenEnabled = true; Volatile.Write(ref _enabled, value ? 1 : 0); }
         }
         public event EventHandler<DenoiseSelectionResult>? SelectionResult;
+
+        private static int _crossFadeOff;
+        /// <summary>
+        /// Whether an engine swap cross-fades from the old engine to the new
+        /// (#873; Settings, Advanced, default on). Off is the switch for a
+        /// slower machine: the swap is then a straight cut on a buffer
+        /// boundary. App-wide, read by the audio thread once per swap.
+        /// </summary>
+        public static bool CrossFadeEnabled
+        {
+            get => Volatile.Read(ref _crossFadeOff) == 0;
+            set => Volatile.Write(ref _crossFadeOff, value ? 0 : 1);
+        }
+
+        private int _listenRemoved;
+        /// <summary>
+        /// Listen to what was removed (Sprint 49 Track E, E13; ruled 2026-11-07,
+        /// question 13): while true the slot's output is what its engine took
+        /// out — the aligned input minus the processed output — instead of the
+        /// cleaned audio. Never saved; the controller clears it when the layer
+        /// or the expander is left and on every connect. Read by the audio
+        /// thread once per buffer.
+        /// </summary>
+        public bool ListenToRemoved
+        {
+            get => Volatile.Read(ref _listenRemoved) != 0;
+            set => Volatile.Write(ref _listenRemoved, value ? 1 : 0);
+        }
         internal Action<string>? InstallHook { get; set; }
         /// <summary>Tests only: the bank the audio thread is running now.</summary>
         internal PerChannelDenoiserBank? RunningBankForTest => Volatile.Read(ref _running);
@@ -144,7 +176,9 @@ namespace JJFlexWpf
             if (descriptor == null || !descriptor.Accepts(value)) return false;
             _settings.AddOrUpdate(id, _ => new Parameters(1, new Dictionary<string, EngineSettingValue> { [name] = value }),
                 (_, p) => p with { Values = new Dictionary<string, EngineSettingValue>(p.Values) { [name] = value } });
-            if (descriptor.ChangesLatency && ChosenEngineId == id) Select(id, out _, force: true);
+            // A rebuild setting (a new delay, or NR4's estimator) only takes
+            // effect in a new instance, built under the warm-up cross-fade.
+            if (descriptor.NeedsRebuild && ChosenEngineId == id) Select(id, out _, force: true);
             return true;
         }
 
@@ -180,7 +214,7 @@ namespace JJFlexWpf
             if (built == null || built.Id != id) return false;
             foreach (var descriptor in SettingsFor(id))
             {
-                if (!descriptor.ChangesLatency) continue;
+                if (!descriptor.NeedsRebuild) continue;
                 var wanted = GetSetting(id, descriptor.Name);
                 var had = built.Initial.TryGetValue(descriptor.Name, out var v) ? v : descriptor.Default;
                 if (!string.Equals(wanted.Choice, had.Choice, StringComparison.Ordinal) ||
@@ -249,7 +283,7 @@ namespace JJFlexWpf
             if (ReferenceEquals(p, applied)) return;
             for (int ch = 0; ch < bank.Channels; ch++)
                 foreach (var setting in p.Values)
-                    if (!SettingsFor(id).Any(s => s.Name == setting.Key && s.ChangesLatency))
+                    if (!SettingsFor(id).Any(s => s.Name == setting.Key && s.NeedsRebuild))
                         bank.EngineFor(ch).TrySetSetting(setting.Key, setting.Value);
             applied = p;
         }
@@ -294,7 +328,9 @@ namespace JJFlexWpf
                 return;
             }
             _wasActive = true;
-            if (_running != null) ApplyParameters(_running, RunningEngineId, ref _runningApplied);
+            bool listen = ListenToRemoved;
+            if (_running != null) { _running.ListenToRemoved = listen; ApplyParameters(_running, RunningEngineId, ref _runningApplied); }
+            if (_warming != null) _warming.Bank.ListenToRemoved = listen;
             if (_warming != null)
             {
                 ApplyParameters(_warming.Bank, _warming.Choice.Id, ref _warming.Applied);
@@ -320,7 +356,8 @@ namespace JJFlexWpf
                 if (_warmSamples >= _sampleRate / 10 && ReferenceEquals(choice, Volatile.Read(ref _choice)))
                 {
                     InstallHook?.Invoke("before-running-id");
-                    CrossFade(audio, _nextAudio, _channels);
+                    if (CrossFadeEnabled) CrossFade(audio, _nextAudio, _channels);
+                    else _nextAudio.AsSpan(0, audio.Length).CopyTo(audio);
                     var old = Interlocked.Exchange(ref _running, _warming.Bank);
                     Volatile.Write(ref _runningBuild, _warming.Running); // built on the worker: nothing is allocated here
                     Volatile.Write(ref _runningId, _warming.Choice.Id);
@@ -355,6 +392,15 @@ namespace JJFlexWpf
             _runningApplied = null;
             if (_warming != null) { Retire(_warming.Bank); _warming = null; }
             _warmSamples = 0; _wasActive = false;
+            // Never speak a result for a slot nobody used (Sprint 49 Track E,
+            // E5). The constructor's default engine (generation 0) can fail to
+            // build on a machine that cannot run it (every x86 launch until
+            // #739, an install missing rnnoise.dll), and this runs on the first
+            // receive buffer whether or not the slot was ever enabled. Held at
+            // the source: the failure is NOT marked reported, so if the
+            // operator later turns this slot on with that choice still in
+            // place, the next buffer reports it then, once.
+            if (choice.Generation == 0 && !HasBeenEnabled) return;
             if (Interlocked.Exchange(ref choice.FailureReported, 1) == 0)
                 Publish(choice, false, Volatile.Read(ref choice.Failure), slotStopped: true);
         }
@@ -407,14 +453,61 @@ namespace JJFlexWpf
             EngineId = pair.Key, Direction = Direction, Strength = pair.Value.Strength,
             Values = pair.Value.Values.Select(v => new DenoiseNamedValue { Name = v.Key, Number = v.Value.Number, Choice = v.Value.Choice }).ToList()
         }).ToArray();
+        /// <summary>
+        /// Put back stored settings (a preset, Escape) and choose
+        /// <paramref name="id"/>, building at most once (Sprint 49 Track E
+        /// repair round 1, B3). Another engine builds from the restored values,
+        /// as any choice does. The engine already chosen rebuilds, under the
+        /// warm-up cross-fade, when a setting only a new instance can take
+        /// (<see cref="EngineSettingDescriptor.NeedsRebuild"/>: NNR's model,
+        /// NR4's estimator, a new delay) now differs from what was stored
+        /// before, as <see cref="TrySetSetting"/> does for one setting; without
+        /// that, the stored value and the engine you hear disagree, because
+        /// <see cref="ApplyParameters"/> deliberately never pushes a rebuild
+        /// setting into a running instance. Returns true when the chosen engine
+        /// changed.
+        /// </summary>
+        internal bool RestoreAndSelect(IEnumerable<DenoiseEngineSettings> records, string id)
+        {
+            string chosen = ChosenEngineId;
+            var before = RebuildValues(chosen);
+            RestoreSettings(records);
+            if (id.Length > 0 && id != chosen)
+            {
+                Select(id, out _);
+                return true;
+            }
+            if (chosen.Length == 0 || before.SequenceEqual(RebuildValues(chosen))) return false;
+            // A rebuild unless the running instance was built with exactly
+            // these values already (Escape put back what is playing): then the
+            // new choice only retires a warming build of the value undone.
+            Select(chosen, out _, force: !(RunningEngineId == chosen && RunningLatencyCurrent(chosen)));
+            return false;
+        }
+
+        private List<string> RebuildValues(string id) => SettingsFor(id).Where(d => d.NeedsRebuild)
+            .Select(d => { var v = GetSetting(id, d.Name); return d.Name + "=" + (v.Choice ?? v.Number.ToString("R", System.Globalization.CultureInfo.InvariantCulture)); })
+            .ToList();
+
         internal void RestoreSettings(IEnumerable<DenoiseEngineSettings> records)
         {
             foreach (var record in records)
             {
                 var row = _catalog.Find(record.EngineId);
                 if (record.Direction != Direction || row?.Family != Family || !row.Serves(Direction)) continue;
+                // A stored value this build's descriptor does not accept as it
+                // stands snaps to the nearest one it does (DeepFilterNet3's old
+                // step-1 limits land on the nearest stop), so nothing an operator
+                // stored is silently reset to a default. A name this build does
+                // not know is kept as it was, for a newer build to read back.
+                var descriptors = row.Settings;
                 _settings[record.EngineId] = new Parameters(float.IsFinite(record.Strength) ? Math.Clamp(record.Strength, 0, 1) : ParametersFor(record.EngineId).Strength,
-                    record.Values.GroupBy(v => v.Name).ToDictionary(v => v.Key, v => new EngineSettingValue(v.Last().Number, v.Last().Choice)));
+                    record.Values.GroupBy(v => v.Name).ToDictionary(v => v.Key, v =>
+                    {
+                        var stored = new EngineSettingValue(v.Last().Number, v.Last().Choice);
+                        var d = descriptors.FirstOrDefault(x => x.Name == v.Key);
+                        return d == null ? stored : d.Snap(stored);
+                    }));
             }
         }
     }

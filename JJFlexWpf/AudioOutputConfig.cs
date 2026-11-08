@@ -168,6 +168,33 @@ namespace JJFlexWpf
         public ReceiveDenoiseSlotConfig ReceiveNeural { get; set; } = new();
         public ReceiveDenoiseSlotConfig ReceiveSpectral { get; set; } = new();
 
+        /// <summary>
+        /// Noise favourites (Sprint 49 Track E): ONE ordered list across the
+        /// radio and the computer and both subjects, app-wide. The list order
+        /// is the bracket keys' order (Noel 2026-11-07 21:16: arrangeable); an
+        /// entry may carry a model, so "NNR Premium CW" and "NNR Standard CW"
+        /// are two favourites side by side.
+        /// </summary>
+        public List<NoiseFavourite> NoiseFavourites { get; set; } = new();
+
+        /// <summary>Per-mode memory, replacing the retired "Voice Modes Only" switch (ruled 2026-11-02 and 2026-11-07, question 4).</summary>
+        public NoiseModeMemoryConfig NoiseModeMemory { get; set; } = new();
+
+        /// <summary>"Say delays when choosing an engine" (ruled, departure D3): the receive half, default on.</summary>
+        public bool NoiseSayDelays { get; set; } = true;
+
+        /// <summary>Engines whose Advanced levers the operator last left revealed on Home (remembered per engine).</summary>
+        public List<string> NoiseAdvancedEngines { get; set; } = new();
+
+        /// <summary>
+        /// Whether a computer engine swap cross-fades (#873's switch for slower
+        /// machines; Settings, Advanced). Default on.
+        /// </summary>
+        public bool NoiseCrossFade { get; set; } = true;
+
+        /// <summary>The Settings Advanced tab's guard checkbox: its fields are enabled only once this is ticked.</summary>
+        public bool AdvancedSettingsUnderstood { get; set; }
+
         /// <summary>RNNoise wet/dry mix strength 0.0-1.0.</summary>
         public float RNNoiseStrength { get; set; } = 0.8f;
 

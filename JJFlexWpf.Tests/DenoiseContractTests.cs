@@ -16,8 +16,11 @@ public sealed class DenoiseContractTests
     public void Catalog_is_complete_unique_directional_and_has_classified_labels()
     {
         var catalog = new DenoiseEngineCatalog();
-        Assert.Equal(12, catalog.Entries.Count);
-        Assert.Equal(12, catalog.Entries.Select(x => x.Id).Distinct().Count());
+        // 18 since Sprint 49 Track E: the six radio blankers and notches joined
+        // the catalog as rows (ruled 2026-11-07, question 2), so every noise
+        // surface reads one list. Was 12.
+        Assert.Equal(18, catalog.Entries.Count);
+        Assert.Equal(18, catalog.Entries.Select(x => x.Id).Distinct().Count());
         foreach (var entry in catalog.Entries)
         {
             Assert.NotEqual(entry.LabelKey, Lexicon.Get(entry.LabelKey));
@@ -119,18 +122,8 @@ public sealed class DenoiseContractTests
         Assert.Equal("rnnoise", corrected.Id);
     }
 
-    [Theory]
-    [InlineData("SSB", true, true)]
-    [InlineData("CW", true, false)]
-    [InlineData("CWL", true, false)]
-    [InlineData("DIGU", false, false)]
-    [InlineData("FDM", false, false)]
-    [InlineData("RTTY", false, false)]
-    public void Mode_policy_uses_the_family_and_the_opt_out(string mode, bool spectral, bool neural)
-    {
-        Assert.Equal(spectral, RxAudioPipeline.ModePermits(DenoiseFamily.Spectral, mode, true));
-        Assert.Equal(neural, RxAudioPipeline.ModePermits(DenoiseFamily.Neural, mode, true));
-        Assert.True(RxAudioPipeline.ModePermits(DenoiseFamily.Spectral, mode, false));
-        Assert.True(RxAudioPipeline.ModePermits(DenoiseFamily.Neural, mode, false));
-    }
+    // Mode_policy_uses_the_family_and_the_opt_out lived here until Sprint 49
+    // Track E retired the mode gate (ruled 2026-11-07, question 4). Its
+    // replacement, that every engine runs in every mode, is
+    // NoiseModeMemoryTests.No_mode_holds_a_computer_engine_back.
 }

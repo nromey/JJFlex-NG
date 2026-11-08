@@ -8328,6 +8328,16 @@ namespace Radios
         }
 
         /// <summary>
+        /// The slice the active-slice properties read and write right now, as
+        /// an opaque identity to compare by reference; null with none. Not
+        /// <see cref="RXVFO"/>: setting RXVFO changes the number at once but
+        /// only QUEUES the slice's activation, so for a moment the number names
+        /// the new slice while every read still reaches the old one (Sprint 49
+        /// Track E repair round 2, B1).
+        /// </summary>
+        public object? ActiveSliceIdentity => theRadio?.ActiveSlice;
+
+        /// <summary>
         /// Letter of the active (RX) slice, e.g. "A". Empty if no active slice.
         /// </summary>
         public string ActiveSliceLetter => theRadio?.ActiveSlice?.Letter ?? "";
@@ -9816,6 +9826,13 @@ namespace Radios
             return active;
         }
 
+        // Sprint 49 Track E (E12): the radio rows carry the names every noise
+        // surface uses (ruled 2026-11-07, question 1), so the window, the menu
+        // and the noise layer call one engine by one name. The computer's
+        // engines follow, appended by the app (Radios cannot see the catalog).
+        // The Noise Blanker, Wideband NB and the Audio Peak Filter get no line:
+        // every model has them and they need no licence, so a line could only
+        // say "available" (the rule stated above the dummy-load line).
         private List<string> BuildNoiseReductionStatuses(Radio radio)
         {
             var lines = new List<string>();
@@ -9829,7 +9846,7 @@ namespace Radios
             bool cwOrFm = mode.StartsWith("cw") || mode.Contains("fm");
             bool nrModeAllowed = !cwOrFm;
 
-            lines.Add(BuildBaseNoiseStatus("Noise Reduction (Basic NR)",
+            lines.Add(BuildBaseNoiseStatus("Standard NR",
                 NoiseReduction == OffOnValues.on,
                 hasSlice, nrModeAllowed, "not available in CW or FM modes"));
 
@@ -9844,19 +9861,19 @@ namespace Radios
             bool advancedNrSupported = NeuralNRHardwareSupported;
             string advancedNrReason = advancedNrSupported ? "" : "requires 8000-series radio";
 
-            lines.Add(BuildAdvancedNoiseStatus("Noise Reduction (RNN)",
+            lines.Add(BuildAdvancedNoiseStatus("Neural NR",
                 NeuralNoiseReduction == OffOnValues.on,
                 advancedNrSupported, advancedNrReason,
                 hasSlice, nrModeAllowed, "not available in CW or FM modes",
                 licenseFeature, licenseReported, licenseEnabled));
 
-            lines.Add(BuildAdvancedNoiseStatus("Noise Reduction (NRF)",
+            lines.Add(BuildAdvancedNoiseStatus("NR Filter",
                 NoiseReductionFilter == OffOnValues.on,
                 advancedNrSupported, advancedNrReason,
                 hasSlice, nrModeAllowed, "not available in CW or FM modes",
                 licenseFeature, licenseReported, licenseEnabled));
 
-            lines.Add(BuildAdvancedNoiseStatus("Noise Reduction (NRS)",
+            lines.Add(BuildAdvancedNoiseStatus("Spectral NR",
                 SpectralNoiseReduction == OffOnValues.on,
                 advancedNrSupported, advancedNrReason,
                 hasSlice, nrModeAllowed, "not available in CW or FM modes",
@@ -9864,7 +9881,7 @@ namespace Radios
 
             // Not licence-gated (#746): reported like the basic NR above, so
             // this tab stops calling it unsubscribed on a radio that runs it.
-            lines.Add(BuildBaseNoiseStatus("Noise Reduction (NRL)",
+            lines.Add(BuildBaseNoiseStatus("Legacy NR",
                 NoiseReductionLegacy == OffOnValues.on,
                 hasSlice, nrModeAllowed, "not available in CW or FM modes"));
 
@@ -9884,11 +9901,11 @@ namespace Radios
             bool fmMode = mode.Contains("fm");
             bool anfModeAllowed = !fmMode;
 
-            lines.Add(BuildBaseNoiseStatus("Auto Notch (Basic ANF)",
+            lines.Add(BuildBaseNoiseStatus("Standard Auto-Notch",
                 ANF == OffOnValues.on,
                 hasSlice, anfModeAllowed, "not available in FM mode"));
 
-            lines.Add(BuildAdvancedNoiseStatus("Auto Notch (ANFT)",
+            lines.Add(BuildAdvancedNoiseStatus("FFT Auto-Notch",
                 AutoNotchFFT == OffOnValues.on,
                 true, "",
                 hasSlice, anfModeAllowed, "not available in FM mode",
@@ -9897,7 +9914,7 @@ namespace Radios
             // ANFL is not licence-gated: an unlicensed 8600 accepted lms_anf
             // and applied it (measured 2026-10-27, #746). ANFT above is, and
             // keeps its licence line.
-            lines.Add(BuildBaseNoiseStatus("Auto Notch (ANFL)",
+            lines.Add(BuildBaseNoiseStatus("Legacy Auto-Notch",
                 AutoNotchLegacy == OffOnValues.on,
                 hasSlice, anfModeAllowed, "not available in FM mode"));
 
@@ -10387,8 +10404,8 @@ namespace Radios
         }
 
         // The values are the same for the wide band NB.
-        internal const int NoiseBlankerValueMin = 0;
-        internal const int NoiseBlankerValueMax = 100;
+        public const int NoiseBlankerValueMin = 0;
+        public const int NoiseBlankerValueMax = 100;
         internal const int NoiseBlankerValueIncrement = 5;
         public int NoiseBlankerLevel
         {
@@ -10434,10 +10451,10 @@ namespace Radios
             }
         }
 
-        internal const int NoiseReductionValueMin = 0;
-        internal const int NoiseReductionValueMax = 100;
+        public const int NoiseReductionValueMin = 0;
+        public const int NoiseReductionValueMax = 100;
         internal const int NoiseReductionValueIncrement = 5;
-        internal int NoiseReductionLevel
+        public int NoiseReductionLevel
         {
             get { return theRadio?.ActiveSlice?.NRLevel ?? 0; }
             set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("NoiseReductionLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRLevel = value; })); } }
@@ -10470,8 +10487,8 @@ namespace Radios
         }
 
         // Spectral Subtraction Noise Reduction (NRS)
-        internal const int SpectralNoiseReductionValueMin = 0;
-        internal const int SpectralNoiseReductionValueMax = 100;
+        public const int SpectralNoiseReductionValueMin = 0;
+        public const int SpectralNoiseReductionValueMax = 100;
         internal const int SpectralNoiseReductionValueIncrement = 5;
         public OffOnValues SpectralNoiseReduction
         {
@@ -10489,15 +10506,19 @@ namespace Radios
                 }
             }
         }
-        internal int SpectralNoiseReductionLevel
+        // Sprint 49 Track E: public, and gated the way its switch is gated, so a
+        // level row on a radio that cannot run Spectral NR refuses with the same
+        // ladder (hardware first, then the licence) instead of sending a write
+        // the radio ignores (#725, #752).
+        public int SpectralNoiseReductionLevel
         {
             get { return theRadio?.ActiveSlice?.NRSLevel ?? 0; }
-            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("SpectralNoiseReductionLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRSLevel = value; }), "NRSLevel"); } }
+            set { if (RefuseCapabilityWrite(RadioCapability.NoiseReductionSpectral)) return; if (HasActiveSlice) { NoteOperatorChangedRadioSetting("SpectralNoiseReductionLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRSLevel = value; }), "NRSLevel"); } }
         }
 
         // Noise Reduction with Filter (NRF)
-        internal const int NoiseReductionFilterValueMin = 0;
-        internal const int NoiseReductionFilterValueMax = 100;
+        public const int NoiseReductionFilterValueMin = 0;
+        public const int NoiseReductionFilterValueMax = 100;
         internal const int NoiseReductionFilterValueIncrement = 5;
         public OffOnValues NoiseReductionFilter
         {
@@ -10515,10 +10536,11 @@ namespace Radios
                 }
             }
         }
-        internal int NoiseReductionFilterLevel
+        // Sprint 49 Track E: public and gated like its switch (see SpectralNoiseReductionLevel).
+        public int NoiseReductionFilterLevel
         {
             get { return theRadio?.ActiveSlice?.NRFLevel ?? 0; }
-            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("NoiseReductionFilterLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRFLevel = value; }), "NRFLevel"); } }
+            set { if (RefuseCapabilityWrite(RadioCapability.NoiseReductionFilter)) return; if (HasActiveSlice) { NoteOperatorChangedRadioSetting("NoiseReductionFilterLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRFLevel = value; }), "NRFLevel"); } }
         }
 
         // Neural noise reduction (RNN) - toggle only
@@ -10558,8 +10580,8 @@ namespace Radios
         }
 
         // Legacy LMS Auto-Notch Filter (ANFL)
-        internal const int AutoNotchLegacyLevelMin = 0;
-        internal const int AutoNotchLegacyLevelMax = 100;
+        public const int AutoNotchLegacyLevelMin = 0;
+        public const int AutoNotchLegacyLevelMax = 100;
         internal const int AutoNotchLegacyLevelIncrement = 10;
         public OffOnValues AutoNotchLegacy
         {
@@ -10576,7 +10598,7 @@ namespace Radios
                 }
             }
         }
-        internal int AutoNotchLegacyLevel
+        public int AutoNotchLegacyLevel
         {
             get { return theRadio?.ActiveSlice?.ANFL_Level ?? 0; }
             set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("AutoNotchLegacyLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFL_Level = value; }), "ANFL_Level"); } }
@@ -12349,7 +12371,8 @@ namespace Radios
             }
         }
 
-        internal OffOnValues ANF
+        // Sprint 49 Track E: public, the basic auto-notch's first door ("Standard Auto-Notch").
+        public OffOnValues ANF
         {
             get { return (theRadio?.ActiveSlice?.ANFOn == true) ? OffOnValues.on : OffOnValues.off; }
             set
@@ -12363,10 +12386,10 @@ namespace Radios
             }
         }
 
-        internal const int AutoNotchLevelMin = 0;
-        internal const int AutoNotchLevelMax = 100;
+        public const int AutoNotchLevelMin = 0;
+        public const int AutoNotchLevelMax = 100;
         internal const int AutoNotchLevelIncrement = 10;
-        internal int AutoNotchLevel
+        public int AutoNotchLevel
         {
             get { return theRadio?.ActiveSlice?.ANFLevel ?? 0; }
             set
@@ -12394,10 +12417,10 @@ namespace Radios
             }
         }
 
-        internal const int AutoPeakLevelMin = 0;
-        internal const int AutoPeakLevelMax = 100;
+        public const int AutoPeakLevelMin = 0;
+        public const int AutoPeakLevelMax = 100;
         internal const int AutoPeakLevelIncrement = 10;
-        internal int AutoPeakLevel
+        public int AutoPeakLevel
         {
             get { return theRadio?.ActiveSlice?.APFLevel ?? 0; }
             set

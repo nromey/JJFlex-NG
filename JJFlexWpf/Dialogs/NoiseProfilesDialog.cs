@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -28,13 +29,18 @@ public sealed class NoiseProfilesDialog : JJFlexDialog
     private readonly RxAudioPipeline? _pipeline;
     private readonly Func<AudioOutputConfig?> _configSource;
     private readonly Action _persistDsp;
+    private readonly NoiseController? _noise;
+    private readonly Controls.CycleFieldControl _spectralEngine;
+    private readonly Controls.CycleFieldControl _neuralEngine;
+    private string[] _spectralIds = Array.Empty<string>();
+    private string[] _neuralIds = Array.Empty<string>();
 
     private readonly CheckBox _rnnCheck;
     private readonly ValueFieldControl _rnnStrength;
-    private readonly CheckBox _rnnVoiceOnly;
     private readonly CheckBox _subCheck;
     private readonly ValueFieldControl _subStrength;
     private readonly ValueFieldControl _subFloor;
+    private readonly ValueFieldControl _capturedFloor;
     private readonly ValueFieldControl _duration;
     private readonly Button _captureButton;
     private readonly TextBlock _profileStatus;
@@ -45,8 +51,9 @@ public sealed class NoiseProfilesDialog : JJFlexDialog
     private bool _polling;
 
     public NoiseProfilesDialog(FlexBase? rig, RxAudioPipeline? pipeline,
-        Func<AudioOutputConfig?> configSource, Action persistDsp)
+        Func<AudioOutputConfig?> configSource, Action persistDsp, NoiseController? noise = null)
     {
+        _noise = noise;
         _rig = rig;
         _pipeline = pipeline;
         _configSource = configSource;
@@ -59,31 +66,31 @@ public sealed class NoiseProfilesDialog : JJFlexDialog
         var panel = new StackPanel { Margin = new Thickness(12) };
         Content = panel;
 
-        // === The two PC-side engines, with the knobs that shape them ===
-        _rnnCheck = AddToggle(panel, "PC Neural NR",
-            on => { if (_pipeline != null) _pipeline.RnnEnabled = on; });
-        _rnnStrength = AddValue(panel, "PC Neural NR Strength", 0, 100, 5,
-            PercentOf(_pipeline?.RnnStrength ?? 0.8f), "%",
-            v => { if (_pipeline != null) _pipeline.RnnStrength = v / 100f; });
-        _rnnVoiceOnly = AddToggle(panel, "PC Neural NR Voice Modes Only",
-            on => { if (_pipeline != null) _pipeline.RnnAutoDisableNonVoice = on; });
-
-        _subCheck = AddToggle(panel, "PC Spectral NR",
-            on => { if (_pipeline != null) _pipeline.SpectralEnabled = on; });
-        _subStrength = AddValue(panel, "PC Spectral NR Strength", 0, 100, 5,
+        // === The computer's two slots, in the same shape as Home's (Sprint 49
+        // Track E, E11): each slot's engine, its On, its Strength, so this
+        // window cannot disagree with the expander. Then Captured noise's own
+        // two levers, since this is its window. "Apply Recommended Levels" is
+        // gone: it is the "Balanced capture" preset now (ruled, departure D3).
+        // The switches still answer with a tone only (#128): the controller
+        // runs them quietly, and the checkbox says its own state.
+        _spectralEngine = AddEngineField(panel, Lexicon.Get("audio.noise_profiles_window.spectral_engine"), DenoiseFamily.Spectral, out _spectralIds);
+        _subCheck = AddToggle(panel, Lexicon.Get("audio.noise_profiles_window.spectral_on"),
+            on => _noise?.Quietly(() => _noise.SetSlotOn(DenoiseFamily.Spectral, on, "noise profiles")));
+        _subStrength = AddValue(panel, Lexicon.Get("audio.noise_profiles_window.spectral_strength"), 0, 100, 5,
+            SlotStrength(DenoiseFamily.Spectral), "%",
+            v => SetSlotStrength(DenoiseFamily.Spectral, v));
+        _neuralEngine = AddEngineField(panel, Lexicon.Get("audio.noise_profiles_window.neural_engine"), DenoiseFamily.Neural, out _neuralIds);
+        _rnnCheck = AddToggle(panel, Lexicon.Get("audio.noise_profiles_window.neural_on"),
+            on => _noise?.Quietly(() => _noise.SetSlotOn(DenoiseFamily.Neural, on, "noise profiles")));
+        _rnnStrength = AddValue(panel, Lexicon.Get("audio.noise_profiles_window.neural_strength"), 0, 100, 5,
+            SlotStrength(DenoiseFamily.Neural), "%",
+            v => SetSlotStrength(DenoiseFamily.Neural, v));
+        _subFloor = AddValue(panel, Lexicon.Get("audio.noise_profiles_window.captured_amount"), 0, 100, 1,
             PercentOf(_pipeline?.SpectralStrength ?? 0.7f), "%",
             v => { if (_pipeline != null) _pipeline.SpectralStrength = v / 100f; });
-        _subFloor = AddValue(panel, "PC Spectral NR Floor", 0, 20, 1,
+        _capturedFloor = AddValue(panel, Lexicon.Get("audio.noise_profiles_window.captured_floor"), 0, 20, 1,
             PercentOf(_pipeline?.SpectralFloor ?? 0.02f), "%",
             v => { if (_pipeline != null) _pipeline.SpectralFloor = v / 100f; });
-
-        // Recommended levels — the ratified presets. With both stages on the
-        // combined wetness compounds, so the balanced trio is deliberately
-        // gentler than either stage's solo default.
-        var recommendButton = MakeButton("Apply Recommended Levels",
-            "Set strength and floor to the recommended values for the stages that are on");
-        recommendButton.Click += (s, e) => ApplyRecommendedLevels();
-        panel.Children.Add(recommendButton);
 
         panel.Children.Add(new Separator { Margin = new Thickness(0, 8, 0, 8) });
 
@@ -273,43 +280,37 @@ public sealed class NoiseProfilesDialog : JJFlexDialog
 
     // ── actions ──────────────────────────────────────────────────────
 
-    private void ApplyRecommendedLevels()
+    private Controls.CycleFieldControl AddEngineField(StackPanel panel, string label, DenoiseFamily family, out string[] ids)
     {
-        if (_pipeline == null) { ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Terse, interrupt: true); return; }
-        bool rnn = _pipeline.RnnEnabled;
-        bool sub = _pipeline.SpectralEnabled;
-        string spoken;
-        if (rnn && sub)
+        var field = new Controls.CycleFieldControl();
+        var engines = _noise?.Engines(DenoiseGroup.NoiseReduction).Where(e => e.Side == DenoiseSide.Pc && e.Family == family).ToArray()
+            ?? Array.Empty<DenoiseEngineEntry>();
+        ids = engines.Select(e => e.Id).ToArray();
+        string chosen = _noise?.SlotEngine(family) ?? "";
+        field.Setup(label, engines.Select(e => _noise!.MarkedName(e.Id)).ToArray(), Math.Max(0, Array.IndexOf(ids, chosen)));
+        var list = ids;
+        field.SelectionChanged += (s, i) =>
         {
-            // Both stages on: re-balanced trio — combined wetness compounds,
-            // and aggressive subtraction pushes the neural stage off its
-            // training distribution (multithreading memo, 2026-05-04).
-            _pipeline.SpectralStrength = 0.45f;
-            _pipeline.SpectralFloor = 0.04f;
-            _pipeline.RnnStrength = 0.65f;
-            spoken = Lexicon.Get("audio.noise.recommended_both");
-        }
-        else if (sub)
-        {
-            _pipeline.SpectralStrength = 0.7f;
-            _pipeline.SpectralFloor = 0.02f;
-            spoken = Lexicon.Get("audio.noise.recommended_spectral");
-        }
-        else if (rnn)
-        {
-            _pipeline.RnnStrength = 0.8f;
-            spoken = Lexicon.Get("audio.noise.recommended_neural");
-        }
-        else
-        {
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.noise.turn_a_stage_on_first"),
-                VerbosityLevel.Terse, interrupt: true);
-            return;
-        }
-        _persistDsp();
-        PollValues();
-        EarconPlayer.ConfirmTone();
-        ScreenReaderOutput.Speak(spoken, VerbosityLevel.Terse, interrupt: true);
+            if (_polling || _noise == null || i < 0 || i >= list.Length) return;
+            _noise.NoteSlotChoicePending(family, list[i]);
+            _noise.ChooseSlotEngine(family, list[i], "noise profiles");
+        };
+        panel.Children.Add(field);
+        return field;
+    }
+
+    private int SlotStrength(DenoiseFamily family)
+    {
+        var slot = family == DenoiseFamily.Spectral ? _pipeline?.SpectralSlot : _pipeline?.NeuralSlot;
+        return slot == null ? 100 : PercentOf(slot.GetStrength(slot.ChosenEngineId));
+    }
+
+    private void SetSlotStrength(DenoiseFamily family, int percent)
+    {
+        var slot = family == DenoiseFamily.Spectral ? _pipeline?.SpectralSlot : _pipeline?.NeuralSlot;
+        if (slot == null || _noise == null) return;
+        var lever = _noise.Levers(slot.ChosenEngineId, false).FirstOrDefault(l => l.Kind == NoiseLeverKind.Strength);
+        if (lever != null) _noise.Quietly(() => _noise.Set(lever, percent, null, "noise profiles"));
     }
 
     private void LoadSelected()
@@ -481,17 +482,29 @@ public sealed class NoiseProfilesDialog : JJFlexDialog
         try
         {
             SyncToggle(_rnnCheck, _pipeline.RnnEnabled);
-            SyncValue(_rnnStrength, PercentOf(_pipeline.RnnStrength));
-            SyncToggle(_rnnVoiceOnly, _pipeline.RnnAutoDisableNonVoice);
+            SyncValue(_rnnStrength, SlotStrength(DenoiseFamily.Neural));
             SyncToggle(_subCheck, _pipeline.SpectralEnabled);
-            SyncValue(_subStrength, PercentOf(_pipeline.SpectralStrength));
-            SyncValue(_subFloor, PercentOf(_pipeline.SpectralFloor));
+            SyncValue(_subStrength, SlotStrength(DenoiseFamily.Spectral));
+            SyncValue(_subFloor, PercentOf(_pipeline.SpectralStrength));
+            SyncValue(_capturedFloor, PercentOf(_pipeline.SpectralFloor));
+            SyncEngine(_spectralEngine, _spectralIds, DenoiseFamily.Spectral);
+            SyncEngine(_neuralEngine, _neuralIds, DenoiseFamily.Neural);
             UpdateProfileStatus();
         }
         finally
         {
             _polling = false;
         }
+    }
+
+    private void SyncEngine(Controls.CycleFieldControl field, string[] ids, DenoiseFamily family)
+    {
+        if (_noise == null) return;
+        int at = Array.IndexOf(ids, _noise.SlotEngine(family));
+        if (at < 0 || at == field.SelectedIndex) return;
+        field.SuppressEvents = true;
+        field.SelectedIndex = at;
+        field.SuppressEvents = false;
     }
 
     private static void SyncValue(ValueFieldControl ctl, int value)
