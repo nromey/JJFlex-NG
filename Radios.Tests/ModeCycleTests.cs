@@ -263,9 +263,11 @@ namespace Radios.Tests
 
         /// <summary>
         /// The settings page works out which modes the Mode menu reaches from
-        /// <see cref="RigCaps.ModeTable"/>; that is true only while the menu is
-        /// built from the same list. And no mode cycle sentence promises a key
-        /// of its own, because only seven modes have one (Codex B2 on 908aa3da).
+        /// the list the menu is built from; that is true only while both read
+        /// the same list. Since 2026-11-07 (#994) that is the radio's own list,
+        /// <see cref="ModeCycle.KnownModes"/>, not <see cref="RigCaps.ModeTable"/>.
+        /// And no mode cycle sentence promises a key of its own, because only
+        /// seven modes have one (Codex B2 on 908aa3da).
         /// </summary>
         [Fact]
         public void The_menu_is_built_from_the_list_the_page_reads_and_no_sentence_promises_a_key()
@@ -273,7 +275,10 @@ namespace Radios.Tests
             string menu = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "NativeMenuBar.cs"));
             int at = menu.IndexOf("var modeSub = AddSubmenu(slice, \"Mode\");", StringComparison.Ordinal);
             Assert.True(at >= 0, "the Mode submenu has moved; re-check what the settings page claims about it");
-            Assert.Contains("foreach (string modeName in RigCaps.ModeTable)", menu.Substring(at, 200));
+            Assert.Contains("foreach (string modeName in Radios.ModeCycle.KnownModes(Rig?.RadioModeList))", menu.Substring(at, 200));
+            string page = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "Dialogs", "SettingsDialog.ModeCycle.cs"));
+            Assert.Contains("!ModeCycle.Contains(ModeCycle.KnownModes(radioModes), m)", page);
+            Assert.DoesNotContain("RigCaps.ModeTable, m)", page);
 
             foreach (string key in new[] { "settings.mode_cycle.intro", "settings.mode_cycle.list_help",
                                            "settings.mode_cycle.menu_note_all", "settings.mode_cycle.menu_note_except",
@@ -303,7 +308,8 @@ namespace Radios.Tests
             // The mode written and the mode spoken are the one Next returned
             // from the radio's own list, and nothing else.
             Assert.Contains("RigControl.Mode = newMode;", body);
-            Assert.Contains("Radios.ScreenReaderOutput.Speak(newMode, VerbosityLevel.Terse, true);", body);
+            // Spoken through the one source of mode words (#942).
+            Assert.Contains("Radios.ScreenReaderOutput.Speak(Radios.ModeWords.Spoken(newMode), VerbosityLevel.Terse, true);", body);
             Assert.Contains("Radios.ModeCycle.OnlyOneSentenceKey(saved, cycle)", body);
         }
 

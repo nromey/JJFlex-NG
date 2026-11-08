@@ -1086,6 +1086,23 @@ namespace Radios.Tests
                 // DRAFT PROSE.
                 "audio.meters.panel.slot_combo_name",
 
+                // Junk box #942 and #994 (2026-11-07, third batch): how an
+                // announcement says a mode a synthesizer mangles (J41), the
+                // station check's mode words moved from code unchanged, and
+                // the refusal a direct mode key gives for a mode the radio
+                // does not list. Fragments, or a sentence spoken only in
+                // answer to the operator's own press: TextOnly. DRAFT PROSE
+                // except Digital upper and lower, Noel's option (c).
+                "settings.mode.spoken.digu",
+                "settings.mode.spoken.digl",
+                "settings.mode.spoken.sam",
+                "settings.mode.spoken.nfm",
+                "settings.mode.words.usb",
+                "settings.mode.words.lsb",
+                "settings.mode.words.digu",
+                "settings.mode.words.digl",
+                "settings.mode.not_on_radio",
+
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note
                 // that VOX was switched off for it. Classified rather than

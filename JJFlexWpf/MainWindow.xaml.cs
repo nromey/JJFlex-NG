@@ -7648,34 +7648,52 @@ public partial class MainWindow : UserControl
         {
             // DRAFT PROSE: one mode in the cycle, and the slice is already in it.
             Radios.ScreenReaderOutput.Speak(
-                Radios.Lexicon.Get(Radios.ModeCycle.OnlyOneSentenceKey(saved, cycle), ("mode", newMode)),
+                Radios.Lexicon.Get(Radios.ModeCycle.OnlyOneSentenceKey(saved, cycle), ("mode", Radios.ModeWords.Spoken(newMode))),
                 Radios.Speech.SpeechIntent.Latest, VerbosityLevel.Terse,
                 subject: Radios.Speech.SpeechSubject.ValueField("Mode"));
             return;
         }
 
         RigControl.Mode = newMode;
-        Radios.ScreenReaderOutput.Speak(newMode, VerbosityLevel.Terse, true);
+        Radios.ScreenReaderOutput.Speak(Radios.ModeWords.Spoken(newMode), VerbosityLevel.Terse, true);
     }
 
     /// <summary>
     /// Jump directly to a specific mode.
     /// Called from KeyCommands direct mode handlers (Alt+U, Alt+L, Alt+C).
     /// </summary>
+    /// <remarks>
+    /// The mode is checked against the radio's own list
+    /// (<see cref="Radios.ModeCycle.KnownModes"/>, the one definition the
+    /// cycle and the Mode menu use). A mode the radio has not listed is
+    /// refused and said so, never written:
+    /// the 8600 lists no DSB, and a DSB written anyway was answered with
+    /// another mode while the app named the one it asked for.
+    /// </remarks>
     public void SetMode(string mode)
     {
         if (RigControl == null || !_radioPowerOn) return;
+
+        if (!Radios.ModeCycle.Contains(Radios.ModeCycle.KnownModes(RigControl.RadioModeList), mode))
+        {
+            // DRAFT PROSE.
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("settings.mode.not_on_radio", ("mode", Radios.ModeWords.Spoken(mode))),
+                Radios.Speech.SpeechIntent.Latest, VerbosityLevel.Terse,
+                subject: Radios.Speech.SpeechSubject.ValueField("Mode"));
+            return;
+        }
 
         string currentMode = RigControl.Mode ?? "";
         if (string.Equals(currentMode, mode, StringComparison.OrdinalIgnoreCase))
         {
             Radios.ScreenReaderOutput.Speak(
-                Radios.Lexicon.Get("connect.home.already_in_mode", ("mode", mode)),
+                Radios.Lexicon.Get("connect.home.already_in_mode", ("mode", Radios.ModeWords.Spoken(mode))),
                 VerbosityLevel.Terse, true);
             return;
         }
         RigControl.Mode = mode;
-        Radios.ScreenReaderOutput.Speak(mode, VerbosityLevel.Terse, true);
+        Radios.ScreenReaderOutput.Speak(Radios.ModeWords.Spoken(mode), VerbosityLevel.Terse, true);
     }
 
     #endregion

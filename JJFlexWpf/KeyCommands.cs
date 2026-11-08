@@ -460,7 +460,7 @@ public class KeyCommands
             // ── Mode switching ──
             new(CommandValues.ModeNext, KeyTypes.Command, () => _context.GetMainWindow()?.CycleMode(1),
                 "Cycle to next mode", "Next mode", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "mode", "next", "cycle", "usb", "lsb", "cw", "am", "fm", "digu", "digl" }, ShortActionLabel = "change mode" },
+                { Keywords = new[] { "mode", "next", "cycle", "mode cycle setting", "usb", "lsb", "cw", "am", "fm", "digu", "digl" }, ShortActionLabel = "change mode" },
             new(CommandValues.ModePrev, KeyTypes.Command, () => _context.GetMainWindow()?.CycleMode(-1),
                 "Cycle to previous mode", "Previous mode", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "mode", "previous", "back", "cycle", "usb", "lsb", "cw" }, ShortActionLabel = "change mode" },

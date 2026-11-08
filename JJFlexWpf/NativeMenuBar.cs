@@ -2462,9 +2462,13 @@ public class NativeMenuBar : IDisposable
                     () => Rig?.HasTransmitSlice == false);
             }
 
-            // Mode
+            // Mode. The radio's own list (ModeCycle.KnownModes, the one
+            // definition the cycle and the direct keys use), so the menu
+            // offers DSB where the radio has it and nothing it does not;
+            // with no list reported yet, FlexLib's documented set. Rebuilt
+            // with the rest of the menu on connect and on a slice change.
             var modeSub = AddSubmenu(slice, "Mode");
-            foreach (string modeName in RigCaps.ModeTable)
+            foreach (string modeName in Radios.ModeCycle.KnownModes(Rig?.RadioModeList))
             {
                 string m = modeName;
                 // Add accelerator hints for modes with hotkeys
@@ -2488,7 +2492,7 @@ public class NativeMenuBar : IDisposable
                 {
                     if (Rig == null) { SpeakNoRadio(); return; }
                     Rig.Mode = m;
-                    SpeakAfterMenuClose(Radios.Lexicon.Get("settings.mode.selected", ("m", m)));
+                    SpeakAfterMenuClose(Radios.Lexicon.Get("settings.mode.selected", ("m", Radios.ModeWords.Spoken(m))));
                 },
                 () => string.Equals(Rig?.Mode, m, StringComparison.OrdinalIgnoreCase));
             }

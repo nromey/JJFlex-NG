@@ -138,16 +138,17 @@ namespace JJFlexWpf.Dialogs
         /// <remarks>
         /// The page used to promise that a mode left out of the cycle "is
         /// still there in the Mode menu and on its own key". DSB is offered
-        /// (ruled 2026-10-19) and is in neither: the menu is built from
-        /// <see cref="RigCaps.ModeTable"/>, which has no DSB, and only seven
-        /// modes have a key of their own. So the page says only what holds,
+        /// (ruled 2026-10-19) and had neither: the menu was built from
+        /// <see cref="RigCaps.ModeTable"/>, which has no DSB; it is built from
+        /// the radio's own list now, and only seven modes have a key of their
+        /// own. So the page says only what holds,
         /// worked out from the list the menu itself is built from, and makes
         /// no promise about keys. When the menu gains a mode, this note
         /// follows without an edit.
         /// </remarks>
         private void UpdateModeCycleMenuNote()
         {
-            var notInMenu = ModeCyclesNotInMenu(_modeCycleKnown.Where(m => !UnavailableOnRadio(m)));
+            var notInMenu = ModeCyclesNotInMenu(_modeCycleKnown.Where(m => !UnavailableOnRadio(m)), _radioModes);
             // Once a radio has reported its modes, the note speaks of THIS
             // radio's modes only: "every mode here" would take in a saved
             // mode the list marks "not available on this radio", which is in
@@ -166,9 +167,11 @@ namespace JJFlexWpf.Dialogs
             modes.Count <= 1 ? string.Join("", modes)
             : string.Join(", ", modes.Take(modes.Count - 1)) + " and " + modes[modes.Count - 1];
 
-        /// <summary>The modes on offer that the Mode menu does not list.</summary>
-        internal static List<string> ModeCyclesNotInMenu(IEnumerable<string> offered) =>
-            offered.Where(m => !ModeCycle.Contains(RigCaps.ModeTable, m)).ToList();
+        /// <summary>The modes on offer that the Mode menu does not list. The
+        /// menu is built from <see cref="ModeCycle.KnownModes"/> of the radio's
+        /// list, so this asks the same list.</summary>
+        internal static List<string> ModeCyclesNotInMenu(IEnumerable<string> offered, IReadOnlyList<string>? radioModes) =>
+            offered.Where(m => !ModeCycle.Contains(ModeCycle.KnownModes(radioModes), m)).ToList();
 
         private void AddUnknownModes(IEnumerable<string> modes)
         {
