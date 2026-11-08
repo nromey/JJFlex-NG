@@ -1124,7 +1124,26 @@ namespace Radios
         /// The keyboard face of the layer. Every decision here is the pattern;
         /// see the class remarks before changing any arm.
         /// </summary>
-        public ValueLayerKeyResult HandleKey(Keys k)
+        public ValueLayerKeyResult HandleKey(Keys k) => HandleKey(k, firstRefusalOnly: false);
+
+        /// <summary>
+        /// First refusal, for a host that acts on a key itself BEFORE it asks
+        /// the layer: on Home, <c>MainWindow_PreviewKeyDown</c>'s step 2 moves
+        /// the filter on the bracket keys ahead of the registry dispatch where
+        /// the layer is otherwise first asked. The key is run exactly as
+        /// <see cref="HandleKey(Keys)"/> runs it, up to the point where every
+        /// key this layer binds itself has been tried; a key it does not bind
+        /// comes back <see cref="ValueLayerKeyResult.PassThrough"/> with
+        /// nothing said, nothing refused and the layer as it was, so the host
+        /// acts on it exactly as before. "A layer's own key always wins"
+        /// (Noel, 2026-10-21 14:36) then holds on Home too: the noise layer's
+        /// brackets step favourites there instead of moving the filter (Sprint
+        /// 49 Track E repair round 1, B2), and a layer that binds no bracket
+        /// leaves the filter keys exactly as they were.
+        /// </summary>
+        public ValueLayerKeyResult OfferFirst(Keys k) => HandleKey(k, firstRefusalOnly: true);
+
+        private ValueLayerKeyResult HandleKey(Keys k, bool firstRefusalOnly)
         {
             if (!_live) return ValueLayerKeyResult.PassThrough;
 
@@ -1318,6 +1337,10 @@ namespace Radios
             // layer's own use of a key always wins (Noel 14:36: the planned
             // mode layer will take the brackets for next and previous mode),
             // and before either refusal.
+            // First refusal ends here: every key the layer binds has been
+            // tried, and what is left is the host's to act on (OfferFirst).
+            if (firstRefusalOnly) return ValueLayerKeyResult.PassThrough;
+
             if (_def.PassThroughKeys != null && _def.PassThroughKeys(k))
                 return ValueLayerKeyResult.PassThrough;
 

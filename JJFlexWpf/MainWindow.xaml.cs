@@ -2876,6 +2876,18 @@ public partial class MainWindow : UserControl
             }
             if (rawKey == Key.OemOpenBrackets || rawKey == Key.OemCloseBrackets)
             {
+                // A live value layer gets first refusal on its own keys
+                // (Sprint 49 Track E repair round 1, B2; "a layer's own key
+                // always wins", Noel 2026-10-21 14:36): the noise layer's
+                // brackets step favourites. A layer that binds no bracket
+                // passes it straight back, and with no layer live nothing
+                // is asked, so the filter keys are exactly as they were.
+                if (KeyCommands.AValueLayerIsLive &&
+                    KeyCommands.LiveLayerTakesKeyFirst(WpfKeyConverter.ToWinFormsKeys(e)))
+                {
+                    e.Handled = true;
+                    return;
+                }
                 _freqOutHandlers.HandleFilterHotkey(e);
                 if (e.Handled) return;
             }

@@ -3206,7 +3206,10 @@ public class KeyCommands
                     // when nothing would act on it. On Home, with its own
                     // gates met, MainWindow_PreviewKeyDown acts on push to
                     // talk, the lock and the brackets before it asks a layer
-                    // anything. In a WPF dialog, DialogTransmitKeys takes
+                    // anything, except that a bracket the live layer binds
+                    // itself is offered to it first and is then the layer's
+                    // (OfferKeyToLiveLayerFirst, Sprint 49 Track E repair
+                    // round 1, B2). In a WPF dialog, DialogTransmitKeys takes
                     // Ctrl+Space (keys the radio) and Shift+Space (refused for
                     // now, until the dialog lock is measured at the bench;
                     // round three) in the Window class handler before
@@ -3541,6 +3544,31 @@ public class KeyCommands
     /// to ask. False where no routing owner exists (tests, the log form).
     /// </summary>
     internal static bool AValueLayerIsLive => _globalRoutingOwner?._valueLayer != null;
+
+    /// <summary>
+    /// Home's step 2 asks this before it moves the filter on a bracket key
+    /// (Sprint 49 Track E repair round 1, B2): a live layer that binds the key
+    /// itself takes it, and the main window does nothing more with it. False
+    /// where no routing owner exists, or no layer is live, or the layer does
+    /// not bind the key, which leaves the brackets exactly as they were.
+    /// </summary>
+    internal static bool LiveLayerTakesKeyFirst(Keys k) =>
+        _globalRoutingOwner?.OfferKeyToLiveLayerFirst(k) == true;
+
+    /// <summary>
+    /// First refusal on a key the main window would act on before it asks a
+    /// layer anything (<see cref="Radios.ValueSubLayer.OfferFirst"/>). Routed
+    /// as <see cref="DoCommand(Keys, bool)"/> routes a key on Home: a layer
+    /// that belongs to a dialog's window is let go first, and the engine's
+    /// answer is handled as <see cref="DoValueLayerKey"/> handles it. True
+    /// only when the layer took the key.
+    /// </summary>
+    internal bool OfferKeyToLiveLayerFirst(Keys k)
+    {
+        LetGoOfLayerOutsideItsWindow(null, windowIsHelpSurface: false, "a key on Home");
+        if (_valueLayer == null || _context.GetRigControl() == null) return false;
+        return DoValueLayerKey(k, firstRefusalOnly: true) != Radios.ValueLayerKeyResult.PassThrough;
+    }
 
     /// <summary>
     /// Preview key-UP in any WPF window: a Space release is a push-to-talk
@@ -5601,7 +5629,7 @@ public class KeyCommands
     {
         var rig = _context.GetRigControl();
         if (rig == null) { LeaderNoRadio(); return; }
-        var noise = _context.GetMainWindow()?.Noise;
+        var noise = _context.GetNoise?.Invoke() ?? _context.GetMainWindow()?.Noise;
         if (noise == null) { LeaderNoRadio(); return; }
 
         noise.BeginSession();
@@ -5962,7 +5990,11 @@ public class KeyCommands
     /// bracket sentence. Noel ruled on 2026-10-21 06:37 that inside a layer
     /// brackets belong to the layer; that is the next junkbox wave's own
     /// track, which first gives the filter layer bracket keys of its own.
-    /// This merge changes nothing about brackets.
+    /// Since Sprint 49 Track E repair round 1 (B2) step 2 offers a bracket to
+    /// a live layer first (<see cref="OfferKeyToLiveLayerFirst"/>): a layer
+    /// that binds it (the noise layer's plain brackets step favourites) takes
+    /// it, and a layer that does not (the audio and filter layers) hands it
+    /// straight back, so for them nothing above changed.
     /// </para>
     /// <para>
     /// Round two asked the ROUTE (fromDialog) instead. That was true for WPF
@@ -6120,7 +6152,7 @@ public class KeyCommands
     /// host can: a vanished radio, and the Ctrl+J hand-off to a fresh
     /// leader chord (volume mode's precedent).
     /// </summary>
-    private Radios.ValueLayerKeyResult DoValueLayerKey(Keys k)
+    private Radios.ValueLayerKeyResult DoValueLayerKey(Keys k, bool firstRefusalOnly = false)
     {
         var layer = _valueLayer!;
 
@@ -6133,7 +6165,7 @@ public class KeyCommands
             return Radios.ValueLayerKeyResult.Handled;
         }
 
-        var result = layer.HandleKey(k);
+        var result = firstRefusalOnly ? layer.OfferFirst(k) : layer.HandleKey(k);
         switch (result)
         {
             case Radios.ValueLayerKeyResult.Closed:

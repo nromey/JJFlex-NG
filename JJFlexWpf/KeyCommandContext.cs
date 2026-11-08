@@ -26,6 +26,15 @@ public class KeyCommandContext
     // ── WPF MainWindow ──
     public Func<MainWindow?> GetMainWindow { get; init; } = () => null;
 
+    /// <summary>
+    /// The noise controller the noise layer drives. Null (the default) means
+    /// the main window's own (<c>MainWindow.Noise</c>), which is the app's
+    /// one instance; a windowless test supplies one over fakes, because the
+    /// main window cannot be built on the live desk (Sprint 49 Track E repair
+    /// round 1, B2's route test).
+    /// </summary>
+    public Func<NoiseController?>? GetNoise { get; init; }
+
     // ── Speech and tracing ──
     public Action<string> Trace { get; init; } = _ => { };
 
