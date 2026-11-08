@@ -2704,7 +2704,7 @@ public class NativeMenuBar : IDisposable
         // A submenu that grows costs nobody a relearn; an item that becomes a
         // submenu later costs everybody one.
         var fixSub = AddSubmenu(tools, "Fix");
-        AddWired(fixSub, "Transmit problems...", () =>
+        AddWired(fixSub, "Transmission problems...", () =>
             // MainWindow is a UserControl hosted in WinForms, not a Window, so
             // the owner is resolved the same way every other dialog here does
             // it. It can legitimately come back null; JJFlexDialog owns itself

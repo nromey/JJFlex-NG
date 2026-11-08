@@ -382,7 +382,7 @@ public sealed class FixerDialog : JJFlexDialog
 
         // NAMED BY THE CHECK, NOT BY THE TOOL. Noel, 2026-08-25: the operator
         // came for a transmit check, not for a product noun, and the menu
-        // already says it that way (Tools > Fix > Transmit problems). Derived
+        // already says it that way (Tools > Fix > Transmission problems). Derived
         // from the stage set so a future receive set reads "Receive checks"
         // with nothing to rename. "Fixer" stays as the internal name — same
         // split as jjflexible.exe over the JJFlexRadio internals.
