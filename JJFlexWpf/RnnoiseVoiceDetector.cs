@@ -77,9 +77,14 @@ namespace JJFlexWpf
             return probability;
         }
 
-        public void Reset() { Dispose(); Start(); }
+        public void Reset() { Stop(); Start(); }
 
-        public void Dispose()
+        public void Dispose() => Stop();
+
+        // Start's counterpart, the shape DeepFilterNet3Engine and SpecbleachEngine use.
+        // It does what RnnoiseEngine.Dispose does; the two bind different libraries by
+        // different export names, so they do not share a loader (Track R report).
+        private void Stop()
         {
             if (_state == IntPtr.Zero) return;
             _api!.Destroy(_state);
