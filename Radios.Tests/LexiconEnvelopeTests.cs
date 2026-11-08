@@ -1171,6 +1171,13 @@ namespace Radios.Tests
                 // one serves any other caller. DRAFT PROSE. Also the status line.
                 "logging.capture.started_from_chord",
                 "logging.capture.started_plain",
+                // Junk box 2026-11-08 (#704): the system-wide push to talk
+                // watchdog's two spoken outcomes, replacing the one shared
+                // sentence (audio.ptt.systemwide_watchdog_unkeyed, retired) that
+                // was false on both. release_not_honoured is Noel's ruled
+                // sentence; held_too_long is DRAFT PROSE.
+                "audio.ptt.systemwide_release_not_honoured",
+                "audio.ptt.systemwide_held_too_long",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note
@@ -2716,7 +2723,9 @@ namespace Radios.Tests
             // classified logging.crash.reports_unresolved_one and _many.
             // One fewer (3063 to 3062): junk box 2026-11-08 (#709) replaced and
             // classified settings.profile.remote_firmware_allowed_warning.
-            Assert.Equal(3062, unclassified);
+            // One fewer (3062 to 3061): junk box 2026-11-08 (#704) retired
+            // audio.ptt.systemwide_watchdog_unkeyed, replaced by two classified keys.
+            Assert.Equal(3061, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

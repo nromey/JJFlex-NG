@@ -694,6 +694,11 @@ namespace JJFlexWpf
 
                 switch (verdict)
                 {
+                    // SILENT ON PURPOSE (ruled by Noel 2026-10-07): a missed
+                    // key-up is handled by posting the release ourselves, the
+                    // operator has already let go, and the release goes down
+                    // the same road as any other. Nothing happened that they
+                    // need to hear about; the trace line is the record.
                     case SystemWidePttWatch.Verdict.UnkeyMissedRelease:
                         Tracing.TraceLine("SystemWideKeys: the push to talk key has read physically UP for "
                             + SystemWidePttWatch.MissedReleaseMs + " ms with no release seen by the hook — "
@@ -707,17 +712,27 @@ namespace JJFlexWpf
                             + SystemWidePttWatch.ReleaseGraceMs + " ms ago and the controller still reports a held transmit — "
                             + "the UI thread is not processing it. Dropping the carrier from the watch thread.",
                             TraceLevel.Error);
+                        // Noel's sentence, verbatim (ruled 2026-10-07): the
+                        // release WAS seen; the transmitter kept sending.
                         controller?.KillTransmitNow("system-wide push to talk watchdog (release not honoured)",
-                            Lexicon.Get("audio.ptt.systemwide_watchdog_unkeyed"),
+                            Lexicon.Get("audio.ptt.systemwide_release_not_honoured"),
                             Radios.Speech.SpeechSubject.SystemWidePttWatchdog);
                         break;
 
+                    // KEPT, though ruled 2026-10-07 as duplication of the
+                    // controller's own timeout and hard kill. Those run on the
+                    // UI thread's timers, so with the window frozen (#402) this
+                    // poll thread is the only thing left that drops a carrier
+                    // held from another program; Noel kept it on that reading
+                    // (2026-11-08). Its old sentence said the release was not
+                    // seen, which is false here: the key is still down.
                     case SystemWidePttWatch.Verdict.KillHoldTooLong:
                         Tracing.TraceLine("SystemWideKeys: push to talk has been held for "
                             + SystemWidePttWatch.MaxHoldMs / 1000 + " s. Dropping the carrier.", TraceLevel.Error);
                         Post(() => PttEdge?.Invoke(false));
                         controller?.KillTransmitNow("system-wide push to talk watchdog (hold too long)",
-                            Lexicon.Get("audio.ptt.systemwide_watchdog_unkeyed"),
+                            Lexicon.Get("audio.ptt.systemwide_held_too_long",
+                                ("minutes", SystemWidePttWatch.MaxHoldMs / 60000)),
                             Radios.Speech.SpeechSubject.SystemWidePttWatchdog);
                         break;
                 }
