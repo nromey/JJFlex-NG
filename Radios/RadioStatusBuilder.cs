@@ -8,23 +8,63 @@ namespace Radios
     public static class RadioStatusBuilder
     {
         /// <summary>
-        /// Build a comprehensive multi-slice status for Ctrl+Shift+S.
+        /// Build a comprehensive multi-slice status for Ctrl+Shift+S, SPOKEN.
         /// Returns something like:
         ///   "2 slices. Slice A selected, transmit, 14.250 megahertz, USB, pan 50.
-        ///    Slice B, 7.150 megahertz, LSB, muted, pan 85."
+        ///    Slice B, 7.150 megahertz, Digital upper, muted, pan 85."
         /// Falls back to single-slice BuildSpokenStatus if only one slice.
         /// </summary>
-        public static string BuildFullSliceStatus(FlexBase radio)
+        /// <remarks>
+        /// <para>The mode is said through <see cref="ModeWords.Spoken"/>, so the
+        /// status key says "Digital upper" where the mode keys and the Mode
+        /// menu already did, rather than the raw DIGU (ruled J41, 2026-11-07).
+        /// The Status dialog's Slices rows and its At connect reference are
+        /// DISPLAYED and keep the radio's letters: they come from
+        /// <see cref="BuildFullSliceStatusForDisplay"/> and
+        /// <see cref="BuildConnectCensusForDisplay"/>.</para>
+        /// </remarks>
+        public static string BuildFullSliceStatus(FlexBase radio) =>
+            BuildFullSliceStatus(radio, ModeWords.Spoken);
+
+        /// <summary>
+        /// The same status as <see cref="BuildFullSliceStatus(FlexBase)"/>
+        /// with each mode in the radio's own letters, for a surface that shows
+        /// it (the Status dialog's rows). The screen and braille keep the
+        /// letters.
+        /// </summary>
+        public static string BuildFullSliceStatusForDisplay(FlexBase radio) =>
+            BuildFullSliceStatus(radio, ModeAsDisplayed);
+
+        /// <summary>
+        /// The full slice census a connect keeps for the Status dialog's At
+        /// connect section, in the radio's letters.
+        /// </summary>
+        /// <remarks>
+        /// Never spoken: <see cref="ConnectBriefing.Settle"/> keeps it only in
+        /// <see cref="ConnectBriefing.Reference"/>, which only the Status dialog
+        /// reads, and the spoken lead carries the slice count with no mode. So
+        /// it follows the display rule (J41), the same as the Slices rows a few
+        /// lines below it in that dialog.
+        /// </remarks>
+        public static string BuildConnectCensusForDisplay(FlexBase radio, string model, string connType) =>
+            Lexicon.Get("connect.home.connected_with_slices",
+                ("model", model), ("connType", connType),
+                ("status", BuildFullSliceStatusForDisplay(radio)));
+
+        /// <summary>The mode as the screen shows it: the radio's own letters.</summary>
+        private static string ModeAsDisplayed(string? mode) => mode ?? "";
+
+        private static string BuildFullSliceStatus(FlexBase radio, System.Func<string?, string> modeText)
         {
             if (radio == null)
                 return "No radio connected";
 
             int numSlices = radio.MyNumSlices;
             if (numSlices == 0)
-                return BuildSpokenStatus(radio);
+                return BuildSingleSliceStatus(radio, modeText);
 
             if (numSlices == 1)
-                return BuildSpokenStatus(radio);
+                return BuildSingleSliceStatus(radio, modeText);
 
             var parts = new System.Collections.Generic.List<string>();
             parts.Add($"{numSlices} slices");
@@ -39,7 +79,7 @@ namespace Radios
 
                 string letter = slice.Letter ?? i.ToString();
                 double freqMhz = slice.Freq;
-                string mode = slice.DemodMode ?? "";
+                string mode = modeText(slice.DemodMode);
                 bool isMuted = slice.Mute;
                 int pan = slice.AudioPan;
                 bool isActive = (i == rxVfo);
@@ -76,9 +116,13 @@ namespace Radios
         }
 
         /// <summary>
-        /// Build a concise spoken status message.
+        /// Build a concise spoken status message, the mode said through
+        /// <see cref="ModeWords.Spoken"/>. Home's return status speaks it.
         /// </summary>
-        public static string BuildSpokenStatus(FlexBase radio)
+        public static string BuildSpokenStatus(FlexBase radio) =>
+            BuildSingleSliceStatus(radio, ModeWords.Spoken);
+
+        private static string BuildSingleSliceStatus(FlexBase radio, System.Func<string?, string> modeText)
         {
             if (radio == null)
                 return "No radio connected";
@@ -105,13 +149,14 @@ namespace Radios
             string bandPart = string.IsNullOrEmpty(snap.BandSpoken) ? "" : $", {snap.BandSpoken} band";
             string slicePart = string.IsNullOrEmpty(snap.SliceLetter) ? "" : $", slice {snap.SliceLetter}";
 
+            string mode = modeText(snap.Mode);
             if (snap.IsTransmitting)
             {
-                return $"Transmitting on {snap.FrequencySpoken}, {snap.Mode}{bandPart}{slicePart}, {snap.SignalDisplay}";
+                return $"Transmitting on {snap.FrequencySpoken}, {mode}{bandPart}{slicePart}, {snap.SignalDisplay}";
             }
             else
             {
-                return $"Listening on {snap.FrequencySpoken}, {snap.Mode}{bandPart}{slicePart}";
+                return $"Listening on {snap.FrequencySpoken}, {mode}{bandPart}{slicePart}";
             }
         }
 

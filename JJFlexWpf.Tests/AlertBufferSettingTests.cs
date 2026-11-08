@@ -81,7 +81,11 @@ public sealed class AlertBufferSettingTests
 
             var c = new AudioOutputConfig();
             EarconPlayer.SetAlertBuffer(100, 2);
-            c.CaptureFromEngine();
+            // A whole capture, as after a connect has applied the saved config.
+            bool wasLoaded = AudioOutputConfig.EngineHoldsSavedConfig;
+            AudioOutputConfig.EngineHoldsSavedConfig = true;
+            try { c.CaptureFromEngine(); }
+            finally { AudioOutputConfig.EngineHoldsSavedConfig = wasLoaded; }
             Assert.Equal(100, c.AlertBufferMs);
             Assert.Equal(2, c.AlertBufferCount);
         }

@@ -22,13 +22,21 @@ internal static class VoxSendBoxControl
         bool changed = VoxSendBox.Ticked != on;
         VoxSendBox.Ticked = on;
         var config = Dialogs.AudioWorkshopDialog.AudioConfigSource?.Invoke();
+        bool keptBeforeLoad = false;
         if (config != null && config.VoxSendKeysRadio != on)
         {
             config.VoxSendKeysRadio = on;
             Dialogs.AudioWorkshopDialog.AudioConfigSave?.Invoke();
         }
+        else if (config == null)
+        {
+            // No radio has loaded the operator's settings yet: keep the choice
+            // in the root file, which the first connect loads.
+            keptBeforeLoad = AudioOutputConfig.KeepChoiceBeforeLoad(c => c.VoxSendKeysRadio = on);
+        }
         JJTrace.Tracing.TraceLine("VoxSendBox: " + (on ? "ticked" : "unticked")
-            + (changed ? "" : " (unchanged)") + (config == null ? ", not saved: no operator settings loaded" : ""),
+            + (changed ? "" : " (unchanged)")
+            + (config == null ? (keptBeforeLoad ? ", kept for the first connect" : ", not saved: no operator settings loaded") : ""),
             System.Diagnostics.TraceLevel.Info);
         if (!announce) return;
         // DRAFT PROSE (#835): awaiting Noel

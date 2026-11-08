@@ -731,9 +731,9 @@ public partial class MainWindow : UserControl
                         : Radios.Lexicon.Get("connect.briefing.slices", ("count", numSlices));
                     lead = Radios.Lexicon.Get("connect.briefing.lead",
                         ("model", model), ("connType", connType), ("slices", slices));
-                    censusFull = Radios.Lexicon.Get("connect.home.connected_with_slices",
-                        ("model", model), ("connType", connType),
-                        ("status", Radios.RadioStatusBuilder.BuildFullSliceStatus(RigControl)));
+                    // Displayed, never spoken: the briefing keeps it for the
+                    // Status dialog's At connect section, so the radio's letters.
+                    censusFull = Radios.RadioStatusBuilder.BuildConnectCensusForDisplay(RigControl, model, connType);
                 }
                 else
                 {

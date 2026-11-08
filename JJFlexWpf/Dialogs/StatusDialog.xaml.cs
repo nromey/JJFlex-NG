@@ -227,7 +227,9 @@ public partial class StatusDialog : JJFlexDialog
         }
         else
         {
-            string fullSliceStatus = RadioStatusBuilder.BuildFullSliceStatus(Rig);
+            // Displayed rows: the radio's letters (J41). The status key speaks
+            // the same facts through BuildFullSliceStatus, with modes in words.
+            string fullSliceStatus = RadioStatusBuilder.BuildFullSliceStatusForDisplay(Rig);
             // Split the multi-sentence status into individual items
             foreach (string part in fullSliceStatus.Split(new[] { ". " }, StringSplitOptions.RemoveEmptyEntries))
             {

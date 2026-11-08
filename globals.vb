@@ -724,6 +724,7 @@ Module globals
             meterTones.DescribeCost = Function() DescribeSoundingMeters()
             meterTones.Stop = Sub()
                                   JJFlexWpf.MeterToneEngine.Enabled = False
+                                  JJFlexWpf.AudioOutputConfig.KeepChoiceBeforeLoad(Sub(c) c.MeterTonesEnabled = False)
                               End Sub
             meterTones.StopHow = "press Control J, then Control T"
             meterTones.SurvivesRestart = True
