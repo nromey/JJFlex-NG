@@ -287,10 +287,18 @@ public partial class CheckYourAudioDialog
             }
             var take = _take;
             var method = _method;
+            var slot = _recorderTarget;
             _ = take.Finished.ContinueWith(made =>
             {
-                if (made.IsCompletedSuccessfully && made.Result)
-                    _owner.Dispatcher.BeginInvoke(new Action(() => _owner.NoteSavedTake(method, take)));
+                if (!made.IsCompletedSuccessfully || !made.Result) return;
+                // #999 (ruled 17:57): a saved Radio recording playback is a
+                // backup of the slice recording it played.
+                if (method == AudioCheckListenMethods.RecordPlayback && take.DirectoryPath != null)
+                {
+                    try { SliceRecordingBackup.NoteSavedPlaybackAsBackup(rig, slot, take.DirectoryPath); }
+                    catch (Exception ex) { JJTrace.Tracing.TraceLine("Check your audio backup note: " + ex.Message, System.Diagnostics.TraceLevel.Warning); }
+                }
+                _owner.Dispatcher.BeginInvoke(new Action(() => _owner.NoteSavedTake(method, take)));
             }, TaskScheduler.Default);
         }
 

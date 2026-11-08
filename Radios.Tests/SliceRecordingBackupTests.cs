@@ -198,6 +198,40 @@ public sealed class SliceRecordingBackupTests : IDisposable
         Assert.DoesNotContain("slice set 1 play=1", c.F.Vendor.Transport.Commands);
     }
 
+    // ── A saved Radio recording playback counts as a backup (ruled 17:57) ──
+
+    private async Task<string> SavedCheckPlayback(RadioCase c, int packets)
+    {
+        var run = PlaybackTakeRun.Admit(c.F.Rig, TakeKind.RadioRecording, SliceRecorderTarget.ActiveSlice, new TakeSeriesContext());
+        run.NoteKeyed();
+        var sink = new Sink();
+        Assert.True(await Within(c, run.ArmAsync(_root, sink.Start, muteOthers: true)), run.NotSavedReason);
+        sink.Plays(1, packets: packets);
+        Assert.True(await Within(c, run.Finished));
+        return run.DirectoryPath!;
+    }
+
+    [Fact]
+    public async Task A_whole_saved_check_playback_marks_the_slice_recording_backed_up()
+    {
+        using var c = WithRecording();
+        Assert.True(RadioConfig.RecordSliceTake(Serial, "A", 2.0, DateTime.UtcNow, 14.2, "USB", SliceTakeSource.AudioCheck));
+        string folder = await SavedCheckPlayback(c, packets: 200);
+        Assert.True(SliceRecordingBackup.NoteSavedPlaybackAsBackup(c.F.Rig, SliceRecorderTarget.ActiveSlice, folder));
+        var stamp = RadioConfig.LoadForRadio(Serial).TrustedSliceTakeStamp("A", 2.0)!;
+        Assert.Equal(folder, stamp.BackupTakeDirectory);
+        Assert.Equal(SliceTakeSource.AudioCheck, stamp.Source);
+    }
+
+    [Fact]
+    public async Task A_saved_check_playback_stopped_early_is_not_a_backup()
+    {
+        using var c = WithRecording();
+        string folder = await SavedCheckPlayback(c, packets: 40);
+        Assert.False(SliceRecordingBackup.NoteSavedPlaybackAsBackup(c.F.Rig, SliceRecorderTarget.ActiveSlice, folder));
+        Assert.Empty(RadioConfig.LoadForRadio(Serial).SliceTakeStamps);
+    }
+
     // ── Comparison: refused beside any other kind, and with itself ──
 
     [Fact]

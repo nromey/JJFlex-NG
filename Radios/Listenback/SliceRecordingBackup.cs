@@ -185,14 +185,8 @@ public sealed class SliceRecordingBackup
 
         string? folder = run.DirectoryPath;
         if (!run.Finished.Result || folder == null) return Ended(SliceBackupResult.NotSaved, folder);
-        var take = TakeReader.Inspect(folder);
-        double captured = take.CanPlay ? TakeFacts.Seconds(take) : 0;
-        if (take.State != "clean" || captured < Seconds - ShortfallAllowedSeconds)
-        {
-            Trace("captured " + captured.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
-                + " s of " + Seconds.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + ", state " + take.State);
-            return Ended(take.State == "clean" ? SliceBackupResult.Stopped : SliceBackupResult.Incomplete, folder);
-        }
+        var whole = CapturedWhole(folder, Seconds);
+        if (whole != null) return Ended(whole.Value, folder);
         // The recording must still be the one that played: another client could
         // have recorded over the slice while it did.
         var now = rig.SliceOverwriteFactsFor(slice);
@@ -205,6 +199,39 @@ public sealed class SliceRecordingBackup
             return Ended(SliceBackupResult.NotSaved, folder);
         }
         return Ended(SliceBackupResult.BackedUp, folder);
+    }
+
+    /// <summary>
+    /// Null when the take in <paramref name="folder"/> is a clean capture of a
+    /// recording <paramref name="seconds"/> long (within
+    /// <see cref="ShortfallAllowedSeconds"/>); otherwise why it is not.
+    /// </summary>
+    public static SliceBackupResult? CapturedWhole(string folder, double seconds)
+    {
+        var take = TakeReader.Inspect(folder);
+        double captured = take.CanPlay ? TakeFacts.Seconds(take) : 0;
+        if (take.State == "clean" && captured >= seconds - ShortfallAllowedSeconds) return null;
+        Trace("captured " + captured.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
+            + " s of " + seconds.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + ", state " + take.State);
+        return take.State == "clean" ? SliceBackupResult.Stopped : SliceBackupResult.Incomplete;
+    }
+
+    /// <summary>
+    /// A Radio recording audio check method playback was saved as a take: it
+    /// counts as a backup of that slice's recording (ruled 2026-11-07 17:57),
+    /// when it captured the whole recording the radio still reports. True when
+    /// the slice's stamp now names it. Makes no take: the check's own "Save each
+    /// playback as a take" setting decided that (off by default, S2).
+    /// </summary>
+    public static bool NoteSavedPlaybackAsBackup(FlexBase rig, SliceRecorderTarget target, string folder)
+    {
+        if (rig == null || string.IsNullOrEmpty(folder)) return false;
+        var facts = rig.SliceOverwriteFactsFor(target);
+        if (facts == null || !facts.HasRecording || facts.RadioSeconds is not double seconds) return false;
+        if (CapturedWhole(folder, seconds) != null) return false;
+        bool noted = RadioConfig.RecordSliceTakeBackup(facts.Serial, facts.Letter, seconds, folder);
+        Trace("saved playback of slice " + facts.Letter + (noted ? " counts as its backup" : " could not be noted as its backup"));
+        return noted;
     }
 
     private static async Task<bool> Bounded(Task task, TimeSpan wait) =>
