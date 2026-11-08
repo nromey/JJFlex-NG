@@ -1,0 +1,3 @@
+- The Play takes window now lists the connected radio's slice recordings and offers Play and Back up. Back up saves a recording on this computer as a take, so a radio restart won't erase the computer copy.
+- F11 and the Radio recording audio check method now warn before replacing a recording on the radio. F11 followed by Enter starts the new recording immediately. Back up first saves the current recording before the new recording starts. The warning says whether a backup exists, and Settings offers a warning switch for each radio.
+- Slice recording backups can now be compared with each other in the Play takes window. A backup cannot be compared with a different kind of take.
