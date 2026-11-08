@@ -149,6 +149,33 @@ public sealed class SliceListenTests : IDisposable
         Assert.True(PlayCommandSent(c));
     }
 
+    /// <summary>
+    /// Repair round 2: two quick presses while the first is still waiting for
+    /// the radio to confirm VOX off. The second press must stop what the first
+    /// started, as ordinary Play's toggle does, because it decides inside the
+    /// recorder's gate; deciding before the gate made both presses Start, and
+    /// the playback kept running.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_second_quick_press_during_arming_stops_the_playback(bool listen)
+    {
+        using var c = OurPermittedTransmissionWithARecording();
+        Field(c.F.Vendor.Radio, "_simpleVOXEnable", true);
+        var first = listen ? c.F.Rig.ToggleSliceListenAsync(SliceRecorderTarget.ActiveSlice)
+            : c.F.Rig.ToggleSlicePlayAsync(SliceRecorderTarget.ActiveSlice);
+        Assert.False(first.IsCompleted, "the first press must still be arming, or the second press proves nothing");
+        var second = listen ? c.F.Rig.ToggleSliceListenAsync(SliceRecorderTarget.ActiveSlice)
+            : c.F.Rig.ToggleSlicePlayAsync(SliceRecorderTarget.ActiveSlice);
+        Assert.True((await c.Pump(first)).Success);
+        var stopped = await c.Pump(second);
+        Assert.True(stopped.Success, stopped.Message);
+        Assert.False(stopped.AlreadyInState);
+        Assert.False(c.F.Rig.IsSlicePlaying(SliceRecorderTarget.ActiveSlice));
+        Assert.Contains("slice set 1 play=0", c.F.Vendor.Transport.Commands);
+    }
+
     [Fact]
     public async Task Listen_plays_locally_when_the_radio_is_not_keyed()
     {

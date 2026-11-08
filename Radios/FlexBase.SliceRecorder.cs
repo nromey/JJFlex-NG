@@ -1005,8 +1005,22 @@ public partial class FlexBase
     /// <see cref="StartSliceListenAsync"/>, or stop the playback running on the
     /// slice. Stopping is always allowed, keyed or not.
     /// </summary>
-    public Task<RecorderOutcome> ToggleSliceListenAsync(SliceRecorderTarget target, object owner = null) =>
-        IsSlicePlaying(target) ? StopSlicePlayAsync(target, owner) : StartSliceListenAsync(target, owner);
+    /// <remarks>
+    /// Start or stop is decided INSIDE the recorder's gate, as
+    /// <see cref="ToggleSlicePlayAsync"/> decides (repair round 2): a second press
+    /// while the first is still arming waits for it, then stops it. The local-only
+    /// intent is still fixed at the press. A press refused while transmitting is
+    /// answered at once when nothing is playing, since a refusal starts nothing.
+    /// </remarks>
+    public Task<RecorderOutcome> ToggleSliceListenAsync(SliceRecorderTarget target, object owner = null)
+    {
+        var intent = ListenIntent();
+        if (ListenRefused(intent) && !IsSlicePlaying(target)) return Task.FromResult(ListenRefusedWhileTransmitting(target));
+        return WithRecorderAsync(target, state => (state.Playing || state.Slice.PlayOn)
+            ? StopPlayLockedAsync(state, target, owner)
+            : ListenRefused(intent) ? Task.FromResult(ListenRefusedWhileTransmitting(target))
+            : StartPlayLockedAsync(state, target, intent, owner));
+    }
 
     // PLACEHOLDER: Codex writes (#999).
     private RecorderOutcome ListenRefusedWhileTransmitting(SliceRecorderTarget target)
