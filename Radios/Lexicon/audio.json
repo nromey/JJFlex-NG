@@ -668,6 +668,8 @@
   "audio.ptt.announce_transmitting": "Transmitting",
   "audio.ptt.announce_transmitting_on": {"text": "Transmitting on slice {slice}", "delivery": null},
   "audio.ptt.blocked_by_license": "Unable to transmit here. Select license options in Settings to change.",
+  "_note_911": "Junk box 2026-11-08: audio.ptt.another_station_transmitting is DRAFT wording, awaiting Noel. Said when push to talk or the lock is pressed while the radio reports another station transmitting on it.",
+  "audio.ptt.another_station_transmitting": {"text": "Not transmitting: another station is transmitting on this radio right now.", "delivery": null},
   "audio.ptt.check_microphone": "Check microphone",
   "audio.ptt.transmit_slice_not_heard": {"text": "The transmit slice could not be announced, so nothing was transmitted.", "delivery": null},
   "audio.ptt.transmit_slice_changed": {"text": "The transmit slice changed, so nothing was transmitted.", "delivery": null},

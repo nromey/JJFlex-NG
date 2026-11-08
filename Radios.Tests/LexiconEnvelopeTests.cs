@@ -1178,6 +1178,9 @@ namespace Radios.Tests
                 // sentence; held_too_long is DRAFT PROSE.
                 "audio.ptt.systemwide_release_not_honoured",
                 "audio.ptt.systemwide_held_too_long",
+                // Junk box 2026-11-08 (#911): push to talk or the lock refused
+                // while another station transmits on the radio. DRAFT PROSE.
+                "audio.ptt.another_station_transmitting",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note

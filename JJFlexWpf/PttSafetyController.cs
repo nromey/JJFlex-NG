@@ -1034,6 +1034,12 @@ namespace JJFlexWpf
             // A rig reading 0 watts (#859). Not the hold: its own rule and state.
             if (State == PttState.Idle && ZeroPowerDoors.RefuseTransmit(_getRigControl(), "push to talk")) return;
 
+            // Another station holds this radio's transmitter (#911): the radio
+            // refuses our key, and nothing tells us, so a key now would claim
+            // "Transmitting" over someone else's carrier. Refused up front, on
+            // a clear reading only. Only from Idle: a release is never refused.
+            if (State == PttState.Idle && RefuseWhileAnotherStationTransmits("push to talk")) return;
+
             // License-aware TX lockout check
             if (CanTransmitHereCheck != null && !CanTransmitHereCheck())
             {
@@ -1110,6 +1116,14 @@ namespace JJFlexWpf
             if (State == PttState.Idle && !_keyingForCheck
                 && ZeroPowerDoors.RefuseTransmit(_getRigControl(), "the lock key")) return;
 
+            // Another station holds this radio's transmitter (#911): the lock
+            // said "Transmitting, locked" and went Locked while the radio
+            // refused its key. Refused up front, on a clear reading only, and
+            // only from Idle, so the operator's own unlock is never refused. A
+            // check's own key is left to the check's start path (#910).
+            if (State == PttState.Idle && !_keyingForCheck
+                && RefuseWhileAnotherStationTransmits("the lock key")) return;
+
             if (State == PttState.Idle || State == PttState.PttHold)
             {
                 EnterLocked();
@@ -1119,6 +1133,36 @@ namespace JJFlexWpf
                 // Any TX state — unlock
                 GoIdle(ReceivingWords(), confirmReceive: true);
             }
+        }
+
+        /// <summary>
+        /// Does the radio clearly report another station transmitting on it?
+        /// Read-only. Replaced by tests, which have no radio. False whenever
+        /// the reading is missing or unclear: unknown is never a refusal.
+        /// </summary>
+        internal Func<FlexBase?, bool> AnotherStationTransmitting { get; set; } = rig =>
+        {
+            try { return rig != null && rig.ReadTuneStanding().AnotherStationTransmitting; }
+            catch { return false; }
+        };
+
+        /// <summary>
+        /// Refuse a key from Idle while another station holds the transmitter,
+        /// saying why with the warning tone first. True when refused. Keys
+        /// nothing, writes nothing to the radio.
+        /// </summary>
+        private bool RefuseWhileAnotherStationTransmits(string door)
+        {
+            if (!AnotherStationTransmitting(SafeRig())) return false;
+            Tracing.TraceLine("PTT: " + door + " refused: the radio reports another station transmitting on it, "
+                + "so a key from here would be refused by the radio and claim a transmission that is not ours",
+                TraceLevel.Warning);
+            EarconPlayer.Warning2Beep();
+            // DRAFT PROSE, awaiting Noel.
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.another_station_transmitting"),
+                Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.TransmitKeyRefused);
+            return true;
         }
 
         /// <summary>
