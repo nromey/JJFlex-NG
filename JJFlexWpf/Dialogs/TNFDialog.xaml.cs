@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 
@@ -81,8 +82,39 @@ public partial class TNFDialog : JJFlexDialog
         InitializeComponent();
         // Delete on the list presses this button (#774).
         DeleteKeyRemoves.SetButton(TNFList, RemoveButton);
+        // The list's name carries the count; it is brought up to date on the
+        // way in, where a rename cannot be heard as a second announcement.
+        TNFList.GotKeyboardFocus += (_, _) =>
+        {
+            _namingOnFocus = true;
+            try { NameTheList(); }
+            finally { _namingOnFocus = false; }
+        };
         Loaded += TNFDialog_Loaded;
     }
+
+    /// <summary>
+    /// The list says what it holds and how many (#941): "Tracking notches by
+    /// frequency, 3 on this radio", or "none on this radio". Said as "on this
+    /// radio", never "3 of 5", so it cannot be heard as a list position (the
+    /// meters panel's lesson, #946). DRAFT wording.
+    /// </summary>
+    internal static string ListName(int count) => count <= 0
+        ? Radios.Lexicon.Get("settings.tnf.list_name_none")
+        : Radios.Lexicon.Get("settings.tnf.list_name_count", ("count", count));
+
+    /// <summary>
+    /// Rename the list only while it does not have keyboard focus, or on the
+    /// way into it: renaming a focused control makes the screen reader say it
+    /// unprompted, on top of "Notch added" or "Notch removed".
+    /// </summary>
+    private void NameTheList()
+    {
+        if (TNFList.IsKeyboardFocusWithin && !_namingOnFocus) return;
+        AutomationProperties.SetName(TNFList, ListName(TNFList.Items.Count));
+    }
+
+    private bool _namingOnFocus;
 
     private void TNFDialog_Loaded(object sender, RoutedEventArgs e)
     {
@@ -160,6 +192,7 @@ public partial class TNFDialog : JJFlexDialog
         {
             _suppressEvents = false;
         }
+        NameTheList();
         UpdateTNFProperties();
     }
 
@@ -262,7 +295,9 @@ public partial class TNFDialog : JJFlexDialog
         int newVal = Math.Max(WidthMin, Math.Min(WidthMax, current + delta));
         SetTNFWidth?.Invoke(idx, newVal);
         WidthBox.Text = newVal.ToString();
-        SpeakValue(WidthLabel, newVal.ToString());
+        // Through the one width formatter, as every filter width is (#983):
+        // "2.75 k" at Terse from 1 kHz up, the whole number otherwise.
+        SpeakValue(WidthLabel, Radios.HertzSpeech.Width(newVal, Radios.HertzUnitStyle.Bare));
     }
 
     private void DepthBox_PreviewKeyDown(object sender, KeyEventArgs e)

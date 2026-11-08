@@ -1110,6 +1110,12 @@ namespace Radios.Tests
                 "settings.guard.action.tx_controls",
                 "settings.guard.action.profile_import",
 
+                // Junk box #941 (2026-11-07, third batch): the tracking notch
+                // list's accessible name, with its count. A control name:
+                // TextOnly. DRAFT PROSE.
+                "settings.tnf.list_name_none",
+                "settings.tnf.list_name_count",
+
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note
                 // that VOX was switched off for it. Classified rather than
