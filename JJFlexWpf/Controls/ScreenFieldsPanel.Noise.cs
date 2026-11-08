@@ -47,6 +47,8 @@ public partial class ScreenFieldsPanel
     private Button _noiseSavePreset = null!;
     private ValueFieldControl _captureLength = null!;
     private readonly List<(CycleFieldControl Field, NoiseLever Lever, IReadOnlyList<(double? Shown, string? Choice, string Text)> Steps)> _noiseLeverFields = new();
+    /// <summary>Listen to what was removed, when the engine shown has it revealed: a checkbox, as ruled (question 13).</summary>
+    private (CheckBox Box, NoiseLever Lever)? _noiseListen;
     private IReadOnlyList<DenoiseEngineEntry> _noiseEngines = Array.Empty<DenoiseEngineEntry>();
     private string? _noiseFieldsFor;
     private IReadOnlyList<string> _noisePresetNames = Array.Empty<string>();
@@ -236,6 +238,7 @@ public partial class ScreenFieldsPanel
             _noiseOn.IsChecked = noise.IsOn(id);
 
             _noiseLeverFields.Clear();
+            _noiseListen = null;
             _noiseLevers.Children.Clear();
             _noiseAdvancedLevers.Children.Clear();
             foreach (var lever in noise.Levers(id, includeAdvanced: false))
@@ -247,7 +250,8 @@ public partial class ScreenFieldsPanel
             _noiseAdvanced.IsChecked = advanced;
             if (advanced)
                 foreach (var lever in noise.Levers(id, includeAdvanced: true).Where(l => l.Advanced))
-                    _noiseAdvancedLevers.Children.Add(MakeLeverField(noise, lever));
+                    _noiseAdvancedLevers.Children.Add(lever.Kind == NoiseLeverKind.ListenRemoved
+                        ? MakeListenCheck(noise, lever) : MakeLeverField(noise, lever));
             _noiseDelay.Visibility = advanced ? Visibility.Visible : Visibility.Collapsed;
             _noiseDelay.Text = advanced ? noise.DelayText(id) : "";
             AutomationProperties.SetName(_noiseDelay, _noiseDelay.Text);
@@ -289,6 +293,23 @@ public partial class ScreenFieldsPanel
         };
         _noiseLeverFields.Add((field, lever, steps));
         return field;
+    }
+
+    /// <summary>
+    /// Listen to what was removed as the checkbox it was ruled to be
+    /// (question 13; repair round 1): two states, not a cycle field. The
+    /// controller turns it on and off and says the warning, as the layer's
+    /// keys do.
+    /// </summary>
+    private CheckBox MakeListenCheck(NoiseController noise, NoiseLever lever)
+    {
+        var box = MakeToggle(noise.LeverName(lever));
+        box.IsChecked = noise.NumberOf(lever) == 1;
+        JJFlexHelp.SetText(box, Lexicon.Get(NoiseController.HelpKey(lever)));
+        box.Checked += (s, e) => { if (!_polling && !_noiseRebuilding) noise.Set(lever, 1, null, NoiseSource); };
+        box.Unchecked += (s, e) => { if (!_polling && !_noiseRebuilding) noise.Set(lever, 0, null, NoiseSource); };
+        _noiseListen = (box, lever);
+        return box;
     }
 
     private static int CurrentStep(NoiseController noise, NoiseLever lever, IReadOnlyList<(double? Shown, string? Choice, string Text)> steps)
@@ -342,6 +363,7 @@ public partial class ScreenFieldsPanel
                 try { field.SelectedIndex = CurrentStep(noise, lever, steps); }
                 finally { field.SuppressEvents = false; }
             }
+            if (_noiseListen is { } listen) listen.Box.IsChecked = noise.NumberOf(listen.Lever) == 1;
             if (FindMainWindow()?.CurrentAudioConfig is { } cfg) _captureLength.Value = Math.Clamp(cfg.SpectralSubSampleDuration, 1, 5);
         }
         finally { _polling = wasPolling; }

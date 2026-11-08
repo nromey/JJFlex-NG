@@ -273,7 +273,15 @@ namespace JJFlexWpf
                     return next == current.Number ? null : new EngineSettingValue(next);
                 }
                 case NoiseLeverKind.ListenRemoved:
-                    return new EngineSettingValue(current.Number == 1 ? 0 : 1);
+                {
+                    // A switch with two ends, not a toggle (repair round 1):
+                    // Up turns it on, Down turns it off, and at an end it
+                    // stays and says so, like every other lever. A toggle
+                    // here never reached an end, so a field built from the
+                    // steps listed Off and On a thousand times.
+                    double next = direction > 0 ? 1 : 0;
+                    return next == current.Number ? null : new EngineSettingValue(next);
+                }
                 default:
                 {
                     var d = lever.Descriptor!;

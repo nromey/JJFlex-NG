@@ -229,6 +229,38 @@ public sealed class NoiseRepairRoundOneTests
         Assert.Equal(new[] { "radio_apf=on" }, f.Radio.Writes);
     }
 
+    // ── Listen to what was removed is a two-state control ──
+
+    [Fact]
+    public void Listen_to_what_was_removed_has_two_states_and_ends_like_any_lever()
+    {
+        // Before the repair its Next never ended, so a field built from the
+        // steps listed Off and On a thousand times.
+        using var f = new NoiseFixture();
+        f.Noise.Toggle("rnnoise", "test");
+        var listen = f.Noise.Levers("rnnoise", true).Single(l => l.Kind == NoiseLeverKind.ListenRemoved);
+        var steps = f.Noise.LeverSteps(listen);
+        Assert.Equal(new double?[] { 0, 1 }, steps.Select(s => s.Shown));
+        Assert.Equal(new[] { "off", "on" }, steps.Select(s => s.Text));
+        f.Noise.Adjust(listen, +1, "test");
+        Assert.True(f.Pipeline.NeuralSlot.ListenToRemoved);
+        f.Noise.Adjust(listen, +1, "test");                       // already on: stays, and says so
+        Assert.True(f.Pipeline.NeuralSlot.ListenToRemoved);
+        Assert.EndsWith("the most.", f.Spoken.Last);
+        f.Noise.Adjust(listen, -1, "test");
+        Assert.False(f.Pipeline.NeuralSlot.ListenToRemoved);
+    }
+
+    [Fact]
+    public void Listen_to_what_was_removed_is_a_checkbox_on_Home()
+    {
+        // A source pin: Home's fields need a window. The ruled shape is a
+        // checkbox (question 13), never the cycle field the steps used to fill.
+        string noise = Source("JJFlexWpf", "Controls", "ScreenFieldsPanel.Noise.cs");
+        Assert.Contains("lever.Kind == NoiseLeverKind.ListenRemoved\n                        ? MakeListenCheck(noise, lever) : MakeLeverField(noise, lever)", noise);
+        Assert.Contains("private CheckBox MakeListenCheck(NoiseController noise, NoiseLever lever)", noise);
+    }
+
     private sealed class MemoryPresets : INoisePresetStore
     {
         public AudioChainPresets Data = new() { BalancedCaptureOffered = true };
