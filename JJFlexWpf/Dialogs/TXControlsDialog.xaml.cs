@@ -227,12 +227,9 @@ public partial class TXControlsDialog : JJFlexDialog
 
     private void ApplyDelayFromBox(TextBox box)
     {
-        if (int.TryParse(box.Text, out int value))
-        {
-            value = Math.Clamp(value, DelayMin, DelayMax);
-            box.Text = value.ToString();
-            ApplyDelay(box, value);
-        }
+        var (get, set) = DelayAccessors(box);
+        string? shown = DelayAfterFocusLoss(box.Text, get, set);
+        if (shown != null) box.Text = shown;
     }
 
     /// <summary>
@@ -241,14 +238,42 @@ public partial class TXControlsDialog : JJFlexDialog
     /// </summary>
     private void ApplyDelay(TextBox box, int value)
     {
-        (Func<int>? get, Func<int, bool>? set) =
-            box == TX1DelayBox ? (GetTX1Delay, SetTX1Delay)
-            : box == TX2DelayBox ? (GetTX2Delay, SetTX2Delay)
-            : box == TX3DelayBox ? (GetTX3Delay, SetTX3Delay)
-            : box == TXACCDelayBox ? (GetTXACCDelay, SetTXACCDelay)
-            : (null, null);
-        if (set?.Invoke(value) == true) return;
-        box.Text = (get?.Invoke() ?? 0).ToString();
+        var (get, set) = DelayAccessors(box);
+        box.Text = DelayAfterWrite(value, get, set);
+    }
+
+    private (Func<int>? Get, Func<int, bool>? Set) DelayAccessors(TextBox box) =>
+        box == TX1DelayBox ? (GetTX1Delay, SetTX1Delay)
+        : box == TX2DelayBox ? (GetTX2Delay, SetTX2Delay)
+        : box == TX3DelayBox ? (GetTX3Delay, SetTX3Delay)
+        : box == TXACCDelayBox ? (GetTXACCDelay, SetTXACCDelay)
+        : (null, null);
+
+    /// <summary>
+    /// What a delay box shows after the operator leaves it: the typed number,
+    /// clamped, written if it differs from the radio's; null when the text is
+    /// not a number and the box is left alone.
+    /// </summary>
+    internal static string? DelayAfterFocusLoss(string text, Func<int>? get, Func<int, bool>? set)
+    {
+        if (!int.TryParse(text, out int value)) return null;
+        return DelayAfterWrite(Math.Clamp(value, DelayMin, DelayMax), get, set);
+    }
+
+    /// <summary>
+    /// What a delay box shows after a write of <paramref name="value"/>.
+    /// <b>A value the radio already has is not sent</b> (#477 repair one,
+    /// Codex B2): Tab passing an untouched delay, or leaving one an arrow
+    /// press was refused on and put back, wrote the radio's own number again,
+    /// and under the change-nothing hold every such focus loss spoke a
+    /// refusal of a change nobody asked for. A real edit is still written,
+    /// and refused, the box shows the radio's value again.
+    /// </summary>
+    internal static string DelayAfterWrite(int value, Func<int>? get, Func<int, bool>? set)
+    {
+        if (get != null && get() == value) return value.ToString();
+        if (set?.Invoke(value) == true) return value.ToString();
+        return (get?.Invoke() ?? 0).ToString();
     }
 
     #endregion

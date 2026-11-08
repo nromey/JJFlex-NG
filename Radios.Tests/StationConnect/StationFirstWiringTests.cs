@@ -392,7 +392,7 @@ namespace Radios.Tests.StationConnect
         public void AutosaveConfirmationRequiresRadioProvenanceAfterTheSend()
         {
             var text = Read(FlexBase);
-            int method = IndexOf(text, "private bool SetRadioProfileAutosaveInternal(bool on, string why)");
+            int method = IndexOf(text, "private bool SetRadioProfileAutosaveInternal(bool on, string why, string operatorHoldAction, out bool held)");
             string body = text.Substring(method, Math.Min(4000, text.Length - method));
             Assert.Contains("Provenance == ObservationProvenance.RadioReported", body, StringComparison.Ordinal);
             Assert.Contains("Sequence > seq", body, StringComparison.Ordinal);

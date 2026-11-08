@@ -137,6 +137,98 @@ namespace Radios.Tests
         }
 
         // ------------------------------------------------------------------
+        // A queued operator write asks the hold again at its write (#976,
+        // repair one, Codex B1): pressed with the hold off, the hold armed
+        // while it waits in the queue, it sends nothing when it runs.
+        // ------------------------------------------------------------------
+
+        /// <summary>Hold the queue undrained (the main loop owns it), so the
+        /// test decides when the queued item runs.</summary>
+        private static void HoldTheQueue(RigOnVendorRadio rig) => rig.Rig.q.MainLoop = true;
+
+        /// <summary>Run the next queued item as the main loop would.</summary>
+        private static void RunOne(RigOnVendorRadio rig) =>
+            ((FlexBase.FunctionDel)rig.Rig.q.Dequeue().Item)();
+
+        [Theory]
+        [InlineData(ProfileTypes.global)]
+        [InlineData(ProfileTypes.display)]
+        public void A_profile_load_queued_before_the_hold_sends_nothing_when_the_hold_is_armed_before_it_runs(ProfileTypes type)
+        {
+            var rig = Rig();
+            HoldTheQueue(rig);
+            int sent = rig.Vendor.Transport.Commands.Count;
+
+            Assert.Equal(GuardedOutcome.Done, rig.Rig.SelectProfileGuarded(new Profile_t("hold-load", type, false)));
+            Assert.Equal(1, rig.Rig.q.Count);
+            rig.Rig.SetChangeNothingActive(true);
+            RunOne(rig);
+
+            Assert.Equal(sent, rig.Vendor.Transport.Commands.Count);
+        }
+
+        [Theory]
+        [InlineData(ProfileTypes.global)]
+        [InlineData(ProfileTypes.display)]
+        public void Control_a_queued_profile_load_with_the_hold_off_goes_out_when_it_runs(ProfileTypes type)
+        {
+            var rig = Rig();
+            HoldTheQueue(rig);
+            int sent = rig.Vendor.Transport.Commands.Count;
+
+            Assert.Equal(GuardedOutcome.Done, rig.Rig.SelectProfileGuarded(new Profile_t("hold-load", type, false)));
+            RunOne(rig);
+
+            Assert.Contains(rig.Vendor.Transport.Commands.Skip(sent), c => c.Contains("load") && c.Contains("hold-load"));
+        }
+
+        [Fact]
+        public void A_global_profile_save_queued_before_the_hold_sends_nothing_when_the_hold_is_armed_before_it_runs()
+        {
+            Assert.True(new RadioConfig { Ownership = RadioOwnership.Mine }.SaveForRadio("1111-2222-6300-4444"));
+            var rig = Rig();
+            HoldTheQueue(rig);
+            int sent = rig.Vendor.Transport.Commands.Count;
+
+            Assert.Equal(GuardedOutcome.Done, rig.Rig.SaveProfileGuarded(new Profile_t("hold-save", ProfileTypes.global, false)));
+            Assert.Equal(1, rig.Rig.q.Count);
+            rig.Rig.SetChangeNothingActive(true);
+            RunOne(rig);
+            Assert.Equal(sent, rig.Vendor.Transport.Commands.Count);
+
+            // Control: the same save, the hold lifted, goes out.
+            rig.Rig.SetChangeNothingActive(false);
+            Assert.Equal(GuardedOutcome.Done, rig.Rig.SaveProfileGuarded(new Profile_t("hold-save", ProfileTypes.global, false)));
+            RunOne(rig);
+            Assert.Contains(rig.Vendor.Transport.Commands.Skip(sent), c => c.Contains("save") && c.Contains("hold-save"));
+        }
+
+        /// <summary>
+        /// The queued profile writes ask the hold at the write, one step with
+        /// it, inside the delegate and not only before the enqueue. Delete
+        /// waits for its own queued run on the caller's thread, so it is
+        /// pinned here rather than driven.
+        /// </summary>
+        [Theory]
+        [InlineData("theRadio.ProfileDisplaySelection = prof.Name; return true; }))")]
+        [InlineData("theRadio.ProfileGlobalSelection = prof.Name; return true; }))")]
+        [InlineData("using (OurPowerWrite()) theRadio.ProfileTXSelection = prof.Name;")]
+        [InlineData("theRadio.ProfileMICSelection = prof.Name;")]
+        [InlineData("theRadio.ProfileMICSelection = name; return true; }))")]
+        [InlineData("using (OwnProfileWrite()) notSent = SendGlobalProfileSave(p.Name); return true; }))")]
+        [InlineData("theRadio.DeleteGlobalProfile(prof.Name); return true; }))")]
+        [InlineData("theRadio.DeleteTXProfile(prof.Name); return true; }))")]
+        [InlineData("theRadio.DeleteMICProfile(prof.Name); return true; }))")]
+        public void Every_queued_profile_write_asks_the_hold_at_the_write(string write)
+        {
+            string src = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.Profiles.cs"));
+            int at = src.IndexOf(write, StringComparison.Ordinal);
+            Assert.True(at >= 0, "not found: " + write);
+            int gate = src.LastIndexOf("WriteUnlessHeld(", at, StringComparison.Ordinal);
+            Assert.True(gate >= 0 && at - gate < 260, "the write is not inside WriteUnlessHeld: " + write);
+        }
+
+        // ------------------------------------------------------------------
         // The shape: which operator refusals are still two steps, and why
         // ------------------------------------------------------------------
 
@@ -155,11 +247,16 @@ namespace Radios.Tests
             [("FlexBase.MainThread.cs", "settings.guard.action.profile_import")] = "import: asked again when the queued import runs",
             // An upload; the preflight refuses first.
             [("FlexBase.Firmware.cs", "settings.guard.action.firmware")] = "firmware upload",
-            // Queued profile writes.
-            [("FlexBase.Profiles.cs", "settings.guard.action.profile_load")] = "queued profile load",
-            [("FlexBase.Profiles.cs", "settings.guard.action.profile_save")] = "queued profile save",
-            [("FlexBase.Profiles.cs", "settings.guard.action.autosave")] = "autosave, a queued write with a confirmation",
-            [("FlexBase.Profiles.cs", "settings.guard.action.profile_delete")] = "queued profile delete",
+            // Queued profile writes: refused up front, before the enqueue, so
+            // the press hears it at once; and asked AGAIN at the write, one
+            // step with the hold, inside the queued delegate (repair one,
+            // pinned by Every_queued_profile_write_asks_the_hold_at_the_write).
+            [("FlexBase.Profiles.cs", "settings.guard.action.profile_load")] = "up front; one step again at the queued write",
+            [("FlexBase.Profiles.cs", "settings.guard.action.profile_save")] = "up front; one step again at the queued write",
+            [("FlexBase.Profiles.cs", "settings.guard.action.profile_delete")] = "up front; one step again at the queued write",
+            // Not queued: refused up front, then the send is one step with the
+            // hold (WriteUnlessHeld); the confirmation wait is outside it.
+            [("FlexBase.Profiles.cs", "settings.guard.action.autosave")] = "up front; one step again at the send",
             // Queued on the IQ queue and confirmed by reply.
             [("FlexBase.FullDuplex.cs", "settings.guard.action.full_duplex")] = "full duplex, queued and confirmed",
             // Queued; the run asks again under the mic lock.
@@ -264,7 +361,7 @@ namespace Radios.Tests
             Assert.True(ok >= 0 && tone > ok && back > tone, "the tone must play only when the radio took the write, and a refusal must put the box back");
             Assert.DoesNotContain("Action<bool>? Set", dlg);
             Assert.DoesNotContain("Action<int>? Set", dlg);
-            Assert.Contains("box.Text = (get?.Invoke() ?? 0).ToString();", dlg);   // a refused delay goes back too
+            Assert.Contains("return (get?.Invoke() ?? 0).ToString();", dlg);   // a refused delay goes back too
             Assert.Contains("PutBack(() => combo.SelectedIndex = (getter?.Invoke() ?? false) ? 1 : 0);", dlg);
 
             string main = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "MainWindow.xaml.cs"));

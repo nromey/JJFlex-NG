@@ -217,16 +217,32 @@ namespace Radios
             string str = "";
             switch (prof.ProfileType)
             {
+                // THE HOLD IS ASKED AGAIN AT THE WRITE (#976, repair one,
+                // Codex B1). The refusal above speaks before the enqueue; the
+                // hold could be armed while this sat in the queue, and the
+                // load then went out under it. Each delegate now makes its
+                // final synchronous command one step with the hold
+                // (WriteUnlessHeld), and speaks a refusal outside the lock.
                 case ProfileTypes.display:
                     q.Enqueue((FunctionDel)(() =>
                     {
-                        theRadio.ProfileDisplaySelection = prof.Name;
+                        try
+                        {
+                            if (!WriteUnlessHeld(() => { theRadio.ProfileDisplaySelection = prof.Name; return true; }))
+                            { refusedAtDispatch = true; SayTheHoldRefused("settings.guard.action.profile_load"); }
+                        }
+                        finally { dispatched = true; }
                     }), "ProfileDisplaySelection", true);
                     break;
                 case ProfileTypes.global:
                     q.Enqueue((FunctionDel)(() =>
                     {
-                        theRadio.ProfileGlobalSelection = prof.Name;
+                        try
+                        {
+                            if (!WriteUnlessHeld(() => { theRadio.ProfileGlobalSelection = prof.Name; return true; }))
+                            { refusedAtDispatch = true; SayTheHoldRefused("settings.guard.action.profile_load"); }
+                        }
+                        finally { dispatched = true; }
                     }), "ProfileGlobalSelection", true);
                     break;
                 case ProfileTypes.tx:
@@ -235,18 +251,26 @@ namespace Radios
                         {
                             try
                             {
-                                if (!theRadio.ProfileTXList.Contains(prof.Name))
+                                bool create = !theRadio.ProfileTXList.Contains(prof.Name);
+                                if (create)
                                 {
                                     // The list is read again at dispatch, so the
                                     // create is decided HERE, and whose radio it
                                     // is gets asked here too (#777 round four).
                                     if (OwnershipRefusesProfileWrite(prof.Name, ProfileWriteActionKey(prof.ProfileType, delete: false)))
                                     { refusedAtDispatch = true; return; }
-                                    theRadio.CreateTXProfile(prof.Name);
-                                    str += "CreateTXProfile_";
                                 }
-                                using (OurPowerWrite()) theRadio.ProfileTXSelection = prof.Name;
-                                str += "ProfileTXSelection";
+                                // The create and the selection are two
+                                // synchronous sends with nothing between them;
+                                // the hold is asked once, around both (#976).
+                                if (!WriteUnlessHeld(() =>
+                                {
+                                    if (create) theRadio.CreateTXProfile(prof.Name);
+                                    using (OurPowerWrite()) theRadio.ProfileTXSelection = prof.Name;
+                                    return true;
+                                }))
+                                { refusedAtDispatch = true; SayTheHoldRefused("settings.guard.action.profile_load"); return; }
+                                str += create ? "CreateTXProfile_ProfileTXSelection" : "ProfileTXSelection";
                             }
                             finally { dispatched = true; }
                         }), str, true);
@@ -258,16 +282,22 @@ namespace Radios
                         {
                             try
                             {
-                                if (!theRadio.ProfileMICList.Contains(prof.Name))
+                                bool create = !theRadio.ProfileMICList.Contains(prof.Name);
+                                if (create)
                                 {
                                     // As for transmit, above (#777 round four).
                                     if (OwnershipRefusesProfileWrite(prof.Name, ProfileWriteActionKey(prof.ProfileType, delete: false)))
                                     { refusedAtDispatch = true; return; }
-                                    theRadio.CreateMICProfile(prof.Name);
-                                    str += "CreateMICProfile_";
                                 }
-                                theRadio.ProfileMICSelection = prof.Name;
-                                str += "ProfileMICSelection";
+                                // As for transmit, above (#976).
+                                if (!WriteUnlessHeld(() =>
+                                {
+                                    if (create) theRadio.CreateMICProfile(prof.Name);
+                                    theRadio.ProfileMICSelection = prof.Name;
+                                    return true;
+                                }))
+                                { refusedAtDispatch = true; SayTheHoldRefused("settings.guard.action.profile_load"); return; }
+                                str += create ? "CreateMICProfile_ProfileMICSelection" : "ProfileMICSelection";
                             }
                             finally { dispatched = true; }
                         }), str, true);
@@ -387,7 +417,9 @@ namespace Radios
             if (GuardRefuses("settings.guard.action.profile_load")) return false;
             q.Enqueue((FunctionDel)(() =>
             {
-                theRadio.ProfileMICSelection = name;
+                // Asked again at the write, one step with the hold (#976).
+                if (!WriteUnlessHeld(() => { theRadio.ProfileMICSelection = name; return true; }))
+                    SayTheHoldRefused("settings.guard.action.profile_load");
             }), "SelectMicProfileIfPresent", true);
             return true;
         }
@@ -1036,12 +1068,18 @@ namespace Radios
             }
             bool commandDone = false;
             bool commandRefused = false;
+            bool commandHeld = false;
             {
                 q.Enqueue((FunctionDel)(() =>
                     {
                         long seq = ProfileEvidence.Sequence;
-                        string notSent;
-                        using (OwnProfileWrite()) notSent = SendGlobalProfileSave(p.Name);
+                        string notSent = null;
+                        // Asked again at the write, one step with the hold
+                        // (#976, repair one): the hold may have been armed
+                        // while this waited in the queue. Only the send is
+                        // under the lock; the readback wait below is not.
+                        if (!WriteUnlessHeld(() => { using (OwnProfileWrite()) notSent = SendGlobalProfileSave(p.Name); return true; }))
+                        { commandHeld = true; SayTheHoldRefused("settings.guard.action.profile_save"); return; }
                         if (notSent != null) { commandRefused = true; return; }
                         commandDone = true;
                         // An operator save under the pending name satisfies
@@ -1081,8 +1119,9 @@ namespace Radios
             // save that was still sitting in the queue. An unsent save is a
             // failure, and the caller says so — whether the queue never ran
             // it or the transport refused it when it did (round three).
-            await(() => commandDone || commandRefused, 3000);
+            await(() => commandDone || commandRefused || commandHeld, 3000);
             if (commandDone) return GuardedOutcome.Done;
+            if (commandHeld) return GuardedOutcome.Refused;   // the refusal has spoken
             Tracing.TraceLine("SaveProfile: the save of '" + p.Name + "' "
                 + (commandRefused ? "was refused by the transport" : "did not go out within 3000 ms")
                 + "; reported as a failure, not a success", TraceLevel.Error);
@@ -2014,8 +2053,19 @@ namespace Radios
         /// The confirmation is the radio echoing the new value back through the
         /// status stream, which fires <c>_radioReportedAutosave</c>.
         /// </summary>
-        private bool SetRadioProfileAutosaveInternal(bool on, string why)
+        private bool SetRadioProfileAutosaveInternal(bool on, string why) =>
+            SetRadioProfileAutosaveInternal(on, why, null, out _);
+
+        /// <summary>
+        /// As above; with <paramref name="operatorHoldAction"/> set, the write
+        /// is the OPERATOR's and is one step with the hold (#976, repair one):
+        /// asked under the hold's lock around the send only, never around the
+        /// confirmation wait. <paramref name="held"/> is true when the hold
+        /// refused it; the refusal has then been spoken, outside the lock.
+        /// </summary>
+        private bool SetRadioProfileAutosaveInternal(bool on, string why, string operatorHoldAction, out bool held)
         {
+            held = false;
             var radio = theRadio;
             if (radio == null) return false;
             Tracing.TraceLine("ProfileStewardship: profile autosave -> " + (on ? "ON" : "OFF")
@@ -2040,23 +2090,34 @@ namespace Radios
 
             try
             {
-                using (OwnProfileWrite())
-                using (AppInitiatedSettingChanges())
+                Func<bool> send = () =>
                 {
-                    // The FlexLib setter early-returns when its cached value
-                    // already equals the request and sends nothing. The cache
-                    // is not the radio; when it agrees but the radio has not
-                    // said so, send the command directly so a report can come.
-                    if (radio.ProfileAutoSave == on)
+                    using (OwnProfileWrite())
+                    using (AppInitiatedSettingChanges())
                     {
-                        var reply = radio.SendCommandAsync("profile autosave " + (on ? "on" : "off"));
-                        _ = reply.ContinueWith(
-                            t => Tracing.TraceLine("ProfileStewardship: autosave command refused: "
-                                + t.Exception?.GetBaseException().Message, TraceLevel.Warning),
-                            TaskContinuationOptions.OnlyOnFaulted);
+                        // The FlexLib setter early-returns when its cached value
+                        // already equals the request and sends nothing. The cache
+                        // is not the radio; when it agrees but the radio has not
+                        // said so, send the command directly so a report can come.
+                        if (radio.ProfileAutoSave == on)
+                        {
+                            var reply = radio.SendCommandAsync("profile autosave " + (on ? "on" : "off"));
+                            _ = reply.ContinueWith(
+                                t => Tracing.TraceLine("ProfileStewardship: autosave command refused: "
+                                    + t.Exception?.GetBaseException().Message, TraceLevel.Warning),
+                                TaskContinuationOptions.OnlyOnFaulted);
+                        }
+                        else
+                            radio.ProfileAutoSave = on;
                     }
-                    else
-                        radio.ProfileAutoSave = on;
+                    return true;
+                };
+                if (operatorHoldAction == null) send();
+                else if (!WriteUnlessHeld(send))
+                {
+                    held = true;
+                    SayTheHoldRefused(operatorHoldAction);
+                    return false;
                 }
             }
             catch (Exception ex)
@@ -2630,7 +2691,9 @@ namespace Radios
             // helper below sends nothing when the radio does report on.
             if (ProfileEvidence.Snapshot().RadioReportedAutosave == true) return GuardedOutcome.Skipped;
 
-            bool ok = SetRadioProfileAutosaveInternal(true, "operator asked to turn autosave back on");
+            bool ok = SetRadioProfileAutosaveInternal(true, "operator asked to turn autosave back on",
+                "settings.guard.action.autosave", out bool held);
+            if (held) return GuardedOutcome.Refused;   // the refusal has spoken
             var serial = theRadio?.Serial;
             if (ok && !string.IsNullOrEmpty(serial))
             {
@@ -3435,13 +3498,17 @@ namespace Radios
 
             bool rv = false;
             bool profileGone = false;
+            bool deleteHeld = false;
             if (lst == null) lst = Callouts.Profiles;
             switch (prof.ProfileType)
             {
                 case ProfileTypes.global:
                     q.Enqueue((FunctionDel)(() =>
                     {
-                        theRadio.DeleteGlobalProfile(prof.Name);
+                        // Asked again at the write, one step with the hold
+                        // (#976, repair one); the wait below is outside it.
+                        if (!WriteUnlessHeld(() => { theRadio.DeleteGlobalProfile(prof.Name); return true; }))
+                        { deleteHeld = true; SayTheHoldRefused("settings.guard.action.profile_delete"); return; }
                         // await the deletion.  profileGone is true if deleted.
                         if (!(profileGone = await(() => { return !theRadio.ProfileGlobalList.Contains(prof.Name); }, 1000)))
                         {
@@ -3452,7 +3519,10 @@ namespace Radios
                 case ProfileTypes.tx:
                     q.Enqueue((FunctionDel)(() =>
                     {
-                        theRadio.DeleteTXProfile(prof.Name);
+                        // Asked again at the write, one step with the hold
+                        // (#976, repair one); the wait below is outside it.
+                        if (!WriteUnlessHeld(() => { theRadio.DeleteTXProfile(prof.Name); return true; }))
+                        { deleteHeld = true; SayTheHoldRefused("settings.guard.action.profile_delete"); return; }
                         // await the deletion.
                         if (!(profileGone = await(() => { return !theRadio.ProfileTXList.Contains(prof.Name); }, 1000)))
                         {
@@ -3463,7 +3533,10 @@ namespace Radios
                 case ProfileTypes.mic:
                     q.Enqueue((FunctionDel)(() =>
                     {
-                        theRadio.DeleteMICProfile(prof.Name);
+                        // Asked again at the write, one step with the hold
+                        // (#976, repair one); the wait below is outside it.
+                        if (!WriteUnlessHeld(() => { theRadio.DeleteMICProfile(prof.Name); return true; }))
+                        { deleteHeld = true; SayTheHoldRefused("settings.guard.action.profile_delete"); return; }
                         // await the deletion.
                         if (!(profileGone = await(() => { return !theRadio.ProfileMICList.Contains(prof.Name); }, 1000)))
                         {
@@ -3477,7 +3550,8 @@ namespace Radios
             }
 
             // wait for the queued deletion.
-            rv = await(() => { return profileGone; }, 1000);
+            rv = await(() => { return profileGone || deleteHeld; }, 1000) && !deleteHeld;
+            if (deleteHeld) return GuardedOutcome.Refused;   // the refusal has spoken
 
             Profile_t p = GetProfileByName(prof.Name, prof.ProfileType);
             if (rv & (p != null))
