@@ -758,10 +758,38 @@ namespace Radios
         /// recording and Looped back save what the radio plays back to this
         /// computer as a take, muting the other audible slices while it plays
         /// and putting them back. Per radio, as the design and every other
-        /// check setting are. Default off: it mutes slices, and a setting that
-        /// changes what the operator hears is never on by surprise.
+        /// check setting are.
         /// </summary>
-        public bool AudioCheckSavePlaybackTakes { get; set; }
+        /// <remarks>
+        /// <para><b>On by default, for every radio, once (#999, ruled by Noel
+        /// 2026-11-08: "Turn on everywhere").</b> It was off until then, on the
+        /// reasoning that muting the other slices changes what the operator hears.
+        /// The bench of 2026-11-08 measured that the radio itself already
+        /// silences the other slices while a slice plays its recording
+        /// (<c>for-claude/2026-11-08-999-bench-report.md</c>, all six trials), so
+        /// saving the playback changes nothing the operator hears.</para>
+        /// <para><b>Why the element is renamed.</b> Earlier builds wrote
+        /// <c>&lt;AudioCheckSavePlaybackTakes&gt;</c>, and almost always as false,
+        /// because false was the default and every save writes every field. Read
+        /// under that name, nearly every existing radio would keep it off. So the
+        /// value now lives under <see cref="SavePlaybackTakesElement"/>, and the
+        /// old element is simply not read: this class's XmlSerializer has no
+        /// UnknownElement or UnknownNode handler, so an element it does not know
+        /// is skipped without a read failure (pinned by
+        /// <c>UnifiedTakesSettingTests</c>). A file holding only the old element
+        /// therefore reads the initializer, true, and the next save writes the new
+        /// element. From then on the operator's own choice is what the file holds:
+        /// turned off under the new element, it stays off.</para>
+        /// </remarks>
+        [XmlElement(SavePlaybackTakesElement)]
+        public bool AudioCheckSavePlaybackTakes { get; set; } = true;
+
+        /// <summary>
+        /// The element <see cref="AudioCheckSavePlaybackTakes"/> is saved under
+        /// since it turned on for everyone (#999). Never the old name,
+        /// <c>AudioCheckSavePlaybackTakes</c>; see that property's remarks.
+        /// </summary>
+        internal const string SavePlaybackTakesElement = "AudioCheckSavePlaybackTakesV2";
 
         // ---------------------------------------------------------------
         // PC audio on connect (Threads Track, 2026-08-12). Before this, PC
