@@ -68,7 +68,8 @@ public sealed class PttSliceWordsTests
         Assert.Contains("Radios.PttSliceWords.Transmitting(CurrentSliceRoles(), _config.AnnounceTransmitSlice)", text);
         Assert.Contains("Radios.PttSliceWords.Receiving(CurrentSliceRoles(), _config.AnnounceTransmitSlice)", text);
         Assert.Contains("Radios.PttSliceWords.Locked(CurrentSliceRoles(), _config.AnnounceTransmitSlice)", text);
-        Assert.Equal(1, Regex.Matches(text, @"SpeakKeyDownFirstLine\(TransmittingWords\(\)\)").Count);
+        // The one key-down site; it carries the dialog door's one-key quiet (J12, 2026-11-06).
+        Assert.Equal(1, Regex.Matches(text, @"SpeakKeyDownFirstLine\(TransmittingWords\(\), quietLine\)").Count);
         // Five: the teardown release joined them (junk box repair round 2), and the reference's quiet
         // unkey (Unified takes). All but the teardown wait for the radio's own receive (task 904).
         Assert.Equal(5, Regex.Matches(text, @"GoIdle\(ReceivingWords\(\)(, confirmReceive: true)?\)").Count);
