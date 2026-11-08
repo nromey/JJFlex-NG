@@ -16,11 +16,12 @@ namespace Radios
         /// </summary>
         /// <remarks>
         /// <para>The mode is said through <see cref="ModeWords.Spoken"/>, so the
-        /// status key and the connect briefing say "Digital upper" where the
-        /// mode keys and the Mode menu already did, rather than the raw DIGU
-        /// (ruled J41, 2026-11-07). The Status dialog's rows are DISPLAYED and
-        /// keep the radio's letters: they come from
-        /// <see cref="BuildFullSliceStatusForDisplay"/>.</para>
+        /// status key says "Digital upper" where the mode keys and the Mode
+        /// menu already did, rather than the raw DIGU (ruled J41, 2026-11-07).
+        /// The Status dialog's Slices rows and its At connect reference are
+        /// DISPLAYED and keep the radio's letters: they come from
+        /// <see cref="BuildFullSliceStatusForDisplay"/> and
+        /// <see cref="BuildConnectCensusForDisplay"/>.</para>
         /// </remarks>
         public static string BuildFullSliceStatus(FlexBase radio) =>
             BuildFullSliceStatus(radio, ModeWords.Spoken);
@@ -33,6 +34,22 @@ namespace Radios
         /// </summary>
         public static string BuildFullSliceStatusForDisplay(FlexBase radio) =>
             BuildFullSliceStatus(radio, ModeAsDisplayed);
+
+        /// <summary>
+        /// The full slice census a connect keeps for the Status dialog's At
+        /// connect section, in the radio's letters.
+        /// </summary>
+        /// <remarks>
+        /// Never spoken: <see cref="ConnectBriefing.Settle"/> keeps it only in
+        /// <see cref="ConnectBriefing.Reference"/>, which only the Status dialog
+        /// reads, and the spoken lead carries the slice count with no mode. So
+        /// it follows the display rule (J41), the same as the Slices rows a few
+        /// lines below it in that dialog.
+        /// </remarks>
+        public static string BuildConnectCensusForDisplay(FlexBase radio, string model, string connType) =>
+            Lexicon.Get("connect.home.connected_with_slices",
+                ("model", model), ("connType", connType),
+                ("status", BuildFullSliceStatusForDisplay(radio)));
 
         /// <summary>The mode as the screen shows it: the radio's own letters.</summary>
         private static string ModeAsDisplayed(string? mode) => mode ?? "";

@@ -17,11 +17,15 @@ namespace Radios.Tests
     /// </summary>
     /// <remarks>
     /// <para>The defect: <see cref="RadioStatusBuilder"/> put the raw mode
-    /// into the status key's sentence (Ctrl+Shift+S), Home's return status and
-    /// the connect briefing, so on a digital mode the same session said
-    /// "Digital upper" on the mode key and "DIGU" on the status key. The
-    /// builder is shared with the Status dialog, whose rows are displayed, so
-    /// the spoken form could not go into the shared string unsplit.</para>
+    /// into the status key's sentence (Ctrl+Shift+S) and Home's return status,
+    /// so on a digital mode the same session said "Digital upper" on the mode
+    /// key and "DIGU" on the status key. The builder is shared with the Status
+    /// dialog, whose Slices rows and At connect reference are displayed, so the
+    /// spoken form could not go into the shared string unsplit.</para>
+    /// <para>The connect census is NOT spoken: <see cref="ConnectBriefing.Settle"/>
+    /// keeps it only in <see cref="ConnectBriefing.Reference"/>, which the
+    /// Status dialog shows under At connect. The first version of this fix took
+    /// it for speech and put words into that displayed row.</para>
     /// <para>Runs on a REAL vendored Radio with a fake transport, as
     /// <c>TuningReceiptTests</c> does: the modes are FlexLib's own slice
     /// caches, read by the production builder. Speech is suppressed and
@@ -50,7 +54,7 @@ namespace Radios.Tests
         [InlineData("SAM", "Synchronous AM")]
         [InlineData("NFM", "Narrow FM")]
         [InlineData("DFM", "Digital FM")]
-        public void The_status_key_and_the_briefing_say_each_slices_mode_in_words(string mode, string words)
+        public void The_status_key_says_each_slices_mode_in_words(string mode, string words)
         {
             FlexBase rig = TwoSlices(mode, "USB");
 
@@ -107,9 +111,48 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// The connect census goes to the Status dialog's At connect section and
+        /// nowhere else, and it shows the radio's letters, as the Slices rows
+        /// beside it do. Driven through a real <see cref="ConnectBriefing"/>.
+        /// </summary>
+        [Theory]
+        [InlineData("DIGU")]
+        [InlineData("SAM")]
+        [InlineData("DFM")]
+        public void The_at_connect_reference_and_the_slices_rows_both_keep_the_letters(string mode)
+        {
+            FlexBase rig = TwoSlices(mode, "NFM");
+            var said = new List<BriefingUtterance>();
+            var briefing = new ConnectBriefing(u => said.Add(u), () => { });
+
+            string census = RadioStatusBuilder.BuildConnectCensusForDisplay(rig, "FLEX-6600", "local");
+            var emitted = briefing.Settle("Connected to the FLEX-6600, two slices", census);
+
+            Assert.Equal(census, Assert.Single(briefing.Reference));
+            string atConnect = briefing.Reference[0];
+            Assert.Contains(", 14.100 megahertz, " + mode + ",", atConnect);
+            Assert.Contains(", 7.100 megahertz, NFM,", atConnect);
+            Assert.DoesNotContain(ModeWords.Spoken(mode), atConnect);
+            Assert.DoesNotContain(ModeWords.Spoken("NFM"), atConnect);
+
+            // The Slices rows, as the dialog splits them.
+            string slices = RadioStatusBuilder.BuildFullSliceStatusForDisplay(rig);
+            Assert.Contains(", 14.100 megahertz, " + mode + ",", slices);
+            Assert.Contains(slices, atConnect);   // one census, one form
+
+            // And nothing the briefing speaks carries the census.
+            foreach (var u in emitted)
+            {
+                Assert.DoesNotContain("megahertz", u.Text);
+                Assert.DoesNotContain(mode, u.Text);
+            }
+        }
+
+        /// <summary>
         /// The callers: the spoken ones take the spoken builder, the displayed
-        /// one the display builder. A source pin, because the status key and the
-        /// briefing live in the app, where this project cannot run them.
+        /// ones the display builders. A source pin, because the status key, Home
+        /// and the connect census live in the app, where this project cannot run
+        /// them.
         /// </summary>
         [Fact]
         public void Each_caller_takes_the_builder_for_how_it_is_delivered()
@@ -120,9 +163,9 @@ namespace Radios.Tests
             Assert.Contains("RadioStatusBuilder.BuildFullSliceStatus(rig)", keys.Substring(at, 400));
 
             string main = Read("JJFlexWpf", "MainWindow.xaml.cs");
-            Assert.Contains("(\"status\", Radios.RadioStatusBuilder.BuildFullSliceStatus(RigControl))", main);
+            Assert.Contains("censusFull = Radios.RadioStatusBuilder.BuildConnectCensusForDisplay(RigControl, model, connType);", main);
+            Assert.DoesNotContain("Radios.RadioStatusBuilder.BuildFullSliceStatus(RigControl)", main);
             Assert.Contains("string status = Radios.RadioStatusBuilder.BuildSpokenStatus(rig);", main);
-            Assert.DoesNotContain("BuildFullSliceStatusForDisplay", main);
 
             string dialog = Read("JJFlexWpf", "Dialogs", "StatusDialog.xaml.cs");
             Assert.Contains("RadioStatusBuilder.BuildFullSliceStatusForDisplay(Rig)", dialog);
