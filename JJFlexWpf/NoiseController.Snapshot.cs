@@ -48,6 +48,7 @@ namespace JJFlexWpf
         public NoiseSnapshot TakeSnapshot()
         {
             var snap = new NoiseSnapshot();
+            FollowActiveSlice();   // a picture is only ever of the slice the radio reads, its shadows reconciled first
             ReadRadioPart(snap);
             _live = snap;
             if (_pipeline() is { } p)
@@ -84,9 +85,10 @@ namespace JJFlexWpf
             snap.RadioLevels.Clear();
             snap.TouchedSwitches.Clear();
             snap.TouchedLevels.Clear();
+            // Never marks a slice reconciled: only FollowActiveSlice does, and
+            // only after it has forgotten the old slice's shadows (round 3).
             var r = _radio();
             snap.SliceIdentity = r?.SliceIdentity;
-            _readingSlice = snap.SliceIdentity;
             if (r is null) return;
             foreach (var e in Engines().Where(e => e.Side == DenoiseSide.Radio))
             {
@@ -107,21 +109,24 @@ namespace JJFlexWpf
 
         /// <summary>
         /// Notice that the slice the radio is reading has changed (repair
-        /// round 2, B1). Called on every report of the active slice, and
-        /// BEFORE every radio write, so an edit made before the next poll
-        /// still finds a picture of the slice it is about to change. On a
-        /// change: the write shadows belong to the slice they were written on
-        /// and are forgotten, and the open layer's picture is read again from
-        /// the new slice, nothing touched.
+        /// rounds 2 and 3, B1). Asked on every report of the active slice and
+        /// BEFORE every slice-dependent read and write: <see cref="IsOn"/>,
+        /// the radio level read, a lever's step, a new picture, a write. The
+        /// poll that reports the slice runs only while Home's field panel is
+        /// shown, so nothing may wait for it. On a change, in this order: the
+        /// old slice's shadows are forgotten (they are keyed by slice as well,
+        /// so they could not be read for another one anyway), the new slice is
+        /// marked as the one being read, and the open layer's picture is read
+        /// again from it, nothing touched.
         /// </summary>
         private void FollowActiveSlice()
         {
             if (_radio() is not { } r) return;
             object? now = r.SliceIdentity;
             if (ReferenceEquals(now, _readingSlice)) return;
-            _readingSlice = now;
             _switchShadow.Clear();
             _levelShadow.Clear();
+            _readingSlice = now;
             if (_live is { } snap && !ReferenceEquals(now, snap.SliceIdentity)) ReadRadioPart(snap);
         }
 

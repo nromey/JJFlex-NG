@@ -342,6 +342,10 @@ namespace JJFlexWpf
                 var r = _radio();
                 if (r == null) { NoRadio(); return; }
                 if (RefuseRadio(e, r)) return;
+                // The step is computed from what the slice holds now: the
+                // slice the radio READS, reconciled before the value is read,
+                // not only before it is written (repair round 3).
+                FollowActiveSlice();
             }
             else if (SlotFor(e) == null) { NoRadio(); return; }
 
@@ -372,7 +376,7 @@ namespace JJFlexWpf
                     int v = Math.Clamp((int)Math.Round(value.Number), e.Level!.Min, e.Level.Max);
                     int? was = ReadRadioLevel(e);
                     r.WriteLevel(e, v);
-                    _levelShadow[e.Id] = (v, _clock() + ShadowMs);
+                    _levelShadow[e.Id] = (v, _clock() + ShadowMs, r.SliceIdentity);
                     NoteRadioTouched(e.Id, level: true);
                     if (!e.Level.ReportedBack && r.Serial.Length > 0) _intents.Set(r.Serial, e.Id, v);
                     NoiseSettingsJournal.Record(NoiseJournalKind.Lever, source, e.Id, "level", was?.ToString() ?? "", v.ToString());
@@ -437,7 +441,8 @@ namespace JJFlexWpf
         {
             var r = _radio();
             if (r == null || e.Level == null) return null;
-            if (_levelShadow.TryGetValue(e.Id, out var shadow) && _clock() < shadow.Until) return shadow.Level;
+            FollowActiveSlice();   // reconcile BEFORE reading (round 3)
+            if (LevelShadow(e.Id, r, out int shadowLevel)) return shadowLevel;
             if (!e.Level.ReportedBack && r.Serial.Length > 0 && _intents.Get(r.Serial, e.Id) is int intent)
                 return Math.Clamp(intent, e.Level.Min, e.Level.Max);
             return Math.Clamp(r.ReadLevel(e), e.Level.Min, e.Level.Max);

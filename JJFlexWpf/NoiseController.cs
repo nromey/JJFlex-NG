@@ -111,8 +111,32 @@ namespace JJFlexWpf
         private readonly INnrCwCostSource _cwCost;
         private readonly Func<long> _clock;
 
-        private readonly Dictionary<string, (bool On, long Until)> _switchShadow = new();
-        private readonly Dictionary<string, (int Level, long Until)> _levelShadow = new();
+        // A shadow is a value the controller wrote, believed over the radio's
+        // echo for ShadowMs. It belongs to the slice it was written on
+        // (repair round 3): keyed by the radio's own slice object, and never
+        // read for any other slice.
+        private readonly Dictionary<string, (bool On, long Until, object? Slice)> _switchShadow = new();
+        private readonly Dictionary<string, (int Level, long Until, object? Slice)> _levelShadow = new();
+
+        /// <summary>A switch shadow still in force on the slice the radio reads now.</summary>
+        private bool SwitchShadow(string id, INoiseRadio r, out bool on)
+        {
+            on = false;
+            if (!_switchShadow.TryGetValue(id, out var shadow) || _clock() >= shadow.Until
+                || !ReferenceEquals(shadow.Slice, r.SliceIdentity)) return false;
+            on = shadow.On;
+            return true;
+        }
+
+        /// <summary>A level shadow still in force on the slice the radio reads now.</summary>
+        private bool LevelShadow(string id, INoiseRadio r, out int level)
+        {
+            level = 0;
+            if (!_levelShadow.TryGetValue(id, out var shadow) || _clock() >= shadow.Until
+                || !ReferenceEquals(shadow.Slice, r.SliceIdentity)) return false;
+            level = shadow.Level;
+            return true;
+        }
         private readonly Dictionary<DenoiseFamily, IDisposable> _settling = new();
         private NoiseModeGroup? _group;
         private List<(DenoiseFamily Family, string EngineId)>? _zeroRestore;
@@ -163,7 +187,8 @@ namespace JJFlexWpf
             {
                 var r = _radio();
                 if (r == null) return false;
-                if (_switchShadow.TryGetValue(id, out var shadow) && _clock() < shadow.Until) return shadow.On;
+                FollowActiveSlice();   // reconcile BEFORE reading (round 3)
+                if (SwitchShadow(id, r, out bool shadowOn)) return shadowOn;
                 return r.ReadSwitch(e);
             }
             var slot = SlotFor(e);
@@ -319,7 +344,7 @@ namespace JJFlexWpf
             FollowActiveSlice();
             bool was = IsOn(e.Id);
             r.WriteSwitch(e, on);
-            _switchShadow[e.Id] = (on, _clock() + ShadowMs);
+            _switchShadow[e.Id] = (on, _clock() + ShadowMs, r.SliceIdentity);
             NoteRadioTouched(e.Id, level: false);
             if (was != on)
                 NoiseSettingsJournal.Record(NoiseJournalKind.Switch, source, e.Id, "", Words(was), Words(on), byApp);
@@ -343,7 +368,7 @@ namespace JJFlexWpf
                 foreach (string id in before)
                 {
                     var e = _catalog.Find(id)!;
-                    if (_switchShadow.TryGetValue(id, out var sh) && _clock() < sh.Until) continue; // we changed it ourselves
+                    if (SwitchShadow(id, r, out _)) continue; // we changed it ourselves
                     if (!r.ReadSwitch(e))
                     {
                         // The radio did it in answer to our write, so Escape
