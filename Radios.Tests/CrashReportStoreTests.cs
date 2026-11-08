@@ -14,6 +14,9 @@ namespace Radios.Tests
     /// temporary folder with made-up bundles: no crash, no network, never the
     /// operator's settings.
     /// </summary>
+    // In the settings-root collection since repair one: its sentence tests
+    // read the Lexicon, which resolves the process-wide settings root.
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class CrashReportStoreTests : IDisposable
     {
         private readonly string _dir = Path.Combine(Path.GetTempPath(), "jjflex-crashstore-" + Guid.NewGuid().ToString("N"));

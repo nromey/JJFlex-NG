@@ -48,8 +48,10 @@ namespace Radios.Tests.StationConnect
             // 3600, not 3000: junkbox #777 round two put the ownership gate,
             // the hold and the not-global skip ahead of the enqueue, so the
             // delegate this pins starts about 540 characters later. The
-            // ordering assertions below are unchanged.
-            string body = text.Substring(at, 3600);
+            // ordering assertions below are unchanged. 4400 since junk box
+            // #976 repair one asked the hold again at the save inside the
+            // delegate (about 600 characters more); the ordering is unchanged.
+            string body = text.Substring(at, 4400);
             int enqueue = body.IndexOf("q.Enqueue((FunctionDel)(() =>", StringComparison.Ordinal);
             // Round three of #777 replaced the vendor's void SaveGlobalProfile
             // with the reply-bearing send, so the pinned "save" line moved
