@@ -170,7 +170,7 @@ namespace Radios
                 var ch = alloc.Value.Channels[index];
                 return new RotationStop(index, ToHz(ch.FrequencyMHz), ch.Mode, null,
                     Lexicon.Get("connect.home.sixty_meter_channel",
-                        ("label", ch.Label), ("freq", $"{ch.FrequencyMHz:F4}"), ("mode", ch.Mode)));
+                        ("label", ch.Label), ("freq", $"{ch.FrequencyMHz:F4}"), ("mode", ModeWords.Spoken(ch.Mode))));
             }
 
             var digi = alloc.Value.Digi!;
