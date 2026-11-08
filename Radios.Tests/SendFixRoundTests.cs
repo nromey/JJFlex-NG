@@ -89,12 +89,12 @@ namespace Radios.Tests
             Assert.Contains("SpeakKeyDownFirstLine(", down);
             // Since #496 the transmitting line is built by PttSliceWords (with
             // its slice when the operator asks), still as the key-down line.
-            Assert.Contains("SpeakKeyDownFirstLine(TransmittingWords())", down);
+            Assert.Contains("SpeakKeyDownFirstLine(TransmittingWords(), quietLine)", down);   // the dialog door's one-key quiet (J12)
             string locked = Body(ctl, "private void EnterLocked()");
             Assert.Contains("bool fromIdle = State == PttState.Idle;", locked);
             Assert.Contains("if (fromIdle) SpeakKeyDownFirstLine(", locked);
 
-            string first = Body(ctl, "private void SpeakKeyDownFirstLine(string keyingLine)");
+            string first = Body(ctl, "private void SpeakKeyDownFirstLine(string keyingLine, bool quietKeyingLine = false)");
             int asks = first.IndexOf("VoiceMessageSender.TakeOverAtKeyDown()", StringComparison.Ordinal);
             int speaks = first.IndexOf("ScreenReaderOutput.Speak(", StringComparison.Ordinal);
             Assert.True(asks >= 0 && speaks > asks, "the send must be asked before anything is spoken");

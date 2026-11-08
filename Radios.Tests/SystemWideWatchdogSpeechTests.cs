@@ -19,6 +19,7 @@ namespace Radios.Tests
     /// keyboard and the PTT controller, so the arms are read from source; the
     /// verdicts themselves are driven in <c>SystemWidePttWatchTests</c>.
     /// </remarks>
+    [Collection(RadioConfigStaticsCollection.Name)]
     // LEXICON_SCANNER_EXEMPT — the call sites below are quoted as text to
     // find in the source, not lookups.
     public sealed class SystemWideWatchdogSpeechTests

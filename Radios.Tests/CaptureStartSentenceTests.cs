@@ -21,6 +21,7 @@ namespace Radios.Tests
     /// passes its named reason, and the start routine maps each reason to its
     /// own sentence.
     /// </remarks>
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class CaptureStartSentenceTests
     {
         private static string Read(params string[] parts) =>

@@ -14,6 +14,7 @@ namespace Radios.Tests
     /// approved replacement leads with the refusal and is short enough to arrive
     /// whole; these tests keep it that way.
     /// </summary>
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class RemoteFirmwareWarningTests
     {
         private const string Key = "settings.profile.remote_firmware_allowed_warning";
