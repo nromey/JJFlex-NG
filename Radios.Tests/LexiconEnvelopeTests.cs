@@ -2223,6 +2223,10 @@ namespace Radios.Tests
                 "audio.noise_surface.advanced_off",
                 "audio.noise_surface.delay",
                 "audio.noise_surface.delay_unknown",
+                // Follow-up round 5: the delay figure alone, for the Measured
+                // delays rows that already name the engine. TextOnly.
+                "audio.noise_surface.delay_figure",
+                "audio.noise_surface.delay_figure_unknown",
                 "audio.noise_surface.active.radio",
                 "audio.noise_surface.active.computer",
                 "audio.noise_surface.active.none",

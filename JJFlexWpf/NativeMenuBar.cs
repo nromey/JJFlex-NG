@@ -637,6 +637,17 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
+    /// The favourite row below a switch-only engine's own check item (Neural
+    /// NR, FFT Auto-Notch). A favourite is kept in the app's settings and
+    /// needs no radio, so this row carries no needs-a-radio marker, like every
+    /// other engine's "Favourite" row; the engine's own row above carries it,
+    /// once, before the tab (follow-up round 5: it read "Neural NR favourite
+    /// - connect a radio", the marker said twice).
+    /// </summary>
+    internal static string SwitchOnlyFavouriteLabel(string name) =>
+        Radios.Lexicon.Get("audio.noise_menu.engine_favourite", ("engine", name));
+
+    /// <summary>
     /// Build one noise subject's submenu on the top-level Audio menu (Sprint
     /// 49 Track E, E8): Noise Reduction, or Noise Blankers and Notches. Ruled
     /// shape (S2 to S5, 2026-11-07 question 2): flat, four deep — Audio, the
@@ -684,7 +695,7 @@ public class NativeMenuBar : IDisposable
                 // it, since a check item has no submenu to hold one (D4).
                 AddChecked(parent, R(named + chord), () => AfterMenu(n => n.Toggle(id, MenuSource)),
                     () => _window.Noise.IsOn(id), radio);
-                AddChecked(parent, R(Radios.Lexicon.Get("audio.noise_menu.engine_favourite", ("engine", name))),
+                AddChecked(parent, SwitchOnlyFavouriteLabel(name),
                     () => AfterMenu(n => n.ToggleFavourite(id, MenuSource)), () => _window.Noise.IsFavourite(id));
                 continue;
             }

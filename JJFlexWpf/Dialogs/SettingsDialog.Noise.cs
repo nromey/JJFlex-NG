@@ -24,7 +24,19 @@ namespace JJFlexWpf.Dialogs
     public partial class SettingsDialog
     {
         /// <summary>The noise controller, for engine names, markers and models; null builds the list from the catalog alone.</summary>
-        public NoiseController? Noise { get; set; }
+        /// <remarks>
+        /// Assigned after the constructor has built the tabs, so assigning it
+        /// refills the Measured delays list (follow-up round 5): until then the
+        /// list held the no-controller line, and only a focus event inside the
+        /// tab replaced it, so it read one thing until the guard was ticked and
+        /// another after. The guard locks editing, never reading.
+        /// </remarks>
+        public NoiseController? Noise
+        {
+            get => _noise;
+            set { _noise = value; FillMeasuredDelays(); }
+        }
+        private NoiseController? _noise;
 
         private StackPanel? _noiseFavouriteChecks;
         private ListBox? _noiseFavouriteOrder;
@@ -144,9 +156,21 @@ namespace JJFlexWpf.Dialogs
         {
             if (_advancedDelays == null) return;
             _advancedDelays.Items.Clear();
-            if (Noise == null) { _advancedDelays.Items.Add(Lexicon.Get("audio.noise_advanced.delays_none")); return; }
-            foreach (var e in NoiseEngines().Where(e => e.Side == DenoiseSide.Pc))
-                _advancedDelays.Items.Add(Lexicon.Get("audio.noise_advanced.delay_line", ("engine", Noise.NameOf(e.Id)), ("delay", Noise.DelayText(e.Id))));
+            foreach (string row in MeasuredDelayRows(Noise)) _advancedDelays.Items.Add(row);
+        }
+
+        /// <summary>
+        /// The Measured delays rows, one per computer engine, each one phrase:
+        /// "NR2: about 105 milliseconds". No radio is needed: the figures are
+        /// the computer's. Only with no controller at all is there one line
+        /// saying there is nothing to show.
+        /// </summary>
+        internal static IReadOnlyList<string> MeasuredDelayRows(NoiseController? noise)
+        {
+            if (noise == null) return new[] { Lexicon.Get("audio.noise_advanced.delays_none") };
+            return noise.Engines().Where(e => e.Side == DenoiseSide.Pc)
+                .Select(e => Lexicon.Get("audio.noise_advanced.delay_line", ("engine", noise.NameOf(e.Id)), ("delay", noise.DelayFigure(e.Id))))
+                .ToList();
         }
 
         private static Button NoiseButton(string buttonKey, string nameKey, Action act)
