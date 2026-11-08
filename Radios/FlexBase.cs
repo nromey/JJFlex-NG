@@ -2897,6 +2897,7 @@ namespace Radios
             {
                 Tracing.TraceLine("Connect worked:" + theRadio.Serial, TraceLevel.Info);
                 AttachSliceRecorderStatus(theRadio);
+                ApplyChoicesWaitingForAConnect(theRadio.Serial);
                 // The post-connect fence: its reply marks the end of whatever
                 // the radio restored for a returning client (#782).
                 sendConnectFence("Connect");

@@ -112,6 +112,27 @@ namespace JJFlexWpf
         public bool RecorderSpeechEnabled { get; set; } = true;
 
         /// <summary>
+        /// "Warn before a recording on the radio is overwritten", chosen in
+        /// Settings before any radio had connected (#999 round 3, ruled C5a by
+        /// Noel 2026-11-08): "true", "false", or empty when no choice is waiting.
+        /// It waits here, across restarts, until a radio actually connects, which
+        /// then takes it into its own config and clears this
+        /// (<see cref="Radios.RadioConfig.PendingWarnBeforeSliceRecordingOverwritten"/>).
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Written only by <see cref="PendingSliceOverwriteWarningStore"/>.</b>
+        /// Every other save carries over whatever the file already holds
+        /// (<see cref="WriteTo"/>), because the live config is loaded once and
+        /// saved again much later, at power-off: a value read into it then would
+        /// write a choice the connect has since spent back over the cleared one,
+        /// and the next start would apply it a second time.</para>
+        /// <para>Absent from an older audioConfig.xml, which reads as no choice
+        /// waiting; an older build reading a newer file skips the element.</para>
+        /// </remarks>
+        [XmlElement("PendingWarnBeforeSliceRecordingOverwritten")]
+        public string PendingSliceOverwriteWarning { get; set; } = "";
+
+        /// <summary>
         /// The VOX send box (#835): with VOX on, sends key the radio themselves. Off by
         /// default, and absent from an older audioConfig.xml, which deserializes
         /// to this initializer, so nobody upgrading finds it on.
@@ -790,12 +811,16 @@ namespace JJFlexWpf
             WriteTo(CanonicalDir(configDir));
         }
 
-        private void WriteTo(string configDir)
+        private bool WriteTo(string configDir, bool writesPendingSliceOverwriteWarning = false)
         {
             try
             {
                 Directory.CreateDirectory(configDir);
                 string path = Path.Combine(configDir, FileName);
+                // The waiting overwrite-warning choice has one writer (see the
+                // property). Every other save keeps what the file holds.
+                if (!writesPendingSliceOverwriteWarning && PendingSliceOverwriteWarningOnDisk(path) is string held)
+                    PendingSliceOverwriteWarning = held;
                 // Anything this build writes is past the four-beat move, so a 5
                 // saved now is a choice and must not be "upgraded" on the next
                 // load, whichever path built this config (2026-10-29).
@@ -803,12 +828,77 @@ namespace JJFlexWpf
                 var serializer = new XmlSerializer(typeof(AudioOutputConfig));
                 using var stream = File.Create(path);
                 serializer.Serialize(stream, this);
+                return true;
             }
             catch (Exception ex)
             {
                 Trace.WriteLine($"AudioOutputConfig.Save({configDir}) failed: {ex.Message}");
+                return false;
             }
         }
+
+        /// <summary>
+        /// The waiting overwrite-warning choice as the file at <paramref name="path"/>
+        /// holds it ("" for none), or null when there is no readable file to keep it from.
+        /// </summary>
+        private static string? PendingSliceOverwriteWarningOnDisk(string path)
+        {
+            if (!File.Exists(path)) return null;
+            try
+            {
+                var root = System.Xml.Linq.XDocument.Load(path).Root;
+                return root?.Element("PendingWarnBeforeSliceRecordingOverwritten")?.Value ?? "";
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"AudioOutputConfig: could not read the waiting overwrite-warning choice from {path}: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The app-wide home of a "warn before a recording on the radio is
+        /// overwritten" choice made before any radio connected (#999 round 3,
+        /// C5a), for <see cref="Radios.RadioConfig.PendingWarnStore"/>. Reads and
+        /// writes this config's one field through the canonical audioConfig.xml,
+        /// changing nothing else in it.
+        /// </summary>
+        internal sealed class PendingSliceOverwriteWarningStore : Radios.IPendingChoiceStore
+        {
+            private readonly Func<string> _directory;
+
+            /// <param name="directory">The config root, resolved at each use (the app passes <see cref="Radios.RadioConfig.AppDataRoot"/>).</param>
+            public PendingSliceOverwriteWarningStore(Func<string> directory) => _directory = directory;
+
+            public bool? Read()
+            {
+                string dir = _directory();
+                if (string.IsNullOrEmpty(dir)) return null;
+                return Load(dir).PendingSliceOverwriteWarning switch
+                {
+                    "true" => true,
+                    "false" => false,
+                    _ => null,
+                };
+            }
+
+            public bool Write(bool? value)
+            {
+                string dir = _directory();
+                if (string.IsNullOrEmpty(dir)) return false;
+                var config = Load(dir);
+                config.PendingSliceOverwriteWarning = value switch { true => "true", false => "false", null => "" };
+                return config.WriteTo(CanonicalDir(dir), writesPendingSliceOverwriteWarning: true);
+            }
+        }
+
+        /// <summary>
+        /// Keep a choice made before any radio connected across a restart (#999
+        /// round 3, C5a). Called once, at startup, before Settings can open or a
+        /// radio connect.
+        /// </summary>
+        public static void KeepPendingSliceOverwriteWarningAcrossRestarts() =>
+            Radios.RadioConfig.PendingWarnStore = new PendingSliceOverwriteWarningStore(() => Radios.RadioConfig.AppDataRoot);
 
         /// <summary>
         /// Apply ONLY the saved speech verbosity, as early as possible.

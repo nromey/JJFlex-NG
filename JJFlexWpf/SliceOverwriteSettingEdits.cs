@@ -10,7 +10,7 @@ namespace JJFlexWpf;
 /// (#999, repair round 1), without its window: which radio it shows, the
 /// operator's edits for each radio until OK or Apply, and saving them. Settings
 /// are intents: an edit survives a disconnect, and a choice made before any
-/// radio is known waits for the first one.
+/// radio has connected waits, across restarts, for the first one that connects.
 /// </summary>
 internal sealed class SliceOverwriteSettingEdits
 {
@@ -23,12 +23,45 @@ internal sealed class SliceOverwriteSettingEdits
     /// <summary>Unsaved edits, for tests and the trace.</summary>
     public IReadOnlyDictionary<string, bool> Pending => _edits;
 
+    /// <summary>An unsaved edit made for the next radio connected.</summary>
+    public bool HoldsEditForNextRadio => _edits.ContainsKey("");
+
+    /// <summary>
+    /// Which radio the box is for (#999 round 3, the correction to C5a), and the
+    /// one place Settings may hand a waiting choice to a radio.
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    /// <item>A connected radio: the box is for it, and a choice waiting for the
+    /// next radio connected becomes its own now, since it has connected.</item>
+    /// <item>No radio connected, and a choice waiting (saved, or an unsaved edit
+    /// made for the next radio): the box keeps showing that choice, for the next
+    /// radio connected. The radio last used or last seen does NOT receive it;
+    /// only a connect does.</item>
+    /// <item>No radio connected and nothing waiting: the radio last used, else
+    /// the one last seen (<paramref name="lastUsedOrSeenSerial"/>), as ruled C5b;
+    /// "" when there is none.</item>
+    /// </list>
+    /// </remarks>
+    public string ResolveTarget(string connectedSerial, string lastUsedOrSeenSerial)
+    {
+        connectedSerial ??= "";
+        if (connectedSerial.Length > 0)
+        {
+            RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten(connectedSerial);
+            return connectedSerial;
+        }
+        if (HoldsEditForNextRadio || RadioConfig.PendingWarnBeforeSliceRecordingOverwritten != null) return "";
+        return lastUsedOrSeenSerial ?? "";
+    }
+
     /// <summary>
     /// Point the box at <paramref name="serial"/> ("" for none known) and return
     /// what it should show: that radio's unsaved edit, else what its config says
     /// (<paramref name="saved"/>), else, with no radio, a choice already held for
     /// the next one, else on. An edit made for "the next radio" moves to the
-    /// first radio that becomes known.
+    /// radio the box is next pointed at, which <see cref="ResolveTarget"/> makes
+    /// a connected one: while such an edit is held, it names no other.
     /// </summary>
     public bool Show(string serial, Func<string, bool> saved, bool? heldForNext)
     {

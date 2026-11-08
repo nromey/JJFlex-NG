@@ -21,7 +21,9 @@ namespace JJFlexWpf.Dialogs
     /// connected radio; with none connected, the radio this program last
     /// connected to, else the radio most recently seen. With no radio ever used
     /// it says it applies to the next radio connected, and a choice made then
-    /// waits for that radio (<see cref="RadioConfig.PendingWarnBeforeSliceRecordingOverwritten"/>).
+    /// waits for that radio (<see cref="RadioConfig.PendingWarnBeforeSliceRecordingOverwritten"/>),
+    /// across restarts, and is shown as long as it waits. Only a radio that
+    /// actually connects receives it (#999 round 3).
     /// </para>
     /// <para>
     /// <b>An edit is kept for the radio it was made for</b>, across a disconnect
@@ -61,14 +63,17 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
-        /// Which radio the box is for: the connected one; else the one this
-        /// program last connected to; else the one most recently seen; else none.
+        /// Which radio the box is for (<see cref="SliceOverwriteSettingEdits.ResolveTarget"/>):
+        /// the connected one; else, while a choice waits for the next radio
+        /// connected, none; else the one this program last connected to; else the
+        /// one most recently seen; else none. Only the connected one may receive
+        /// a waiting choice.
         /// </summary>
         private (string Serial, string Name) WarnOverwriteTarget()
         {
             var rig = _rig;
-            string serial = rig != null && rig.IsConnected ? rig.TakeAdmissionFactsNow().Serial : "";
-            if (string.IsNullOrEmpty(serial)) serial = rig?.SelectedRadioSerial ?? "";
+            string connected = rig != null && rig.IsConnected ? rig.TakeAdmissionFactsNow().Serial ?? "" : "";
+            string lastUsed = rig?.SelectedRadioSerial ?? "";
             List<KnownRadioEntry> known;
             try { known = KnownRadioRoster.Load(); }
             catch (System.Exception ex)
@@ -76,8 +81,9 @@ namespace JJFlexWpf.Dialogs
                 JJTrace.Tracing.TraceLine("Settings: known radios: " + ex.Message, System.Diagnostics.TraceLevel.Warning);
                 known = new List<KnownRadioEntry>();
             }
-            if (string.IsNullOrEmpty(serial))
-                serial = known.OrderByDescending(e => e.LastSeenUtc).FirstOrDefault()?.Serial ?? "";
+            if (string.IsNullOrEmpty(lastUsed))
+                lastUsed = known.OrderByDescending(e => e.LastSeenUtc).FirstOrDefault()?.Serial ?? "";
+            string serial = _warnOverwriteEdits.ResolveTarget(connected, lastUsed);
             if (string.IsNullOrEmpty(serial)) return ("", "");
             var entry = known.FirstOrDefault(e => string.Equals(e.Serial, serial, System.StringComparison.OrdinalIgnoreCase));
             string name = entry == null ? serial
@@ -91,7 +97,6 @@ namespace JJFlexWpf.Dialogs
         {
             if (_warnOverwriteCheck == null || _warnOverwriteAppliesTo == null) return;
             var (serial, name) = WarnOverwriteTarget();
-            if (serial.Length > 0) RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten(serial);
             bool value = _warnOverwriteEdits.Show(serial,
                 s => RadioConfig.LoadForRadio(s).WarnBeforeSliceRecordingOverwritten,
                 RadioConfig.PendingWarnBeforeSliceRecordingOverwritten);

@@ -258,6 +258,21 @@ public partial class FlexBase
     }
 
     /// <summary>
+    /// The connect has succeeded: a choice made in Settings before any radio had
+    /// connected becomes this radio's (#999 round 3, C5a: "applied to the first
+    /// radio that connects"). Called from the connect, right after it works, and
+    /// from nowhere that only discovers a radio. Never throws.
+    /// </summary>
+    internal void ApplyChoicesWaitingForAConnect(string serial)
+    {
+        try { RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten(serial); }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("ApplyChoicesWaitingForAConnect: " + ex.Message, TraceLevel.Warning);
+        }
+    }
+
+    /// <summary>
     /// The facts <see cref="SliceOverwriteGate"/> decides on, for the slice a
     /// recorder target resolves to now; null when there is no such slice of
     /// ours, so nothing can be overwritten from here.
@@ -274,7 +289,9 @@ public partial class FlexBase
         // status arrives, so on its own it would warn about an empty slice.
         bool has = slice.PlayEnabled && seconds != null;
         if (string.IsNullOrEmpty(serial)) return new(serial, letter, has, seconds, null, true);
-        // A choice made in Settings before any radio was known is applied now.
+        // A choice made in Settings before any radio had connected is applied
+        // now, if the connect did not already (this radio is connected: it has
+        // a slice of ours).
         RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten(serial);
         var config = RadioConfig.LoadForRadio(serial);
         var stamp = config.SliceTakeStamps?.LastOrDefault(s =>
