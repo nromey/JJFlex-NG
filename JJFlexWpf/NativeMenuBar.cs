@@ -682,14 +682,55 @@ public class NativeMenuBar : IDisposable
     /// this radio, and switch the intent to "use my transmit audio" so the
     /// choice is not left inert. Takes effect at the next connect.
     /// </summary>
+    /// <remarks>
+    /// The name arrives captured in a Which Transmit Audio row built while
+    /// that profile existed, and the row can outlive it: delete the profile
+    /// in the Audio Workshop and the row is still there to choose (#680,
+    /// defect 3, repair two). So the name is checked against the profiles
+    /// saved NOW, through <see cref="ChooseTransmitAudioProfile"/>, before
+    /// anything is recorded or promised.
+    /// </remarks>
     private void SetGuestTransmitAudioProfile(string presetName)
     {
         if (Rig == null) { SpeakNoRadio(); return; }
-        Rig.SetLocalTransmitAudioChoice(presetName);
-        EarconPlayer.ToggleTone(true);
-        SpeakAfterMenuClose(Radios.Lexicon.Get(
-            "settings.profile_guest.live_audio_chosen", ("preset", presetName)));
+        var rig = Rig;
+        string receipt = ChooseTransmitAudioProfile(presetName,
+            rig.LocalTransmitAudioProfileNames, rig.SetLocalTransmitAudioChoice, out bool stillSaved);
+        if (stillSaved) EarconPlayer.ToggleTone(true);
+        SpeakAfterMenuClose(receipt);
         RebuildCurrentMenu();
+    }
+
+    /// <summary>
+    /// What choosing <paramref name="picked"/> under Which Transmit Audio
+    /// does and says (#680, defect 3, repair two). The saved names are READ
+    /// at the moment of choosing, never taken from when the row was built: a
+    /// row for a profile since deleted records nothing new and says why,
+    /// with the sentences "Use My Transmit Audio Here" already uses for the
+    /// same two states. Until this repair it recorded the missing name and
+    /// promised to put it on the radio at the next connect, which the
+    /// connect then skipped (Codex's re-check). Matched ignoring case, as
+    /// the checkmarks and the connect planner match.
+    /// </summary>
+    /// <param name="savedNow">Reads the operator's saved profile names.</param>
+    /// <param name="record">Records the choice; called only when it is still saved.</param>
+    /// <param name="stillSaved">True when the profile was found and recorded.</param>
+    internal static string ChooseTransmitAudioProfile(string picked,
+        Func<IReadOnlyCollection<string>> savedNow, Func<string, bool> record, out bool stillSaved)
+    {
+        var saved = savedNow();
+        string? found = null;
+        foreach (var name in saved)
+            if (string.Equals(name, picked, System.StringComparison.OrdinalIgnoreCase)) { found = name; break; }
+
+        stillSaved = found != null;
+        if (found == null)
+            return saved.Count == 0
+                ? Radios.Lexicon.Get("settings.profile_guest.no_presets")
+                : Radios.Lexicon.Get("settings.profile_guest.why.local_profile_missing", ("preset", picked));
+
+        record(found);
+        return Radios.Lexicon.Get("settings.profile_guest.live_audio_chosen", ("preset", found));
     }
 
     /// <summary>

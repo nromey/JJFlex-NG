@@ -193,7 +193,13 @@ public partial class MainWindow : UserControl
         Dialogs.AudioWorkshopDialog.SavePresetsCallback = presets =>
         {
             if (OpenParms == null || presets == null) return false;
-            return presets.Save(OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
+            bool landed = presets.Save(OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
+            // The Radio menu's Which Transmit Audio rows are built from these
+            // names, so a saved change rebuilds it: a deleted profile must not
+            // stay on offer there (#680, defect 3, repair two). The rebuild is
+            // queued and coalesced, and speaks nothing.
+            if (landed) RebuildMenuCallback?.Invoke();
+            return landed;
         };
 
         // Microphone profiles (Track F) — operator-scoped like the presets
