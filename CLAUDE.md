@@ -220,6 +220,24 @@ somewhere to go: Codex opened #345, found the mismatch and raised an ASK instead
 of building on it. An agent with no route to object either obeys silently or
 ignores silently, and both are invisible.
 
+### Agents, Codex and benches build WITHOUT build servers. Ruled by Noel 2026-11-08
+
+**Every `dotnet build` and `dotnet test` an agent, a Codex run or a bench script
+starts carries `--disable-build-servers -nodeReuse:false`** (or sets
+`MSBUILDDISABLENODEREUSE=1` and `UseSharedCompilation=false` in that process's
+environment). Noel's own builds at the desk keep the default.
+
+Build servers (the MSBuild nodes and the VB/C# compiler server) stay resident
+after a build so the NEXT build in the same folder starts warm. That pays for
+one person rebuilding one folder; it does not pay for several windows and
+agents each building their own worktree once or twice, and every folder leaves
+its own set behind. On 2026-11-07 at 21:39 the pile-up left about 5.5 GB of 32
+free and Claude Code killed a test run and three Codex lanes mid-flight. With
+the servers off, a build starts cold and costs a minute or two more, and
+nothing lingers. Noel: *"especially when multiple agents work on stuff. That's
+where things build up."* Put the flags in every brief's build command, not just
+this paragraph: an agent copies the command it is shown.
+
 ### WARNING: `--no-incremental` Does NOT Guarantee Fresh Builds
 
 **Do NOT rely on `--no-incremental` to produce fresh binaries.** It only disables incremental *compilation* but the build system can still skip projects entirely if it believes outputs are up-to-date. This means:

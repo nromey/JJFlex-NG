@@ -191,8 +191,11 @@ because it reads like protection.
 
 ## Building and testing
 
-- Build: `dotnet build JJFlexRadio.sln -c Debug -p:Platform=x64 --verbosity minimal`
-- Test: `dotnet test Radios.Tests/Radios.Tests.csproj -c Debug -p:Platform=x64`
+- Build: `dotnet build JJFlexRadio.sln -c Debug -p:Platform=x64 --verbosity minimal --disable-build-servers -nodeReuse:false`
+- Test: `dotnet test Radios.Tests/Radios.Tests.csproj -c Debug -p:Platform=x64 --disable-build-servers`
+- **Always pass `--disable-build-servers` and `-nodeReuse:false`** (ruled by Noel
+  2026-11-08): leftover build servers from many worktrees starved the machine of
+  memory. `CLAUDE.md`, "Agents, Codex and benches build WITHOUT build servers".
 - Run the window-constructing project only filtered, exactly as `CLAUDE.md`
   shows under its integration pass, and say which classes you ran.
 - A build or test is not verified until you have checked it produced fresh
